@@ -112,6 +112,29 @@ def test_save_uses_if_match_conflict_detection(
     assert target.read_text(encoding="utf-8") == "after"
 
 
+def test_save_if_match_rejects_an_externally_deleted_file(
+    files_client: TestClient,
+) -> None:
+    """A stale editor cannot recreate a file deleted after it was opened."""
+    target = files_client.app.state.project_dir / "notes.md"
+    target.write_text("before", encoding="utf-8")
+    metadata = files_client.get(
+        "/api/workspace/file-metadata",
+        params={"path": "notes.md"},
+    ).json()
+    target.unlink()
+
+    response = files_client.put(
+        "/api/workspace/file-content",
+        params={"path": "notes.md"},
+        headers={"If-Match": metadata["etag"]},
+        json={"content": "stale"},
+    )
+
+    assert response.status_code == 409
+    assert not target.exists()
+
+
 def test_upload_requests_policy_only_for_conflicting_files(
     files_client: TestClient,
 ) -> None:
@@ -145,6 +168,54 @@ def test_upload_requests_policy_only_for_conflicting_files(
     assert (project_dir / "report (1).txt").read_text(
         encoding="utf-8",
     ) == "new"
+
+
+def test_upload_detects_case_aliases_in_one_batch(
+    files_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Case-insensitive filesystems request a policy before writing."""
+    monkeypatch.setattr(
+        workspace_router,
+        "_filesystem_name_rules",
+        lambda _directory: (False, True),
+    )
+
+    response = files_client.post(
+        "/api/workspace/file-upload",
+        files=[
+            ("files", ("A.txt", b"first", "text/plain")),
+            ("files", ("a.txt", b"second", "text/plain")),
+        ],
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["files"] == ["a.txt"]
+    assert not (files_client.app.state.project_dir / "A.txt").exists()
+    assert not (files_client.app.state.project_dir / "a.txt").exists()
+
+
+def test_upload_detects_unicode_normalization_aliases(
+    files_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Normalization-insensitive filesystems reject equivalent batch names."""
+    monkeypatch.setattr(
+        workspace_router,
+        "_filesystem_name_rules",
+        lambda _directory: (True, False),
+    )
+
+    response = files_client.post(
+        "/api/workspace/file-upload",
+        files=[
+            ("files", ("é.txt", b"first", "text/plain")),
+            ("files", ("e\u0301.txt", b"second", "text/plain")),
+        ],
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["files"] == ["e\u0301.txt"]
 
 
 def test_download_streams_safe_file_and_rejects_traversal(

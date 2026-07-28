@@ -49,8 +49,7 @@ interface ParsedFileReferenceRange {
 }
 
 const FILE_MENTION_PATTERN = /@ ([^\s\n]+)/g;
-const EDITOR_REFERENCE_PATTERN =
-  /((?:[a-zA-Z]:[\\/]|\/)?(?:[^\s\n:]+[\\/])*[^\s\n:]+):(\d+)(?:-(\d+))?/g;
+const EDITOR_LINE_SUFFIX_PATTERN = /:(\d+)(?:-(\d+))?$/;
 
 function looksLikeEditorPath(path: string): boolean {
   const name = path.split(/[\\/]/).pop() ?? path;
@@ -75,25 +74,36 @@ function fileReferenceRanges(value: string): ParsedFileReferenceRange[] {
       },
     });
   }
-  for (const match of value.matchAll(EDITOR_REFERENCE_PATTERN)) {
-    const start = match.index ?? 0;
-    const end = start + match[0].length;
-    if (
-      !looksLikeEditorPath(match[1]) ||
-      ranges.some((range) => start < range.end && end > range.start)
-    ) {
-      continue;
+  let lineStart = 0;
+  while (lineStart < value.length) {
+    const newline = value.indexOf("\n", lineStart);
+    const lineEnd = newline < 0 ? value.length : newline;
+    const rawLine = value.slice(lineStart, lineEnd).replace(/\r$/, "");
+    const leadingWhitespace = rawLine.length - rawLine.trimStart().length;
+    const referenceText = rawLine.trim();
+    const match = referenceText.match(EDITOR_LINE_SUFFIX_PATTERN);
+    if (match?.index !== undefined) {
+      const path = referenceText.slice(0, match.index);
+      const start = lineStart + leadingWhitespace;
+      const end = start + referenceText.length;
+      if (
+        looksLikeEditorPath(path) &&
+        !ranges.some((range) => start < range.end && end > range.start)
+      ) {
+        ranges.push({
+          start,
+          end,
+          reference: {
+            kind: "editor",
+            path,
+            startLine: Number(match[1]),
+            endLine: Number(match[2] ?? match[1]),
+          },
+        });
+      }
     }
-    ranges.push({
-      start,
-      end,
-      reference: {
-        kind: "editor",
-        path: match[1],
-        startLine: Number(match[2]),
-        endLine: Number(match[3] ?? match[2]),
-      },
-    });
+    if (newline < 0) break;
+    lineStart = newline + 1;
   }
   return ranges.sort((left, right) => left.start - right.start);
 }

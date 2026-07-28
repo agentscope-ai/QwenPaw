@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
+import asyncio
 import logging
+from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -79,22 +81,25 @@ class ProjectDirectoryUpdate(BaseModel):
     project_dir: str
 
 
-def _project_directory_response(chat: ChatSpec, workspace) -> dict:
+async def _project_directory_response(chat: ChatSpec, workspace) -> dict:
     """Build the effective Session project directory response."""
     from ...config.config import load_agent_config
 
-    agent_config = load_agent_config(workspace.agent_id)
-    project_dir, source = resolve_effective_project_dir(
-        workspace.workspace_dir,
-        agent_project_dir=agent_config.project_dir,
-        session_override=session_project_dir(chat.meta),
-    )
-    return {
-        "project_dir": str(project_dir),
-        "source": source,
-        "agent_project_dir": agent_config.project_dir,
-        "exists": project_dir.is_dir(),
-    }
+    def _build() -> dict:
+        agent_config = load_agent_config(workspace.agent_id)
+        project_dir, source = resolve_effective_project_dir(
+            workspace.workspace_dir,
+            agent_project_dir=agent_config.project_dir,
+            session_override=session_project_dir(chat.meta),
+        )
+        return {
+            "project_dir": str(project_dir),
+            "source": source,
+            "agent_project_dir": agent_config.project_dir,
+            "exists": project_dir.is_dir(),
+        }
+
+    return await asyncio.to_thread(_build)
 
 
 @router.get("", response_model=list[ChatSpec])
@@ -264,7 +269,7 @@ async def get_chat_project_dir(
     chat = await mgr.get_chat(chat_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    return _project_directory_response(chat, workspace)
+    return await _project_directory_response(chat, workspace)
 
 
 @router.put("/{chat_id}/project-dir")
@@ -275,18 +280,24 @@ async def set_chat_project_dir(
     workspace=Depends(get_workspace),
 ) -> dict:
     """Persist a validated Session project directory override."""
-    from pathlib import Path
 
-    target = Path(body.project_dir).expanduser().resolve()
-    if not target.is_dir():
+    def _resolve_target() -> Path:
+        target = Path(body.project_dir).expanduser().resolve()
+        if not target.is_dir():
+            raise NotADirectoryError(str(target))
+        return target
+
+    try:
+        target = await asyncio.to_thread(_resolve_target)
+    except NotADirectoryError as exc:
         raise HTTPException(
             status_code=400,
-            detail=f"Project directory is unavailable: {target}",
-        )
+            detail=f"Project directory is unavailable: {exc}",
+        ) from exc
     chat = await mgr.set_project_dir(chat_id, str(target))
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    return _project_directory_response(chat, workspace)
+    return await _project_directory_response(chat, workspace)
 
 
 @router.delete("/{chat_id}/project-dir")
@@ -299,7 +310,7 @@ async def clear_chat_project_dir(
     chat = await mgr.set_project_dir(chat_id, None)
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    return _project_directory_response(chat, workspace)
+    return await _project_directory_response(chat, workspace)
 
 
 # ----- Existing CRUD endpoints -----

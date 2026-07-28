@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Tests for Files API project-directory request context."""
 
+import asyncio
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -71,3 +73,33 @@ async def test_pending_session_project_dir_must_exist(
         )
 
     assert error.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_project_resolution_does_not_block_the_event_loop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Slow configuration I/O runs outside the async request loop."""
+
+    def _slow_load(_agent_id: str):
+        time.sleep(0.1)
+        return SimpleNamespace(project_dir=None)
+
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        _slow_load,
+    )
+    workspace = SimpleNamespace(
+        agent_id="default",
+        workspace_dir=tmp_path / "workspace",
+    )
+    started = asyncio.get_running_loop().time()
+
+    resolution = asyncio.create_task(
+        get_project_dir_for_request(_request(tmp_path), workspace),
+    )
+    await asyncio.sleep(0.01)
+
+    assert asyncio.get_running_loop().time() - started < 0.08
+    assert await resolution == tmp_path.resolve()

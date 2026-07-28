@@ -13,7 +13,10 @@ vi.mock("../../api/modules/workspace", () => ({
       preview_kind: "text",
       etag: "etag",
     }),
-    loadFileText: vi.fn().mockResolvedValue("hello"),
+    loadFileText: vi.fn().mockResolvedValue({
+      content: "hello",
+      etag: "etag",
+    }),
   },
 }));
 

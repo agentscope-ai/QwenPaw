@@ -113,6 +113,121 @@ describe("workspaceApi.getWatchUrl", () => {
   });
 });
 
+describe("workspaceApi.loadFileText", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("returns a stable ETag with the assembled content", async () => {
+    vi.mocked(request)
+      .mockResolvedValueOnce({
+        content: "first",
+        offset: 0,
+        limit: 5,
+        next_offset: 5,
+        eof: false,
+        truncated: true,
+        encoding: "utf-8",
+        etag: "v1",
+        path: "notes.md",
+      })
+      .mockResolvedValueOnce({
+        content: " second",
+        offset: 5,
+        limit: 7,
+        next_offset: 12,
+        eof: true,
+        truncated: false,
+        encoding: "utf-8",
+        etag: "v1",
+        path: "notes.md",
+      });
+
+    await expect(workspaceApi.loadFileText("notes.md")).resolves.toEqual({
+      content: "first second",
+      etag: "v1",
+    });
+  });
+
+  it("restarts once when the file changes between chunks", async () => {
+    vi.mocked(request)
+      .mockResolvedValueOnce({
+        content: "old",
+        offset: 0,
+        limit: 3,
+        next_offset: 3,
+        eof: false,
+        truncated: true,
+        encoding: "utf-8",
+        etag: "v1",
+        path: "notes.md",
+      })
+      .mockResolvedValueOnce({
+        content: " version",
+        offset: 3,
+        limit: 8,
+        next_offset: 11,
+        eof: true,
+        truncated: false,
+        encoding: "utf-8",
+        etag: "v2",
+        path: "notes.md",
+      })
+      .mockResolvedValueOnce({
+        content: "new",
+        offset: 0,
+        limit: 3,
+        next_offset: 3,
+        eof: false,
+        truncated: true,
+        encoding: "utf-8",
+        etag: "v2",
+        path: "notes.md",
+      })
+      .mockResolvedValueOnce({
+        content: " version",
+        offset: 3,
+        limit: 8,
+        next_offset: 11,
+        eof: true,
+        truncated: false,
+        encoding: "utf-8",
+        etag: "v2",
+        path: "notes.md",
+      });
+
+    await expect(workspaceApi.loadFileText("notes.md")).resolves.toEqual({
+      content: "new version",
+      etag: "v2",
+    });
+  });
+});
+
+describe("workspaceApi.saveFileContent", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("sends the editor ETag with the save request", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ path: "notes.md", size: 5, etag: "v2" }),
+      } as unknown as Response),
+    );
+
+    await workspaceApi.saveFileContent("notes.md", "after", "v1");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/workspace/file-content?path=notes.md&root=project",
+      expect.objectContaining({
+        method: "PUT",
+        headers: expect.objectContaining({ "If-Match": "v1" }),
+      }),
+    );
+  });
+});
+
 describe("workspaceApi.listFiles", () => {
   afterEach(() => vi.clearAllMocks());
 

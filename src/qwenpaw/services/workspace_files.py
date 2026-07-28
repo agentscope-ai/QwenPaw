@@ -8,7 +8,7 @@ import json
 import os
 import secrets
 import stat
-import unicodedata
+import threading
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -91,6 +91,7 @@ _IMAGE_EXTENSIONS = frozenset(
         ".webp",
     },
 )
+_SAVE_LOCKS = tuple(threading.Lock() for _ in range(64))
 
 
 class InvalidWorkspacePath(ValueError):
@@ -105,20 +106,20 @@ class FileVersionConflict(RuntimeError):
     """Raised when optimistic concurrency detects a changed file."""
 
 
-def _validate_segment(segment: str) -> None:
-    """Validate one portable POSIX API path segment."""
+def _validate_segment(segment: str, *, portable: bool) -> None:
+    """Validate one POSIX API path segment."""
     if not segment or segment in {".", ".."}:
         raise InvalidWorkspacePath("Path contains an invalid segment")
-    if segment != unicodedata.normalize("NFC", segment):
-        raise InvalidWorkspacePath("Path must use NFC Unicode normalization")
-    if segment.endswith((" ", ".")):
+    if "\x00" in segment:
+        raise InvalidWorkspacePath("Path contains a null byte")
+    if portable and segment.endswith((" ", ".")):
         raise InvalidWorkspacePath(
             "Path segments cannot end with a space or dot",
         )
     if len(segment.encode("utf-8")) > 255:
         raise InvalidWorkspacePath("Path segment is too long")
     windows_stem = segment.split(".", 1)[0].casefold()
-    if windows_stem in _WINDOWS_RESERVED_NAMES:
+    if portable and windows_stem in _WINDOWS_RESERVED_NAMES:
         raise InvalidWorkspacePath("Path uses a reserved Windows name")
 
 
@@ -127,6 +128,7 @@ def resolve_workspace_path(
     api_path: str,
     *,
     allow_root: bool = False,
+    portable: bool = False,
 ) -> Path:
     """Resolve a relative POSIX API path below an allowed workspace root."""
     if not isinstance(api_path, str):
@@ -147,7 +149,7 @@ def resolve_workspace_path(
     else:
         segments = api_path.split("/")
         for segment in segments:
-            _validate_segment(segment)
+            _validate_segment(segment, portable=portable)
         relative = PurePosixPath(*segments)
 
     resolved_root = root.resolve()
@@ -297,14 +299,14 @@ def read_file_chunk(
 ) -> dict[str, Any]:
     """Read a bounded text chunk and preserve UTF-8 character boundaries."""
     target = resolve_workspace_path(root, api_path)
-    info = target.stat()
-    if not stat.S_ISREG(info.st_mode):
-        raise FileNotFoundError(api_path)
-    if offset < 0 or offset > info.st_size:
-        raise ValueError("Offset is outside the file")
     chunk_limit = min(max(limit, 1), MAX_CHUNK_SIZE)
 
     with target.open("rb") as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise FileNotFoundError(api_path)
+        if offset < 0 or offset > info.st_size:
+            raise ValueError("Offset is outside the file")
         handle.seek(offset)
         raw = handle.read(chunk_limit)
         actual_start = offset
@@ -326,6 +328,10 @@ def read_file_chunk(
                 raw += extra
         else:
             content = raw.decode("utf-8", errors="replace")
+        final_info = os.fstat(handle.fileno())
+
+    if file_etag(final_info) != file_etag(info):
+        raise FileVersionConflict(api_path)
 
     next_offset = actual_start + len(raw)
     return {
@@ -349,18 +355,29 @@ def save_text_file(
 ) -> dict[str, Any]:
     """Atomically save text after an optional optimistic concurrency check."""
     target = resolve_workspace_path(root, api_path)
-    if target.exists():
-        current = file_etag(target.stat())
-        if expected_etag is not None and expected_etag != current:
-            raise FileVersionConflict(api_path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    token = secrets.token_hex(8)
-    temporary = target.with_name(f".{target.name}.{token}.qwenpaw.tmp")
-    temporary.write_text(content, encoding="utf-8")
-    os.replace(temporary, target)
-    info = target.stat()
-    return {
-        "etag": file_etag(info),
-        "path": api_path,
-        "size": info.st_size,
-    }
+    save_lock = _SAVE_LOCKS[hash(target) % len(_SAVE_LOCKS)]
+    with save_lock:
+        exists = target.exists()
+        if expected_etag is not None:
+            if not exists:
+                raise FileVersionConflict(api_path)
+            current = file_etag(target.stat())
+            if expected_etag != current:
+                raise FileVersionConflict(api_path)
+        elif not exists:
+            target = resolve_workspace_path(root, api_path, portable=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        token = secrets.token_hex(8)
+        temporary = target.with_name(f".{target.name}.{token}.qwenpaw.tmp")
+        try:
+            temporary.write_text(content, encoding="utf-8")
+            os.replace(temporary, target)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+        info = target.stat()
+        return {
+            "etag": file_etag(info),
+            "path": api_path,
+            "size": info.st_size,
+        }

@@ -75,6 +75,7 @@ export default function FilesWorkspace({
     setActiveTab,
     setTabContent,
     setTabDirty,
+    setTabEtag,
   } = useCodingTabsStore();
   const hydratedTabs = useRef(new Set<string>());
   const tabsRef = useRef(tabs);
@@ -183,6 +184,7 @@ export default function FilesWorkspace({
           content: (await workspaceApi.loadFile(target.path)).content,
           previewKind: "text" as const,
           readOnly: false,
+          etag: "",
         };
       }
       if (target.source === "memory") {
@@ -190,6 +192,7 @@ export default function FilesWorkspace({
           content: (await workspaceApi.loadDailyMemory(target.path)).content,
           previewKind: "text" as const,
           readOnly: false,
+          etag: "",
         };
       }
       if (target.source === "workspace") {
@@ -201,17 +204,19 @@ export default function FilesWorkspace({
         );
         const isText =
           metadata.preview_kind === "text" || metadata.preview_kind === "csv";
+        const loaded = isText
+          ? await workspaceApi.loadFileText(
+              target.path,
+              chatId,
+              target.root,
+              projectDirOverride,
+            )
+          : null;
         return {
-          content: isText
-            ? await workspaceApi.loadFileText(
-                target.path,
-                chatId,
-                target.root,
-                projectDirOverride,
-              )
-            : "",
+          content: loaded?.content ?? "",
           previewKind: metadata.preview_kind,
           readOnly: !isText,
+          etag: loaded?.etag ?? metadata.etag,
         };
       }
       if (!target.artifactUrl) {
@@ -232,6 +237,7 @@ export default function FilesWorkspace({
             : "",
         previewKind,
         readOnly: true,
+        etag: response.headers.get("ETag") ?? "",
       };
     },
     [chatId, projectDirOverride],
@@ -253,9 +259,11 @@ export default function FilesWorkspace({
           root: tab?.workspaceRoot,
           artifactUrl: tab?.artifactUrl,
         } satisfies FileTarget);
-      return (await loadTarget(target)).content;
+      const loaded = await loadTarget(target);
+      setTabEtag(scopeKey, tabPath, loaded.etag);
+      return loaded.content;
     },
-    [loadTarget],
+    [loadTarget, scopeKey, setTabEtag],
   );
 
   const openTarget = useCallback(
@@ -297,6 +305,7 @@ export default function FilesWorkspace({
           artifactUrl: resolvedTarget.artifactUrl,
           previewKind: loaded.previewKind,
           readOnly: loaded.readOnly,
+          etag: loaded.etag,
         });
         setActiveTab(scopeKey, tabPath);
       } catch {
@@ -462,14 +471,15 @@ export default function FilesWorkspace({
             const tab = tabsRef.current.find((item) => item.path === path);
             const separator = path.indexOf("::");
             if ((tab?.source ?? "workspace") === "workspace") {
-              await workspaceApi.saveFileContent(
+              const saved = await workspaceApi.saveFileContent(
                 tab?.displayPath ?? path,
                 content,
-                undefined,
+                tab?.etag,
                 chatId,
                 tab?.workspaceRoot,
                 projectDirOverride,
               );
+              setTabEtag(scopeKey, path, saved.etag);
               return;
             }
             const source = path.slice(0, separator);

@@ -104,6 +104,17 @@ describe("codingTabsStore", () => {
     expect(tab?.content).toBe("hello");
   });
 
+  it("setTabEtag updates the in-memory disk version", () => {
+    useCodingTabsStore.getState().openTab("a1", {
+      ...TAB_FOO,
+      etag: "v1",
+    });
+
+    useCodingTabsStore.getState().setTabEtag("a1", "foo.ts", "v2");
+
+    expect(useCodingTabsStore.getState().tabsByAgent["a1"][0].etag).toBe("v2");
+  });
+
   it("setTabDirty updates the dirty flag of an open tab", () => {
     useCodingTabsStore.getState().openTab("a1", TAB_FOO);
     useCodingTabsStore.getState().setTabDirty("a1", "foo.ts", true);

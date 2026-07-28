@@ -3,6 +3,7 @@
 
 Provides utilities to get the correct agent instance for each request.
 """
+import asyncio
 from contextvars import ContextVar
 from contextlib import contextmanager
 from pathlib import Path
@@ -167,13 +168,8 @@ async def get_project_dir_for_request(
         session_project_dir,
     )
 
-    try:
-        config = load_agent_config(workspace.agent_id)
-        agent_project_dir = config.project_dir
-    except Exception:
-        agent_project_dir = None
-
     session_override = None
+    pending_override = None
     chat_id = request.headers.get("X-Chat-Id")
     if chat_id:
         chat = await workspace.chat_manager.get_chat(chat_id)
@@ -184,22 +180,34 @@ async def get_project_dir_for_request(
         session_override = session_project_dir(chat.meta)
     else:
         pending_override = request.headers.get("X-Session-Project-Dir")
-        if pending_override:
+
+    def _resolve() -> Path:
+        try:
+            config = load_agent_config(workspace.agent_id)
+            agent_project_dir = config.project_dir
+        except Exception:
+            agent_project_dir = None
+        resolved_override = session_override
+        if not chat_id and pending_override:
             pending_path = Path(pending_override).expanduser().resolve()
             if not pending_path.is_dir():
-                from fastapi import HTTPException
+                raise NotADirectoryError(str(pending_path))
+            resolved_override = str(pending_path)
+        return resolve_effective_project_dir(
+            workspace.workspace_dir,
+            agent_project_dir=agent_project_dir,
+            session_override=resolved_override,
+        )[0]
 
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Project directory is unavailable: {pending_path}",
-                )
-            session_override = str(pending_path)
+    try:
+        return await asyncio.to_thread(_resolve)
+    except NotADirectoryError as exc:
+        from fastapi import HTTPException
 
-    return resolve_effective_project_dir(
-        workspace.workspace_dir,
-        agent_project_dir=agent_project_dir,
-        session_override=session_override,
-    )[0]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project directory is unavailable: {exc}",
+        ) from exc
 
 
 def get_active_agent_id() -> str:

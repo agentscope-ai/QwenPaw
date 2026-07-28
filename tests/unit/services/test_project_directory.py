@@ -53,9 +53,12 @@ def test_session_project_dir_uses_controlled_namespace() -> None:
 @pytest.mark.parametrize(
     ("top_level", "legacy", "expected"),
     [
-        (None, "/legacy", str(Path("/legacy").resolve())),
+        (None, "/legacy", "/legacy"),
         ("/top", "/legacy", "/top"),
         (None, None, None),
+        (None, r"C:\Users\Alice\Project", r"C:\Users\Alice\Project"),
+        (None, r"\\server\share\Project", r"\\server\share\Project"),
+        (None, "~/Project", "~/Project"),
     ],
 )
 def test_legacy_project_directory_migration(

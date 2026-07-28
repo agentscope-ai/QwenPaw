@@ -113,16 +113,20 @@ async def get_project(request: Request) -> dict:
     directory so callers can display it without a separate request.
     """
     workspace = await get_agent_for_request(request)
-    coding_dir = get_agent_project_dir(workspace)
-    workspace_dir = workspace.workspace_dir
-    is_workspace = coding_dir.resolve() == workspace_dir.resolve()
-    return {
-        "path": str(coding_dir),
-        "name": coding_dir.name,
-        "is_workspace_default": is_workspace,
-        "workspace_dir": str(workspace_dir),
-        "exists": coding_dir.exists(),
-    }
+
+    def _snapshot() -> dict:
+        coding_dir = get_agent_project_dir(workspace)
+        workspace_dir = workspace.workspace_dir
+        is_workspace = coding_dir.resolve() == workspace_dir.resolve()
+        return {
+            "path": str(coding_dir),
+            "name": coding_dir.name,
+            "is_workspace_default": is_workspace,
+            "workspace_dir": str(workspace_dir),
+            "exists": coding_dir.exists(),
+        }
+
+    return await asyncio.to_thread(_snapshot)
 
 
 @router.put(
@@ -137,22 +141,28 @@ async def set_project(body: SetProjectRequest, request: Request) -> dict:
     """
     workspace = await get_agent_for_request(request)
 
-    if body.path is not None:
+    def _resolve_target() -> str | None:
+        if body.path is None:
+            return None
         target = Path(body.path).expanduser().resolve()
-        # Basic sanity check – dir must exist or we refuse
         if not target.exists():
-            raise HTTPException(
-                status_code=400,
-                detail=f"Path does not exist: {target}",
-            )
+            raise FileNotFoundError(str(target))
         if not target.is_dir():
-            raise HTTPException(
-                status_code=400,
-                detail=f"Path is not a directory: {target}",
-            )
-        project_dir: str | None = str(target)
-    else:
-        project_dir = None  # reset to workspace default
+            raise NotADirectoryError(str(target))
+        return str(target)
+
+    try:
+        project_dir = await asyncio.to_thread(_resolve_target)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Path does not exist: {exc}",
+        ) from exc
+    except NotADirectoryError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Path is not a directory: {exc}",
+        ) from exc
 
     await asyncio.to_thread(_save_project_dir, workspace.agent_id, project_dir)
 
@@ -562,9 +572,9 @@ async def list_projects(request: Request) -> list[dict]:
     """Return all subdirectories in the agent's coding_projects folder."""
     workspace = await get_agent_for_request(request)
     base = _projects_base(workspace.workspace_dir)
-    current = get_agent_project_dir(workspace)
 
     def _scan() -> list[dict]:
+        current = get_agent_project_dir(workspace)
         if not base.exists():
             return []
         results = []

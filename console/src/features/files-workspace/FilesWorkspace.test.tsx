@@ -1,6 +1,6 @@
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import FilesWorkspace from "./FilesWorkspace";
 import { notifyProjectDirectoryChanged } from "../project-directory/projectDirectoryChangeEvent";
 
@@ -10,6 +10,20 @@ const lifecycle = vi.hoisted(() => ({
   editorUnmounted: vi.fn(),
   navigatorMounted: vi.fn(),
   navigatorUnmounted: vi.fn(),
+  saveFileContent: vi.fn(),
+  setTabEtag: vi.fn(),
+  tabs: [] as Array<{
+    path: string;
+    displayPath?: string;
+    content: string;
+    dirty: boolean;
+    source?: "workspace";
+    etag?: string;
+  }>,
+  activeTabPath: "",
+  editorProps: null as {
+    onSaveFile: (path: string, content: string) => Promise<void>;
+  } | null,
 }));
 
 vi.mock("../../stores/codingModeStore", () => ({
@@ -17,8 +31,8 @@ vi.mock("../../stores/codingModeStore", () => ({
 }));
 
 vi.mock("../../stores/codingTabsStore", () => ({
-  useTabsForScope: () => [],
-  useActiveTabPathForScope: () => "",
+  useTabsForScope: () => lifecycle.tabs,
+  useActiveTabPathForScope: () => lifecycle.activeTabPath,
   useCodingTabsStore: () => ({
     clearProjectTabs: lifecycle.clearProjectTabs,
     closeTab: vi.fn(),
@@ -26,7 +40,14 @@ vi.mock("../../stores/codingTabsStore", () => ({
     setActiveTab: vi.fn(),
     setTabContent: vi.fn(),
     setTabDirty: vi.fn(),
+    setTabEtag: lifecycle.setTabEtag,
   }),
+}));
+
+vi.mock("../../api/modules/workspace", () => ({
+  workspaceApi: {
+    saveFileContent: lifecycle.saveFileContent,
+  },
 }));
 
 vi.mock("./FilesNavigator", () => ({
@@ -40,7 +61,10 @@ vi.mock("./FilesNavigator", () => ({
 }));
 
 vi.mock("../../pages/Coding/TabbedEditor", () => ({
-  default: function MockTabbedEditor() {
+  default: function MockTabbedEditor(props: {
+    onSaveFile: (path: string, content: string) => Promise<void>;
+  }) {
+    lifecycle.editorProps = props;
     useEffect(() => {
       lifecycle.editorMounted();
       return () => lifecycle.editorUnmounted();
@@ -54,6 +78,13 @@ vi.mock("../../pages/Coding/GitPanel", () => ({
 }));
 
 describe("FilesWorkspace directory changes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lifecycle.tabs = [];
+    lifecycle.activeTabPath = "";
+    lifecycle.editorProps = null;
+  });
+
   it("rebuilds the Session navigator and editor watch host", () => {
     const scope = {
       kind: "session" as const,
@@ -75,5 +106,43 @@ describe("FilesWorkspace directory changes", () => {
     expect(lifecycle.navigatorMounted).toHaveBeenCalledTimes(2);
     expect(lifecycle.editorUnmounted).toHaveBeenCalledTimes(1);
     expect(lifecycle.editorMounted).toHaveBeenCalledTimes(2);
+  });
+
+  it("saves with the loaded ETag and stores the returned version", async () => {
+    lifecycle.tabs = [
+      {
+        path: "notes.md",
+        displayPath: "notes.md",
+        content: "before",
+        dirty: true,
+        source: "workspace",
+        etag: "v1",
+      },
+    ];
+    lifecycle.activeTabPath = "notes.md";
+    lifecycle.saveFileContent.mockResolvedValue({
+      path: "notes.md",
+      size: 5,
+      etag: "v2",
+    });
+
+    render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+    await act(async () => {
+      await lifecycle.editorProps?.onSaveFile("notes.md", "after");
+    });
+
+    expect(lifecycle.saveFileContent).toHaveBeenCalledWith(
+      "notes.md",
+      "after",
+      "v1",
+      undefined,
+      undefined,
+      undefined,
+    );
+    expect(lifecycle.setTabEtag).toHaveBeenCalledWith(
+      "agent:agent-a",
+      "notes.md",
+      "v2",
+    );
   });
 });

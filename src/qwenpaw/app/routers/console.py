@@ -112,12 +112,20 @@ async def _apply_session_project_dir(
     raw_value = request_context.pop("session_project_dir", None)
     if not isinstance(raw_value, str) or not raw_value.strip():
         return chat
-    target = Path(raw_value).expanduser().resolve()
-    if not target.is_dir():
+
+    def _resolve_target() -> Path:
+        target = Path(raw_value).expanduser().resolve()
+        if not target.is_dir():
+            raise NotADirectoryError(str(target))
+        return target
+
+    try:
+        target = await asyncio.to_thread(_resolve_target)
+    except NotADirectoryError as exc:
         raise HTTPException(
             status_code=400,
-            detail=f"Project directory is unavailable: {target}",
-        )
+            detail=f"Project directory is unavailable: {exc}",
+        ) from exc
     updated = await workspace.chat_manager.set_project_dir(
         chat.id,
         str(target),
@@ -264,10 +272,11 @@ async def post_console_chat(
         load_agent_config,
         workspace.agent_id,
     )
-    project_dir, project_source = resolve_effective_project_dir(
+    project_dir, project_source = await asyncio.to_thread(
+        resolve_effective_project_dir,
         workspace.workspace_dir,
-        agent_project_dir=agent_config.project_dir,
-        session_override=session_project_dir(chat.meta),
+        agent_config.project_dir,
+        session_project_dir(chat.meta),
     )
     request_context = dict(
         native_payload["meta"].get("request_context") or {},
@@ -652,11 +661,14 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         load_agent_config,
         workspace.agent_id,
     )
-    project_dir, project_source = resolve_effective_project_dir(
+    project_dir, project_source = await asyncio.to_thread(
+        resolve_effective_project_dir,
         workspace.workspace_dir,
-        agent_project_dir=agent_config.project_dir,
-        session_override=session_project_dir(chat.meta),
-        fork_project_dir=fork_project_dir or None,
+        agent_config.project_dir,
+        session_project_dir(chat.meta),
+        None,
+        None,
+        fork_project_dir or None,
     )
     request_context = dict(
         native_payload["meta"].get("request_context") or {},

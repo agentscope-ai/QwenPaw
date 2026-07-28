@@ -79,6 +79,18 @@ export class UploadConflictError extends Error {
   }
 }
 
+interface WorkspaceFileChunk {
+  path: string;
+  content: string;
+  offset: number;
+  limit: number;
+  next_offset: number;
+  eof: boolean;
+  truncated: boolean;
+  encoding: string;
+  etag: string;
+}
+
 export const workspaceApi = {
   listDirectory: (
     path = "",
@@ -111,18 +123,8 @@ export const workspaceApi = {
     chatId?: string,
     root: WorkspaceRoot = "project",
     projectDirOverride?: string,
-  ) =>
-    request<{
-      path: string;
-      content: string;
-      offset: number;
-      limit: number;
-      next_offset: number;
-      eof: boolean;
-      truncated: boolean;
-      encoding: string;
-      etag: string;
-    }>(
+  ): Promise<WorkspaceFileChunk> =>
+    request<WorkspaceFileChunk>(
       workspaceQuery("/workspace/file-content", {
         path,
         offset,
@@ -137,25 +139,50 @@ export const workspaceApi = {
     chatId?: string,
     root: WorkspaceRoot = "project",
     projectDirOverride?: string,
-  ): Promise<string> => {
-    const chunks: string[] = [];
-    let offset = 0;
-    for (;;) {
-      const chunk = await workspaceApi.loadFileChunk(
-        path,
-        offset,
-        256 * 1024,
-        chatId,
-        root,
-        projectDirOverride,
-      );
-      chunks.push(chunk.content);
-      if (chunk.eof) return chunks.join("");
-      if (chunk.next_offset <= offset) {
-        throw new Error("Workspace file reader did not advance");
+  ): Promise<{ content: string; etag: string }> => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const chunks: string[] = [];
+      let offset = 0;
+      let etag = "";
+      let versionChanged = false;
+      for (;;) {
+        let chunk: WorkspaceFileChunk;
+        try {
+          chunk = await workspaceApi.loadFileChunk(
+            path,
+            offset,
+            256 * 1024,
+            chatId,
+            root,
+            projectDirOverride,
+          );
+        } catch (error) {
+          if (attempt === 0) {
+            versionChanged = true;
+            break;
+          }
+          throw error;
+        }
+        if (!etag) {
+          etag = chunk.etag;
+        } else if (chunk.etag !== etag) {
+          versionChanged = true;
+          break;
+        }
+        chunks.push(chunk.content);
+        if (chunk.eof) {
+          return { content: chunks.join(""), etag };
+        }
+        if (chunk.next_offset <= offset) {
+          throw new Error("Workspace file reader did not advance");
+        }
+        offset = chunk.next_offset;
       }
-      offset = chunk.next_offset;
+      if (!versionChanged || attempt === 1) {
+        throw new Error("Workspace file changed while it was being read");
+      }
     }
+    throw new Error("Workspace file changed while it was being read");
   },
 
   saveFileContent: async (

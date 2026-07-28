@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -42,9 +43,6 @@ def test_resolve_workspace_path_accepts_portable_relative_path(
         "\\\\server\\share",
         "folder\\file.txt",
         "folder/",
-        "con.txt",
-        "file. ",
-        "folder/e\u0301.txt",
     ],
 )
 def test_resolve_workspace_path_rejects_unsafe_paths(
@@ -54,6 +52,36 @@ def test_resolve_workspace_path_rejects_unsafe_paths(
     """Traversal and non-portable paths are rejected consistently."""
     with pytest.raises(InvalidWorkspacePath):
         resolve_workspace_path(tmp_path, api_path)
+
+
+@pytest.mark.parametrize(
+    "api_path",
+    [
+        "con.txt",
+        "file. ",
+    ],
+)
+def test_portable_creation_rejects_cross_platform_names(
+    tmp_path: Path,
+    api_path: str,
+) -> None:
+    """Creation rules remain stricter than lookup of existing files."""
+    with pytest.raises(InvalidWorkspacePath):
+        resolve_workspace_path(tmp_path, api_path, portable=True)
+
+
+def test_decomposed_unicode_file_can_be_listed_and_opened(
+    tmp_path: Path,
+) -> None:
+    """A path returned by the directory API must remain addressable."""
+    filename = "e\u0301.txt"
+    (tmp_path / filename).write_text("content", encoding="utf-8")
+
+    listed = list_directory(tmp_path, "", None, 20)["entries"][0]["path"]
+
+    assert listed == filename
+    assert get_file_metadata(tmp_path, listed)["size"] == 7
+    assert read_file_chunk(tmp_path, listed, 0, 20)["content"] == "content"
 
 
 def test_resolve_workspace_path_rejects_symlink_escape(
@@ -156,9 +184,43 @@ def test_save_text_file_is_atomic_and_checks_etag(tmp_path: Path) -> None:
 
     assert target.read_text(encoding="utf-8") == "after"
     assert result["etag"] != old_etag
-    assert not (tmp_path / ".notes.md.qwenpaw.tmp").exists()
+    assert not list(tmp_path.glob(".notes.md.*.qwenpaw.tmp"))
     with pytest.raises(FileVersionConflict):
         save_text_file(tmp_path, "notes.md", "stale", old_etag)
+
+
+def test_save_rejects_deleted_if_match_target(tmp_path: Path) -> None:
+    """A versioned save must not recreate a file deleted by another process."""
+    target = tmp_path / "notes.md"
+    target.write_text("before", encoding="utf-8")
+    old_etag = get_file_metadata(tmp_path, "notes.md")["etag"]
+    target.unlink()
+
+    with pytest.raises(FileVersionConflict):
+        save_text_file(tmp_path, "notes.md", "stale", old_etag)
+
+    assert not target.exists()
+
+
+def test_concurrent_versioned_saves_allow_only_one_writer(
+    tmp_path: Path,
+) -> None:
+    """Two server saves cannot both consume the same file version."""
+    target = tmp_path / "notes.md"
+    target.write_text("before", encoding="utf-8")
+    old_etag = get_file_metadata(tmp_path, "notes.md")["etag"]
+
+    def _save(content: str) -> str:
+        try:
+            save_text_file(tmp_path, "notes.md", content, old_etag)
+        except FileVersionConflict:
+            return "conflict"
+        return "saved"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(_save, ["first", "second"]))
+
+    assert sorted(results) == ["conflict", "saved"]
 
 
 def test_save_text_file_supports_shell_metacharacters(

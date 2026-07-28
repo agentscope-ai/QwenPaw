@@ -92,6 +92,57 @@ describe("splitFileReferences", () => {
     ]);
   });
 
+  it("marks editor references whose paths contain spaces", () => {
+    const posix = "/Users/alice/My Project/main.py:12-14";
+    const windows = "C:\\Users\\Alice Smith\\Project\\main.py:8";
+
+    expect(splitFileReferences(`${posix}\n${windows}`)).toEqual([
+      {
+        text: posix,
+        reference: {
+          kind: "editor",
+          path: "/Users/alice/My Project/main.py",
+          startLine: 12,
+          endLine: 14,
+        },
+      },
+      { text: "\n", reference: null },
+      {
+        text: windows,
+        reference: {
+          kind: "editor",
+          path: "C:\\Users\\Alice Smith\\Project\\main.py",
+          startLine: 8,
+          endLine: 8,
+        },
+      },
+    ]);
+  });
+
+  it("marks UNC and colon-containing editor paths", () => {
+    expect(
+      splitFileReferences("\\\\server\\My Share\\file:name.py:20"),
+    ).toEqual([
+      {
+        text: "\\\\server\\My Share\\file:name.py:20",
+        reference: {
+          kind: "editor",
+          path: "\\\\server\\My Share\\file:name.py",
+          startLine: 20,
+          endLine: 20,
+        },
+      },
+    ]);
+  });
+
+  it("handles long slash-heavy text in linear time", () => {
+    const value = `${"!/".repeat(50_000)}not-a-reference`;
+
+    expect(splitFileReferences(value)).toEqual([
+      { text: value, reference: null },
+    ]);
+  });
+
   it("does not style ordinary text that resembles a label and number", () => {
     expect(splitFileReferences("chapter:12 plain text")).toEqual([
       { text: "chapter:12 plain text", reference: null },

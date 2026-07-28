@@ -150,9 +150,8 @@ export default function FilesDrawer({
       : target.source === "workspace"
       ? workspaceApi
           .getFileMetadata(target.path, chatId, target.root, projectDirOverride)
-          .then(async (nextMetadata) => ({
-            metadata: nextMetadata,
-            content:
+          .then(async (nextMetadata) => {
+            const loaded =
               nextMetadata.preview_kind === "text" ||
               nextMetadata.preview_kind === "csv"
                 ? await workspaceApi.loadFileText(
@@ -161,8 +160,14 @@ export default function FilesDrawer({
                     target.root,
                     projectDirOverride,
                   )
-                : "",
-          }))
+                : null;
+            return {
+              metadata: loaded
+                ? { ...nextMetadata, etag: loaded.etag }
+                : nextMetadata,
+              content: loaded?.content ?? "",
+            };
+          })
       : target.source === "profile"
       ? workspaceApi.loadFile(target.path).then((file) => ({
           metadata: {

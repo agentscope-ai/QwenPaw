@@ -37,6 +37,8 @@ export interface EditorTab {
   artifactUrl?: string;
   previewKind?: "text" | "image" | "pdf" | "csv" | "binary";
   readOnly?: boolean;
+  /** Current disk version. Kept in memory only and refreshed after loading. */
+  etag?: string;
 }
 
 export interface PendingDiff {
@@ -54,6 +56,7 @@ interface CodingTabsState {
   closeTab: (agentId: string, path: string) => void;
   setActiveTab: (agentId: string, path: string) => void;
   setTabContent: (agentId: string, path: string, content: string) => void;
+  setTabEtag: (agentId: string, path: string, etag: string) => void;
   setTabDirty: (agentId: string, path: string, dirty: boolean) => void;
 
   clearAgent: (agentId: string) => void;
@@ -283,6 +286,20 @@ export const useCodingTabsStore = create<CodingTabsState>()(
               ...state.tabsByAgent,
               [agentId]: tabs.map((t) =>
                 t.path === path ? { ...t, content } : t,
+              ),
+            },
+          };
+        }),
+
+      setTabEtag: (agentId, path, etag) =>
+        set((state) => {
+          const tabs = state.tabsByAgent[agentId] ?? [];
+          if (!tabs.some((t) => t.path === path)) return state;
+          return {
+            tabsByAgent: {
+              ...state.tabsByAgent,
+              [agentId]: tabs.map((t) =>
+                t.path === path ? { ...t, etag } : t,
               ),
             },
           };

@@ -15,6 +15,8 @@ import shutil
 import stat
 import tempfile
 import os
+import sys
+import unicodedata
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -376,6 +378,11 @@ async def read_workspace_file_content(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=416, detail=str(exc)) from exc
+    except FileVersionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="File changed while it was being read",
+        ) from exc
     except (FileNotFoundError, OSError) as exc:
         raise HTTPException(status_code=404, detail="File not found") from exc
 
@@ -428,10 +435,14 @@ async def download_workspace_file(
     """Stream one safe workspace file without buffering it in memory."""
     workspace = await get_agent_for_request(request)
     files_root = await _resolve_files_root(request, workspace, root)
-    try:
+
+    def _resolve_download() -> tuple[Path, os.stat_result]:
         target = resolve_workspace_path(files_root, path)
+        return target, target.stat()
+
+    try:
         async with _FILESYSTEM_SEMAPHORE:
-            info = await asyncio.to_thread(target.stat)
+            target, info = await asyncio.to_thread(_resolve_download)
         if not stat.S_ISREG(info.st_mode):
             raise FileNotFoundError(path)
     except InvalidWorkspacePath as exc:
@@ -457,15 +468,133 @@ async def download_workspace_file(
     )
 
 
-def _renamed_upload_target(target: Path) -> Path:
-    """Return the first available conflict-safe sibling path."""
-    for index in range(1, 10_000):
-        candidate = target.with_name(
-            f"{target.stem} ({index}){target.suffix}",
+def _reserve_path(target: Path) -> bool:
+    """Atomically reserve one upload target without truncating a file."""
+    try:
+        descriptor = os.open(
+            target,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
         )
-        if not candidate.exists():
-            return candidate
-    raise OSError("Unable to allocate a conflict-free filename")
+    except FileExistsError:
+        return False
+    os.close(descriptor)
+    return True
+
+
+def _reserve_upload_targets(
+    upload_targets: list[tuple[UploadFile, str, Path]],
+    conflict: str | None,
+) -> tuple[list[tuple[UploadFile, str, Path | None, Path]], set[Path]]:
+    """Atomically allocate all non-overwrite upload destinations."""
+    allocated: list[tuple[UploadFile, str, Path | None, Path]] = []
+    reservations: set[Path] = set()
+    try:
+        for upload, filename, target in upload_targets:
+            if conflict == "overwrite":
+                allocated.append((upload, filename, target, target))
+                continue
+            if _reserve_path(target):
+                reservations.add(target)
+                allocated.append((upload, filename, target, target))
+                continue
+            if conflict == "skip":
+                allocated.append((upload, filename, None, target))
+                continue
+            if conflict != "rename":
+                raise FileExistsError(filename)
+            for index in range(1, 10_000):
+                candidate = target.with_name(
+                    f"{target.stem} ({index}){target.suffix}",
+                )
+                if _reserve_path(candidate):
+                    reservations.add(candidate)
+                    allocated.append((upload, filename, candidate, target))
+                    break
+            else:
+                raise OSError("Unable to allocate a conflict-free filename")
+    except BaseException:
+        for reservation in reservations:
+            reservation.unlink(missing_ok=True)
+        raise
+    return allocated, reservations
+
+
+def _write_reserved_upload(upload: UploadFile, target: Path) -> int:
+    """Copy one upload and atomically replace its reserved target."""
+    temporary = target.with_name(
+        f".{target.name}.{secrets.token_hex(6)}.qwenpaw.tmp",
+    )
+    size = 0
+    try:
+        upload.file.seek(0)
+        with temporary.open("wb") as handle:
+            while chunk := upload.file.read(256 * 1024):
+                size += len(chunk)
+                handle.write(chunk)
+            handle.flush()
+        os.replace(temporary, target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return size
+
+
+def _cleanup_upload_reservations(reservations: set[Path]) -> None:
+    """Remove placeholders that were not replaced by completed uploads."""
+    for reservation in reservations:
+        reservation.unlink(missing_ok=True)
+
+
+def _probe_name_alias(directory: Path, first: str, second: str) -> bool:
+    """Return whether two spellings address the same directory entry."""
+    first_path = directory / first
+    second_path = directory / second
+    descriptor = os.open(
+        first_path,
+        os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+        0o600,
+    )
+    os.close(descriptor)
+    try:
+        return second_path.exists()
+    finally:
+        first_path.unlink(missing_ok=True)
+
+
+def _filesystem_name_rules(directory: Path) -> tuple[bool, bool]:
+    """Detect case and Unicode normalization sensitivity for a directory."""
+    token = secrets.token_hex(8)
+    try:
+        case_aliases = _probe_name_alias(
+            directory,
+            f".qwenpaw-case-{token}-a",
+            f".QWENPAW-CASE-{token}-A",
+        )
+        normalization_aliases = _probe_name_alias(
+            directory,
+            f".qwenpaw-unicode-{token}-é",
+            f".qwenpaw-unicode-{token}-e\u0301",
+        )
+    except OSError:
+        case_aliases = os.name == "nt" or sys.platform == "darwin"
+        normalization_aliases = sys.platform == "darwin"
+    return not case_aliases, not normalization_aliases
+
+
+def _upload_name_key(
+    filename: str,
+    *,
+    case_sensitive: bool,
+    normalization_sensitive: bool,
+) -> str:
+    """Build a filename comparison key matching the target filesystem."""
+    comparable = (
+        filename
+        if normalization_sensitive
+        else unicodedata.normalize("NFC", filename)
+    )
+    return comparable if case_sensitive else comparable.casefold()
 
 
 def _prepare_upload_targets(
@@ -476,6 +605,9 @@ def _prepare_upload_targets(
     upload_targets: list[tuple[UploadFile, str, Path]] = []
     seen_names: set[str] = set()
     conflicts: list[str] = []
+    case_sensitive, normalization_sensitive = _filesystem_name_rules(
+        directory,
+    )
     for upload in files:
         filename = upload.filename or ""
         if "/" in filename or "\\" in filename:
@@ -484,10 +616,18 @@ def _prepare_upload_targets(
                 detail="Upload filename must not contain a path",
             )
         try:
-            target = resolve_workspace_path(directory, filename)
+            target = resolve_workspace_path(
+                directory,
+                filename,
+                portable=True,
+            )
         except InvalidWorkspacePath as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        comparable_name = filename.casefold() if os.name == "nt" else filename
+        comparable_name = _upload_name_key(
+            filename,
+            case_sensitive=case_sensitive,
+            normalization_sensitive=normalization_sensitive,
+        )
         if target.exists() or comparable_name in seen_names:
             conflicts.append(filename)
         seen_names.add(comparable_name)
@@ -518,7 +658,8 @@ async def upload_workspace_files(
         )
     workspace = await get_agent_for_request(request)
     files_root = await _resolve_files_root(request, workspace, root)
-    try:
+
+    def _resolve_directory() -> Path:
         directory = resolve_workspace_path(
             files_root,
             path,
@@ -526,6 +667,10 @@ async def upload_workspace_files(
         )
         if not directory.is_dir():
             raise NotADirectoryError(path)
+        return directory
+
+    try:
+        directory = await asyncio.to_thread(_resolve_directory)
     except InvalidWorkspacePath as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except (FileNotFoundError, NotADirectoryError) as exc:
@@ -534,7 +679,11 @@ async def upload_workspace_files(
             detail="Upload directory not found",
         ) from exc
 
-    upload_targets, conflicts = _prepare_upload_targets(directory, files)
+    upload_targets, conflicts = await asyncio.to_thread(
+        _prepare_upload_targets,
+        directory,
+        files,
+    )
 
     if conflicts and conflict is None:
         raise HTTPException(
@@ -545,51 +694,55 @@ async def upload_workspace_files(
             },
         )
 
-    results: list[dict] = []
-    for upload, filename, target in upload_targets:
-        async with _FILESYSTEM_SEMAPHORE:
-            if target.exists():
-                if conflict == "skip":
-                    results.append(
-                        {
-                            "name": filename,
-                            "path": target.relative_to(
-                                files_root,
-                            ).as_posix(),
-                            "status": "skipped",
-                        },
-                    )
-                    continue
-                if conflict == "rename":
-                    target = await asyncio.to_thread(
-                        _renamed_upload_target,
-                        target,
-                    )
-
-            temporary = target.with_name(
-                f".{target.name}.{secrets.token_hex(6)}.qwenpaw.tmp",
-            )
-            size = 0
-            handle = await asyncio.to_thread(temporary.open, "wb")
-            try:
-                while chunk := await upload.read(256 * 1024):
-                    size += len(chunk)
-                    await asyncio.to_thread(handle.write, chunk)
-                await asyncio.to_thread(handle.flush)
-                await asyncio.to_thread(handle.close)
-                await asyncio.to_thread(os.replace, temporary, target)
-            except BaseException:
-                await asyncio.to_thread(handle.close)
-                await asyncio.to_thread(temporary.unlink, True)
-                raise
-
-        results.append(
-            {
-                "name": filename,
-                "path": target.relative_to(files_root).as_posix(),
-                "size": size,
-                "status": "uploaded",
+    try:
+        allocated, reservations = await asyncio.to_thread(
+            _reserve_upload_targets,
+            upload_targets,
+            conflict,
+        )
+    except FileExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "upload_conflict",
+                "files": [str(exc)],
             },
+        ) from exc
+
+    results: list[dict] = []
+    try:
+        for upload, filename, target, requested_target in allocated:
+            if target is None:
+                results.append(
+                    {
+                        "name": filename,
+                        "path": requested_target.relative_to(
+                            files_root,
+                        ).as_posix(),
+                        "status": "skipped",
+                    },
+                )
+                continue
+            async with _FILESYSTEM_SEMAPHORE:
+                size = await asyncio.to_thread(
+                    _write_reserved_upload,
+                    upload,
+                    target,
+                )
+                reservations.discard(target)
+
+            results.append(
+                {
+                    "name": filename,
+                    "path": target.relative_to(files_root).as_posix(),
+                    "size": size,
+                    "status": "uploaded",
+                },
+            )
+    finally:
+        await asyncio.to_thread(
+            _cleanup_upload_reservations,
+            reservations,
         )
     return {"files": results}
 
@@ -601,10 +754,8 @@ async def upload_workspace_files(
 async def list_code_files(request: Request) -> list[dict]:
     """List every non-hidden file in the active coding project directory."""
     workspace = await get_agent_for_request(request)
-    return await asyncio.get_event_loop().run_in_executor(
-        None,
-        _list_all_files,
-        get_agent_project_dir(workspace),
+    return await asyncio.to_thread(
+        lambda: _list_all_files(get_agent_project_dir(workspace)),
     )
 
 
@@ -642,7 +793,9 @@ async def read_binary_file(
     Rejects files that are not in ``_MIME_MAP`` or exceed 50 MB.
     """
     workspace = await get_agent_for_request(request)
-    target = safe_join(get_agent_project_dir(workspace), file_path)
+    target = await asyncio.to_thread(
+        lambda: safe_join(get_agent_project_dir(workspace), file_path),
+    )
 
     ext = target.suffix.lstrip(".").lower()
     mime = _MIME_MAP.get(ext)
@@ -701,7 +854,9 @@ async def read_code_file(file_path: str, request: Request):
     avoid flooding the browser with huge binary or log files.
     """
     workspace = await get_agent_for_request(request)
-    target = safe_join(get_agent_project_dir(workspace), file_path)
+    target = await asyncio.to_thread(
+        lambda: safe_join(get_agent_project_dir(workspace), file_path),
+    )
 
     def _stat() -> os.stat_result:
         return target.stat()
@@ -758,7 +913,9 @@ async def write_code_file(
         {"content": "<new file content>"}
     """
     workspace = await get_agent_for_request(request)
-    target = safe_join(get_agent_project_dir(workspace), file_path)
+    target = await asyncio.to_thread(
+        lambda: safe_join(get_agent_project_dir(workspace), file_path),
+    )
     content = body.get("content", "")
     if not isinstance(content, str):
         raise HTTPException(status_code=422, detail="content must be a string")

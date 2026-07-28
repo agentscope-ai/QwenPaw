@@ -2567,9 +2567,7 @@ def migrate_project_directory_config(data: object) -> bool:
         return True
     if isinstance(legacy_project_dir, str):
         stripped = legacy_project_dir.strip()
-        data["project_dir"] = (
-            str(Path(stripped).expanduser().resolve()) if stripped else None
-        )
+        data["project_dir"] = stripped or None
     else:
         data["project_dir"] = None
     return True
