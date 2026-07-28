@@ -300,9 +300,7 @@ function oe() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: i, session_id: s })
-      }), p(i), m.success(
-        a(t, i ? "enabledMsg" : "disabledMsg")
-      ), await w();
+      }), p(i), m.success(a(t, i ? "enabledMsg" : "disabledMsg")), await w();
     } catch (c) {
       m.error(
         c instanceof Error ? c.message : a(t, "failed")
