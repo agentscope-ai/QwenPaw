@@ -247,12 +247,14 @@ interface FilesNavigatorProps {
   selectedPath: string;
   onSelect: (target: FileTarget) => void;
   chatId?: string;
+  sessionId: string;
 }
 
 export default function FilesNavigator({
   selectedPath,
   onSelect,
   chatId,
+  sessionId,
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
   const [entries, setEntries] = useState<DirectoryEntry[]>([]);
@@ -491,6 +493,7 @@ export default function FilesNavigator({
               {workspaceRoot === "project" ? (
                 <SessionProjectDirectory
                   chatId={chatId}
+                  sessionId={sessionId}
                   showFullPath
                   onChanged={() =>
                     void Promise.all([loadDirectoryIdentity(), loadRoot()])

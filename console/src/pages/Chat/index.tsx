@@ -90,8 +90,9 @@ import {
 } from "../../features/files-workspace/internalFileLinks";
 import type { FileTarget } from "../../features/files-workspace/types";
 import {
-  getPendingProjectDirectory,
+  migratePendingProjectDirectory,
   setPendingProjectDirectory,
+  withPendingProjectDirectory,
 } from "../../features/project-directory/pendingProjectDirectory";
 import FileReferenceInputOverlay from "./FileReferenceInputOverlay";
 
@@ -356,23 +357,13 @@ async function startBackgroundQueue(
       try {
         const authHeaders = buildAuthHeaders();
         const queueAgentId = item.agentId || "default";
-        const pendingProjectDir = getPendingProjectDirectory(queueAgentId);
         // Use the agent ID captured at enqueue time to prevent cross-agent
         // delivery when the user switches agents after queueing.
         if (item.agentId) {
           authHeaders["X-Agent-Id"] = item.agentId;
         }
-        // Intentionally do NOT pass ctrl.signal to fetch. This keeps the
-        // HTTP connection alive even when the queue loop is aborted (e.g.
-        // foreground takes over). The server finishes generating and
-        // persists the turn so no message is lost and no re-send occurs.
-        const res = await fetch(getApiUrl("/console/chat"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...authHeaders,
-          },
-          body: JSON.stringify({
+        const pendingRequest = withPendingProjectDirectory(
+          {
             input: [
               {
                 role: "user",
@@ -386,19 +377,26 @@ async function startBackgroundQueue(
             user_id: item.userId || DEFAULT_USER_ID,
             channel: item.channel || DEFAULT_CHANNEL,
             stream: true,
-            ...(pendingProjectDir
-              ? {
-                  request_context: {
-                    pending_project_dir: pendingProjectDir,
-                  },
-                }
-              : {}),
-          }),
+          },
+          queueAgentId,
+          queueKey,
+        );
+        // Intentionally do NOT pass ctrl.signal to fetch. This keeps the
+        // HTTP connection alive even when the queue loop is aborted (e.g.
+        // foreground takes over). The server finishes generating and
+        // persists the turn so no message is lost and no re-send occurs.
+        const res = await fetch(getApiUrl("/console/chat"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
+          body: JSON.stringify(pendingRequest.requestBody),
         });
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        if (pendingProjectDir) {
-          setPendingProjectDirectory(queueAgentId, null);
+        if (pendingRequest.projectDir) {
+          setPendingProjectDirectory(queueAgentId, queueKey, null);
         }
         fetchStarted = true;
 
@@ -2155,6 +2153,7 @@ export default function ChatPage() {
 
     sessionApi.onSessionIdResolved = (tempId, realId) => {
       if (!isChatActiveRef.current) return;
+      migratePendingProjectDirectory(selectedAgentRef.current, tempId, realId);
       try {
         useMessageQueueStore.getState().migrateQueue(tempId, realId);
       } catch {
@@ -2253,6 +2252,11 @@ export default function ChatPage() {
 
     sessionApi.onSessionCreated = (sessionId) => {
       if (!isChatActiveRef.current) return;
+      migratePendingProjectDirectory(
+        selectedAgentRef.current,
+        "new",
+        sessionId,
+      );
       try {
         useMessageQueueStore.getState().clear("new");
       } catch {
@@ -2415,18 +2419,16 @@ export default function ChatPage() {
         sessionApprovalLevelRef.current,
         runningConfigApprovalLevel,
       );
-      const pendingProjectDir = getPendingProjectDirectory(selectedAgent);
-      if (pendingProjectDir) {
-        const currentContext =
-          requestBody.request_context &&
-          typeof requestBody.request_context === "object"
-            ? (requestBody.request_context as Record<string, unknown>)
-            : {};
-        requestBody.request_context = {
-          ...currentContext,
-          pending_project_dir: pendingProjectDir,
-        };
-      }
+      const projectSessionId =
+        sessionApi.lastActiveChatId ??
+        chatIdRef.current ??
+        String(requestBody.session_id || "new");
+      const pendingRequest = withPendingProjectDirectory(
+        requestBody,
+        selectedAgent,
+        projectSessionId,
+      );
+      requestBody = pendingRequest.requestBody;
 
       const backendChatId =
         sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
@@ -2465,10 +2467,10 @@ export default function ChatPage() {
 
       const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
       if (response.ok && localIdToResolve) {
-        sessionApi.triggerResolve(localIdToResolve);
-        if (pendingProjectDir) {
-          setPendingProjectDirectory(selectedAgent, null);
+        if (pendingRequest.projectDir) {
+          setPendingProjectDirectory(selectedAgent, projectSessionId, null);
         }
+        sessionApi.triggerResolve(localIdToResolve);
       }
 
       return wrapChatResponseUsageStream(response, chatRef);
@@ -2922,6 +2924,7 @@ export default function ChatPage() {
             />
             <SessionProjectDirectory
               chatId={resolveBackendChatId(chatId)}
+              sessionId={queueSessionId}
               compact={compactSender}
             />
             <ApprovalLevelToggle
@@ -3199,6 +3202,7 @@ export default function ChatPage() {
           state={filesDrawerState}
           dispatch={dispatchFilesDrawer}
           chatId={resolveBackendChatId(chatId)}
+          sessionId={queueSessionId}
         />
       )}
       {/* Main chat area */}

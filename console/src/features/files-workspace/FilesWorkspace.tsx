@@ -24,6 +24,7 @@ import styles from "./FilesWorkspace.module.less";
 interface FilesWorkspaceProps {
   initialTarget?: FileTarget;
   chatId?: string;
+  sessionId: string;
 }
 
 function inferPreviewKind(
@@ -48,6 +49,7 @@ function inferPreviewKind(
 export default function FilesWorkspace({
   initialTarget,
   chatId,
+  sessionId,
 }: FilesWorkspaceProps) {
   const { t } = useTranslation();
   const { codingMode } = useCodingMode();
@@ -315,6 +317,7 @@ export default function FilesWorkspace({
       {activity === "files" || !codingMode ? (
         <FilesNavigator
           chatId={chatId}
+          sessionId={sessionId}
           selectedPath={
             tabs.find((tab) => tab.path === activeTabPath)?.displayPath ??
             activeTabPath

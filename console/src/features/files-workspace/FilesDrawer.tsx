@@ -33,6 +33,7 @@ interface FilesDrawerProps {
   state: Exclude<FilesDrawerState, { kind: "closed" }>;
   dispatch: (event: FilesDrawerEvent) => void;
   chatId?: string;
+  sessionId: string;
 }
 
 function insertFileReference(path: string): void {
@@ -59,6 +60,7 @@ export default function FilesDrawer({
   state,
   dispatch,
   chatId,
+  sessionId,
 }: FilesDrawerProps) {
   const { t } = useTranslation();
   const drawerRef = useRef<HTMLElement>(null);
@@ -336,7 +338,11 @@ export default function FilesDrawer({
         <Suspense
           fallback={<div className={styles.empty}>{t("common.loading")}</div>}
         >
-          <FilesWorkspace initialTarget={target} chatId={chatId} />
+          <FilesWorkspace
+            initialTarget={target}
+            chatId={chatId}
+            sessionId={sessionId}
+          />
         </Suspense>
       ) : (
         <>

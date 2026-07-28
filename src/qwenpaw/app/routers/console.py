@@ -100,16 +100,16 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
     return first_text[:10], first_text
 
 
-async def _apply_pending_project_dir(
+async def _apply_session_project_dir(
     workspace,
     chat,
     native_payload: dict[str, Any],
 ):
-    """Persist a new Session project selection before dispatch."""
+    """Persist a Session project selection before dispatch."""
     request_context = native_payload["meta"].get("request_context")
     if not isinstance(request_context, dict):
         return chat
-    raw_value = request_context.pop("pending_project_dir", None)
+    raw_value = request_context.pop("session_project_dir", None)
     if not isinstance(raw_value, str) or not raw_value.strip():
         return chat
     target = Path(raw_value).expanduser().resolve()
@@ -249,7 +249,7 @@ async def post_console_chat(
         native_payload["channel_id"],
         name=name,
     )
-    chat = await _apply_pending_project_dir(
+    chat = await _apply_session_project_dir(
         workspace,
         chat,
         native_payload,
@@ -613,7 +613,7 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         native_payload["channel_id"],
         name=name,
     )
-    chat = await _apply_pending_project_dir(
+    chat = await _apply_session_project_dir(
         workspace,
         chat,
         native_payload,

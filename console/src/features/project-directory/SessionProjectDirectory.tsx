@@ -28,6 +28,7 @@ import {
 
 interface SessionProjectDirectoryProps {
   chatId?: string;
+  sessionId: string;
   compact?: boolean;
   showFullPath?: boolean;
   onChanged?: () => void;
@@ -35,6 +36,7 @@ interface SessionProjectDirectoryProps {
 
 export default function SessionProjectDirectory({
   chatId,
+  sessionId,
   compact = false,
   showFullPath = false,
   onChanged,
@@ -57,7 +59,7 @@ export default function SessionProjectDirectory({
       return;
     }
     const next = await projectDirectoryApi.get();
-    const pending = getPendingProjectDirectory(selectedAgent);
+    const pending = getPendingProjectDirectory(selectedAgent, sessionId);
     const fallback: EffectiveProjectDirectory = {
       project_dir: pending ?? next.path,
       source: pending
@@ -70,7 +72,7 @@ export default function SessionProjectDirectory({
     };
     setInfo(fallback);
     setDraft(fallback.project_dir);
-  }, [chatId, selectedAgent]);
+  }, [chatId, selectedAgent, sessionId]);
 
   useEffect(() => {
     void refresh();
@@ -101,7 +103,7 @@ export default function SessionProjectDirectory({
   const save = async () => {
     if (!draft.trim()) return;
     if (!chatId) {
-      setPendingProjectDirectory(selectedAgent, draft.trim());
+      setPendingProjectDirectory(selectedAgent, sessionId, draft.trim());
       setInfo((current) => ({
         project_dir: draft.trim(),
         source: "session",
@@ -126,7 +128,7 @@ export default function SessionProjectDirectory({
 
   const clear = async () => {
     if (!chatId) {
-      setPendingProjectDirectory(selectedAgent, null);
+      setPendingProjectDirectory(selectedAgent, sessionId, null);
       await refresh();
       setOpen(false);
       onChanged?.();
