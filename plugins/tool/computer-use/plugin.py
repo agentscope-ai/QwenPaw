@@ -54,9 +54,10 @@ def _tool_descriptor() -> Any | None:
 
     The function is decorated with ``@tool_descriptor`` (enabled by default,
     async), so the descriptor is ready to hand to a per-workspace
-    ``ToolRegistry``. Desktop automation is gated by the plugin's own feature
-    switch rather than by per-agent tool enablement, so the tool is wired into
-    every workspace and the switch decides whether it may act.
+    ``ToolRegistry``. The plugin's feature switch is the master gate: off
+    means no call may act, for any agent. While it is on, each agent's own
+    tool setting -- seeded to enabled, then left alone -- decides whether
+    that agent exposes the tool.
     """
     _ensure_importable()
     from computer_use_tool import computer_use
@@ -64,47 +65,48 @@ def _tool_descriptor() -> Any | None:
     return getattr(computer_use, "_tool_descriptor", None)
 
 
-def _ensure_tool_enabled(agent_config: Any) -> bool:
-    """Ensure this plugin's tool is enabled in one agent configuration."""
+def _seed_tool_config(agent_config: Any) -> bool:
+    """Add this plugin's tool to one agent configuration when missing.
+
+    Only an absent entry is written. An existing entry carries the user's
+    own choice -- including having turned the tool off for that agent --
+    and overwriting it here would silently undo that choice on every
+    startup.
+    """
     from qwenpaw.config.config import BuiltinToolConfig, ToolsConfig
 
     if agent_config.tools is None:
         agent_config.tools = ToolsConfig()
 
-    tool_config = agent_config.tools.builtin_tools.get(_TOOL_NAME)
-    if tool_config is None:
-        agent_config.tools.builtin_tools[_TOOL_NAME] = BuiltinToolConfig(
-            name=_TOOL_NAME,
-            enabled=True,
-            description=_TOOL_DESCRIPTION,
-            icon="screen",
-        )
-        return True
-
-    if tool_config.enabled:
+    if _TOOL_NAME in agent_config.tools.builtin_tools:
         return False
 
-    tool_config.enabled = True
+    agent_config.tools.builtin_tools[_TOOL_NAME] = BuiltinToolConfig(
+        name=_TOOL_NAME,
+        enabled=True,
+        description=_TOOL_DESCRIPTION,
+        icon="screen",
+    )
     return True
 
 
-def _enable_tool_for_agent(agent_id: str) -> None:
+def _seed_tool_for_agent(agent_id: str) -> None:
     """Persist the plugin-owned tool setting for one agent."""
     from qwenpaw.config.config import load_agent_config, save_agent_config
 
     try:
         agent_config = load_agent_config(agent_id)
-        if _ensure_tool_enabled(agent_config):
+        if _seed_tool_config(agent_config):
             save_agent_config(agent_id, agent_config)
     except Exception:  # noqa: BLE001 - do not break plugin startup
         logger.exception(
-            "Failed to enable computer_use for agent '%s'",
+            "Failed to seed computer_use for agent '%s'",
             agent_id,
         )
 
 
-def _enable_tool_for_existing_agents() -> None:
-    """Make plugin availability the only enablement switch for its tool."""
+def _seed_tool_for_existing_agents() -> None:
+    """Expose the tool to every agent that has not chosen otherwise."""
     from qwenpaw.config.utils import load_config
 
     profiles = (
@@ -116,7 +118,7 @@ def _enable_tool_for_existing_agents() -> None:
         or {}
     )
     for agent_id in profiles:
-        _enable_tool_for_agent(agent_id)
+        _seed_tool_for_agent(agent_id)
 
 
 def _register_into_workspace(workspace: Any) -> None:
@@ -198,7 +200,7 @@ class ComputerUseToolPlugin:
 
         api.register_startup_hook(
             hook_name="computer_use_config",
-            callback=_enable_tool_for_existing_agents,
+            callback=_seed_tool_for_existing_agents,
             priority=55,
         )
 
@@ -229,7 +231,7 @@ class ComputerUseToolPlugin:
             # pylint: disable=protected-access
             agent_id = workspace_info.get("agent_id")
             if isinstance(agent_id, str) and agent_id:
-                _enable_tool_for_agent(agent_id)
+                _seed_tool_for_agent(agent_id)
             workspace = api._get_workspace_from_info(workspace_info)
             if workspace is None:
                 logger.warning(

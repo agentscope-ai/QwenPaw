@@ -529,23 +529,31 @@ fn launch_at(path: &Path) -> Result<(), (&'static str, String)> {
 
 /// Start the application at a resolved path.
 ///
-/// A bundle cannot be executed directly, so hand it to `open`, which asks
-/// Launch Services to start it -- or to activate it when already running.
-/// `open` returns as soon as the request is made, so the caller polls
-/// `list_windows` for the new window rather than waiting here.
+/// A bundle is a directory and cannot be executed, so it is handed to `open`
+/// with double-click semantics: Launch Services starts the application, or
+/// activates it when already running. A plain executable is spawned directly,
+/// the way Windows starts one -- it is not registered with Launch Services,
+/// so `open` has no notion of it. `open` returns as soon as the request is
+/// made, so the caller polls `list_windows` for the new window rather than
+/// waiting here.
 #[cfg(target_os = "macos")]
 fn launch_at(path: &Path) -> Result<(), (&'static str, String)> {
-    std::process::Command::new("open")
-        .arg("-a")
-        .arg(path)
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| {
-            (
-                "input_failed",
-                format!("Could not launch application: {error}"),
-            )
-        })
+    let is_bundle = path
+        .extension()
+        .is_some_and(|value| value.eq_ignore_ascii_case("app"));
+    let mut command = if is_bundle {
+        let mut open = std::process::Command::new("open");
+        open.arg(path);
+        open
+    } else {
+        std::process::Command::new(path)
+    };
+    command.spawn().map(|_| ()).map_err(|error| {
+        (
+            "input_failed",
+            format!("Could not launch application: {error}"),
+        )
+    })
 }
 
 fn request_approval(
