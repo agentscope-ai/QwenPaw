@@ -1049,6 +1049,30 @@ _ACL_FULL_ACCESS = (
 
 _ACL_DENY_ALL = _ACL_FULL_ACCESS | _WC.GENERIC_ALL
 
+# Minimal traverse mask: allows PowerShell/.NET to validate each path
+# segment via Directory.Exists() without granting content read access.
+# FILE_LIST_DIRECTORY (0x0001) + FILE_TRAVERSE (0x0020) +
+# READ_CONTROL (0x00020000) + SYNCHRONIZE (0x00100000)
+_ACL_TRAVERSE = 0x00120021
+
+
+def _add_traverse_ace(path: str, psid: ctypes.c_void_p) -> bool:
+    """Adds a non-inheritable traverse ACE on a directory.
+
+    Grants only FILE_LIST_DIRECTORY | FILE_TRAVERSE | READ_CONTROL |
+    SYNCHRONIZE — the minimum required for PowerShell/.NET to validate
+    the path via ``Directory.Exists()``.  Non-inheritable so that only
+    the directory itself is affected, not its children.
+    """
+    _ensure_privileges()
+    return _set_path_ace(
+        path,
+        psid,
+        _ACL_TRAVERSE,
+        _WC.SET_ACCESS,
+        inherit=False,
+    )
+
 
 def _add_allow_ace(path: str, psid: ctypes.c_void_p) -> bool:
     return _set_path_ace_elevated(path, psid, _ACL_FULL_ACCESS, _WC.SET_ACCESS)
@@ -1187,6 +1211,70 @@ def _ensure_python_dir_group_acl() -> None:
     _python_dir_acl_granted = True
 
 
+def _ensure_parent_traverse_acls(
+    group_psid: ctypes.c_void_p,
+) -> None:
+    """Grants traverse on ``C:\\Users`` and ``%USERPROFILE%``.
+
+    PowerShell/.NET validates every segment of a path via
+    ``Directory.Exists()`` before accepting it as ``$PWD``.  Without
+    at least ``FILE_LIST_DIRECTORY`` on the user's profile directory
+    (e.g. ``C:\\Users\\mkh``), PowerShell falls back to the drive root.
+
+    This function sets a traverse ACE on exactly two directories:
+        - ``C:\\Users``
+        - ``C:\\Users\\<current_user>``  (i.e. ``%USERPROFILE%``)
+
+    This is a **one-time persistent operation**: a marker file
+    (``~/.qwenpaw/.traverse_acl_granted``) is written after ACLs are
+    applied.  The traverse ACEs are intentionally never cleaned up —
+    they use the ``QwenpawUsers`` group and carry minimal security
+    impact (filename visibility only, no content access).
+
+    Args:
+        group_psid: Pointer to the ``QwenpawUsers`` group SID.
+    """
+    marker = _qwenpaw_state_dir / ".traverse_acl_granted"
+    if marker.exists():
+        return
+
+    user_profile = os.environ.get(
+        "USERPROFILE",
+        os.path.expanduser("~"),
+    )
+    users_dir = os.path.dirname(os.path.normpath(user_profile))  # C:\Users
+
+    targets: List[str] = []
+    if os.path.isdir(users_dir):
+        targets.append(users_dir)
+    if os.path.isdir(user_profile):
+        targets.append(user_profile)
+
+    if not targets:
+        return
+
+    logger.info(
+        "Granting traverse to %s on %s (one-time, persistent)",
+        SANDBOX_USERS_GROUP,
+        targets,
+    )
+
+    all_ok = True
+    for d in targets:
+        if _add_traverse_ace(d, group_psid):
+            logger.debug("  Traverse ACE set: %s", d)
+        else:
+            logger.warning("  Failed to set traverse ACE on: %s", d)
+            all_ok = False
+
+    if all_ok:
+        try:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(SANDBOX_USERS_GROUP, encoding="utf-8")
+        except OSError:
+            pass
+
+
 def _apply_all_acls(
     config: SandboxConfig,
     cap_sid_string: str,
@@ -1196,8 +1284,10 @@ def _apply_all_acls(
 
     Grants write access to workspace and mounts for both the capability
     SID and the user SID, denies access to deny_paths for the user SID,
-    and ensures the Python install directory is readable via the
-    ``QwenpawUsers`` group.
+    ensures the Python install directory is readable via the
+    ``QwenpawUsers`` group, and grants traverse permission on
+    intermediate parent directories so that PowerShell can validate the
+    working directory path.
 
     Args:
         config: Sandbox configuration.
@@ -1236,6 +1326,16 @@ def _apply_all_acls(
         _grant_workspace_and_mounts(psid, "cap")
 
         _ensure_python_dir_group_acl()
+
+        # Grant traverse on C:\Users and %USERPROFILE% for the
+        # QwenpawUsers group so that PowerShell/.NET can validate the
+        # full path chain when setting $PWD.  This is a one-time
+        # persistent operation (marker-file guarded, never cleaned up).
+        group_result = _lookup_account_sid(SANDBOX_USERS_GROUP)
+        if group_result is not None:
+            group_sid_buf, _ = group_result
+            group_psid = ctypes.cast(group_sid_buf, ctypes.c_void_p)
+            _ensure_parent_traverse_acls(group_psid)
 
         user_psid = _string_to_sid(user_sid_string)
         try:
@@ -2351,9 +2451,14 @@ def shutdown_cleanup() -> None:
     if not sb_dir.exists() or not list(sb_dir.glob("*.json")):
         return
 
+    t_start = time.monotonic()
     sandbox_count = len(list(sb_dir.glob("*.json")))
     _SHUTDOWN_ACL_DEADLINE = (
         time.monotonic() + sandbox_count * _SHUTDOWN_ACL_TIMEOUT_PER_SANDBOX
+    )
+    logger.info(
+        "Elevated sandbox shutdown_cleanup: %d sandbox(es) to process",
+        sandbox_count,
     )
 
     my_pid = os.getpid()
@@ -2389,6 +2494,11 @@ def shutdown_cleanup() -> None:
         except OSError:
             pass
 
+    logger.info(
+        "Elevated sandbox shutdown_cleanup complete: %.2fs total",
+        time.monotonic() - t_start,
+    )
+
 
 def _remove_acls_from_metadata(
     acl_entries: list,
@@ -2415,18 +2525,28 @@ def _remove_acls_from_metadata(
             sid = cap_sid
         elif sid_type == "user":
             sid = user_sid
+        elif sid_type == "group":
+            # Traverse ACEs for QwenpawUsers group are persistent
+            # (one-time, never cleaned up) — skip.
+            continue
         else:
-            # Unknown sid_type (e.g. legacy "group" entries) — skip.
-            # QwenpawUsers group ACL on python_dir is permanent and
-            # intentionally not cleaned up.
             continue
 
         if sid:
+            t_entry = time.monotonic()
             use_reset_only = os.path.normpath(entry_path) == _workspace_default
-            _remove_acl_with_verify_sync_local(
+            ok = _remove_acl_with_verify_sync_local(
                 entry_path,
                 sid,
                 reset_only=use_reset_only,
+            )
+            logger.debug(
+                "  ACL remove [%s] %s sid_type=%s: %.2fs (%s)",
+                "OK" if ok else "FAIL",
+                entry_path,
+                sid_type,
+                time.monotonic() - t_entry,
+                sid[:20] + "..." if len(sid) > 20 else sid,
             )
 
 
@@ -2436,27 +2556,66 @@ def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
     cap_sid = meta.get("cap_sid", "")
     network_blocked = meta.get("network_blocked", False)
     acl_entries = meta.get("acl_entries", [])
+    sandbox_id = meta.get("sandbox_id", username)
 
+    t0 = time.monotonic()
     _remove_acls_from_metadata(
         acl_entries,
         cap_sid,
         user_sid,
         username,
     )
+    t1 = time.monotonic()
+    logger.info(
+        "[%s] ACL removal: %.2fs (%d entries)",
+        sandbox_id,
+        t1 - t0,
+        len(acl_entries),
+    )
 
     if network_blocked and username:
         _remove_firewall_rules_sync(username)
+        t2 = time.monotonic()
+        logger.info(
+            "[%s] Firewall rules removal: %.2fs",
+            sandbox_id,
+            t2 - t1,
+        )
+    else:
+        t2 = t1
 
     if username:
         _delete_local_user_sync(username)
+        t3 = time.monotonic()
+        logger.info(
+            "[%s] User account deletion: %.2fs",
+            sandbox_id,
+            t3 - t2,
+        )
+    else:
+        t3 = t2
 
     if username:
         _remove_profile_dir_sync(username)
+        t4 = time.monotonic()
+        logger.info(
+            "[%s] Profile directory removal: %.2fs",
+            sandbox_id,
+            t4 - t3,
+        )
+    else:
+        t4 = t3
 
     try:
         meta_file.unlink()
     except OSError:
         pass
+
+    logger.info(
+        "[%s] Total cleanup: %.2fs",
+        sandbox_id,
+        time.monotonic() - t0,
+    )
 
 
 atexit.register(shutdown_cleanup)

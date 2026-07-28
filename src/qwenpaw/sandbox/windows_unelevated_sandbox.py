@@ -2301,7 +2301,9 @@ def shutdown_cleanup() -> None:  # pylint: disable=too-many-branches
     if not sb_dir.exists():
         return
 
+    t_start = time.monotonic()
     my_pid = os.getpid()
+    sandboxes_processed = 0
 
     for meta_file in sb_dir.glob("*.json"):
         try:
@@ -2323,21 +2325,32 @@ def shutdown_cleanup() -> None:  # pylint: disable=too-many-branches
         if not cap_sid:
             continue
 
+        sandbox_id = meta.get("sandbox_id", cap_sid)
         acl_entries = meta.get("acl_entries", [])
         deadline = time.monotonic() + 60.0
         failed_paths: List[str] = []
 
+        t_sandbox = time.monotonic()
         for entry in acl_entries:
             entry_path = entry.get("path", "")
             if entry_path and os.path.exists(entry_path):
-                if not _remove_acl_with_verify_sync(
+                t_entry = time.monotonic()
+                ok = _remove_acl_with_verify_sync(
                     entry_path,
                     cap_sid,
                     deadline=deadline,
-                ):
+                )
+                logger.debug(
+                    "  [%s] ACL remove [%s] %s: %.2fs",
+                    sandbox_id,
+                    "OK" if ok else "FAIL",
+                    entry_path,
+                    time.monotonic() - t_entry,
+                )
+                if not ok:
                     failed_paths.append(entry_path)
 
-        sandbox_id = meta.get("sandbox_id", cap_sid)
+        t_acl_done = time.monotonic()
 
         if failed_paths:
             logger.warning(
@@ -2353,16 +2366,34 @@ def shutdown_cleanup() -> None:  # pylint: disable=too-many-branches
                 sandbox_id,
             )
 
+        logger.info(
+            "[%s] ACL removal: %.2fs (%d entries, %d failed)",
+            sandbox_id,
+            t_acl_done - t_sandbox,
+            len(acl_entries),
+            len(failed_paths),
+        )
+
         try:
             meta_file.unlink()
         except OSError:
             pass
+
+        sandboxes_processed += 1
 
     if sb_dir.exists() and not list(sb_dir.glob("*.json")):
         try:
             sb_dir.rmdir()
         except OSError:
             pass
+
+    if sandboxes_processed > 0:
+        logger.info(
+            "Unelevated sandbox shutdown_cleanup complete: %d sandbox(es), "
+            "%.2fs total",
+            sandboxes_processed,
+            time.monotonic() - t_start,
+        )
 
 
 atexit.register(shutdown_cleanup)
