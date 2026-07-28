@@ -2,31 +2,33 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import FileReferenceInputOverlay from "./FileReferenceInputOverlay";
+import { compactFileReferenceLabel } from "./fileReferenceFormatting";
+import { setTextareaValue } from "./utils";
 
 describe("FileReferenceInputOverlay", () => {
-  it("renders the controlled sender value and clears with that value", async () => {
+  it("reads the live sender value and reattaches after replacement", async () => {
     const { rerender } = render(
       <>
         <div className="sender">
           <div>
-            <textarea defaultValue="@ /work/hello.txt" />
+            <textarea key="with-reference" defaultValue="@ /work/hello.txt" />
           </div>
         </div>
-        <FileReferenceInputOverlay value="@ /work/hello.txt" />
+        <FileReferenceInputOverlay />
       </>,
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button")).toHaveTextContent("@ /work/hello.txt");
+      expect(screen.getByRole("button")).toHaveTextContent("hello.txt");
     });
     rerender(
       <>
         <div className="sender">
           <div>
-            <textarea defaultValue="" />
+            <textarea key="empty" defaultValue="" />
           </div>
         </div>
-        <FileReferenceInputOverlay value="" />
+        <FileReferenceInputOverlay />
       </>,
     );
 
@@ -44,10 +46,7 @@ describe("FileReferenceInputOverlay", () => {
             <textarea defaultValue="src/app.ts:12-18" />
           </div>
         </div>
-        <FileReferenceInputOverlay
-          value="src/app.ts:12-18"
-          onOpenReference={onOpenReference}
-        />
+        <FileReferenceInputOverlay onOpenReference={onOpenReference} />
       </>,
     );
 
@@ -64,5 +63,51 @@ describe("FileReferenceInputOverlay", () => {
       reference,
     );
     expect(screen.getByRole("textbox")).toHaveValue("src/app.ts:12-18");
+  });
+
+  it("syncs a reference inserted through a native input event", async () => {
+    render(
+      <>
+        <div className="sender">
+          <div>
+            <textarea />
+          </div>
+        </div>
+        <FileReferenceInputOverlay />
+      </>,
+    );
+
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    setTextareaValue(
+      textarea,
+      "@ /Users/ray/.copaw/workspaces/default/random.md ",
+    );
+
+    expect(await screen.findByRole("button")).toHaveTextContent("random.md");
+    expect(textarea).toHaveValue(
+      "@ /Users/ray/.copaw/workspaces/default/random.md ",
+    );
+  });
+});
+
+describe("compactFileReferenceLabel", () => {
+  it("shows only the file name for a file reference", () => {
+    expect(
+      compactFileReferenceLabel({
+        kind: "file",
+        path: "C:\\work\\src\\random.md",
+      }),
+    ).toBe("random.md");
+  });
+
+  it("shows a compact line range for an Editor reference", () => {
+    expect(
+      compactFileReferenceLabel({
+        kind: "editor",
+        path: "/work/src/app.ts",
+        startLine: 12,
+        endLine: 18,
+      }),
+    ).toBe("app.ts · 12–18");
   });
 });

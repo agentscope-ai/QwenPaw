@@ -15,6 +15,21 @@ export interface FileReferenceRange {
   end: number;
 }
 
+export function compactFileReferenceLabel(
+  reference: ParsedFileReference,
+): string {
+  const filename =
+    reference.path.split(/[\\/]/).filter(Boolean).pop() || reference.path;
+  if (reference.kind === "file") {
+    return filename;
+  }
+  const startLine = reference.startLine ?? 1;
+  const endLine = reference.endLine ?? startLine;
+  const lineRange =
+    startLine === endLine ? `${startLine}` : `${startLine}–${endLine}`;
+  return `${filename} · ${lineRange}`;
+}
+
 interface ParsedFileReferenceRange extends FileReferenceRange {
   reference: ParsedFileReference;
 }

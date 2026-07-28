@@ -1,7 +1,9 @@
 import { createPortal } from "react-dom";
 import { useEffect, useState, type CSSProperties } from "react";
+import { FileText } from "lucide-react";
 import {
   atomicDeletionRange,
+  compactFileReferenceLabel,
   type ParsedFileReference,
   splitFileReferences,
 } from "./fileReferenceFormatting";
@@ -13,6 +15,7 @@ interface OverlayState {
   scrollTop: number;
   scrollLeft: number;
   style: CSSProperties;
+  value: string;
 }
 
 function overlayStyle(textarea: HTMLTextAreaElement): CSSProperties {
@@ -37,10 +40,8 @@ function overlayStyle(textarea: HTMLTextAreaElement): CSSProperties {
 }
 
 export default function FileReferenceInputOverlay({
-  value,
   onOpenReference,
 }: {
-  value: string;
   onOpenReference?: (
     reference: ParsedFileReference,
     trigger: HTMLElement,
@@ -59,6 +60,7 @@ export default function FileReferenceInputOverlay({
         scrollTop: textarea.scrollTop,
         scrollLeft: textarea.scrollLeft,
         style: overlayStyle(textarea),
+        value: textarea.value,
       });
     };
 
@@ -135,7 +137,7 @@ export default function FileReferenceInputOverlay({
           transform: `translate(${-state.scrollLeft}px, ${-state.scrollTop}px)`,
         }}
       >
-        {splitFileReferences(value).map((segment, index) =>
+        {splitFileReferences(state.value).map((segment, index) =>
           segment.reference ? (
             <button
               type="button"
@@ -146,8 +148,10 @@ export default function FileReferenceInputOverlay({
               onClick={(event) =>
                 onOpenReference?.(segment.reference!, event.currentTarget)
               }
+              title={segment.reference.path}
             >
-              {segment.text}
+              <FileText size={13} aria-hidden="true" />
+              <span>{compactFileReferenceLabel(segment.reference)}</span>
             </button>
           ) : (
             <span aria-hidden="true" key={`${index}-${segment.text}`}>

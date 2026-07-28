@@ -1756,11 +1756,7 @@ export default function ChatPage() {
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
-  const [senderValue, setSenderValue] = useState("");
   const pendingSenderClearRef = useRef<string | null>(null);
-  const handleSenderChange = useCallback(({ query }: { query: string }) => {
-    setSenderValue(query);
-  }, []);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -2906,7 +2902,6 @@ export default function ChatPage() {
       },
       sender: {
         ...(i18nConfig as any)?.sender,
-        onChange: handleSenderChange,
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: whisperChecked && !whisperEnabled,
         beforeUI: showSenderBeforeUI ? (
@@ -3217,7 +3212,6 @@ export default function ChatPage() {
     handleCompactCommand,
     handleNewCommand,
     compactSender,
-    handleSenderChange,
   ]);
 
   const filesDrawerClass =
@@ -3257,7 +3251,6 @@ export default function ChatPage() {
             options={options}
           />
           <FileReferenceInputOverlay
-            value={senderValue}
             onOpenReference={(reference, trigger) =>
               void openInlineFileReference(reference, trigger)
             }

@@ -106,22 +106,34 @@
 
 .inlineFileReference {
   all: unset;
+  display: inline-flex;
+  align-items: center;
+  max-width: min(220px, 70%);
+  margin: 0 2px;
+  padding: 1px 7px 1px 5px;
+  gap: 4px;
   color: #1677ff;
-  border-radius: 4px;
+  border-radius: 6px;
   background: rgba(22, 119, 255, 0.08);
   box-shadow: 0 0 0 1px rgba(22, 119, 255, 0.14);
-  box-decoration-break: clone;
   cursor: pointer;
   pointer-events: auto;
-  text-decoration: underline;
-  text-decoration-color: rgba(22, 119, 255, 0.45);
-  text-underline-offset: 2px;
-  -webkit-box-decoration-break: clone;
+  vertical-align: baseline;
+
+  svg {
+    flex: 0 0 auto;
+  }
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   &:hover {
     color: #0958d9;
     background: rgba(22, 119, 255, 0.13);
-    text-decoration-color: currentColor;
   }
 }
 
@@ -142,7 +154,6 @@
     color: #69b1ff;
     background: rgba(64, 150, 255, 0.14);
     box-shadow: 0 0 0 1px rgba(105, 177, 255, 0.24);
-    text-decoration-color: rgba(105, 177, 255, 0.55);
 
     &:hover {
       color: #91caff;
