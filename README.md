@@ -2,6 +2,9 @@
 
 # QwenPaw
 
+> **Note**: This fork adds native support for **NVIDIA NIM** (NVIDIA Inference Microservices), allowing you to seamlessly integrate and use NVIDIA's optimized models with your API key.
+
+
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Repo-black.svg?logo=github)](https://github.com/agentscope-ai/QwenPaw)
 [![PyPI](https://img.shields.io/pypi/v/qwenpaw?color=3775A9&label=PyPI&logo=pypi)](https://pypi.org/project/qwenpaw/)
 [![Documentation](https://img.shields.io/badge/Docs-Website-green.svg?logo=readthedocs&label=Docs)](https://qwenpaw.agentscope.io/)
@@ -357,7 +360,7 @@ It supports streaming replies, slash commands (`/help`, `/resume`, `/theme`, plu
 
 ## API Key
 
-If you use a **cloud LLM API** (e.g., DashScope / Qwen, OpenAI, Anthropic, Google Gemini, DeepSeek, Kimi, OpenRouter, and more), you must configure an API key before chatting. QwenPaw will not work until a valid key is set. See the [official docs](https://qwenpaw.agentscope.io/docs/models) for details.
+If you use a **cloud LLM API** (e.g., DashScope / Qwen, OpenAI, Anthropic, Google Gemini, NVIDIA NIM, DeepSeek, Kimi, OpenRouter, and more), you must configure an API key before chatting. QwenPaw will not work until a valid key is set. See the [official docs](https://qwenpaw.agentscope.io/docs/models) for details.
 
 **How to configure:**
 

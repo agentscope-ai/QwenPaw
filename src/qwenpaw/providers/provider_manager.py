@@ -1038,6 +1038,20 @@ PROVIDER_QWENPAW = OpenAIProvider(
     require_api_key=False,
 )
 
+PROVIDER_NVIDIA_NIM = OpenAIProvider(
+    id="nvidia-nim",
+    name="NVIDIA NIM",
+    base_url="https://integrate.api.nvidia.com/v1",
+    api_key_prefix="nvapi-",
+    models=[],
+    freeze_url=False,
+    support_connection_check=True,
+    support_model_discovery=True,
+    provider_group="nvidia",
+    provider_group_name="NVIDIA NIM",
+)
+
+
 PROVIDER_OPENAI = OpenAIProvider(
     id="openai",
     name="OpenAI",
@@ -1391,6 +1405,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_GEMINI)
+        self._add_builtin(PROVIDER_NVIDIA_NIM)
         self._add_builtin(PROVIDER_DEEPSEEK)
         self._add_builtin(PROVIDER_KIMI_CN)
         self._add_builtin(PROVIDER_KIMI_INTL)

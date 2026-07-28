@@ -10,6 +10,8 @@ export const providerIcon = (provider: string) => {
       return "https://gw.alicdn.com/imgextra/i4/O1CN01YfmXc81ogO3pR0aW8_!!6000000005254-2-tps-400-400.png";
     case "gemini":
       return "https://gw.alicdn.com/imgextra/i2/O1CN01pDWy7z25caEvmJ3u1_!!6000000007547-2-tps-400-400.png";
+    case "nvidia-nim":
+      return "https://upload.wikimedia.org/wikipedia/commons/2/21/Nvidia_logo.svg";
     case "azure-openai":
       return "https://gw.alicdn.com/imgextra/i2/O1CN01R42n1y1hQAjCEiVlB_!!6000000004271-2-tps-400-400.png";
     case "kimi-cn":

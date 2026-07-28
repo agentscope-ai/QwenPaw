@@ -6,6 +6,7 @@ const PROVIDER_LETTER_COLORS: Record<string, string> = {
   "aliyun-tokenplan": "#FF6A00",
   deepseek: "#4D6BFE",
   gemini: "#4285F4",
+  "nvidia-nim": "#76B900",
   "azure-openai": "#0078D4",
   "kimi-cn": "#000000",
   "kimi-intl": "#000000",
