@@ -70,16 +70,9 @@ def _changed_paths(
 class WorkspaceMutationGuard:
     """Pause cooperative workspace writers for one restore transaction."""
 
-    def __init__(
-        self,
-        workspace,
-        *,
-        timeout: float,
-        allowed_active_tasks: int = 0,
-    ) -> None:
+    def __init__(self, workspace, *, timeout: float) -> None:
         self.workspace = workspace
         self.timeout = timeout
-        self.allowed_active_tasks = allowed_active_tasks
 
     async def quiesce(self) -> list[Callable[[], None]]:
         """Pause cron and wait until tracked workspace tasks are idle."""
@@ -164,7 +157,7 @@ class WorkspaceMutationGuard:
     async def _wait_for_other_tasks(self, task_tracker) -> None:
         while True:
             active = await task_tracker.list_active_tasks()
-            if len(active) <= self.allowed_active_tasks:
+            if not active:
                 return
             await asyncio.sleep(0.5)
 
@@ -193,7 +186,6 @@ class RestoreService:
         user_id: str,
         channel: str,
         dry_run: bool = False,
-        tracked_caller: bool = False,
     ) -> RestoreResult:
         """Restore only the current conversation session file."""
         if not target:
@@ -207,7 +199,6 @@ class RestoreService:
             user_id=user_id,
             channel=channel,
             dry_run=dry_run,
-            tracked_caller=tracked_caller,
         )
 
     async def restore_with_memory(
@@ -218,7 +209,6 @@ class RestoreService:
         user_id: str,
         channel: str,
         dry_run: bool = False,
-        tracked_caller: bool = False,
     ) -> RestoreResult:
         """Restore conversation + MEMORY.md + memory/ to a checkpoint."""
         if not target:
@@ -233,7 +223,6 @@ class RestoreService:
             channel=channel,
             include_memory=True,
             dry_run=dry_run,
-            tracked_caller=tracked_caller,
         )
 
     async def restore_with_files(
@@ -246,7 +235,6 @@ class RestoreService:
         include_memory: bool = False,
         selected_files: tuple[str, ...] | None = None,
         dry_run: bool = False,
-        tracked_caller: bool = False,
     ) -> RestoreResult:
         """Restore conversation and workspace files to a checkpoint tree."""
         if not target:
@@ -268,7 +256,6 @@ class RestoreService:
             include_files=True,
             selected_files=selected_files,
             dry_run=dry_run,
-            tracked_caller=tracked_caller,
         )
 
     async def _run_restore(
@@ -282,7 +269,6 @@ class RestoreService:
         include_files: bool = False,
         selected_files: tuple[str, ...] | None = None,
         dry_run: bool = False,
-        tracked_caller: bool = False,
     ) -> RestoreResult:
         """Run one validated restore transaction."""
         service = self.service
@@ -302,11 +288,7 @@ class RestoreService:
             else None
         )
         mutation_guard = (
-            self._workspace_mutation_guard(
-                allowed_active_tasks=(1 if tracked_caller else 0),
-            )
-            if not dry_run
-            else None
+            self._workspace_mutation_guard() if not dry_run else None
         )
         prepared: _PreparedRestore | None = None
         pre_ref: str | None = None
@@ -664,15 +646,10 @@ class RestoreService:
     def _memory_restorer(self) -> MemoryRestorer:
         return MemoryRestorer(repository=self.repository)
 
-    def _workspace_mutation_guard(
-        self,
-        *,
-        allowed_active_tasks: int,
-    ) -> WorkspaceMutationGuard:
+    def _workspace_mutation_guard(self) -> WorkspaceMutationGuard:
         return WorkspaceMutationGuard(
             workspace=self.service.workspace,
             timeout=self.service.memory_quiesce_timeout,
-            allowed_active_tasks=allowed_active_tasks,
         )
 
 

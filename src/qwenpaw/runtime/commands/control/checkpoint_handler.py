@@ -362,7 +362,6 @@ class CheckpointCommandHandler(BaseControlCommandHandler):
                 dry_run=dry_run,
                 include_memory=include_memory,
                 selected_files=selected_files,
-                tracked_caller=True,
             )
         elif include_memory:
             result = await engine.restore_with_memory(
@@ -371,7 +370,6 @@ class CheckpointCommandHandler(BaseControlCommandHandler):
                 user_id=context.user_id,
                 channel=chan,
                 dry_run=dry_run,
-                tracked_caller=True,
             )
         else:
             result = await engine.restore(
@@ -380,7 +378,6 @@ class CheckpointCommandHandler(BaseControlCommandHandler):
                 user_id=context.user_id,
                 channel=chan,
                 dry_run=dry_run,
-                tracked_caller=True,
             )
         return render_restore(result)
 

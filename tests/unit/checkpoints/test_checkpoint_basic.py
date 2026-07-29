@@ -368,6 +368,48 @@ async def test_restore_command_validates_and_preserves_file_selection(
 
 
 @pytest.mark.asyncio
+async def test_control_restore_waits_for_active_agent(
+    workspace: _Workspace,
+) -> None:
+    class BusyTasks:
+        def __init__(self) -> None:
+            self.waiting = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def list_active_tasks(self) -> list[str]:
+            self.waiting.set()
+            return [] if self.release.is_set() else ["running-agent"]
+
+    engine = _engine(workspace)
+    session_path = _write_session(workspace.workspace_dir, "before")
+    ref = await engine.make_auto_checkpoint(
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        query="before",
+    )
+    target = engine.repository.run_git("rev-parse", ref)
+    _write_session(workspace.workspace_dir, "after")
+    workspace.task_tracker = BusyTasks()
+
+    restore_task = asyncio.create_task(
+        _run(workspace, f"restore {target[:12]} --confirm"),
+    )
+    await asyncio.wait_for(workspace.task_tracker.waiting.wait(), timeout=1)
+
+    assert "after" in session_path.read_text(encoding="utf-8")
+    assert not restore_task.done()
+    assert not engine.query_gate.is_set()
+
+    workspace.task_tracker.release.set()
+    result = await restore_task
+
+    assert "**Restore complete**" in result
+    assert "before" in session_path.read_text(encoding="utf-8")
+    assert engine.query_gate.is_set()
+
+
+@pytest.mark.asyncio
 async def test_gc_requires_confirmation_and_compacts_auto_checkpoints(
     workspace: _Workspace,
 ) -> None:
