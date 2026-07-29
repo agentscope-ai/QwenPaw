@@ -431,6 +431,24 @@ def test_sanitize_handles_anyOf_with_null() -> None:
     assert result["properties"]["cwd"] == {"type": "string"}
 
 
+def test_sanitize_handles_anyOf_with_annotated_null() -> None:
+    from qwenpaw.providers.gemini_provider import _sanitize_schema_for_gemini
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "cwd": {
+                "anyOf": [
+                    {"type": "string"},
+                    {"type": "null", "title": "None"},
+                ],
+            },
+        },
+    }
+    result = _sanitize_schema_for_gemini(schema)
+    assert result["properties"]["cwd"] == {"type": "string"}
+
+
 def test_sanitize_nested_standalone_null() -> None:
     from qwenpaw.providers.gemini_provider import _sanitize_schema_for_gemini
 

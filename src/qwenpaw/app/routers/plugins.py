@@ -8,6 +8,7 @@ import inspect
 import json
 import logging
 import mimetypes
+import re
 import shutil
 import tempfile
 import urllib.request
@@ -24,6 +25,12 @@ from ..utils import schedule_agent_reload
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/plugins", tags=["plugins"])
+
+
+def _log_safe(value: object) -> str:
+    """Strip CR/LF so request-derived values cannot forge log entries."""
+    return str(value).replace("\r", "").replace("\n", "")
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -399,8 +406,8 @@ def _post_unload_cleanup(
                 provider_manager.unregister_plugin_provider(pid)
             except Exception as exc:
                 logger.warning(
-                    f"Could not unregister provider '{pid}' "
-                    f"for plugin '{plugin_id}': {exc}",
+                    f"Could not unregister provider '{_log_safe(pid)}' "
+                    f"for plugin '{_log_safe(plugin_id)}': {exc}",
                 )
 
     # ── Control commands ─────────────────────────────────────────────────
@@ -428,7 +435,8 @@ def _post_unload_cleanup(
                     )
         except Exception as exc:
             logger.warning(
-                f"Command cleanup skipped for plugin '{plugin_id}': {exc}",
+                f"Command cleanup skipped for plugin "
+                f"'{_log_safe(plugin_id)}': {exc}",
             )
 
 
@@ -681,7 +689,7 @@ async def install_plugin(
             # Download and extract the zip archive
             temp_dir = Path(await asyncio.to_thread(tempfile.mkdtemp))
             zip_path = temp_dir / "plugin.zip"
-            logger.info(f"Downloading plugin from {source}")
+            logger.info(f"Downloading plugin from {_log_safe(source)}")
             await _async_download(source, zip_path)
             source_path = await asyncio.to_thread(
                 _extract_downloaded_plugin_zip,
@@ -855,7 +863,7 @@ async def uninstall_plugin(plugin_id: str, request: Request):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         logger.error(
-            f"Plugin uninstall failed for '{plugin_id}': {exc}",
+            f"Plugin uninstall failed for '{_log_safe(plugin_id)}': {exc}",
             exc_info=True,
         )
         raise HTTPException(
@@ -956,10 +964,23 @@ async def serve_plugin_ui_file(
     elif full_path.suffix == ".css":
         content_type = "text/css"
 
-    if content_type:
-        return FileResponse(str(full_path), media_type=content_type)
+    # Content-hashed chunks are safe to cache long-term; entry files must
+    # revalidate on every request or browsers keep serving stale bundles
+    # after a plugin hot update.
+    hashed_asset = re.search(r"-[A-Za-z0-9_]{8,}\.[a-z0-9]+$", full_path.name)
+    cache_control = (
+        "public, max-age=31536000, immutable" if hashed_asset else "no-cache"
+    )
+    headers = {"Cache-Control": cache_control}
 
-    return FileResponse(str(full_path))
+    if content_type:
+        return FileResponse(
+            str(full_path),
+            media_type=content_type,
+            headers=headers,
+        )
+
+    return FileResponse(str(full_path), headers=headers)
 
 
 # ── Plugin market proxy ───────────────────────────────────────────────────

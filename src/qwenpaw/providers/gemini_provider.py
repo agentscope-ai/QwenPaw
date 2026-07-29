@@ -82,6 +82,10 @@ def _flatten_json_schema(schema: dict) -> dict:
     return _resolve_ref(schema)
 
 
+def _is_null_schema(schema: Any) -> bool:
+    return isinstance(schema, dict) and schema.get("type") == "null"
+
+
 # pylint: disable=too-many-branches
 def _sanitize_schema_for_gemini(schema: Any) -> Any:
     """Sanitize a JSON schema to be compatible with the Gemini API.
@@ -125,7 +129,7 @@ def _sanitize_schema_for_gemini(schema: Any) -> Any:
 
     if "anyOf" in schema and isinstance(schema["anyOf"], list):
         any_of = schema["anyOf"]
-        non_null = [v for v in any_of if v != {"type": "null"}]
+        non_null = [v for v in any_of if not _is_null_schema(v)]
         if len(non_null) < len(any_of):
             if len(non_null) == 1:
                 merged = dict(_sanitize_schema_for_gemini(non_null[0]))

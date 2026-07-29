@@ -1,0 +1,825 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f9f8f4;
+  --foreground: #241f1a;
+  --color-bg-layout: #f9f8f4;
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f4f1ea;
+  --color-bg-elevated: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-text-primary: #241f1a;
+  --color-text-secondary: #6f665c;
+  --color-text-tertiary: #9a9188;
+  --color-border: #e8e0d6;
+  --color-border-strong: #d8cabb;
+  --color-accent: #ff7f16;
+  --color-accent-hover: #e96f0c;
+  --color-accent-soft: rgba(255, 127, 22, 0.12);
+  --color-success: #12b76a;
+  --color-success-soft: #ecfdf3;
+  --color-warning: #f79009;
+  --color-warning-soft: #fffaeb;
+  --color-danger: #f04438;
+  --color-danger-soft: #fef3f2;
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+.dark {
+  --background: #141414;
+  --foreground: #f5f1ea;
+  --color-bg-layout: #141414;
+  --color-bg-primary: #1f1f1f;
+  --color-bg-secondary: #262626;
+  --color-bg-elevated: #2a2a2a;
+  --color-bg-card: #1f1f1f;
+  --color-text-primary: #f5f1ea;
+  --color-text-secondary: #b9afa4;
+  --color-text-tertiary: #81776c;
+  --color-border: #3a332d;
+  --color-border-strong: #4a4038;
+  --color-accent: #ff9a3d;
+  --color-accent-hover: #ffad62;
+  --color-accent-soft: rgba(255, 127, 22, 0.18);
+  --color-success-soft: #102a20;
+  --color-warning-soft: #2b2111;
+  --color-danger-soft: #2c1716;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #141414;
+    --foreground: #f5f1ea;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ====== App Shell ====== */
+
+.app-shell {
+  background: var(--color-bg-layout);
+  min-height: 100vh;
+}
+
+.page-container {
+  padding-inline: 24px;
+}
+
+/* ====== Card / Surface ====== */
+
+.surface {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-xs);
+}
+
+.surface-hover {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.surface-hover:hover {
+  box-shadow: var(--shadow-sm);
+  border-color: var(--color-border-strong);
+}
+
+/* ====== Buttons ====== */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
+  background: var(--color-accent);
+  border: none;
+  line-height: 1;
+  transition: background 0.15s ease;
+}
+
+.btn-primary:hover {
+  background: var(--color-accent-hover) !important;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  line-height: 1;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-secondary);
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  transition: all 0.15s ease;
+}
+
+.icon-button:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+/* ====== Badge ====== */
+
+/* Agent 改动字符级 diff 高亮：红删（删除线）/ 绿增 */
+.agent-diff-del {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  text-decoration: line-through;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.agent-diff-add {
+  color: var(--color-success);
+  background: var(--color-success-soft);
+  border-radius: 3px;
+  padding: 0 1px;
+  font-weight: 600;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* ====== Ant Design theme overrides ====== */
+
+/* Aggressive color overrides via CSS custom props */
+.ant-select-selector,
+.ant-input-affix-wrapper,
+.ant-input {
+  border-color: var(--color-border) !important;
+  background: var(--color-bg-primary) !important;
+  color: var(--color-text-primary) !important;
+  transition: border-color 0.2s !important;
+}
+
+.ant-input-outlined:focus {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 2px rgba(255, 127, 22, 0.1) !important;
+}
+
+.ant-input-outlined:hover {
+  border-color: var(--color-border-strong) !important;
+}
+
+.ant-input-prefix,
+.ant-input-suffix {
+  color: var(--color-text-tertiary);
+}
+
+.ant-select-selection-placeholder {
+  color: var(--color-text-tertiary) !important;
+}
+
+.ant-select-dropdown {
+  background: var(--color-bg-elevated) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+.ant-modal-content {
+  background: var(--color-bg-primary) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15) !important;
+}
+
+.ant-modal-header {
+  background: var(--color-bg-primary) !important;
+}
+
+.ant-btn {
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  height: 36px !important;
+  padding-inline: 16px !important;
+}
+
+.ant-btn-default {
+  border: 1px solid var(--color-border) !important;
+  color: var(--color-text-primary) !important;
+  background: var(--color-bg-primary) !important;
+}
+
+.ant-btn-default:hover {
+  border-color: var(--color-border-strong) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.ant-btn-primary {
+  background: var(--color-accent) !important;
+  border-color: var(--color-accent) !important;
+  color: #fff !important;
+}
+
+.ant-btn-primary:hover {
+  background: var(--color-accent-hover) !important;
+}
+
+.ant-modal-confirm-body .ant-modal-confirm-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.ant-modal-confirm-btns .ant-btn {
+  border-radius: 8px;
+}
+
+.ant-message {
+  font-size: 13px;
+}
+
+.ant-select {
+  width: 100%;
+}
+
+.ant-tabs .ant-tabs-nav {
+  margin-bottom: 0 !important;
+}
+
+.ant-tabs .ant-tabs-tab {
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: var(--color-text-secondary) !important;
+  padding: 8px 16px !important;
+  transition: color 0.2s !important;
+}
+
+.ant-tabs .ant-tabs-tab:hover {
+  color: var(--color-accent) !important;
+}
+
+.ant-tabs-ink-bar {
+  background: var(--color-accent) !important;
+}
+
+.ant-table-wrapper .ant-table {
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-xs);
+}
+
+.ant-table-thead > tr > th {
+  background: var(--color-bg-secondary) !important;
+  color: var(--color-text-secondary) !important;
+  font-size: 12px;
+  font-weight: 600 !important;
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding-inline: 12px;
+  }
+}
+
+/* v2 壳层：面板切换淡入上移过渡（迭代计划 1.1） */
+@keyframes agent-dock-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.agent-dock-enter {
+  animation: agent-dock-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* AgentDock 停止按钮：呼吸光圈提示 Agent 正在运行且可立即停止 */
+@keyframes agent-dock-stop-glow {
+  0% {
+    box-shadow: 0 0 0 0
+      color-mix(in srgb, var(--color-danger) 35%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.agent-dock-stop-glow {
+  animation: agent-dock-stop-glow 1.6s ease-out infinite;
+}
+
+/* AgentDock 输入框上方实时状态行（方案 A）：呼吸光点 + 流光文字 */
+@keyframes agent-live-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0
+      color-mix(in srgb, var(--agent-live-dot, var(--color-accent)) 45%, transparent);
+  }
+  50% {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+.agent-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  background: var(--agent-live-dot, var(--color-accent));
+}
+
+.agent-live-dot[data-state="working"],
+.agent-live-dot[data-state="stopping"] {
+  animation: agent-live-breathe 1.6s ease-in-out infinite;
+}
+
+.agent-live-dot[data-state="working"] {
+  --agent-live-dot: var(--color-accent);
+}
+
+.agent-live-dot[data-state="stopping"] {
+  --agent-live-dot: var(--color-danger);
+}
+
+.agent-live-dot[data-state="waiting"] {
+  --agent-live-dot: var(--color-warning);
+}
+
+.agent-live-dot[data-state="idle"] {
+  --agent-live-dot: var(--color-success);
+}
+
+@keyframes agent-live-shimmer {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+
+.agent-live-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-text-secondary) 35%,
+    var(--color-accent) 50%,
+    var(--color-text-secondary) 65%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: agent-live-shimmer 2.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-live-dot[data-state="working"],
+  .agent-live-dot[data-state="stopping"] {
+    animation: none;
+  }
+  .agent-live-shimmer {
+    animation: none;
+    background: none;
+    color: var(--color-text-secondary);
+  }
+}
+
+/* 内联决策托盘：分级提醒呼吸点 / 阻塞项到达闪烁 / 卡片入场 */
+@keyframes decision-tray-dot-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0
+      color-mix(in srgb, var(--decision-tray-dot, var(--color-accent)) 45%, transparent);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 0 6px transparent;
+    opacity: 0.6;
+  }
+}
+
+.decision-tray-dot {
+  --decision-tray-dot: var(--color-accent);
+  animation: decision-tray-dot-breathe 1.6s ease-in-out infinite;
+}
+
+.decision-tray-dot-urgent {
+  --decision-tray-dot: var(--color-warning);
+  animation: decision-tray-dot-breathe 1s ease-in-out infinite;
+}
+
+@keyframes decision-tray-flash {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 0 transparent;
+  }
+  35% {
+    box-shadow: inset 0 0 0 2px var(--color-warning);
+  }
+}
+
+.decision-tray-flash {
+  animation: decision-tray-flash 1s ease 2;
+}
+
+@keyframes decision-tray-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.decision-tray-card-in {
+  animation: decision-tray-card-in 0.28s ease;
+}
+
+/* Dock 收起把手上的阻塞气泡提示条 */
+@keyframes agent-dock-handle-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(8px, -50%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, -50%);
+  }
+}
+
+.agent-dock-handle-toast {
+  animation: agent-dock-handle-toast-in 0.4s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .decision-tray-dot,
+  .decision-tray-dot-urgent,
+  .decision-tray-flash,
+  .decision-tray-card-in,
+  .agent-dock-handle-toast {
+    animation: none;
+  }
+}
+
+@keyframes panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.panel-enter {
+  animation: panel-enter 0.35s ease both;
+}
+
+/* ── Model Config Modal ── */
+.model-config-modal .ant-modal-content {
+  border-radius: 16px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 25px 60px rgba(0,0,0,0.15) !important;
+}
+
+.model-config-modal .ant-modal-body {
+  padding: 0;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Glass card */
+.glass-card {
+  background: var(--color-bg-primary);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.glass-card:hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Segmented tabs */
+.segmented-tabs {
+  display: flex;
+  background: var(--color-bg-secondary);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.segmented-tab {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.segmented-tab:hover {
+  color: var(--color-text-secondary);
+}
+
+.segmented-tab.active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+/* Field label */
+.field-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-tertiary);
+  margin-bottom: 5px;
+}
+
+/* Desktop toggle switch */
+.desktop-toggle {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.desktop-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.desktop-toggle .track {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--color-bg-secondary);
+  border-radius: 10px;
+  transition: 0.2s;
+  border: 1px solid var(--color-border);
+}
+
+.desktop-toggle .thumb {
+  position: absolute;
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  bottom: 2px;
+  background: #fff;
+  border-radius: 50%;
+  transition: 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
+.desktop-toggle input:checked + .track {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.desktop-toggle input:checked + .track + .thumb,
+.desktop-toggle input:checked ~ .thumb {
+  transform: translateX(14px);
+}
+
+/* Test button */
+.test-btn {
+  font-size: 12px !important;
+  height: 30px !important;
+  padding-inline: 12px !important;
+  border-radius: 6px !important;
+}
+
+.test-status {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.test-status.ok {
+  color: var(--color-success);
+}
+
+.test-status.fail {
+  color: var(--color-danger);
+}
+
+/* Action bar */
+.action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+}
+
+/* 审阅定位强调：在待审模块框自身上做「忽闪 → 变灭」的整框发光脉冲。
+   用一个贴合圆角、覆盖整框的叠加层（inset:0），同时叠加：整框底色染色 +
+   内投影(inset)自发光 + 边框 + 外发光，四者一起脉冲，让整个模块从内到外
+   均匀变亮/变暗，四条边宽度一致；闪三下后自然消失。 */
+@keyframes slide-progress {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+@keyframes plan-progress {
+  0%   { width: 0%; }
+  30%  { width: 60%; }
+  70%  { width: 83%; }
+  100% { width: 92%; }
+}
+
+@keyframes review-flash {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.review-flash,
+.review-flash-pulse,
+.review-flash-query {
+  position: relative;
+}
+
+.review-flash::after,
+.review-flash-pulse::after,
+.review-flash-query::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 2px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  box-shadow:
+    inset 0 0 60px 8px color-mix(in srgb, var(--color-accent) 40%, transparent),
+    0 0 26px 4px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  opacity: 0;
+  animation: review-flash 0.75s ease-in-out 3;
+}
+
+/* Text ellipsis utility */
+.text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+}
+
+/* 工作区空状态：Agent 工作中动效（时间轴/时间线内容在 project 尚未写入时的
+   "进行中"反馈，消除卡住错觉）。 */
+@keyframes agent-working-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes agent-working-dots {
+  0% {
+    content: "";
+  }
+  25% {
+    content: ".";
+  }
+  50% {
+    content: "..";
+  }
+  75% {
+    content: "...";
+  }
+}
+
+.agent-working-breathe {
+  animation: agent-working-breathe 2s ease-in-out infinite;
+}
+
+.agent-working-dots::after {
+  content: "";
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: agent-working-dots 1.5s steps(1) infinite;
+}
+
+.agent-working-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.agent-working-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+  opacity: 0.65;
+  animation: slide-progress 1.4s ease-in-out infinite;
+}
+
+/* 时间轴轨道块：Element 产物生成中的斜纹流动动效（颜色跟随类型色）。 */
+@keyframes element-generating-stripes {
+  to {
+    background-position: 17px 0;
+  }
+}
+
+.element-generating-stripes {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent 0 8px,
+    currentColor 8px 12px
+  );
+  opacity: 0.18;
+  animation: element-generating-stripes 0.9s linear infinite;
+}
