@@ -121,6 +121,7 @@
     "settings": "设置",
     "models": "模型",
     "environments": "环境变量",
+    "offloadPolicy": "工具后台策略",
     "security": "安全",
     "tokenUsage": "Token 消耗",
     "agentStats": "智能体统计",
@@ -2278,6 +2279,15 @@
     },
     "saveLevelSuccess": "工具执行安全级别已保存",
     "saveLevelFailed": "保存工具执行安全级别失败",
+    "offloadPolicy": {
+      "title": "工具后台执行策略",
+      "alertMessage": "这是全局设置（settings.json），不是按 Agent 独立配置。用于控制工具到达转入后台时限后的默认行为；用户仍可在工具运行时通过控制面板临时覆盖。",
+      "keepForeground": "保持前台执行",
+      "keepForegroundDesc": "倒计时结束后工具继续在前台运行，不自动转入后台。适合需要实时查看输出的场景。",
+      "offload": "自动转入后台",
+      "offloadDesc": "倒计时结束后工具自动转入后台执行，Agent 可继续处理其他任务。适合长时间运行的工具。",
+      "saveFailed": "保存策略失败"
+    },
     "maxContextLength": "最大上下文长度",
     "maxContextLengthTooltip": "模型上下文窗口的最大 token 数，决定每次请求能携带的最大历史长度",
     "maxContextLengthRequired": "最大上下文长度为必填项",
@@ -3279,7 +3289,72 @@
       "submitted": "已提交"
     },
     "execute": "执行 {{tool}}",
-    "executeDefault": "执行 工具"
+    "executeDefault": "执行 工具",
+    "control": {
+      "title": "工具执行中 · 是否转后台？",
+      "offload": "转入后台",
+      "keep": "保持前台",
+      "extendOffload": "推迟转后台",
+      "extendKill": "延长执行超时",
+      "cancel": "取消执行",
+      "autoAction": "{{seconds}}秒后自动执行默认操作：",
+      "noCountdown": "无倒计时 · 默认操作：",
+      "policyOffload": "转入后台",
+      "policyKeep": "不转后台",
+      "manage": "后台管理",
+      "offloadMode": {
+        "title": "工具执行较久 · 即将转入后台",
+        "offloadNow": "立即转入后台",
+        "preventOffload": "禁止转入后台",
+        "delayOffload": "延迟转入后台",
+        "countdownCaption": "后自动转入后台",
+        "footerNoCountdown": "无倒计时 · 默认将转入后台",
+        "ringAria": "距自动转入后台还剩 {{seconds}} 秒",
+        "toastAuto": "已自动转入后台",
+        "preventedTitle": "已禁止自动转入后台",
+        "preventedFooter": "不会自动转入后台；可手动转入后台或取消执行"
+      },
+      "keepMode": {
+        "title": "工具仍在前台执行",
+        "offload": "转入后台",
+        "countdownCaption": "后收起本面板",
+        "footerNoCountdown": "默认保持前台；可随时手动转入后台",
+        "ringAria": "面板将在 {{seconds}} 秒后收起",
+        "toastDismiss": "已收起提醒，工具继续前台执行"
+      },
+      "toast": {
+        "offloaded": "工具已转入后台",
+        "keepWaiting": "继续前台等待…",
+        "extended": "已延迟转入后台，+30 秒后再次提示",
+        "killExtended": "执行超时已延长 30 秒",
+        "cancelled": "工具调用已取消",
+        "cancelFailed": "取消工具失败",
+        "actionFailed": "操作失败。工具可能已结束，或请求被拒绝。",
+        "notFound": "找不到该工具调用（可能已结束）。",
+        "conflict": "操作被拒绝（工具状态已变化或已达上限）。",
+        "networkError": "网络错误，请检查连接后重试。",
+        "bgComplete": "后台工具已完成：{{tool}}",
+        "bgCancelled": "后台工具已取消：{{tool}}"
+      },
+      "hint": {
+        "completed": "工具 {{tool}} 已在后台完成",
+        "cancelled": "工具 {{tool}} 已取消"
+      },
+      "bgQueue": {
+        "title": "后台任务",
+        "running": "运行中",
+        "done": "已完成",
+        "cancelled": "已取消",
+        "totalDuration": "总耗时",
+        "cancel": "取消",
+        "remove": "移除",
+        "cancelAll": "全部取消",
+        "clearAll": "全部清除",
+        "cancelAllDone": "已取消全部运行中任务",
+        "clearAllDone": "已清除后台任务列表",
+        "noOutput": "暂无输出"
+      }
+    }
   },
   "preview": {
     "error": {

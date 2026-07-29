@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import ChatSessionDrawer from "./index";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
+import { useAgentStore } from "../../../../stores/agentStore";
 
 // Mock react-window's VariableSizeList to render all items directly
 // (jsdom has no layout, so the virtual list never renders rows).
@@ -81,6 +82,9 @@ vi.mock("../../sessionApi", () => ({
     finishSessionSwitch: vi.fn(),
     lastNavigatedChatId: null,
     getEffectiveSessionId: mockGetEffectiveSessionId,
+    // Ownership epoch helpers: tests run under a single stable owner.
+    getActiveOwner: vi.fn(() => ({ agentId: "default", generation: 0 })),
+    isActiveOwner: vi.fn(() => true),
   },
 }));
 
@@ -208,6 +212,10 @@ function withSession(overrides: Record<string, unknown> = {}) {
 }
 
 describe("ChatSessionDrawer", () => {
+  beforeEach(() => {
+    useAgentStore.setState({ selectedAgent: "default" });
+  });
+
   afterEach(() => vi.clearAllMocks());
 
   it("renders nothing when open=false", () => {
@@ -343,6 +351,50 @@ describe("ChatSessionDrawer", () => {
   it("on open=true triggers session list refresh", async () => {
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
     await vi.waitFor(() => expect(mockGetSessionList).toHaveBeenCalled());
+  });
+
+  it("clears stale sessions and reloads when the selected agent changes", async () => {
+    let resolveAgentB!: (sessions: Array<Record<string, unknown>>) => void;
+    const agentBList = new Promise<Array<Record<string, unknown>>>(
+      (resolve) => {
+        resolveAgentB = resolve;
+      },
+    );
+
+    mockGetSessionList
+      .mockResolvedValueOnce([
+        {
+          id: "agent-a-chat",
+          name: "Agent A Chat",
+          updatedAt: new Date().toISOString(),
+        },
+      ])
+      .mockReturnValueOnce(agentBList);
+
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+    await screen.findByText("Agent A Chat");
+
+    act(() => {
+      useAgentStore.setState({ selectedAgent: "agent-b" });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Agent A Chat")).not.toBeInTheDocument();
+      expect(mockGetSessionList).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      resolveAgentB([
+        {
+          id: "agent-b-chat",
+          name: "Agent B Chat",
+          updatedAt: new Date().toISOString(),
+        },
+      ]);
+      await agentBList;
+    });
+
+    expect(await screen.findByText("Agent B Chat")).toBeInTheDocument();
   });
 
   it("pinned sessions sort before unpinned", async () => {

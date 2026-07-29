@@ -121,6 +121,7 @@
     "settings": "Settings",
     "models": "Models",
     "environments": "Environments",
+    "offloadPolicy": "Tool Offload",
     "security": "Security",
     "tokenUsage": "Token Usage",
     "agentStats": "Agent Statistics",
@@ -2419,6 +2420,15 @@
     },
     "saveLevelSuccess": "Tool execution security level saved",
     "saveLevelFailed": "Failed to save tool execution security level",
+    "offloadPolicy": {
+      "title": "Tool Background Execution",
+      "alertMessage": "This is a global setting (settings.json), not per-agent. It controls the default action when a tool reaches its offload deadline. Users can override it from the tool control panel while a tool is running.",
+      "keepForeground": "Keep Foreground",
+      "keepForegroundDesc": "After the countdown expires, the tool continues running in the foreground without auto-offloading. Suitable for scenarios requiring real-time output monitoring.",
+      "offload": "Auto Offload to Background",
+      "offloadDesc": "After the countdown expires, the tool is automatically moved to background execution, allowing the Agent to continue processing other tasks. Suitable for long-running tools.",
+      "saveFailed": "Failed to save policy"
+    },
     "maxContextLength": "Max Context Length",
     "maxContextLengthTooltip": "Maximum token count for the model context window, determining how much history fits in each request",
     "maxContextLengthRequired": "Max context length is required",
@@ -3260,7 +3270,72 @@
       "submitted": "Submitted"
     },
     "execute": "Run {{tool}}",
-    "executeDefault": "Run tool"
+    "executeDefault": "Run tool",
+    "control": {
+      "title": "Tool running — offload to background?",
+      "offload": "Move to background",
+      "keep": "Keep Foreground",
+      "extendOffload": "Delay Offload",
+      "extendKill": "Extend timeout",
+      "cancel": "Cancel",
+      "autoAction": "{{seconds}}s until default action: ",
+      "noCountdown": "No countdown · Default: ",
+      "policyOffload": "Offload",
+      "policyKeep": "Keep Foreground",
+      "manage": "Manage",
+      "offloadMode": {
+        "title": "Tool running longer — about to offload",
+        "offloadNow": "Move to background now",
+        "preventOffload": "Don't auto-offload",
+        "delayOffload": "Delay offload",
+        "countdownCaption": "until auto-offload",
+        "footerNoCountdown": "No countdown · Default: offload",
+        "ringAria": "{{seconds}}s until auto-offload",
+        "toastAuto": "Moved to background automatically",
+        "preventedTitle": "Auto-offload disabled",
+        "preventedFooter": "Won't auto-offload; you can move to background or cancel"
+      },
+      "keepMode": {
+        "title": "Tool still running in foreground",
+        "offload": "Move to background",
+        "countdownCaption": "until panel closes",
+        "footerNoCountdown": "Stays in foreground by default; you can move to background anytime",
+        "ringAria": "Panel closes in {{seconds}}s",
+        "toastDismiss": "Reminder closed; tool keeps running in foreground"
+      },
+      "toast": {
+        "offloaded": "Tool moved to background",
+        "keepWaiting": "Continuing to wait…",
+        "extended": "Offload delayed; will remind you in +30s",
+        "killExtended": "Timeout extended by 30s",
+        "cancelled": "Tool call cancelled",
+        "cancelFailed": "Failed to cancel tool",
+        "actionFailed": "Action failed. The tool may have finished or the request was rejected.",
+        "notFound": "Tool call not found (it may have already finished).",
+        "conflict": "Action rejected (tool state changed or limit reached).",
+        "networkError": "Network error. Check your connection and try again.",
+        "bgComplete": "Background tool complete: {{tool}}",
+        "bgCancelled": "Background tool cancelled: {{tool}}"
+      },
+      "hint": {
+        "completed": "Tool {{tool}} completed in background",
+        "cancelled": "Tool {{tool}} cancelled"
+      },
+      "bgQueue": {
+        "title": "Background tasks",
+        "running": "Running",
+        "done": "Done",
+        "cancelled": "Cancelled",
+        "totalDuration": "Total",
+        "cancel": "Cancel",
+        "remove": "Remove",
+        "cancelAll": "Cancel all",
+        "clearAll": "Clear all",
+        "cancelAllDone": "Cancelled all running tasks",
+        "clearAllDone": "Cleared background task list",
+        "noOutput": "No output yet"
+      }
+    }
   },
   "preview": {
     "error": {

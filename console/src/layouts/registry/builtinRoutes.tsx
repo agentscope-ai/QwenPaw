@@ -42,6 +42,9 @@ const ModelsPage = lazyImportWithRetry("../../pages/Settings/Models");
 const EnvironmentsPage = lazyImportWithRetry(
   "../../pages/Settings/Environments",
 );
+const OffloadPolicyPage = lazyImportWithRetry(
+  "../../pages/Settings/OffloadPolicy",
+);
 const SecurityPage = lazyImportWithRetry("../../pages/Settings/Security");
 const TokenUsagePage = lazyImportWithRetry("../../pages/Settings/TokenUsage");
 const AgentStatsPage = lazyImportWithRetry("../../pages/Settings/AgentStats");
@@ -101,6 +104,11 @@ export const BUILTIN_ROUTES: Route[] = [
     id: "core.environments",
     path: "/environments",
     component: EnvironmentsPage,
+  },
+  {
+    id: "core.offload-policy",
+    path: "/offload-policy",
+    component: OffloadPolicyPage,
   },
   {
     id: "core.agent-config",
