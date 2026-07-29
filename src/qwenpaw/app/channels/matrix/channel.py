@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import html
-import importlib
 import inspect
 import io
 import logging
@@ -51,6 +50,7 @@ from nio import (
     ToDeviceError,
     UploadResponse,
 )
+from nio.crypto import ENCRYPTION_ENABLED
 from nio.event_builders.direct_messages import ToDeviceMessage
 from nio.events.to_device import RoomKeyRequest, RoomKeyRequestCancellation
 from nio.responses import (
@@ -424,34 +424,28 @@ class MatrixChannel(BaseChannel):
         )
 
     def _preflight_e2ee_dependencies(self) -> None:
-        """Probe an E2EE crypto backend before creating AsyncClientConfig;
-        disable E2EE if none is available.
+        """Disable E2EE if matrix-nio has no crypto backend available.
 
-        matrix-nio's modern E2EE uses ``vodozemac`` (installed via the
-        ``matrix-nio[e2e]`` extra) and works on Python 3.12+. The legacy
-        ``olm`` Python bindings are also supported but depend on ``jsmin``,
-        which no longer builds on Python 3.12 (see #6476), so probe
-        vodozemac first and fall back to olm.
+        Check ``nio.crypto.ENCRYPTION_ENABLED`` — the exact flag
+        ``AsyncClientConfig`` validates against — rather than probing
+        module names, so this can never disagree with what matrix-nio
+        actually does across versions (0.25 checks ``olm``, 0.26 checks
+        ``vodozemac``). Probing module names risks enabling encryption
+        when the installed matrix-nio can't use the backend, which makes
+        ``AsyncClientConfig.__post_init__`` raise ``ImportWarning`` and
+        crashes channel startup (see #6476 review feedback).
         """
         if not self.encryption:
             return
-        try:
-            importlib.import_module("vodozemac")
+        if ENCRYPTION_ENABLED:
             return
-        except ImportError:
-            pass
-        try:
-            importlib.import_module("olm")
-            return
-        except ImportError:
-            logger.error(
-                "MatrixChannel: no E2EE crypto backend installed — "
-                "falling back to non-encrypted mode. To enable E2EE: "
-                "pip install 'matrix-nio[e2e]' (vodozemac; works on "
-                "Python 3.12+). The legacy `olm` backend is also "
-                "supported but is broken on Python 3.12+.",
-            )
-            self.encryption = False
+        logger.error(
+            "MatrixChannel: matrix-nio has no E2EE backend available "
+            "— falling back to non-encrypted mode. To enable E2EE: "
+            "pip install 'matrix-nio[e2e]' (matrix-nio >= 0.26 on "
+            "Python 3.12+).",
+        )
+        self.encryption = False
 
     def _init_async_client(self, resolved_device_id: str) -> None:
         # E2EE: when encryption is enabled, provide store_path so matrix-nio
