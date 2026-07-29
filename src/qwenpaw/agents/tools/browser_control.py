@@ -5165,6 +5165,10 @@ async def browser_use(  # pylint: disable=R0911,R0912
             "--proxy-server=http://127.0.0.1:7890". Multiple args separated by
             space. Applied to all launch paths (headless, headed, managed CDP).
             Default empty string (no extra args).
+            `--remote-debugging-port` and `--remote-debugging-address` are
+            rejected in any prefix form; use the cdp_port parameter instead.
+            All other arguments pass through as-is, so this parameter carries
+            full local command-line power and is not a security boundary.
         executable_path (str):
             Custom browser executable path, e.g.
             "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe".
@@ -5229,6 +5233,11 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 executable_path=executable_path,
             )
         if action == "stop":
+            # An explicit stop ends the session, so the recorded launch intent
+            # must not survive it: a later _ensure_browser has to fall back to
+            # the no-debug-port default instead of replaying an old cdp_port.
+            state.pop("_expose_cdp", None)
+            state.pop("_cdp_port", None)
             return await _action_stop(state)
         if action == "connect_cdp":
             return await _action_connect_cdp(state, cdp_url)
