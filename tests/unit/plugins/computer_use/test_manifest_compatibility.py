@@ -9,7 +9,13 @@ from packaging.version import Version
 from qwenpaw._version_compat import check_plugin_version_compat
 from qwenpaw.plugins.architecture import PluginManifest
 
-_MANIFEST = Path(__file__).resolve().parents[1] / "plugin.json"
+_MANIFEST = (
+    Path(__file__).resolve().parents[4]
+    / "plugins"
+    / "tool"
+    / "computer-use"
+    / "plugin.json"
+)
 
 
 def _manifest_range() -> tuple[str, str]:

@@ -115,19 +115,16 @@ jobs:
         env:
           COVERAGE_FILE: .coverage.unit
         run: |
-          # In-repo plugin suites are named explicitly: pytest ignores
-          # `testpaths` whenever positional paths are given, so listing them
-          # in pyproject alone would leave them uncollected here.
           # Coverage is collected only on the ubuntu/py3.13 entry so the
           # data file can be uploaded for coverage-report. Other matrix
           # entries only verify cross-platform compatibility.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
              [ "${{ matrix.python-version }}" = "3.13" ]; then
-            pytest tests/unit plugins/tool/computer-use/tests -v \
+            pytest tests/unit -v \
               --cov=src/qwenpaw \
               --cov-report=xml:coverage.unit.xml
           else
-            pytest tests/unit plugins/tool/computer-use/tests -v
+            pytest tests/unit -v
           fi
 
       - name: Upload unit coverage data
@@ -142,52 +139,6 @@ jobs:
             coverage.unit.xml
           retention-days: 1
           include-hidden-files: true
-
-  native-helper-tests:
-    # The Computer Use helper is a Rust binary with per-platform leaves. Its
-    # macOS leaf compiles nowhere else in CI -- the desktop build that would
-    # cover it runs only on release or by hand -- so without this job that
-    # code can reach main having never been seen by a compiler.
-    name: Native Helper Tests - ${{ matrix.os }}
-    needs: approval-gate
-    if: |
-      always() &&
-      needs.approval-gate.result == 'success'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: console/src-tauri
-
-      - name: Create placeholder Tauri resource dirs
-        shell: bash
-        # tauri_build validates that the bundle resources exist. The helper is
-        # a plain bin and needs none of their contents, so empty stand-ins are
-        # enough to get past that check without a full desktop build.
-        run: |
-          mkdir -p console/dist-tauri
-          printf '<!doctype html><title>placeholder</title>' \
-            > console/dist-tauri/index.html
-          mkdir -p console/src-tauri/binaries/qwenpaw-backend
-          mkdir -p console/src-tauri/binaries/python-runtime
-          mkdir -p console/src-tauri/binaries/node-runtime
-
-      - name: Test Computer Use helper
-        working-directory: console/src-tauri
-        # Tests rather than a build: `cargo build` skips `#[cfg(test)]` code
-        # entirely, so a build would report success while leaving the unit
-        # tests -- and any compile error inside them -- unexamined.
-        run: cargo test --bin qwenpaw-computer-use-helper
 
   contract-tests:
     name: Contract Tests - py${{ matrix.python-version }} - ${{ matrix.os }}

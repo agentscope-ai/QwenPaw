@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 import json
 import socket
 import threading
@@ -39,7 +39,7 @@ from qwenpaw.app.computer_use import runtime as runtime_module
 
 
 @pytest.fixture(autouse=True)
-def _reset_host_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+def _reset_host_runtime(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     for name in (
         "QWENPAW_COMPUTER_USE_PIPE",
         "QWENPAW_COMPUTER_USE_CAPABILITY",
@@ -501,7 +501,9 @@ def test_compact_elements_preserves_protocol_fields() -> None:
         'uia-0 Window "Editor" @50,50\nuia-1 Button "OK" @20,20'
     )
     # The original payload must not be mutated.
-    assert isinstance(payload["accessibility"]["elements"], list)
+    accessibility = payload["accessibility"]
+    assert isinstance(accessibility, Mapping)
+    assert isinstance(accessibility["elements"], list)
 
 
 def test_compact_elements_ignores_payloads_without_accessibility() -> None:

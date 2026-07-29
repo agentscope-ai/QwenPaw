@@ -21,6 +21,7 @@ import threading
 import time
 import uuid
 from ctypes import wintypes
+from typing import Any
 
 import pytest
 
@@ -109,6 +110,7 @@ class _MockHelper:
             message = json.loads(body.decode("utf-8"))
             method = message.get("method")
             request_id = message.get("request_id")
+            result: dict[str, Any]
             if method == "hello":
                 result = {"protocol_version": 1}
             elif method == "list_apps":

@@ -93,20 +93,17 @@ jobs:
         env:
           COVERAGE_FILE: .coverage.unit
         run: |
-          # In-repo plugin suites are named explicitly: pytest ignores
-          # `testpaths` whenever positional paths are given, so listing them
-          # in pyproject alone would leave them uncollected here.
           # Coverage is collected only on the ubuntu/py3.13 entry so the
           # data file can be uploaded for coverage-report. Other matrix
           # entries only verify cross-platform compatibility.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
              [ "${{ matrix.python-version }}" = "3.13" ]; then
-            pytest tests/unit plugins/tool/computer-use/tests -v \
+            pytest tests/unit -v \
               --cov=src/qwenpaw \
               --cov-report=xml:coverage.unit.xml \
               --cov-fail-under=0
           else
-            pytest tests/unit plugins/tool/computer-use/tests -v
+            pytest tests/unit -v
           fi
 
       - name: Upload unit coverage data
