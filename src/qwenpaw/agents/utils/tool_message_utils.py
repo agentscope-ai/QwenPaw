@@ -433,6 +433,90 @@ def _repair_empty_tool_inputs(
     return result if changed else msgs
 
 
+def _repair_role_block_mismatch(msgs: list) -> list:
+    """Fix messages with a role/block-type mismatch that cause provider 400s.
+
+    AgentScope 2.0 uses the roles ``user``, ``assistant``, and ``system``
+    for all messages; tool-call and tool-result blocks are carried inside
+    ``role=assistant`` messages (either self-paired or interleaved with
+    ``role=assistant`` text turns).  Some provider formatters still reject
+    a ``role=assistant`` message whose *entire* content is tool-result
+    blocks with no matching tool_call anywhere in the context — this is
+    the orphan-tool-result + no-tool-call case that surfaces as
+    ``400: Messages with role 'tool' must be a response to a preceding
+    message with 'tool_calls'``.
+
+    ``_remove_unpaired_tool_messages`` already strips the truly unpaired
+    cases.  What this helper addresses is the near-miss edge cases in
+    earlier pipeline stages so the subsequent pairing logic stands a
+    better chance of matching them:
+
+    * A message whose content is exclusively tool-result blocks AND for
+      which a preceding (not necessarily immediately preceding) tool_call
+      exists — leave untouched; the pairing logic will associate it.
+    * A message whose content is exclusively tool-result blocks AND no
+      tool_call for any of its IDs exists anywhere in the message list:
+      mark the content with a sentinel so downstream dedup/unpair logic
+      can drop it cheaply without re-scanning.
+
+    Returns the original list unchanged if no repair was needed.
+    """
+    # Collect all call IDs that appear anywhere in the list.
+    all_call_ids: set[str] = set()
+    for msg in msgs:
+        content = getattr(msg, "content", None)
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if _is_tool_call(block):
+                bid = _block_attr(block, "id")
+                if bid:
+                    all_call_ids.add(bid)
+
+    changed = False
+    repaired: list = []
+    for msg in msgs:
+        content = getattr(msg, "content", None)
+        if not isinstance(content, list):
+            repaired.append(msg)
+            continue
+        has_calls = any(_is_tool_call(b) for b in content)
+        has_results = any(_is_tool_result(b) for b in content)
+
+        # Fast path: no tool blocks at all, or a well-formed mixed message
+        # (calls + results in the same turn → self-paired AgentScope 2.0).
+        if not has_results or has_calls:
+            repaired.append(msg)
+            continue
+
+        # Pure tool-result message. If NONE of its result IDs have a
+        # matching call_id in the entire list, tag every block with a
+        # private "orphan" attribute that _dedup_tool_blocks can see so
+        # we drop it in the next pipeline stage.
+        result_ids = {
+            _block_attr(b, "id")
+            for b in content
+            if _is_tool_result(b) and _block_attr(b, "id")
+        }
+        if result_ids and result_ids.isdisjoint(all_call_ids):
+            for block in content:
+                if _is_tool_result(block):
+                    try:
+                        if isinstance(block, dict):
+                            block["__qp_orphan__"] = True
+                        else:
+                            # Pydantic model — setattr is fine on Extra.allow
+                            # models; otherwise this is best-effort and the
+                            # orphan will still be dropped later by
+                            # _remove_unpaired_tool_messages.
+                            object.__setattr__(block, "__qp_orphan__", True)
+                    except Exception:
+                        pass
+            changed = True
+        repaired.append(msg)
+    return repaired if changed else msgs
+
+
 # pylint: disable=too-many-branches,too-many-statements
 def _coerce_tool_inputs_to_json(msgs: list) -> list:
     """Ensure every tool_call block's ``input`` field is a valid JSON string.
@@ -575,15 +659,27 @@ def _sanitize_tool_messages(msgs: list) -> list:
     """Ensure tool_use/tool_result messages are properly paired and ordered.
 
     Returns the original list unchanged if no fix is needed.
+
+    Pipeline order:
+      1. Fix role/block-type mismatches (e.g. ``tool_result`` blocks
+         stuck in a ``role=assistant`` message, or ``tool_call`` blocks
+         stuck in ``role=tool``).
+      2. Repair tool_use blocks with empty input but valid raw_input.
+      3. Coerce tool_call inputs to valid JSON strings.
+      4. Remove invalid tool blocks (empty id / None name).
+      5. Remove duplicate tool blocks by id.
+      6. If pairing/ordering is still broken, reorder and strip orphans.
     """
-    # First, repair tool_use blocks with empty input but valid raw_input
+    # 1. Role/block mismatches must be fixed FIRST — the pairing logic in
+    #    later steps only looks at block types and assumes role is correct.
+    msgs = _repair_role_block_mismatch(msgs)
+    # 2.
     msgs = _repair_empty_tool_inputs(msgs)
-    # Coerce all tool_call input fields to valid JSON strings so that
-    # providers (DashScope, OpenAI, etc.) do not reject the request.
+    # 3.
     msgs = _coerce_tool_inputs_to_json(msgs)
-    # Then, remove invalid tool blocks (empty id, None name, etc.)
+    # 4.
     msgs = _remove_invalid_tool_blocks(msgs)
-    # Finally, remove duplicate tool blocks
+    # 5.
     msgs = _dedup_tool_blocks(msgs)
 
     pending: dict[str, int] = {}

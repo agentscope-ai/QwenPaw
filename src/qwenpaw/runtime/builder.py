@@ -1119,13 +1119,28 @@ class AgentBuilder:
     ) -> list[Any]:
         """Build middleware list.
 
-        Order (onion model, outermost first):
-        1. ToolResultPruningMiddleware — tiered tool result pruning
-        2. ToolCoordinatorMiddleware — tool call lifecycle management
-        3. Plugin-registered middlewares (sorted by priority)
-        4. VisualCompressionMiddleware — innermost pre-provider transform
+        Order (onion model, outermost first — so on_model_call runs in
+        REVERSE order, with the innermost-middleware-on-paper running
+        LAST right before the provider):
+        1. ToolSanitizerMiddleware — last-mile tool-message sanitization
+           before the actual provider call.
+        2. ToolResultPruningMiddleware — tiered tool result pruning
+        3. ToolCoordinatorMiddleware — tool call lifecycle management
+        4. Plugin-registered middlewares (sorted by priority)
+        5. VisualCompressionMiddleware — innermost pre-provider transform
         """
         mws: list[Any] = []
+
+        # ToolSanitizerMiddleware: final safety net before every model call.
+        try:
+            from ..agents.middlewares import ToolSanitizerMiddleware
+
+            mws.append(ToolSanitizerMiddleware())
+        except Exception:
+            _logger.debug(
+                "ToolSanitizerMiddleware not created",
+                exc_info=True,
+            )
 
         pruning_middleware = None
         try:

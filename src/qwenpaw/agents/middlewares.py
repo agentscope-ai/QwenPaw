@@ -10,6 +10,9 @@ agentscope's ``MiddlewareBase`` hooks.
 
 Currently provided:
 
+* :class:`ToolSanitizerMiddleware` — last-mile tool-message sanitization
+  immediately before each model call, fixing role/block mismatches and
+  orphan tool_results that can cause provider ``400`` errors.
 * :class:`ToolResultPruningMiddleware` — truncation of current and historical
   tool-call outputs so oversized results don't exhaust the context budget.
 """
@@ -369,6 +372,61 @@ class MemoryMiddleware(MiddlewareBase):
             for msg in messages[first_idx:end_idx]
             if msg.role != "user" or cls._is_external_user_query(msg)
         ]
+
+
+class ToolSanitizerMiddleware(MiddlewareBase):
+    """Last-mile sanitization of tool messages before every model call.
+
+    This middleware is the **final safety net** that catches corruption
+    introduced by any upstream path (session deserialization, scroll
+    strategy partial snapshots, legacy migrations, interrupted writes,
+    or middlewares that synthesize messages without running the
+    dedicated sanitizer).
+
+    What it fixes (see ``_sanitize_tool_messages`` for full pipeline):
+      * Orphan ``tool_result`` blocks with no matching ``tool_call``.
+      * Duplicate tool_call / tool_result blocks sharing an ID.
+      * Invalid tool blocks (missing ``id`` or ``name``).
+      * ``tool_call`` input fields that are not valid JSON strings.
+      * ``role`` / block-type mismatches: a ``role=assistant`` message
+        that only carries ``tool_result`` blocks (should be ``role=tool``)
+        and the inverse.
+    """
+
+    async def on_model_call(
+        self,
+        agent: "Agent",  # pylint: disable=unused-argument
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., Any],
+    ) -> Any:
+        messages = input_kwargs.get("messages")
+        if isinstance(messages, list) and messages:
+            try:
+                from .utils.tool_message_utils import (
+                    _sanitize_tool_messages,
+                )
+
+                sanitized = _sanitize_tool_messages(messages)
+                if sanitized is not messages:
+                    logger.info(
+                        "ToolSanitizerMiddleware: repaired %d → %d messages "
+                        "in on_model_call (role mismatch, orphans, dupes, "
+                        "invalid inputs)",
+                        len(messages),
+                        len(sanitized),
+                    )
+                    input_kwargs["messages"] = sanitized
+            except Exception:
+                # Never let a sanitizer bug crash a model call — the
+                # provider will raise a clear 400 if the message list is
+                # truly unsalvageable, which is easier to diagnose than a
+                # middle-of-stack middleware crash.
+                logger.debug(
+                    "ToolSanitizerMiddleware: sanitize failed, passing "
+                    "through",
+                    exc_info=True,
+                )
+        return await next_handler(**input_kwargs)
 
 
 class ToolResultPruningMiddleware(MiddlewareBase):
