@@ -144,4 +144,3 @@ pub(crate) fn close_window(
     }
     Ok(json!({"closed": false}))
 }
-

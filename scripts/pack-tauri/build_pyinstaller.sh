@@ -163,6 +163,14 @@ if [ "$(uname -s)" = "Darwin" ]; then
     TAURI_DIR="${REPO_ROOT}/console/src-tauri"
     (cd "${TAURI_DIR}" && cargo build --release --bin qwenpaw-computer-use-helper)
     TARGET_DIR="${CARGO_TARGET_DIR:-${TAURI_DIR}/target}"
+    # Cargo ran in TAURI_DIR, so a relative CARGO_TARGET_DIR is relative to
+    # there and not to wherever this script was invoked from. Without this the
+    # helper builds and then cannot be found, which the PowerShell packer
+    # already accounts for.
+    case "${TARGET_DIR}" in
+        /*) ;;
+        *) TARGET_DIR="${TAURI_DIR}/${TARGET_DIR}" ;;
+    esac
     HELPER_BIN="${TARGET_DIR}/release/qwenpaw-computer-use-helper"
     if [ ! -f "${HELPER_BIN}" ]; then
         echo "ERROR: Computer Use helper not found at ${HELPER_BIN}"

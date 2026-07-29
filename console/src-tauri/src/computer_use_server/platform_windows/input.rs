@@ -504,4 +504,3 @@ mod tests {
         assert!(parse_key_sequence("").is_err());
     }
 }
-
