@@ -22,6 +22,7 @@ import GenericToolCard from "../cards/GenericToolCard";
 // Helpers
 // ---------------------------------------------------------------------------
 
+const STREAM_INPUT_PREVIEW_CHARS = 4 * 1024;
 const ERROR_STATUSES = new Set(["failed", "rejected", "canceled"]);
 const TOOL_ERROR_STATES = new Set(["error", "interrupted", "denied"]);
 
@@ -96,13 +97,22 @@ function parseV1Props(v1Props: Record<string, unknown>): {
   // Extract arguments (may be a JSON string or an object)
   let params: Record<string, unknown> = {};
   const rawArgs = callData.arguments;
-  if (typeof rawArgs === "string") {
+  const isInputStreaming = callItem?.delta === true;
+  const inputProgress =
+    isInputStreaming && typeof rawArgs === "string"
+      ? {
+          characterCount: rawArgs.length,
+          preview: rawArgs.slice(-STREAM_INPUT_PREVIEW_CHARS),
+          truncated: rawArgs.length > STREAM_INPUT_PREVIEW_CHARS,
+        }
+      : undefined;
+  if (!isInputStreaming && typeof rawArgs === "string") {
     try {
       params = JSON.parse(rawArgs);
     } catch {
       params = {};
     }
-  } else if (rawArgs && typeof rawArgs === "object") {
+  } else if (!isInputStreaming && rawArgs && typeof rawArgs === "object") {
     params = rawArgs as Record<string, unknown>;
   }
 
@@ -113,8 +123,12 @@ function parseV1Props(v1Props: Record<string, unknown>): {
   // Message-level status on *_call messages reflects delivery, not execution.
   const status = deriveToolStatus(resultItem, data);
 
-  // Extract id
+  // Extract id — prefer call_id which carries the ToolCallBlock.id
+  // (e.g. "toolu_…" / "call_…") from the AgentScope SSE stream.
+  // It is set in the backend at FunctionCall.call_id
+  // (see agentscope/message.py → FunctionCall dataclass).
   const toolId =
+    (callData.call_id as string) ||
     (callData.id as string) ||
     (data.id as string) ||
     `v1-${toolName}-${Date.now()}`;
@@ -125,6 +139,7 @@ function parseV1Props(v1Props: Record<string, unknown>): {
     name: toolName,
     serverLabel: (callData.server_label as string) || undefined,
     params,
+    inputProgress,
     result: result ?? undefined,
     status,
   };

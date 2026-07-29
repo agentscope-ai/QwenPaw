@@ -60,6 +60,8 @@
 
 ## Новости
 
+- [2026-07-24] **v2.0.1** | Платформа мини-приложений PawApp, редактируемые Agent Mode, Oh-My-Paw plugins, улучшения памяти ReMe, улучшения UX десктопа и др. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+
 - [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Полностью переписанный на основе AgentScope 2.0: архитектура Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory и встроенный TUI.
 
   | Основное | Что нового |
@@ -485,7 +487,7 @@ cp -R console/dist/. src/qwenpaw/console/
 pip install -e .
 ```
 
-- **Разработка** (тесты, форматирование): `pip install -e ".[dev,full]"`
+- **Разработка** (тесты, форматирование): `pip install -e ".[dev,test,full]"`
 - **Затем**: Выполните `qwenpaw init --defaults`, затем `qwenpaw app`.
 
 > **Примечание при обновлении:** При обновлении до новой мажорной версии после `git pull` пересоберите frontend, переустановите пакет (`pip install -e .`), перезапустите `qwenpaw app` и очистите кэш браузера (`Ctrl+Shift+R` или `Cmd+Shift+R` на macOS).

@@ -6,9 +6,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..shared.role_prompts import format_batch_item, format_spawn_call
+from ..shared.role_prompts import (
+    fork_merge_instructions,
+    format_batch_item,
+    format_spawn_call,
+)
 
-PHASES = ("expansion", "planning", "execution", "qa", "validation", "cleanup")
+PHASES = (
+    "expansion",
+    "planning",
+    "execution",
+    "qa",
+    "validation",
+    "cleanup",
+    "completed",
+)
 
 
 @dataclass(frozen=True)
@@ -50,6 +62,7 @@ def build_continuation(
         "execution": _execution,
         "qa": _qa,
         "validation": _validation,
+        "cleanup": _cleanup,
     }
     fn = builders.get(phase)
     if fn is None:
@@ -123,8 +136,13 @@ Execute:
      ...
    ])
 4. Poll each worker with check_agent_task (wait >= 30s between polls).
-5. After all workers complete, verify outputs.
-6. Update {ctx.loop_dir}/state.json: set phase="qa"."""
+5. Integrate forked worker results:
+{fork_merge_instructions()}
+6. After successful merges, update {ctx.loop_dir}/state.json:
+   set forks_integrated=true.
+7. Verify outputs in the main workspace.
+8. Update {ctx.loop_dir}/state.json: set phase="qa".
+   The gate rejects qa/later phases until forks_integrated=true."""
 
 
 def _qa(ctx: AutopilotPromptCtx) -> str:
@@ -196,3 +214,19 @@ Execute parallel validation:
 3. If ALL approve -> update {ctx.loop_dir}/state.json: set phase="cleanup".
 4. If any reject -> fix issues -> increment validation_round -> re-validate.
 5. If validation_round > {ctx.max_validation_rounds} -> STOP and report."""
+
+
+def _cleanup(ctx: AutopilotPromptCtx) -> str:
+    return f"""\
+Autopilot Controller — phase: cleanup.
+Iteration: {ctx.iteration}/{ctx.max_iterations}
+
+This is a real model turn. Perform final cleanup before completion.
+
+Execute:
+1. Review changed files; run deslop / remove debug leftovers if needed.
+2. Re-run tests/build/lint for a final verification pass.
+3. Confirm no unresolved merge conflicts remain.
+4. Write a short completion note to {ctx.loop_dir}/progress.txt.
+5. Update {ctx.loop_dir}/state.json: set phase="completed".
+   Do NOT set phase="completed" until verification succeeds."""

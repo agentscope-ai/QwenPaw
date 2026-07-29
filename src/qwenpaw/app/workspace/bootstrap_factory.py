@@ -70,6 +70,9 @@ class WorkspaceBootstrapFactory:
                 CancelCleanupHook,
                 ErrorNormalizeHook,
             )
+            from ...hooks.request_setup.agent_context_hook import (
+                AgentContextVarsSetupHook,
+            )
             from ...hooks.request_setup.contextvars_hook import (
                 ContextVarsSetupHook,
             )
@@ -93,6 +96,7 @@ class WorkspaceBootstrapFactory:
                 SkillEnvHook,
                 SkillEnvCleanupHook,
                 ContextVarsSetupHook,
+                AgentContextVarsSetupHook,
                 MediaProcessHook,
                 ErrorNormalizeHook,
                 CancelCleanupHook,

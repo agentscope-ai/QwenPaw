@@ -3,8 +3,6 @@ use std::time::{Duration, Instant};
 use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
 
-use crate::backend;
-
 use super::events::{emit, emit_error, emit_updater_error};
 
 /// Shared prologue for both update flows: announce the check, find an
@@ -47,10 +45,7 @@ pub(super) async fn check_installable_update(
         .updater_builder()
         .on_before_exit({
             let app = app.clone();
-            move || {
-                backend::stop(&app);
-                app.cleanup_before_exit();
-            }
+            move || app.cleanup_before_exit()
         })
         .build()?;
 

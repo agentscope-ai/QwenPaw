@@ -236,6 +236,15 @@ export const BUILTIN_MENU: MenuItem[] = [
     order: 50,
   },
   {
+    id: "core.offload-policy",
+    location: "primary.settings",
+    parentId: "core.settings-group",
+    label: navLabel("nav.offloadPolicy", "Tool Offload"),
+    icon: SparkDateLine,
+    route: "core.offload-policy",
+    order: 55,
+  },
+  {
     id: "core.security",
     location: "primary.settings",
     parentId: "core.settings-group",

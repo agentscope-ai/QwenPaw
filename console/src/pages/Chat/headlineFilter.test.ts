@@ -39,7 +39,7 @@ describe("headline stream filter", () => {
     }
   });
 
-  it("suppresses a real headline across every chunk boundary", () => {
+  it("keeps suppressing a legacy HTML headline across every chunk boundary", () => {
     const headline = "<!--  ⟦ hidden headline ⟧ -->";
     for (let index = 1; index < headline.length; index += 1) {
       const output = filterChunks([
@@ -48,6 +48,24 @@ describe("headline stream filter", () => {
       ]).join("");
       expect(output).toBe("beforeafter");
     }
+  });
+
+  it("suppresses a plain headline across every chunk boundary", () => {
+    const visible = "before\n";
+    const headline = "⟦ hidden headline ⟧";
+    for (let index = 1; index < headline.length; index += 1) {
+      const output = filterChunks([
+        `${visible}${headline.slice(0, index)}`,
+        headline.slice(index),
+      ]).join("");
+      expect(output).toBe(visible);
+    }
+  });
+
+  it("preserves a plain fence used inline in ordinary text", () => {
+    expect(filterChunks(["compare ⟦left⟧ and ⟦right⟧"]).join("")).toBe(
+      "compare ⟦left⟧ and ⟦right⟧",
+    );
   });
 
   it.each(["<", "<!", "<!--", "<!--  "])(
@@ -62,6 +80,12 @@ describe("headline stream filter", () => {
   it("drops an incomplete headline when the stream ends", () => {
     expect(filterChunks(["visible<!-- ⟦ incomplete headline"]).join("")).toBe(
       "visible",
+    );
+  });
+
+  it("drops an incomplete plain headline when the stream ends", () => {
+    expect(filterChunks(["visible\n⟦ incomplete headline"]).join("")).toBe(
+      "visible\n",
     );
   });
 
@@ -80,6 +104,20 @@ describe("headline stream filter", () => {
 
     expect(payload.nested.delta).toContain("streamed headline remains");
     expect(payload.nested.content.text).toBe("visible");
+  });
+
+  it.each([
+    "visible\n⟦ NEXT_RID is 1003</arg_value></tool_call>",
+    "visible<!-- ⟦ NEXT_RID is 1003</arg_value></tool_call>",
+  ])("strips malformed trailing tool protocol from completed text", (text) => {
+    const payload = {
+      type: "text",
+      text,
+    };
+
+    stripScrollHeadlineTextBlocks(payload);
+
+    expect(payload.text).toBe("visible");
   });
 
   it("preserves boundary whitespace in streaming text deltas (issue #6129)", () => {

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Autopilot gate — 6-phase pipeline with anti-stall detection."""
+"""Autopilot gate — lifecycle pipeline with cleanup + completed."""
 
 from __future__ import annotations
 
@@ -16,8 +16,14 @@ from ..shared.constants import (
     AUTOPILOT_MAX_PHASE_ITERATIONS,
     AUTOPILOT_MAX_VALIDATION_ROUNDS,
 )
+from ..shared.fork_guard import forks_integrated, merge_blocked_continuation
+from ..shared.role_prompts import FORK_MERGE_PROTOCOL
 from ..shared.state import WorkflowState
 from .prompts import build_continuation as _build_prompt
+
+_POST_FORK_PHASES = frozenset(
+    {"qa", "validation", "cleanup", "completed"},
+)
 
 
 @dataclass
@@ -35,6 +41,7 @@ class _AutopilotState:
     validation_round: int = 0
     max_validation_rounds: int = AUTOPILOT_MAX_VALIDATION_ROUNDS
     phase: str = "expansion"
+    blocked_on_merge: bool = False
 
 
 class AutopilotGate(LoopGate):
@@ -54,6 +61,16 @@ class AutopilotGate(LoopGate):
         skip_qa: bool = False,
         skip_validation: bool = False,
     ) -> Path:
+        try:
+            from qwenpaw.agents.fork_project import begin_fork_scope
+
+            begin_fork_scope(workspace_dir)
+        except ImportError:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "begin_fork_scope unavailable; fork merge scope disabled",
+            )
         wf = WorkflowState(workspace_dir, "autopilot")
         loop_dir = wf.create_instance()
         state = _AutopilotState(
@@ -91,6 +108,43 @@ class AutopilotGate(LoopGate):
         )
         data = await asyncio.to_thread(wf.read_state)
 
+        phase = data.get("phase", "expansion")
+        st.phase = phase
+        st.validation_round = data.get(
+            "validation_round",
+            st.validation_round,
+        )
+
+        if phase in _POST_FORK_PHASES:
+            integrated = await asyncio.to_thread(
+                forks_integrated,
+                data,
+                st.workspace_dir,
+            )
+            if not integrated:
+                # Preserve target phase; do not burn iteration/stall budget
+                # while waiting on merge (same as Ultrawork).
+                st.blocked_on_merge = True
+                st.phase = phase
+                await asyncio.to_thread(
+                    wf.update_state,
+                    {
+                        "merge_blocked": True,
+                        "resume_phase": phase,
+                    },
+                )
+                return StopHandlerResult(
+                    action=StopAction.INTERRUPT_AND_CONTINUE,
+                    reason="Autopilot blocked: forks not integrated",
+                )
+
+        if data.get("merge_blocked"):
+            await asyncio.to_thread(
+                wf.update_state,
+                {"merge_blocked": False},
+            )
+        st.blocked_on_merge = False
+
         st.iteration += 1
         if st.iteration > st.max_iterations:
             await asyncio.to_thread(wf.cleanup)
@@ -100,14 +154,7 @@ class AutopilotGate(LoopGate):
                 reason=f"Total iteration limit ({st.max_iterations})",
             )
 
-        phase = data.get("phase", "expansion")
-        st.phase = phase
-        st.validation_round = data.get(
-            "validation_round",
-            st.validation_round,
-        )
-
-        if phase == "cleanup":
+        if phase == "completed":
             await asyncio.to_thread(wf.cleanup)
             self.deactivate()
             return StopHandlerResult(
@@ -151,6 +198,8 @@ class AutopilotGate(LoopGate):
         st: _AutopilotState | None = self._state()
         if st is None:
             return ""
+        if st.blocked_on_merge:
+            return merge_blocked_continuation(FORK_MERGE_PROTOCOL)
         return _build_prompt(
             phase=st.phase,
             iteration=st.iteration,

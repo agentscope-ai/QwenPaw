@@ -262,6 +262,28 @@ async def get_chat(
         chat_spec.user_id,
         chat_spec.channel,
     )
+    backend = workspace.config.backend
+    context = ((state.get("agent") or {}).get("state") or {}).get("context")
+    if not context and backend != "qwenpaw":
+        try:
+            await workspace.harness_runtime.hydrate_session(
+                backend=backend,
+                session_id=chat_spec.session_id,
+                user_id=chat_spec.user_id,
+                channel=chat_spec.channel,
+                settings=dict(workspace.config.backend_settings),
+            )
+            state = await session.get_session_state_dict(
+                chat_spec.session_id,
+                chat_spec.user_id,
+                chat_spec.channel,
+            )
+        except Exception:
+            logger.debug(
+                "Third-party session recovery failed for %s",
+                chat_spec.session_id,
+                exc_info=True,
+            )
     status = await workspace.task_tracker.get_status(chat_id)
     if not state:
         return ChatHistory(messages=[], status=status)

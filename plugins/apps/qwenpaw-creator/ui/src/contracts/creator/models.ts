@@ -1,0 +1,51 @@
+export interface ModelConfigItem {
+  enabled: boolean;
+  model_name: string;
+  api_key: string;
+  base_url: string;
+  protocol: string;
+  custom_protocol: string;
+}
+
+export interface OssConfig {
+  enabled: boolean;
+  access_key_id: string;
+  access_key_secret: string;
+  endpoint: string;
+  bucket: string;
+  public_base_url: string;
+  policy_api_key: string;
+}
+
+export interface ModelConfigData {
+  llm: ModelConfigItem & { multimodal: boolean };
+  vlm: ModelConfigItem & { use_llm: boolean; multimodal: boolean };
+  asr: ModelConfigItem & {
+    provider: "whisper" | "fun-asr";
+    language: string;
+    reuse_llm_key: boolean;
+  };
+  image: ModelConfigItem;
+  video: ModelConfigItem;
+  oss: OssConfig;
+  executionAuthorization: {
+    mode: "required" | "allow_all";
+  };
+}
+
+export interface ModelConnectionTestRequest {
+  type: "llm" | "vlm" | "asr" | "image" | "video";
+  base_url: string;
+  api_key: string;
+  model_name: string;
+  protocol: string;
+  provider?: "whisper" | "fun-asr";
+}
+
+export interface ConnectionTestResponse {
+  ok: boolean;
+  ms: number;
+  error?: string | null;
+  detail?: string | null;
+  suggestion?: string | null;
+}

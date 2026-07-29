@@ -837,6 +837,143 @@ class TestChatIMEInput:
 
         log_test_result(test_name, True, 0)
 
+# ============================================================================
+# APPROVAL-001/002/003: Session-level tool approval toggle (upstream #5685)
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.chat
+@pytest.mark.tool_approval
+class TestToolApproval:
+    """Session-level tool approval toggle in the chat composer.
+
+    Covers the ApprovalLevelToggle shipped in upstream #5685:
+    - APPROVAL-001: the toggle renders, offers exactly 4 levels, and the Tag
+      text follows the selection.
+    - APPROVAL-002: the chosen level is persisted in localStorage and survives
+      a page reload.
+    - APPROVAL-003: deleting a session clears its ``approval_level-<id>`` key.
+
+    None of these require an LLM — the toggle only writes localStorage and
+    injects ``request_context.approval_level`` into outbound requests.
+    """
+
+    @pytest.mark.p0
+    @pytest.mark.test_id("APPROVAL-001")
+    def test_approval_toggle_renders_and_switches(
+        self, clean_chat_page: ChatPage, request: pytest.FixtureRequest
+    ):
+        """Toggle renders, exposes 4 levels, and the Tag follows the choice."""
+        test_name = request.node.name
+
+        log_test_step("1. Open the Chat page")
+        chat = clean_chat_page.open()
+
+        log_test_step("2. Locate the approval toggle in the composer")
+        toggle = chat.get_approval_toggle()
+        expect(toggle).to_be_visible(timeout=10000)
+
+        log_test_step("3. Open the menu and assert exactly 4 levels")
+        chat.open_approval_menu()
+        items = chat.get_approval_menu_items()
+        assert len(items) == 4, f"expected 4 approval levels, got {len(items)}"
+        chat.page.keyboard.press("Escape")
+        chat.wait(300)
+
+        log_test_step("4. Select each level and verify the Tag text follows")
+        for level, (en_label, _zh) in ChatPage.APPROVAL_LEVELS.items():
+            chat.select_approval_level(level)
+            expect(chat.get_approval_toggle()).to_contain_text(en_label)
+
+        log_test_result(test_name, True, 0)
+
+    @pytest.mark.p0
+    @pytest.mark.test_id("APPROVAL-002")
+    def test_approval_level_persists_across_reload(
+        self, clean_chat_page: ChatPage, request: pytest.FixtureRequest
+    ):
+        """A selected level is stored in localStorage and survives a reload."""
+        test_name = request.node.name
+
+        log_test_step("1. Open the Chat page")
+        chat = clean_chat_page.open()
+
+        log_test_step("2. Select STRICT and confirm the Tag updates")
+        chat.select_approval_level("STRICT")
+        expect(chat.get_approval_toggle()).to_contain_text("Strict Mode")
+
+        log_test_step("3. Assert the choice is written to localStorage")
+        entries = chat.get_approval_storage_entries()
+        assert "STRICT" in entries.values(), f"STRICT not persisted: {entries}"
+
+        log_test_step("4. Reload and assert the level persists")
+        chat.page.reload()
+        chat.page.locator(chat.CHAT_INPUT).first.wait_for(
+            state="visible", timeout=30000
+        )
+        expect(chat.get_approval_toggle()).to_contain_text("Strict Mode")
+        entries_after = chat.get_approval_storage_entries()
+        assert "STRICT" in entries_after.values(), (
+            f"STRICT lost after reload: {entries_after}"
+        )
+
+        log_test_result(test_name, True, 0)
+
+    @pytest.mark.p2
+    @pytest.mark.test_id("APPROVAL-003")
+    def test_approval_level_cleared_on_session_delete(
+        self,
+        clean_chat_page: ChatPage,
+        api_context,
+        request: pytest.FixtureRequest,
+    ):
+        """Deleting a session removes its ``approval_level-<id>`` localStorage key."""
+        test_name = request.node.name
+
+        log_test_step("1. Seed a real chat via API so a deletable row exists (no LLM)")
+        seed = api_context.post(
+            "/api/chats",
+            data={
+                "name": "E2E Approval Cleanup",
+                "user_id": config.test.user_id,
+                "channel": config.test.channel,
+                "session_id": f"{config.test.channel}:{config.test.user_id}",
+            },
+        )
+        if not seed.ok:
+            pytest.skip(
+                f"chat seed failed ({seed.status}); cannot test delete cleanup"
+            )
+
+        log_test_step("2. Open chat, open the session list, select the seeded session")
+        chat = clean_chat_page.open()
+        chat.open_session_list()
+        if chat.get_session_count() == 0:
+            pytest.skip("seeded session not visible in drawer; skipping cleanup check")
+        chat.switch_to_session(0)
+        chat.wait(500)
+
+        log_test_step("3. Select STRICT and capture the persisted approval key(s)")
+        chat.select_approval_level("STRICT")
+        entries = chat.get_approval_storage_entries()
+        strict_keys = [k for k, v in entries.items() if v == "STRICT"]
+        assert strict_keys, f"no STRICT approval_level entry after select: {entries}"
+
+        log_test_step("4. Delete the session via the more-menu")
+        chat.open_session_list()
+        chat.delete_session(0)
+        chat.wait(800)
+
+        log_test_step("5. Assert the approval key(s) were cleared on delete")
+        after = chat.get_approval_storage_entries()
+        for k in strict_keys:
+            assert k not in after, (
+                f"approval key {k} not cleared after delete; still present: {after}"
+            )
+
+        log_test_result(test_name, True, 0)
+
+
 if __name__ == "__main__":
     pytest.main([
         __file__,

@@ -27,7 +27,7 @@ from qwenpaw.schemas import (
     AgentRequest,
     _coerce_content_item,
 )
-from ...utils.logging import LOG_FILE_PATH
+from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
 from ..chats.title_generator import generate_and_update_title
@@ -532,7 +532,7 @@ def _parse_sse_payload(line: str) -> Optional[Dict[str, Any]]:
     status_code=200,
     summary="Submit a background chat task",
 )
-async def post_console_chat_task(
+async def post_console_chat_task(  # pylint: disable=too-many-statements
     request_data: Union[AgentRequest, dict],
     request: Request,
 ) -> dict:
@@ -564,10 +564,27 @@ async def post_console_chat_task(
     )
 
     task_timeout: Optional[float] = None
+    fork_project_dir = ""
+    fork_worktree_branch = ""
+    fork_scope_id = ""
     if isinstance(request_data, dict):
         task_timeout = request_data.get("timeout")
+        rc = request_data.get("request_context")
+        if isinstance(rc, dict):
+            fork_project_dir = str(rc.get("fork_project_dir") or "")
+            fork_worktree_branch = str(
+                rc.get("fork_worktree_branch") or "",
+            )
+            fork_scope_id = str(rc.get("fork_scope_id") or "")
     elif hasattr(request_data, "timeout"):
         task_timeout = getattr(request_data, "timeout", None)
+        rc = getattr(request_data, "request_context", None)
+        if isinstance(rc, dict):
+            fork_project_dir = str(rc.get("fork_project_dir") or "")
+            fork_worktree_branch = str(
+                rc.get("fork_worktree_branch") or "",
+            )
+            fork_scope_id = str(rc.get("fork_scope_id") or "")
 
     bg = _BackgroundTask(
         status="running",
@@ -590,6 +607,23 @@ async def post_console_chat_task(
                 "status": "failed",
                 "error": {"message": "Task cancelled"},
             }
+            if fork_project_dir and fork_worktree_branch:
+                try:
+                    from qwenpaw.agents.fork_project import mark_fork_failed
+
+                    await asyncio.to_thread(
+                        mark_fork_failed,
+                        fork_project_dir,
+                        fork_worktree_branch,
+                        reason="Task cancelled",
+                        expected_scope=fork_scope_id or None,
+                    )
+                except Exception:
+                    logger.warning(
+                        "mark_fork_failed on cancel failed for %s",
+                        sanitize_log_value(fork_worktree_branch),
+                        exc_info=True,
+                    )
             return
         except Exception as exc:
             bg.status = "finished"
@@ -598,6 +632,23 @@ async def post_console_chat_task(
                 "status": "failed",
                 "error": {"message": str(exc)},
             }
+            if fork_project_dir and fork_worktree_branch:
+                try:
+                    from qwenpaw.agents.fork_project import mark_fork_failed
+
+                    await asyncio.to_thread(
+                        mark_fork_failed,
+                        fork_project_dir,
+                        fork_worktree_branch,
+                        reason=str(exc),
+                        expected_scope=fork_scope_id or None,
+                    )
+                except Exception:
+                    logger.warning(
+                        "mark_fork_failed on error failed for %s",
+                        sanitize_log_value(fork_worktree_branch),
+                        exc_info=True,
+                    )
             return
 
         bg.status = "finished"
@@ -614,6 +665,27 @@ async def post_console_chat_task(
                 "session_id": session_id,
                 "output": [],
             }
+        # Fork subagents: commit dirty worktree so branch tips are mergeable.
+        if fork_project_dir and fork_worktree_branch:
+            try:
+                from qwenpaw.agents.fork_project import (
+                    finalize_fork_worktree_or_fail,
+                )
+
+                await asyncio.to_thread(
+                    finalize_fork_worktree_or_fail,
+                    fork_project_dir,
+                    fork_worktree_branch,
+                    message=f"fork worker {fork_worktree_branch}",
+                    expected_scope=fork_scope_id or None,
+                )
+            except Exception:
+                logger.warning(
+                    "Background fork finalize failed for %s (%s)",
+                    sanitize_log_value(fork_worktree_branch),
+                    sanitize_log_value(fork_project_dir),
+                    exc_info=True,
+                )
 
     atask = asyncio.create_task(_run())
     bg.asyncio_task = atask

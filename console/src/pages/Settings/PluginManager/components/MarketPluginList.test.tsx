@@ -9,6 +9,7 @@ import { MarketPluginList } from "./MarketPluginList";
 const hoisted = vi.hoisted(() => ({
   plugins: [] as MarketPluginEntry[],
   handleInstall: vi.fn(),
+  handleSortChange: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -27,11 +28,13 @@ vi.mock("../hooks/useMarketPlugins", () => ({
     page: 1,
     pageSize: 20,
     category: undefined,
+    sortBy: "downloads",
     installingId: null,
     qwenpawVersion: "2.0.0",
     isCompatible: () => true,
     handleSearch: vi.fn(),
     handleCategoryChange: vi.fn(),
+    handleSortChange: hoisted.handleSortChange,
     handlePageChange: vi.fn(),
     handleRefresh: vi.fn(),
     handleInstall: hoisted.handleInstall,
@@ -68,6 +71,7 @@ describe("MarketPluginList", () => {
   beforeEach(() => {
     hoisted.plugins.length = 0;
     hoisted.handleInstall.mockReset();
+    hoisted.handleSortChange.mockReset();
     invoke.mockReset();
     invoke.mockResolvedValue(undefined);
     isTauri.mockReturnValue(false);
@@ -113,5 +117,18 @@ describe("MarketPluginList", () => {
     render(<MarketPluginList onInstalled={vi.fn()} />);
 
     expect(screen.getByText("QwenPaw 1.x, 2.x")).toBeInTheDocument();
+  });
+
+  it("changes the plugin market sort order", () => {
+    render(<MarketPluginList onInstalled={vi.fn()} />);
+
+    fireEvent.mouseDown(
+      screen.getByRole("combobox", {
+        name: "pluginManager.marketSortLabel",
+      }),
+    );
+    fireEvent.click(screen.getByText("pluginManager.marketSortUpdated"));
+
+    expect(hoisted.handleSortChange.mock.calls[0]?.[0]).toBe("updated_time");
   });
 });

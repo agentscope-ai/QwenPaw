@@ -1,15 +1,23 @@
 ---
 title: "QwenPaw Developer Day Collection"
-date: 2026-07-17
+date: 2026-07-23
 author: QwenPaw Team
 tags: [DeveloperDay, MeetingNotes, SessionRecordings]
 cover: /blog/qwenpaw-developer-day-collection-cover.png
 excerpt: "Replay archive from QwenPaw developer day sessions — in-depth technical talks and practical insights for every QwenPaw developer and enthusiast."
 ---
 
-Last updated July 17, 2026
+Last updated July 23, 2026
 
 ---
+
+**07-23 QwenPaw Developer Day: QwenPaw-TUI Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643337363931373639305f323034353035363233375f30
+
+**07-21 QwenPaw Developer Day: QwenPaw-Creator Personal Video Creation Workstation**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643337333839323639385f323034353035363233375f30
 
 **07-17 QwenPaw Developer Day: AgentScope-Java 2.0 GA Deep Dive & AgentScope-Go Preview**
 

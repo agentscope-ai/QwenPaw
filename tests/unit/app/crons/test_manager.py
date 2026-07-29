@@ -55,6 +55,23 @@ async def test_start_is_idempotent(manager: CronManager):
 
 
 @pytest.mark.asyncio
+async def test_keepalive_task_lifecycle(manager: CronManager):
+    """A self-contained keepalive task runs while cron is started.
+
+    The keepalive keeps the asyncio event loop ticking so APScheduler's
+    AsyncIOScheduler keeps processing due jobs even when the loop is
+    otherwise idle (see issue #6471).
+    """
+    await manager.start()
+    task = manager._keepalive_task
+    assert task is not None
+    assert not task.done()
+    await manager.stop()
+    assert manager._keepalive_task is None
+    assert task.done()
+
+
+@pytest.mark.asyncio
 async def test_scheduled_dream_waits_for_random_delay(
     repo: InMemoryJobRepository,
 ):

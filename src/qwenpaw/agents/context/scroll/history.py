@@ -421,6 +421,48 @@ class HistoryStore:
             )
             return int(cur.fetchone()["n"])
 
+    def existing_seqs(self, seqs: set[int]) -> set[int]:
+        """Return the subset of globally addressed history rows that exist."""
+        if not seqs:
+            return set()
+        ordered = sorted(int(seq) for seq in seqs)
+        placeholders = ", ".join("?" for _ in ordered)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT seq FROM conversation_history WHERE seq IN ("
+                + placeholders
+                + ")",
+                ordered,
+            ).fetchall()
+        return {int(row["seq"]) for row in rows}
+
+    def contents_by_seqs(self, seqs: set[int]) -> dict[int, str | None]:
+        """Return exact persisted content for globally addressed rows.
+
+        Summary evidence uses this after live tool results have been folded.
+        Querying exact primary keys, instead of a broad ``lo..hi`` range,
+        prevents interleaved rows from another agent or session entering the
+        evidence. Chunking also keeps the query below SQLite parameter limits
+        for unusually tool-heavy histories.
+        """
+        if not seqs:
+            return {}
+        ordered = sorted(int(seq) for seq in seqs)
+        found: dict[int, str | None] = {}
+        with self._lock:
+            for start in range(0, len(ordered), 500):
+                chunk = ordered[start : start + 500]
+                placeholders = ", ".join("?" for _ in chunk)
+                rows = self._conn.execute(
+                    "SELECT seq, content FROM conversation_history "
+                    f"WHERE seq IN ({placeholders})",
+                    chunk,
+                ).fetchall()
+                found.update(
+                    {int(row["seq"]): row["content"] for row in rows},
+                )
+        return found
+
     @staticmethod
     def _purge_where(
         before: str,

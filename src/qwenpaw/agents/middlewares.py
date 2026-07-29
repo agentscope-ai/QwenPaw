@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
 _AUTOMATION_MEMORY_SKIP_SOURCES = frozenset({"cron", "heartbeat"})
+_TOOL_RESULT_METADATA_KEY = "qwenpaw_tool_result_metadata"
 
 
 class MemoryMiddleware(MiddlewareBase):
@@ -234,6 +235,12 @@ class MemoryMiddleware(MiddlewareBase):
         kwargs = await agent._prepare_model_input()
         estimated_tokens = await agent.model.count_tokens(**kwargs)
         threshold = cfg.trigger_ratio * agent.model.context_size
+        context_manager = getattr(agent, "_context_manager", None)
+        predicate = getattr(context_manager, "should_compress", None)
+        if callable(predicate):
+            return bool(predicate(estimated_tokens, threshold))
+        # Native AgentScope compacts at the exact threshold. Custom context
+        # managers can expose ``should_compress`` when their boundary differs.
         return estimated_tokens >= threshold
 
     @staticmethod
@@ -432,7 +439,10 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         """Prune a response without blocking the asyncio event loop."""
         return await asyncio.to_thread(self.prune_tool_response, response)
 
-    def _prune_tool_results(self, messages: list["Msg"]) -> None:
+    def _prune_tool_results(  # pylint: disable=R0912
+        self,
+        messages: list["Msg"],
+    ) -> None:
         if not messages:
             return
 
@@ -483,8 +493,25 @@ class ToolResultPruningMiddleware(MiddlewareBase):
                 block_metadata = (
                     block.setdefault("metadata", {})
                     if isinstance(block, dict)
-                    else block.metadata
+                    else getattr(block, "metadata", None)
                 )
+                # AgentScope ToolResultBlock may not expose metadata. Persist
+                # pruning state on the owning message in that case.
+                if not isinstance(block_metadata, dict):
+                    msg_metadata = (
+                        msg.setdefault("metadata", {})
+                        if isinstance(msg, dict)
+                        else getattr(msg, "metadata", None)
+                    )
+                    if not isinstance(msg_metadata, dict):
+                        msg_metadata = {}
+                        if not isinstance(msg, dict):
+                            msg.metadata = msg_metadata
+                    by_tool = msg_metadata.setdefault(
+                        _TOOL_RESULT_METADATA_KEY,
+                        {},
+                    )
+                    block_metadata = by_tool.setdefault(tool_id, {})
                 pruned, _ = self._pruner.prune_output(
                     output,
                     max_bytes=effective_max,

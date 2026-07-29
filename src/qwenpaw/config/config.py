@@ -37,7 +37,7 @@ from ..constant import (
     LLM_RATE_LIMIT_PAUSE,
     WORKING_DIR,
 )
-from ..utils.atomic_io import write_json_atomic
+from ..utils.io_utils import write_json_atomic
 from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
@@ -924,28 +924,21 @@ class ScrollContextConfig(BaseModel):
         ),
     )
 
-    summarize_unheadlined_evictions: bool = Field(
-        default=True,
-        description=(
-            "When an evicted span carries NO model headline, generate a "
-            "one-line summary of it (via the active model) to use as its "
-            "eviction-index entry instead of a bare ``(no milestone)`` line. "
-            "Keeps the index readable for legacy 1.x conversations (whose "
-            "turns predate headlines) and for tool-heavy spans the model "
-            "never headlined. The full turns stay recallable either way; "
-            "this only affects the descriptive label. Best-effort — a "
-            "model/timeout failure falls back to ``(no milestone)`` and never "
-            "blocks eviction. Costs one extra model call per such eviction."
-        ),
-    )
 
-    summarize_eviction_timeout_seconds: int = Field(
-        default=20,
-        ge=1,
+class VisualCompactConfig(BaseModel):
+    """User-facing visual compact settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable request-time text-to-image compression.",
+    )
+    effort: Literal["low", "medium", "high"] = Field(
+        default="low",
         description=(
-            "Per-eviction timeout for the un-headlined-span summary call "
-            "above. On timeout the span keeps a ``(no milestone)`` label; "
-            "eviction itself is never delayed beyond this."
+            "Visual compression intensity. Higher effort places more eligible "
+            "context in each image while preserving the same safety policy."
         ),
     )
 
@@ -987,6 +980,9 @@ class LightContextConfig(BaseModel):
     )
     scroll_config: ScrollContextConfig = Field(
         default_factory=ScrollContextConfig,
+    )
+    visual_compact_config: VisualCompactConfig = Field(
+        default_factory=VisualCompactConfig,
     )
 
     @model_validator(mode="after")
@@ -1685,6 +1681,14 @@ class AgentProfileConfig(BaseModel):
         default="",
         description="Path to agent's workspace (optional, for reference)",
     )
+    backend: str = Field(
+        default="qwenpaw",
+        description="Runtime backend used for every agent request",
+    )
+    backend_settings: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Configuration validated and consumed by the backend",
+    )
     template_id: Optional[str] = Field(
         default=None,
         description="Builtin template used when this agent was created",
@@ -2252,7 +2256,16 @@ class ToolGuardConfig(BaseModel):
     enabled: bool = True
     guarded_tools: Optional[List[str]] = None
     denied_tools: List[str] = Field(default_factory=list)
-    auto_denied_rules: List[str] = Field(default_factory=list)
+    auto_denied_rules: List[str] = Field(
+        default_factory=lambda: ["SAFETY_CHECKS_DESTRUCTIVE_COMMAND"],
+        description=(
+            "Rule IDs that unconditionally deny matched tool calls. "
+            "Defaults to SAFETY_CHECKS_DESTRUCTIVE_COMMAND (catastrophic "
+            "wipes/mkfs/dd only). An empty list is treated as unset and "
+            "keeps that default (legacy configs). To disable auto-deny, "
+            "set env QWENPAW_TOOL_GUARD_AUTO_DENIED_RULES=none."
+        ),
+    )
     custom_rules: List[ToolGuardRuleConfig] = Field(default_factory=list)
     disabled_rules: List[str] = Field(default_factory=list)
     shell_evasion_checks: Dict[str, bool] = Field(

@@ -40,8 +40,6 @@ class ContextVarsSetupHook(LifecycleHook):
             set_current_user_id,
         )
 
-        if ctx.workspace_dir is not None:
-            set_current_workspace_dir(ctx.workspace_dir)
         set_current_agent_id(ctx.agent_id or "default")
         _session_id = ctx.session_id or ""
         set_current_session_id(_session_id)
@@ -73,6 +71,7 @@ class ContextVarsSetupHook(LifecycleHook):
             }
         set_current_approval_route(approval_route)
 
+        coding_project_dir = None
         try:
             from ...config.config import load_agent_config
 
@@ -88,12 +87,35 @@ class ContextVarsSetupHook(LifecycleHook):
             set_current_shell_command_executable(
                 running.shell_command_executable or None,
             )
+            _cm = getattr(cfg, "coding_mode", None)
+            if (
+                _cm
+                and getattr(_cm, "enabled", False)
+                and getattr(_cm, "project_dir", None)
+            ):
+                coding_project_dir = _cm.project_dir
         except Exception:
             logger.warning(
                 "contextvars_setup: config-derived vars failed; "
                 "tools may see defaults",
                 exc_info=True,
             )
+
+        # Forked subagents must resolve relative file/shell paths against
+        # the worktree, not the parent workspace.
+        fork_dir = None
+        if isinstance(request_context, dict):
+            from ...agents.fork_project import resolve_allowed_fork_project_dir
+
+            fork_dir = resolve_allowed_fork_project_dir(
+                request_context.get("fork_project_dir"),
+                workspace_dir=ctx.workspace_dir,
+                coding_project_dir=coding_project_dir,
+            )
+        if fork_dir is not None:
+            set_current_workspace_dir(fork_dir)
+        elif ctx.workspace_dir is not None:
+            set_current_workspace_dir(ctx.workspace_dir)
         return HookResult()
 
 
