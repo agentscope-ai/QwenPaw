@@ -4,6 +4,7 @@
 Shared by the web app lifespan and ACP server to eliminate duplicated
 bootstrap logic that previously drifted independently.
 """
+
 from __future__ import annotations
 
 import logging
@@ -61,10 +62,14 @@ class WorkspaceBootstrapFactory:
 
         try:
             from ...hooks.bootstrap.bootstrap_hook import BootstrapHook
+            from ...hooks.cancel.cancel_save_hook import (
+                CancelResponseInjectionHook,
+            )
             from ...hooks.cron.cron_hook import (
                 CronContextHook,
                 CronMemoryIsolateHook,
                 CronMemoryRestoreHook,
+                CronMemoryRestoreOnCancelHook,
             )
             from ...hooks.error.error_hook import (
                 CancelCleanupHook,
@@ -80,6 +85,7 @@ class WorkspaceBootstrapFactory:
             from ...hooks.session.session_hook import (
                 SessionLoadHook,
                 SessionSaveHook,
+                SessionSaveOnCancelHook,
             )
             from ...hooks.skill_env.skill_env_hook import (
                 SkillEnvCleanupHook,
@@ -90,8 +96,11 @@ class WorkspaceBootstrapFactory:
                 CronContextHook,
                 CronMemoryIsolateHook,
                 CronMemoryRestoreHook,
+                CronMemoryRestoreOnCancelHook,
                 SessionLoadHook,
                 SessionSaveHook,
+                SessionSaveOnCancelHook,
+                CancelResponseInjectionHook,
                 BootstrapHook,
                 SkillEnvHook,
                 SkillEnvCleanupHook,

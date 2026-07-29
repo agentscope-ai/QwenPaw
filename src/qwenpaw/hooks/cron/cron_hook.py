@@ -14,14 +14,17 @@ from __future__ import annotations
 import logging
 
 from ..base import LifecycleHook
+from ...runtime._incomplete_state import (
+    CRON_CONTEXT_SNAPSHOT_KEY,
+    CRON_SUMMARY_SNAPSHOT_KEY,
+    restore_cron_memory,
+)
 from ...runtime.hooks import HookContext, HookResult
 from ...runtime.phases import Phase
 
 logger = logging.getLogger(__name__)
 
 IS_CRON_KEY = "is_cron"
-_CRON_CONTEXT_SNAPSHOT_KEY = "_cron_context_snapshot"
-_CRON_SUMMARY_SNAPSHOT_KEY = "_cron_summary_snapshot"
 
 
 class CronContextHook(LifecycleHook):
@@ -62,8 +65,8 @@ class CronMemoryIsolateHook(LifecycleHook):
         state = getattr(agent, "state", None)
         if state is None or not hasattr(state, "context"):
             return HookResult()
-        ctx.extras[_CRON_CONTEXT_SNAPSHOT_KEY] = list(state.context)
-        ctx.extras[_CRON_SUMMARY_SNAPSHOT_KEY] = getattr(
+        ctx.extras[CRON_CONTEXT_SNAPSHOT_KEY] = list(state.context)
+        ctx.extras[CRON_SUMMARY_SNAPSHOT_KEY] = getattr(
             state,
             "summary",
             "",
@@ -74,7 +77,7 @@ class CronMemoryIsolateHook(LifecycleHook):
         logger.debug(
             "cron_memory_isolate: snapshotted %d msgs and cleared "
             "context for session_id=%s",
-            len(ctx.extras[_CRON_CONTEXT_SNAPSHOT_KEY]),
+            len(ctx.extras[CRON_CONTEXT_SNAPSHOT_KEY]),
             ctx.session_id,
         )
         return HookResult()
@@ -93,36 +96,20 @@ class CronMemoryRestoreHook(LifecycleHook):
     priority = 80
 
     async def run(self, ctx: HookContext) -> HookResult:
-        snapshot = ctx.extras.get(_CRON_CONTEXT_SNAPSHOT_KEY)
-        if snapshot is None:
-            return HookResult()
-        agent = ctx.agent
-        if agent is None:
-            return HookResult()
-        state = getattr(agent, "state", None)
-        if state is None or not hasattr(state, "context"):
-            return HookResult()
-        try:
-            new_messages = list(state.context)
-            old_summary = ctx.extras.get(_CRON_SUMMARY_SNAPSHOT_KEY, "")
-            state.context.clear()
-            state.context.extend(snapshot)
-            state.context.extend(new_messages)
-            if hasattr(state, "summary") and old_summary:
-                state.summary = old_summary
-            logger.debug(
-                "cron_memory_restore: restored %d historical + %d new "
-                "messages for session_id=%s",
-                len(snapshot),
-                len(new_messages),
-                ctx.session_id,
-            )
-        except Exception:
-            logger.warning(
-                "cron_memory_restore: failed for session_id=%s",
-                ctx.session_id,
-                exc_info=True,
-            )
+        restore_cron_memory(ctx)
+        return HookResult()
+
+
+class CronMemoryRestoreOnCancelHook(LifecycleHook):
+    """Restore isolated cron history before cancel-path persistence."""
+
+    phase = Phase.ON_CANCEL
+    name = "cron_memory_restore_on_cancel"
+    priority = 80
+    after = ("cancel_response_injection",)
+
+    async def run(self, ctx: HookContext) -> HookResult:
+        restore_cron_memory(ctx)
         return HookResult()
 
 
@@ -130,5 +117,7 @@ __all__ = [
     "CronContextHook",
     "CronMemoryIsolateHook",
     "CronMemoryRestoreHook",
+    "CronMemoryRestoreOnCancelHook",
     "IS_CRON_KEY",
+    "restore_cron_memory",
 ]

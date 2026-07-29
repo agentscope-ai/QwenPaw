@@ -455,3 +455,121 @@ async def test_cancelled_start_cleans_pending_state(monkeypatch) -> None:
     assert manager.get_agent_startup_status("custom") == (
         AgentStartupStatus.FAILED
     )
+
+
+@pytest.mark.asyncio
+async def test_reload_provisions_replacement_before_atomic_swap(
+    monkeypatch,
+) -> None:
+    manager = MultiAgentManager()
+    config = _config("agent")
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: config,
+    )
+    order = []
+
+    class WorkspaceStub:
+        def __init__(self, label: str) -> None:
+            self.label = label
+            self._service_manager = SimpleNamespace(
+                services={},
+                get_reusable_services=lambda: {},
+            )
+
+        async def start(self) -> None:
+            order.append(f"{self.label}:start")
+
+        async def stop(self) -> None:
+            order.append(f"{self.label}:stop")
+
+        def set_manager(self, _manager) -> None:
+            order.append(f"{self.label}:manager")
+
+    old_workspace = WorkspaceStub("old")
+    new_workspace = WorkspaceStub("new")
+    manager.agents["agent"] = old_workspace
+    monkeypatch.setattr(
+        manager,
+        "_create_workspace",
+        lambda **_kwargs: new_workspace,
+    )
+
+    async def provision(workspace_info):
+        assert manager.agents["agent"] is old_workspace
+        assert workspace_info["_workspace"] is new_workspace
+        order.append("new:provision")
+
+    monkeypatch.setattr(
+        manager,
+        "_fire_workspace_created_hooks",
+        provision,
+    )
+    monkeypatch.setattr(
+        manager,
+        "_graceful_stop_old_instance",
+        AsyncMock(),
+    )
+
+    assert await manager.reload_agent("agent") is True
+    assert manager.agents["agent"] is new_workspace
+    assert order == ["new:start", "new:manager", "new:provision"]
+
+
+@pytest.mark.asyncio
+async def test_reload_provisioning_failure_stops_replacement(
+    monkeypatch,
+) -> None:
+    manager = MultiAgentManager()
+    config = _config("agent")
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: config,
+    )
+    order = []
+
+    class WorkspaceStub:
+        def __init__(self, label: str) -> None:
+            self.label = label
+            self._service_manager = SimpleNamespace(
+                services={},
+                get_reusable_services=lambda: {},
+            )
+
+        async def start(self) -> None:
+            order.append(f"{self.label}:start")
+
+        async def stop(self) -> None:
+            order.append(f"{self.label}:stop")
+
+        def set_manager(self, _manager) -> None:
+            order.append(f"{self.label}:manager")
+
+    old_workspace = WorkspaceStub("old")
+    new_workspace = WorkspaceStub("new")
+    manager.agents["agent"] = old_workspace
+    monkeypatch.setattr(
+        manager,
+        "_create_workspace",
+        lambda **_kwargs: new_workspace,
+    )
+
+    async def fail_provision(_workspace_info):
+        raise RuntimeError("provision failed")
+
+    monkeypatch.setattr(
+        manager,
+        "_fire_workspace_created_hooks",
+        fail_provision,
+    )
+    graceful_stop = AsyncMock()
+    monkeypatch.setattr(
+        manager,
+        "_graceful_stop_old_instance",
+        graceful_stop,
+    )
+
+    assert await manager.reload_agent("agent") is False
+    assert manager.agents["agent"] is old_workspace
+    assert order == ["new:start", "new:manager", "new:stop"]
+    graceful_stop.assert_not_awaited()

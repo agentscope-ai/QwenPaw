@@ -37,6 +37,27 @@ class MissionStateSaveHook(HookBase):
     phase = Phase.POST_RESPONSE
     name = "mission_state_save"
     priority = 30
+    before = ("session_save",)
+
+    def __init__(self, owner_mode: "MissionMode") -> None:
+        self.owner_mode = owner_mode
+
+    async def run(
+        self,
+        ctx: HookContext,
+    ) -> HookResult:
+        await self.owner_mode.sync_persistent_state(ctx)
+        return HookResult()
+
+
+class MissionStateSaveOnCancelHook(HookBase):
+    """Refresh mission mode state before cancel-path session persistence."""
+
+    phase = Phase.ON_CANCEL
+    name = "mission_state_save_on_cancel"
+    priority = 30
+    after = ("cancel_response_injection",)
+    before = ("session_save_on_cancel",)
 
     def __init__(self, owner_mode: "MissionMode") -> None:
         self.owner_mode = owner_mode
@@ -52,4 +73,5 @@ class MissionStateSaveHook(HookBase):
 __all__ = [
     "MissionStateLoadHook",
     "MissionStateSaveHook",
+    "MissionStateSaveOnCancelHook",
 ]

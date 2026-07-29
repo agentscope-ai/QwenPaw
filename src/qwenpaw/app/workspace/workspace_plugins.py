@@ -5,7 +5,7 @@ Holds the three per-workspace registries that ``Runtime.run()``
 reads each request:
 
 * :class:`SlashCommandRegistry` — slash dispatch
-* :class:`HookRegistry`         — 8-phase hook orchestration
+* :class:`HookRegistry`         — 9-phase hook orchestration
 * ``modes``                     — list of :class:`AgentMode` instances
 
 Every field is **per-workspace** — no cross-workspace sharing. The

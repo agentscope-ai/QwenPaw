@@ -11,24 +11,16 @@ from __future__ import annotations
 import logging
 
 from ..base import LifecycleHook
-from ...agents.acp.meta import ACP_EPHEMERAL_META_KEY
+from ...runtime._incomplete_state import (
+    build_session_snapshot,
+    is_ephemeral_request,
+    save_session_snapshot,
+)
 from ...runtime._state_utils import StateProxy
 from ...runtime.hooks import HookContext, HookResult
 from ...runtime.phases import Phase
 
 logger = logging.getLogger(__name__)
-
-
-def _is_ephemeral_request(ctx: HookContext) -> bool:
-    request = ctx.request
-    request_context = getattr(request, "request_context", None)
-    if isinstance(request_context, dict):
-        value = request_context.get(ACP_EPHEMERAL_META_KEY)
-        if value is True:
-            return True
-        if isinstance(value, str) and value.lower() in {"1", "true", "yes"}:
-            return True
-    return False
 
 
 class SessionLoadHook(LifecycleHook):
@@ -39,7 +31,7 @@ class SessionLoadHook(LifecycleHook):
     priority = 10
 
     async def run(self, ctx: HookContext) -> HookResult:
-        if _is_ephemeral_request(ctx):
+        if is_ephemeral_request(ctx):
             return HookResult()
         if ctx.workspace is None:
             return HookResult()
@@ -83,30 +75,42 @@ class SessionSaveHook(LifecycleHook):
     priority = 90
 
     async def run(self, ctx: HookContext) -> HookResult:
-        if _is_ephemeral_request(ctx):
-            return HookResult()
-        if ctx.workspace is None or ctx.agent is None:
-            return HookResult()
-        session = getattr(ctx.workspace, "session", None)
-        if session is None:
-            return HookResult()
         try:
-            request = ctx.request
-            user_id = getattr(request, "user_id", "") or ctx.session_id
-            channel = getattr(request, "channel", "") or ""
-
-            proxy = StateProxy()
-            proxy.data = ctx.agent.state_dict()
-            proxy.data["mode_state"] = ctx.mode_state
-            await session.save_session_state(
-                session_id=ctx.session_id,
-                user_id=user_id,
-                channel=channel,
-                agent=proxy,
-            )
+            proxy = build_session_snapshot(ctx)
+            if proxy is not None:
+                await save_session_snapshot(ctx, proxy)
         except Exception:
             logger.debug("session_save: failed", exc_info=True)
         return HookResult()
 
 
-__all__ = ["SessionLoadHook", "SessionSaveHook"]
+class SessionSaveOnCancelHook(LifecycleHook):
+    """Persist a complete, independent snapshot after cancellation."""
+
+    phase = Phase.ON_CANCEL
+    name = "session_save_on_cancel"
+    priority = 90
+    after = (
+        "cancel_response_injection",
+        "cron_memory_restore_on_cancel",
+    )
+
+    async def run(self, ctx: HookContext) -> HookResult:
+        proxy = build_session_snapshot(ctx)
+        if proxy is not None:
+            await save_session_snapshot(ctx, proxy)
+            logger.info(
+                "session_save_on_cancel: persisted interrupted turn "
+                "(session=%s)",
+                ctx.session_id,
+            )
+        return HookResult()
+
+
+__all__ = [
+    "SessionLoadHook",
+    "SessionSaveHook",
+    "SessionSaveOnCancelHook",
+    "build_session_snapshot",
+    "save_session_snapshot",
+]

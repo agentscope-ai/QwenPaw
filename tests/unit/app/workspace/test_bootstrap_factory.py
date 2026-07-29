@@ -1,8 +1,14 @@
 # -*- coding: utf-8 -*-
 """Tests for WorkspaceBootstrapFactory."""
+
 from __future__ import annotations
 
+import pytest
+
+from qwenpaw.app.workspace.workspace import Workspace
 from qwenpaw.app.workspace.bootstrap_factory import WorkspaceBootstrapFactory
+from qwenpaw.runtime.hooks import HookBase
+from qwenpaw.runtime.phases import Phase
 
 
 class TestWorkspaceBootstrapFactory:
@@ -16,6 +22,12 @@ class TestWorkspaceBootstrapFactory:
         kwargs = WorkspaceBootstrapFactory.build_bootstrap_kwargs(None)
         hook_clses = kwargs.get("builtin_hook_clses", [])
         assert len(hook_clses) > 0, "Expected at least some hook classes"
+        names = {cls.__name__ for cls in hook_clses}
+        assert {
+            "CancelResponseInjectionHook",
+            "CronMemoryRestoreOnCancelHook",
+            "SessionSaveOnCancelHook",
+        } <= names
 
     def test_includes_builtin_tool_funcs(self) -> None:
         kwargs = WorkspaceBootstrapFactory.build_bootstrap_kwargs(None)
@@ -52,3 +64,22 @@ class TestWorkspaceBootstrapFactory:
         mode_clses = kwargs.get("builtin_mode_clses", [])
         # Modes should be present in a normal environment
         assert len(mode_clses) >= 0  # May be empty if modes unavailable
+
+    def test_required_builtin_hook_registration_failure_aborts_bootstrap(
+        self,
+        tmp_path,
+    ) -> None:
+        class FirstHook(HookBase):
+            phase = Phase.ON_CANCEL
+            name = "duplicate_builtin"
+
+        class DuplicateHook(HookBase):
+            phase = Phase.ON_CANCEL
+            name = "duplicate_builtin"
+
+        workspace = Workspace("test", str(tmp_path))
+
+        with pytest.raises(ValueError, match="already registered"):
+            workspace.bootstrap_plugins(
+                builtin_hook_clses=[FirstHook, DuplicateHook],
+            )

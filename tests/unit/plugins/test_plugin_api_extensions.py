@@ -567,6 +567,55 @@ class TestWorkspaceCreatedHook:
         assert hooks[0].callback is callback
         assert hooks[0].priority == 50
 
+    def test_runtime_hook_targets_unpublished_reload_workspace(
+        self,
+        plugin_api,
+        fresh_registry,
+    ):
+        """Reload provisioning must not mutate the still-serving workspace."""
+        from types import SimpleNamespace
+
+        from qwenpaw.runtime.hooks import HookBase, HookRegistry
+        from qwenpaw.runtime.phases import Phase
+
+        class PluginHook(HookBase):
+            phase = Phase.ON_CANCEL
+            name = "plugin_cancel"
+
+        old_workspace = SimpleNamespace(
+            plugins=SimpleNamespace(hook_registry=HookRegistry()),
+        )
+        new_workspace = SimpleNamespace(
+            plugins=SimpleNamespace(hook_registry=HookRegistry()),
+        )
+        fresh_registry.set_workspace_manager(
+            SimpleNamespace(agents={"agent": old_workspace}),
+        )
+
+        plugin_api.register_runtime_hook(PluginHook())
+        callback = next(
+            hook.callback
+            for hook in fresh_registry.get_workspace_created_hooks()
+            if hook.hook_name == "rt_hook_ws_test-plugin_plugin_cancel"
+        )
+        callback(
+            {
+                "agent_id": "agent",
+                "workspace_dir": "/tmp/agent",
+                "_workspace": new_workspace,
+            },
+        )
+
+        assert not old_workspace.plugins.hook_registry.hooks_for(
+            Phase.ON_CANCEL,
+        )
+        assert [
+            hook.name
+            for hook in new_workspace.plugins.hook_registry.hooks_for(
+                Phase.ON_CANCEL,
+            )
+        ] == ["plugin_cancel"]
+
 
 # ---------------------------------------------------------------------------
 # _fire_workspace_created_hooks: sync / async dispatch

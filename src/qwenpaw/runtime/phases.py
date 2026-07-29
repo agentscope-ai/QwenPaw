@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Runtime hook phase enum.
 
-Eight phase points covering the full request lifecycle::
+Nine phase points covering the full request lifecycle::
 
     PRE_DISPATCH      — request normalization, before slash dispatch
     POST_DISPATCH     — slash dispatch finished without a match
@@ -9,7 +9,8 @@ Eight phase points covering the full request lifecycle::
     POST_AGENT_BUILD  — agent constructed; inject mode context
     PRE_EXECUTE       — bootstrap / prompt refresh / env stack push
     POST_RESPONSE     — session.save / cron trigger writeback
-    ON_ERROR          — exception normalization, cancel envelope
+    ON_ERROR          — best-effort normalization/cleanup on abnormal exit
+    ON_CANCEL         — cancel/KeyboardInterrupt-only, ordered persistence
     FINALLY           — idempotent cleanup (close mcp, reset ContextVars)
 
 Phase points are fixed; the slash-command registry and ``AgentBuilder.build``
@@ -26,7 +27,7 @@ from enum import Enum
 
 
 class Phase(str, Enum):
-    """Eight phase points around a single ``Runtime.run()`` invocation."""
+    """Nine phase points around a single ``Runtime.run()`` invocation."""
 
     PRE_DISPATCH = "pre_dispatch"
     POST_DISPATCH = "post_dispatch"
@@ -35,6 +36,7 @@ class Phase(str, Enum):
     PRE_EXECUTE = "pre_execute"
     POST_RESPONSE = "post_response"
     ON_ERROR = "on_error"
+    ON_CANCEL = "on_cancel"
     FINALLY = "finally"
 
 

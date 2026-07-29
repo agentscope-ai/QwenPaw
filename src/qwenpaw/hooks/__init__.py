@@ -3,6 +3,7 @@
 
 Concrete hooks registered at startup via ``builtin_hook_clses``:
 - SessionLoadHook / SessionSaveHook — session persistence
+- ON_CANCEL response repair / cron restore / session save hooks
 - BootstrapHook — BOOTSTRAP.md first-interaction guidance
 - SkillEnvHook / SkillEnvCleanupHook — skill env-var overrides
 - ContextVarsSetupHook — per-request ContextVar injection (PRE_DISPATCH)

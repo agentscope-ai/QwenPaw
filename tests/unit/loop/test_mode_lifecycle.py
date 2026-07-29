@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 """Tests for mode-owned handler selection and reset lifecycle."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -164,6 +165,12 @@ async def test_mission_state_uses_session_lifecycle_and_reset(tmp_path):
 
         assert ctx.mode_state == {}
         assert not mode._is_gate_active()
+
+
+def test_mission_mode_registers_cancel_state_hook():
+    hook_names = {hook.name for hook in MissionMode().hooks()}
+
+    assert "mission_state_save_on_cancel" in hook_names
 
 
 @pytest.mark.asyncio
