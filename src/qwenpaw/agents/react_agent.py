@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
@@ -29,6 +28,7 @@ from agentscope.model import FinishedReason
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
+from .context.base import ContextManager
 from .skill_system import get_workspace_skills_dir
 from ..modes.coding import CodingModeMixin
 from ..utils.io_utils import run_sync_io
@@ -47,12 +47,6 @@ if TYPE_CHECKING:
     from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
-
-# Context-overflow recovery must bypass Scroll's normal token trigger: the
-# provider has already established that the request is too large, even if the
-# local estimator says otherwise.  ContextConfig constrains the ratio to be
-# positive, so use the same negligible value as the manual /compact path.
-_CONTEXT_OVERFLOW_FORCE_TRIGGER_RATIO = 1e-6
 
 
 def _effective_artifact_retention_days(light_context_config: Any) -> int:
@@ -89,7 +83,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         memory_manager: "BaseMemoryManager | None" = None,
         offloader: Any = None,
         context_config: Any = None,
-        context_manager: Any = None,
+        context_manager: ContextManager | None = None,
         effective_skills: Optional[list[str]] = None,
         governor: Any = None,
     ):
@@ -491,32 +485,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         )
         return any(marker in error_str for marker in overflow_markers)
 
-    def _context_overflow_compact_config(self) -> Any:
-        """Clone ContextConfig with an effectively unconditional trigger."""
-        base = getattr(self, "context_config", None)
-        if base is None:
-            return None
-        try:
-            return base.model_copy(
-                update={
-                    "trigger_ratio": _CONTEXT_OVERFLOW_FORCE_TRIGGER_RATIO,
-                },
-            )
-        except Exception:
-            logger.warning(
-                "Could not clone context_config for context-overflow "
-                "recovery; skipping the recovery attempt.",
-                exc_info=True,
-            )
-            return None
-
-    @staticmethod
-    def _conversation_model_input(messages: list[Any]) -> list[Any]:
-        """Return model messages excluding the regenerated system message."""
-        if messages and getattr(messages[0], "role", None) == "system":
-            return messages[1:]
-        return messages
-
     async def _call_model(
         self,
         messages: list[Msg],
@@ -525,11 +493,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
     ) -> Any:
         """Call the model, recovering once from a provider input overflow.
 
-        The normal Scroll gate depends on an approximate local token count.
-        When the provider rejects the request as too large, force one Scroll
-        pass regardless of that estimate, rebuild the complete model input,
-        and retry exactly once.  The retry calls AgentScope directly, so a
-        second overflow propagates instead of entering a recovery loop.
+        When the provider rejects the request as too large, let the configured
+        context manager attempt recovery. Rebuild and retry only when that
+        recovery changed the model input. The retry calls AgentScope directly,
+        so a second overflow propagates instead of entering a recovery loop.
         """
         try:
             return await super()._call_model(
@@ -539,37 +506,26 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
         except Exception as exc:
             context_manager = getattr(self, "_context_manager", None)
-            if (
-                context_manager is None
-                or not getattr(
-                    context_manager,
-                    "supports_context_overflow_recovery",
-                    False,
-                )
-                or not self._is_context_overflow_error(exc)
-            ):
-                raise
-
-            forced_config = self._context_overflow_compact_config()
-            if forced_config is None:
+            if not isinstance(
+                context_manager,
+                ContextManager,
+            ) or not self._is_context_overflow_error(exc):
                 raise
 
             before = len(getattr(self.state, "context", []) or [])
             logger.warning(
-                "Model input exceeded the provider context limit; forcing "
-                "one Scroll compaction and retry.",
+                "Model input exceeded the provider context limit; attempting "
+                "one context recovery.",
             )
-            tracks_compress_stats = isinstance(
-                getattr(context_manager, "last_compress", None),
-                dict,
+            input_changed = (
+                await context_manager.recover_from_context_overflow(self)
             )
-            original_messages = (
-                None
-                if tracks_compress_stats
-                else deepcopy(self._conversation_model_input(messages))
-            )
-            original_tools = None if tracks_compress_stats else deepcopy(tools)
-            await self.compress_context(forced_config)
+            if not input_changed:
+                logger.warning(
+                    "Context-overflow recovery did not change the model "
+                    "input; skipping the retry.",
+                )
+                raise
             after = len(getattr(self.state, "context", []) or [])
 
             # The original `messages` list was prepared before compaction and
@@ -578,29 +534,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
             refreshed = await self._prepare_model_input()
             refreshed_messages = refreshed["messages"]
             refreshed_tools = refreshed.get("tools", [])
-            compress_stats = getattr(context_manager, "last_compress", None)
-            if isinstance(compress_stats, dict):
-                input_changed = bool(
-                    compress_stats.get("evicted")
-                    or compress_stats.get("folded"),
-                )
-            else:
-                assert original_messages is not None
-                assert original_tools is not None
-                input_changed = not (
-                    self._conversation_model_input(refreshed_messages)
-                    == original_messages
-                    and refreshed_tools == original_tools
-                )
-            if not input_changed:
-                logger.warning(
-                    "Context-overflow recovery did not change the model "
-                    "input; skipping the retry.",
-                )
-                raise
             logger.info(
-                "Context-overflow recovery rebuilt model input after Scroll "
-                "compaction (messages %d -> %d).",
+                "Context-overflow recovery rebuilt model input "
+                "(messages %d -> %d).",
                 before,
                 after,
             )

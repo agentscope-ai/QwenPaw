@@ -7,20 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 from agentscope.agent import Agent
-from agentscope.message import SystemMsg
 from google.genai import errors as genai_errors
 
 from qwenpaw.agents.react_agent import QwenPawAgent
-
-
-class _ContextConfig:
-    def __init__(self, trigger_ratio: float = 0.8) -> None:
-        self.trigger_ratio = trigger_ratio
-
-    def model_copy(self, *, update):
-        return _ContextConfig(
-            trigger_ratio=update.get("trigger_ratio", self.trigger_ratio),
-        )
 
 
 class _ContextOverflowError(Exception):
@@ -28,32 +17,42 @@ class _ContextOverflowError(Exception):
 
 
 class _ScrollManager:
-    supports_context_overflow_recovery = True
-
     def __init__(self, refreshed_context):
         self.refreshed_context = refreshed_context
         self.calls = []
-        self.last_compress = {"evicted": 0, "folded": 0}
+
+    async def recover_from_context_overflow(self, agent):
+        self.calls.append(agent)
+        agent.state.context = list(self.refreshed_context)
+        return True
 
     async def compress(self, agent, context_config):
-        self.calls.append(context_config)
-        agent.state.context = list(self.refreshed_context)
-        self.last_compress["evicted"] = 1
+        raise AssertionError("normal compression must not be used")
+
+    def on_save(self, agent, blocks):
+        raise AssertionError("on_save must not be used")
 
 
-class _OtherContextManager(_ScrollManager):
-    supports_context_overflow_recovery = False
+class _OtherContextManager:
+    def __init__(self):
+        self.calls = []
+
+    async def compress(self, agent, context_config):
+        self.calls.append((agent, context_config))
+
+    def on_save(self, agent, blocks):
+        self.calls.append((agent, blocks))
 
 
 class _NoOpScrollManager(_ScrollManager):
-    async def compress(self, agent, context_config):
-        self.calls.append(context_config)
+    async def recover_from_context_overflow(self, agent):
+        self.calls.append(agent)
+        return False
 
 
 def _agent(*, context_manager=None):
     agent = object.__new__(QwenPawAgent)
     agent._context_manager = context_manager
-    agent.context_config = _ContextConfig()
     agent.state = SimpleNamespace(context=["old-1", "old-2"])
     agent._prepare_model_input = AsyncMock(
         return_value={
@@ -92,8 +91,8 @@ async def test_context_overflow_forces_scroll_rebuilds_and_retries_once(
 
     assert result == "ok"
     assert len(scroll.calls) == 1
-    assert scroll.calls[0].trigger_ratio == pytest.approx(1e-6)
-    agent.compress_context.assert_awaited_once_with(scroll.calls[0])
+    assert scroll.calls[0] is agent
+    agent.compress_context.assert_not_awaited()
     agent._prepare_model_input.assert_awaited_once()
     assert calls == [
         (
@@ -148,28 +147,16 @@ async def test_context_overflow_skips_retry_when_input_is_unchanged(
     monkeypatch.setattr(Agent, "_call_model", fake_call_model)
     manager = _NoOpScrollManager(["unused"])
     agent = _agent(context_manager=manager)
-    agent._prepare_model_input = AsyncMock(
-        return_value={
-            "messages": [
-                SystemMsg(name="system", content="same prompt"),
-                "old",
-            ],
-            "tools": [{"name": "same-tool"}],
-        },
-    )
 
     with pytest.raises(_ContextOverflowError, match="context length"):
         await agent._call_model(
-            messages=[
-                SystemMsg(name="system", content="same prompt"),
-                "old",
-            ],
+            messages=["system", "old"],
             tools=[{"name": "same-tool"}],
         )
 
     assert calls == 1
     assert len(manager.calls) == 1
-    agent._prepare_model_input.assert_awaited_once()
+    agent._prepare_model_input.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -228,7 +215,7 @@ async def test_context_overflow_with_other_manager_does_not_retry(monkeypatch):
         )
 
     monkeypatch.setattr(Agent, "_call_model", fake_call_model)
-    manager = _OtherContextManager(["compacted"])
+    manager = _OtherContextManager()
     agent = _agent(context_manager=manager)
 
     with pytest.raises(_ContextOverflowError, match="prompt is too long"):
