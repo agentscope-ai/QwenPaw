@@ -894,6 +894,138 @@ def _add_traverse_ace(path: str, psid: ctypes.c_void_p) -> bool:
     )
 
 
+def _check_any_sid_in_dacl(
+    path: str,
+    sids: List[ctypes.c_void_p],
+) -> bool:
+    """Checks whether any of the given SIDs has an ALLOW ACE in the path.
+
+    Uses the Win32 API directly (no subprocess) to enumerate ACEs and
+    compare SIDs via EqualSid.
+
+    Args:
+        path: Filesystem path to check.
+        sids: List of SID pointers to look for.
+
+    Returns:
+        True if at least one ACCESS_ALLOWED ACE matching any SID exists.
+    """
+    if not sids:
+        return False
+
+    advapi32 = _get_advapi32()
+    kernel32 = _get_kernel32()
+
+    p_sd = ctypes.c_void_p()
+    p_dacl = ctypes.c_void_p()
+    rc = advapi32.GetNamedSecurityInfoW(
+        ctypes.c_wchar_p(path),
+        _WC.SE_FILE_OBJECT,
+        _WC.DACL_SECURITY_INFORMATION,
+        None,
+        None,
+        ctypes.byref(p_dacl),
+        None,
+        ctypes.byref(p_sd),
+    )
+    if rc != 0:
+        return False
+
+    try:
+
+        class _ACL_SIZE_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("AceCount", ctypes.wintypes.DWORD),
+                ("AclBytesInUse", ctypes.wintypes.DWORD),
+                ("AclBytesFree", ctypes.wintypes.DWORD),
+            ]
+
+        acl_info = _ACL_SIZE_INFORMATION()
+        _AclSizeInformation = 2
+        ok = advapi32.GetAclInformation(
+            p_dacl,
+            ctypes.byref(acl_info),
+            ctypes.sizeof(acl_info),
+            _AclSizeInformation,
+        )
+        if not ok:
+            return False
+
+        for i in range(acl_info.AceCount):
+            ace_ptr = ctypes.c_void_p()
+            if not advapi32.GetAce(p_dacl, i, ctypes.byref(ace_ptr)):
+                continue
+            if ace_ptr.value is None:
+                continue
+            # ACE header: AceType(1 byte) AceFlags(1 byte) AceSize(2 bytes)
+            # then Mask(4 bytes) then SID
+            ace_type = ctypes.cast(
+                ace_ptr,
+                ctypes.POINTER(ctypes.c_ubyte),
+            )[0]
+            # ACCESS_ALLOWED_ACE_TYPE = 0
+            if ace_type != 0:
+                continue
+            # SID starts at offset 8 (after AceType+AceFlags+AceSize+Mask)
+            sid_ptr = ctypes.c_void_p(ace_ptr.value + 8)
+            if not advapi32.IsValidSid(sid_ptr):
+                continue
+            for candidate in sids:
+                if advapi32.EqualSid(sid_ptr, candidate):
+                    return True
+
+        return False
+    finally:
+        if p_sd:
+            kernel32.LocalFree(p_sd)
+
+
+def _can_user_traverse(path: str) -> bool:
+    """Checks whether the sandbox user can traverse a directory.
+
+    Considers groups the sandbox user inherits permissions from:
+    the QwenpawUsers group, BUILTIN\\Users, and Everyone.
+    The user's own SID is not checked because each sandbox user is
+    freshly created and will never have a pre-existing ACE.
+
+    Args:
+        path: Directory path to check.
+        user_psid: Pointer to the sandbox user's SID (unused, kept
+            for API consistency).
+
+    Returns:
+        True if any relevant group SID has an ALLOW ACE on the path.
+    """
+    sids_to_check: List[ctypes.c_void_p] = []
+
+    # QwenpawUsers group
+    group_result = _lookup_account_sid(SANDBOX_USERS_GROUP)
+    if group_result is not None:
+        group_sid_buf, _ = group_result
+        sids_to_check.append(ctypes.cast(group_sid_buf, ctypes.c_void_p))
+
+    # BUILTIN\Users (WinBuiltinUsersSid = 27)
+    _WinBuiltinUsersSid = 27
+    try:
+        users_bytes = _create_well_known_sid(_WinBuiltinUsersSid)
+        users_buf = (ctypes.c_ubyte * len(users_bytes))(*users_bytes)
+        users_ptr = ctypes.cast(users_buf, ctypes.c_void_p)
+        sids_to_check.append(users_ptr)
+    except OSError:
+        pass
+
+    # Everyone (WinWorldSid = 1)
+    try:
+        everyone_bytes = _create_well_known_sid(_WC.WinWorldSid)
+        everyone_buf = (ctypes.c_ubyte * len(everyone_bytes))(*everyone_bytes)
+        everyone_ptr = ctypes.cast(everyone_buf, ctypes.c_void_p)
+        sids_to_check.append(everyone_ptr)
+    except OSError:
+        pass
+
+    return _check_any_sid_in_dacl(path, sids_to_check)
+
+
 def _add_allow_ace(path: str, psid: ctypes.c_void_p) -> bool:
     return _set_path_ace_elevated(path, psid, _ACL_FULL_ACCESS, _WC.SET_ACCESS)
 
@@ -1031,12 +1163,15 @@ def _ensure_python_dir_group_acl() -> None:
 def _ensure_parent_traverse_acls(
     group_psid: ctypes.c_void_p,
 ) -> None:
-    """Grants traverse ACEs on ``C:\\Users`` and ``%USERPROFILE%``.
+    """Grants a traverse ACE on ``%USERPROFILE%``.
 
     PowerShell/.NET validates every path segment via Directory.Exists()
-    before accepting it as $PWD.  Sets traverse ACEs on these two
-    directories so the sandbox user's working directory resolves
-    correctly.
+    before accepting it as $PWD.  Sets a traverse ACE on the user
+    profile directory so the sandbox user can reach workspace paths
+    beneath it.
+
+    ``C:\\Users`` is skipped because ``BUILTIN\\Users`` already has
+    Read & Execute on it by default in standard Windows installations.
 
     One-time persistent operation (marker-file guarded, never cleaned up).
 
@@ -1051,11 +1186,8 @@ def _ensure_parent_traverse_acls(
         "USERPROFILE",
         os.path.expanduser("~"),
     )
-    users_dir = os.path.dirname(os.path.normpath(user_profile))  # C:\Users
 
     targets: List[str] = []
-    if os.path.isdir(users_dir):
-        targets.append(users_dir)
     if os.path.isdir(user_profile):
         targets.append(user_profile)
 
@@ -1082,6 +1214,89 @@ def _ensure_parent_traverse_acls(
             marker.write_text(SANDBOX_USERS_GROUP, encoding="utf-8")
         except OSError:
             pass
+
+
+def _ensure_workspace_traverse_acls(
+    workspace_dir: str,
+    user_psid: ctypes.c_void_p,
+) -> List[_AclEntry]:
+    """Grants traverse ACEs on intermediate dirs between USERPROFILE and
+    workspace_dir.
+
+    For each intermediate directory that the sandbox user cannot already
+    traverse (checked via Win32 API), adds a non-inheritable traverse
+    ACE using the sandbox user's SID.  These are tracked in the returned
+    list and cleaned up during ``shutdown_cleanup``.
+
+    If ``workspace_dir`` is not under ``%USERPROFILE%`` (e.g. on a
+    secondary drive like ``D:\\project``), intermediate directories are
+    checked from the drive root down.  Directories that already inherit
+    adequate permissions (typical for non-system drives) will be skipped
+    automatically.
+
+    Args:
+        workspace_dir: The sandbox workspace directory path.
+        user_psid: Pointer to the sandbox user's SID.
+
+    Returns:
+        List of :class:`_AclEntry` entries for newly applied traverse
+        ACEs (to be included in sandbox metadata for cleanup).
+    """
+    entries: List[_AclEntry] = []
+
+    user_profile = os.path.normpath(
+        os.environ.get("USERPROFILE", os.path.expanduser("~")),
+    )
+    ws_norm = os.path.normpath(workspace_dir)
+
+    # Determine the "known-accessible" ancestor:
+    # - If workspace_dir is under USERPROFILE, start from USERPROFILE
+    #   (which already has a persistent group traverse ACE).
+    # - Otherwise, start from the drive root (which typically grants
+    #   BUILTIN\Users Read & Execute with full inheritance).
+    try:
+        rel = os.path.relpath(ws_norm, user_profile)
+        if not rel.startswith(".."):
+            base = user_profile
+        else:
+            base = os.path.splitdrive(ws_norm)[0] + os.sep
+    except ValueError:
+        # Different drives on Windows (e.g., C: vs D:)
+        base = os.path.splitdrive(ws_norm)[0] + os.sep
+
+    # Collect intermediate directories: those strictly between base and
+    # workspace_dir (both exclusive).
+    intermediates: List[str] = []
+    current = os.path.dirname(ws_norm)  # start from parent of workspace_dir
+    base_norm = os.path.normcase(os.path.normpath(base))
+    while True:
+        current_norm = os.path.normcase(os.path.normpath(current))
+        if current_norm == base_norm:
+            break
+        parent = os.path.dirname(current)
+        if os.path.normcase(parent) == current_norm:
+            break  # reached filesystem root
+        intermediates.append(current)
+        current = parent
+
+    intermediates.reverse()  # top-down order
+
+    for d in intermediates:
+        if not os.path.isdir(d):
+            continue
+        if _can_user_traverse(d):
+            logger.debug(
+                "  Traverse already present on: %s (skipped)",
+                d,
+            )
+            continue
+        if _add_traverse_ace(d, user_psid):
+            entries.append(_AclEntry(d, "traverse", "user"))
+            logger.debug("  Traverse ACE set on intermediate dir: %s", d)
+        else:
+            logger.warning("  Failed to set traverse ACE on: %s", d)
+
+    return entries
 
 
 def _apply_all_acls(
@@ -1133,10 +1348,10 @@ def _apply_all_acls(
 
         _ensure_python_dir_group_acl()
 
-        # Grant traverse on C:\Users and %USERPROFILE% for the
-        # QwenpawUsers group so that PowerShell/.NET can validate the
-        # full path chain when setting $PWD.  This is a one-time
-        # persistent operation (marker-file guarded, never cleaned up).
+        # Grant traverse on %USERPROFILE% for the QwenpawUsers group
+        # so that PowerShell/.NET can validate the path chain when
+        # setting $PWD.  This is a one-time persistent operation
+        # (marker-file guarded, never cleaned up).
         group_result = _lookup_account_sid(SANDBOX_USERS_GROUP)
         if group_result is not None:
             group_sid_buf, _ = group_result
@@ -1146,6 +1361,15 @@ def _apply_all_acls(
         user_psid = _string_to_sid(user_sid_string)
         try:
             _grant_workspace_and_mounts(user_psid, "user")
+
+            # Grant traverse on intermediate directories between
+            # USERPROFILE and workspace_dir using the sandbox user's SID.
+            # These are per-sandbox and cleaned up on exit.
+            traverse_entries = _ensure_workspace_traverse_acls(
+                config.workspace_dir,
+                user_psid,
+            )
+            entries.extend(traverse_entries)
 
             for deny_path in config.deny_paths:
                 expanded = os.path.expanduser(deny_path)
