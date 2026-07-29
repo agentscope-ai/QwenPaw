@@ -81,6 +81,9 @@ vi.mock("../../sessionApi", () => ({
     finishSessionSwitch: vi.fn(),
     lastNavigatedChatId: null,
     getEffectiveSessionId: mockGetEffectiveSessionId,
+    // Ownership epoch helpers: tests run under a single stable owner.
+    getActiveOwner: vi.fn(() => ({ agentId: "default", generation: 0 })),
+    isActiveOwner: vi.fn(() => true),
   },
 }));
 
