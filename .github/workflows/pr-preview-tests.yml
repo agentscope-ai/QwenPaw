@@ -171,11 +171,11 @@ jobs:
       # Upstream gates the integrated tier with `-m "integration and p0"` for
       # pull_request events (fast feedback). Fork pushes are not PR events, but
       # the intent here is the same pre-merge signal, so we hard-code p0.
-      # Windows runner gets the same lifted HTTP timeout upstream applies.
+      # Non-Linux runners get the same lifted HTTP timeout upstream applies.
       - name: Run integrated tests
         shell: bash
         env:
-          QWENPAW_INTEGRATION_HTTP_TIMEOUT: ${{ matrix.os == 'windows-latest' && '120' || '' }}
+          QWENPAW_INTEGRATION_HTTP_TIMEOUT: ${{ matrix.os != 'ubuntu-latest' && '120' || '' }}
         run: |
           pytest tests/integration -v \
             -n auto --dist=loadscope --timeout=300 \
