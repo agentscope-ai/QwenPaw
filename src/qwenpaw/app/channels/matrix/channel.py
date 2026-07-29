@@ -424,16 +424,11 @@ class MatrixChannel(BaseChannel):
         )
 
     def _preflight_e2ee_dependencies(self) -> None:
-        """Disable E2EE if matrix-nio has no crypto backend available.
+        """Disable E2EE when matrix-nio has no crypto backend.
 
-        Check ``nio.crypto.ENCRYPTION_ENABLED`` — the exact flag
-        ``AsyncClientConfig`` validates against — rather than probing
-        module names, so this can never disagree with what matrix-nio
-        actually does across versions (0.25 checks ``olm``, 0.26 checks
-        ``vodozemac``). Probing module names risks enabling encryption
-        when the installed matrix-nio can't use the backend, which makes
-        ``AsyncClientConfig.__post_init__`` raise ``ImportWarning`` and
-        crashes channel startup (see #6476 review feedback).
+        Checks ``nio.crypto.ENCRYPTION_ENABLED`` — the same flag
+        ``AsyncClientConfig`` validates — instead of probing backend
+        module names, which are version-dependent (#6476).
         """
         if not self.encryption:
             return
