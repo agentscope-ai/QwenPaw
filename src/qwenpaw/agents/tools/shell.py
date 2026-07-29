@@ -11,6 +11,8 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional
@@ -226,9 +228,10 @@ def _extract_powershell_command(cmd: str) -> tuple[str | None, str]:
 def _execute_subprocess_sync(
     cmd: str,
     cwd: str,
-    timeout: float,
+    timeout: float | None,
     env: dict | None = None,
     shell_executable: str | None = None,
+    stop_event: threading.Event | None = None,
 ) -> tuple[int, str, str]:
     """Execute subprocess synchronously in a thread.
 
@@ -243,6 +246,14 @@ def _execute_subprocess_sync(
     only waits for the direct child (``cmd.exe``) to exit, so commands
     that spawn background processes return immediately.
 
+    When *stop_event* is set (bridged from ``cancel_event`` / kill
+    deadline), the process tree is killed via
+    :func:`_kill_process_tree_win32` so host cancel is not ignored.
+
+    When *timeout* is ``None``, only *stop_event* or natural process exit
+    ends the wait — used under ``ToolCallContext`` so ``extend_kill`` /
+    ``no_deadline`` can update lifetime without a frozen sync ceiling.
+
     .. note::
 
        Callers must pre-process *cmd* through
@@ -256,13 +267,15 @@ def _execute_subprocess_sync(
             by the caller as described above.
         cwd (`str`):
             The working directory for the command execution.
-        timeout (`float`):
-            The maximum time (in seconds) allowed for the command to run.
+        timeout (`float | None`):
+            Hard wall-clock limit, or ``None`` to wait until stop/exit.
         env (`dict | None`):
             Environment variables for the subprocess.
         shell_executable (`str | None`):
             Path to the shell executable. When ``None``, defaults to
             ``cmd.exe``.
+        stop_event (`threading.Event | None`):
+            Optional cooperative stop signal from the asyncio side.
 
     Returns:
         `tuple[int, str, str]`:
@@ -320,10 +333,30 @@ def _execute_subprocess_sync(
         stderr_file = None
 
         timed_out = False
-        try:
-            proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
+        stopped = False
+        deadline = (
+            None if timeout is None else time.monotonic() + max(0.0, timeout)
+        )
+        poll_secs = 0.2
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                stopped = True
+                break
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+                wait_for = min(poll_secs, remaining)
+            else:
+                wait_for = poll_secs
+            try:
+                proc.wait(timeout=wait_for)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+
+        if timed_out or stopped:
             _kill_process_tree_win32(proc.pid)
             try:
                 proc.wait(timeout=5)
@@ -336,6 +369,9 @@ def _execute_subprocess_sync(
         stdout_str = _read_temp_file(stdout_path)
         stderr_str = _read_temp_file(stderr_path)
 
+        if stopped:
+            # Async side replaces with cancel/timeout stderr via cancel_reason.
+            return -1, stdout_str, stderr_str
         if timed_out:
             timeout_msg = (
                 f"Command execution exceeded the timeout of {timeout} seconds."
@@ -372,6 +408,92 @@ def _execute_subprocess_sync(
 _SANDBOX_SETUP_DEADLINE_EXTENSION = 180.0
 
 
+def _cancel_stderr_message(timeout: float) -> str:
+    """Stderr suffix for CancelledError from cancellable_wait.
+
+    Coordinator kill_deadline expiry sets ``CancelReason.TIMEOUT``; user/API
+    cancel sets ``CancelReason.USER``. Distinguish them for LLM-facing text.
+    """
+    from ...tool_calls import get_call_context
+    from ...tool_calls._context import CancelReason
+
+    ctx = get_call_context()
+    if ctx is not None and ctx.cancel_reason == CancelReason.TIMEOUT:
+        return (
+            f"⚠️ TimeoutError: The command execution exceeded "
+            f"the timeout of {timeout} seconds. "
+            f"Please consider increasing the timeout value if this "
+            f"command requires more time to complete."
+        )
+    if ctx is not None and ctx.cancel_reason == CancelReason.USER:
+        return (
+            "⚠️ Command execution was cancelled by the user. "
+            "Do not retry this command unless the user explicitly asks."
+        )
+    return "⚠️ Command execution was cancelled."
+
+
+async def _execute_windows_host(
+    cmd: str,
+    cwd: str,
+    timeout: float,
+    env: dict[str, str],
+    shell_executable: str | None,
+) -> tuple[int, str, str]:
+    """Windows host shell with kill_deadline + cancel_event process kill.
+
+    ``asyncio.to_thread`` alone ignores cancel, and wrapping it in
+    ``cancellable_wait`` can cancel the awaitable before the worker thread
+    observes stop. Instead: arm ``kill_deadline``, bridge ``cancel_event`` to
+    a ``threading.Event``, and let the sync helper kill the process tree.
+
+    Under ``ToolCallContext``, the sync helper gets ``timeout=None`` so
+    lifetime follows ``kill_deadline`` (extend / ``no_deadline`` / cancel)
+    rather than a frozen copy of the original command timeout.
+    """
+    from ...tool_calls import arm_kill_deadline, get_call_context
+
+    stop_event = threading.Event()
+    ctx = get_call_context()
+    if ctx is not None:
+        arm_kill_deadline(ctx, timeout)
+
+    # Context present: coordinator owns kill via cancel_event → stop_event.
+    # No context (SDK/direct): keep a local sync wall-clock timeout.
+    sync_timeout: float | None = None if ctx is not None else timeout
+
+    async def _bridge_cancel() -> None:
+        if ctx is None:
+            return
+        await ctx.cancel_event.wait()
+        stop_event.set()
+
+    bridge = asyncio.create_task(_bridge_cancel())
+    try:
+        returncode, stdout_str, stderr_str = await asyncio.to_thread(
+            _execute_subprocess_sync,
+            cmd,
+            cwd,
+            sync_timeout,
+            env,
+            shell_executable,
+            stop_event,
+        )
+        if ctx is not None and ctx.cancel_event.is_set():
+            return -1, stdout_str, _cancel_stderr_message(timeout)
+        return returncode, stdout_str, stderr_str
+    finally:
+        # Always arm stop: if the awaiting task is cancelled (force cancel)
+        # without cancel_event, the worker thread must still kill the tree.
+        stop_event.set()
+        if not bridge.done():
+            bridge.cancel()
+            try:
+                await bridge
+            except asyncio.CancelledError:
+                pass
+
+
 async def _execute_in_sandbox(
     cmd: str,
     sandbox_config: Any,
@@ -382,13 +504,20 @@ async def _execute_in_sandbox(
     """Execute a shell command inside the sandbox and return raw result.
 
     On first invocation the sandbox setup (user creation, profile, ACLs,
-    firewall rules) can take 5-100+ seconds. To prevent the ToolCoordinator's
-    deadline from expiring during this one-time setup, we temporarily extend
-    the deadline by _SANDBOX_SETUP_DEADLINE_EXTENSION seconds. The extension
-    is only applied when the call context has a deadline set.
+    firewall rules) can take 5-100+ seconds. During setup we temporarily
+    extend existing coordinator deadlines; after setup we restore them by
+    shifting absolute deadlines forward by the setup elapsed time so the
+    remaining offload/kill budgets are unchanged. Then we register
+    ``kill_deadline`` for the command ``timeout`` only around
+    ``sandbox.execute`` (never rewrite ``offload_deadline`` to the command
+    timeout — that would collapse offload and kill into the same instant).
     """
     from ...sandbox import create_sandbox
-    from ...tool_calls import get_call_context
+    from ...tool_calls import (
+        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
+        cancellable_wait,
+        get_call_context,
+    )
 
     # Sandbox backends rebuild their environment from os.environ. Carry over
     # the PATH adjusted by the shell entrypoint unless policy set one itself.
@@ -400,35 +529,69 @@ async def _execute_in_sandbox(
         )
         sandbox_env[path_key] = env[path_key]
 
+    ctx = get_call_context()
+    # Under ToolCallContext the coordinator owns kill via cancellable_wait /
+    # cancel_event. Do not freeze sandbox wait_for to the original timeout or
+    # ``extend_kill_deadline`` cannot actually prolong execution.
+    sandbox_timeout = (
+        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS
+        if ctx is not None
+        else int(timeout)
+    )
     effective_config = replace(
         sandbox_config,
-        timeout_seconds=int(timeout),
+        timeout_seconds=sandbox_timeout,
         env_vars=sandbox_env,
     )
+    loop = asyncio.get_running_loop()
+    setup_started_at = loop.time()
+    original_offload = None
+    original_kill = None
+    if ctx is not None:
+        if ctx.offload_deadline is not None:
+            original_offload = ctx.offload_deadline
+            ctx.offload_deadline += _SANDBOX_SETUP_DEADLINE_EXTENSION
+        if ctx.kill_deadline is not None:
+            original_kill = ctx.kill_deadline
+            ctx.kill_deadline += _SANDBOX_SETUP_DEADLINE_EXTENSION
+        if original_offload is not None or original_kill is not None:
+            ctx.deadline_changed_event.set()
 
-    # Temporarily extend the tool-call deadline so that sandbox creation
-    # does not consume the user's command timeout budget.
-    ctx = get_call_context()
-    original_deadline = None
-    if ctx is not None and ctx.deadline is not None:
-        original_deadline = ctx.deadline
-        ctx.deadline += _SANDBOX_SETUP_DEADLINE_EXTENSION
+    def _restore_setup_deadlines() -> None:
+        """Restore deadlines so remaining time matches pre-setup remaining.
+
+        Writing back the pre-setup absolute timestamp would still charge
+        setup duration against the budget; shift forward by elapsed setup.
+        """
+        if ctx is None:
+            return
+        elapsed = max(
+            0.0,
+            asyncio.get_running_loop().time() - setup_started_at,
+        )
+        changed = False
+        if original_offload is not None:
+            ctx.offload_deadline = original_offload + elapsed
+            changed = True
+        if original_kill is not None:
+            ctx.kill_deadline = original_kill + elapsed
+            changed = True
+        if changed:
+            ctx.deadline_changed_event.set()
 
     try:
         async with create_sandbox(effective_config) as sandbox:
-            # Restore the original deadline (plus only the command timeout)
-            # now that sandbox setup is complete.
-            if ctx is not None and original_deadline is not None:
-                now = asyncio.get_event_loop().time()
-                ctx.deadline = now + timeout
-            result = await sandbox.execute(cmd, cwd=cwd)
+            # Setup finished: compensate setup elapsed on borrowed deadlines,
+            # then arm kill_deadline for the command timeout only.
+            _restore_setup_deadlines()
+            return await cancellable_wait(
+                sandbox.execute(cmd, cwd=cwd),
+                fallback_secs=timeout,
+                as_kill_deadline=True,
+            )
     except BaseException:
-        # On failure, restore original deadline to avoid permanent extension
-        if ctx is not None and original_deadline is not None:
-            ctx.deadline = original_deadline
+        _restore_setup_deadlines()
         raise
-
-    return result
 
 
 _DANGER_NAMES = {
@@ -495,6 +658,44 @@ def _is_dangerous_self_kill(cmd: str) -> bool:
             pass
 
     return False
+
+
+async def _cleanup_proc(
+    proc: asyncio.subprocess.Process,
+    stderr_suffix: str,
+) -> tuple[str, str]:
+    """Kill a timed-out / cancelled subprocess and drain its output."""
+    try:
+        pgid = os.getpgid(proc.pid)
+        os.killpg(pgid, signal.SIGTERM)
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=2)
+        except asyncio.TimeoutError:
+            os.killpg(pgid, signal.SIGKILL)
+            await asyncio.wait_for(proc.wait(), timeout=2)
+
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=1,
+            )
+        except asyncio.TimeoutError:
+            stdout, stderr = b"", b""
+        stdout_str = smart_decode(stdout)
+        stderr_str = smart_decode(stderr)
+        if stderr_str:
+            stderr_str += f"\n{stderr_suffix}"
+        else:
+            stderr_str = stderr_suffix
+    except (ProcessLookupError, OSError):
+        try:
+            proc.kill()
+            await proc.wait()
+        except (ProcessLookupError, OSError):
+            pass
+        stdout_str = ""
+        stderr_str = stderr_suffix
+    return stdout_str, stderr_str
 
 
 # pylint: disable=too-many-branches, too-many-statements
@@ -606,13 +807,32 @@ async def execute_shell_command(
             shell_executable=shell_executable,
             timeout_seconds=int(timeout),
         )
-        result = await _execute_in_sandbox(
-            cmd,
-            sandbox_config,
-            timeout,
-            str(working_dir),
-            env,
-        )
+        try:
+            # kill_deadline is armed inside _execute_in_sandbox after setup,
+            # so setup time does not consume the command timeout budget and
+            # offload_deadline keeps the coordinator's offload semantics.
+            result = await _execute_in_sandbox(
+                cmd,
+                sandbox_config,
+                timeout,
+                str(working_dir),
+                env,
+            )
+        except asyncio.CancelledError:
+            stderr_msg = _cancel_stderr_message(timeout)
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.SUCCESS,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "Command failed with exit code -1.\n"
+                            f"[stderr]\n{stderr_msg}"
+                        ),
+                    ),
+                ],
+            )
         # Sandbox violation: command tried to access something not permitted
         if result.sandbox_violation:
             return ToolChunk(
@@ -659,9 +879,11 @@ async def execute_shell_command(
 
     try:
         if sys.platform == "win32":
-            # Windows: use thread pool to avoid asyncio subprocess limitations
-            returncode, stdout_str, stderr_str = await asyncio.to_thread(
-                _execute_subprocess_sync,
+            (
+                returncode,
+                stdout_str,
+                stderr_str,
+            ) = await _execute_windows_host(
                 cmd,
                 str(working_dir),
                 timeout,
@@ -688,12 +910,13 @@ async def execute_shell_command(
                 stdout, stderr = await cancellable_wait(
                     proc.communicate(),
                     fallback_secs=timeout,
+                    as_kill_deadline=True,
                 )
                 stdout_str = smart_decode(stdout)
                 stderr_str = smart_decode(stderr)
                 returncode = proc.returncode
 
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+            except asyncio.TimeoutError:
                 stderr_suffix = (
                     f"⚠️ TimeoutError: The command execution exceeded "
                     f"the timeout of {timeout} seconds. "
@@ -701,41 +924,18 @@ async def execute_shell_command(
                     f"requires more time to complete."
                 )
                 returncode = -1
-                try:
-                    # Kill the entire process group so that child processes
-                    # spawned by the shell are also terminated.
-                    pgid = os.getpgid(proc.pid)
-                    os.killpg(pgid, signal.SIGTERM)
-                    try:
-                        await asyncio.wait_for(proc.wait(), timeout=2)
-                    except asyncio.TimeoutError:
-                        os.killpg(pgid, signal.SIGKILL)
-                        await asyncio.wait_for(proc.wait(), timeout=2)
+                stdout_str, stderr_str = await _cleanup_proc(
+                    proc,
+                    stderr_suffix,
+                )
 
-                    # Drain remaining output.
-                    try:
-                        stdout, stderr = await asyncio.wait_for(
-                            proc.communicate(),
-                            timeout=1,
-                        )
-                    except asyncio.TimeoutError:
-                        stdout, stderr = b"", b""
-                    stdout_str = smart_decode(stdout)
-                    stderr_str = smart_decode(stderr)
-                    if stderr_str:
-                        stderr_str += f"\n{stderr_suffix}"
-                    else:
-                        stderr_str = stderr_suffix
-                except (ProcessLookupError, OSError):
-                    # Process already gone or pgid lookup failed — fall back
-                    # to direct kill on the process itself.
-                    try:
-                        proc.kill()
-                        await proc.wait()
-                    except (ProcessLookupError, OSError):
-                        pass
-                    stdout_str = ""
-                    stderr_str = stderr_suffix
+            except asyncio.CancelledError:
+                stderr_suffix = _cancel_stderr_message(timeout)
+                returncode = -1
+                stdout_str, stderr_str = await _cleanup_proc(
+                    proc,
+                    stderr_suffix,
+                )
 
         if returncode == 0:
             if stdout_str:

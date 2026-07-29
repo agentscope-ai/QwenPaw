@@ -42,7 +42,12 @@ def make_agent(tracker: SeenTracker) -> QwenPawAgent:
     agent = object.__new__(QwenPawAgent)
     agent._context_manager = tracker
     agent._gate_pending_stop = None
+    agent._request_context = {}
+    agent.state = SimpleNamespace(context=[], reply_id="reply")
+    agent.name = "agent"
     agent.model = SimpleNamespace(model_key=None)
+    agent._model_rejects_media = lambda: False
+    agent._uses_request_time_media_normalization = lambda: False
 
     async def stop_handlers(final_msg):
         return StopHandlerResult(
@@ -54,7 +59,16 @@ def make_agent(tracker: SeenTracker) -> QwenPawAgent:
     return agent
 
 
+def _skip_media_strip(monkeypatch) -> None:
+    """Keep tests focused on seen-ack; avoid multimodal/env-dependent strip."""
+    monkeypatch.setattr(
+        "qwenpaw.agents.model_factory._supports_multimodal_for_current_model",
+        lambda: True,
+    )
+
+
 async def test_successful_model_call_acknowledges_input_results(monkeypatch):
+    _skip_media_strip(monkeypatch)
     tracker = SeenTracker()
     agent = make_agent(tracker)
 
@@ -79,6 +93,7 @@ async def test_successful_model_call_acknowledges_input_results(monkeypatch):
 
 
 async def test_failed_model_call_does_not_acknowledge_results(monkeypatch):
+    _skip_media_strip(monkeypatch)
     tracker = SeenTracker()
     agent = make_agent(tracker)
 
@@ -99,6 +114,7 @@ async def test_failed_model_call_does_not_acknowledge_results(monkeypatch):
 async def test_interrupted_model_call_does_not_acknowledge_results(
     monkeypatch,
 ):
+    _skip_media_strip(monkeypatch)
     tracker = SeenTracker()
     agent = make_agent(tracker)
 

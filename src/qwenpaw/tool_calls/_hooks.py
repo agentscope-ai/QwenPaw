@@ -21,9 +21,10 @@ AfterHook = Callable[[Any, ToolCallContext], Awaitable[Any | None]]
 class _HookPair:
     """Per-tool runtime metadata.
 
-    ``max_internal_timeout_secs`` is set ONLY for tools whose internal
-    implementation has an unremovable hard cap (e.g. browser_use's
-    Playwright protocol layer).
+    ``max_internal_timeout_secs`` marks an absolute hard cap the deadline
+    API must honor (e.g. browser_use Playwright, or sandbox/HTTP's
+    coordinator-owned 24h ceiling). When set, ``no_deadline`` and extends
+    past ``started_at + cap`` are refused.
     """
 
     before: BeforeHook | None = None

@@ -59,6 +59,7 @@ _PROTECTED_RECENT_TOOL_RESULTS = 5
 _OUTPUT_RESERVE_RATIO = 0.05
 _MAX_OUTPUT_RESERVE_TOKENS = 4096
 _SUMMARY_UPDATE_TIMEOUT_SECONDS = 60.0
+_OVERFLOW_FORCE_TRIGGER_RATIO = 1e-6
 _SummaryRecords = tuple[
     list[tuple[int, str]],
     list[tuple[int, str]],
@@ -337,6 +338,29 @@ class ScrollContextManager:
             await self._offloader.offload_context(self._session_id, middle)
         except Exception:  # noqa: BLE001 - archive is best-effort
             logger.warning("scroll dialog offload failed", exc_info=True)
+
+    async def recover_from_context_overflow(self, agent: Any) -> bool:
+        """Force one compaction after a provider rejects an oversized input."""
+        base_config = getattr(agent, "context_config", None)
+        if base_config is None:
+            return False
+        try:
+            forced_config = base_config.model_copy(
+                update={"trigger_ratio": _OVERFLOW_FORCE_TRIGGER_RATIO},
+            )
+        except Exception:
+            logger.warning(
+                "Could not clone context_config for context-overflow "
+                "recovery; skipping the recovery attempt.",
+                exc_info=True,
+            )
+            return False
+
+        await self.compress(agent, forced_config)
+        return bool(
+            self.last_compress.get("evicted")
+            or self.last_compress.get("folded"),
+        )
 
     # pylint: disable-next=too-many-statements,too-many-branches
     async def compress(

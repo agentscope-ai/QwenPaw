@@ -28,6 +28,7 @@ from agentscope.model import FinishedReason
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
+from .context.base import ContextManager
 from .skill_system import get_workspace_skills_dir
 from ..modes.coding import CodingModeMixin
 from ..utils.io_utils import run_sync_io
@@ -38,6 +39,7 @@ from ..constant import (
     WORKING_DIR,
 )
 from ..loop.gates import StopAction, StopHandlerResult
+from ..providers.error_utils import extract_status_code
 from ..providers.model_capability_cache import get_capability_cache
 
 if TYPE_CHECKING:
@@ -81,7 +83,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         memory_manager: "BaseMemoryManager | None" = None,
         offloader: Any = None,
         context_config: Any = None,
-        context_manager: Any = None,
+        context_manager: ContextManager | None = None,
         effective_skills: Optional[list[str]] = None,
         governor: Any = None,
     ):
@@ -453,6 +455,113 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return
         setattr(formatter, "_qwenpaw_force_strip_media", enabled)
 
+    @staticmethod
+    def _is_context_overflow_error(exc: Exception) -> bool:
+        """Return whether *exc* is a provider 400 for an oversized input.
+
+        A bare 400 is deliberately insufficient: malformed tool schemas,
+        unsupported parameters, and media errors must keep their existing
+        handling.  Prefer the structured status code when the SDK exposes it,
+        with the rendered exception as a compatibility fallback for gateways
+        that wrap the original response.
+        """
+        status = extract_status_code(exc)
+        error_str = str(exc).lower()
+        if status != 400 and "error code: 400" not in error_str:
+            return False
+
+        overflow_markers = (
+            "range of input length",
+            "context length exceeded",
+            "context_length_exceeded",
+            "maximum context length",
+            "maximum context window",
+            "max input length",
+            "input length should be",
+            "input is too long",
+            "prompt is too long",
+            "prompt too long",
+            "too many input tokens",
+        )
+        if any(marker in error_str for marker in overflow_markers):
+            return True
+
+        gemini_overflow_marker_groups = (
+            (
+                "input token count",
+                "exceeds the maximum number of tokens allowed",
+            ),
+            (
+                "input token count",
+                "model only supports up to",
+            ),
+        )
+        return any(
+            all(marker in error_str for marker in marker_group)
+            for marker_group in gemini_overflow_marker_groups
+        )
+
+    async def _call_model(
+        self,
+        messages: list[Msg],
+        tools: list[dict],
+        tool_choice: Any = None,
+    ) -> Any:
+        """Call the model, recovering once from a provider input overflow.
+
+        When the provider rejects the request as too large, let the configured
+        context manager attempt recovery. Rebuild and retry only when that
+        recovery changed the model input. The retry calls AgentScope directly,
+        so a second overflow propagates instead of entering a recovery loop.
+        """
+        try:
+            return await super()._call_model(
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+            )
+        except Exception as exc:
+            context_manager = getattr(self, "_context_manager", None)
+            if not isinstance(
+                context_manager,
+                ContextManager,
+            ) or not self._is_context_overflow_error(exc):
+                raise
+
+            before = len(getattr(self.state, "context", []) or [])
+            logger.warning(
+                "Model input exceeded the provider context limit; attempting "
+                "one context recovery.",
+            )
+            input_changed = (
+                await context_manager.recover_from_context_overflow(self)
+            )
+            if not input_changed:
+                logger.warning(
+                    "Context-overflow recovery did not change the model "
+                    "input; skipping the retry.",
+                )
+                raise
+            after = len(getattr(self.state, "context", []) or [])
+
+            # The original `messages` list was prepared before compaction and
+            # can still reference evicted turns.  Always rebuild it from the
+            # updated agent state before retrying.
+            refreshed = await self._prepare_model_input()
+            refreshed_messages = refreshed["messages"]
+            refreshed_tools = refreshed.get("tools", [])
+            logger.info(
+                "Context-overflow recovery rebuilt model input "
+                "(messages %d -> %d).",
+                before,
+                after,
+            )
+            return await super()._call_model(
+                messages=refreshed_messages,
+                tools=refreshed_tools,
+                tool_choice=tool_choice,
+            )
+
     # pylint: disable=too-many-branches,too-many-statements
     async def _reasoning(
         self,
@@ -461,6 +570,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
         """Forward 2.0 ``_reasoning`` events with proactive media
         stripping, passive bad-request retry, and auto-continue on
         text-only responses."""
+
+        # ── Inject background-tool results before each reasoning step ──
+        await self._inject_pending_hints()
 
         # ── Pre-check: pending gate actions from previous iter ──
         from ..loop.gates.runner import check_pending_gates
@@ -719,8 +831,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
             self.state.context.append(hint)
 
     async def _reply(self, **kwargs: Any) -> Any:
-        """Override to inject pending background-tool hints before reply."""
-        await self._inject_pending_hints()
+        """Override kept as extension point; hint injection moved to
+        ``_reasoning`` so each ReAct iteration picks up new hints."""
         async for evt in super()._reply(**kwargs):
             yield evt
 
@@ -730,11 +842,22 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if mgr is None:
             return
 
+        from ..tool_calls import COORDINATOR_OWNED_EXEC_TIMEOUT_SECS
+
+        # Sandbox / A2A HTTP still use a 24h coordinator-owned ceiling; expose
+        # the same cap so extend/no_deadline cannot promise more than the
+        # executor will actually allow.
+        _owned_cap = float(COORDINATOR_OWNED_EXEC_TIMEOUT_SECS)
         mgr.hooks.register(
             "execute_shell_command",
             default_timeout_secs=60.0,
+            max_internal_timeout_secs=_owned_cap,
         )
-        mgr.hooks.register("chat_with_agent", default_timeout_secs=300.0)
+        mgr.hooks.register(
+            "chat_with_agent",
+            default_timeout_secs=300.0,
+            max_internal_timeout_secs=_owned_cap,
+        )
         mgr.hooks.register("check_agent_task", default_timeout_secs=30.0)
         mgr.hooks.register("grep_search", default_timeout_secs=30.0)
         mgr.hooks.register("glob_search", default_timeout_secs=15.0)
