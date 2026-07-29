@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=unused-argument,protected-access,unused-variable
+# pylint: disable=wrong-import-position
 """Unit tests for Windows Unelevated sandbox (WRITE_RESTRICTED, no admin).
 
 Test structure:
@@ -13,7 +14,53 @@ Test structure:
 """
 
 import asyncio
+import ctypes
+import sys
+import types
 from unittest.mock import MagicMock, patch
+
+# -- Cross-platform stubs for ctypes.wintypes / ctypes.WinDLL ---------------
+if sys.platform != "win32":
+    if not hasattr(ctypes, "wintypes"):
+        _wintypes = types.ModuleType("ctypes.wintypes")
+        _wintypes.BYTE = ctypes.c_ubyte
+        _wintypes.WORD = ctypes.c_ushort
+        _wintypes.DWORD = ctypes.c_ulong
+        _wintypes.LONG = ctypes.c_long
+        _wintypes.ULONG = ctypes.c_ulong
+        _wintypes.UINT = ctypes.c_uint
+        _wintypes.INT = ctypes.c_int
+        _wintypes.BOOL = ctypes.c_int
+        _wintypes.BOOLEAN = ctypes.c_ubyte
+        _wintypes.LARGE_INTEGER = ctypes.c_int64
+        _wintypes.ULARGE_INTEGER = ctypes.c_uint64
+        _wintypes.HANDLE = ctypes.c_void_p
+        _wintypes.HLOCAL = ctypes.c_void_p
+        _wintypes.HMODULE = ctypes.c_void_p
+        _wintypes.HINSTANCE = ctypes.c_void_p
+        _wintypes.HWND = ctypes.c_void_p
+        _wintypes.WPARAM = ctypes.c_size_t
+        _wintypes.LPARAM = ctypes.c_ssize_t
+        _wintypes.LPCWSTR = ctypes.c_wchar_p
+        _wintypes.LPWSTR = ctypes.c_wchar_p
+        _wintypes.LPCSTR = ctypes.c_char_p
+        _wintypes.LPSTR = ctypes.c_char_p
+        ctypes.wintypes = _wintypes  # type: ignore[attr-defined]
+        sys.modules["ctypes.wintypes"] = _wintypes
+    if not hasattr(ctypes, "WinDLL"):
+
+        class _WinDLLStub:
+            def __init__(self, *a, **kw):
+                raise OSError("ctypes.WinDLL unavailable on this platform")
+
+        ctypes.WinDLL = _WinDLLStub  # type: ignore[attr-defined]
+    if "msvcrt" not in sys.modules:
+        _msvcrt = types.ModuleType("msvcrt")
+        _msvcrt.LK_NBLCK = 0x2  # type: ignore[attr-defined]
+        _msvcrt.LK_UNLCK = 0x0  # type: ignore[attr-defined]
+        _msvcrt.locking = lambda *a, **kw: None  # type: ignore[attr-defined]
+        sys.modules["msvcrt"] = _msvcrt
+# -- End stubs ---------------------------------------------------------------
 
 from qwenpaw.sandbox import MountSpec, SandboxConfig, SandboxMode
 from qwenpaw.sandbox.windows_unelevated_sandbox import (
@@ -270,9 +317,7 @@ class TestEnvBlock:
 
     def _get_full_block(self, block):
         """Get the full environment block content."""
-        import ctypes as ct
-
-        return ct.wstring_at(ct.addressof(block), len(block))
+        return ctypes.wstring_at(ctypes.addressof(block), len(block))
 
     def test_sorted_output(self):
         """Environment block entries are sorted case-insensitively."""
@@ -412,13 +457,17 @@ class TestWindowsUnelevatedSandboxExecute:
         assert result.timed_out is True
 
     @patch(
+        "qwenpaw.sandbox.windows_unelevated_sandbox._get_kernel32",
+    )
+    @patch(
         "qwenpaw.sandbox.windows_unelevated_sandbox._create_process_as_user",
     )
-    def test_execute_oserror(self, mock_create):
+    def test_execute_oserror(self, mock_create, mock_kernel32_fn):
         """CreateProcess failure → exit_code=-1, error in stderr."""
         mock_create.side_effect = OSError(
             "CreateProcessAsUserW failed: error=5",
         )
+        mock_kernel32_fn.return_value = MagicMock()
 
         sandbox = self._make_sandbox()
         result = asyncio.run(sandbox.execute("whoami"))
