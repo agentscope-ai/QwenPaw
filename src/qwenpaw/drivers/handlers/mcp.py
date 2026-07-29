@@ -374,7 +374,8 @@ def _mcp_tool_to_capability(
         name=name,
         description=description,
         input_schema=input_schema,
-        # tool_name is sanitized to satisfy OpenAI's ^[a-zA-Z0-9_-]+$
+        # tool_name is sanitized to satisfy OpenAI's
+        # ^[a-zA-Z][a-zA-Z0-9_-]*$
         # constraint.
         exposure=CapabilityExposure(
             as_tool=True,
@@ -393,20 +394,28 @@ def _mcp_tool_to_capability(
 # _TOOL_NAME_ALLOWED matches a string composed *entirely* of allowed
 # characters (for fast-path check).
 _TOOL_NAME_SAFE_CHARS = re.compile(r"[^A-Za-z0-9_-]+")
-_TOOL_NAME_ALLOWED = re.compile(r"[a-zA-Z0-9_-]+")
+_TOOL_NAME_ALLOWED = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+_TOOL_NAME_LEADING_NON_LETTERS = re.compile(r"^[^A-Za-z]+")
 
 
 def _sanitize_tool_name(name: str) -> str:
-    """Rewrite an MCP tool name to satisfy OpenAI's ``^[a-zA-Z0-9_-]+$``.
+    """Rewrite an MCP tool name to satisfy strict function-name rules.
 
     Names that already match the pattern are returned unchanged.
-    Characters outside the allowed set are replaced with ``_`` and leading/
-    trailing underscores are stripped.  An empty result falls back to
+    Characters outside the allowed set are replaced with ``_``. Leading
+    non-letter characters are removed when a letter remains; otherwise the
+    cleaned name is prefixed with ``"tool_"``. An empty result falls back to
     ``"tool"``.
     """
     if _TOOL_NAME_ALLOWED.fullmatch(name):
         return name
-    return _TOOL_NAME_SAFE_CHARS.sub("_", name).strip("_") or "tool"
+    cleaned = _TOOL_NAME_SAFE_CHARS.sub("_", name).strip("_")
+    if not cleaned:
+        return "tool"
+    letter_led = _TOOL_NAME_LEADING_NON_LETTERS.sub("", cleaned)
+    if letter_led:
+        return letter_led
+    return f"tool_{cleaned}"
 
 
 def _tool_namespace_from_display_name(
@@ -415,4 +424,4 @@ def _tool_namespace_from_display_name(
     fallback: str,
 ) -> str:
     namespace = _TOOL_NAME_SAFE_CHARS.sub("_", display_name.strip()).strip("_")
-    return namespace or _sanitize_tool_name(fallback)
+    return _sanitize_tool_name(namespace or fallback)
