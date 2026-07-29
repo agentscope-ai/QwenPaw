@@ -209,6 +209,10 @@ const ChatSessionInitializer: React.FC = () => {
     }
 
     return () => {
+      // Abort any in-flight embedded switch so a late preload result cannot
+      // navigate after this initializer (and its chat view) is gone.
+      switchControllerRef.current?.abort();
+      switchControllerRef.current = null;
       window.removeEventListener(
         "qwenpaw:sidebar-select-session",
         handleSelectSession,

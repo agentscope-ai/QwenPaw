@@ -256,12 +256,38 @@ describe("agent session ownership epochs", () => {
     await sessionApi.getSession(A_CHAT);
     expect(getChatSpy).toHaveBeenCalledTimes(2);
 
-    // A's preload completes late: its result must not be published into the
-    // short-lived result cache, so a follow-up getSession never serves it.
+    // A's preload completes late: it must fail like an aborted request so
+    // the caller's navigation path never runs, and its result must not be
+    // served from the short-lived result cache.
     dA.resolve(makeHistory());
-    const { session: staleSession } = await preloadPromise;
-    const after = await sessionApi.getSession(A_CHAT);
-    expect(after).not.toBe(staleSession);
+    await expect(preloadPromise).rejects.toMatchObject({
+      name: "AbortError",
+    });
+  });
+
+  it("the previous agent's list entries cannot leak ids into the new agent's list", async () => {
+    const listSpy = vi.spyOn(api, "listChats");
+
+    // Agent A resolves a blank local session to its backend UUID, leaving a
+    // list entry with a local id and realId mapping.
+    sessionApi.setActiveAgent("agent-a");
+    const spec: { id?: string } = {};
+    await sessionApi.createSession(spec);
+    const tempId = spec.id!;
+    listSpy.mockResolvedValueOnce([makeChatSpec(A_CHAT, tempId)]);
+    sessionApi.triggerResolve(tempId);
+    await flush();
+
+    // Agent B's backend chat shares the same session_id (channel:user_id).
+    // Merging against A's leftover entry would transfer A's local id and
+    // UUID onto B's chat.
+    sessionApi.setActiveAgent("agent-b");
+    listSpy.mockResolvedValueOnce([makeChatSpec(B_CHAT, tempId)]);
+    const list = await sessionApi.getSessionList();
+
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe(B_CHAT);
+    expect((list[0] as { realId?: string }).realId).toBeUndefined();
   });
 
   it("work started before the first ownership claim is rejected after it", async () => {

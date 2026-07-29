@@ -613,30 +613,34 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const owner = this.getActiveOwner();
     try {
       const session = await this.getSession(sessionId, signal);
+
+      // A preload that completes after an agent switch must fail like an
+      // aborted request: resolving normally would let the caller navigate
+      // the new agent to the stale session and mark it as preferred.
+      if (!this.isActiveOwner(owner)) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+
       const extendedSession = session as ExtendedSession;
       const realId = extendedSession.realId || null;
 
-      // Cache the result so subsequent getSession calls return immediately —
-      // but never publish a result that arrived after an agent switch into
-      // the new epoch's cache.
-      if (this.isActiveOwner(owner)) {
-        const entry = { session, owner };
-        this.sessionResultCache.set(sessionId, entry);
-        if (realId) {
-          this.sessionResultCache.set(realId, entry);
-        }
-        // Clear after 3s (enough for the library's useAsyncEffect to fire).
-        // Delete by entry identity so a late timer cannot remove a newer
-        // entry cached under the same key.
-        setTimeout(() => {
-          if (this.sessionResultCache.get(sessionId) === entry) {
-            this.sessionResultCache.delete(sessionId);
-          }
-          if (realId && this.sessionResultCache.get(realId) === entry) {
-            this.sessionResultCache.delete(realId);
-          }
-        }, 3000);
+      // Cache the result so subsequent getSession calls return immediately.
+      const entry = { session, owner };
+      this.sessionResultCache.set(sessionId, entry);
+      if (realId) {
+        this.sessionResultCache.set(realId, entry);
       }
+      // Clear after 3s (enough for the library's useAsyncEffect to fire).
+      // Delete by entry identity so a late timer cannot remove a newer
+      // entry cached under the same key.
+      setTimeout(() => {
+        if (this.sessionResultCache.get(sessionId) === entry) {
+          this.sessionResultCache.delete(sessionId);
+        }
+        if (realId && this.sessionResultCache.get(realId) === entry) {
+          this.sessionResultCache.delete(realId);
+        }
+      }, 3000);
 
       return { session, realId };
     } catch (error) {
@@ -685,6 +689,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionRequests.clear();
     this.sessionResultCache.clear();
     this.convertedSessionCache.clear();
+    // Reset the session list and its comparison state as well: the next
+    // agent's chats can share a session_id (channel:user_id) with the old
+    // list, and merging against leftover entries would transfer the previous
+    // agent's local id / backend UUID onto a different chat.
+    this.sessionList = [];
+    this._prevReturnedList = null;
+    this.lastSelectedIds.clear();
     return this.activeOwner;
   }
 
