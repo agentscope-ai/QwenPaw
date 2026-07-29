@@ -265,6 +265,39 @@ describe("agent session ownership epochs", () => {
     });
   });
 
+  it("a stale preload that fails with a normal error still rejects as AbortError", async () => {
+    vi.spyOn(api, "listChats").mockResolvedValue([
+      makeChatSpec(A_CHAT, "console:a"),
+    ]);
+    const dChat = deferred<ChatHistory>();
+    vi.spyOn(api, "getChat").mockReturnValueOnce(dChat.promise);
+
+    // Agent A starts a preload whose fetch is still pending at switch time.
+    sessionApi.setActiveAgent("agent-a");
+    await sessionApi.getSessionList();
+    const preloadPromise = sessionApi.preloadSession(A_CHAT);
+
+    // After the switch the old request fails with a plain backend error.
+    // The caller must see an abort — a normal rejection would be handled as
+    // a current-switch failure and select the stale session.
+    sessionApi.setActiveAgent("agent-b");
+    dChat.reject(new Error("backend unavailable"));
+
+    await expect(preloadPromise).rejects.toMatchObject({
+      name: "AbortError",
+    });
+  });
+
+  it("switching agents releases a stuck session-switch lock", () => {
+    sessionApi.setActiveAgent("agent-a");
+    // Simulate an embedded switch whose finally never ran (unmount abort).
+    sessionApi.isSessionSwitching = true;
+
+    sessionApi.setActiveAgent("agent-b");
+
+    expect(sessionApi.isSessionSwitching).toBe(false);
+  });
+
   it("the previous agent's list entries cannot leak ids into the new agent's list", async () => {
     const listSpy = vi.spyOn(api, "listChats");
 

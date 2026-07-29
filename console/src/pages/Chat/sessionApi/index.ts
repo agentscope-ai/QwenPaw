@@ -644,6 +644,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
       return { session, realId };
     } catch (error) {
+      // A stale completion must look like an abort on the error path too:
+      // a plain network/backend rejection would otherwise be handled as a
+      // failure of the CURRENT switch and select the old agent's session.
+      if (!this.isActiveOwner(owner)) {
+        throw new DOMException("Aborted", "AbortError");
+      }
       // Don't reset switching state on abort — the new switch owns the lock
       if (error instanceof DOMException && error.name === "AbortError") {
         throw error;
@@ -696,6 +702,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionList = [];
     this._prevReturnedList = null;
     this.lastSelectedIds.clear();
+    // Release the switch lock: the switch it belonged to is owned by the
+    // previous epoch and its completion handler may never run (e.g. the
+    // initializer aborted on unmount). Leaving it set would make the new
+    // agent permanently skip URL sync, session selection, and list polling.
+    this.isSessionSwitching = false;
+    this.switchAbortController?.abort();
+    this.switchAbortController = null;
     return this.activeOwner;
   }
 
