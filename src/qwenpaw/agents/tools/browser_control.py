@@ -1164,9 +1164,9 @@ async def _wait_for_cdp_ready(
                 "another process.",
             )
         try:
-            first_line = port_file.read_text(encoding="utf-8").splitlines()[
-                0
-            ].strip()
+            first_line = (
+                port_file.read_text(encoding="utf-8").splitlines()[0].strip()
+            )
         except (OSError, IndexError):
             first_line = ""
         if first_line == str(port):
@@ -1188,7 +1188,9 @@ async def _start_managed_cdp_browser(  # pylint: disable=too-many-statements
     browser_args: str = "",
     executable_path: str = "",
 ) -> None:
-    default_kind, exe = await asyncio.to_thread(_resolve_chromium_launch_target)
+    default_kind, exe = await asyncio.to_thread(
+        _resolve_chromium_launch_target
+    )
     explicit_exe = bool(executable_path)
     if executable_path:
         exe = executable_path
@@ -1862,7 +1864,9 @@ async def _action_start(
             return _tool_response(
                 json.dumps(result, ensure_ascii=False, indent=2),
             )
-    if cdp_port and await asyncio.to_thread(_probe_local_port_in_use, cdp_port):
+    if cdp_port and await asyncio.to_thread(
+        _probe_local_port_in_use, cdp_port
+    ):
         return _tool_response(
             json.dumps(
                 {
