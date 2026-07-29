@@ -3,18 +3,23 @@
 //! Mirrors the Windows `window.rs` leaf: everything here answers "what windows
 //! and applications exist, which one is this, and may we touch it".
 
-use core_foundation::base::TCFType;
+use accessibility::{AXAttribute, AXUIElement};
+use accessibility_sys::kAXPressAction;
+use core_foundation::base::{CFType, TCFType};
+use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
 use core_foundation::string::CFString;
 use core_graphics::window::{
     copy_window_info, kCGNullWindowID, kCGWindowLayer, kCGWindowListExcludeDesktopElements,
     kCGWindowListOptionOnScreenOnly, kCGWindowName, kCGWindowNumber, kCGWindowOwnerName,
     kCGWindowOwnerPID,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 use super::super::{merge_app_list, InstalledApp, WindowInfo};
-use super::{dict_i64, dict_string, window_bounds};
+use super::accessibility_tree::find_ax_window;
+use super::input::reject_recent_user_intervention;
+use super::{dict_i64, dict_string, window_owner_pid};
 
 /// Directories a macOS application bundle is normally installed into.
 ///

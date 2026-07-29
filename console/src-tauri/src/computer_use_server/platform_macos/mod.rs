@@ -13,10 +13,11 @@
 use accessibility_sys::{AXError, AXUIElementRef};
 use core_foundation::base::{CFType, TCFType};
 use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
+use core_foundation::number::CFNumber;
 use core_foundation::string::{CFString, CFStringRef};
 use core_graphics::window::{
     copy_window_info, kCGNullWindowID, kCGWindowBounds, kCGWindowListExcludeDesktopElements,
-    kCGWindowListOptionIncludingWindow, kCGWindowNumber, kCGWindowOwnerPID,
+    kCGWindowListOptionIncludingWindow, kCGWindowNumber, kCGWindowOwnerPID, CGWindowID,
 };
 use serde_json::{Map, Value};
 

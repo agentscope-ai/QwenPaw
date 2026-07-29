@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use super::super::{
     element_line, next_id, truncate_document_text, AccessibilitySnapshot, ServerState, WindowInfo,
 };
+use super::input::reject_recent_user_intervention;
 use super::{window_owner_pid, _AXUIElementGetWindow};
 
 /// Native accessibility element handle for the shared snapshot store.
@@ -94,7 +95,7 @@ fn accessibility_element<'a>(
     ))
 }
 
-fn collect_accessibility(
+pub(super) fn collect_accessibility(
     window: &WindowInfo,
 ) -> Result<(String, Value, HashMap<String, AxElement>), String> {
     let pid = window_owner_pid(window.hwnd as i64)
@@ -140,7 +141,7 @@ fn ax_string(element: &AXUIElement, attribute: &'static str) -> Option<String> {
     Some(text)
 }
 
-fn find_ax_window(app: &AXUIElement, target: u32) -> Option<AXUIElement> {
+pub(super) fn find_ax_window(app: &AXUIElement, target: u32) -> Option<AXUIElement> {
     let windows = app.attribute(&AXAttribute::children()).ok()?;
     for window in windows.iter() {
         let mut id: u32 = 0;

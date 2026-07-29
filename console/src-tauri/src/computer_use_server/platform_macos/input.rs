@@ -8,7 +8,7 @@ use accessibility::{AXAttribute, AXUIElement};
 use accessibility_sys::kAXRaiseAction;
 use core_foundation::base::{CFType, TCFType};
 use core_foundation::boolean::CFBoolean;
-use core_foundation::dictionary::CFDictionary;
+use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
 use core_foundation::number::CFNumber;
 use core_foundation::string::CFString;
 use core_graphics::event::{
@@ -17,7 +17,7 @@ use core_graphics::event::{
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::geometry::CGPoint;
 use core_graphics::window::{
-    copy_window_info, kCGNullWindowID, kCGWindowListExcludeDesktopElements,
+    copy_window_info, kCGNullWindowID, kCGWindowLayer, kCGWindowListExcludeDesktopElements,
     kCGWindowListOptionOnScreenOnly, kCGWindowNumber,
 };
 use serde_json::{json, Map, Value};
@@ -25,8 +25,9 @@ use serde_json::{json, Map, Value};
 use super::super::{map_point, ServerState, Snapshot, WindowInfo, USER_INTERVENTION_GRACE_MS};
 use super::accessibility_tree::find_ax_window;
 use super::{
-    integer_param, window_bounds, CGEventSourceSecondsSinceLastEventType,
-    CGSessionCopyCurrentDictionary, _AXUIElementGetWindow,
+    bounds_from_dict, dict_i64, integer_param, window_bounds, window_owner_pid,
+    CGEventSourceSecondsSinceLastEventType, CGSessionCopyCurrentDictionary,
+    _AXUIElementGetWindow,
 };
 
 /// How long to wait for a raised window to actually hold focus before
@@ -36,6 +37,14 @@ const FOCUS_POLL_INTERVAL_MS: u64 = 25;
 
 const EVENT_SOURCE_STATE_COMBINED_SESSION: u32 = 1;
 const ANY_INPUT_EVENT_TYPE: u32 = 0xFFFF_FFFF;
+
+thread_local! {
+    // One-shot exemption armed by the host right after the user resolves an
+    // approval prompt, so the following action does not misread that click
+    // as the person taking over the machine.
+    static INTERVENTION_BYPASS_ONCE: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
 
 /// Read the current login-session dictionary and report the lock flag.
 /// Returns `None` when the session dictionary is unavailable (for example
@@ -68,7 +77,7 @@ pub(crate) fn desktop_locked() -> bool {
 
 /// Reject an action if a person used the keyboard or mouse within the grace
 /// window, so automated input never races a human.
-fn reject_recent_user_intervention() -> Result<(), (&'static str, String)> {
+pub(super) fn reject_recent_user_intervention() -> Result<(), (&'static str, String)> {
     if INTERVENTION_BYPASS_ONCE.with(|cell| cell.replace(false)) {
         return Ok(());
     }
