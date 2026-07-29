@@ -36,6 +36,7 @@ import {
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../../../../stores/sessionListStore";
+import { useAgentStore } from "../../../../stores/agentStore";
 import {
   type DateGroup,
   groupSessions,
@@ -232,6 +233,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const location = useLocation();
   const sdkState = useChatAnywhereSessionsState();
   const { codingMode } = useCodingMode();
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
 
   const createNewSession = useCreateNewSession();
 
@@ -348,6 +350,11 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     let isCancelled = false;
     const owner = sessionApi.getActiveOwner();
 
+    // The drawer owns a local list outside the SDK context. Clear the
+    // previous agent's entries before loading the newly selected agent.
+    lastPolledSessionsRef.current = [];
+    setSessions([]);
+
     const fetchSessions = async () => {
       setListLoading(true);
       try {
@@ -395,7 +402,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       isCancelled = true;
       clearInterval(timer);
     };
-  }, [props.open, setSessions]);
+  }, [props.open, selectedAgent, setSessions]);
 
   /** Whether a session switch is in progress (issue #4557) */
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(
