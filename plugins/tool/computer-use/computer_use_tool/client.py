@@ -48,6 +48,11 @@ _INPUT_METHODS = frozenset(
         "invoke_element",
         "set_value",
         "close_window",
+        # Raising a window is guarded too: it moves the keyboard focus, and on
+        # Windows escaping the foreground lock synthesizes an Alt tap. Without
+        # it here, the focus call right after an approval would be refused for
+        # the very click that granted it.
+        "set_focus",
     },
 )
 TransportFactory = Callable[[], ComputerUseTransport]

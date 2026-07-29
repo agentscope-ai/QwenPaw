@@ -167,6 +167,12 @@ fn enforce_input_guard(after_approval: bool) -> Result<(), (&'static str, String
 ///
 /// This is the set the input guard applies to: the actions that reach out and
 /// disturb the machine, as opposed to those that only look at it.
+///
+/// `set_focus` belongs here even though it reads like navigation. Raising a
+/// window takes the keyboard away from whatever the person was typing into, and
+/// on Windows getting past the foreground lock means synthesizing an Alt tap and
+/// un-minimizing the target -- input injection and a visible change, on a
+/// machine that may be locked or in someone's hands.
 fn changes_window_state(method: &str) -> bool {
     matches!(
         method,
@@ -178,6 +184,7 @@ fn changes_window_state(method: &str) -> bool {
             | "invoke_element"
             | "set_value"
             | "close_window"
+            | "set_focus"
     )
 }
 
@@ -199,6 +206,9 @@ mod tests {
             "invoke_element",
             "set_value",
             "close_window",
+            // Raising a window moves the keyboard focus, and on Windows the
+            // foreground lock is escaped by synthesizing an Alt tap.
+            "set_focus",
         ] {
             assert!(changes_window_state(method), "{method} must be guarded");
         }
@@ -213,9 +223,12 @@ mod tests {
             "find_window",
             "list_apps",
             "list_windows",
-            "set_focus",
-            "launch_app",
             "end_turn",
+            // Starting an application changes what is on screen, but it
+            // synthesizes no input and reads no pixels, and it already needs
+            // its own approval. It is listed deliberately rather than left
+            // unasserted, so the judgement is on the record.
+            "launch_app",
         ] {
             assert!(
                 !changes_window_state(method),
