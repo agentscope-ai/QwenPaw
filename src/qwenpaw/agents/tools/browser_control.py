@@ -1189,7 +1189,7 @@ async def _start_managed_cdp_browser(  # pylint: disable=too-many-statements
     executable_path: str = "",
 ) -> None:
     default_kind, exe = await asyncio.to_thread(
-        _resolve_chromium_launch_target
+        _resolve_chromium_launch_target,
     )
     explicit_exe = bool(executable_path)
     if executable_path:
@@ -1865,7 +1865,8 @@ async def _action_start(
                 json.dumps(result, ensure_ascii=False, indent=2),
             )
     if cdp_port and await asyncio.to_thread(
-        _probe_local_port_in_use, cdp_port
+        _probe_local_port_in_use,
+        cdp_port,
     ):
         return _tool_response(
             json.dumps(
