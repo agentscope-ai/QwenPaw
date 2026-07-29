@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 
 import qwenpaw.providers.anthropic_provider as anthropic_provider_module
@@ -270,3 +272,170 @@ async def test_update_config_updates_only_non_none_values() -> None:
     assert provider_info.api_key_prefix == "sk-ant-"
     assert provider_info.is_custom
     assert not provider_info.support_connection_check
+
+
+# ---------------------------------------- _try_video_source
+
+
+def _make_text_block(text: str):
+    return SimpleNamespace(type="text", text=text)
+
+
+def _make_thinking_block(text: str):
+    return SimpleNamespace(type="thinking", thinking=text)
+
+
+def _make_response(*blocks):
+    return SimpleNamespace(content=list(blocks))
+
+
+async def test_try_video_source_color_match(monkeypatch) -> None:
+    provider = _make_provider()
+    resp = _make_response(_make_text_block("blue"))
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            _ = kwargs
+            return resp
+
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    monkeypatch.setattr(
+        provider,
+        "_client",
+        lambda timeout=30: fake_client,
+    )
+
+    result = await provider._try_video_source(
+        "test-model",
+        {"type": "base64", "media_type": "video/mp4", "data": "AA=="},
+        timeout=30,
+        start_time=time.monotonic(),
+    )
+    assert result is not None
+    ok, msg = result
+    assert ok is True
+    assert "Video supported" in msg
+
+
+async def test_try_video_source_thinking_block_match(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    resp = _make_response(
+        _make_thinking_block("The video shows a blue color"),
+        _make_text_block("unknown"),
+    )
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            _ = kwargs
+            return resp
+
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    monkeypatch.setattr(
+        provider,
+        "_client",
+        lambda timeout=30: fake_client,
+    )
+
+    result = await provider._try_video_source(
+        "test-model",
+        {"type": "base64", "media_type": "video/mp4", "data": "AA=="},
+        timeout=30,
+        start_time=time.monotonic(),
+    )
+    assert result is not None
+    ok, _ = result
+    assert ok is True
+
+
+async def test_try_video_source_no_match(monkeypatch) -> None:
+    provider = _make_provider()
+    resp = _make_response(_make_text_block("green"))
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            _ = kwargs
+            return resp
+
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    monkeypatch.setattr(
+        provider,
+        "_client",
+        lambda timeout=30: fake_client,
+    )
+
+    result = await provider._try_video_source(
+        "test-model",
+        {"type": "base64", "media_type": "video/mp4", "data": "AA=="},
+        timeout=30,
+        start_time=time.monotonic(),
+    )
+    assert result is not None
+    ok, msg = result
+    assert ok is False
+    assert "did not recognise" in msg
+
+
+async def test_try_video_source_400_returns_none(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+
+    class Fake400Error(
+        anthropic_provider_module.anthropic.APIError,
+    ):
+        def __init__(self):
+            self.status_code = 400
+            self.message = "bad"
+            self.body = {}
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            _ = kwargs
+            raise Fake400Error()
+
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    monkeypatch.setattr(
+        provider,
+        "_client",
+        lambda timeout=30: fake_client,
+    )
+
+    result = await provider._try_video_source(
+        "test-model",
+        {"type": "base64", "media_type": "video/mp4", "data": "AA=="},
+        timeout=30,
+        start_time=time.monotonic(),
+    )
+    assert result is None
+
+
+async def test_try_video_source_http_fallback_accepts_any_answer(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    resp = _make_response(_make_text_block("green"))
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            _ = kwargs
+            return resp
+
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    monkeypatch.setattr(
+        provider,
+        "_client",
+        lambda timeout=30: fake_client,
+    )
+
+    result = await provider._try_video_source(
+        "test-model",
+        {"type": "url", "url": "https://example.com/v.mp4"},
+        timeout=30,
+        start_time=time.monotonic(),
+        is_http=True,
+    )
+    assert result is not None
+    ok, _ = result
+    assert ok is True

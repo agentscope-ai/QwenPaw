@@ -60,6 +60,8 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 
 ## News
 
+- [2026-07-24] **v2.0.1** | PawApp mini-app platform, user-editable Agent Modes, Oh-My-Paw plugins, ReMe memory enhancements, desktop UX improvements, and more. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+
 - [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | An AgentScope 2.0 based ground-up rewrite delivering the Agent OS architecture, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory, and a bundled Terminal UI.
 
   | Highlight | What's new |
@@ -484,7 +486,7 @@ cp -R console/dist/. src/qwenpaw/console/
 pip install -e .
 ```
 
-- **Dev** (tests, formatting): `pip install -e ".[dev,full]"`
+- **Dev** (tests, formatting): `pip install -e ".[dev,test,full]"`
 - **Then**: Run `qwenpaw init --defaults`, then `qwenpaw app`.
 
 > **Note for updates:** When updating to a new major version after `git pull`, please also rebuild the frontend, reinstall the package (`pip install -e .`), restart `qwenpaw app`, and clear your browser cache with `Ctrl+Shift+R` (or `Cmd+Shift+R` on macOS).

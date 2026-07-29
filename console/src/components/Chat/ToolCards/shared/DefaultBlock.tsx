@@ -13,6 +13,7 @@ import { Markdown } from "@agentscope-ai/chat";
 import { CopyOutlined, CheckOutlined } from "@ant-design/icons";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { copyText } from "@/utils/clipboard";
 import { looksLikeMarkdown } from "./utils";
 import styles from "./toolCards.module.less";
 
@@ -62,8 +63,7 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
   );
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard
-      .writeText(content)
+    void copyText(content)
       .then(() => {
         if (timerRef.current) clearTimeout(timerRef.current);
         setCopied(true);
@@ -109,6 +109,7 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
       <div className={styles.defaultBlockHeader}>
         <span className={styles.defaultBlockTitle}>{title}</span>
         <button
+          type="button"
           className={styles.defaultBlockCopy}
           onClick={handleCopy}
           title={copyTitle}

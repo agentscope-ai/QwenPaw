@@ -81,5 +81,9 @@ class LoopGate(StopGate):
             sid,
         )
 
+    def reset_session(self) -> None:
+        """Remove state for the current conversation session."""
+        self.deactivate()
+
 
 __all__ = ["LoopGate"]

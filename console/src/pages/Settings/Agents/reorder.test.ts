@@ -9,6 +9,7 @@ const agents = (ids: string[]): AgentSummary[] =>
     description: "",
     workspace_dir: "",
     enabled: true,
+    backend: "qwenpaw",
   }));
 
 describe("reorderAgents", () => {

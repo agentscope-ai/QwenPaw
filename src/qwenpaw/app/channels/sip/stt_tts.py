@@ -5,11 +5,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import queue as thread_queue
+import threading
 from typing import AsyncIterator
 
 from .stt_engine import AliyunSTTStream, STTStreamEngine
 
 logger = logging.getLogger(__name__)
+
+# Enough for short scheduling jitter without allowing a whole response to sit
+# in memory when the audio output blocks.
+_TTS_QUEUE_MAX_CHUNKS = 64
 
 
 def _resolve_dashscope_key(api_key: str = "") -> str:
@@ -135,28 +141,30 @@ async def _stream_aliyun(
         AudioFormat.PCM_8000HZ_MONO_16BIT,
     )
 
-    loop = asyncio.get_running_loop()
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: thread_queue.Queue[bytes | None] = thread_queue.Queue(
+        maxsize=_TTS_QUEUE_MAX_CHUNKS,
+    )
+    stopped = threading.Event()
+
+    def _enqueue(chunk: bytes | None) -> None:
+        """Block the SDK callback until playback makes room or is cancelled."""
+        while not stopped.is_set():
+            try:
+                queue.put(chunk, timeout=0.1)
+                return
+            except thread_queue.Full:
+                pass
 
     class _Callback(ResultCallback):
         def on_data(self, data: bytes) -> None:
-            loop.call_soon_threadsafe(
-                queue.put_nowait,
-                data,
-            )
+            _enqueue(data)
 
         def on_complete(self) -> None:
-            loop.call_soon_threadsafe(
-                queue.put_nowait,
-                None,
-            )
+            _enqueue(None)
 
         def on_error(self, message: str) -> None:
             logger.error("TTS stream error: %s", message)
-            loop.call_soon_threadsafe(
-                queue.put_nowait,
-                None,
-            )
+            _enqueue(None)
 
         def on_close(self) -> None:
             pass
@@ -184,12 +192,26 @@ async def _stream_aliyun(
         text,
     )
 
-    # Drain the queue concurrently while synthesis is running
-    while True:
-        chunk = await queue.get()
-        if chunk is None:
-            break
-        yield chunk
+    completed = False
+    try:
+        # ``Queue.get`` is synchronous because DashScope invokes callbacks
+        # from its own thread. A timed get also lets us notice a producer that
+        # exited without delivering its terminal callback.
+        while True:
+            try:
+                chunk = await asyncio.to_thread(queue.get, True, 0.1)
+            except thread_queue.Empty:
+                if synth_task.done():
+                    break
+                continue
+            if chunk is None:
+                break
+            yield chunk
+        completed = True
+    finally:
+        stopped.set()
 
-    # Ensure the background thread finishes cleanly
-    await synth_task
+    # Surface synthesis failures after normal completion. On cancellation the
+    # callback observes ``stopped`` and the executor future finishes itself.
+    if completed:
+        await synth_task

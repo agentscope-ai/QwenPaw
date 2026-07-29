@@ -25,6 +25,7 @@ Run:
 # pylint: disable=reimported
 from __future__ import annotations
 
+
 import asyncio
 import json
 import threading
@@ -34,6 +35,8 @@ from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 from qwenpaw.exceptions import ChannelError
 from tests.fixtures.channels.mock_http import MockAiohttpSession
@@ -88,8 +91,10 @@ def dingtalk_channel(
         client_secret="test_client_secret",
         bot_prefix="[TestBot] ",
         media_dir=str(temp_media_dir),
-        show_tool_details=False,
-        filter_tool_messages=True,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=False,
+            show_tool_results=False,
+        ),
     )
     yield channel
 
@@ -109,8 +114,10 @@ def dingtalk_channel_with_workspace(
         client_secret="test_client_secret",
         bot_prefix="[TestBot] ",
         workspace_dir=temp_workspace_dir,
-        show_tool_details=False,
-        filter_tool_messages=True,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=False,
+            show_tool_results=False,
+        ),
     )
     yield channel
 

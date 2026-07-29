@@ -11,7 +11,13 @@ from ...runtime.tool_registry import tool_descriptor
 from ...token_usage import get_token_usage_manager
 
 
-@tool_descriptor(async_execution=True)
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    policy_name="GetTokenUsage",
+    ui_description="Get llm token usage",
+    ui_icon="📊",
+)
 async def get_token_usage(
     days: int = 30,
     model_name: str | None = None,

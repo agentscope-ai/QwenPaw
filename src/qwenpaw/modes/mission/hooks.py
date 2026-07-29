@@ -1,25 +1,23 @@
 # -*- coding: utf-8 -*-
-"""Mission mode hooks — state load/save around the agent lifecycle.
-
-NOTE: ``MissionState`` class was removed (dead code).
-These hooks are retained as no-ops for the MissionMode
-hook registry.  Implement real logic when session-level
-mission persistence is needed.
-"""
+"""Mission mode hooks for the existing session lifecycle."""
 
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from ..base import ModeGatedHook
-from ...runtime.hooks import HookContext, HookResult
+from ...runtime.hooks import HookBase, HookContext, HookResult
 from ...runtime.phases import Phase
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from . import MissionMode
+
 
 class MissionStateLoadHook(ModeGatedHook):
-    """Load mission state (no-op placeholder)."""
+    """Preserve Mission hook ordering after generic session state load."""
 
     phase = Phase.PRE_AGENT_BUILD
     name = "mission_state_load"
@@ -33,17 +31,21 @@ class MissionStateLoadHook(ModeGatedHook):
         return HookResult()
 
 
-class MissionStateSaveHook(ModeGatedHook):
-    """Persist mission state (no-op placeholder)."""
+class MissionStateSaveHook(HookBase):
+    """Refresh mission mode_state before the session save hook runs."""
 
     phase = Phase.POST_RESPONSE
     name = "mission_state_save"
     priority = 30
 
-    async def _run(
+    def __init__(self, owner_mode: "MissionMode") -> None:
+        self.owner_mode = owner_mode
+
+    async def run(
         self,
-        ctx: HookContext,  # pylint: disable=unused-argument
+        ctx: HookContext,
     ) -> HookResult:
+        await self.owner_mode.sync_persistent_state(ctx)
         return HookResult()
 
 

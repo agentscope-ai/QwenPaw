@@ -2,7 +2,6 @@
 """ACP permission handling."""
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
@@ -10,31 +9,11 @@ from acp.schema import AllowedOutcome, DeniedOutcome, RequestPermissionResponse
 
 from .core import SuspendedPermission
 
-BLOCKED_COMMAND_PATTERNS = (
-    # Catastrophic recursive deletion targets.
-    (
-        r"\brm\s+(?:-[a-z]*r[a-z]*|--recursive)(?:\s+(?:-\S+|--\S+))*\s+"
-        r"(?:/|/(?:home|users|etc|var|usr|bin|sbin|lib|opt|private|"
-        r"system|windows)\b|~(?:/|$)|\*)"
-    ),
-    # Filesystem and raw block-device operations.
-    r"\bmkfs(?:\.[a-z0-9_]+)?\b",
-    r"\bmke2fs\b",
-    r"\bdd\s+.*\b(?:if|of)=/dev/",
-    # System shutdown/reboot.
-    r"\b(?:shutdown|reboot|halt|poweroff)\b",
-    # Classic fork bomb.
-    r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:",
-)
-
-_COMPILED_BLOCKED_COMMAND_PATTERNS = tuple(
-    re.compile(pattern, re.IGNORECASE) for pattern in BLOCKED_COMMAND_PATTERNS
-)
-
 
 class ACPPermissionAdapter:
-    def __init__(self, cwd: str):
+    def __init__(self, cwd: str, *, trusted: bool = False):
         self.cwd = str(Path(cwd).expanduser().resolve())
+        self._trusted = trusted
 
     def build_suspended_permission(
         self,
@@ -232,21 +211,23 @@ class ACPPermissionAdapter:
             return value
 
     def _is_hard_blocked(self, tool_call: dict[str, Any]) -> bool:
+        from qwenpaw.security.tool_guard.safety_checks import (
+            is_command_destructive,
+            is_path_outside_boundary,
+        )
+
         command = str(self._command(tool_call) or "")
-        if any(
-            pattern.search(command)
-            for pattern in _COMPILED_BLOCKED_COMMAND_PATTERNS
-        ):
+        # Pass ACP session cwd so relative rm targets (e.g. ``../``) resolve
+        # against the same root as path-boundary checks.
+        if is_command_destructive(command, cwd=self.cwd):
             return True
 
         for path_value in self._paths(tool_call):
-            candidate = Path(path_value).expanduser()
-            if not candidate.is_absolute():
-                candidate = Path(self.cwd) / candidate
-            try:
-                resolved = candidate.resolve()
-            except OSError:
-                return True
-            if not str(resolved).startswith(self.cwd):
+            # self.cwd is resolve()'d in __init__ — skip re-resolving it.
+            if is_path_outside_boundary(
+                path_value,
+                self.cwd,
+                cwd_is_resolved=True,
+            ):
                 return True
         return False

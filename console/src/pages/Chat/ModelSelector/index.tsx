@@ -17,8 +17,27 @@ import type { ProviderInfo, ActiveModelsInfo } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
 import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
+import { useTurnUsageStore } from "../turnUsageStore";
 import { OAuthConfirmModal } from "./OAuthConfirmModal";
 import styles from "./index.module.less";
+
+/** Sync Chat context ring with the active model's effective window. */
+function publishActiveMaxInputLength(
+  effectiveMaxInputLength: number | null | undefined,
+): void {
+  const maxInputLength =
+    typeof effectiveMaxInputLength === "number"
+      ? effectiveMaxInputLength
+      : null;
+  useTurnUsageStore.getState().setActiveMaxInputLength(maxInputLength);
+  if (typeof maxInputLength === "number" && maxInputLength > 0) {
+    window.dispatchEvent(
+      new CustomEvent("model-switched", {
+        detail: { maxInputLength },
+      }),
+    );
+  }
+}
 
 interface EligibleProvider {
   id: string;
@@ -110,7 +129,10 @@ export default function ModelSelector() {
         }),
       ]);
       if (Array.isArray(provData)) setProviders(provData);
-      if (activeData) setActiveModels(activeData);
+      if (activeData) {
+        setActiveModels(activeData);
+        publishActiveMaxInputLength(activeData.effective_max_input_length);
+      }
     } catch (err) {
       console.error("ModelSelector: failed to load data", err);
     } finally {
@@ -136,7 +158,10 @@ export default function ModelSelector() {
           agent_id: selectedAgent,
         })
         .then((activeData) => {
-          if (activeData) setActiveModels(activeData);
+          if (activeData) {
+            setActiveModels(activeData);
+            publishActiveMaxInputLength(activeData.effective_max_input_length);
+          }
         })
         .catch(() => {});
     }
@@ -347,13 +372,7 @@ export default function ModelSelector() {
               active_llm: { provider_id: providerId, model: modelId },
             },
       );
-      window.dispatchEvent(
-        new CustomEvent("model-switched", {
-          detail: {
-            maxInputLength: updated?.effective_max_input_length ?? null,
-          },
-        }),
-      );
+      publishActiveMaxInputLength(updated?.effective_max_input_length);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : t("modelSelector.switchFailed");
@@ -388,13 +407,7 @@ export default function ModelSelector() {
                 },
               },
         );
-        window.dispatchEvent(
-          new CustomEvent("model-switched", {
-            detail: {
-              maxInputLength: updated?.effective_max_input_length ?? null,
-            },
-          }),
-        );
+        publishActiveMaxInputLength(updated?.effective_max_input_length);
       } catch (err) {
         const msg =
           err instanceof Error ? err.message : t("modelSelector.switchFailed");

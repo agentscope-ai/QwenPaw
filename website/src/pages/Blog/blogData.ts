@@ -31,6 +31,11 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     cover:
       "https://img.alicdn.com/imgextra/i1/O1CN01eByOkk1h3Gwf2q0It_!!6000000004221-2-tps-1536-1024.png",
   },
+  {
+    slug: "qwenpaw-plugin-picks-1",
+    cover:
+      "https://img.alicdn.com/imgextra/i1/6000000004826/O1CN014843Da1lWMZIlKBgv_!!6000000004826-0-tbvideo.jpg",
+  },
 ];
 
 /** Previous post in list order (top → bottom on /blog, date-desc). */

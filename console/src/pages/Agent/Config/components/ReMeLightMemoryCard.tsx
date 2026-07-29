@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Form,
   Card,
@@ -7,8 +8,12 @@ import {
   Collapse,
   Alert,
   Select,
+  Button,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
+import { agentsApi } from "@/api";
+import { useAppMessage } from "@/hooks/useAppMessage";
+import { useAgentStore } from "@/stores/agentStore";
 import styles from "../index.module.less";
 
 // Keep in sync with src/qwenpaw/agents/memory/reme_config.py
@@ -58,6 +63,33 @@ export function isValidDreamCronShape(value?: string) {
 
 export function ReMeLightMemoryCard() {
   const { t } = useTranslation();
+  const { message, modal } = useAppMessage();
+  const { selectedAgent } = useAgentStore();
+  const [reindexing, setReindexing] = useState(false);
+
+  const rebuildMemoryIndex = () => {
+    modal.confirm({
+      title: t("agentConfig.rebuildMemoryIndexConfirmTitle"),
+      content: t("agentConfig.rebuildMemoryIndexConfirm"),
+      okText: t("agentConfig.rebuildMemoryIndex"),
+      cancelText: t("common.cancel"),
+      onOk: async () => {
+        setReindexing(true);
+        try {
+          await agentsApi.rebuildMemoryIndex(selectedAgent || "default");
+          message.success(t("agentConfig.rebuildMemoryIndexSuccess"));
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          message.error(
+            t("agentConfig.rebuildMemoryIndexFailed", { error: detail }),
+          );
+          throw error;
+        } finally {
+          setReindexing(false);
+        }
+      },
+    });
+  };
 
   const backend =
     Form.useWatch([
@@ -175,13 +207,16 @@ export function ReMeLightMemoryCard() {
         />
       </Form.Item>
 
-      <Form.Item
-        label={t("agentConfig.rebuildMemoryIndexOnStart")}
-        name={["reme_light_memory_config", "rebuild_memory_index_on_start"]}
-        valuePropName="checked"
-        tooltip={t("agentConfig.rebuildMemoryIndexOnStartTooltip")}
-      >
-        <Switch />
+      <Form.Item label={t("agentConfig.rebuildMemoryIndex")}>
+        <Alert
+          type="warning"
+          showIcon
+          message={t("agentConfig.rebuildMemoryIndexWarning")}
+          style={{ marginBottom: 12 }}
+        />
+        <Button onClick={rebuildMemoryIndex} loading={reindexing}>
+          {t("agentConfig.rebuildMemoryIndex")}
+        </Button>
       </Form.Item>
 
       <Collapse
@@ -316,6 +351,21 @@ export function ReMeLightMemoryCard() {
                     <Input.Password
                       placeholder={t("agentConfig.embeddingApiKeyPlaceholder")}
                     />
+                  </Form.Item>
+                )}
+
+                {normalizedBackend === "openai" && (
+                  <Form.Item
+                    label={t("agentConfig.embeddingUseDimensions")}
+                    name={[
+                      "reme_light_memory_config",
+                      "embedding_model_config",
+                      "use_dimensions",
+                    ]}
+                    valuePropName="checked"
+                    tooltip={t("agentConfig.embeddingUseDimensionsTooltip")}
+                  >
+                    <Switch disabled={!embeddingEnabled} />
                   </Form.Item>
                 )}
 

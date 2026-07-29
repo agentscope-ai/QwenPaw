@@ -36,6 +36,7 @@ import { useWorkspaceWatch } from "../../hooks/useWorkspaceWatch";
 import { useTheme } from "../../contexts/ThemeContext";
 import { setTextareaValue } from "../Chat/utils";
 import { clearLastEditorCopy, setLastEditorCopy } from "./lastEditorCopy";
+import { getLanguage } from "./getLanguage";
 import {
   useCurrentDiffs,
   useCodingTabsStore,
@@ -63,38 +64,6 @@ interface TabbedEditorProps {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function getLanguage(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
-  const map: Record<string, string> = {
-    py: "python",
-    ts: "typescript",
-    tsx: "typescript",
-    js: "javascript",
-    jsx: "javascript",
-    json: "json",
-    yaml: "yaml",
-    yml: "yaml",
-    md: "markdown",
-    sh: "shell",
-    bash: "shell",
-    html: "html",
-    css: "css",
-    less: "less",
-    scss: "scss",
-    sql: "sql",
-    toml: "ini",
-    rs: "rust",
-    go: "go",
-    java: "java",
-    cpp: "cpp",
-    c: "c",
-    h: "c",
-    kt: "kotlin",
-    rb: "ruby",
-  };
-  return map[ext] ?? "plaintext";
-}
 
 function appendToChat(text: string): void {
   const senderEl = document.querySelector('[class*="sender"]');

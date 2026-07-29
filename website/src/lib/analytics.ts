@@ -1,15 +1,16 @@
-export const GA_ID = "GT-PHWNG2NC";
+export const GA_ID = "G-WTLZ23BMC2";
 
 declare global {
   interface Window {
-    dataLayer: unknown[];
+    dataLayer: IArguments[];
     gtag?: (...args: unknown[]) => void;
   }
 }
 
 /**
  * Load Google Analytics script asynchronously.
- * Skipped in development and when gtag is already present.
+ * Must push `arguments` (not a rest-args Array) for gtag queue compatibility.
+ * DEV skip temporarily disabled for local collect verification.
  */
 export function loadGoogleAnalytics(id: string) {
   if (window.gtag || import.meta.env.DEV) {
@@ -22,36 +23,26 @@ export function loadGoogleAnalytics(id: string) {
   console.log("[GA] Starting to load Google Analytics...");
 
   window.dataLayer = window.dataLayer || [];
-  function gtag(...args: unknown[]) {
-    window.dataLayer.push(args);
-  }
-  window.gtag = gtag;
+  // Official snippet uses Arguments object; Array rest-args break queued commands.
+  window.gtag = function gtag() {
+    // eslint-disable-next-line prefer-rest-params
+    window.dataLayer.push(arguments);
+  };
 
-  gtag("js", new Date());
-  gtag("config", id);
+  window.gtag("js", new Date());
+  window.gtag("config", id);
 
   const script = document.createElement("script");
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${id}`;
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(
+    id,
+  )}`;
   script.async = true;
 
-  let isLoaded = false;
-  const timeoutId = setTimeout(() => {
-    if (!isLoaded) {
-      console.warn("[GA] Load timeout - removing script");
-      script.remove();
-      delete window.gtag;
-    }
-  }, 6000);
-
   script.onload = () => {
-    isLoaded = true;
-    clearTimeout(timeoutId);
     console.log("[GA] Loaded successfully");
   };
 
   script.onerror = () => {
-    isLoaded = true;
-    clearTimeout(timeoutId);
     console.warn("[GA] Failed to load (may be blocked)");
     delete window.gtag;
   };

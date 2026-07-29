@@ -17,6 +17,7 @@ import os
 import re
 import time
 import urllib.parse
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -68,6 +69,7 @@ from qwenpaw.schemas import (
     VideoContent,
 )
 
+from ....app.channels.renderer import ChannelDisplayConfig
 from ....app.channels.base import BaseChannel
 from ....app.channels.utils import file_url_to_local_path
 from ....constant import WORKING_DIR
@@ -83,6 +85,10 @@ TYPING_SERVER_TIMEOUT_MS = 30000
 TYPING_RENEWAL_INTERVAL_S = 25
 TYPING_MAX_DURATION_S = 120
 DM_CACHE_TTL_MS = 30_000
+DM_ROOM_CACHE_MAX_ENTRIES = 1_000
+ROOM_HISTORY_MAX_ROOMS = 256
+VERIFICATION_STATE_MAX_ENTRIES = 1_024
+VERIFICATION_STATE_TTL_S = 60 * 60
 
 # Known QwenPaw slash commands — used to decide whether to strip
 # @mention prefix
@@ -199,10 +205,8 @@ class MatrixChannel(BaseChannel):
         history_limit: int = DEFAULT_HISTORY_LIMIT,
         sync_timeout_ms: int = 30000,
         on_reply_sent: Optional[Callable] = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         streaming_enabled: bool = False,
         workspace_dir: Path | None = None,
         access_control_dm: bool = False,
@@ -213,10 +217,8 @@ class MatrixChannel(BaseChannel):
         super().__init__(
             process=process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config,
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             streaming_enabled=streaming_enabled,
             access_control_dm=access_control_dm,
             access_control_group=access_control_group,
@@ -247,12 +249,25 @@ class MatrixChannel(BaseChannel):
         self._user_id: Optional[str] = None
         self._sync_task: Optional[asyncio.Task] = None
         self._typing_tasks: Dict[str, asyncio.Task] = {}
-        self._room_histories: Dict[str, List[HistoryEntry]] = {}
-        self._dm_room_cache: Dict[str, Dict[str, Any]] = {}
+        self._room_histories: OrderedDict[
+            str,
+            List[HistoryEntry],
+        ] = OrderedDict()
+        self._dm_room_cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
         self._http_client: Optional[httpx.AsyncClient] = None
-        self._handled_verification_requests: set[str] = set()
-        self._verification_tx_peers: dict[str, tuple[str, str]] = {}
-        self._sent_verification_done: set[str] = set()
+        self._handled_verification_requests: OrderedDict[
+            str,
+            float,
+        ] = OrderedDict()
+        self._verification_tx_peers: OrderedDict[
+            str,
+            tuple[str, str],
+        ] = OrderedDict()
+        self._verification_tx_timestamps: OrderedDict[
+            str,
+            float,
+        ] = OrderedDict()
+        self._sent_verification_done: OrderedDict[str, float] = OrderedDict()
 
     # ------------------------------------------------------------------
     # Debounce key — serialize by room_id (avoid concurrent session access)
@@ -277,10 +292,8 @@ class MatrixChannel(BaseChannel):
         process: Callable,
         config: Any,
         on_reply_sent: Optional[Callable] = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "MatrixChannel":
         # Support pydantic model, dict, or SimpleNamespace
@@ -308,13 +321,8 @@ class MatrixChannel(BaseChannel):
             history_limit=raw.get("history_limit", DEFAULT_HISTORY_LIMIT),
             sync_timeout_ms=raw.get("sync_timeout_ms", 30000),
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=(
-                filter_tool_messages or raw.get("filter_tool_messages", False)
-            ),
-            filter_thinking=(
-                filter_thinking or raw.get("filter_thinking", False)
-            ),
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(raw),
             no_text_debounce=no_text_debounce,
             streaming_enabled=raw.get("streaming_enabled", False),
             workspace_dir=workspace_dir,
@@ -752,6 +760,12 @@ class MatrixChannel(BaseChannel):
             self._http_client = None
         if self._client:
             await self._client.close()
+        self._room_histories.clear()
+        self._dm_room_cache.clear()
+        self._handled_verification_requests.clear()
+        self._verification_tx_peers.clear()
+        self._verification_tx_timestamps.clear()
+        self._sent_verification_done.clear()
         logger.info("MatrixChannel: stopped")
 
     # ------------------------------------------------------------------
@@ -971,6 +985,7 @@ class MatrixChannel(BaseChannel):
                         event.sender,
                         getattr(event, "reason", ""),
                     )
+                self._clear_verification_transaction(event.transaction_id)
             else:
                 logger.info(
                     "MatrixChannel: unhandled verification event type=%s "
@@ -1060,6 +1075,7 @@ class MatrixChannel(BaseChannel):
         methods = content.get("methods", []) or []
 
         request_key = f"{sender}|{from_device}|{transaction_id}"
+        self._prune_verification_state()
         if request_key in self._handled_verification_requests:
             logger.debug(
                 "MatrixChannel: verification request already handled "
@@ -1069,7 +1085,7 @@ class MatrixChannel(BaseChannel):
                 transaction_id,
             )
             return
-        self._handled_verification_requests.add(request_key)
+        self._remember_verification_request(request_key)
 
         if not sender or not from_device:
             logger.warning(
@@ -1081,7 +1097,11 @@ class MatrixChannel(BaseChannel):
             )
             return
 
-        self._verification_tx_peers[transaction_id] = (sender, from_device)
+        self._remember_verification_peer(
+            transaction_id,
+            sender,
+            from_device,
+        )
 
         our_device = getattr(self._client, "device_id", "") or ""
         if not our_device:
@@ -1163,7 +1183,9 @@ class MatrixChannel(BaseChannel):
         """Accept Element's SAS start, querying device keys if needed."""
         if not self._client or not self._client.olm:
             return
-        self._verification_tx_peers[event.transaction_id] = (
+        self._prune_verification_state()
+        self._remember_verification_peer(
+            event.transaction_id,
             event.sender,
             event.from_device,
         )
@@ -1259,7 +1281,8 @@ class MatrixChannel(BaseChannel):
             )
             return
 
-        self._sent_verification_done.add(transaction_id)
+        self._remember_sent_verification_done(transaction_id)
+        self._clear_verification_transaction(transaction_id)
         logger.info(
             "MatrixChannel: sent verification done "
             "(tx=%s, sender=%s, device=%s)",
@@ -1267,6 +1290,62 @@ class MatrixChannel(BaseChannel):
             sender,
             device_id,
         )
+
+    def _prune_verification_state(self) -> None:
+        """Expire old verification dedupe state and enforce hard caps."""
+        cutoff = time.monotonic() - VERIFICATION_STATE_TTL_S
+        for store in (
+            self._handled_verification_requests,
+            self._sent_verification_done,
+        ):
+            while store:
+                key, timestamp = next(iter(store.items()))
+                if (
+                    timestamp >= cutoff
+                    and len(store) <= VERIFICATION_STATE_MAX_ENTRIES
+                ):
+                    break
+                store.pop(key)
+
+        while self._verification_tx_timestamps:
+            transaction_id, timestamp = next(
+                iter(self._verification_tx_timestamps.items()),
+            )
+            if (
+                timestamp >= cutoff
+                and len(self._verification_tx_timestamps)
+                <= VERIFICATION_STATE_MAX_ENTRIES
+            ):
+                break
+            self._verification_tx_timestamps.pop(transaction_id)
+            self._verification_tx_peers.pop(transaction_id, None)
+
+    def _remember_verification_request(self, request_key: str) -> None:
+        self._handled_verification_requests[request_key] = time.monotonic()
+        self._handled_verification_requests.move_to_end(request_key)
+        self._prune_verification_state()
+
+    def _remember_sent_verification_done(self, transaction_id: str) -> None:
+        self._sent_verification_done[transaction_id] = time.monotonic()
+        self._sent_verification_done.move_to_end(transaction_id)
+        self._prune_verification_state()
+
+    def _remember_verification_peer(
+        self,
+        transaction_id: str,
+        sender: str,
+        device_id: str,
+    ) -> None:
+        self._verification_tx_peers[transaction_id] = (sender, device_id)
+        self._verification_tx_peers.move_to_end(transaction_id)
+        self._verification_tx_timestamps[transaction_id] = time.monotonic()
+        self._verification_tx_timestamps.move_to_end(transaction_id)
+        self._prune_verification_state()
+
+    def _clear_verification_transaction(self, transaction_id: str) -> None:
+        """Release peer metadata after a cancelled or completed transaction."""
+        self._verification_tx_peers.pop(transaction_id, None)
+        self._verification_tx_timestamps.pop(transaction_id, None)
 
     async def _recover_key_verification_start(
         self,
@@ -1710,15 +1789,19 @@ class MatrixChannel(BaseChannel):
         if limit <= 0:
             return
         history = self._room_histories.setdefault(room_id, [])
+        self._room_histories.move_to_end(room_id)
         history.append(entry)
         while len(history) > limit:
             history.pop(0)
+        while len(self._room_histories) > ROOM_HISTORY_MAX_ROOMS:
+            self._room_histories.popitem(last=False)
 
     def _build_history_prefix(self, room_id: str) -> str:
         """Format buffered history entries as a multi-line text block."""
         entries = self._room_histories.get(room_id, [])
         if not entries:
             return ""
+        self._room_histories.move_to_end(room_id)
         lines: list[str] = []
         for e in entries:
             line = f"{e.sender}: {e.body}"
@@ -2244,6 +2327,18 @@ class MatrixChannel(BaseChannel):
         except Exception:
             return False
 
+    def _prune_dm_room_cache(self, now_ms: int) -> None:
+        """Evict expired or least-recently-used room membership entries."""
+        cutoff = now_ms - DM_CACHE_TTL_MS
+        while self._dm_room_cache:
+            room_id, cached = next(iter(self._dm_room_cache.items()))
+            if (
+                cached["ts"] >= cutoff
+                and len(self._dm_room_cache) <= DM_ROOM_CACHE_MAX_ENTRIES
+            ):
+                break
+            self._dm_room_cache.pop(room_id)
+
     async def _is_dm_room(
         self,
         room_id: str,
@@ -2270,6 +2365,7 @@ class MatrixChannel(BaseChannel):
         # Check cache
         cached = self._dm_room_cache.get(room_id)
         if cached and (now - cached["ts"]) < DM_CACHE_TTL_MS:
+            self._dm_room_cache.move_to_end(room_id)
             members = cached["members"]
             is_dm = (
                 len(members) == 2
@@ -2290,7 +2386,12 @@ class MatrixChannel(BaseChannel):
             if isinstance(resp, JoinedMembersResponse):
                 members = [m.user_id for m in resp.members]
                 # Update cache
-                self._dm_room_cache[room_id] = {"members": members, "ts": now}
+                self._dm_room_cache[room_id] = {
+                    "members": members,
+                    "ts": now,
+                }
+                self._dm_room_cache.move_to_end(room_id)
+                self._prune_dm_room_cache(now)
 
                 is_dm = (
                     len(members) == 2

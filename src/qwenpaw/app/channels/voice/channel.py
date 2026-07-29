@@ -7,6 +7,7 @@ import logging
 import secrets
 from typing import Any, Dict, Optional
 
+from ..renderer import ChannelDisplayConfig
 from ..base import BaseChannel, OnReplySent, ProcessHandler
 from .session import CallSessionManager
 from .twilio_manager import TwilioManager
@@ -29,18 +30,14 @@ class VoiceChannel(BaseChannel):
         self,
         process: ProcessHandler,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
     ) -> None:
         super().__init__(
             process,
             on_reply_sent,
-            show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config,
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
         )
         self.session_mgr = CallSessionManager()
         self.twilio_mgr: Optional[TwilioManager] = None
@@ -58,18 +55,15 @@ class VoiceChannel(BaseChannel):
         process: ProcessHandler,
         config: Any,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
     ) -> "VoiceChannel":
         instance = cls(
             process,
             on_reply_sent,
-            show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
         )
         instance._config = config
         instance._enabled = getattr(config, "enabled", False)

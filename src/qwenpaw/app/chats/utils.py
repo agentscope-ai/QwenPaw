@@ -27,8 +27,36 @@ from qwenpaw.exceptions import (
 )
 
 from ...config import load_config
+from ...constant import (
+    QWENPAW_MESSAGE_TAG_KEY,
+    SCROLL_MEMORY_MESSAGE_TAG,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _is_scroll_memory_placeholder(msg: Msg) -> bool:
+    """Return whether *msg* is model-only Scroll context, not transcript.
+
+    New placeholders carry an explicit metadata tag. The structural fallback
+    hides already-persisted sessions created before that tag existed, while
+    remaining narrow enough not to suppress an ordinary user message that
+    merely discusses ``[context compressed]``.
+    """
+    metadata = getattr(msg, "metadata", None)
+    if (
+        isinstance(metadata, dict)
+        and metadata.get(QWENPAW_MESSAGE_TAG_KEY) == SCROLL_MEMORY_MESSAGE_TAG
+    ):
+        return True
+
+    if msg.role != "user" or msg.name != "memory":
+        return False
+    text = msg.get_text_content() or ""
+    return (
+        text.lstrip().startswith("<system-info>")
+        and "[context compressed]" in text
+    )
 
 
 def parse_legacy_memory_state(
@@ -199,9 +227,18 @@ def _abspath_from_url(url: str) -> str:
     """
     s = url.strip()
     if s.lower().startswith("file:"):
-        s = s[5:]
-    s = "/" + s.lstrip("/")
-    return unquote(s)
+        parsed = urlparse(s)
+        if parsed.netloc and parsed.netloc.lower() != "localhost":
+            if len(parsed.netloc) == 2 and parsed.netloc[1] == ":":
+                s = f"{parsed.netloc}{parsed.path}"
+            else:
+                s = f"//{parsed.netloc}{parsed.path}"
+        else:
+            s = parsed.path
+    s = unquote(s)
+    if re.match(r"^/[A-Za-z]:[/\\]", s):
+        return s[1:]
+    return s
 
 
 def _resolve_content_url(url: str) -> str:
@@ -454,6 +491,8 @@ def agentscope_msg_to_message(
         user_tz = timezone.utc
 
     for msg in msgs:
+        if _is_scroll_memory_placeholder(msg):
+            continue
         role = msg.role or "assistant"
 
         ts_value = msg.timestamp
@@ -752,7 +791,7 @@ def agentscope_msg_to_message(
                     current_type = MessageType.MESSAGE
 
                 kwargs = {
-                    "filename": block.get("filename"),
+                    "filename": block.get("filename") or block.get("name"),
                 }
                 if (
                     isinstance(block.get("source"), dict)

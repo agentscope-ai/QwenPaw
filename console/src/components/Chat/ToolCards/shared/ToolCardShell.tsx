@@ -41,6 +41,10 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
   const { t } = useTranslation();
   const isLoading = content.status === "calling" && isStreaming;
   const isError = content.status === "error";
+  const inputProgress = content.inputProgress;
+  const inputPreview = inputProgress
+    ? `${inputProgress.truncated ? "…\n" : ""}${inputProgress.preview}`
+    : "";
 
   return (
     <details
@@ -64,6 +68,13 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
           {title}
           {isLoading && ` ${t("tool.loading")}`}
         </span>
+        {isLoading && inputProgress && (
+          <span className={styles.toolCallInputProgress}>
+            {t("tool.inputProgress", {
+              count: inputProgress.characterCount,
+            })}
+          </span>
+        )}
         {!isLoading && !isError && badges}
         {inlineResult && (
           <span className={styles.toolCallInlineResult} title={inlineResult}>
@@ -83,7 +94,15 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
           />
         </>
       ) : (
-        children
+        <>
+          {isLoading && inputPreview && (
+            <DefaultBlock
+              title={t("tool.rawInputPreview")}
+              content={inputPreview}
+            />
+          )}
+          {children}
+        </>
       )}
     </details>
   );

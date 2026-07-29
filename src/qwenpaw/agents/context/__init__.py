@@ -197,16 +197,6 @@ def build_scroll_components(
             offloader=(
                 offloader if getattr(sc, "offload_dialog", False) else None
             ),
-            summarize_unheadlined=getattr(
-                sc,
-                "summarize_unheadlined_evictions",
-                True,
-            ),
-            summarize_timeout_s=getattr(
-                sc,
-                "summarize_eviction_timeout_seconds",
-                20,
-            ),
             recall_loop_guard=recall_loop_guard,
         )
         tool = make_recall_history_python(
@@ -219,8 +209,8 @@ def build_scroll_components(
         )
         # Structured front door for the common recall ops (expand / search /
         # recall_tool): in-process bound queries, no sandbox, no approval —
-        # so fold stubs and the eviction index stay readable even where the
-        # sandboxed REPL can't run (e.g. Windows without WSL2).
+        # so fold stubs and the eviction index stay readable even when the
+        # sandboxed REPL is unavailable.
         recall = make_recall_history(
             history_db_path=str(history.path),
             session_id=session_id,

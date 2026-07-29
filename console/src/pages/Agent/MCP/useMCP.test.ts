@@ -26,7 +26,7 @@ vi.mock("../../../api", () => ({
 }));
 
 vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: () => ({ selectedAgent: "agent-1" }),
+  useAgentStore: () => ({ selectedAgent: "agent-1", agents: [] }),
 }));
 
 vi.mock("../../../hooks/useAppMessage", () => ({
