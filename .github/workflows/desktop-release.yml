@@ -223,6 +223,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
           TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
+          # Fixed into the shell at build time; a desktop launch
+          # inherits no environment to read it from later.
+          QWENPAW_PLUGIN_CDN: ${{ vars.QWENPAW_PLUGIN_CDN }}
         run: ./scripts/pack-tauri/build_win_pyinstaller.ps1
 
       - name: Stage Tauri Windows installer and updater assets
@@ -353,6 +356,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
           TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
+          # Fixed into the shell at build time; a desktop launch
+          # inherits no environment to read it from later.
+          QWENPAW_PLUGIN_CDN: ${{ vars.QWENPAW_PLUGIN_CDN }}
         run: |
           chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
           bash scripts/pack-tauri/build_macos_pyinstaller.sh

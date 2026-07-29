@@ -27,6 +27,11 @@ jobs:
     runs-on: ubuntu-latest
     # Run on: 1) any published release (including prerelease), or 2) manual with upload_to_oss.
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')
+    env:
+      # A fork publishes to its own bucket, the same way the desktop workflows
+      # already do. Without this the bucket was fixed, so any fork with OSS
+      # credentials wrote plugins and the shared index into production.
+      OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -85,7 +90,7 @@ jobs:
               rel="${f#dist/plugins/}"
               echo "Uploading $f -> files/plugins/${rel}"
               ossutil cp "$f" \
-                "oss://qwenpaw-download/files/plugins/${rel}" \
+                "oss://${OSS_BUCKET}/files/plugins/${rel}" \
                 --acl public-read \
                 --force \
                 --meta "Cache-Control:public, max-age=31536000, immutable"
@@ -94,21 +99,21 @@ jobs:
           # One-time cleanup: remove legacy flat zips (pre per-plugin directory layout).
           # This only targets {kind}/*.zip (flat files), not {kind}/{plugin_id}/*.zip (versioned).
           for kind in bundle tool apps; do
-            remote_flat=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/" -s 2>/dev/null \
-              | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/[^/]+\.zip$" \
+            remote_flat=$(ossutil ls "oss://${OSS_BUCKET}/files/plugins/${kind}/" -s 2>/dev/null \
+              | grep -E "^oss://${OSS_BUCKET}/files/plugins/${kind}/[^/]+\.zip$" \
               | sed 's|.*/||' \
               | sort -u || true)
             for name in $remote_flat; do
               echo "Removing legacy flat OSS object: ${kind}/${name}"
               ossutil rm \
-                "oss://qwenpaw-download/files/plugins/${kind}/${name}" \
+                "oss://${OSS_BUCKET}/files/plugins/${kind}/${name}" \
                 --force
             done
           done
 
       - name: Merge historical versions into index
         run: |
-          ossutil cp "oss://qwenpaw-download/metadata/plugins/index.json" \
+          ossutil cp "oss://${OSS_BUCKET}/metadata/plugins/index.json" \
             existing-index.json 2>/dev/null || echo '{}' > existing-index.json
 
           python3 scripts/pack/merge_plugin_index.py \
@@ -119,14 +124,14 @@ jobs:
       - name: Upload plugins index (short-cache)
         run: |
           ossutil cp dist/plugins/index.json \
-            "oss://qwenpaw-download/metadata/plugins/index.json" \
+            "oss://${OSS_BUCKET}/metadata/plugins/index.json" \
             --acl public-read \
             --force \
             --meta "Cache-Control:public, max-age=60, must-revalidate"
 
       - name: Patch main metadata index to advertise plugins product
         run: |
-          ossutil cp "oss://qwenpaw-download/metadata/index.json" \
+          ossutil cp "oss://${OSS_BUCKET}/metadata/index.json" \
             main-index.json 2>/dev/null || cat > main-index.json << 'EOF'
           {
             "version": "1.0",
@@ -140,7 +145,7 @@ jobs:
             --out   main-index.json
 
           ossutil cp main-index.json \
-            "oss://qwenpaw-download/metadata/index.json" \
+            "oss://${OSS_BUCKET}/metadata/index.json" \
             --acl public-read \
             --force \
             --meta "Cache-Control:public, max-age=60, must-revalidate"
