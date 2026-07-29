@@ -12,7 +12,7 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
-use super::super::{
+use super::super::state::{
     element_line, next_id, truncate_document_text, ServerState, WindowInfo, DOC_TEXT_MAX,
 };
 use super::input::reject_recent_user_intervention;

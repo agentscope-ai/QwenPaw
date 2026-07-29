@@ -24,7 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::super::super::get_visible_window_rect;
-use super::super::{map_point, ServerState, WindowInfo, USER_INTERVENTION_GRACE_MS};
+use super::super::state::{map_point, ServerState, WindowInfo, USER_INTERVENTION_GRACE_MS};
 
 pub(crate) fn click(
     state: &ServerState,

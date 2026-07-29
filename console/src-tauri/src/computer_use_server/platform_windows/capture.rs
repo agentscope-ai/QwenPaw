@@ -13,7 +13,7 @@ use windows::Graphics::Imaging::{
 use windows::Storage::Streams::{DataReader, InMemoryRandomAccessStream};
 
 use super::super::super::{capture_window, CaptureArgs};
-use super::super::{
+use super::super::state::{
     next_id, AccessibilitySnapshot, ServerState, Snapshot, WindowInfo, BMP_HEADER_BYTES,
     SCREENSHOT_JPEG_QUALITY, SCREENSHOT_MAX_EDGE,
 };

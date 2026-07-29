@@ -10,7 +10,7 @@ use core_foundation::string::CFString;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
-use super::super::{
+use super::super::state::{
     element_line, next_id, truncate_document_text, AccessibilitySnapshot, ServerState, WindowInfo,
 };
 use super::input::reject_recent_user_intervention;

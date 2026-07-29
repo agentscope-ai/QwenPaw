@@ -15,8 +15,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsWindow, IsWindowVisible, PostMessageW, WM_CLOSE,
 };
 
-use super::super::merge_app_list;
-use super::super::WindowInfo;
+use super::super::state::merge_app_list;
+use super::super::state::WindowInfo;
 use super::input::reject_recent_user_intervention;
 
 // A close request is asynchronous: wait briefly for the window to go away

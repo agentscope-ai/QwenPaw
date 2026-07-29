@@ -11,7 +11,7 @@ use core_graphics::window::{
 use jpeg_encoder::{ColorType, Encoder};
 use serde_json::{json, Map, Value};
 
-use super::super::{
+use super::super::state::{
     next_id, AccessibilitySnapshot, ServerState, Snapshot, WindowInfo, SCREENSHOT_JPEG_QUALITY,
     SCREENSHOT_MAX_EDGE,
 };

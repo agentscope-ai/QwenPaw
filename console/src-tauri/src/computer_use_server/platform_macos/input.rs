@@ -22,7 +22,7 @@ use core_graphics::window::{
 };
 use serde_json::{json, Map, Value};
 
-use super::super::{map_point, ServerState, Snapshot, WindowInfo, USER_INTERVENTION_GRACE_MS};
+use super::super::state::{map_point, ServerState, Snapshot, WindowInfo, USER_INTERVENTION_GRACE_MS};
 use super::accessibility_tree::find_ax_window;
 use super::{
     bounds_from_dict, dict_i64, integer_param, window_bounds, window_owner_pid,
