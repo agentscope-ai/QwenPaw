@@ -3,6 +3,10 @@
   "name": "Computer Use",
   "version": "2.0.0",
   "description": "Control approved desktop applications through the native runtime (Windows and macOS)",
+  "description_i18n": {
+    "zh-CN": "通过原生运行时操作已授权的桌面应用（Windows 与 macOS）",
+    "en-US": "Control approved desktop applications through the native runtime (Windows and macOS)"
+  },
   "author": "QwenPaw Team",
   "entry": {
     "backend": "plugin.py",
