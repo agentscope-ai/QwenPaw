@@ -22,6 +22,9 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 _DEFAULT_ROW_CAP = 1000
+_DEFAULT_SEARCH_TURN_MAX_BYTES = 4 * 1024 * 1024
+_DEFAULT_SEARCH_MAX_SECONDS = 5.0
+_TURN_BOUNDARY_BATCH_SIZE = 200
 _SAVED_TOOL_CANDIDATE_PAGE_SIZE = 200
 _SAVED_TOOL_SCAN_MAX_BYTES = 32 * 1024 * 1024
 _SAVED_TOOL_SCAN_MAX_SECONDS = 2.0
@@ -93,6 +96,59 @@ class _ScanBudget:
             return raw
         self.remaining -= len(raw)
         return raw
+
+
+@dataclass
+class _SearchBudget:
+    """Total resource budget for one history search and turn expansion."""
+
+    remaining_rows: int
+    remaining_bytes: int
+    deadline: float
+    max_rows: int
+    max_bytes: int
+    exhausted_reason: str | None = None
+    timed_out: bool = False
+
+    def ensure_time(self) -> None:
+        if self.timed_out or time.monotonic() >= self.deadline:
+            self.timed_out = True
+            raise TimeoutError("history search exceeded its execution timeout")
+
+    def sqlite_progress(self) -> int:
+        if time.monotonic() >= self.deadline:
+            self.timed_out = True
+            return 1
+        return 0
+
+    def has_turn_capacity(self) -> bool:
+        self.ensure_time()
+        if self.remaining_rows <= 0:
+            self.exhausted_reason = "total turn row budget"
+            return False
+        if self.remaining_bytes <= 0:
+            self.exhausted_reason = "total turn byte budget"
+            return False
+        return True
+
+    def consume_turn_row(self, row: dict) -> bool:
+        if not self.has_turn_capacity():
+            return False
+        encoded_size = len(
+            json.dumps(
+                row,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8"),
+        )
+        if encoded_size > self.remaining_bytes:
+            self.exhausted_reason = "total turn byte budget"
+            return False
+        self.remaining_rows -= 1
+        self.remaining_bytes -= encoded_size
+        return True
 
 
 def fts_match_query(raw: str) -> str:
@@ -207,6 +263,9 @@ class MemorySpace:
         scratch_db_path: str | Path | None = None,
         saved_tool_scan_max_bytes: int = _SAVED_TOOL_SCAN_MAX_BYTES,
         saved_tool_scan_max_seconds: float = _SAVED_TOOL_SCAN_MAX_SECONDS,
+        search_turn_max_rows: int = _DEFAULT_ROW_CAP,
+        search_turn_max_bytes: int = _DEFAULT_SEARCH_TURN_MAX_BYTES,
+        search_max_seconds: float = _DEFAULT_SEARCH_MAX_SECONDS,
     ) -> None:
         # ``main`` is in-memory by default; a file path keeps derived scratch
         # tables across calls (the sandboxed REPL runs a fresh process per
@@ -226,6 +285,9 @@ class MemorySpace:
             0.0,
             saved_tool_scan_max_seconds,
         )
+        self._search_turn_max_rows = max(0, int(search_turn_max_rows))
+        self._search_turn_max_bytes = max(0, int(search_turn_max_bytes))
+        self._search_max_seconds = max(0.0, float(search_max_seconds))
         self._session_suffix = sanitize_suffix(session_id)
         self._fts_ok: bool | None = None  # cached FTS5-availability check
         self._history_root: Path | None = None
@@ -527,7 +589,7 @@ class MemorySpace:
             )
         if created_on is not None:
             day = parse_date(created_on)
-            return day.isoformat(), (day + timedelta(days=1)).isoformat()
+            return day.isoformat(), MemorySpace._date_upper_bound(day)
         lower = parse_date(created_from) if created_from is not None else None
         final = parse_date(created_to) if created_to is not None else None
         if lower is not None and final is not None and lower > final:
@@ -535,11 +597,24 @@ class MemorySpace:
         return (
             lower.isoformat() if lower is not None else None,
             (
-                (final + timedelta(days=1)).isoformat()
+                MemorySpace._date_upper_bound(final)
                 if final is not None
                 else None
             ),
         )
+
+    @staticmethod
+    def _date_upper_bound(day: date) -> str:
+        """Return a lexicographic exclusive upper bound for one ISO day.
+
+        ``date.max + timedelta(days=1)`` overflows. ``9999-12-32`` is not a
+        parseable date, but it is a safe SQL string sentinel: every valid ISO
+        timestamp on ``9999-12-31`` sorts before it, and there is no later
+        representable calendar date.
+        """
+        if day == date.max:
+            return "9999-12-32"
+        return (day + timedelta(days=1)).isoformat()
 
     @staticmethod
     def _created_conditions(
@@ -572,6 +647,59 @@ class MemorySpace:
         created_on: str | None = None,
         created_from: str | None = None,
         created_to: str | None = None,
+    ) -> list[dict]:
+        """Run one bounded history search.
+
+        SQLite VM work is interrupted after ``search_max_seconds``. Complete
+        turn expansion additionally shares one total row and serialized-byte
+        budget across all distinct result turns.
+        """
+        budget = _SearchBudget(
+            remaining_rows=self._search_turn_max_rows,
+            remaining_bytes=self._search_turn_max_bytes,
+            deadline=time.monotonic() + self._search_max_seconds,
+            max_rows=self._search_turn_max_rows,
+            max_bytes=self._search_turn_max_bytes,
+        )
+        self._conn.set_progress_handler(budget.sqlite_progress, 1000)
+        try:
+            budget.ensure_time()
+            return self._search_impl(
+                query,
+                session_id=session_id,
+                agent_id=agent_id,
+                all_agents=all_agents,
+                kind=kind,
+                k=k,
+                include_turn=include_turn,
+                created_on=created_on,
+                created_from=created_from,
+                created_to=created_to,
+                _budget=budget,
+            )
+        except sqlite3.OperationalError as exc:
+            if budget.timed_out or time.monotonic() >= budget.deadline:
+                raise TimeoutError(
+                    "history search exceeded its execution timeout",
+                ) from exc
+            raise
+        finally:
+            self._conn.set_progress_handler(None, 0)
+
+    def _search_impl(
+        self,
+        query: str,
+        *,
+        session_id: str | None = None,
+        agent_id: str | None = None,
+        all_agents: bool = False,
+        kind: str | None = None,
+        k: int = 10,
+        include_turn: bool = True,
+        created_on: str | None = None,
+        created_from: str | None = None,
+        created_to: str | None = None,
+        _budget: _SearchBudget,
     ) -> list[dict]:
         """Full-text search over ``hist.conversation_history`` content
         (FTS5), with saved tool-output file fallback.
@@ -638,7 +766,7 @@ class MemorySpace:
                 created_bounds=created_bounds,
             )
             return (
-                self._attach_search_turns(rows, requested)
+                self._attach_search_turns(rows, requested, _budget)
                 if include_turn
                 else rows[:requested]
             )
@@ -683,6 +811,7 @@ class MemorySpace:
                 for r in self._conn.execute(sql, params)
             ]
         except sqlite3.OperationalError:
+            _budget.ensure_time()
             # Backstop: any residual MATCH-grammar edge case the sanitizer
             # missed degrades to LIKE rather than crashing the recall call.
             rows = self._search_like(
@@ -693,7 +822,7 @@ class MemorySpace:
                 created_bounds=created_bounds,
             )
             return (
-                self._attach_search_turns(rows, requested)
+                self._attach_search_turns(rows, requested, _budget)
                 if include_turn
                 else rows[:requested]
             )
@@ -707,7 +836,7 @@ class MemorySpace:
                 ),
             )
         return (
-            self._attach_search_turns(rows, requested)
+            self._attach_search_turns(rows, requested, _budget)
             if include_turn
             else rows[:requested]
         )
@@ -730,101 +859,208 @@ class MemorySpace:
             params.append(f'%"{tag}"%')
         return conditions, params
 
-    def _turn_for_hit(self, hit: dict) -> tuple[int, int, list[dict]]:
-        """Return the complete user-bounded turn containing ``hit``."""
+    def _turn_start_seqs(
+        self,
+        rows: list[dict],
+        budget: _SearchBudget,
+    ) -> dict[int, int | None]:
+        """Resolve all hit-to-turn boundaries in small batched queries."""
+        hit_seqs = list(
+            dict.fromkeys(
+                int(row["seq"])
+                for row in rows
+                if not row.get("_truncated") and int(row.get("seq", -1)) >= 0
+            ),
+        )
+        starts: dict[int, int | None] = {}
+        user_conditions, user_params = self._real_user_conditions("b.")
+        for offset in range(0, len(hit_seqs), _TURN_BOUNDARY_BATCH_SIZE):
+            budget.ensure_time()
+            batch = hit_seqs[offset : offset + _TURN_BOUNDARY_BATCH_SIZE]
+            placeholders = ", ".join("?" for _ in batch)
+            sql = (
+                "SELECT hit.seq AS hit_seq, "
+                "(SELECT MAX(b.seq) FROM hist.conversation_history b WHERE "
+                "b.session_id = hit.session_id AND b.agent_id IS hit.agent_id "
+                "AND "
+                + " AND ".join(user_conditions)
+                + " AND b.seq <= hit.seq) AS start_seq "
+                "FROM hist.conversation_history hit "
+                f"WHERE hit.seq IN ({placeholders})"
+            )
+            for row in self._conn.execute(
+                sql,
+                (*user_params, *batch),
+            ):
+                starts[int(row["hit_seq"])] = (
+                    int(row["start_seq"])
+                    if row["start_seq"] is not None
+                    else None
+                )
+        return starts
+
+    def _load_turn(
+        self,
+        hit: dict,
+        start_seq: int | None,
+        budget: _SearchBudget,
+    ) -> tuple[int, int, list[dict]]:
+        """Load one already-deduplicated turn under the shared budget."""
+        budget.ensure_time()
         hit_seq = int(hit["seq"])
         session_id = hit.get("session_id")
         agent_id = hit.get("agent_id")
         lineage = ["session_id = ?", "agent_id IS ?"]
         lineage_params: list = [session_id, agent_id]
-        user_conditions, user_params = self._real_user_conditions()
+        select_columns = (
+            "seq, session_id, agent_id, kind, role, name, headline, "
+            "content, tool_call_id, tool_input, tool_state, metadata, "
+            "created_at"
+        )
 
-        start_row = self._conn.execute(
-            "SELECT MAX(seq) AS seq FROM hist.conversation_history WHERE "
-            + " AND ".join(
-                [*lineage, *user_conditions, "seq <= ?"],
-            ),
-            (*lineage_params, *user_params, hit_seq),
-        ).fetchone()
-        start_seq = start_row["seq"] if start_row else None
         if start_seq is None:
             # Legacy/imported rows may predate their user boundary. There is
             # no reliable way to pair such an orphan with neighbouring model
             # rows, so preserve the old row-only behaviour for this hit.
-            turn = self._select(
-                "SELECT seq, session_id, agent_id, kind, role, name, "
-                "headline, content, tool_call_id, tool_input, tool_state, "
-                "metadata, created_at FROM hist.conversation_history "
-                "WHERE seq = ?",
+            cursor = self._conn.execute(
+                f"SELECT {select_columns} "
+                "FROM hist.conversation_history WHERE seq = ?",
                 (hit_seq,),
             )
-            return hit_seq, hit_seq, turn or [dict(hit)]
+            effective_start = hit_seq
+        else:
+            user_conditions, user_params = self._real_user_conditions()
+            next_row = self._conn.execute(
+                "SELECT MIN(seq) AS seq "
+                "FROM hist.conversation_history WHERE "
+                + " AND ".join(
+                    [*lineage, *user_conditions, "seq > ?"],
+                ),
+                (
+                    *lineage_params,
+                    *user_params,
+                    int(start_seq),
+                ),
+            ).fetchone()
+            next_user_seq = next_row["seq"] if next_row else None
+            span_conditions = [*lineage, "seq >= ?"]
+            span_params: list = [*lineage_params, int(start_seq)]
+            if next_user_seq is not None:
+                span_conditions.append("seq < ?")
+                span_params.append(int(next_user_seq))
+            cursor = self._conn.execute(
+                f"SELECT {select_columns} "
+                "FROM hist.conversation_history WHERE "
+                + " AND ".join(span_conditions)
+                + " ORDER BY seq",
+                tuple(span_params),
+            )
+            effective_start = int(start_seq)
 
-        next_row = self._conn.execute(
-            "SELECT MIN(seq) AS seq FROM hist.conversation_history WHERE "
-            + " AND ".join(
-                [*lineage, *user_conditions, "seq > ?"],
-            ),
-            (*lineage_params, *user_params, int(start_seq)),
-        ).fetchone()
-        next_user_seq = next_row["seq"] if next_row else None
-        span_conditions = [*lineage, "seq >= ?"]
-        span_params: list = [*lineage_params, int(start_seq)]
-        if next_user_seq is not None:
-            span_conditions.append("seq < ?")
-            span_params.append(int(next_user_seq))
-        turn = self._select(
-            "SELECT seq, session_id, agent_id, kind, role, name, headline, "
-            "content, tool_call_id, tool_input, tool_state, metadata, "
-            "created_at FROM hist.conversation_history WHERE "
-            + " AND ".join(span_conditions)
-            + " ORDER BY seq",
-            tuple(span_params),
-        )
+        turn: list[dict] = []
+        for raw_row in cursor:
+            budget.ensure_time()
+            row = {key: raw_row[key] for key in raw_row.keys()}
+            if not budget.consume_turn_row(row):
+                turn.append(
+                    {
+                        "_truncated": True,
+                        "_row_cap": budget.max_rows,
+                        "_reason": budget.exhausted_reason,
+                    },
+                )
+                break
+            turn.append(row)
         real_rows = [row for row in turn if not row.get("_truncated")]
         if not real_rows:
             return hit_seq, hit_seq, [dict(hit)]
-        return int(real_rows[0]["seq"]), int(real_rows[-1]["seq"]), turn
+        return (
+            effective_start,
+            int(real_rows[-1]["seq"]),
+            turn,
+        )
 
     def _attach_search_turns(
         self,
         rows: list[dict],
         limit: int,
+        budget: _SearchBudget,
     ) -> list[dict]:
-        """Attach and deduplicate complete turns for ranked hit rows."""
-        results: list[dict] = []
-        by_turn: dict[tuple[object, object, int], dict] = {}
-        turn_count = 0
+        """Deduplicate boundaries first, then load each selected turn once."""
+        starts = self._turn_start_seqs(rows, budget)
+        notices: list[dict] = []
+        groups: dict[tuple[object, object, int], dict] = {}
         for row in rows:
             if row.get("_truncated") or int(row.get("seq", -1)) < 0:
-                results.append(row)
+                notices.append(row)
                 continue
-            start, end, turn = self._turn_for_hit(row)
-            key = (row.get("session_id"), row.get("agent_id"), start)
-            existing = by_turn.get(key)
+            seq = int(row["seq"])
+            start = starts.get(seq)
+            key = (
+                row.get("session_id"),
+                row.get("agent_id"),
+                start if start is not None else seq,
+            )
+            existing = groups.get(key)
             if existing is not None:
-                seq = int(row["seq"])
                 if seq not in existing["matched_seqs"]:
                     existing["matched_seqs"].append(seq)
                 continue
-            if turn_count >= limit:
+            if len(groups) >= limit:
                 continue
+            groups[key] = {
+                "hit": row,
+                "start_seq": start,
+                "matched_seqs": [seq],
+            }
+
+        results = list(notices)
+        loaded_groups = 0
+        for group in groups.values():
+            if not budget.has_turn_capacity():
+                break
+            row = group["hit"]
+            start, end, turn = self._load_turn(
+                row,
+                group["start_seq"],
+                budget,
+            )
             result = dict(row)
             result.update(
                 {
                     "match_seq": int(row["seq"]),
-                    "matched_seqs": [int(row["seq"])],
+                    "matched_seqs": sorted(group["matched_seqs"]),
                     "turn_start_seq": start,
                     "turn_end_seq": end,
                     "turn": turn,
                 },
             )
-            by_turn[key] = result
             results.append(result)
-            turn_count += 1
-        for result in by_turn.values():
-            result["matched_seqs"].sort()
+            loaded_groups += 1
+            if budget.exhausted_reason is not None:
+                break
+        if loaded_groups < len(groups) or budget.exhausted_reason is not None:
+            results.append(self._turn_budget_notice(budget))
         return results
+
+    @staticmethod
+    def _turn_budget_notice(budget: _SearchBudget) -> dict:
+        """Report partial turn expansion instead of silently over-consuming."""
+        reason = budget.exhausted_reason or "turn expansion budget"
+        return {
+            "seq": -1,
+            "session_id": None,
+            "kind": "_notice",
+            "role": None,
+            "name": None,
+            "headline": "search turn expansion was partial",
+            "created_at": None,
+            "content": (
+                f"NOTE: complete-turn expansion reached its {reason} "
+                f"({budget.max_rows} rows / {budget.max_bytes} bytes total). "
+                "Results are partial; narrow the query or lower k."
+            ),
+        }
 
     def _fts_available(self) -> bool:
         """True iff the read-only history DB has the FTS5 index table."""

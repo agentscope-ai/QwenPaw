@@ -4,6 +4,7 @@
 This module handles system commands like /compact, /new, /clear, etc.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -375,7 +376,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
             # native, so under the scroll strategy we drive the scroll manager
             # directly here. Native sessions fall through untouched.
             scroll_mgr = (
-                self._build_standalone_scroll_manager()
+                await asyncio.to_thread(
+                    self._build_standalone_scroll_manager,
+                )
                 if self._agent is None
                 else None
             )
@@ -1340,7 +1343,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         elif args == "off":
             try:
-                import asyncio
                 from .memory import proactive_tasks
 
                 if self.agent_name in proactive_tasks:
