@@ -193,6 +193,31 @@ class ComputerUseClient:
         """End the active turn and close the client transport."""
         await self._on_owner_loop(self._close_here)
 
+    async def end_turn(self) -> bool:
+        """Release the native turn this session has finished with.
+
+        Keeps the connection, since the next turn will want it: the helper
+        drops
+        the turn's screenshots and accessibility handles and carries on
+        serving.
+        """
+        return await self._on_owner_loop(self._end_turn_here)
+
+    async def _end_turn_here(self) -> bool:
+        transport = self._transport
+        turn_id = self._turn_id
+        if transport is None or not turn_id:
+            return False
+        self._turn_id = None
+        await self._end_turn(transport, turn_id)
+        return True
+
+    @property
+    def owner_loop(self) -> asyncio.AbstractEventLoop | None:
+        """The loop this client's transport and lock belong to, if
+        connected."""
+        return self._loop
+
     async def _close_here(self) -> None:
         transport = self._transport
         if transport is None:
@@ -319,18 +344,41 @@ _clients_lock = threading.Lock()
 _MAX_CACHED_CLIENTS = 64
 
 
-def _evict_idle_clients() -> None:
+def _retire(client: ComputerUseClient) -> None:
+    """Close an evicted client's connection, best effort.
+
+    Dropping the reference alone would leave the pipe or socket open until the
+    object happened to be collected. Closing needs to await, and this runs from
+    synchronous code holding a threading lock, so the coroutine is handed to
+    the
+    loop that owns the transport and not waited on.
+    """
+    loop = client.owner_loop
+    if loop is None:
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(client.close(), loop)
+    except RuntimeError:
+        # That loop has stopped, so its transport is already unusable.
+        pass
+
+
+def _evict_idle_clients() -> list[ComputerUseClient]:
     """Drop cached clients for sessions with no turn in flight.
 
-    The caller holds ``_clients_lock``.
+    The caller holds ``_clients_lock``. Returns the clients removed so the
+    caller can close them outside the lock.
     """
     if len(_clients) < _MAX_CACHED_CLIENTS:
-        return
+        return []
+    evicted = []
     for session_id, client in list(_clients.items()):
         if len(_clients) < _MAX_CACHED_CLIENTS:
-            return
+            break
         if not client.has_active_turn:
             del _clients[session_id]
+            evicted.append(client)
+    return evicted
 
 
 def get_computer_use_client() -> ComputerUseClient:
@@ -343,11 +391,23 @@ def get_computer_use_client() -> ComputerUseClient:
         )
     with _clients_lock:
         client = _clients.get(session_id)
+        evicted: list[ComputerUseClient] = []
         if client is None:
-            _evict_idle_clients()
+            evicted = _evict_idle_clients()
+            if len(_clients) >= _MAX_CACHED_CLIENTS:
+                # Every cached session still claims a turn. Refusing keeps the
+                # bound real and makes the situation visible, where growing the
+                # cache would quietly hold a connection per session forever.
+                raise ComputerUseProtocolError(
+                    "too_many_sessions",
+                    "Too many Computer Use sessions are active; "
+                    "finish or stop one before starting another.",
+                )
             client = ComputerUseClient(session_id)
             _clients[session_id] = client
-        return client
+    for retired in evicted:
+        _retire(retired)
+    return client
 
 
 def _cached_client(session_id: str) -> ComputerUseClient | None:
@@ -371,6 +431,19 @@ async def stop_computer_use_session(session_id: str) -> bool:
     """Stop the native Computer Use turn currently owned by one session."""
     client = _cached_client(session_id)
     return await client.stop_turn() if client is not None else False
+
+
+async def end_computer_use_turn(session_id: str) -> bool:
+    """Release the native turn a finished request was holding.
+
+    The turn id is minted per request by the host, and nothing used to retire
+    it: a session that used the tool once kept its turn -- and the helper's
+    screenshots and accessibility handles -- until the next call happened to
+    supply a new id. That also made the cache bound unreachable, since a client
+    holding a turn is never evicted.
+    """
+    client = _cached_client(session_id)
+    return await client.end_turn() if client is not None else False
 
 
 async def stop_all_computer_use_turns() -> int:

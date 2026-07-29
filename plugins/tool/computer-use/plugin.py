@@ -122,6 +122,7 @@ class ComputerUseToolPlugin:
             return
 
         from computer_use_tool import computer_use
+        from computer_use_tool.lifecycle import ComputerUseTurnEndHook
 
         # One call carries the whole pipeline: governance (classified
         # internal, approval rules gate on the ``action`` argument),
@@ -159,6 +160,11 @@ class ComputerUseToolPlugin:
             enabled_by_default=True,
             channels=["all"],
         )
+
+        # The host opens a turn per request; this closes it again, so the
+        # native connection and the helper's per-turn state are released
+        # rather than held until some later request supplies a new id.
+        api.register_runtime_hook(ComputerUseTurnEndHook())
 
         logger.info("Computer Use tool plugin registered")
 
