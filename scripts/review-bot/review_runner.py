@@ -8,9 +8,11 @@ This script runs inside GitHub Actions to:
 3. QwenPaw autonomously fetches PR data via `gh` CLI
 4. Parse the response and output verdict + review text
 """
+import fcntl
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -26,10 +28,330 @@ from qwenpaw.agents.tools.agent_management import (  # noqa: E402
 
 # pylint: enable=wrong-import-position
 
-QWENPAW_URL = "http://localhost:8088"
+QWENPAW_URL = os.environ.get("QWENPAW_URL", "http://localhost:8088")
 CHAT_ENDPOINT = f"{QWENPAW_URL}/api/console/chat"
-MAX_RETRIES = 3
+MAX_RETRIES = 5
 TIMEOUT_SECONDS = 300
+
+# ---- change-map (per-file diff) configuration ----
+# The runner pre-computes a compact per-file diff ("change map") from an
+# internal blobless clone and embeds it in the prompt. The clone is an
+# implementation detail — it is NOT exposed to the model. Any failure
+# building the map degrades gracefully to the self-fetch prompt.
+QWENPAW_ENH_WORK_DIR = os.environ.get(
+    "QWENPAW_ENH_WORK_DIR",
+    os.path.join(os.path.expanduser("~"), ".qwenpaw-review-bot-cache"),
+)
+# MINIMUM lines of context around each hunk. The map starts here and
+# widens toward full-file context whenever the per-file budget allows.
+MAP_CONTEXT = int(os.environ.get("MAP_CONTEXT", "20"))
+# Max lines kept per file in the change map.
+MAP_PER_FILE_LINES = int(os.environ.get("MAP_PER_FILE_LINES", "500"))
+# Overall cap on the whole change map (safety valve for huge PRs).
+MAP_MAX_LINES = int(os.environ.get("MAP_MAX_LINES", "6000"))
+# Context ladder tried (ascending) when a file fits at MAP_CONTEXT and
+# there is spare per-file budget to show more surrounding code.
+MAP_CONTEXT_LADDER = (40, 80, 160, 320, 640)
+# "-U<this>" ~ whole-file context (git caps at the file length).
+MAP_FULL_CONTEXT = 100000
+# Wall-clock ceiling for git clone/fetch operations (seconds).
+GIT_TIMEOUT = int(os.environ.get("GIT_TIMEOUT", "600"))
+
+# A "degenerate" reply is non-empty text that is NOT a real review: the agent
+# hit its internal iteration cap and emitted a warning stub, or returned almost
+# nothing. These are treated as failures and retried (see call_qwenpaw).
+ITERATION_LIMIT_MARKERS = (
+    "maximum number of iterations",
+    "reached the maximum",
+)
+MIN_REVIEW_CHARS = 200
+
+
+def _is_degenerate_review(text: str) -> bool:
+    """True if the response is an iteration-limit stub or too short to be a review."""
+    low = text.lower()
+    if any(m in low for m in ITERATION_LIMIT_MARKERS):
+        return True
+    body = re.sub(
+        r"^\s*#.*\n", "", text, count=1
+    ).strip()  # drop a leading title line
+    return len(body) < MIN_REVIEW_CHARS
+
+
+def fetch_base_branch(pr_number: int, repo: str) -> str:
+    """Fetch the PR's target (base) branch name via `gh` (read-only).
+
+    Needed to compute the merge-base for the change map. Returns an
+    empty string on failure so the caller can degrade gracefully.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "gh",
+                "pr",
+                "view",
+                str(pr_number),
+                "--repo",
+                repo,
+                "--json",
+                "baseRefName",
+                "--jq",
+                ".baseRefName",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+        return result.stdout.strip()
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+    ) as e:
+        print(f"  ⚠️  Could not fetch base branch via gh: {e}")
+        return ""
+
+
+# ----------------------------------------------------------------------
+# Change map: pre-computed per-file diff embedded in the prompt
+# ----------------------------------------------------------------------
+def _git(repo_dir: str, *args: str, timeout: int = GIT_TIMEOUT) -> str:
+    """Run a git command in ``repo_dir`` and return trimmed stdout."""
+    result = subprocess.run(
+        ["git", "-C", repo_dir, *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def prepare_repo(
+    repo: str,
+    pr_number: int,
+    base_ref: str,
+) -> tuple[str, str, str]:
+    """Clone/refresh the repo and resolve the diff range for the PR.
+
+    Clones are shared per repo under ``QWENPAW_ENH_WORK_DIR/repos`` and
+    guarded by a file lock, so parallel workers reviewing PRs from the
+    *same* repo do not corrupt the clone or race on ``FETCH_HEAD``. The
+    lock is held only for the clone/fetch/resolve phase; the returned
+    SHAs are immutable, so building the change map runs lock-free.
+
+    Returns ``(repo_dir, from_sha, to_sha)`` where ``from_sha`` is the
+    merge-base of the base branch and PR head (matching ``gh pr diff``)
+    and ``to_sha`` is the PR head commit.
+    """
+    repos_root = os.path.join(QWENPAW_ENH_WORK_DIR, "repos")
+    os.makedirs(repos_root, exist_ok=True)
+    slug = repo.replace("/", "__")
+    repo_dir = os.path.join(repos_root, slug)
+    clone_url = f"https://github.com/{repo}.git"
+
+    lock_path = os.path.join(repos_root, f".{slug}.lock")
+    with open(lock_path, "w", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            if not os.path.isdir(os.path.join(repo_dir, ".git")):
+                print(f"  Cloning {repo} (blobless) ...")
+                # Blobless partial clone: full commit graph (needed for
+                # merge-base) but blobs fetched on demand.
+                subprocess.run(
+                    [
+                        "git",
+                        "clone",
+                        "--filter=blob:none",
+                        "--no-checkout",
+                        clone_url,
+                        repo_dir,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=GIT_TIMEOUT,
+                    check=True,
+                )
+
+            # Fetch the base branch tip and the PR head. The PR head is
+            # exposed on the base repo at refs/pull/<n>/head even for
+            # forks, so this works without knowing the fork remote.
+            _git(repo_dir, "fetch", "--no-tags", "origin", base_ref)
+            base_tip = _git(repo_dir, "rev-parse", "FETCH_HEAD")
+
+            _git(
+                repo_dir,
+                "fetch",
+                "--no-tags",
+                "origin",
+                f"refs/pull/{pr_number}/head",
+            )
+            head_sha = _git(repo_dir, "rev-parse", "FETCH_HEAD")
+
+            merge_base = _git(repo_dir, "merge-base", base_tip, head_sha)
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    return repo_dir, merge_base, head_sha
+
+
+def _numstat(repo_dir: str, from_sha: str, to_sha: str) -> dict[str, str]:
+    """Return ``{path: "+add -del"}`` for each changed file."""
+    raw = _git(repo_dir, "diff", "--numstat", from_sha, to_sha)
+    stats: dict[str, str] = {}
+    for line in raw.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        add, dele, path = parts
+        # Binary files show "-" for counts; keep them but mark n/a.
+        if add == "-" or dele == "-":
+            stats[path] = "binary"
+        else:
+            stats[path] = f"+{add} -{dele}"
+    return stats
+
+
+def _file_diff(
+    repo_dir: str,
+    from_sha: str,
+    to_sha: str,
+    path: str,
+    context: int,
+) -> list[str]:
+    """Return the diff lines for one file at a given context width."""
+    diff = _git(
+        repo_dir,
+        "diff",
+        f"-U{context}",
+        from_sha,
+        to_sha,
+        "--",
+        path,
+    )
+    return diff.splitlines()
+
+
+def _diff_with_adaptive_context(
+    repo_dir: str,
+    from_sha: str,
+    to_sha: str,
+    path: str,
+) -> tuple[list[str], bool]:
+    """Pick the widest diff context that fits the per-file line budget.
+
+    Strategy: always show at least ``MAP_CONTEXT`` lines of context. If
+    the diff at that floor already fits ``MAP_PER_FILE_LINES``, try to
+    widen — first to whole-file context, else climbing ``MAP_CONTEXT_LADDER``
+    and keeping the largest width that still fits. If even the floor
+    overflows the budget, the diff is truncated to the budget.
+
+    Returns ``(diff_lines, truncated)``. When truncated, the caller
+    appends a marker pointing at the full-file fetch instruction.
+    """
+    floor = _file_diff(repo_dir, from_sha, to_sha, path, MAP_CONTEXT)
+
+    # Case 1: even minimum context overflows -> truncate the floor diff.
+    if len(floor) > MAP_PER_FILE_LINES:
+        total = len(floor)
+        kept = floor[:MAP_PER_FILE_LINES]
+        kept.append(
+            f"... (diff truncated: {total} lines at {MAP_CONTEXT}-line "
+            f"context, showing the first {MAP_PER_FILE_LINES} — read the "
+            f'complete file with the "Full-file fetch" command in Step 2) ...',
+        )
+        return kept, True
+
+    # Case 2: room to spare -> prefer whole-file context if it fits.
+    full = _file_diff(repo_dir, from_sha, to_sha, path, MAP_FULL_CONTEXT)
+    if len(full) <= MAP_PER_FILE_LINES:
+        return full, False
+
+    # Case 3: whole file too big -> climb the ladder, keep the widest fit.
+    best = floor
+    for ctx in MAP_CONTEXT_LADDER:
+        if ctx <= MAP_CONTEXT:
+            continue
+        widened = _file_diff(repo_dir, from_sha, to_sha, path, ctx)
+        if len(widened) <= MAP_PER_FILE_LINES:
+            best = widened
+        else:
+            break  # context is monotonic; nothing larger will fit
+    return best, False
+
+
+def build_change_map(repo_dir: str, from_sha: str, to_sha: str) -> str:
+    """Build a compact per-file change map for the diff range.
+
+    For each changed file, emit a header (``path (+add -del)``) followed
+    by a fenced ```diff block. Context is adaptive: at least
+    ``MAP_CONTEXT`` lines, widened toward the whole file when the
+    per-file budget (``MAP_PER_FILE_LINES``) allows, and truncated (with
+    a marker pointing to the Step 2 full-file fetch) only when the file
+    overflows the budget even at minimum context. The whole map is
+    capped at ``MAP_MAX_LINES``. Returns "" if there are no changes.
+    """
+    stats = _numstat(repo_dir, from_sha, to_sha)
+    if not stats:
+        return ""
+
+    chunks: list[str] = []
+    total_lines = 0
+    truncated_files: list[str] = []
+    skipped_files: list[str] = []
+
+    for path, stat in stats.items():
+        if total_lines >= MAP_MAX_LINES:
+            skipped_files.append(path)
+            continue
+
+        header = f"### {path} ({stat})"
+        if stat == "binary":
+            chunks.append(f"{header}\n(binary file — diff omitted)\n")
+            total_lines += 2
+            continue
+
+        try:
+            diff_lines, truncated = _diff_with_adaptive_context(
+                repo_dir,
+                from_sha,
+                to_sha,
+                path,
+            )
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+        ) as e:
+            chunks.append(f"{header}\n(could not read diff: {e})\n")
+            continue
+
+        if truncated:
+            truncated_files.append(path)
+
+        block = "\n".join(diff_lines)
+        chunks.append(f"{header}\n```diff\n{block}\n```\n")
+        total_lines += len(diff_lines) + 3
+
+    if skipped_files:
+        chunks.append(
+            "### (change map truncated)\n"
+            f"{len(skipped_files)} more changed file(s) omitted to stay "
+            f"within the size limit; read them with the Step 2 full-file "
+            f"fetch: {', '.join(skipped_files)}\n",
+        )
+    if truncated_files:
+        print(
+            f"  change map: truncated {len(truncated_files)} large file(s): "
+            f"{', '.join(truncated_files)}",
+        )
+    if skipped_files:
+        print(
+            f"  change map: omitted {len(skipped_files)} file(s) over the "
+            f"{MAP_MAX_LINES}-line total cap",
+        )
+
+    return "\n".join(chunks)
 
 
 def _extract_stream_text(evt: dict) -> str:
@@ -55,15 +377,21 @@ def _extract_stream_text(evt: dict) -> str:
 
 
 def call_qwenpaw(prompt: str, session_id: str) -> str:
-    """Send prompt to QwenPaw console chat API and collect SSE response."""
-    payload = {
+    """Send prompt to QwenPaw console chat API and collect SSE response.
+
+    Retries on HTTP errors, empty replies, AND degenerate replies (the agent's
+    iteration-limit stub / too-short output). Each attempt uses a FRESH session --
+    resuming a session that already hit its iteration cap would just continue the
+    stuck run instead of starting over.
+    """
+    base_payload = {
         "channel": "console",
         "user_id": "review-bot",
-        "session_id": session_id,
         "input": [{"content": [{"type": "text", "text": prompt}]}],
     }
 
     for attempt in range(1, MAX_RETRIES + 1):
+        payload = {**base_payload, "session_id": f"{session_id}-try{attempt}"}
         try:
             print(f"[attempt {attempt}/{MAX_RETRIES}] Calling QwenPaw...")
             final_event = None
@@ -99,10 +427,16 @@ def call_qwenpaw(prompt: str, session_id: str) -> str:
                 print(f"  Stream errors: {'; '.join(stream_errors)}")
 
             response = _extract_stream_text(final_event or {})
-            if response.strip():
+            if response.strip() and not _is_degenerate_review(response):
                 return response
 
-            print("  Empty response, retrying...")
+            if not response.strip():
+                print("  Empty response, retrying...")
+            else:
+                print(
+                    "  Degenerate response (iteration-limit stub / too short), "
+                    "retrying with a fresh session...",
+                )
             time.sleep(5)
 
         except (httpx.TimeoutException, httpx.ConnectError) as e:
@@ -370,7 +704,45 @@ def main():
     pr_number = int(pr_number)
     print(f"\nTarget: {repo} PR #{pr_number}")
 
-    prompt = build_review_prompt(pr_number, repo)
+    # Pre-compute a per-file change map from an internal blobless clone.
+    # This is an implementation detail — the clone is never surfaced to the
+    # model; only the resulting diff text (and the head SHA, used in the
+    # full-file fetch instruction) go into the prompt. Any failure here
+    # degrades gracefully to the self-fetch (gh pr diff) prompt.
+    change_map = ""
+    head_sha = ""
+    try:
+        base_ref = fetch_base_branch(pr_number, repo)
+        if not base_ref:
+            raise RuntimeError("could not resolve PR base branch")
+        print("Preparing local clone + change map ...")
+        repo_dir, from_sha, head_sha = prepare_repo(
+            pr_number=pr_number,
+            repo=repo,
+            base_ref=base_ref,
+        )
+        change_map = build_change_map(repo_dir, from_sha, head_sha)
+        if change_map:
+            print(
+                f"  change map: {len(change_map)} chars "
+                f"({change_map.count(chr(10)) + 1} lines)",
+            )
+        else:
+            print("  change map empty; using self-fetch prompt")
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        RuntimeError,
+        OSError,
+    ) as e:
+        print(
+            f"  ⚠️  Could not build change map ({e}); "
+            f"falling back to self-fetch prompt"
+        )
+        change_map = ""
+        head_sha = ""
+
+    prompt = build_review_prompt(pr_number, repo, change_map, head_sha)
     print(f"Prompt size: {len(prompt)} chars")
 
     session_id = f"pr-review-{pr_number}-{int(time.time())}"
