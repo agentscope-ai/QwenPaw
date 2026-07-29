@@ -1,7 +1,7 @@
 //! Window/app enumeration, resolution, and identity.
 
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 use windows::core::{BOOL, PWSTR};
@@ -15,6 +15,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsWindow, IsWindowVisible, PostMessageW, WM_CLOSE,
 };
 
+use super::super::app_identity::app_id_from_path;
 use super::super::state::merge_app_list;
 use super::super::state::WindowInfo;
 
@@ -79,7 +80,7 @@ fn window_info(hwnd: HWND) -> Option<WindowInfo> {
     let display_name = String::from_utf16_lossy(&title[..length as usize]);
     Some(WindowInfo {
         hwnd: hwnd.0 as isize,
-        app_id: format!("process:{}", process_path.to_ascii_lowercase()),
+        app_id: app_id_from_path(Path::new(&process_path)),
         display_name: PathBuf::from(&process_path)
             .file_stem()
             .and_then(|value| value.to_str())

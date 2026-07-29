@@ -47,16 +47,21 @@ pub(super) fn launch_app(
 
 /// Build the canonical application identifier for a launchable path.
 ///
-/// Windows discovery reports plain drive paths while `canonicalize` returns
-/// extended-length (`\\?\`) ones, so the prefix is stripped to keep a single
-/// identifier per application; macOS derives the same identifier from the
-/// bundle path. Either way an application is approved once per session rather
-/// than once per path spelling.
+/// `canonicalize` resolves symlinks and reports the casing the filesystem
+/// actually stores, so the same executable seen as a running process and as a
+/// launch target yields one identifier -- an application is approved once, not
+/// once per spelling. The extended-length prefix Windows returns is stripped so
+/// the identifier stays a plain readable path.
+///
+/// The result is deliberately still usable as a path: `launch_app` accepts an
+/// identifier from `list_apps`, so mangling the case here -- as this once did --
+/// left identifiers that could not be launched on a case-sensitive volume.
 #[cfg(windows)]
 pub(super) fn app_id_from_path(path: &Path) -> String {
-    let text = path.to_string_lossy();
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let text = resolved.to_string_lossy();
     let normalized = text.strip_prefix(r"\\?\").unwrap_or(&text);
-    format!("process:{}", normalized.to_lowercase())
+    format!("process:{normalized}")
 }
 
 #[cfg(target_os = "macos")]
@@ -92,12 +97,23 @@ fn resolve_launch_path(app: &str) -> Result<PathBuf, (&'static str, String)> {
 fn resolve_launch_path(app: &str) -> Result<PathBuf, (&'static str, String)> {
     let value = app.strip_prefix("app:").unwrap_or(app);
     let path = PathBuf::from(value);
+    // An identifier that is not a path came from a running application whose
+    // bundle could not be read, so there is nothing to start. Saying so beats
+    // reporting it as missing, since the identifier itself was valid.
+    if !path.is_absolute() {
+        return Err((
+            "app_not_found",
+            "This application's location could not be determined, so it cannot \
+             be started by id."
+                .to_string(),
+        ));
+    }
     // A bundle is a directory, so accept either that or a plain executable.
     let is_bundle = path.is_dir()
         && path
             .extension()
             .is_some_and(|value| value.eq_ignore_ascii_case("app"));
-    if !path.is_absolute() || !(is_bundle || path.is_file()) {
+    if !(is_bundle || path.is_file()) {
         return Err((
             "app_not_found",
             "launch_app accepts an App ID from list_apps or an absolute path \
@@ -150,4 +166,50 @@ fn launch_at(path: &Path) -> Result<(), (&'static str, String)> {
             format!("Could not launch application: {error}"),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The contract `launch_app` documents: an identifier `list_apps` reported
+    /// can be handed straight back to start that application. It only holds if
+    /// the identifier preserves the path faithfully, which is what broke when
+    /// the case was flattened -- invisibly on a case-insensitive volume, and
+    /// fatally on one that is not.
+    #[test]
+    fn an_identifier_from_discovery_resolves_back_to_the_same_file() {
+        let executable = std::env::current_exe().expect("test binary path");
+        let app_id = app_id_from_path(&executable);
+        let resolved = resolve_launch_path(&app_id).expect("identifier must resolve");
+        assert_eq!(
+            resolved,
+            executable.canonicalize().expect("canonical test binary")
+        );
+    }
+
+    /// Discovery reports a running process without canonicalizing, while a
+    /// launch target is canonicalized; both must arrive at one identifier or
+    /// the same application would be approved twice.
+    #[test]
+    fn one_application_has_one_identifier_however_it_was_found() {
+        let executable = std::env::current_exe().expect("test binary path");
+        let canonical = executable.canonicalize().expect("canonical test binary");
+        assert_eq!(app_id_from_path(&executable), app_id_from_path(&canonical));
+    }
+
+    #[test]
+    fn an_identifier_is_not_flattened_to_lower_case() {
+        // A mixed-case path must survive verbatim; the platform decides whether
+        // two spellings are the same file, and it is asked through canonicalize.
+        let executable = std::env::current_exe().expect("test binary path");
+        let app_id = app_id_from_path(&executable);
+        let canonical = executable.canonicalize().expect("canonical test binary");
+        let text = canonical.to_string_lossy();
+        let expected = text.strip_prefix(r"\\?\").unwrap_or(&text);
+        assert!(
+            app_id.ends_with(expected.as_ref() as &str),
+            "identifier {app_id} must end with the canonical path {expected}"
+        );
+    }
 }

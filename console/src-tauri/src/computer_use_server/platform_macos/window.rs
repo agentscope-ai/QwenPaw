@@ -155,6 +155,9 @@ fn enumerate_windows() -> Vec<WindowInfo> {
 fn app_id_for_pid(pid: i32, owner: &str) -> String {
     bundle_path_for_pid(pid)
         .map(|path| app_id_from_bundle_path(&path))
+        // A name, not a path: it is flattened because different APIs may report
+        // it with different casing, and it is never used as a launch target --
+        // an application identified this way cannot be started by id.
         .unwrap_or_else(|| format!("app:{}", owner.to_lowercase()))
 }
 
@@ -163,9 +166,14 @@ fn app_id_for_pid(pid: i32, owner: &str) -> String {
 /// Both discovery routes -- scanning the install directories and reading a
 /// running process -- pass through here, and both resolve symlinks first, so
 /// one application cannot end up with two identifiers and be approved twice.
+///
+/// The path keeps the casing the filesystem stores. `launch_app` accepts an
+/// identifier from `list_apps` and uses it as a path, so flattening the case
+/// here -- as this once did -- made every identifier unlaunchable on a
+/// case-sensitive APFS volume.
 pub(crate) fn app_id_from_bundle_path(path: &Path) -> String {
     let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    format!("app:{}", resolved.to_string_lossy().to_lowercase())
+    format!("app:{}", resolved.to_string_lossy())
 }
 
 /// Resolve the application bundle that owns a process.
