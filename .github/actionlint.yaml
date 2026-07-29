@@ -5,6 +5,7 @@ config-variables:
   - tauri_updater_endpoints
   - oss_bucket
   - oss_public_base_url
+  - qwenpaw_plugin_cdn
   - review_model
 paths:
   # Legacy build-windows / build-macos jobs are intentionally parked with
