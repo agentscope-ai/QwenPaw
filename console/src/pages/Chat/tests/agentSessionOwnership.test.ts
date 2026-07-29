@@ -16,9 +16,7 @@ import type { ChatSpec, ChatHistory } from "../../../api";
 import api from "../../../api";
 import sessionApi from "../sessionApi";
 import { useAgentStore } from "../../../stores/agentStore";
-import {
-  useTurnUsageStore,
-} from "../turnUsageStore";
+import { useTurnUsageStore } from "../turnUsageStore";
 import type { TurnUsageSnapshot } from "../turnUsage";
 
 function deferred<T>() {
@@ -36,11 +34,7 @@ async function flush(): Promise<void> {
   await new Promise((res) => setTimeout(res, 0));
 }
 
-function makeChatSpec(
-  id: string,
-  sessionId: string,
-  name = "chat",
-): ChatSpec {
+function makeChatSpec(id: string, sessionId: string, name = "chat"): ChatSpec {
   return {
     id,
     name,
@@ -227,9 +221,9 @@ describe("agent session ownership epochs", () => {
     dChat.resolve(makeHistory());
     await pending;
 
-    expect(
-      (window as { currentSessionId?: string }).currentSessionId,
-    ).toBe("sentinel-session");
+    expect((window as { currentSessionId?: string }).currentSessionId).toBe(
+      "sentinel-session",
+    );
     expect(useTurnUsageStore.getState().snapshot).toBe(sentinelSnapshot);
     expect(onSessionSelected).not.toHaveBeenCalled();
   });

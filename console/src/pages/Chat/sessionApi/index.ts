@@ -811,7 +811,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    */
   private sessionRequests: Map<
     string,
-    { promise: Promise<IAgentScopeRuntimeWebUISession>; owner: SessionOwnerToken }
+    {
+      promise: Promise<IAgentScopeRuntimeWebUISession>;
+      owner: SessionOwnerToken;
+    }
   > = new Map();
 
   /**
