@@ -183,6 +183,9 @@
     }
 
     .collapseToggleContainer {
+      // Gear + expand toggle stack vertically — the narrow rail
+      // (56/72px) cannot fit two buttons side by side.
+      flex-direction: column;
       justify-content: center;
       width: calc(100% + 16px);
       margin: 0 -8px;

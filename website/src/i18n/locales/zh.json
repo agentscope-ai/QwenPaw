@@ -2,13 +2,14 @@
   "nav": {
     "docs": "文档",
     "blog": "博客",
+    "explore": "探索",
     "more": "更多",
     "releaseNotes": "更新日志",
     "qwenpaw": "Qwenpaw",
     "download": "下载",
     "github": "GitHub",
     "githubComingSoon": "Coming Soon",
-    "lang": "ENG",
+    "lang": "EN",
     "platform": "Platform",
     "platformTitle": "AgentScope 体验平台",
     "agentscopeTeam": "AgentScope",
@@ -27,9 +28,9 @@
     "titleleft": "欢迎使用你的",
     "titleright": "专业AI助手",
     "slogan": "懂你所需，伴你左右",
-    "sub": "{{version}} 五大方面能力升级：",
+    "sub": "v2.0.0 五大方面能力升级：",
     "sub1": "为 QwenPaw 量身定制的 Agent OS, TUI, 循环工程, 滚动上下文, 新版 ReMe",
-    "releaseNote": "QwenPaw {{version}}版本全新发布",
+    "releaseNote": "QwenPaw v2.0.0版本全新发布",
     "cta": "查看文档",
     "quickStart": "快速开始",
     "quickTry": "快速体验"
@@ -519,7 +520,7 @@
     "helpLink": "安装向导",
     "helpSuffix": "了解详细的安装步骤和配置说明。",
     "pluginsTitle": "插件",
-    "pluginsDesc": "QwenPaw 仓库中已发布的 Bundle 与 Tool 插件。下载 zip 包后可在本地安装。",
+    "pluginsDesc": "下载 QwenPaw 仓库中已发布的插件 zip 包，可在本地安装使用。",
     "downloadZip": "下载 zip"
   },
   "releaseNotes": {

@@ -19,6 +19,7 @@
     "view": "Xem",
     "content": "Nội dung",
     "loading": "Đang tải...",
+    "saving": "Đang lưu...",
     "copy": "Sao chép",
     "copied": "Đã sao chép",
     "copyFailed": "Sao chép thất bại",
@@ -31,6 +32,17 @@
     "paste": "Dán",
     "yes": "Có",
     "no": "Không"
+  },
+  "harnesses": {
+    "connected": "Đã kết nối",
+    "disconnected": "Đã ngắt kết nối",
+    "notConnected": "Chưa kết nối",
+    "comingSoon": "Sắp ra mắt",
+    "connect": "Kết nối với ChatGPT",
+    "disconnect": "Ngắt kết nối",
+    "apiKeyAuthenticated": "Đã xác thực bằng API key",
+    "chatGptAuthenticated": "Đã kết nối với ChatGPT",
+    "cliAuthenticated": "{{type}} CLI đã xác thực"
   },
   "desktop": {
     "closeWindow": {
@@ -200,6 +212,18 @@
       },
       "goal": {
         "description": "Loop Goal — Agent theo đuổi mục tiêu liên tục, tự đánh giá qua Rubric"
+      },
+      "skills": {
+        "description": "Liệt kê kỹ năng có sẵn trong cuộc trò chuyện"
+      },
+      "agents": {
+        "description": "Liệt kê tác nhân có sẵn trong runtime hiện tại"
+      },
+      "review": {
+        "description": "Dùng Codex để đánh giá các thay đổi chưa commit trong không gian làm việc"
+      },
+      "status": {
+        "description": "Hiển thị tài khoản tác nhân, mô hình và không gian làm việc hiện tại"
       }
     },
     "turnUsagePopover": {
@@ -465,6 +489,85 @@
     "id": "ID",
     "description": "Mô tả",
     "workspace": "Đường dẫn Workspace",
+    "backend": {
+      "column": "Backend",
+      "eyebrow": "Kiến trúc tác nhân",
+      "typeTitle": "Chọn cách tác nhân này hoạt động",
+      "typeDescription": "Loại tác nhân chi phối mọi cuộc trò chuyện trong Chat, Coding và Channel.",
+      "nativeTitle": "Tác nhân QwenPaw gốc",
+      "nativeBadge": "Gốc",
+      "nativeDescription": "Sử dụng LLM, Skills, công cụ, bộ nhớ và runtime QwenPaw đã cấu hình.",
+      "thirdPartyTitle": "Tác nhân bên thứ ba",
+      "thirdPartyBadge": "Bên thứ ba",
+      "thirdPartyDescription": "Sử dụng runtime tác nhân bên ngoài đã được cấp quyền thay cho mô hình QwenPaw.",
+      "providerTitle": "Chọn tác nhân bên thứ ba",
+      "providerDescription": "Thông tin xác thực được dùng chung trên thiết bị này; dự án và cuộc trò chuyện vẫn được tách riêng theo từng tác nhân.",
+      "codexHint": "ChatGPT OAuth · Không gian làm việc của tác nhân",
+      "qoderHint": "Tài khoản Qoder hoặc PAT · Không gian làm việc của tác nhân",
+      "account": "Tài khoản Codex",
+      "qoderAccount": "Tài khoản Qoder",
+      "binary": "Tệp thực thi Codex",
+      "binaryHelp": "Để trống để ưu tiên Codex CLI đi kèm Python SDK và phát hiện bản cài đặt độc lập. Nếu nhập thủ công, hãy nhập đường dẫn đầy đủ tới codex trên macOS/Linux hoặc codex.exe trên Windows. Không hỗ trợ tệp thực thi tích hợp trong ứng dụng ChatGPT hoặc tiện ích mở rộng trình soạn thảo. QwenPaw cũng đọc CODEX_BINARY và PATH của backend.",
+      "binaryPlaceholder": "Tự động phát hiện hoặc dán đường dẫn tệp thực thi Codex",
+      "qoderBinary": "Tệp thực thi Qoder",
+      "qoderBinaryHelp": "Để trống để dùng qodercli đi kèm SDK Python hoặc phát hiện bản cài đặt hiện có. Nếu nhập thủ công, hãy nhập đường dẫn đầy đủ tới qodercli trên macOS/Linux hoặc qodercli.exe trên Windows. QwenPaw cũng đọc QODERCLI_PATH và PATH của backend.",
+      "qoderBinaryPlaceholder": "Tự động phát hiện hoặc dán đường dẫn qodercli",
+      "detect": "Phát hiện",
+      "detectedBinary": "Đã phát hiện Codex",
+      "qoderDetectedBinary": "Đã phát hiện Qoder",
+      "apiKeyLoginHint": "Bạn cũng có thể xác thực trong terminal bằng: codex login --with-api-key",
+      "qoderAuthHint": "Kết nối sẽ mở đăng nhập Qoder trong trình duyệt. Bạn cũng có thể chạy qodercli login hoặc đặt QODER_PERSONAL_ACCESS_TOKEN trước khi khởi động backend.",
+      "qoderConnect": "Kết nối với Qoder",
+      "model": "Mô hình tác nhân",
+      "modelDefault": "Dùng mặc định của tác nhân",
+      "defaultBadge": "Mặc định",
+      "reasoningEffort": "Mức suy luận",
+      "reasoningDefault": "Dùng mặc định của mô hình",
+      "codexNotFound": "Không tìm thấy runtime Codex. Hãy cài đặt qwenpaw[codex] hoặc cung cấp Codex CLI độc lập.",
+      "qoderNotFound": "Không tìm thấy runtime Qoder. Hãy cài đặt qwenpaw[qoder] hoặc cung cấp qodercli.",
+      "chatSettingsHint": "Chọn mô hình, mức suy luận và quyền thực thi trên thanh công cụ Chat.",
+      "capabilityTitle": "Khả năng QwenPaw",
+      "inheritedSkills": "Kỹ năng",
+      "inheritedMcp": "Máy chủ MCP",
+      "runtimeInherited": "Kế thừa khi chạy · phiên mới",
+      "notSupported": "Nhà cung cấp không hỗ trợ",
+      "policyCompatibility": "Chính sách MCP",
+      "toolAllowlistSupported": "Hỗ trợ danh sách công cụ cho phép",
+      "policyLimited": "Áp dụng giới hạn của nhà cung cấp",
+      "chatModelHint": "Cài đặt theo tác nhân · áp dụng từ lượt tiếp theo",
+      "appliesNextTurn": "Áp dụng từ lượt tiếp theo",
+      "approvalMode": "Quyền thực thi",
+      "approvalPresets": {
+        "ask": {
+          "name": "Hỏi trước khi thay đổi",
+          "description": "Cho phép thay đổi không gian làm việc và hỏi trước các thao tác nâng quyền."
+        },
+        "read-only": {
+          "name": "Chỉ đọc",
+          "description": "Kiểm tra tệp mà không thay đổi."
+        },
+        "workspace": {
+          "name": "Truy cập không gian làm việc",
+          "description": "Cho phép thay đổi không gian làm việc mà không cần xác nhận."
+        },
+        "accept-edits": {
+          "name": "Chấp nhận chỉnh sửa",
+          "description": "Cho phép sửa tệp nhưng vẫn giữ các biện pháp bảo vệ khác."
+        },
+        "plan": {
+          "name": "Chỉ lập kế hoạch",
+          "description": "Phân tích và lập kế hoạch mà không thay đổi tệp."
+        },
+        "auto": {
+          "name": "Tự động",
+          "description": "Để Qoder quyết định hành động an toàn nào có thể chạy."
+        },
+        "full-access": {
+          "name": "Toàn quyền",
+          "description": "Cho phép thực thi cục bộ không giới hạn mà không cần xác nhận."
+        }
+      }
+    },
     "create": "Tạo Agent",
     "createTitle": "Tạo Agent mới",
     "createSuccess": "Tạo agent thành công",
@@ -582,6 +685,12 @@
   },
   "mcp": {
     "title": "MCP Client",
+    "qwenpawManaged": "Do QwenPaw quản lý",
+    "qwenpawManagedHint": "Cấu hình dùng chung được đưa vào các Agent bên thứ ba được hỗ trợ khi chạy.",
+    "providerManaged": "MCP cục bộ của {{provider}}",
+    "providerManagedHint": "Được phát hiện từ cấu hình riêng của tác nhân bên thứ ba; chỉ đọc và chỉ dùng cho tác nhân đó.",
+    "providerOnly": "Chỉ tác nhân bên thứ ba",
+    "readOnly": "Chỉ đọc",
     "create": "Tạo client",
     "formatSupport": "Định dạng hỗ trợ",
     "standardFormat": "Chuẩn (mcpServers wrapper)",
@@ -1422,6 +1531,19 @@
   "skills": {
     "title": "Kỹ năng",
     "description": "Quản lý kỹ năng và khả năng của agent.",
+    "qwenpawManaged": "Do QwenPaw quản lý",
+    "qwenpawManagedHint": "Có thể chỉnh sửa và được truyền vào agent bên thứ ba được hỗ trợ khi chạy.",
+    "providerManaged": "Kỹ năng của tác nhân bên thứ ba",
+    "providerManagedHint": "Được phát hiện từ tác nhân bên thứ ba hiện tại và chỉ hiển thị để đọc.",
+    "providerOnly": "Chỉ tác nhân bên thứ ba hiện tại",
+    "readOnly": "Chỉ đọc",
+    "noDescription": "Không có mô tả.",
+    "providerSkillDetails": "Chi tiết Skill của tác nhân bên thứ ba",
+    "providerManagedDetailHint": "Skill này do tác nhân bên thứ ba quản lý. QwenPaw có thể hiển thị và sử dụng nhưng không thể chỉnh sửa.",
+    "provider": "Tác nhân bên thứ ba",
+    "scope": "Phạm vi",
+    "statusLabel": "Trạng thái",
+    "descriptionLabel": "Mô tả",
     "importHub": "Tải lên qua URL",
     "supportedSources": "Nguồn được hỗ trợ:",
     "importSkills": "Nhập kỹ năng",

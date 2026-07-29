@@ -1660,6 +1660,14 @@ class AgentProfileConfig(BaseModel):
         default="",
         description="Path to agent's workspace (optional, for reference)",
     )
+    backend: str = Field(
+        default="qwenpaw",
+        description="Runtime backend used for every agent request",
+    )
+    backend_settings: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Configuration validated and consumed by the backend",
+    )
     template_id: Optional[str] = Field(
         default=None,
         description="Builtin template used when this agent was created",

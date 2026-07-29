@@ -1,0 +1,63 @@
+### Workspace 可见文件
+
+```text
+./project.json                         # 唯一 Project 领域状态
+./assets/sources/*                    # 已入库源素材
+./assets/source-intelligence/*        # 素材理解文本
+./assets/artifacts/*                  # 图片、视频等生成结果
+```
+
+`project.json.assets.files_by_id` 是所有可见资产文件的索引；索引文本通过 `file_id` 读取，不以文件系统路径作为读写接口。
+
+### project.json 根结构
+
+```text
+Project
+├── name, description, scenario
+├── settings                          # 画幅、分辨率、平台、语言、目标时长、内容类型
+├── strategy                          # brief、受众、创意方向、约束、成功标准
+├── sources.sources                   # ProjectSource 的 EntityCollection
+├── visual                            # visual_bible、style、entities
+│   └── entities.items[entityId]      # VisualEntity：kind(character/scene/prop)、name、description、continuity
+│       └── variants.items[variantId] # VisualVariant：requirements、prompt、参考与生成版本引用
+├── timelines                         # Timeline 的 EntityCollection
+│   └── items[timelineId].elements_by_id
+│       └── span, location, z_index, creation, outputs, render_source
+└── assets                            # 文件、源版本、理解版本、Artifact 槽位与版本索引
+```
+
+### 基础不变量
+
+- `EntityCollection` 始终由 `items` 和 `order` 组成；两者 ID 集合必须完全一致且顺序不重复。
+- `variants` 只存在于 `visual.entities.items[<entityId>].variants`；`visual` 顶层没有 `variants` 字段。
+- `schema_version`、`project_id`、`generation`、`created_at` 和 `updated_at` 是受保护字段。
+- Element ID 在全部 Timeline 中唯一；时间区间统一使用整数 tick 和半开区间。
+- `location.x/y` 是内容框锚点在归一化成片画面中的位置，`anchor_x/anchor_y` 指定框内哪个点对齐到该位置并作为旋转基点；全画面内容使用 `x=0.5, y=0.5, width=1, height=1, anchor_x=0.5, anchor_y=0.5`。
+- Edit 的 `span.duration_tick` 必须等于 `round((source_out_tick-source_in_tick)/playback_rate)`。
+- Project 不持久化额外的内容分组、轨道、独立 Content、ProductionFlow 或顺序 Composition。
+- `creation.type` 表达 r2v/edit/overlay/transition/audio 的创作语义；执行器与任务状态不属于该结构。
+- outputs 通过 ArtifactSlot 表达具名产物，render_source 表达当前实际渲染来源。
+- source、visual、artifact、file 等引用必须指向当前 Project 中已经存在的实体或版本。
+- `assets` 中的文件和版本记录来自素材入库、素材理解或媒体生成结果；未产出的结果保持 `null` 或空集合。
+- 禁止使用 `pending-render`、`todo`、`placeholder` 等虚构 ID。
+
+### jq_project 输出约束
+
+- jq 的唯一输出必须仍是完整 Project 根对象；不得以 `.timelines...`、`$timeline`、`$element` 等子对象选择结束 program。
+- 受保护根字段必须与刚读取的 Project 完全一致。批量新增内容时把对象集合放进 `jsonArgs`，program 只做结构化赋值并自然返回 Project 根对象。
+- Runtime 自动基于你最近读取的快照提交，无需回传 ETag；若单次参数体量极大，可拆分为少量几次调用。
+
+### Specialist target
+
+```text
+R2V: element:<elementId>
+AI Edit: timeline:<timelineId>
+```
+
+R2V 读写目标 Element 的 `creation(type=r2v)`，storyboard/main 由媒体工具写入 Element outputs。AI Edit 在目标 Timeline 中创建多个 `creation(type=edit)` Element，每个 Element 的 render_source 直接选择一个源素材范围；独立 Overlay Element 表达叠加内容，Timeline render slot 保存执行结果。
+
+### Pydantic 权威 JSON Schema
+
+以下 Schema 在进程启动时由当前 Project Pydantic 模型静态生成：
+
+PROJECT_JSON_SCHEMA={{project_json_schema}}

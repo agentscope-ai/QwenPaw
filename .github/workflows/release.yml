@@ -7,7 +7,9 @@
 #      products in parallel (wheel / web verify / desktop win+mac / plugins).
 #   3. Only if EVERY prepare job is green does the publish phase run: PyPI,
 #      Docker, desktop (GitHub assets + OSS), plugins. The draft is flipped to
-#      published LAST, then the Release Duty issue is created inline.
+#      published LAST. Post-publish (inline): promote the desktop latest/updater,
+#      deploy the website (stable/post only — skipped for betas), and open the
+#      Release Duty issue.
 #   4. If anything fails, nothing is published and the draft is left untouched
 #      (zero external trace; just fix and re-run).
 #
@@ -47,6 +49,7 @@ jobs:
     outputs:
       tag: ${{ steps.pick.outputs.tag }}
       sha: ${{ steps.pick.outputs.sha }}
+      is_prerelease: ${{ steps.pick.outputs.is_prerelease }}
     steps:
       - name: Resolve target draft release and commit
         id: pick
@@ -80,9 +83,16 @@ jobs:
           target="$(gh release view "$TAG" --repo "$REPO" --json targetCommitish --jq '.targetCommitish')"
           sha="$(gh api "repos/$REPO/commits/$target" --jq '.sha')"
           echo "Target commitish '$target' resolved to SHA $sha"
+          if [[ "$TAG" =~ (beta|alpha|rc|dev) ]]; then
+            is_prerelease=true
+          else
+            is_prerelease=false
+          fi
+          echo "Prerelease (tag-based): $is_prerelease"
           {
             echo "tag=$TAG"
             echo "sha=$sha"
+            echo "is_prerelease=$is_prerelease"
           } >> "$GITHUB_OUTPUT"
 
       - name: Checkout the resolved commit
@@ -299,11 +309,7 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.tag }}
           QWENPAW_DISABLED_CHANNELS: "imessage"
         run: |
-          if [[ "$VERSION" =~ (beta|alpha|rc|dev) ]]; then
-            IS_PRERELEASE=true
-          else
-            IS_PRERELEASE=false
-          fi
+          IS_PRERELEASE="${{ needs.resolve.outputs.is_prerelease }}"
           TAGS="-t ${ACR_REGISTRY}/${IMAGE}:${VERSION} -t ${ACR_REGISTRY}/${IMAGE}:pre"
           TAGS="${TAGS} -t docker.io/${IMAGE}:${VERSION} -t docker.io/${IMAGE}:pre"
           if [ "${IS_PRERELEASE}" != "true" ]; then
@@ -459,4 +465,17 @@ jobs:
     uses: ./.github/workflows/release-duty.yml
     with:
       tag: ${{ needs.resolve.outputs.tag }}
+    secrets: inherit
+
+  # ── Post-publish: deploy the public website (stable + post only) ────────────
+  # Skipped for pre-releases (beta/alpha/rc/dev) so the site advertises only
+  # GA/post versions. Invoked inline because the finalize job flips the draft
+  # with GITHUB_TOKEN, which suppresses deploy-website.yml's own release trigger.
+  deploy-website:
+    needs: [resolve, finalize]
+    if: needs.resolve.outputs.is_prerelease == 'false'
+    uses: ./.github/workflows/deploy-website.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+      dry_run: ${{ inputs.dry_run }}
     secrets: inherit

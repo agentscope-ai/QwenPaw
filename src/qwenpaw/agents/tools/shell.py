@@ -119,8 +119,11 @@ def _collapse_newlines_outside_quotes(cmd: str) -> str:
     return "".join(result)
 
 
-def _collapse_embedded_newlines(cmd: str) -> str:
-    r"""Replace embedded newline characters with spaces in a command string.
+def _collapse_embedded_newlines(
+    cmd: str,
+    shell_executable: str | None = None,
+) -> str:
+    r"""Normalize embedded newlines for the configured shell.
 
     LLMs produce tool-call arguments in JSON where ``\n`` is parsed as an
     actual newline character.  In the original shell command the user
@@ -129,21 +132,22 @@ def _collapse_embedded_newlines(cmd: str) -> str:
     break.  When passed to a shell:
 
     * **Windows** ``cmd.exe`` truncates the command at the first newline
-      regardless of quoting context — this is a hard limitation of the
-      Windows command processor.  All newlines must be collapsed.
+      regardless of quoting context, so all newlines must be collapsed.
+      PowerShell supports multiline scripts, so its newlines are preserved.
     * **Unix** ``sh -c`` treats an unquoted newline as a command separator,
       but correctly handles newlines inside quoted strings.
 
     On Unix/macOS, newlines inside quoted strings are preserved so that
     downstream commands receive the correct multi-line content (e.g.
-    ``--text "Hello\nWorld"``).  On Windows, all newlines are collapsed
-    to ensure the command at least executes successfully.
+    ``--text "Hello\nWorld"``).  On Windows, a missing or unrecognized shell
+    uses the conservative ``cmd.exe``-compatible behavior.
     """
     if "\n" not in cmd:
         return cmd
     if sys.platform == "win32":
-        # cmd.exe truncates at newlines regardless of quoting — must
-        # collapse all to ensure the command executes at all.
+        if shell_executable and _is_powershell(shell_executable):
+            return cmd
+        # cmd.exe (and unknown cmd-like Windows shells) truncate at newlines.
         return cmd.replace("\r\n", " ").replace("\n", " ")
     return _collapse_newlines_outside_quotes(cmd)
 
@@ -247,8 +251,9 @@ def _execute_subprocess_sync(
 
     Args:
         cmd (`str`):
-            The shell command to execute (must not contain embedded
-            newlines — see note above).
+            The shell command to execute. PowerShell commands may contain
+            embedded newlines; other Windows shell commands are normalized
+            by the caller as described above.
         cwd (`str`):
             The working directory for the command execution.
         timeout (`float`):
@@ -539,7 +544,15 @@ async def execute_shell_command(
             return code will be -1 and stderr will contain timeout information.
     """
 
-    cmd = _collapse_embedded_newlines((command or "").strip())
+    shell_executable = (
+        get_current_shell_command_executable()
+        or os.environ.get("SHELL")
+        or None
+    )
+    cmd = _collapse_embedded_newlines(
+        (command or "").strip(),
+        shell_executable=shell_executable,
+    )
 
     if _is_dangerous_self_kill(cmd):
         return ToolChunk(
@@ -584,12 +597,6 @@ async def execute_shell_command(
         env["PATH"] = python_bin_dir + os.pathsep + existing_path
     else:
         env["PATH"] = python_bin_dir
-
-    shell_executable = (
-        get_current_shell_command_executable()
-        or os.environ.get("SHELL")
-        or None
-    )
 
     if sandbox_config is not None:
         # Create a copy with resolved shell and timeout to avoid mutating

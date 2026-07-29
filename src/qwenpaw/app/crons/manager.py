@@ -45,6 +45,14 @@ DREAM_MISFIRE_GRACE_SECONDS = 600
 DREAM_JITTER_MAX_SECONDS = 60
 INTERNAL_JOB_IDS = frozenset({HEARTBEAT_JOB_ID, DREAM_JOB_ID})
 CRON_HISTORY_LIMIT = 50
+# Periodic self-contained keepalive so the asyncio event loop keeps ticking
+# even with no external traffic. APScheduler's AsyncIOScheduler processes
+# due jobs via loop call_later wakeups; on some platforms (e.g. WSL2) a
+# long-delay call_later does not reliably wake an otherwise-idle loop, so
+# cron jobs misfire until the next HTTP request arrives (see issue #6471).
+# A short, always-on keepalive task keeps loop._run_once sweeping due
+# timers regardless of the heartbeat config.
+CRON_KEEPALIVE_INTERVAL_SECONDS = 60
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +89,7 @@ class CronManager(ManagerBase):
         self._history: Dict[str, list[CronExecutionRecord]] = {}
         self._rt: Dict[str, _Runtime] = {}
         self._started = False
+        self._keepalive_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
         async with self._lock:
@@ -164,13 +173,47 @@ class CronManager(ManagerBase):
                     )
 
             self._started = True
+            self._keepalive_task = asyncio.create_task(
+                self._keepalive_loop(),
+                name="cron-keepalive",
+            )
 
     async def stop(self) -> None:
         async with self._lock:
             if not self._started:
                 return
-            self._scheduler.shutdown(wait=False)
             self._started = False
+            keepalive = self._keepalive_task
+            self._keepalive_task = None
+            if keepalive is not None:
+                keepalive.cancel()
+                try:
+                    await asyncio.wait_for(keepalive, timeout=5)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+                except Exception as exc:  # pylint: disable=broad-except
+                    logger.debug(
+                        "Error cancelling cron keepalive task: %s",
+                        repr(exc),
+                    )
+            self._scheduler.shutdown(wait=False)
+
+    async def _keepalive_loop(self) -> None:
+        """Keep the asyncio event loop ticking while cron is running.
+
+        APScheduler's AsyncIOScheduler processes due jobs via loop
+        call_later wakeups. On platforms where a long-delay call_later
+        does not reliably wake an otherwise-idle event loop (e.g. WSL2,
+        see issue #6471), cron jobs misfire until external I/O wakes the
+        loop. This self-contained task sleeps for a short, reliable
+        interval so the loop keeps sweeping due timers regardless of
+        external traffic or the heartbeat config.
+        """
+        try:
+            while self._started:
+                await asyncio.sleep(CRON_KEEPALIVE_INTERVAL_SECONDS)
+        except asyncio.CancelledError:
+            pass
 
     # ----- read/state -----
 

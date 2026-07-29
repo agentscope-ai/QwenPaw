@@ -263,7 +263,7 @@ QwenPaw-Flash 模型目前已经在 [ModelScope](https://www.modelscope.cn/organ
 
 QwenPaw 内置的本地提供商均可接入 QwenPaw-Flash 模型：
 
-**QwenPaw Local (llama.cpp)**
+#### QwenPaw Local (llama.cpp)
 
 直接在 QwenPaw Local 的模型界面中选择下载 QwenPaw-Flash 模型并启动即可。
 
@@ -272,7 +272,7 @@ QwenPaw 内置的本地提供商均可接入 QwenPaw-Flash 模型：
 > QwenPaw Local 目前仍处于测试阶段，对不同设备的兼容性以及运行稳定性仍在持续优化中，如果你在使用过程中遇到任何问题，欢迎随时在 GitHub 上提 issue 反馈。
 > 如果无法正常使用 QwenPaw Local，建议先使用 Ollama 或 LM Studio 部署 QwenPaw-Flash 模型。
 
-**Ollama**:
+#### Ollama
 
 1. 从 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 或 [Hugging Face](https://huggingface.co/agentscope-ai/models) 下载 QwenPaw-Flash 量化版模型，这些模型后缀为 `Q8_0` 或 `Q4_K_M`，例如 [QwenPaw-Flash-4B-Q4_K_M](https://www.modelscope.cn/models/AgentScope/QwenPaw-Flash-4B-Q4_K_M)。
 
@@ -313,7 +313,7 @@ ollama create qwenpaw-flash -f qwenpaw-flash.txt
 
 4. 在 QwenPaw 的模型配置中选择 Ollama 提供商，并在模型页面中自动获取模型即可。
 
-**LM Studio**:
+#### LM Studio
 
 1. 参考 Ollama 的步骤 1 下载合适的 QwenPaw-Flash 量化版模型。
 
