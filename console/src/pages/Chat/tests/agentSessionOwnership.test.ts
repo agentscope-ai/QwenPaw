@@ -16,6 +16,10 @@ import type { ChatSpec, ChatHistory } from "../../../api";
 import api from "../../../api";
 import sessionApi from "../sessionApi";
 import { useAgentStore } from "../../../stores/agentStore";
+import {
+  useTurnUsageStore,
+} from "../turnUsageStore";
+import type { TurnUsageSnapshot } from "../turnUsage";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -194,5 +198,93 @@ describe("agent session ownership epochs", () => {
     sessionApi.triggerResolve(tempId);
     await flush();
     expect(onSessionIdResolved).toHaveBeenCalledWith(tempId, B_CHAT);
+  });
+
+  it("a stale getSession cannot rewrite window identity, turn usage, or fire selection", async () => {
+    vi.spyOn(api, "listChats").mockResolvedValue([
+      makeChatSpec(A_CHAT, "console:a"),
+    ]);
+    const dChat = deferred<ChatHistory>();
+    vi.spyOn(api, "getChat").mockReturnValueOnce(dChat.promise);
+    const onSessionSelected = vi.fn();
+    sessionApi.onSessionSelected = onSessionSelected;
+
+    sessionApi.setActiveAgent("agent-a");
+    await sessionApi.getSessionList();
+    const pending = sessionApi.getSession(A_CHAT);
+
+    // Switch to B and mark B's current view state with sentinels.
+    sessionApi.setActiveAgent("agent-b");
+    (window as { currentSessionId?: string }).currentSessionId =
+      "sentinel-session";
+    const sentinelSnapshot = {
+      usage: null,
+      context_usage: null,
+    } as unknown as TurnUsageSnapshot;
+    useTurnUsageStore.getState().setSnapshot(sentinelSnapshot);
+
+    // A's fetch completes late: B's view state must stay untouched.
+    dChat.resolve(makeHistory());
+    await pending;
+
+    expect(
+      (window as { currentSessionId?: string }).currentSessionId,
+    ).toBe("sentinel-session");
+    expect(useTurnUsageStore.getState().snapshot).toBe(sentinelSnapshot);
+    expect(onSessionSelected).not.toHaveBeenCalled();
+  });
+
+  it("in-flight session requests and preload results are not reused across epochs", async () => {
+    vi.spyOn(api, "listChats").mockResolvedValue([
+      makeChatSpec(A_CHAT, "console:a"),
+    ]);
+    const dA = deferred<ChatHistory>();
+    const getChatSpy = vi
+      .spyOn(api, "getChat")
+      .mockReturnValueOnce(dA.promise)
+      .mockResolvedValue(makeHistory());
+
+    // A preloads; the fetch is still pending when the agent switches.
+    sessionApi.setActiveAgent("agent-a");
+    await sessionApi.getSessionList();
+    const preloadPromise = sessionApi.preloadSession(A_CHAT);
+
+    // B requests the same id: it must start its own fetch instead of
+    // adopting A's in-flight request (and A's captured owner).
+    sessionApi.setActiveAgent("agent-b");
+    await sessionApi.getSessionList();
+    await sessionApi.getSession(A_CHAT);
+    expect(getChatSpy).toHaveBeenCalledTimes(2);
+
+    // A's preload completes late: its result must not be published into the
+    // short-lived result cache, so a follow-up getSession never serves it.
+    dA.resolve(makeHistory());
+    const { session: staleSession } = await preloadPromise;
+    const after = await sessionApi.getSession(A_CHAT);
+    expect(after).not.toBe(staleSession);
+  });
+
+  it("work started before the first ownership claim is rejected after it", async () => {
+    // Return to the pristine unclaimed state (the store subscription claims
+    // the persisted agent as soon as beforeEach touches the agent store).
+    sessionApi.resetForTests();
+
+    // A sidebar-style preload starts while ownership is still unclaimed.
+    const dList = deferred<ChatSpec[]>();
+    const listSpy = vi.spyOn(api, "listChats");
+    listSpy.mockReturnValueOnce(dList.promise);
+    const pUnclaimed = sessionApi.getSessionList();
+
+    // The first claim arrives (e.g. the app resolves the selected agent).
+    sessionApi.setActiveAgent("agent-a");
+
+    dList.resolve([makeChatSpec(A_CHAT, "console:a")]);
+    const stale = await pUnclaimed;
+    expect(stale).toEqual([]);
+
+    // The claimed epoch loads its own list normally.
+    listSpy.mockResolvedValueOnce([makeChatSpec(B_CHAT, "console:b")]);
+    const fresh = await sessionApi.getSessionList();
+    expect(fresh.map((s) => s.id)).toEqual([B_CHAT]);
   });
 });

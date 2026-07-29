@@ -2064,12 +2064,6 @@ export default function ChatPage() {
     chatRef.current?.input.submit({ query: "/new" });
   }, []);
 
-  // Claim session ownership for the selected agent before any session work
-  // (SDK mount, list polling, temp-id resolution) can start. Render runs
-  // before child effects, so async results from a previous agent are already
-  // stale by the time the new agent's UI mounts.
-  sessionApi.setActiveAgent(selectedAgent);
-
   // Tell sessionApi which session to put first in getSessionList, so the library's
   // useMount auto-selects the correct session without an extra getSession round-trip.
   // When URL has no chatId (e.g. navigating back from /settings), fall back to the
@@ -2256,10 +2250,9 @@ export default function ChatPage() {
   useEffect(() => {
     const prevAgent = prevSelectedAgentRef.current;
     if (prevAgent !== selectedAgent && prevAgent !== undefined) {
-      // Advance the session ownership epoch before starting any new-agent
-      // work (idempotent when render already claimed it): in-flight session
-      // list/resolve results owned by the previous agent become stale.
-      sessionApi.setActiveAgent(selectedAgent);
+      // Session ownership has already advanced: sessionApi subscribes to the
+      // agent store and claims the new epoch synchronously with the change,
+      // so in-flight results owned by the previous agent are stale by now.
 
       // Immediately block the queue sender. window.currentSessionId is a
       // global that still holds the PREVIOUS agent's session_id until the

@@ -10,6 +10,7 @@ import api, {
   type Message,
 } from "../../../api";
 import { toDisplayUrl } from "../utils";
+import { useAgentStore } from "../../../stores/agentStore";
 import {
   extractTurnUsageFromOutputMessages,
   extractLatestSnapshotFromCards,
@@ -524,9 +525,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
   /** Short-lived result cache so the library's subsequent getSession call
    *  (triggered by setCurrentSessionId → useAsyncEffect) can reuse the
-   *  already-fetched session without making another network request. */
-  private sessionResultCache: Map<string, IAgentScopeRuntimeWebUISession> =
-    new Map();
+   *  already-fetched session without making another network request. Each
+   *  entry carries the owner epoch it was produced under and is only served
+   *  within that epoch. */
+  private sessionResultCache: Map<
+    string,
+    { session: IAgentScopeRuntimeWebUISession; owner: SessionOwnerToken }
+  > = new Map();
 
   // ---------------------------------------------------------------------------
   // LRU cache for fully-converted sessions (avoids re-fetching on switch-back)
@@ -605,21 +610,33 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     session: IAgentScopeRuntimeWebUISession;
     realId: string | null;
   }> {
+    const owner = this.getActiveOwner();
     try {
       const session = await this.getSession(sessionId, signal);
       const extendedSession = session as ExtendedSession;
       const realId = extendedSession.realId || null;
 
-      // Cache the result so subsequent getSession calls return immediately.
-      this.sessionResultCache.set(sessionId, session);
-      if (realId) {
-        this.sessionResultCache.set(realId, session);
+      // Cache the result so subsequent getSession calls return immediately —
+      // but never publish a result that arrived after an agent switch into
+      // the new epoch's cache.
+      if (this.isActiveOwner(owner)) {
+        const entry = { session, owner };
+        this.sessionResultCache.set(sessionId, entry);
+        if (realId) {
+          this.sessionResultCache.set(realId, entry);
+        }
+        // Clear after 3s (enough for the library's useAsyncEffect to fire).
+        // Delete by entry identity so a late timer cannot remove a newer
+        // entry cached under the same key.
+        setTimeout(() => {
+          if (this.sessionResultCache.get(sessionId) === entry) {
+            this.sessionResultCache.delete(sessionId);
+          }
+          if (realId && this.sessionResultCache.get(realId) === entry) {
+            this.sessionResultCache.delete(realId);
+          }
+        }, 3000);
       }
-      // Clear cache after 3s (enough for the library's useAsyncEffect to fire).
-      setTimeout(() => {
-        this.sessionResultCache.delete(sessionId);
-        if (realId) this.sessionResultCache.delete(realId);
-      }, 3000);
 
       return { session, realId };
     } catch (error) {
@@ -645,30 +662,29 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   // singleton state or notify the current view.
   // ---------------------------------------------------------------------------
 
-  /** Current ownership epoch. agentId "" = not yet claimed (initial mount). */
+  /** Current ownership epoch. agentId "" = not yet claimed (tests only —
+   *  at runtime the module claims the selected agent on load, below). */
   private activeOwner: SessionOwnerToken = { agentId: "", generation: 0 };
 
   /**
    * Claims session ownership for an agent. Advances the generation whenever
    * the agent actually changes so that A -> B -> A creates a fresh epoch.
-   * The very first claim keeps the initial generation so that work started
-   * during initial mount (before ChatPage renders) is not spuriously
-   * invalidated.
+   * Driven by the agent-store subscription at the bottom of this module, so
+   * the claim happens synchronously with the agent change — before any React
+   * re-render or effect can start new-agent session work.
    */
   setActiveAgent(agentId: string): SessionOwnerToken {
     if (this.activeOwner.agentId === agentId) return this.activeOwner;
-    const generation =
-      this.activeOwner.agentId === ""
-        ? this.activeOwner.generation
-        : this.activeOwner.generation + 1;
-    this.activeOwner = { agentId, generation };
-    if (generation !== 0) {
-      // Drop shared in-flight work from the previous epoch so the new agent
-      // never awaits or reuses it. The underlying promises keep running but
-      // their results are rejected by the owner checks at the apply sites.
-      this.sessionListRequest = null;
-      this.resolvePromise = null;
-    }
+    this.activeOwner = { agentId, generation: this.activeOwner.generation + 1 };
+    // Drop shared in-flight work and short-lived caches from the previous
+    // epoch so the new agent never awaits or reuses them. The underlying
+    // promises keep running but their results are rejected by the owner
+    // checks at the apply sites.
+    this.sessionListRequest = null;
+    this.resolvePromise = null;
+    this.sessionRequests.clear();
+    this.sessionResultCache.clear();
+    this.convertedSessionCache.clear();
     return this.activeOwner;
   }
 
@@ -676,13 +692,27 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.activeOwner;
   }
 
-  /**
-   * The generation alone identifies an epoch (it advances on every agent
-   * change), so comparing it is sufficient — and it lets initial-mount work
-   * captured under the unclaimed owner survive the first explicit claim.
-   */
+  /** A token is active only when both the agent and its epoch still match. */
   isActiveOwner(token: SessionOwnerToken): boolean {
-    return token.generation === this.activeOwner.generation;
+    return (
+      token.agentId === this.activeOwner.agentId &&
+      token.generation === this.activeOwner.generation
+    );
+  }
+
+  /**
+   * Applies the view-facing side effects of a loaded session (window identity
+   * globals and the turn-usage store) only while the owner epoch that started
+   * the load is still active. A stale load must never rewrite the current
+   * agent's identity or usage view.
+   */
+  private applySessionView(
+    session: ExtendedSession,
+    owner: SessionOwnerToken,
+  ): void {
+    if (!this.isActiveOwner(owner)) return;
+    this.updateWindowVariables(session);
+    hydrateTurnUsageFromMessages(session.messages ?? []);
   }
 
   /**
@@ -752,11 +782,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
   /**
    * Deduplicates concurrent getSession calls for the same sessionId.
-   * Key: sessionId, Value: in-flight promise for getSession.
+   * Each in-flight promise carries the owner epoch it was started under and
+   * is never reused across an agent switch.
    */
   private sessionRequests: Map<
     string,
-    Promise<IAgentScopeRuntimeWebUISession>
+    { promise: Promise<IAgentScopeRuntimeWebUISession>; owner: SessionOwnerToken }
   > = new Map();
 
   /**
@@ -840,11 +871,16 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     }
   }
 
-  private createEmptySession(sessionId: string): ExtendedSession {
-    window.currentSessionId = sessionId;
-    window.currentUserId = DEFAULT_USER_ID;
-    window.currentChannel = DEFAULT_CHANNEL;
-    useTurnUsageStore.getState().setSnapshot(null);
+  private createEmptySession(
+    sessionId: string,
+    owner: SessionOwnerToken,
+  ): ExtendedSession {
+    if (this.isActiveOwner(owner)) {
+      window.currentSessionId = sessionId;
+      window.currentUserId = DEFAULT_USER_ID;
+      window.currentChannel = DEFAULT_CHANNEL;
+      useTurnUsageStore.getState().setSnapshot(null);
+    }
     return {
       id: sessionId,
       name: DEFAULT_SESSION_NAME,
@@ -1156,16 +1192,24 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private lastSelectedIds: Set<string> = new Set();
 
   async getSession(sessionId: string, signal?: AbortSignal) {
-    // Check short-lived result cache first (populated by preloadSession).
-    const cached = this.sessionResultCache.get(sessionId);
-    if (cached) return cached;
-
-    const existingRequest = this.sessionRequests.get(sessionId);
-    if (existingRequest) return existingRequest;
-
     const owner = this.getActiveOwner();
-    const requestPromise = this._doGetSession(sessionId, signal);
-    this.sessionRequests.set(sessionId, requestPromise);
+
+    // Check short-lived result cache first (populated by preloadSession).
+    // Entries from a previous ownership epoch are never served.
+    const cached = this.sessionResultCache.get(sessionId);
+    if (cached && this.isActiveOwner(cached.owner)) return cached.session;
+
+    // Reuse an in-flight request only within the same ownership epoch, so a
+    // new agent never adopts a request (and its captured owner) started by a
+    // previous agent.
+    const existingRequest = this.sessionRequests.get(sessionId);
+    if (existingRequest && this.isActiveOwner(existingRequest.owner)) {
+      return existingRequest.promise;
+    }
+
+    const requestPromise = this._doGetSession(sessionId, signal, owner);
+    const entry = { promise: requestPromise, owner };
+    this.sessionRequests.set(sessionId, entry);
 
     try {
       const session = await requestPromise;
@@ -1184,20 +1228,27 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       }
       return session;
     } finally {
-      this.sessionRequests.delete(sessionId);
+      // Delete by entry identity so a stale request cannot remove a newer
+      // epoch's in-flight entry stored under the same key.
+      if (this.sessionRequests.get(sessionId) === entry) {
+        this.sessionRequests.delete(sessionId);
+      }
     }
   }
 
   /**
    * Fetch chat history from backend and build an ExtendedSession.
    * Centralises the repeated fetch-convert-patch-build pattern used by
-   * _doGetSession in multiple branches.
+   * _doGetSession in multiple branches. Construction is applied to shared
+   * state (window identity, turn-usage store, converted cache) only while
+   * the caller's owner epoch is still active.
    */
   private async fetchAndBuildSession(
     displayId: string,
     backendId: string,
     listEntry: ExtendedSession | undefined,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    owner: SessionOwnerToken,
   ): Promise<ExtendedSession> {
     // Check LRU cache for non-generating sessions
     const isIdle = !listEntry?.generating;
@@ -1210,8 +1261,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         // Update mutable fields that may differ
         cached.id = displayId;
         if (listEntry?.name) cached.name = listEntry.name;
-        this.updateWindowVariables(cached);
-        hydrateTurnUsageFromMessages(cached.messages ?? []);
+        this.applySessionView(cached, owner);
         return cached;
       }
     }
@@ -1233,10 +1283,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       realId: listEntry?.realId,
       generating,
     };
-    this.updateWindowVariables(session);
 
-    // Cache non-generating sessions
-    if (!generating) {
+    // Cache non-generating sessions — only within the epoch that fetched
+    // them, so a stale load cannot write into the new agent's cache.
+    if (!generating && this.isActiveOwner(owner)) {
       this.setCachedConvertedSession(
         backendId,
         session,
@@ -1244,17 +1294,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       );
     }
 
-    hydrateTurnUsageFromMessages(session.messages ?? []);
+    this.applySessionView(session, owner);
     return session;
   }
 
   private async _doGetSession(
     sessionId: string,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    owner: SessionOwnerToken,
   ): Promise<IAgentScopeRuntimeWebUISession> {
     // --- No session selected (library bug: createSession sets undefined) ---
     if (!sessionId || sessionId === "undefined" || sessionId === "null") {
-      useTurnUsageStore.getState().setSnapshot(null);
+      if (this.isActiveOwner(owner)) {
+        useTurnUsageStore.getState().setSnapshot(null);
+      }
       return {
         id: sessionId || "",
         name: "",
@@ -1276,12 +1329,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             fromList.realId,
             fromList,
             signal,
+            owner,
           );
         } catch (error) {
           // If fetching with realId fails, return the local session without messages
           // This handles cases where the backend has an inconsistency
-          this.updateWindowVariables(fromList);
-          hydrateTurnUsageFromMessages(fromList.messages ?? []);
+          this.applySessionView(fromList, owner);
           return fromList;
         }
       }
@@ -1299,20 +1352,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
               resolved.realId,
               resolved,
               signal,
+              owner,
             );
           } catch {
-            this.updateWindowVariables(resolved);
-            hydrateTurnUsageFromMessages(resolved.messages ?? []);
+            this.applySessionView(resolved, owner);
             return resolved;
           }
         }
       }
       if (fromList) {
-        this.updateWindowVariables(fromList);
-        hydrateTurnUsageFromMessages(fromList.messages ?? []);
+        this.applySessionView(fromList, owner);
         return fromList;
       }
-      return this.createEmptySession(sessionId);
+      return this.createEmptySession(sessionId, owner);
     }
 
     // --- Regular backend UUID ---
@@ -1322,6 +1374,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         sessionId,
         this.findSession(sessionId),
         signal,
+        owner,
       );
     } catch (error: any) {
       // If the backend session doesn't exist (e.g. invalid UUID or expired session)
@@ -1329,7 +1382,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       // Note: the request layer throws Error(message) without attaching .status,
       // so only message-based detection is reliable here.
       if (error.message?.includes("Chat not found")) {
-        const emptySession = this.createEmptySession(sessionId);
+        const emptySession = this.createEmptySession(sessionId, owner);
         emptySession.id = sessionId;
         return emptySession;
       }
@@ -1450,7 +1503,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const localId = `${Date.now()}-${Math.random()
       .toString(36)
       .substring(2, 9)}`;
-    const extended = this.createEmptySession(localId);
+    const extended = this.createEmptySession(localId, this.getActiveOwner());
     extended.name = session.name || DEFAULT_SESSION_NAME;
     this.sessionList.unshift(extended);
     session.id = localId;
@@ -1486,7 +1539,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 }
 
-export default new SessionApi();
+const sessionApi = new SessionApi();
+
+// Ownership follows the selected agent from the agent store. Claiming here —
+// at module load and synchronously inside every store update — guarantees a
+// single lifecycle location and that the epoch advances before any React
+// re-render or effect can start new-agent session work, regardless of which
+// page (chat, settings, sidebar preload) triggers the change.
+sessionApi.setActiveAgent(useAgentStore.getState().selectedAgent);
+useAgentStore.subscribe((state) => {
+  sessionApi.setActiveAgent(state.selectedAgent);
+});
+
+export default sessionApi;
 
 // ---------------------------------------------------------------------------
 // Test-only exports (used by ./tests/testLargeSession.test.tsx — PR-F3 / #5479)
