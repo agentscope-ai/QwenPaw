@@ -1054,9 +1054,14 @@ def _resolve_chromium_launch_target() -> tuple[Optional[str], Optional[str]]:
     return default_kind, _chromium_executable_path()
 
 
-_FORBIDDEN_BROWSER_ARGS = (
-    "--remote-debugging-port",
-    "--remote-debugging-address",
+# Chromium treats "--switch", "-switch" and (on Windows) "/switch" as
+# equivalent, so the guard below compares bare switch names.
+_SWITCH_PREFIXES = ("--", "-", "/") if sys.platform == "win32" else ("--", "-")
+_FORBIDDEN_SWITCH_NAMES = frozenset(
+    {
+        "remote-debugging-port",
+        "remote-debugging-address",
+    },
 )
 
 
@@ -1067,15 +1072,26 @@ def _should_use_managed_cdp(private_mode: bool, cdp_port: int) -> bool:
     return cdp_port > 0
 
 
+def _switch_name(part: str) -> str:
+    """Return the bare switch name, or "" when *part* is not a switch."""
+    for prefix in _SWITCH_PREFIXES:  # "--" is matched before "-"
+        if part.startswith(prefix):
+            return part[len(prefix) :].split("=", 1)[0].lower()
+    return ""
+
+
 def _reject_debug_surface_args(browser_args: str) -> None:
-    """Reject launch args that would re-open an unauthenticated CDP surface."""
+    """Reject launch args that would re-open an unauthenticated CDP surface.
+
+    This guards against accidental exposure; it is not a security boundary,
+    because browser_args carries full local command-line power by design.
+    """
     if not browser_args:
         return
     for part in shlex.split(browser_args, posix=sys.platform != "win32"):
-        flag = part.split("=", 1)[0]
-        if flag in _FORBIDDEN_BROWSER_ARGS:
+        if _switch_name(part) in _FORBIDDEN_SWITCH_NAMES:
             raise ValueError(
-                f"{flag} is not allowed in browser_args; "
+                f"{part.split('=', 1)[0]} is not allowed in browser_args; "
                 "use the cdp_port parameter instead.",
             )
 
