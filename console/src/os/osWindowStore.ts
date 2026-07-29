@@ -88,17 +88,17 @@ interface OsStore {
    */
   clampToViewport: () => void;
   /**
-   * Drop state for apps that no longer resolve in the registry (plugin
-   * uninstalled, route gone): closes ghost windows in the active space and
-   * every saved space, pruning order/activeId accordingly.
+   * Transactional cleanup: drop state for the given app ids (confirmed
+   * uninstalled) in the active space and every saved space, pruning
+   * order/activeId accordingly. Never derives deletions from snapshots.
    */
-  reconcile: (validIds: ReadonlySet<string>) => void;
+  purgeApps: (ids: ReadonlySet<string>) => void;
   /**
-   * Drop saved Space layouts whose id is no longer a valid space (agent
-   * deleted). Callers must only pass ids from a successfully loaded agent
-   * list — never prune on load failure.
+   * Transactional cleanup: drop the saved layout of one deleted agent's
+   * Space. When it is the displayed space, the active layout is cleared so
+   * a later space switch cannot resurrect it.
    */
-  pruneSpaces: (validSpaceIds: ReadonlySet<string>) => void;
+  purgeSpace: (spaceId: string) => void;
 }
 
 const BASE_Z = 100;
@@ -353,15 +353,19 @@ export const useOsWindows = create<OsStore>()(
         set((s) => {
           if (id === s.spaceId) return { missionControlOpen: false };
           // Save the current space, then load (or create) the target space.
-          const saved: Record<string, SavedSpace> = {
-            ...s.saved,
-            [s.spaceId]: {
+          // Empty desktops are not snapshotted — this keeps purged (deleted
+          // agent) spaces from being re-created by the switch itself.
+          const saved: Record<string, SavedSpace> = { ...s.saved };
+          if (s.order.length > 0) {
+            saved[s.spaceId] = {
               windows: s.windows,
               order: s.order,
               activeId: s.activeId,
               zCounter: s.zCounter,
-            },
-          };
+            };
+          } else {
+            delete saved[s.spaceId];
+          }
           const target = saved[id] ?? {
             windows: {},
             order: [],
@@ -397,23 +401,23 @@ export const useOsWindows = create<OsStore>()(
           return { windows: clampWindows(s.windows, vw, vh), saved };
         }),
 
-      reconcile: (validIds) =>
+      purgeApps: (ids) =>
         set((s) => {
           const prune = (
             space: SavedSpace,
           ): { space: SavedSpace; changed: boolean } => {
             // Guard against persisted states where windows/order diverge.
-            const ids = new Set([
-              ...space.order,
-              ...Object.keys(space.windows),
-            ]);
-            const stale = [...ids].filter((id) => !validIds.has(id));
-            if (stale.length === 0) return { space, changed: false };
+            const present = new Set(
+              [...space.order, ...Object.keys(space.windows)].filter((id) =>
+                ids.has(id),
+              ),
+            );
+            if (present.size === 0) return { space, changed: false };
             const windows = { ...space.windows };
-            for (const id of stale) delete windows[id];
-            const order = space.order.filter((id) => validIds.has(id));
+            for (const id of present) delete windows[id];
+            const order = space.order.filter((id) => !ids.has(id));
             const activeId =
-              space.activeId !== null && validIds.has(space.activeId)
+              space.activeId !== null && !ids.has(space.activeId)
                 ? space.activeId
                 : order[order.length - 1] ?? null;
             return {
@@ -444,15 +448,22 @@ export const useOsWindows = create<OsStore>()(
           };
         }),
 
-      pruneSpaces: (validSpaceIds) =>
+      purgeSpace: (spaceId) =>
         set((s) => {
-          const saved: Record<string, SavedSpace> = {};
-          let changed = false;
-          for (const [sid, space] of Object.entries(s.saved)) {
-            if (validSpaceIds.has(sid)) saved[sid] = space;
-            else changed = true;
+          const next: Partial<OsStore> = {};
+          if (spaceId in s.saved) {
+            const saved = { ...s.saved };
+            delete saved[spaceId];
+            next.saved = saved;
           }
-          return changed ? { saved } : {};
+          if (spaceId === s.spaceId) {
+            // The deleted agent's space is on screen: clear the layout so a
+            // later switchSpace snapshots nothing for it.
+            next.windows = {};
+            next.order = [];
+            next.activeId = null;
+          }
+          return next;
         }),
     }),
     {

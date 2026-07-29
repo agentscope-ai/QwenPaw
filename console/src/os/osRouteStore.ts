@@ -32,8 +32,8 @@ interface OsRouteStore {
    * route id is given. Returns true when handled.
    */
   navigateTo: (routeId: string, path: string) => void;
-  /** Drop pending deep-links for windows no longer in the registry. */
-  prune: (validIds: ReadonlySet<string>) => void;
+  /** Transactional cleanup: drop deep-links for confirmed-removed apps. */
+  purge: (ids: ReadonlySet<string>) => void;
 }
 
 export const useOsRoute = create<OsRouteStore>((set) => ({
@@ -82,14 +82,11 @@ export const useOsRoute = create<OsRouteStore>((set) => ({
     useOsWindows.getState().open(routeId);
   },
 
-  prune: (validIds) =>
+  purge: (ids) =>
     set((s) => {
-      const targets: Record<string, RouteTarget> = {};
-      let changed = false;
-      for (const [id, target] of Object.entries(s.targets)) {
-        if (validIds.has(id)) targets[id] = target;
-        else changed = true;
-      }
-      return changed ? { targets } : s;
+      if (![...ids].some((id) => id in s.targets)) return s;
+      const targets = { ...s.targets };
+      for (const id of ids) delete targets[id];
+      return { targets };
     }),
 }));

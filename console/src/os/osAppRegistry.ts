@@ -4,19 +4,19 @@
  * Merges every app source into one list consumed by the desktop surfaces
  * (Dock, Launcher, desktop icons, window titles):
  *
- *   Route/Menu Registry ──▶ useOsApps() ──▶ Dock / Launcher / DesktopOS
- *                                │
- *                                └─▶ syncDynamicApps ─▶ resolveAppDef
- *                                    (module-level, for non-React code
- *                                     such as osWindowStore.open)
+ *   Route/Menu Registry ──▶ useOsApps()   ──▶ Dock / Launcher / DesktopOS
+ *          (snapshots) ──▶ resolveAppDef ──▶ osWindowStore.open / clamp
  *
- * Static apps (catalog + system) resolve via findAppDef; dynamic PawApps
- * (plugin routes under "/apps/") are synced into a module-level map so
- * `resolveAppDef` covers them too — every entry point can open an app by
- * route id alone and get manifest-consistent geometry.
+ * Static apps (catalog + system) resolve via findAppDef. Dynamic PawApps
+ * (plugin routes under "/apps/") are derived directly from the plugin
+ * registry's memoized snapshots — the registry is an external store, so
+ * React hooks and non-React callers (stores) always read the same
+ * snapshot in the same tick, with no effect-driven synchronisation and no
+ * dependency on any component being mounted.
  */
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { useRoutes } from "../plugins/registry/hooks";
+import { routeRegistry, menuRegistry } from "../plugins/registry/store";
 import { useOsPlugins } from "./osPluginStore";
 import { usePluginApps } from "./usePluginApps";
 import {
@@ -24,6 +24,7 @@ import {
   STORE_APP,
   SETTINGS_APP,
   findAppDef,
+  buildPluginApps,
   type OsAppDef,
 } from "./osApps";
 
@@ -34,20 +35,40 @@ export interface OsAppsResult {
   appById: Map<string, OsAppDef>;
 }
 
-/** Dynamic (plugin-derived) app defs, kept in sync by useOsApps(). */
-let dynamicApps = new Map<string, OsAppDef>();
+// Dynamic apps memoized on the registries' stable snapshot refs (both
+// registries replace their snapshot arrays on every mutation).
+let routesKey: unknown = null;
+let menuKey: unknown = null;
+let dynamicCache = new Map<string, OsAppDef>();
 
-/** Replace the dynamic app set (exported for tests). */
-export function syncDynamicApps(defs: OsAppDef[]): void {
-  dynamicApps = new Map(defs.map((d) => [d.routeId, d]));
+/** Current dynamic (plugin-derived) app defs, straight from the registry. */
+function dynamicApps(): Map<string, OsAppDef> {
+  const routes = routeRegistry.snapshot();
+  const menu = menuRegistry.snapshot();
+  if (routes !== routesKey || menu !== menuKey) {
+    routesKey = routes;
+    menuKey = menu;
+    dynamicCache = new Map(
+      buildPluginApps(routes, menu).map((d) => [d.routeId, d]),
+    );
+  }
+  return dynamicCache;
 }
 
 /**
  * Resolve any app's manifest (catalog, system or dynamic PawApp).
- * Safe to call from non-React code (stores).
+ * Safe to call from non-React code (stores) at any time.
  */
 export function resolveAppDef(routeId: string): OsAppDef | undefined {
-  return findAppDef(routeId) ?? dynamicApps.get(routeId);
+  return findAppDef(routeId) ?? dynamicApps().get(routeId);
+}
+
+/**
+ * Every dynamic app contributed by a plugin source. Used by transactional
+ * cleanup to map a confirmed plugin uninstall to its desktop app state.
+ */
+export function appsBySource(source: string): OsAppDef[] {
+  return [...dynamicApps().values()].filter((a) => a.source === source);
 }
 
 /**
@@ -58,12 +79,6 @@ export function useOsApps(): OsAppsResult {
   const routes = useRoutes();
   const installed = useOsPlugins((s) => s.installed);
   const pluginApps = usePluginApps();
-
-  // Keep the module-level dynamic registry in sync so stores can resolve
-  // plugin app defs. Runs before any user-triggered open() call.
-  useEffect(() => {
-    syncDynamicApps(pluginApps);
-  }, [pluginApps]);
 
   return useMemo(() => {
     const availableIds = new Set(routes.map((r) => r.id));

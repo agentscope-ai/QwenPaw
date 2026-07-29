@@ -260,10 +260,14 @@ export default function WindowFrame({
 
   const endDrag = useCallback(
     (e: React.PointerEvent) => {
+      // Finalizes the gesture. Also bound to pointercancel and
+      // lostpointercapture so system-cancelled gestures (touch, app
+      // switch, OS gestures) still commit the last on-screen position;
+      // idempotent, so the capture-release cascade is harmless.
       const wasDragging = dragRef.current !== null;
       dragRef.current = null;
       const rect = takeGestureRect();
-      if (snapZone) {
+      if (wasDragging && snapZone) {
         snap(win.id, snapZone);
         setSnapZone(null);
       } else if (wasDragging && rect?.x !== undefined && rect.y !== undefined) {
@@ -331,6 +335,7 @@ export default function WindowFrame({
 
   const endResize = useCallback(
     (e: React.PointerEvent) => {
+      // Same finalize-on-cancel semantics as endDrag; idempotent.
       const wasResizing = resizeRef.current !== null;
       resizeRef.current = null;
       const rect = takeGestureRect();
@@ -402,6 +407,8 @@ export default function WindowFrame({
         onPointerDown={onHeaderPointerDown}
         onPointerMove={onHeaderPointerMove}
         onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
         onDoubleClick={() => !isMobile && toggleMaximize(win.id)}
       >
         <div className={styles.lights}>
@@ -452,6 +459,8 @@ export default function WindowFrame({
               onPointerDown={(e) => onResizePointerDown(e, dir)}
               onPointerMove={onResizePointerMove}
               onPointerUp={endResize}
+              onPointerCancel={endResize}
+              onLostPointerCapture={endResize}
             />
           ))}
           <div
@@ -459,6 +468,8 @@ export default function WindowFrame({
             onPointerDown={(e) => onResizePointerDown(e, "se")}
             onPointerMove={onResizePointerMove}
             onPointerUp={endResize}
+            onPointerCancel={endResize}
+            onLostPointerCapture={endResize}
           />
         </>
       )}

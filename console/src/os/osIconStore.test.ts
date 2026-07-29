@@ -20,10 +20,10 @@ describe("osIconStore", () => {
     expect(useOsIcons.getState().positions).toEqual({});
   });
 
-  it("prune drops positions for apps missing from the registry", () => {
+  it("purge drops positions for confirmed-removed apps only", () => {
     useOsIcons.getState().setPosition("core.chat", 1, 2);
     useOsIcons.getState().setPosition("gone.app", 3, 4);
-    useOsIcons.getState().prune(new Set(["core.chat"]));
+    useOsIcons.getState().purge(new Set(["gone.app"]));
     expect(useOsIcons.getState().positions).toEqual({
       "core.chat": { x: 1, y: 2 },
     });

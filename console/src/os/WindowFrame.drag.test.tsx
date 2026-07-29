@@ -149,4 +149,57 @@ describe("WindowFrame drag", () => {
     const committed = useOsWindows.getState().windows["core.chat"];
     expect(committed).toMatchObject({ w: 800, h: 580 });
   });
+
+  it("pointercancel finalizes a drag with the last on-screen position", () => {
+    renderWithProviders(
+      <WindowFrame
+        win={winA}
+        title="Chat A"
+        Icon={MessageSquare}
+        accent="#3b82f6"
+        isMobile={false}
+      >
+        <div>a-content</div>
+      </WindowFrame>,
+    );
+
+    const title = screen.getByText("Chat A");
+    fireEvent.pointerDown(title, { pointerId: 1, clientX: 150, clientY: 110 });
+    fireEvent.pointerMove(title, { pointerId: 1, clientX: 300, clientY: 220 });
+
+    // System cancels the gesture (touch interruption, app switch).
+    fireEvent.pointerCancel(title, {
+      pointerId: 1,
+      clientX: 300,
+      clientY: 220,
+    });
+
+    const committed = useOsWindows.getState().windows["core.chat"];
+    expect(committed).toMatchObject({ x: 250, y: 210 });
+  });
+
+  it("lostpointercapture after pointerup does not commit twice", () => {
+    renderWithProviders(
+      <WindowFrame
+        win={winA}
+        title="Chat A"
+        Icon={MessageSquare}
+        accent="#3b82f6"
+        isMobile={false}
+      >
+        <div>a-content</div>
+      </WindowFrame>,
+    );
+
+    const title = screen.getByText("Chat A");
+    fireEvent.pointerDown(title, { pointerId: 1, clientX: 150, clientY: 110 });
+    fireEvent.pointerMove(title, { pointerId: 1, clientX: 300, clientY: 220 });
+    fireEvent.pointerUp(title, { pointerId: 1, clientX: 300, clientY: 220 });
+    const afterUp = useOsWindows.getState().windows;
+
+    // Browsers fire lostpointercapture after the release cascade.
+    fireEvent.lostPointerCapture(title, { pointerId: 1 });
+
+    expect(useOsWindows.getState().windows).toBe(afterUp);
+  });
 });

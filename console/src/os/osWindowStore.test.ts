@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { Puzzle } from "lucide-react";
 import { useOsWindows } from "./osWindowStore";
-import { syncDynamicApps } from "./osAppRegistry";
-import type { OsAppDef } from "./osApps";
+import { routeRegistry } from "../plugins/registry/store";
+import type { Disposable } from "../plugins/registry/types";
 
 /** Reset the store to a pristine desktop between tests. */
 function resetStore() {
@@ -20,16 +19,8 @@ function resetStore() {
 
 const s = () => useOsWindows.getState();
 
-const pluginApp: OsAppDef = {
-  routeId: "plugin.office",
-  labelKey: "Office",
-  fallback: "Office",
-  Icon: Puzzle,
-  accent: "#6366f1",
-  defaultW: 960,
-  defaultH: 680,
-  source: "office",
-};
+/** Registered plugin routes to clean up after each test. */
+let disposables: Disposable[] = [];
 
 describe("osWindowStore", () => {
   beforeEach(() => {
@@ -48,8 +39,8 @@ describe("osWindowStore", () => {
   });
 
   afterEach(() => {
-    // Dynamic app defs are module-level state in the registry.
-    syncDynamicApps([]);
+    for (const d of disposables) d.dispose();
+    disposables = [];
   });
 
   it("open creates a window with the given size and focuses it", () => {
@@ -164,19 +155,25 @@ describe("osWindowStore", () => {
   });
 
   it("open resolves dynamic plugin app sizes via the registry", () => {
-    syncDynamicApps([pluginApp]);
+    disposables.push(
+      routeRegistry.add("office", {
+        id: "plugin.office",
+        path: "/apps/office",
+        component: () => null,
+      }),
+    );
     s().open("plugin.office");
     expect(s().windows["plugin.office"]).toMatchObject({ w: 960, h: 680 });
   });
 
-  it("reconcile closes ghost windows in active and saved spaces", () => {
+  it("purgeApps drops the given ids in active and saved spaces", () => {
     s().open("core.chat");
     s().open("core.inbox");
     s().switchSpace("agent-b");
     s().open("core.tools");
     s().open("core.mcp");
 
-    s().reconcile(new Set(["core.chat", "core.tools"]));
+    s().purgeApps(new Set(["core.inbox", "core.mcp"]));
 
     // Active space: core.mcp is gone, core.tools survives.
     expect(s().windows["core.mcp"]).toBeUndefined();
@@ -189,24 +186,36 @@ describe("osWindowStore", () => {
     expect(savedDefault.activeId).toBe("core.chat");
   });
 
-  it("reconcile keeps everything when all windows are valid", () => {
+  it("purgeApps is a no-op for ids that are not present", () => {
     s().open("core.chat");
     s().open("core.inbox");
-    s().reconcile(new Set(["core.chat", "core.inbox"]));
+    const before = s().windows;
+    s().purgeApps(new Set(["gone.app"]));
+    expect(s().windows).toBe(before);
     expect(s().order).toEqual(["core.chat", "core.inbox"]);
-    expect(s().activeId).toBe("core.inbox");
   });
 
-  it("pruneSpaces drops layouts for deleted agents only", () => {
+  it("purgeSpace drops exactly the deleted agent's saved layout", () => {
     s().open("core.chat");
-    s().switchSpace("agent-b");
+    s().switchSpace("agent-b"); // saves default
     s().open("core.inbox");
-    s().switchSpace("agent-c"); // saved: default, agent-b
+    s().switchSpace("agent-c"); // saves agent-b
 
-    s().pruneSpaces(new Set(["default", "agent-c"]));
+    s().purgeSpace("agent-b");
 
-    expect(s().saved["default"]).toBeDefined();
     expect(s().saved["agent-b"]).toBeUndefined();
+    expect(s().saved["default"]).toBeDefined();
+  });
+
+  it("purgeSpace clears the active layout when it is the displayed space", () => {
+    s().open("core.chat");
+    s().purgeSpace("default");
+    expect(s().order).toEqual([]);
+    expect(s().windows).toEqual({});
+    expect(s().activeId).toBeNull();
+    // The purged space cannot be resurrected by a later space switch.
+    s().switchSpace("agent-b");
+    expect(s().saved["default"]).toBeUndefined();
   });
 
   it("debounces localStorage writes during a drag burst", () => {

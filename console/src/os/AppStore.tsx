@@ -41,6 +41,8 @@ import {
 } from "../api/modules/plugin";
 import { OS_APPS } from "./osApps";
 import { useOsPlugins } from "./osPluginStore";
+import { purgeAppState, purgePluginAppState } from "./osCleanup";
+import { useOverlayContainer } from "./osWindowContainer";
 import { useOsStyles } from "./useOsStyles";
 
 const MARKET_CATEGORIES = [
@@ -74,6 +76,8 @@ export default function AppStore() {
   const { message } = App.useApp();
   const routes = useRoutes();
   const { installed, install, uninstall, installAll } = useOsPlugins();
+  // App overlay semantics: keep the confirm dialog inside this window.
+  const overlayContainer = useOverlayContainer();
 
   // Installed PawApps (app-type plugins, e.g. agent-kanban). Sourced from the
   // backend so the list reflects what is actually loaded, enabling in-place
@@ -129,9 +133,13 @@ export default function AppStore() {
       okText: t("os.uninstall", "Uninstall"),
       okButtonProps: { danger: true },
       cancelText: t("common.cancel", "Cancel"),
+      getContainer: overlayContainer,
       onOk: async () => {
         try {
           await uninstallPlugin(p.id);
+          // Confirmed uninstall: purge persisted desktop state before the
+          // reload drops the plugin's routes from the registry.
+          purgePluginAppState(p.id);
           message.success(
             t("os.uninstalledApp", {
               name: p.name,
@@ -238,6 +246,7 @@ export default function AppStore() {
                     className={styles.storeBtn}
                     onClick={() => {
                       uninstall(a.routeId);
+                      purgeAppState([a.routeId]);
                       message.info(
                         t("os.uninstalledApp", {
                           name: t(a.labelKey, a.fallback),

@@ -9,14 +9,7 @@
  * Reachable at /os (registered in App.tsx) — isolated from MainLayout so the
  * classic sidebar layout is untouched.
  */
-import {
-  Suspense,
-  useMemo,
-  useEffect,
-  useState,
-  useRef,
-  useCallback,
-} from "react";
+import { Suspense, useMemo, useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { App, Dropdown, Spin } from "antd";
 import { Command, Trash2, Image as ImageIcon } from "lucide-react";
@@ -32,7 +25,7 @@ import { OS_APPS, STORE_APP, SETTINGS_APP, type OsAppDef } from "./osApps";
 import { useOsApps, resolveAppDef } from "./osAppRegistry";
 import { useOsStyles, MENUBAR_H } from "./useOsStyles";
 import { useOsNotifyPoller } from "./useOsNotifyPoller";
-import { useOsLifecycle } from "./useOsLifecycle";
+import { purgeAppState, purgePluginAppState } from "./osCleanup";
 import WindowFrame from "./WindowFrame";
 import WindowRouter from "./WindowRouter";
 import { baseFromRoutePath } from "./osRouteMap";
@@ -41,6 +34,7 @@ import Dock from "./Dock";
 import SpacesPanel from "./SpacesPanel";
 import { useEdgeReveal } from "./useEdgeReveal";
 import { useOsIcons, defaultIconPos } from "./osIconStore";
+import { useIconDrag } from "./useIconDrag";
 import Launcher from "./Launcher";
 import AppStore from "./AppStore";
 import SettingsApp from "./SettingsApp";
@@ -123,10 +117,6 @@ export default function DesktopOS() {
   // Poll approvals + unread inbox events → macOS-style notifications.
   useOsNotifyPoller();
 
-  // Registry-driven cleanup: close ghost windows, drop icon positions and
-  // deep-link targets for uninstalled apps, prune deleted agents' Spaces.
-  useOsLifecycle(appById);
-
   // Viewport changed (browser resize, DPI/monitor switch): pull persisted
   // windows back into the visible work area.
   useEffect(() => {
@@ -206,16 +196,11 @@ export default function DesktopOS() {
   const anyMaximized = isMobile || openWindows.some((w) => w.maximized);
   const { topHot } = useEdgeReveal();
 
-  // Persisted desktop icon positions + a transient drag handle.
+  // Persisted desktop icon positions + transient drag handlers. While a
+  // drag is in flight the position lives in the DOM only (rAF-coalesced);
+  // the persisted store is written once when the gesture ends.
   const { positions: iconPositions, setPosition } = useOsIcons();
-  const iconDrag = useRef<{
-    id: string;
-    dx: number;
-    dy: number;
-    sx: number;
-    sy: number;
-    moved: boolean;
-  } | null>(null);
+  const iconDragHandlers = useIconDrag(setPosition, MENUBAR_H);
 
   // Uninstall an app. Plugin apps (PawApps, carrying `source`) are removed on
   // the backend (then reload to refresh the registry); built-in catalog apps
@@ -225,6 +210,9 @@ export default function DesktopOS() {
     if (a.source) {
       try {
         await uninstallPlugin(a.source);
+        // Confirmed uninstall: purge persisted desktop state before the
+        // reload drops the plugin's routes from the registry.
+        purgePluginAppState(a.source);
         message.success(
           t("os.uninstalledApp", { name, defaultValue: "Uninstalled" }),
         );
@@ -239,6 +227,7 @@ export default function DesktopOS() {
       return;
     }
     uninstall(a.routeId);
+    purgeAppState([a.routeId]);
     message.info(t("os.uninstalledApp", { name, defaultValue: "Uninstalled" }));
   };
 
@@ -316,51 +305,7 @@ export default function DesktopOS() {
                 key={a.routeId}
                 className={styles.iconAbsolute}
                 style={{ left: pos.x, top: pos.y }}
-                onPointerDown={(e) => {
-                  if ((e.target as HTMLElement).closest("button")) return;
-                  // No pointer capture here: capturing on pointerdown would
-                  // redirect the compatibility click/dblclick events to this
-                  // wrapper, so the icon's onDoubleClick (open app) would
-                  // never fire. Capture is deferred until a real drag starts.
-                  iconDrag.current = {
-                    id: a.routeId,
-                    dx: e.clientX - pos.x,
-                    dy: e.clientY - pos.y,
-                    sx: e.clientX,
-                    sy: e.clientY,
-                    moved: false,
-                  };
-                }}
-                onPointerMove={(e) => {
-                  const d = iconDrag.current;
-                  if (!d || d.id !== a.routeId) return;
-                  if (!d.moved) {
-                    // Still within the click slop — leave clicks untouched.
-                    if (
-                      Math.abs(e.clientX - d.sx) <= 3 &&
-                      Math.abs(e.clientY - d.sy) <= 3
-                    ) {
-                      return;
-                    }
-                    d.moved = true;
-                    (e.currentTarget as HTMLElement).setPointerCapture(
-                      e.pointerId,
-                    );
-                  }
-                  const nx = Math.max(0, e.clientX - d.dx);
-                  const ny = Math.max(MENUBAR_H, e.clientY - d.dy);
-                  setPosition(a.routeId, nx, ny);
-                }}
-                onPointerUp={(e) => {
-                  iconDrag.current = null;
-                  try {
-                    (e.currentTarget as HTMLElement).releasePointerCapture(
-                      e.pointerId,
-                    );
-                  } catch {
-                    /* noop */
-                  }
-                }}
+                {...iconDragHandlers(a.routeId, pos)}
               >
                 {renderIcon(a)}
               </div>

@@ -7,8 +7,8 @@
   - `docs/superpowers/specs/os-enhancements.md`
   - `docs/superpowers/specs/2026-07-22-os-window-app-presentation-design.md`
   - `docs/superpowers/plans/2026-07-22-os-window-app-presentation.md`
-- 当前结论：复审确认 4 项已修复，1 项部分修复后仍未完成（2026-07-28，
-  本地未提交）
+- 当前结论：原 5 项问题均已修复；对最新提交 `de540fe0` 复审后新增
+  5 项问题（2 项 P1、2 项 P2、1 项 P3），详见“第二轮复审记录”。
 
 ## 状态说明
 
@@ -21,12 +21,17 @@
 
 - [x] P1：避免窗口拖拽和缩放期间同步持久化阻塞主线程
 - [x] P2：持久化窗口恢复时适配当前视口和显示器
-- [ ] P2：跨应用导航使用应用默认尺寸和最小尺寸
+- [x] P2：跨应用导航使用应用默认尺寸和最小尺寸
 - [x] P2：Agent 表格高度基于 OS 窗口容器
 - [x] P3：完整清理 BootScreen 计时器并稳定回调
 - [x] 运行相关单元测试
 - [x] 运行 TypeScript 类型检查
 - [x] 运行改动文件 ESLint 检查
+- [ ] P1：生命周期清理只在确认卸载或删除后执行
+- [ ] P1：桌面图标拖动不在 `pointermove` 同步持久化
+- [ ] P2：拖拽和缩放处理 `pointercancel` / capture 丢失
+- [ ] P2：Modal / Drawer 真正挂载到当前 OS 窗口
+- [ ] P3：消除 hook effect 驱动的模块级动态应用状态
 
 ## Findings
 
@@ -88,7 +93,7 @@
 ### OSR-003：跨应用导航绕过应用尺寸配置
 
 - 严重级别：P2
-- 状态：未修复（部分修复）
+- 状态：已修复
 - 分类：功能性 / 模块化设计
 - 位置：
   - `console/src/os/osRouteStore.ts:52`
@@ -104,15 +109,11 @@
   - 所有打开入口对同一应用生成一致的初始尺寸和最小尺寸。
   - 跨应用导航到系统设置、Agent Config 等应用时符合 manifest 配置。
   - 新增跨应用打开尺寸测试。
-- 修复提交：本地修改（未提交）。`open()` 内通过 `findAppDef` 集中解析静态
-  manifest 的默认/最小尺寸，`size` 参数仅作覆盖。
-- 复审记录：2026-07-28 复审确认内置应用已修复，但动态 PawApp 尚未覆盖。
-  `buildPluginApps()` 为动态应用生成 `960x680` 默认尺寸，而 `findAppDef()` 只
-  查找静态 `OS_APPS`、App Store 和 System Settings。动态应用通过
-  `osRouteStore.navigateTo()` 跨窗口打开时仍调用 `open(routeId)`，最终回退到
-  `820x580`。因此“所有打开入口尺寸一致”的验收标准尚未满足。建议让动态 app
-  manifest 注册到窗口管理器可访问的 registry，或让跨应用导航传入已解析的
-  `OsAppDef` 尺寸，并增加动态 PawApp 的跨窗口打开测试。
+- 修复提交：`5e53353b` 先让 `open()` 集中解析静态 manifest；`de540fe0`
+  新增统一应用注册表，使动态 PawApp manifest 也可由窗口 store 解析。
+- 复审记录：2026-07-28 第二轮复审通过。`resolveAppDef()` 同时覆盖静态应用与
+  动态 PawApp，Dock、Launcher、桌面图标和跨应用导航均只传 route id，由
+  `open()` 统一应用默认/最小尺寸。新增测试确认动态应用以 `960x680` 打开。
 
 ### OSR-004：Agent 表格使用视口高度而非窗口容器高度
 
@@ -202,29 +203,126 @@
 
 ## 修复后复审记录
 
-2026-07-28 已完成复审。业务修复仍为本地未提交修改。
+2026-07-28 已完成复审。原问题修复已提交，其中 `5e53353b` 修复窗口持久化、
+几何、Agent 布局和 BootScreen，`de540fe0` 补齐动态 PawApp 尺寸解析。
 
 | 问题编号 | 复审状态 | 修复提交 | 验证证据 | 复审日期 |
 | --- | --- | --- | --- | --- |
-| OSR-001 | 已修复 | 本地未提交 | 47/47；连续移动仅防抖后写入最终状态 | 2026-07-28 |
-| OSR-002 | 已修复 | 本地未提交 | 47/47；活动/保存 Space 与 prev 均钳制 | 2026-07-28 |
-| OSR-003 | 未修复 | 本地未提交 | 内置应用通过；动态 PawApp 仍回退 820x580 | 2026-07-28 |
-| OSR-004 | 已修复 | 本地未提交 | 47/47；移除 100vh 并测量容器高度 | 2026-07-28 |
-| OSR-005 | 已修复 | 本地未提交 | 47/47；三个计时器阶段均有覆盖 | 2026-07-28 |
+| OSR-001 | 已修复 | `5e53353b`、`de540fe0` | 窗口手势仅结束时提交；持久化继续防抖 | 2026-07-28 |
+| OSR-002 | 已修复 | `5e53353b` | 活动/保存 Space 与 prev 均钳制 | 2026-07-28 |
+| OSR-003 | 已修复 | `5e53353b`、`de540fe0` | 动态 PawApp 使用 registry 的 960x680 | 2026-07-28 |
+| OSR-004 | 已修复 | `5e53353b` | 移除 100vh 并测量容器高度 | 2026-07-28 |
+| OSR-005 | 已修复 | `5e53353b` | 三个计时器阶段均有覆盖 | 2026-07-28 |
 
-## 本次复审新增结论
+## 第二轮复审记录（提交 `de540fe0`）
 
-### 动态 PawApp 的跨应用打开尺寸仍不一致
+- 审查边界：`5e53353b..de540fe0`
+- 结论：OSR-003 已补齐并通过复审；新增 OSR-006 至 OSR-010。
+
+### OSR-006：快照缺失被当成卸载，可能永久删除有效布局
+
+- 严重级别：P1
+- 状态：待修复
+- 分类：功能性 / 数据安全 / 生命周期设计
+- 位置：
+  - `console/src/os/useOsLifecycle.ts:30`
+  - `console/src/os/useOsLifecycle.ts:41`
+  - `console/src/os/osWindowStore.ts:400`
+  - `console/src/os/osWindowStore.ts:447`
+- 问题：清理逻辑只用注册表数量大于 2 判断“已加载”，随后把当前快照中缺失的
+  app 直接作为已卸载项永久删除。插件加载允许部分失败；此时内置 app 已让注册表
+  大于 2，但暂时加载失败的 PawApp 窗口、图标位置和深链会被清掉。Agent 清理同样
+  没有“本次请求成功”的信号：`agents` 会从持久化存储恢复，只要缓存非空就会被
+  当作权威列表，可能在刷新完成前或请求失败时删除其他 Agent 的 Space 布局。
+- 影响：一次网络故障、插件启动失败或暂态注册表替换可造成用户持久化布局不可恢复
+  丢失；现有测试只覆盖理想快照，并把“缺失即删除”固化为预期。
+- 建议：显式传入 plugin registry ready/stable 与 agent refresh succeeded 状态；更优
+  的方式是在已确认的 uninstall、route dispose、agent delete 事务成功后按明确 id
+  清理，不从瞬时快照反推删除事件。
+- 验收标准：
+  - 插件加载部分失败或 Agent 列表请求失败时不删除任何持久化布局。
+  - 只有确认卸载/删除的实体会被清理。
+  - 测试覆盖部分插件失败、缓存 Agent 列表、刷新失败和确认删除四种场景。
+
+### OSR-007：桌面图标拖动仍在 pointermove 同步写 localStorage
+
+- 严重级别：P1
+- 状态：待修复
+- 分类：同步 IO / 性能
+- 位置：
+  - `console/src/os/DesktopOS.tsx:334`
+  - `console/src/os/DesktopOS.tsx:352`
+  - `console/src/os/osIconStore.ts:40`
+- 问题：每个图标 `pointermove` 都调用持久化 store 的 `setPosition()`。该 store 使用
+  Zustand 默认同步 localStorage adapter，因此每次移动都会同步复制 positions、
+  JSON 序列化并执行 `localStorage.setItem`，继续阻塞浏览器事件循环。窗口拖拽已经
+  改为 DOM 临时几何 + `pointerup` 单次提交，但图标拖动尚未采用同一策略。
+- 建议：把拖动中的位置保存在 DOM/ref 或非持久化 transient state，使用 rAF 合并
+  视觉更新，仅在手势结束时提交最终位置；持久化策略仍应封装在 store 内。
+- 验收标准：一次图标拖动只在结束时更新持久化状态，并有测试断言移动期间无写盘。
+
+### OSR-008：指针取消或 capture 丢失时手势不会收尾
 
 - 严重级别：P2
-- 对应问题：OSR-003
+- 状态：待修复
+- 分类：Windows/macOS 兼容性 / 功能性
 - 位置：
-  - `console/src/os/osWindowStore.ts:193`
-  - `console/src/os/osWindowStore.ts:198`
-  - `console/src/os/osApps.ts:317`
-  - `console/src/os/osRouteStore.ts:80`
-- 影响：用户从一个 OS 窗口导航到动态插件应用时，新窗口尺寸与从 Dock、Launcher
-  或桌面图标打开时不同，可能再次出现内容拥挤。模块层面，动态 app manifest 只在
-  React hook 层可见，窗口 store 无法获得同一份配置，尺寸规则仍存在两个来源。
-- 需要补充的验证：构造一个动态 PawApp，通过 `navigateTo()` 打开，并断言窗口使用
-  `buildPluginApps()` 产生的默认尺寸。
+  - `console/src/os/WindowFrame.tsx:400`
+  - `console/src/os/WindowFrame.tsx:447`
+  - `console/src/os/DesktopOS.tsx:319`
+- 问题：窗口拖拽、缩放和图标拖动只处理 `pointerup`，没有处理
+  `pointercancel` 或 `lostpointercapture`。触摸手势被系统取消、浏览器失焦、切换
+  应用、Windows/macOS 系统手势接管时，transient DOM 几何可能保留，而 store 仍是
+  旧值；ref 和待提交矩形也不会清空，后续渲染会跳回或污染下一次手势。
+- 建议：抽取统一 gesture finalize/cancel 函数，同时绑定 `onPointerCancel` 和
+  `onLostPointerCapture`；明确取消时是提交最后位置还是回滚，并测试两种窗口手势和
+  图标手势。
+- 验收标准：取消、capture 丢失和正常抬起都能清理 rAF/ref，DOM 与 store 最终一致。
+
+### OSR-009：Modal / Drawer 的窗口级 overlay 隔离尚未实际接入
+
+- 严重级别：P2
+- 状态：待修复
+- 分类：功能性 / 模块化设计
+- 位置：
+  - `console/src/os/OsAppHost.tsx:62`
+  - `console/src/os/osWindowContainer.tsx:21`
+  - `console/src/os/OsAppHost.test.tsx:36`
+- 问题：`ConfigProvider.getPopupContainer` 能自动约束 Select、Dropdown、Tooltip 等
+  popup，但不会替 Modal/Drawer 设置它们各自的 `getContainer`。业务代码中没有
+  `useOverlayContainer()` 消费者，现有 56 处 Modal/Drawer 仍挂到
+  `document.body`，可以遮住整个桌面而不是所属窗口。新增测试只验证 context 有值，
+  没有渲染 Modal/Drawer 验证真实 portal 目标。
+- 建议：提供 OS-aware Modal/Drawer wrapper，或在业务页面统一接入
+  `getContainer={useOverlayContainer()}`；避免让几十个页面各自理解 OS 宿主细节。
+- 验收标准：至少用真实 Modal 和 Drawer 测试 portal、mask、定位、滚动与 z-index，
+  并确认经典布局仍使用原行为。
+
+### OSR-010：动态应用注册表由 React effect 维护模块级可变状态
+
+- 严重级别：P3
+- 状态：待修复
+- 分类：代码优雅性 / 模块化设计
+- 位置：
+  - `console/src/os/osAppRegistry.ts:35`
+  - `console/src/os/osAppRegistry.ts:64`
+- 问题：React UI 的 `appById` 和非 React store 的 `resolveAppDef()` 不是同一个原子
+  快照；后者依赖 `useEffect` 在渲染后同步模块级 Map。effect 执行前、OS shell 未
+  挂载、热重载或测试未手工 reset 时，store 可能读取旧 manifest。这也让 registry
+  的生命周期隐式依赖某个组件是否渲染。
+- 建议：建立独立的 app registry external store/service，由 route/menu/plugin
+  注册事件同步更新，React hook 和窗口 store 都订阅/读取同一快照；不要让 hook
+  通过副作用维护跨模块全局状态。
+- 验收标准：注册、更新、卸载动态 app 后，同一 tick 内 UI 与 `open()` 解析结果一致，
+  且无需挂载 DesktopOS 才能工作。
+
+## 第二轮验证结果
+
+- `npx vitest run src/os src/hooks/useIsMobile.test.tsx
+  src/pages/Settings/Agents/components/AgentTable.test.tsx`
+  - 结果：13 个测试文件、65 个用例通过。
+- `npx tsc --noEmit -p tsconfig.app.json`：通过。
+- 对 `de540fe0` 改动的 TS/TSX 文件运行 ESLint：通过。
+- 对 `de540fe0` 全部改动文件运行 Prettier check：通过。
+- 测试缺口：未覆盖 registry/agent 暂态失败、pointer cancel/capture 丢失、图标拖动
+  写盘次数，以及真实 Modal/Drawer 的 portal 行为。

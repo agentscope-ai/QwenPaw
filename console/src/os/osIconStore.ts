@@ -17,8 +17,8 @@ export interface IconPos {
 interface OsIconStore {
   positions: Record<string, IconPos>;
   setPosition: (id: string, x: number, y: number) => void;
-  /** Drop stored positions for apps no longer in the registry. */
-  prune: (validIds: ReadonlySet<string>) => void;
+  /** Transactional cleanup: drop positions for confirmed-removed apps. */
+  purge: (ids: ReadonlySet<string>) => void;
   reset: () => void;
 }
 
@@ -42,15 +42,12 @@ export const useOsIcons = create<OsIconStore>()(
       positions: {},
       setPosition: (id, x, y) =>
         set((s) => ({ positions: { ...s.positions, [id]: { x, y } } })),
-      prune: (validIds) =>
+      purge: (ids) =>
         set((s) => {
-          const positions: Record<string, IconPos> = {};
-          let changed = false;
-          for (const [id, pos] of Object.entries(s.positions)) {
-            if (validIds.has(id)) positions[id] = pos;
-            else changed = true;
-          }
-          return changed ? { positions } : {};
+          if (![...ids].some((id) => id in s.positions)) return {};
+          const positions = { ...s.positions };
+          for (const id of ids) delete positions[id];
+          return { positions };
         }),
       reset: () => set({ positions: {} }),
     }),

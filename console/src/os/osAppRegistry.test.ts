@@ -1,7 +1,9 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { useOsApps, resolveAppDef, syncDynamicApps } from "./osAppRegistry";
+import { useOsApps, resolveAppDef, appsBySource } from "./osAppRegistry";
 import { STORE_APP, SETTINGS_APP } from "./osApps";
+import { routeRegistry } from "../plugins/registry/store";
+import type { Disposable } from "../plugins/registry/types";
 
 // Registry hooks feeding useOsApps: one catalog route + one plugin route.
 vi.mock("../plugins/registry/hooks", () => ({
@@ -12,8 +14,17 @@ vi.mock("../plugins/registry/hooks", () => ({
   useAllMenuItems: () => [],
 }));
 
+let disposables: Disposable[] = [];
+
+function addPluginRoute(source: string, id: string, path: string): void {
+  disposables.push(
+    routeRegistry.add(source, { id, path, component: () => null }),
+  );
+}
+
 afterEach(() => {
-  syncDynamicApps([]);
+  for (const d of disposables) d.dispose();
+  disposables = [];
 });
 
 describe("resolveAppDef", () => {
@@ -27,21 +38,25 @@ describe("resolveAppDef", () => {
     expect(resolveAppDef("nope")).toBeUndefined();
   });
 
-  it("resolves dynamic apps after syncDynamicApps", () => {
+  it("reflects registry changes in the same tick, without any mount", () => {
     expect(resolveAppDef("plugin.office")).toBeUndefined();
-    syncDynamicApps([
-      {
-        routeId: "plugin.office",
-        labelKey: "Office",
-        fallback: "Office",
-        Icon: STORE_APP.Icon,
-        accent: "#6366f1",
-        defaultW: 960,
-        defaultH: 680,
-        source: "office",
-      },
-    ]);
+
+    addPluginRoute("office", "plugin.office", "/apps/office");
+    // Registered -> resolvable immediately (no React render in between).
     expect(resolveAppDef("plugin.office")?.defaultW).toBe(960);
+
+    disposables.pop()!.dispose();
+    // Disposed -> gone immediately.
+    expect(resolveAppDef("plugin.office")).toBeUndefined();
+  });
+});
+
+describe("appsBySource", () => {
+  it("maps a plugin source to its desktop app bundle", () => {
+    addPluginRoute("office", "plugin.office", "/apps/office");
+    const apps = appsBySource("office");
+    expect(apps.map((a) => a.routeId)).toEqual(["plugin.office"]);
+    expect(appsBySource("unknown")).toEqual([]);
   });
 });
 
@@ -57,10 +72,5 @@ describe("useOsApps", () => {
     // Catalog apps without a registered route are filtered out.
     expect(ids).not.toContain("core.tools");
     expect(result.current.appById.get("plugin.office")?.defaultW).toBe(960);
-  });
-
-  it("syncs dynamic apps so resolveAppDef covers plugin apps", () => {
-    renderHook(() => useOsApps());
-    expect(resolveAppDef("plugin.office")?.defaultH).toBe(680);
   });
 });
