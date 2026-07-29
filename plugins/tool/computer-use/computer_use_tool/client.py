@@ -12,6 +12,7 @@ from typing import Any
 
 from qwenpaw.app.computer_use import (
     HostRuntimeProvider,
+    RuntimeCapability,
     get_current_computer_use_turn_id,
 )
 from qwenpaw.app.agent_context import get_current_session_id
@@ -69,6 +70,9 @@ class ComputerUseClient:
         self._session_id = session_id
         self._transport_factory = transport_factory
         self._transport: ComputerUseTransport | None = None
+        # The capability this client's transport was built from, kept so a dead
+        # endpoint can be reported back rather than reconnected to forever.
+        self._capability: RuntimeCapability | None = None
         self._turn_id: str | None = None
         # The turn a stop applied to. Kept here rather than only in the helper
         # because a stop drops the connection, and the helper holds that fact
@@ -142,6 +146,11 @@ class ComputerUseClient:
                     "invalid_frame",
                 }:
                     await self._discard_transport()
+                if error.code in {"runtime_disconnected", "invalid_frame"}:
+                    # The connection went away mid-request rather than the
+                    # action failing, so the endpoint itself is suspect. A
+                    # timeout is not: the helper may simply be working.
+                    self._forget_capability()
                 raise
 
     def observe_windows(self, windows: Any) -> list[dict[str, Any]]:
@@ -279,10 +288,25 @@ class ComputerUseClient:
                 if sys.platform == "win32"
                 else UnixSocketTransport(capability)
             )
+            # Remembered so a dead endpoint can be reported back to the
+            # provider; the next acquire then asks the host for a live one.
+            self._capability = capability
         transport.set_reverse_request_handler(self._approvals.decide)
-        await transport.connect()
+        try:
+            await transport.connect()
+        except ComputerUseProtocolError:
+            # The endpoint named by this capability did not answer, which is
+            # what a helper that has gone away looks like from here.
+            self._forget_capability()
+            raise
         self._transport = transport
         return transport
+
+    def _forget_capability(self) -> None:
+        """Report this client's endpoint as dead, so a fresh one is issued."""
+        capability, self._capability = self._capability, None
+        if capability is not None:
+            HostRuntimeProvider.invalidate_capability(capability)
 
     @staticmethod
     async def _acquire_capability():
@@ -449,6 +473,18 @@ async def end_computer_use_turn(session_id: str) -> bool:
     """
     client = _cached_client(session_id)
     return await client.end_turn() if client is not None else False
+
+
+def known_computer_use_sessions() -> list[str]:
+    """Every session this process holds a Computer Use client for.
+
+    A pending approval can only exist for one of these: the helper asks through
+    the connection a client owns, so the request carries that client's session.
+    Turning the feature off therefore has to reach all of them, not only the
+    session whoever flipped the switch happened to be looking at.
+    """
+    with _clients_lock:
+        return list(_clients)
 
 
 async def stop_all_computer_use_turns() -> int:

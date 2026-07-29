@@ -18,6 +18,7 @@ from .access import (
 
 from .client import (
     is_computer_use_active,
+    known_computer_use_sessions,
     stop_all_computer_use_turns,
     stop_computer_use_session,
 )
@@ -91,10 +92,18 @@ def build_router() -> APIRouter:
         get_computer_use_feature_state().set_enabled(request.enabled)
         if request.enabled:
             return {"enabled": True}
-        # Signal before reaping, for the reason given on /session/stop.
-        denied = 0
+        # Off is a kill switch for every agent, so every session waiting on an
+        # approval has to be refused -- not just the one the caller named. A
+        # session left waiting would otherwise be granted access later and act
+        # on a desktop the user had already switched the feature off for.
+        #
+        # Denying comes before stopping, for the reason given on /session/stop.
+        sessions = set(known_computer_use_sessions())
         if request.session_id:
-            denied = await _deny_pending(request.session_id)
+            sessions.add(request.session_id)
+        denied = 0
+        for session_id in sorted(sessions):
+            denied += await _deny_pending(session_id)
         stopped = await stop_all_computer_use_turns()
         return {"enabled": False, "stopped": stopped, "denied": denied}
 

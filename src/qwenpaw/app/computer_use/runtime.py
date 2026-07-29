@@ -62,6 +62,17 @@ class RuntimeCapability:
     _secret: str
     protocol_version: int
 
+    def names_same_endpoint(self, other: "RuntimeCapability") -> bool:
+        """Whether both capabilities point at the same helper endpoint.
+
+        Comparing whole capabilities would compare secrets too, and asking
+        callers to read the endpoint would make it part of the surface this
+        type exists to keep closed. Reading it from a peer of the same type
+        keeps it closed.
+        """
+        # pylint: disable=protected-access
+        return self._pipe_name == other._pipe_name
+
 
 @dataclass(frozen=True)
 class _ControlEndpoint:
@@ -75,19 +86,23 @@ class HostRuntimeProvider:
     """Obtain a desktop-host capability without exposing it to tool inputs."""
 
     _capability: ClassVar[RuntimeCapability | None] = None
+    # Set once the capability handed over in the environment has proven dead,
+    # so
+    # it stops being returned in place of asking the host for a live one.
+    _environment_spent: ClassVar[bool] = False
     _lock: ClassVar[threading.Lock] = threading.Lock()
 
     @classmethod
     def get_capability(cls) -> RuntimeCapability | None:
         """Return an already-issued desktop capability, if any."""
         with cls._lock:
-            return cls._capability or _environment_capability()
+            return cls._live_capability()
 
     @classmethod
     def acquire_capability(cls) -> RuntimeCapability | None:
         """Ask the desktop host to start the helper and issue a capability."""
         with cls._lock:
-            capability = cls._capability or _environment_capability()
+            capability = cls._live_capability()
             if capability is not None:
                 return capability
             control = _control_endpoint()
@@ -97,6 +112,46 @@ class HostRuntimeProvider:
             if capability is not None:
                 cls._capability = capability
             return capability
+
+    @classmethod
+    def invalidate_capability(cls, capability: RuntimeCapability) -> None:
+        """Forget a capability whose endpoint has gone away.
+
+        A helper that crashes leaves its pipe or socket behind as a name that
+        connects to nothing. Without this the cached capability would be handed
+        out for the rest of the process, so one crash disabled Computer Use
+        until the backend restarted -- even though the desktop host notices the
+        dead child and will issue a new capability when asked.
+
+        Only the named endpoint is forgotten, so a capability that has already
+        been refreshed by another caller survives. Invalidating one that was in
+        fact healthy costs a single round trip to the host, which answers with
+        the same endpoint again.
+        """
+        with cls._lock:
+            cached = cls._capability
+            if cached is not None and cached.names_same_endpoint(capability):
+                cls._capability = None
+            injected = _environment_capability()
+            if injected is not None and injected.names_same_endpoint(
+                capability,
+            ):
+                # The environment value is a bootstrap handed over at spawn;
+                # once its endpoint is gone it must stop being an answer, or it
+                # would be returned again on the next call.
+                cls._environment_spent = True
+
+    @classmethod
+    def _live_capability(cls) -> RuntimeCapability | None:
+        """The capability to use, ignoring any endpoint known to be dead.
+
+        The caller holds ``_lock``.
+        """
+        if cls._capability is not None:
+            return cls._capability
+        if cls._environment_spent:
+            return None
+        return _environment_capability()
 
     @classmethod
     def status(cls) -> RuntimeStatus:
