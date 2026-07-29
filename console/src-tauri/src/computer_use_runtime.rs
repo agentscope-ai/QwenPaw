@@ -169,7 +169,7 @@ pub(crate) fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
 
     let helper = helper_path(app)?;
     let capability = RuntimeCapability {
-        pipe_name: endpoint_address(),
+        pipe_name: endpoint_address()?,
         secret: random_hex(32),
     };
     let mut command = Command::new(&helper);
@@ -338,16 +338,19 @@ fn random_hex(byte_count: usize) -> String {
 /// the helper via `--pipe` and returned to the Python sidecar as the opaque
 /// capability endpoint, so both transports read it from the same field.
 #[cfg(windows)]
-fn endpoint_address() -> String {
-    format!(
+fn endpoint_address() -> Result<String, String> {
+    // A named pipe needs no backing directory, so this cannot fail; it returns
+    // Result only to share one signature with the Unix path, whose directory
+    // creation can.
+    Ok(format!(
         "qwenpaw-computer-use-{}-{}",
         std::process::id(),
         random_hex(12),
-    )
+    ))
 }
 
 #[cfg(not(windows))]
-fn endpoint_address() -> String {
+fn endpoint_address() -> Result<String, String> {
     // The directory name is random rather than derived from the pid: a
     // predictable name in a world-writable /tmp can be pre-created by another
     // user, and everything placed inside it afterwards would then live in
@@ -355,22 +358,23 @@ fn endpoint_address() -> String {
     // window where it exists world-readable, and refusing to create it
     // recursively means an existing path is an error rather than something we
     // silently adopt.
+    //
+    // That last guarantee only holds if the error is surfaced: swallowing it
+    // would let a pre-existing, possibly attacker-owned directory be adopted
+    // anyway, and would also leave the later socket bind failing from inside a
+    // directory that was never created. The helper targets macOS here, so the
+    // unix builder is the only path; there is no non-unix fallback to weaken.
+    use std::os::unix::fs::DirBuilderExt;
     let dir = std::env::temp_dir().join(format!("qwenpaw-cu-{}", random_hex(16)));
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        let _ = std::fs::DirBuilder::new()
-            .recursive(false)
-            .mode(0o700)
-            .create(&dir);
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = std::fs::create_dir(&dir);
-    }
-    dir.join(format!("{}.sock", random_hex(8)))
+    std::fs::DirBuilder::new()
+        .recursive(false)
+        .mode(0o700)
+        .create(&dir)
+        .map_err(|error| format!("failed to create socket directory: {error}"))?;
+    Ok(dir
+        .join(format!("{}.sock", random_hex(8)))
         .to_string_lossy()
-        .into_owned()
+        .into_owned())
 }
 
 fn serve_control(

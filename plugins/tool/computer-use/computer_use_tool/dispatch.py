@@ -9,6 +9,7 @@
 
 import asyncio
 import json
+import logging
 import threading
 import time
 from typing import Any, Mapping
@@ -22,6 +23,7 @@ from .client import get_computer_use_client
 from .feature_state import get_computer_use_feature_state
 from .protocol import ComputerUseProtocolError
 
+_LOGGER = logging.getLogger(__name__)
 _MAX_ACTIONS_PER_MINUTE = 60
 _action_times: list[float] = []
 _rate_limit_lock = threading.Lock()
@@ -367,6 +369,12 @@ async def computer_use(
     except (
         Exception
     ) as error:  # noqa: BLE001 - tool calls must not escape errors
+        # A tool entry point must not raise, but the errors that reach here are
+        # the unexpected ones -- an attribute error, a bad type, a broken
+        # import -- not the protocol failures handled above. Collapsing them to
+        # one message keeps the turn alive; logging the traceback first keeps
+        # them diagnosable rather than lost behind "Computer Use failed".
+        _LOGGER.exception("Computer Use tool call failed unexpectedly")
         return _error("tool_failed", f"Computer Use failed: {error}")
 
 

@@ -56,6 +56,13 @@ def _normalize_app_id(app_id: str) -> str:
         if remainder.startswith(verbatim_prefix):
             remainder = remainder[len(verbatim_prefix) :]
         return f"{scheme}:{remainder.lower()}"
+    # Only the Windows ``process:`` scheme is case-folded, because NTFS is
+    # case-insensitive. The macOS ``app:`` path is left verbatim on purpose: a
+    # case-sensitive APFS volume treats two casings as two files, so folding
+    # here would merge identifiers the filesystem keeps distinct -- the same
+    # mistake that once left canonical bundle paths unlaunchable. The path is
+    # already canonicalized at its source, so the casing is consistent without
+    # folding.
     return text
 
 
