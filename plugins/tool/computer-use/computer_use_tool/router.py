@@ -91,16 +91,11 @@ def build_router() -> APIRouter:
         get_computer_use_feature_state().set_enabled(request.enabled)
         if request.enabled:
             return {"enabled": True}
-        stopped = await stop_all_computer_use_turns()
+        # Signal before reaping, for the reason given on /session/stop.
         denied = 0
         if request.session_id:
-            service = get_approval_service()
-            for pending in await _pending_for_session(request.session_id):
-                resolved = await service.resolve_request(
-                    pending.request_id,
-                    ApprovalDecision.DENIED,
-                )
-                denied += int(resolved is not None)
+            denied = await _deny_pending(request.session_id)
+        stopped = await stop_all_computer_use_turns()
         return {"enabled": False, "stopped": stopped, "denied": denied}
 
     @router.get("/access")
@@ -136,16 +131,25 @@ def build_router() -> APIRouter:
     async def stop_automation(
         request: SessionRequest,
     ) -> dict[str, int | bool]:
+        # Deny first, then stop. A pending approval is a wait the helper is
+        # sitting in, and denying it is what ends that wait -- so it has to
+        # happen before anything that waits on the action itself, or the
+        # release would be queued behind the thing it releases.
+        denied = await _deny_pending(request.session_id)
         stopped = await stop_computer_use_session(request.session_id)
-        denied = 0
+        return {"stopped": stopped, "denied": denied}
+
+    async def _deny_pending(session_id: str) -> int:
+        """Refuse every approval this session is waiting on."""
         service = get_approval_service()
-        for pending in await _pending_for_session(request.session_id):
+        denied = 0
+        for pending in await _pending_for_session(session_id):
             resolved = await service.resolve_request(
                 pending.request_id,
                 ApprovalDecision.DENIED,
             )
             denied += int(resolved is not None)
-        return {"stopped": stopped, "denied": denied}
+        return denied
 
     @router.post("/session/pending/decision")
     async def decide_pending(

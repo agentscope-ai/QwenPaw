@@ -7,7 +7,7 @@ import asyncio
 import sys
 import threading
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from qwenpaw.app.computer_use import (
@@ -65,7 +65,16 @@ class ComputerUseClient:
         self._transport_factory = transport_factory
         self._transport: ComputerUseTransport | None = None
         self._turn_id: str | None = None
+        # The turn a stop applied to. Kept here rather than only in the helper
+        # because a stop drops the connection, and the helper holds that fact
+        # per connection -- a later action in the same turn would otherwise be
+        # allowed straight through on a fresh one.
+        self._stopped_turn: str | None = None
         self._lock = asyncio.Lock()
+        # The loop that created the transport, its reader task and this lock.
+        # They may only be touched from there, and control routes arrive on the
+        # HTTP server's loop instead.
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._approvals = ComputerUseApprovalCoordinator()
         # Baseline of window ids seen from the last observation. ``None``
         # until the first observation so we seed state without flagging
@@ -86,6 +95,11 @@ class ComputerUseClient:
             raise ComputerUseProtocolError(
                 "turn_unavailable",
                 "Computer Use is unavailable outside an active agent turn.",
+            )
+        if turn_id == self._stopped_turn:
+            raise ComputerUseProtocolError(
+                "turn_stopped",
+                "Computer Use was stopped for this turn.",
             )
         if (
             method in _INPUT_METHODS
@@ -152,27 +166,34 @@ class ComputerUseClient:
 
     async def stop_turn(self) -> bool:
         """Tell Native to stop this session's active turn immediately."""
-        transport = self._transport
+        return await self._on_owner_loop(self._stop_turn_here)
+
+    async def _stop_turn_here(self) -> bool:
+        """Stop the active turn, on the loop that owns the transport.
+
+        Deliberately takes no lock. An action holds ``_lock`` for its whole
+        round trip, and that round trip may be waiting on a person answering an
+        approval prompt -- so a stop that queued behind it could not arrive
+        until the thing it was meant to interrupt had finished.
+
+        Signal first, then reap. Recording the stop and dropping the connection
+        ends any wait at once: closing the transport fails the request still
+        in flight, and the helper reaps that turn when its own read fails.
+        Asking the helper politely instead would not work -- it serves one
+        request per connection, so a stop frame would sit behind the action.
+        """
         turn_id = self._turn_id
-        if transport is None or not turn_id:
+        if self._transport is None or not turn_id:
             return False
-        async with self._lock:
-            request = NativeRequest(
-                request_id=uuid.uuid4().hex,
-                method="stop_turn",
-                params={},
-                session_id=self._session_id,
-                turn_id=turn_id,
-                deadline_ms=2000,
-            )
-            try:
-                parse_response(await transport.request(request.to_message()))
-            finally:
-                self._turn_id = None
+        self._stopped_turn = turn_id
+        await self._discard_transport()
         return True
 
     async def close(self) -> None:
         """End the active turn and close the client transport."""
+        await self._on_owner_loop(self._close_here)
+
+    async def _close_here(self) -> None:
         transport = self._transport
         if transport is None:
             return
@@ -184,9 +205,36 @@ class ComputerUseClient:
             self._transport = None
             await transport.close()
 
+    async def _on_owner_loop(
+        self,
+        operation: Callable[[], Awaitable[Any]],
+    ) -> Any:
+        """Run a client operation on the loop that owns its asyncio state.
+
+        The host runs one event loop per workspace, each on its own thread, and
+        the control routes run on the HTTP server's loop. The transport's
+        streams, its reader task and this client's lock all belong to whichever
+        loop built them, so a coroutine touching them is handed back there
+        rather than awaited here.
+        """
+        loop = self._loop
+        if loop is None or loop is asyncio.get_running_loop():
+            return await operation()
+        try:
+            handle = asyncio.run_coroutine_threadsafe(operation(), loop)
+        except RuntimeError:
+            # The owning loop is gone, so its transport is unusable anyway.
+            self._transport = None
+            self._turn_id = None
+            return None
+        return await asyncio.wrap_future(handle)
+
     async def _ensure_transport(self) -> ComputerUseTransport:
         if self._transport is not None:
             return self._transport
+        # Everything created below belongs to this loop, so record it before
+        # anything else can be asked to touch it from elsewhere.
+        self._loop = asyncio.get_running_loop()
         if self._transport_factory is not None:
             transport = self._transport_factory()
         else:
@@ -302,15 +350,26 @@ def get_computer_use_client() -> ComputerUseClient:
         return client
 
 
+def _cached_client(session_id: str) -> ComputerUseClient | None:
+    """Look up a session's client under the cache lock.
+
+    Control routes reach the cache from the HTTP server's thread while a
+    workspace thread may be inserting or evicting, so every read takes the lock
+    the rest of this module already uses.
+    """
+    with _clients_lock:
+        return _clients.get(session_id)
+
+
 def is_computer_use_active(session_id: str) -> bool:
     """Return whether a session owns an active native Computer Use turn."""
-    client = _clients.get(session_id)
+    client = _cached_client(session_id)
     return client.has_active_turn if client is not None else False
 
 
 async def stop_computer_use_session(session_id: str) -> bool:
     """Stop the native Computer Use turn currently owned by one session."""
-    client = _clients.get(session_id)
+    client = _cached_client(session_id)
     return await client.stop_turn() if client is not None else False
 
 
