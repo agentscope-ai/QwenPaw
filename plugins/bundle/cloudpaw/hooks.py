@@ -621,6 +621,8 @@ def _patch_mission_master_prompt() -> None:
         agent_id: str,
         max_iterations: int = 20,
         verify_commands: str = "",
+        verification_instructions: str = "",
+        max_retries_per_story: int = 3,
         prd_path: str = "",
         progress_path: str = "",
         git_context: dict | None = None,
@@ -637,6 +639,8 @@ def _patch_mission_master_prompt() -> None:
                 agent_id=agent_id,
                 max_iterations=max_iterations,
                 verify_commands=verify_commands,
+                verification_instructions=verification_instructions,
+                max_retries_per_story=max_retries_per_story,
                 prd_path=prd_path,
                 progress_path=progress_path,
                 git_context=git_context,
@@ -670,6 +674,7 @@ def _patch_mission_master_prompt() -> None:
         verifier_tpl = build_verifier_prompt(
             loop_dir=loop_dir,
             verify_commands=verify_commands,
+            verification_instructions=verification_instructions,
         )
 
         prompt = CLOUDPAW_MASTER_PROMPT.format(

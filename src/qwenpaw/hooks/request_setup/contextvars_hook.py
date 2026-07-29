@@ -60,6 +60,7 @@ class ContextVarsSetupHook(LifecycleHook):
                     "user_id",
                     "channel",
                     "channel_meta",
+                    "approval_level",
                 )
             }
         else:
@@ -68,6 +69,9 @@ class ContextVarsSetupHook(LifecycleHook):
                 "user_id": getattr(ctx.request, "user_id", None) or "",
                 "channel": getattr(ctx.request, "channel", None) or "",
                 "channel_meta": getattr(ctx.request, "channel_meta", None),
+                "approval_level": request_context.get("approval_level")
+                if isinstance(request_context, dict)
+                else None,
             }
         set_current_approval_route(approval_route)
 
