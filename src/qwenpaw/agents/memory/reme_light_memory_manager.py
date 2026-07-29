@@ -16,8 +16,7 @@ from typing import Any, TYPE_CHECKING
 
 import httpx
 
-from agentscope.message import Msg, TextBlock
-from agentscope.message import ToolResultState
+from agentscope.message import Msg, TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
 from .base_memory_manager import BaseMemoryManager, memory_registry
@@ -447,6 +446,14 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             response.metadata.get("results") if response.success else None
         )
         if results:
+            # Save original metadata for fallback reconstruction.
+            # The link_expansion dict is used by the fallback path to preserve
+            # expansions even when the answer text format is unexpected.
+            original_link_expansion = (
+                response.metadata.get("link_expansion", {})
+                if response.success
+                else {}
+            )
             # Parse the original ReMe answer into sections keyed by
             # "path:line-line" so we can reorder + cap them while preserving
             # link expansions and hybrid score details.
@@ -485,15 +492,20 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             # and hybrid score details) whenever possible.
             if reranker_did_reorder or truncated:
                 if answer_sections:
-                    response.answer = (
-                        self._reconstruct_answer_from_sections(
-                            answer_sections, results,
-                        )
+                    response.answer = self._reconstruct_answer_from_sections(
+                        answer_sections,
+                        results,
                     )
                 else:
-                    # Fallback: answer didn't match expected format, rebuild
-                    # from result dicts (loses link expansions + hybrid scores)
-                    response.answer = self._rebuild_search_answer(results)
+                    # Fallback: answer format was unexpected; rebuild from
+                    # raw metadata (results + link_expansion) so link
+                    # expansions are still preserved.
+                    response.answer = (
+                        self._rebuild_search_answer_with_expansions(
+                            results,
+                            original_link_expansion,
+                        )
+                    )
 
         answer = str(response.answer or "").strip()
         if not answer:
@@ -547,20 +559,64 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
 
     @staticmethod
-    def _rebuild_search_answer(results: list[dict]) -> str:
-        """Rebuild search answer text from results (search_step format)."""
+    def _format_scores_for_header(
+        score: float,
+        scores: dict[str, float],
+    ) -> str:
+        """Format scores as ``score=0.9000 [vector=0.8500 keyword=0.6500]``.
+
+        Mirrors ReMe's ``_format_scores`` so the rebuilt header matches the
+        original answer format.  Returns a space-separated string suitable
+        for use inside the ``[...]`` bracket of a section header.
+        """
+        hybrid = "vector" in scores and "keyword" in scores
+        parts = [f"score={score:.4f}"]
+        if hybrid:
+            for k in ("vector", "keyword"):
+                v = scores.get(k)
+                if v is not None:
+                    parts.append(f"{k}={v:.4f}")
+        return " ".join(parts)
+
+    @staticmethod
+    def _rebuild_search_answer_with_expansions(
+        results: list[dict],
+        link_expansion: dict[str, dict],
+    ) -> str:
+        """Rebuild search answer from results + link_expansion metadata.
+
+        Preserves link expansions and hybrid score details by reading them
+        from the raw ReMe metadata (``response.metadata["link_expansion"]``
+        and each result's ``scores`` dict).  Used as the fallback path when
+        the answer text does not match the expected section-header format.
+        """
+        # pylint: disable=import-outside-toplevel
+        from reme.utils import render_expansion_lines
+
         answer_lines: list[str] = []
         for r in results:
             path = r.get("path", "")
             start_line = r.get("start_line", 0)
             end_line = r.get("end_line", 0)
             score = r.get("score", 0.0)
+            scores = r.get("scores", {})
             text = r.get("text", "")
+
+            score_str = ReMeLightMemoryManager._format_scores_for_header(
+                score,
+                scores,
+            )
             header = (
                 f"========== {path}:{start_line}-{end_line} "
-                f"[score={score:.4f}] =========="
+                f"[{score_str}] =========="
             )
             answer_lines.append(f"{header}\n{text}")
+
+            # Add link expansions for this path
+            expansion = link_expansion.get(path, {})
+            if expansion:
+                answer_lines.extend(render_expansion_lines(expansion))
+
         return "\n".join(answer_lines)
 
     @staticmethod
@@ -573,28 +629,34 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         and includes everything up to the next such header (or end of string).
 
-        Returns a dict mapping ``"path:start_line-end_line"`` → the full
-        section text (including header).  Returns an empty dict when the
-        answer does not match the expected format.
+        Uses line-by-line iteration (not regex) so it's tolerant of format
+        variations inside the score brackets — only the ``==========``
+        prefix matters.  Returns an empty dict when the answer has no
+        ``==========`` lines at all.
         """
-        # Match the section header.
-        #   \S+?  — non-greedy non-whitespace for the path
-        #   \d+-\d+ — start_line-end_line
-        #   \[.*?\] — the score brackets, lazy
-        pat = re.compile(
-            r"^==========\s+(\S+?:\d+-\d+)\s+\[.*?\]\s+==========$",
-            re.MULTILINE,
-        )
-        boundaries = [(m.start(), m.group(1)) for m in pat.finditer(answer)]
-        if not boundaries:
-            return {}
-
         sections: dict[str, str] = {}
-        for i, (start, key) in enumerate(boundaries):
-            end = boundaries[i + 1][0] if i + 1 < len(boundaries) else len(
-                answer,
-            )
-            sections[key] = answer[start:end].rstrip("\n")
+        current_key: str | None = None
+        current_lines: list[str] = []
+
+        for line in answer.split("\n"):
+            if line.startswith("=========="):
+                if current_key is not None:
+                    sections[current_key] = "\n".join(current_lines)
+                # Extract key: the substring before the first ``[`` bracket,
+                # which separates the ``path:line-line`` key from the scores.
+                rest = line.removeprefix("==========").strip()
+                bracket_idx = rest.find("[")
+                if bracket_idx > 0:
+                    current_key = rest[:bracket_idx].strip()
+                else:
+                    current_key = rest.split()[0] if rest else None
+                current_lines = [line]
+            elif current_key is not None:
+                current_lines.append(line)
+
+        if current_key is not None:
+            sections[current_key] = "\n".join(current_lines)
+
         return sections
 
     @staticmethod
@@ -619,13 +681,17 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             if section is not None:
                 lines.append(section)
             else:
-                # Fallback — should not happen in normal operation
+                # Fallback — should not happen in normal operation.
+                # Use the shared score formatter for consistency with
+                # ``_rebuild_search_answer_with_expansions``.
                 text = r.get("text", "")
                 score = r.get("score", 0.0)
-                header = (
-                    f"========== {key} "
-                    f"[score={score:.4f}] =========="
+                scores = r.get("scores", {})
+                score_str = ReMeLightMemoryManager._format_scores_for_header(
+                    score,
+                    scores,
                 )
+                header = f"========== {key} " f"[{score_str}] =========="
                 lines.append(f"{header}\n{text}")
         return "\n".join(lines)
 
@@ -641,7 +707,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         try:
             agent_cfg = load_agent_config(self.agent_id)
             cfg = agent_cfg.running.reme_light_memory_config.reranker_config
-            if cfg and cfg.enabled and cfg.model_name:
+            if cfg.enabled and cfg.model_name:
                 return cfg
         except Exception:
             logger.warning("[rerank] failed to load config", exc_info=True)

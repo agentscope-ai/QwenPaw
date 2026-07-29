@@ -11,6 +11,8 @@ Tests cover:
   - no base_url: skip rerank entirely
   - empty results: no rerank call, returns NO_MEMORY_RESULTS
   - answer: preserved when order unchanged, rebuilt when changed or truncated
+  - link expansions: preserved in reconstructed answer after rerank+cap,
+    truncation-only, and fallback+truncation scenarios
 """
 
 import types
@@ -25,13 +27,77 @@ ReMeLightMemoryManager = mgr.ReMeLightMemoryManager
 NO_MEMORY_RESULTS = mgr.NO_MEMORY_RESULTS
 
 
-def _make_response(results, answer=""):
+def _make_response(results, answer="", link_expansion=None):
     """Build a fake ReMe Response-like object."""
     r = types.SimpleNamespace()
     r.success = True
     r.answer = answer
     r.metadata = {"results": list(results)}
+    if link_expansion:
+        r.metadata["link_expansion"] = link_expansion
     return r
+
+
+def _make_reme_answer(results, link_expansion=None):
+    """Build a ReMe-formatted answer string with sections and expansions.
+
+    Produces the same format as ReMe's ``search_step``::
+
+        ========== path:start_line-end_line [score=...] ==========
+        text
+          outlinks (N):
+            → linked/path  [meta]
+              via predicate=xxx
+          inlinks (N):
+            ...
+
+    If *link_expansion* is provided, renders expansion lines for each
+    result whose path has an entry.
+    """
+    from reme.utils import render_expansion_lines
+
+    lines = []
+    for r in results:
+        path = r.get("path", "")
+        sl = r.get("start_line", 0)
+        el = r.get("end_line", 0)
+        score = r.get("score", 0.0)
+        text = r.get("text", "")
+        header = (
+            f"========== {path}:{sl}-{el} " f"[score={score:.4f}] =========="
+        )
+        lines.append(f"{header}\n{text}")
+        if link_expansion:
+            expansion = link_expansion.get(path, {})
+            if expansion:
+                lines.extend(render_expansion_lines(expansion))
+    return "\n".join(lines)
+
+
+def _make_link_expansion():
+    """Build a realistic link_expansion metadata dict."""
+    return {
+        "memory/0.md": {
+            "outlinks": [
+                {
+                    "path": "memory/other.md:5-8",
+                    "meta": {"score": 0.8, "name": "Other doc"},
+                    "edges": [{"predicate": "derived_from"}],
+                },
+            ],
+            "inlinks": [],
+        },
+        "memory/2.md": {
+            "outlinks": [],
+            "inlinks": [
+                {
+                    "path": "memory/third.md:10-12",
+                    "meta": {"score": 0.7, "name": "Third doc"},
+                    "edges": [{"predicate": "plain"}],
+                },
+            ],
+        },
+    }
 
 
 def _result(i, text=None):
@@ -254,36 +320,117 @@ async def test_no_base_url_skip(manager):
     assert resp.answer == original_answer
 
 
-# ── no base_url + truncation: answer rebuilt ──
+# ── no base_url + truncation: answer rebuilt, expansions preserved ──
 
 
 @pytest.mark.asyncio
 async def test_no_base_url_skip_with_truncation(manager):
     """When base_url is empty but truncation is needed, the answer is
-    still rebuilt with the capped result set."""
+    rebuilt from the parsed sections (preserving expansions) rather than
+    from raw metadata."""
     manager._get_reranker_config = MagicMock(
         return_value=_make_config(base_url=""),
     )
-    called = {"n": 0}
 
     async def api(query, docs, c):
-        called["n"] += 1
         return None
 
     manager._call_reranker_api = api
     rs = [_result(i) for i in range(6)]
-    original_answer = "original answer with link expansion context"
-    resp = _make_response(rs, answer=original_answer)
+    expansion = _make_link_expansion()
+    original_answer = _make_reme_answer(rs, link_expansion=expansion)
+    resp = _make_response(rs, answer=original_answer, link_expansion=expansion)
     manager._run_reme_job = AsyncMock(return_value=resp)
 
     await manager.memory_search("q", max_results=3)
 
-    assert called["n"] == 1
+    # Truncation: 6 → 3
     assert len(resp.metadata["results"]) == 3
-    # Answer is rebuilt because truncation occurred
+    # Answer is rebuilt with capped results
     assert "doc-0" in str(resp.answer)
     assert "doc-5" not in str(resp.answer)
     assert resp.answer != original_answer
+    # Link expansions survive in the rebuilt answer
+    assert "outlinks" in str(resp.answer)
+    assert "derived_from" in str(resp.answer)
+
+
+# ── successful rerank preserves expansions ──
+
+
+@pytest.mark.asyncio
+async def test_rerank_preserves_expansions(manager):
+    """When reranker reorders and truncates, the reconstructed answer
+    preserves link expansions and hybrid score details from the original
+    ReMe answer sections."""
+    manager._get_reranker_config = MagicMock(
+        return_value=_make_config(candidate_multiplier=3),
+    )
+
+    async def partial_rerank(query, docs, c):
+        # Return [2, 1, 0, 3, 4, 5] — promote 2/0 to top, push 5/4 down
+        return [2, 1, 0, 3, 4, 5]
+
+    manager._call_reranker_api = partial_rerank
+    rs = [_result(i, text=f"t{i}") for i in range(6)]
+    expansion = _make_link_expansion()
+    original_answer = _make_reme_answer(rs, link_expansion=expansion)
+    resp = _make_response(rs, answer=original_answer, link_expansion=expansion)
+    manager._run_reme_job = AsyncMock(return_value=resp)
+
+    await manager.memory_search("q", max_results=3)
+
+    # Reordered + capped
+    assert len(resp.metadata["results"]) == 3
+    assert resp.metadata["results"][0]["text"] == "t2"
+    # Expansions survive in the reconstructed answer
+    answer = str(resp.answer)
+    assert "outlinks" in answer
+    assert "derived_from" in answer
+    # memory/0.md (index 0) is in the capped set (position 2 after
+    # reranking) → its outlinks expansion survives.
+    # memory/2.md (index 2) is the top result after reranking → its
+    # inlinks expansion also survives.
+    assert "inlinks" in answer
+    # The answer format is preserved (sections with score headers)
+    assert "score=" in answer
+
+
+# ── fallback preserves answer sections ──
+
+
+@pytest.mark.asyncio
+async def test_rerank_timeout_preserves_answer_sections(manager):
+    """When reranker times out but truncation occurs, the answer is
+    rebuilt from the parsed sections, preserving expansions."""
+    manager._get_reranker_config = MagicMock(
+        return_value=_make_config(candidate_multiplier=3),
+    )
+
+    async def raise_timeout(query, docs, c):
+        raise httpx.TimeoutException("timeout")
+
+    manager._call_reranker_api = raise_timeout
+    rs = [_result(i) for i in range(6)]
+    expansion = _make_link_expansion()
+    original_answer = _make_reme_answer(rs, link_expansion=expansion)
+    resp = _make_response(rs, answer=original_answer, link_expansion=expansion)
+    manager._run_reme_job = AsyncMock(return_value=resp)
+
+    await manager.memory_search("q", max_results=3)
+
+    # Original order preserved, capped
+    assert len(resp.metadata["results"]) == 3
+    assert resp.metadata["results"][0]["text"] == "doc-0"
+    # Expansions survive in the reconstructed answer
+    answer = str(resp.answer)
+    assert "outlinks" in answer
+    assert "derived_from" in answer
+    # memory/0.md is in the top 3 → its expansion (outlinks) should be
+    # in the answer
+    # memory/2.md is also in the top 3 → its expansion (inlinks) should
+    # be in the answer
+    assert "inlinks" in answer
 
 
 # ── empty results ──
@@ -308,20 +455,48 @@ async def test_empty_results(manager):
 # ── rebuild answer format ──
 
 
-def test_rebuild_answer_format():
+def test_rebuild_answer_with_expansions_format():
+    """_rebuild_search_answer_with_expansions produces correct header."""
     rs = [
         {
             "path": "a.md",
             "start_line": 2,
             "end_line": 4,
             "score": 0.1234,
+            "scores": {},
             "text": "hello",
         },
     ]
-    out = ReMeLightMemoryManager._rebuild_search_answer(rs)
+    out = ReMeLightMemoryManager._rebuild_search_answer_with_expansions(
+        rs,
+        {},
+    )
     assert "a.md:2-4" in out
     assert "[score=0.1234]" in out
     assert "hello" in out
+
+
+def test_rebuild_answer_with_expansions_hybrid_scores():
+    """Hybrid scores (vector + keyword) appear in the rebuilt header."""
+    rs = [
+        {
+            "path": "b.md",
+            "start_line": 5,
+            "end_line": 8,
+            "score": 0.9,
+            "scores": {"vector": 0.85, "keyword": 0.65},
+            "text": "hybrid",
+        },
+    ]
+    out = ReMeLightMemoryManager._rebuild_search_answer_with_expansions(
+        rs,
+        {},
+    )
+    assert "b.md:5-8" in out
+    assert "score=0.9000" in out
+    assert "vector=0.8500" in out
+    assert "keyword=0.6500" in out
+    assert "hybrid" in out
 
 
 # ── answer preserved when reranker returns same order ──
