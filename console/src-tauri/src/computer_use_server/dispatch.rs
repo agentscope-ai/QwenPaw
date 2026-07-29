@@ -9,10 +9,9 @@
 
 use serde_json::{json, Value};
 use std::io::{Read, Write};
-use std::sync::{Condvar, Mutex};
-use std::time::Duration;
+use std::sync::Mutex;
 
-use super::app_identity::launch_app;
+use super::app_identity::{launch_at, resolve_launch_target};
 use super::approval::request_approval;
 use super::state::ServerState;
 use super::{
@@ -72,53 +71,47 @@ const SERVED_METHODS: &[&str] = &[
 /// one system cursor and one keyboard to synthesize into. A platform offering a
 /// cursor per task could schedule them in parallel instead; these APIs do not.
 static DESKTOP_HELD: Mutex<bool> = Mutex::new(false);
-static DESKTOP_FREED: Condvar = Condvar::new();
-
-/// How long to wait for another session to give up the desktop.
-///
-/// Bounded rather than indefinite. An action can stall on an application that
-/// stops answering, and an unbounded wait would turn one unresponsive window
-/// into every session hanging with nothing to report. The budget covers the
-/// worst path a single action can take -- a capture timing out, focus polling,
-/// a close waiting on a save prompt -- with room to spare.
-const DESKTOP_WAIT: Duration = Duration::from_secs(10);
 
 /// A turn at the desktop, released when dropped.
+#[derive(Debug)]
 struct DesktopTurn;
 
 impl Drop for DesktopTurn {
     fn drop(&mut self) {
         // Runs even if the action panicked, so a failure cannot strand the
         // desktop as permanently taken.
-        let mut held = DESKTOP_HELD
+        *DESKTOP_HELD
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *held = false;
-        DESKTOP_FREED.notify_one();
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = false;
     }
 }
 
-/// Take the desktop for one action, or report that another session has it.
+/// Take the desktop for one action, or refuse at once if another session has it.
+///
+/// Deliberately does not wait. Waiting here would mean holding a request the
+/// caller may already have abandoned: a stop closes the connection, and a thread
+/// parked on a lock is not reading that connection, so it would wake later and
+/// inject input the user had already asked to stop. The helper is the one
+/// process with no notion of a stop, so it must never hold work that a stop
+/// needs to reach. Refusing immediately leaves the waiting to the caller, where
+/// a stop already takes effect.
+///
+/// `desktop_busy` is raised before anything is touched, so unlike a timeout it
+/// carries no possibility of a half-performed action, and retrying it is safe.
 fn take_desktop() -> Result<DesktopTurn, (&'static str, String)> {
-    let mut held = DESKTOP_HELD
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
     // A poisoned lock is recovered rather than propagated: the flag is the whole
     // state, and refusing every later action because an unrelated request
     // panicked would turn one failure into an outage.
-    while *held {
-        let (next, timeout) = DESKTOP_FREED
-            .wait_timeout(held, DESKTOP_WAIT)
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        held = next;
-        if timeout.timed_out() && *held {
-            return Err((
-                "desktop_busy",
-                "Another Computer Use session is using the desktop; observe the \
-                 window again and retry."
-                    .to_string(),
-            ));
-        }
+    let mut held = DESKTOP_HELD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if *held {
+        return Err((
+            "desktop_busy",
+            "Another Computer Use session is using the desktop; observe the \
+             window again and retry."
+                .to_string(),
+        ));
     }
     *held = true;
     Ok(DesktopTurn)
@@ -169,22 +162,25 @@ pub(super) fn dispatch_request(
         _ => {}
     }
 
-    let window = if method == "launch_app" {
-        None
+    // What the user is being asked to approve. A launch names an application
+    // rather than a window, so its target comes from the path it resolves to --
+    // resolved here, before approval, so that everything which disturbs the
+    // desktop goes on to meet the guard below by the same route.
+    let (target, launch_path) = if method == "launch_app" {
+        let (target, path) = resolve_launch_target(&params)?;
+        (target, Some(path))
     } else {
         let value = params
             .get("window_id")
             .and_then(Value::as_str)
             .ok_or(("invalid_request", "window_id is required.".to_string()))?;
-        Some(resolve_window(value)?)
+        (resolve_window(value)?, None)
     };
     if method == "find_window" {
-        return Ok(json!({"window": window.expect("window exists").to_json()}));
+        // A lookup, so it neither asks for approval nor takes the desktop.
+        return Ok(json!({"window": target.to_json()}));
     }
-    if method == "launch_app" {
-        return launch_app(connection, &params, &meta);
-    }
-    let window = window.expect("window exists");
+    let window = target;
     request_approval(connection, &window, &meta)?;
     // One session at a time may disturb the desktop, and it holds that right
     // from the guard through to the end of the action. There is one keyboard,
@@ -204,6 +200,10 @@ pub(super) fn dispatch_request(
     } else {
         None
     };
+    if let Some(path) = launch_path {
+        launch_at(&path)?;
+        return Ok(json!({"launched": true, "app_id": window.app_id}));
+    }
     match method {
         "set_focus" => {
             set_focus(&window)?;
@@ -280,16 +280,23 @@ fn enforce_input_guard(after_approval: bool) -> Result<(), (&'static str, String
     Ok(())
 }
 
-/// Whether a method synthesizes input or otherwise changes window state.
+/// Whether a method disturbs the desktop rather than only looking at it.
 ///
-/// This is the set the input guard applies to: the actions that reach out and
-/// disturb the machine, as opposed to those that only look at it.
+/// This is the set that takes a turn at the desktop and meets the input guard.
+/// The question is not "does it synthesize input" but "does it change what the
+/// machine does next" -- classifying by the narrower one is how `set_focus` and
+/// `launch_app` were both missed.
 ///
 /// `set_focus` belongs here even though it reads like navigation. Raising a
 /// window takes the keyboard away from whatever the person was typing into, and
 /// on Windows getting past the foreground lock means synthesizing an Alt tap and
 /// un-minimizing the target -- input injection and a visible change, on a
 /// machine that may be locked or in someone's hands.
+///
+/// `launch_app` belongs here for the same reason. Starting an application brings
+/// it to the front, and on macOS `open` activates one that is already running,
+/// so a launch during another session's action moves the focus its keystrokes
+/// were bound for.
 fn changes_window_state(method: &str) -> bool {
     matches!(
         method,
@@ -302,6 +309,7 @@ fn changes_window_state(method: &str) -> bool {
             | "set_value"
             | "close_window"
             | "set_focus"
+            | "launch_app"
     )
 }
 
@@ -341,17 +349,22 @@ mod tests {
             "list_apps",
             "list_windows",
             "end_turn",
-            // Starting an application changes what is on screen, but it
-            // synthesizes no input and reads no pixels, and it already needs
-            // its own approval. It is listed deliberately rather than left
-            // unasserted, so the judgement is on the record.
-            "launch_app",
         ] {
             assert!(
                 !changes_window_state(method),
                 "{method} must not be treated as input"
             );
         }
+    }
+
+    #[test]
+    fn starting_an_application_counts_as_disturbing_the_desktop() {
+        // This assertion used to read the other way, arguing that a launch
+        // synthesizes no input. That is true and beside the point: it brings an
+        // application to the front, and on macOS `open` activates one already
+        // running, so it can take the focus another session's keystrokes were
+        // aimed at -- and it can do it to a person who is mid-sentence.
+        assert!(changes_window_state("launch_app"));
     }
 
     #[test]
@@ -374,32 +387,41 @@ mod tests {
     static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn a_second_session_waits_rather_than_acting_at_the_same_time() {
+    fn a_second_session_is_refused_rather_than_queued() {
         let _serial = ONE_AT_A_TIME
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let first = take_desktop().expect("first turn");
-        let (sender, receiver) = std::sync::mpsc::channel();
-        let waiter = std::thread::spawn(move || {
-            // Blocks until the first turn is dropped, which is the whole point:
-            // two sessions must not be inside an action together.
-            let turn = take_desktop();
-            let _ = sender.send(turn.is_ok());
-        });
 
-        assert!(
-            receiver
-                .recv_timeout(std::time::Duration::from_millis(150))
-                .is_err(),
-            "the second session should still be waiting"
-        );
+        let (code, _message) = take_desktop().expect_err("the second must be refused");
+        assert_eq!(code, "desktop_busy");
+
         drop(first);
-        assert_eq!(
-            receiver.recv_timeout(std::time::Duration::from_secs(5)),
-            Ok(true),
-            "releasing the desktop should let the waiting session in"
+        assert!(
+            take_desktop().is_ok(),
+            "the desktop should be available once the first turn ends"
         );
-        waiter.join().expect("waiter finished");
+    }
+
+    #[test]
+    fn being_refused_does_not_park_the_thread() {
+        // The refusal has to be immediate, not a wait that gives up. A thread
+        // parked here is not reading its connection, so a stop could not reach
+        // it, and it would wake up later to inject input the user had already
+        // asked to stop -- the helper knows nothing of stops, so it must not
+        // hold work that a stop needs to cancel.
+        let _serial = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _first = take_desktop().expect("first turn");
+
+        let started = std::time::Instant::now();
+        assert!(take_desktop().is_err());
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(100),
+            "refusal took {:?}, which means it waited",
+            started.elapsed()
+        );
     }
 
     #[test]
@@ -414,14 +436,10 @@ mod tests {
         .join();
         assert!(panicked.is_err(), "the thread should have panicked");
 
-        // If the release depended on the happy path, this would block forever.
-        let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = sender.send(take_desktop().is_ok());
-        });
-        assert_eq!(
-            receiver.recv_timeout(std::time::Duration::from_secs(5)),
-            Ok(true),
+        // If the release depended on the happy path, the desktop would stay
+        // taken and every later action would be refused.
+        assert!(
+            take_desktop().is_ok(),
             "a panicked action must not strand the desktop as taken"
         );
     }

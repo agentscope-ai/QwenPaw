@@ -34,6 +34,13 @@ _DEFAULT_DEADLINE_MS = 10000
 # frozen backends still use a short per-attempt socket timeout, so retry
 # the idempotent acquire a few times to cover that cold-start window.
 _ACQUIRE_ATTEMPTS = 5
+
+# The helper refuses rather than queues when another session holds the desktop,
+# so the waiting is done here. Five attempts with doubling delays give a little
+# over two seconds, which covers one action's worth of contention; beyond that
+# the model is better told the desktop is busy than left waiting.
+_DESKTOP_BUSY_ATTEMPTS = 5
+_DESKTOP_BUSY_DELAY_SECONDS = 0.15
 _ACQUIRE_RETRY_DELAY_SECONDS = 0.5
 # Native methods that pass through the recency guard, and so are the only ones
 # worth spending a pending post-approval exemption on. The helper acts on the
@@ -121,37 +128,62 @@ class ComputerUseClient:
             if self._turn_id and self._turn_id != turn_id:
                 await self._end_turn(transport, self._turn_id)
             self._turn_id = turn_id
-            request = NativeRequest(
-                request_id=uuid.uuid4().hex,
-                method=method,
-                params=params,
-                session_id=self._session_id,
-                turn_id=turn_id,
-                deadline_ms=max(100, deadline_ms),
-            )
-            try:
-                return parse_response(
-                    await transport.request(request.to_message()),
+            for attempt in range(_DESKTOP_BUSY_ATTEMPTS):
+                request = NativeRequest(
+                    request_id=uuid.uuid4().hex,
+                    method=method,
+                    params=params,
+                    session_id=self._session_id,
+                    turn_id=turn_id,
+                    deadline_ms=max(100, deadline_ms),
                 )
-            except asyncio.CancelledError:
-                # Release the native pipe instance so the helper's serve
-                # thread can exit and future turns can open a fresh one.
-                await self._discard_transport()
-                raise
-            except ComputerUseProtocolError as error:
-                if error.code in {
-                    "runtime_disconnected",
-                    "runtime_unavailable",
-                    "request_timeout",
-                    "invalid_frame",
-                }:
+                try:
+                    return parse_response(
+                        await transport.request(request.to_message()),
+                    )
+                except asyncio.CancelledError:
+                    # Release the native pipe instance so the helper's serve
+                    # thread can exit and future turns can open a fresh one.
                     await self._discard_transport()
-                if error.code in {"runtime_disconnected", "invalid_frame"}:
-                    # The connection went away mid-request rather than the
-                    # action failing, so the endpoint itself is suspect. A
-                    # timeout is not: the helper may simply be working.
-                    self._forget_capability()
-                raise
+                    raise
+                except ComputerUseProtocolError as error:
+                    if error.code in {
+                        "runtime_disconnected",
+                        "runtime_unavailable",
+                        "request_timeout",
+                        "invalid_frame",
+                    }:
+                        await self._discard_transport()
+                    if error.code in {"runtime_disconnected", "invalid_frame"}:
+                        # The connection went away mid-request rather than the
+                        # action failing, so the endpoint itself is suspect. A
+                        # timeout is not: the helper may simply be working.
+                        self._forget_capability()
+                    if error.code != "desktop_busy":
+                        raise
+                    if attempt + 1 >= _DESKTOP_BUSY_ATTEMPTS:
+                        raise
+                    # Another session holds the desktop. The helper refuses
+                    # rather than queueing, so the waiting happens here, where
+                    # a stop can end it -- a thread parked inside the helper
+                    # could not be reached and would act after the user said
+                    # no.
+                    #
+                    # Retrying is safe only because the refusal comes before
+                    # the helper touches anything: unlike a timeout, it carries
+                    # no chance of an action already half performed.
+                    await asyncio.sleep(
+                        _DESKTOP_BUSY_DELAY_SECONDS * (2**attempt),
+                    )
+                    if turn_id == self._stopped_turn:
+                        raise ComputerUseProtocolError(
+                            "turn_stopped",
+                            "Computer Use was stopped for this turn.",
+                        ) from error
+            raise ComputerUseProtocolError(
+                "desktop_busy",
+                "Another Computer Use session is using the desktop.",
+            )
 
     def observe_windows(self, windows: Any) -> list[dict[str, Any]]:
         """Update the known-window baseline; return newly appeared windows.

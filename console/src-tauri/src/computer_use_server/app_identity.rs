@@ -6,21 +6,22 @@
 //! an executable file on Windows, a bundle directory on macOS -- so each rule
 //! is cfg-split here rather than leaking into the dispatch layer.
 
-use serde_json::{json, Map, Value};
-use std::io::{Read, Write};
+use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
-use super::approval::request_approval;
 use super::state::WindowInfo;
 
 #[cfg(target_os = "macos")]
 use super::app_id_from_bundle_path;
 
-pub(super) fn launch_app(
-    connection: &mut (impl Read + Write),
+/// Work out what a launch request is asking for, without acting on it.
+///
+/// Split from the launch itself so the caller can put approval and the desktop
+/// guard between the two, in the same order every other action follows. Purely a
+/// lookup: nothing here starts a process or touches a window.
+pub(super) fn resolve_launch_target(
     params: &Map<String, Value>,
-    meta: &Map<String, Value>,
-) -> Result<Value, (&'static str, String)> {
+) -> Result<(WindowInfo, PathBuf), (&'static str, String)> {
     let app = params
         .get("app")
         .and_then(Value::as_str)
@@ -40,9 +41,7 @@ pub(super) fn launch_app(
         title: String::new(),
         class_name: String::new(),
     };
-    request_approval(connection, &target, meta)?;
-    launch_at(&path)?;
-    Ok(json!({"launched": true, "app_id": target.app_id}))
+    Ok((target, path))
 }
 
 /// Build the canonical application identifier for a launchable path.
@@ -127,7 +126,7 @@ fn resolve_launch_path(app: &str) -> Result<PathBuf, (&'static str, String)> {
 
 /// Start the application at a resolved path.
 #[cfg(windows)]
-fn launch_at(path: &Path) -> Result<(), (&'static str, String)> {
+pub(super) fn launch_at(path: &Path) -> Result<(), (&'static str, String)> {
     std::process::Command::new(path)
         .spawn()
         .map(|_| ())
@@ -149,7 +148,7 @@ fn launch_at(path: &Path) -> Result<(), (&'static str, String)> {
 /// made, so the caller polls `list_windows` for the new window rather than
 /// waiting here.
 #[cfg(target_os = "macos")]
-fn launch_at(path: &Path) -> Result<(), (&'static str, String)> {
+pub(super) fn launch_at(path: &Path) -> Result<(), (&'static str, String)> {
     let is_bundle = path
         .extension()
         .is_some_and(|value| value.eq_ignore_ascii_case("app"));
