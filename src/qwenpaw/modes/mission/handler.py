@@ -4,6 +4,7 @@
 Called by ``MissionMode._mission_handler`` (registered via
 ``SlashCommandRegistry``) to process ``/mission`` sub-commands.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,8 +30,7 @@ from .state import (
 logger = logging.getLogger(__name__)
 
 MISSION_HELP_TEXT = (
-    "Launch mission mode \u2014 decompose, implement, "
-    "and verify complex tasks"
+    "Launch mission mode — decompose, implement, and verify complex tasks"
 )
 
 _DEFAULT_MAX_ITERATIONS = 20

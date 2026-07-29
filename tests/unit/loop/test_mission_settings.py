@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for user-editable Mission defaults."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -61,9 +62,11 @@ def test_mission_args_handles_quoted_verify_command() -> None:
 
 def test_mission_args_handles_single_quoted_verify_command() -> None:
     """Single-quoted verify commands must also be parsed correctly."""
-    result = parse_mission_args(
-        "Implement the feature --verify 'npm test --coverage' --max-iterations 5",
+    cmd = (
+        "Implement the feature --verify 'npm test --coverage' "
+        + "--max-iterations 5"
     )
+    result = parse_mission_args(cmd)
 
     assert result["task_text"] == "Implement the feature"
     assert result["verify_commands"] == "npm test --coverage"
