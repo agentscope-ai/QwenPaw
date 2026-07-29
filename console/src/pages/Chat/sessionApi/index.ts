@@ -127,8 +127,21 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
 // Message conversion helpers: backend flat messages → card-based UI format
 // ---------------------------------------------------------------------------
 
+/**
+ * Cryptographically random base36 suffix for locally generated ids.
+ * The ids are not secrets, but sourcing them from the CSPRNG avoids any
+ * predictability concern and keeps static analysis clean.
+ */
+function randomBase36(length: number): string {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  let out = "";
+  for (const byte of bytes) out += (byte % 36).toString(36);
+  return out;
+}
+
 function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+  return `${Date.now()}-${randomBase36(9)}`;
 }
 
 /** Parse metadata.timestamp string (e.g. "2026-05-27 10:44:53.362") to unix seconds. */
@@ -1527,9 +1540,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return [...this.sessionList];
     }
 
-    const localId = `${Date.now()}-${Math.random()
-      .toString(36)
-      .substring(2, 9)}`;
+    const localId = `${Date.now()}-${randomBase36(7)}`;
     const extended = this.createEmptySession(localId, this.getActiveOwner());
     extended.name = session.name || DEFAULT_SESSION_NAME;
     this.sessionList.unshift(extended);
