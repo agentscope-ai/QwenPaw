@@ -8,13 +8,19 @@ This script runs inside GitHub Actions to:
 3. QwenPaw autonomously fetches PR data via `gh` CLI
 4. Parse the response and output verdict + review text
 """
-import fcntl
+import contextlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
+
+try:  # ``fcntl`` is Unix-only; without it the repo lock is a no-op.
+    import fcntl
+except ImportError:  # pragma: no cover - non-Unix platforms
+    fcntl = None
 
 import httpx
 
@@ -56,6 +62,13 @@ MAP_CONTEXT_LADDER = (40, 80, 160, 320, 640)
 MAP_FULL_CONTEXT = 100000
 # Wall-clock ceiling for git clone/fetch operations (seconds).
 GIT_TIMEOUT = int(os.environ.get("GIT_TIMEOUT", "600"))
+# Per-call ceiling for the many small `git diff` reads used to build the
+# map. Far below GIT_TIMEOUT (these are local) but generous enough for a
+# file's first diff, which lazily fetches its blobs from the remote.
+DIFF_TIMEOUT = int(os.environ.get("DIFF_TIMEOUT", "120"))
+# Overall ceiling for building the whole map. On expiry the remaining
+# files are reported as omitted, exactly as when the size cap is hit.
+MAP_BUILD_DEADLINE = int(os.environ.get("MAP_BUILD_DEADLINE", "300"))
 
 # A "degenerate" reply is non-empty text that is NOT a real review: the agent
 # hit its internal iteration cap and emitted a warning stub, or returned almost
@@ -103,6 +116,8 @@ def fetch_base_branch(pr_number: int, repo: str) -> str:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
             check=True,
         )
@@ -119,16 +134,52 @@ def fetch_base_branch(pr_number: int, repo: str) -> str:
 # ----------------------------------------------------------------------
 # Change map: pre-computed per-file diff embedded in the prompt
 # ----------------------------------------------------------------------
-def _git(repo_dir: str, *args: str, timeout: int = GIT_TIMEOUT) -> str:
-    """Run a git command in ``repo_dir`` and return trimmed stdout."""
+def _git(
+    repo_dir: str,
+    *args: str,
+    timeout: int = GIT_TIMEOUT,
+    errors: str = "replace",
+) -> str:
+    """Run a git command in ``repo_dir`` and return trimmed stdout.
+
+    The encoding is pinned rather than inherited from the locale, and
+    decoding never raises: a diff may legitimately contain bytes that are
+    not valid UTF-8 (git treats a NUL-free latin-1 file as text), and a
+    ``UnicodeDecodeError`` here would abort the whole run.
+
+    ``errors`` defaults to ``"replace"``, which is right for diff *text*.
+    Callers reading **paths** must pass ``"surrogateescape"`` instead, so
+    the value round-trips back into a later argv unchanged.
+    """
     result = subprocess.run(
         ["git", "-C", repo_dir, *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors=errors,
         timeout=timeout,
         check=True,
     )
     return result.stdout.strip()
+
+
+@contextlib.contextmanager
+def _repo_lock(lock_path: str):
+    """Serialize clone/fetch between workers sharing one clone.
+
+    Degrades to a no-op where ``fcntl`` is unavailable (Windows), which
+    assumes a single process — acceptable because the shared clone only
+    exists to help concurrent CI workers.
+    """
+    if fcntl is None:
+        yield
+        return
+    with open(lock_path, "w", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 def prepare_repo(
@@ -140,9 +191,16 @@ def prepare_repo(
 
     Clones are shared per repo under ``QWENPAW_ENH_WORK_DIR/repos`` and
     guarded by a file lock, so parallel workers reviewing PRs from the
-    *same* repo do not corrupt the clone or race on ``FETCH_HEAD``. The
-    lock is held only for the clone/fetch/resolve phase; the returned
-    SHAs are immutable, so building the change map runs lock-free.
+    *same* repo do not corrupt the clone. The lock is held only for the
+    clone/fetch/resolve phase; the returned SHAs are immutable, so
+    building the change map runs lock-free.
+
+    Both endpoints are fetched into local refs under
+    ``refs/qwenpaw-review/`` rather than read back from ``FETCH_HEAD``.
+    That keeps the commits *reachable*: with a bare ``FETCH_HEAD`` fetch
+    the objects belong to no ref, so a concurrent worker's fetch could
+    trigger an auto-gc that prunes them mid-review. The refs are named
+    per PR so concurrent reviews of the same repo cannot clobber them.
 
     Returns ``(repo_dir, from_sha, to_sha)`` where ``from_sha`` is the
     merge-base of the base branch and PR head (matching ``gh pr diff``)
@@ -153,13 +211,19 @@ def prepare_repo(
     slug = repo.replace("/", "__")
     repo_dir = os.path.join(repos_root, slug)
     clone_url = f"https://github.com/{repo}.git"
+    base_local = f"refs/qwenpaw-review/base/{pr_number}"
+    head_local = f"refs/qwenpaw-review/head/{pr_number}"
 
-    lock_path = os.path.join(repos_root, f".{slug}.lock")
-    with open(lock_path, "w", encoding="utf-8") as lock_file:
-        fcntl.flock(lock_file, fcntl.LOCK_EX)
-        try:
-            if not os.path.isdir(os.path.join(repo_dir, ".git")):
-                print(f"  Cloning {repo} (blobless) ...")
+    with _repo_lock(os.path.join(repos_root, f".{slug}.lock")):
+        if not os.path.isdir(os.path.join(repo_dir, ".git")):
+            print(f"  Cloning {repo} (blobless) ...")
+            # Clone into a scratch dir and move it into place only on
+            # success. A clone killed by the timeout leaves a .git behind
+            # but no usable repo, which would otherwise be mistaken for a
+            # good cache on every later run and poison it permanently.
+            tmp_dir = f"{repo_dir}.tmp"
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            try:
                 # Blobless partial clone: full commit graph (needed for
                 # merge-base) but blobs fetched on demand.
                 subprocess.run(
@@ -169,58 +233,108 @@ def prepare_repo(
                         "--filter=blob:none",
                         "--no-checkout",
                         clone_url,
-                        repo_dir,
+                        tmp_dir,
                     ],
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=GIT_TIMEOUT,
                     check=True,
                 )
+                # Safe under the lock: we know there is no .git here.
+                shutil.rmtree(repo_dir, ignore_errors=True)
+                os.replace(tmp_dir, repo_dir)
+            finally:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
 
-            # Fetch the base branch tip and the PR head. The PR head is
-            # exposed on the base repo at refs/pull/<n>/head even for
-            # forks, so this works without knowing the fork remote.
-            _git(repo_dir, "fetch", "--no-tags", "origin", base_ref)
-            base_tip = _git(repo_dir, "rev-parse", "FETCH_HEAD")
+        # Fetch the base branch tip and the PR head. The PR head is
+        # exposed on the base repo at refs/pull/<n>/head even for
+        # forks, so this works without knowing the fork remote.
+        _git(
+            repo_dir,
+            "fetch",
+            "--no-tags",
+            "--force",
+            "origin",
+            f"{base_ref}:{base_local}",
+        )
+        base_tip = _git(repo_dir, "rev-parse", base_local)
 
-            _git(
-                repo_dir,
-                "fetch",
-                "--no-tags",
-                "origin",
-                f"refs/pull/{pr_number}/head",
-            )
-            head_sha = _git(repo_dir, "rev-parse", "FETCH_HEAD")
+        _git(
+            repo_dir,
+            "fetch",
+            "--no-tags",
+            "--force",
+            "origin",
+            f"refs/pull/{pr_number}/head:{head_local}",
+        )
+        head_sha = _git(repo_dir, "rev-parse", head_local)
 
-            merge_base = _git(repo_dir, "merge-base", base_tip, head_sha)
-        finally:
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
+        merge_base = _git(repo_dir, "merge-base", base_tip, head_sha)
 
     return repo_dir, merge_base, head_sha
 
 
-def _numstat(repo_dir: str, from_sha: str, to_sha: str) -> dict[str, str]:
-    """Return ``{path: "+add -del"}`` for each changed file."""
-    raw = _git(repo_dir, "diff", "--numstat", from_sha, to_sha)
-    stats: dict[str, str] = {}
-    for line in raw.splitlines():
-        parts = line.split("\t")
+def _numstat(
+    repo_dir: str,
+    from_sha: str,
+    to_sha: str,
+) -> list[tuple[str, str, list[str]]]:
+    """Return ``[(display, "+add -del", pathspecs)]`` per changed file.
+
+    ``-z`` is required, not a nicety: the default format is *not*
+    round-trippable into a pathspec. It C-quotes any path holding
+    non-ASCII bytes (``"caf\\303\\251.py"``) and collapses a detected
+    rename into one ``old => new`` field. Feeding either back to
+    ``git diff -- <path>`` matches nothing, and git reports that by
+    printing nothing and exiting 0 — so the file would silently render
+    as an empty diff with no truncation marker to flag it.
+
+    With ``-z`` each record is ``add TAB del TAB path NUL``; for a
+    rename/copy the path field is empty and two more NUL-separated
+    fields follow with the real old and new paths. Renames carry both as
+    pathspecs, which is what makes git emit the rename diff rather than
+    treating the new path as a wholly new file.
+    """
+    raw = _git(
+        repo_dir,
+        "diff",
+        "--numstat",
+        "-z",
+        from_sha,
+        to_sha,
+        errors="surrogateescape",
+    )
+    fields = raw.split("\0")
+    entries: list[tuple[str, str, list[str]]] = []
+    i = 0
+    while i < len(fields):
+        parts = fields[i].split("\t")
         if len(parts) != 3:
+            i += 1
             continue
         add, dele, path = parts
-        # Binary files show "-" for counts; keep them but mark n/a.
-        if add == "-" or dele == "-":
-            stats[path] = "binary"
+        if path:
+            display, pathspecs = path, [path]
+            i += 1
         else:
-            stats[path] = f"+{add} -{dele}"
-    return stats
+            if i + 2 >= len(fields):
+                break
+            old, new = fields[i + 1], fields[i + 2]
+            display, pathspecs = f"{old} => {new}", [old, new]
+            i += 3
+        # Binary files show "-" for counts; keep them but mark n/a.
+        stat = "binary" if add == "-" or dele == "-" else f"+{add} -{dele}"
+        entries.append((display, stat, pathspecs))
+    return entries
 
 
 def _file_diff(
     repo_dir: str,
     from_sha: str,
     to_sha: str,
-    path: str,
+    pathspecs: list[str],
     context: int,
 ) -> list[str]:
     """Return the diff lines for one file at a given context width."""
@@ -231,7 +345,8 @@ def _file_diff(
         from_sha,
         to_sha,
         "--",
-        path,
+        *pathspecs,
+        timeout=DIFF_TIMEOUT,
     )
     return diff.splitlines()
 
@@ -240,7 +355,7 @@ def _diff_with_adaptive_context(
     repo_dir: str,
     from_sha: str,
     to_sha: str,
-    path: str,
+    pathspecs: list[str],
 ) -> tuple[list[str], bool]:
     """Pick the widest diff context that fits the per-file line budget.
 
@@ -253,7 +368,7 @@ def _diff_with_adaptive_context(
     Returns ``(diff_lines, truncated)``. When truncated, the caller
     appends a marker pointing at the full-file fetch instruction.
     """
-    floor = _file_diff(repo_dir, from_sha, to_sha, path, MAP_CONTEXT)
+    floor = _file_diff(repo_dir, from_sha, to_sha, pathspecs, MAP_CONTEXT)
 
     # Case 1: even minimum context overflows -> truncate the floor diff.
     if len(floor) > MAP_PER_FILE_LINES:
@@ -267,7 +382,13 @@ def _diff_with_adaptive_context(
         return kept, True
 
     # Case 2: room to spare -> prefer whole-file context if it fits.
-    full = _file_diff(repo_dir, from_sha, to_sha, path, MAP_FULL_CONTEXT)
+    full = _file_diff(
+        repo_dir,
+        from_sha,
+        to_sha,
+        pathspecs,
+        MAP_FULL_CONTEXT,
+    )
     if len(full) <= MAP_PER_FILE_LINES:
         return full, False
 
@@ -276,7 +397,7 @@ def _diff_with_adaptive_context(
     for ctx in MAP_CONTEXT_LADDER:
         if ctx <= MAP_CONTEXT:
             continue
-        widened = _file_diff(repo_dir, from_sha, to_sha, path, ctx)
+        widened = _file_diff(repo_dir, from_sha, to_sha, pathspecs, ctx)
         if len(widened) <= MAP_PER_FILE_LINES:
             best = widened
         else:
@@ -288,15 +409,18 @@ def _render_file_chunk(
     repo_dir: str,
     from_sha: str,
     to_sha: str,
-    path: str,
-    stat: str,
+    entry: tuple[str, str, list[str]],
 ) -> tuple[str, int, bool]:
     """Render one file's change-map chunk.
+
+    ``entry`` is one ``(display, stat, pathspecs)`` record from
+    :func:`_numstat`.
 
     Returns ``(chunk_text, line_count, truncated)`` where ``truncated``
     marks that the diff was cut to the per-file budget.
     """
-    header = f"### {path} ({stat})"
+    display, stat, pathspecs = entry
+    header = f"### {display} ({stat})"
     if stat == "binary":
         return f"{header}\n(binary file — diff omitted)\n", 2, False
     try:
@@ -304,7 +428,7 @@ def _render_file_chunk(
             repo_dir,
             from_sha,
             to_sha,
-            path,
+            pathspecs,
         )
     except (
         subprocess.CalledProcessError,
@@ -327,29 +451,37 @@ def build_change_map(repo_dir: str, from_sha: str, to_sha: str) -> str:
     overflows the budget even at minimum context. The whole map is
     capped at ``MAP_MAX_LINES``. Returns "" if there are no changes.
     """
-    stats = _numstat(repo_dir, from_sha, to_sha)
-    if not stats:
+    entries = _numstat(repo_dir, from_sha, to_sha)
+    if not entries:
         return ""
 
     chunks: list[str] = []
     total_lines = 0
     truncated_files: list[str] = []
     skipped_files: list[str] = []
+    deadline_hit = False
+    deadline = time.monotonic() + MAP_BUILD_DEADLINE
 
-    for path, stat in stats.items():
-        if total_lines >= MAP_MAX_LINES:
-            skipped_files.append(path)
+    for entry in entries:
+        display = entry[0]
+        # Widening context costs several `git diff` calls per file, so a
+        # very wide PR can run long even though each call is cheap. Stop
+        # at the deadline and let the remaining files fall through to the
+        # existing "omitted" notice, which already points at Step 2.
+        if total_lines < MAP_MAX_LINES and time.monotonic() > deadline:
+            deadline_hit = True
+        if total_lines >= MAP_MAX_LINES or deadline_hit:
+            skipped_files.append(display)
             continue
 
         chunk, n_lines, truncated = _render_file_chunk(
             repo_dir,
             from_sha,
             to_sha,
-            path,
-            stat,
+            entry,
         )
         if truncated:
-            truncated_files.append(path)
+            truncated_files.append(display)
         chunks.append(chunk)
         total_lines += n_lines
 
@@ -366,9 +498,13 @@ def build_change_map(repo_dir: str, from_sha: str, to_sha: str) -> str:
             f"{', '.join(truncated_files)}",
         )
     if skipped_files:
+        reason = (
+            f"after the {MAP_BUILD_DEADLINE}s build deadline"
+            if deadline_hit
+            else f"over the {MAP_MAX_LINES}-line total cap"
+        )
         print(
-            f"  change map: omitted {len(skipped_files)} file(s) over the "
-            f"{MAP_MAX_LINES}-line total cap",
+            f"  change map: omitted {len(skipped_files)} file(s) {reason}",
         )
 
     return "\n".join(chunks)
@@ -743,14 +879,16 @@ def resolve_change_map(pr_number: int, repo: str) -> tuple[str, str]:
         else:
             print("  change map empty; using self-fetch prompt")
         return change_map, head_sha
-    except (
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-        RuntimeError,
-        OSError,
-    ) as e:
+    # Deliberately broad: the change map is an optimisation, and this is
+    # the single point where its failure must never fail the CI job. An
+    # allow-list of exception types silently made that promise
+    # conditional -- e.g. a UnicodeDecodeError (a ValueError, so not
+    # covered) aborted the whole run instead of degrading. The type name
+    # is logged so a real defect is still visible rather than swallowed.
+    except Exception as e:
         print(
-            f"  ⚠️  Could not build change map ({e}); "
+            f"  ⚠️  Could not build change map "
+            f"({type(e).__name__}: {e}); "
             f"falling back to self-fetch prompt",
         )
         return "", ""
