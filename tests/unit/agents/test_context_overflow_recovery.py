@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 from agentscope.agent import Agent
+from agentscope.message import SystemMsg
+from google.genai import errors as genai_errors
 
 from qwenpaw.agents.react_agent import QwenPawAgent
 
@@ -31,14 +33,21 @@ class _ScrollManager:
     def __init__(self, refreshed_context):
         self.refreshed_context = refreshed_context
         self.calls = []
+        self.last_compress = {"evicted": 0, "folded": 0}
 
     async def compress(self, agent, context_config):
         self.calls.append(context_config)
         agent.state.context = list(self.refreshed_context)
+        self.last_compress["evicted"] = 1
 
 
 class _OtherContextManager(_ScrollManager):
     supports_context_overflow_recovery = False
+
+
+class _NoOpScrollManager(_ScrollManager):
+    async def compress(self, agent, context_config):
+        self.calls.append(context_config)
 
 
 def _agent(*, context_manager=None):
@@ -124,6 +133,46 @@ async def test_context_overflow_retries_only_once(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_context_overflow_skips_retry_when_input_is_unchanged(
+    monkeypatch,
+):
+    calls = 0
+
+    async def fake_call_model(self, messages, tools, tool_choice=None):
+        nonlocal calls
+        calls += 1
+        raise _ContextOverflowError(
+            "Error code: 400 - context length exceeded",
+        )
+
+    monkeypatch.setattr(Agent, "_call_model", fake_call_model)
+    manager = _NoOpScrollManager(["unused"])
+    agent = _agent(context_manager=manager)
+    agent._prepare_model_input = AsyncMock(
+        return_value={
+            "messages": [
+                SystemMsg(name="system", content="same prompt"),
+                "old",
+            ],
+            "tools": [{"name": "same-tool"}],
+        },
+    )
+
+    with pytest.raises(_ContextOverflowError, match="context length"):
+        await agent._call_model(
+            messages=[
+                SystemMsg(name="system", content="same prompt"),
+                "old",
+            ],
+            tools=[{"name": "same-tool"}],
+        )
+
+    assert calls == 1
+    assert len(manager.calls) == 1
+    agent._prepare_model_input.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_unrelated_bad_request_does_not_compact_or_retry(monkeypatch):
     calls = 0
 
@@ -205,3 +254,22 @@ def test_context_overflow_classifier_requires_400_and_specific_marker(
 ):
     exc = Exception(message)
     assert QwenPawAgent._is_context_overflow_error(exc) is expected
+
+
+def test_context_overflow_classifier_supports_gemini_client_error():
+    exc = genai_errors.ClientError(
+        400,
+        {
+            "error": {
+                "status": "INVALID_ARGUMENT",
+                "message": "context length exceeded",
+            },
+        },
+    )
+    assert QwenPawAgent._is_context_overflow_error(exc) is True
+
+
+def test_context_overflow_classifier_supports_aiohttp_response_status():
+    exc = Exception("context length exceeded")
+    exc.response = SimpleNamespace(status=400)
+    assert QwenPawAgent._is_context_overflow_error(exc) is True

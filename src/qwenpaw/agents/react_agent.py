@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
@@ -38,6 +39,7 @@ from ..constant import (
     WORKING_DIR,
 )
 from ..loop.gates import StopAction, StopHandlerResult
+from ..providers.error_utils import extract_status_code
 from ..providers.model_capability_cache import get_capability_cache
 
 if TYPE_CHECKING:
@@ -469,11 +471,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         with the rendered exception as a compatibility fallback for gateways
         that wrap the original response.
         """
-        status = getattr(exc, "status_code", None)
-        if status is None:
-            response = getattr(exc, "response", None)
-            status = getattr(response, "status_code", None)
-
+        status = extract_status_code(exc)
         error_str = str(exc).lower()
         if status != 400 and "error code: 400" not in error_str:
             return False
@@ -511,6 +509,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 exc_info=True,
             )
             return None
+
+    @staticmethod
+    def _conversation_model_input(messages: list[Any]) -> list[Any]:
+        """Return model messages excluding the regenerated system message."""
+        if messages and getattr(messages[0], "role", None) == "system":
+            return messages[1:]
+        return messages
 
     async def _call_model(
         self,
@@ -554,6 +559,16 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 "Model input exceeded the provider context limit; forcing "
                 "one Scroll compaction and retry.",
             )
+            tracks_compress_stats = isinstance(
+                getattr(context_manager, "last_compress", None),
+                dict,
+            )
+            original_messages = (
+                None
+                if tracks_compress_stats
+                else deepcopy(self._conversation_model_input(messages))
+            )
+            original_tools = None if tracks_compress_stats else deepcopy(tools)
             await self.compress_context(forced_config)
             after = len(getattr(self.state, "context", []) or [])
 
@@ -561,6 +576,28 @@ class QwenPawAgent(CodingModeMixin, Agent):
             # can still reference evicted turns.  Always rebuild it from the
             # updated agent state before retrying.
             refreshed = await self._prepare_model_input()
+            refreshed_messages = refreshed["messages"]
+            refreshed_tools = refreshed.get("tools", [])
+            compress_stats = getattr(context_manager, "last_compress", None)
+            if isinstance(compress_stats, dict):
+                input_changed = bool(
+                    compress_stats.get("evicted")
+                    or compress_stats.get("folded"),
+                )
+            else:
+                assert original_messages is not None
+                assert original_tools is not None
+                input_changed = not (
+                    self._conversation_model_input(refreshed_messages)
+                    == original_messages
+                    and refreshed_tools == original_tools
+                )
+            if not input_changed:
+                logger.warning(
+                    "Context-overflow recovery did not change the model "
+                    "input; skipping the retry.",
+                )
+                raise
             logger.info(
                 "Context-overflow recovery rebuilt model input after Scroll "
                 "compaction (messages %d -> %d).",
@@ -568,8 +605,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 after,
             )
             return await super()._call_model(
-                messages=refreshed["messages"],
-                tools=refreshed.get("tools", []),
+                messages=refreshed_messages,
+                tools=refreshed_tools,
                 tool_choice=tool_choice,
             )
 
