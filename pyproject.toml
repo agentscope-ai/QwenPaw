@@ -124,7 +124,7 @@ test = [
     "pytest-timeout>=2.3.0",
     "pytest-xdist>=3.5.0",
     "hypothesis>=6.0.0",
-    "qoder-agent-sdk>=1.0.9,<2",
+    "qoder-agent-sdk==1.0.9",
 ]
 dev = [
     "pre-commit>=4.2.0",
@@ -136,10 +136,10 @@ whisper = [
     "openai-whisper>=20231117",
 ]
 codex = [
-    "openai-codex>=0.144.4,<1",
+    "openai-codex==0.144.4",
 ]
 qoder = [
-    "qoder-agent-sdk>=1.0.9,<2",
+    "qoder-agent-sdk==1.0.9",
 ]
 full = [
     "qwenpaw[local,whisper,codex,qoder]",
