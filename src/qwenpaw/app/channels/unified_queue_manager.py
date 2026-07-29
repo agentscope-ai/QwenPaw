@@ -51,7 +51,7 @@ class QueueState:
     """
 
     queue: asyncio.Queue
-    consumer_task: asyncio.Task[None]
+    consumer_task: asyncio.Task[None] | None
     created_at: float = field(default_factory=time.time)
     last_activity: float = field(default_factory=time.time)
     processed_count: int = 0
@@ -179,7 +179,13 @@ class UnifiedQueueManager:
             # Create new queue
             queue = asyncio.Queue(maxsize=self._queue_maxsize)
 
-            # Create consumer task
+            # Create state first so we can pass it to the consumer
+            state = QueueState(
+                queue=queue,
+                consumer_task=None,  # placeholder, set below
+            )
+
+            # Create consumer task, passing state reference for identity check
             channel_id, session_id, priority_level = queue_key
             consumer_task = asyncio.create_task(
                 self._run_consumer(
@@ -187,6 +193,7 @@ class UnifiedQueueManager:
                     channel_id,
                     session_id,
                     priority_level,
+                    state,
                 ),
                 name=(
                     f"consumer_{channel_id}_"
@@ -194,11 +201,7 @@ class UnifiedQueueManager:
                 ),
             )
 
-            # Create state
-            state = QueueState(
-                queue=queue,
-                consumer_task=consumer_task,
-            )
+            state.consumer_task = consumer_task
 
             # Store state
             self._queues[queue_key] = state
@@ -217,6 +220,7 @@ class UnifiedQueueManager:
         channel_id: str,
         session_id: str,
         priority_level: int,
+        state: QueueState,
     ) -> None:
         """Run consumer loop for a single queue.
 
@@ -225,9 +229,13 @@ class UnifiedQueueManager:
             channel_id: Channel identifier
             session_id: Normalized session ID
             priority_level: Priority level
+            state: The QueueState that owns this consumer
 
         Note:
-            This loop runs until cancelled or queue is idle for cleanup
+            This loop runs until cancelled or queue is idle for cleanup.
+            The *state* reference is used to detect a race where a new
+            QueueState replaces this one in _queues before the consumer
+            finishes; in that case we must not remove the new entry.
         """
         queue_key = (channel_id, session_id, priority_level)
 
@@ -261,9 +269,13 @@ class UnifiedQueueManager:
                 f"priority={priority_level}",
             )
         finally:
-            # Remove from queues dict when consumer exits
+            # Remove from queues dict only if no new state has replaced us.
+            # A concurrent enqueue() after cleanup removes our state may
+            # have already created a fresh QueueState for the same key.
             async with self._lock:
-                self._queues.pop(queue_key, None)
+                current = self._queues.get(queue_key)
+                if current is state:
+                    self._queues.pop(queue_key, None)
 
             logger.info(
                 f"Consumer stopped: channel={channel_id} "
@@ -346,7 +358,9 @@ class UnifiedQueueManager:
         # Cancel all consumer tasks
         async with self._lock:
             consumer_tasks = [
-                state.consumer_task for state in self._queues.values()
+                state.consumer_task
+                for state in self._queues.values()
+                if state.consumer_task is not None
             ]
             queue_count = len(self._queues)
 

@@ -338,3 +338,122 @@ class TestQueueFull:
         except (asyncio.CancelledError, asyncio.TimeoutError):
             pass
         await mgr.stop_all()
+
+
+# ---------------------------------------------------------------------------
+# Race condition: cleanup must not remove a newly recreated queue state
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupRaceCondition:
+    @pytest.mark.asyncio
+    async def test_consumer_cleanup_does_not_remove_recreated_queue(
+        self,
+    ):
+        """When cleanup removes a queue entry and a new enqueue() recreates
+        it before the old consumer's finally block runs, the old consumer
+        must not pop the new state from _queues.
+        """
+        barrier_a = asyncio.Event()
+        barrier_b = asyncio.Event()
+
+        async def waiting_consumer_a(
+            queue: asyncio.Queue,
+            channel_id: str,
+            session_id: str,
+            priority: int,
+        ) -> None:
+            await barrier_a.wait()
+
+        async def waiting_consumer_b(
+            queue: asyncio.Queue,
+            channel_id: str,
+            session_id: str,
+            priority: int,
+        ) -> None:
+            await barrier_b.wait()
+
+        mgr = UnifiedQueueManager(
+            consumer_fn=waiting_consumer_a,
+            queue_maxsize=10,
+            idle_timeout=0.1,
+            cleanup_interval=0.05,
+        )
+
+        queue_key = ("console", "console:u1", 0)
+
+        # 1. Create first queue state and consumer
+        await mgr.enqueue("console", "console:u1", 0, "first")
+        first_state = mgr._queues[queue_key]
+        first_consumer = first_state.consumer_task
+        assert first_consumer is not None
+
+        # 2. Simulate cleanup: remove state from _queues (don't cancel yet
+        #    to keep the old consumer alive while we recreate).
+        async with mgr._lock:
+            removed_state = mgr._queues.pop(queue_key)
+        assert removed_state is first_state
+
+        # 3. Now a new enqueue recreates the queue before the old
+        #    consumer finishes. Use a different consumer so we can
+        #    independently control when each one exits.
+        mgr._consumer_fn = waiting_consumer_b
+        await mgr.enqueue("console", "console:u1", 0, "second")
+        new_state = mgr._queues.get(queue_key)
+        assert new_state is not None
+        assert new_state is not first_state
+        new_consumer = new_state.consumer_task
+        assert new_consumer is not None
+
+        # 4. Let the OLD consumer finish. Its finally block must NOT
+        #    remove the *new* state (different QueueState identity).
+        first_consumer.cancel()
+        barrier_a.set()
+        try:
+            await first_consumer
+        except asyncio.CancelledError:
+            pass
+        await asyncio.sleep(0.05)
+
+        assert queue_key in mgr._queues, (
+            "Old consumer's finally block must not remove the new QueueState"
+        )
+        assert mgr._queues[queue_key] is new_state
+
+        # 5. Now let the NEW consumer finish — *its* finally block should
+        #    correctly remove the matching new state.
+        barrier_b.set()
+        try:
+            await new_consumer
+        except (asyncio.CancelledError, Exception):
+            pass
+        await asyncio.sleep(0.05)
+
+        assert queue_key not in mgr._queues, (
+            "New consumer's finally block must remove its own QueueState"
+        )
+
+        # 6. Cleanup
+        await mgr.stop_all()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_idle_timeout_removes_idle_queue(
+        self,
+    ):
+        """Idle queues must still be cleaned up correctly after the fix."""
+        mgr = UnifiedQueueManager(
+            consumer_fn=_drain_consumer,
+            queue_maxsize=10,
+            idle_timeout=0.05,
+            cleanup_interval=0.02,
+        )
+        mgr.start_cleanup_loop()
+
+        await mgr.enqueue("console", "console:u1", 0, "x")
+        assert ("console", "console:u1", 0) in mgr._queues
+
+        # Wait for idle timeout + cleanup interval
+        await asyncio.sleep(0.3)
+
+        assert ("console", "console:u1", 0) not in mgr._queues
+        await mgr.stop_all()
