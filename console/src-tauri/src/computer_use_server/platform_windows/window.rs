@@ -5,13 +5,14 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 use windows::core::{BOOL, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetWindowTextW, GetWindowThreadProcessId,
+    EnumWindows, GetClassNameW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
     IsWindow, IsWindowVisible, PostMessageW, WM_CLOSE,
 };
 
@@ -143,4 +144,32 @@ pub(crate) fn close_window(
         thread::sleep(Duration::from_millis(CLOSE_POLL_INTERVAL_MS));
     }
     Ok(json!({"closed": false}))
+}
+
+/// The window rectangle as the user sees it.
+///
+/// The extended frame bounds exclude the invisible resize border Windows
+/// reports through GetWindowRect, so a coordinate mapped against this lands
+/// where the pixels are.
+pub(super) fn get_visible_window_rect(hwnd: HWND) -> Result<RECT, String> {
+    let mut rect = RECT::default();
+    let dwm_result = unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut rect as *mut RECT as *mut _,
+            std::mem::size_of::<RECT>() as u32,
+        )
+    };
+    if dwm_result.is_ok() && rect.right > rect.left && rect.bottom > rect.top {
+        return Ok(rect);
+    }
+
+    unsafe {
+        GetWindowRect(hwnd, &mut rect).map_err(|err| format!("GetWindowRect failed: {err}"))?;
+    }
+    if rect.right <= rect.left || rect.bottom <= rect.top {
+        return Err("window rect has zero area".to_string());
+    }
+    Ok(rect)
 }

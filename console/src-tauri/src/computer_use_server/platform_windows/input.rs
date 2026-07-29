@@ -23,7 +23,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GA_ROOT, SW_RESTORE,
 };
 
-use super::super::super::get_visible_window_rect;
+use super::window::get_visible_window_rect;
 use super::super::state::{map_point, ServerState, WindowInfo};
 
 pub(crate) fn click(

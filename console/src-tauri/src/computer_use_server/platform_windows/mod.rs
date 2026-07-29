@@ -9,6 +9,7 @@
 mod capture;
 mod input;
 mod uia;
+mod wgc;
 mod window;
 
 pub(super) use capture::observe_window;
