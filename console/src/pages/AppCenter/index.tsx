@@ -8,10 +8,29 @@
  */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useParams } from "react-router-dom";
-import { Empty, Input, Spin, Select, Modal, Button, Dropdown } from "antd";
+import { useParams, useSearchParams } from "react-router-dom";
+import {
+  Empty,
+  Input,
+  Spin,
+  Select,
+  Modal,
+  Button,
+  Dropdown,
+  Tabs,
+} from "antd";
 import type { MenuProps } from "antd";
-import { AppWindow, Search, RefreshCw, Info, RotateCcw, X } from "lucide-react";
+import {
+  AppWindow,
+  BadgeCheck,
+  LayoutGrid,
+  Search,
+  RefreshCw,
+  Info,
+  RotateCcw,
+  Store,
+  X,
+} from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { pawappApi } from "../../api/modules/pawapp";
@@ -20,25 +39,44 @@ import { AppCard, type AppCardData } from "./AppCard";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import styles from "./index.module.less";
 
-// Code-split the market so its bundle + network fetch never block the
-// installed-apps section from rendering or being interacted with.
+// Code-split market views so their bundle + network fetch never block the
+// installed-apps section from rendering or being used.
 const AppMarket = lazy(() =>
   import("./AppMarket").then((m) => ({ default: m.AppMarket })),
 );
 
 const { Option } = Select;
 
+/** URL-persisted App Center views; unknown values fall back to installed. */
+type AppCenterView = "installed" | "official" | "market";
+
 export default function AppCenterPage() {
   const { t } = useTranslation();
   const { appId } = useParams();
   const { message } = useAppMessage();
   const routes = useRoutes();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [apps, setApps] = useState<AppCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [activeApp, setActiveApp] = useState<AppCardData | null>(null);
   const [loadError, setLoadError] = useState(false);
+
+  // View state is URL-driven so refresh / back / forward keep working.
+  // Unknown `view` values safely fall back to the installed-apps view.
+  const viewParam = searchParams.get("view");
+  const view: AppCenterView =
+    viewParam === "official" || viewParam === "market"
+      ? viewParam
+      : "installed";
+
+  const switchView = (next: AppCenterView) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === "installed") params.delete("view");
+    else params.set("view", next);
+    setSearchParams(params);
+  };
 
   const fetchApps = async () => {
     setLoading(true);
@@ -295,115 +333,208 @@ export default function AppCenterPage() {
     );
   }
 
+  const hasActiveFilters = Boolean(searchQuery) || categoryFilter !== "all";
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setCategoryFilter("all");
+  };
+
   const installedContent = (
     <>
-      {/* Search & Filter */}
-      <div className={styles.toolbar}>
-        <Input
-          prefix={<Search size={14} />}
-          placeholder={t("appCenter.search", "Search apps...")}
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className={styles.searchInput}
-          allowClear
-        />
-        {categories.length > 0 && (
-          <Select
-            value={categoryFilter}
-            onChange={setCategoryFilter}
-            className={styles.categorySelect}
+      {/* Search & Filter — only useful once apps exist */}
+      {apps.length > 0 && (
+        <div className={styles.toolbar}>
+          <Input
+            prefix={<Search size={14} />}
+            placeholder={t("appCenter.search", "Search apps...")}
+            aria-label={t("appCenter.search", "Search apps...")}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className={styles.searchInput}
+            allowClear
+          />
+          {categories.length > 0 && (
+            <Select
+              value={categoryFilter}
+              onChange={setCategoryFilter}
+              className={styles.categorySelect}
+            >
+              <Option value="all">{t("appCenter.allCategories", "All")}</Option>
+              {categories.map((cat) => (
+                <Option key={cat} value={cat}>
+                  {cat}
+                </Option>
+              ))}
+            </Select>
+          )}
+          <div className={styles.toolbarSpacer} />
+          <button
+            className={styles.refreshBtn}
+            onClick={fetchApps}
+            aria-label={t("common.refresh", "Refresh")}
+            title={t("common.refresh", "Refresh")}
           >
-            <Option value="all">{t("appCenter.allCategories", "All")}</Option>
-            {categories.map((cat) => (
-              <Option key={cat} value={cat}>
-                {cat}
-              </Option>
-            ))}
-          </Select>
-        )}
-      </div>
+            <RefreshCw size={15} />
+          </button>
+        </div>
+      )}
 
       {/* App Grid */}
-      <div className={styles.container}>
-        {loading ? (
-          <Spin
-            tip={t("common.loading")}
-            style={{ display: "block", margin: "10vh auto" }}
-          />
-        ) : loadError ? (
-          <Empty
-            image={<AppWindow size={48} strokeWidth={1} />}
-            description={t(
-              "appCenter.loadFailed",
-              "Failed to load apps. Please retry.",
-            )}
-            style={{ marginTop: 48 }}
-          >
-            <Button icon={<RefreshCw size={14} />} onClick={fetchApps}>
-              {t("common.retry", "Retry")}
+      {loading ? (
+        <div className={styles.stateBlock}>
+          <Spin />
+        </div>
+      ) : loadError ? (
+        <Empty
+          image={<AppWindow size={44} strokeWidth={1} />}
+          description={t(
+            "appCenter.loadFailed",
+            "Failed to load apps. Please retry.",
+          )}
+          className={styles.stateBlock}
+        >
+          <Button icon={<RefreshCw size={14} />} onClick={fetchApps}>
+            {t("common.retry", "Retry")}
+          </Button>
+        </Empty>
+      ) : apps.length === 0 ? (
+        <Empty
+          image={<AppWindow size={44} strokeWidth={1} />}
+          description={t("appCenter.noApps", "No apps installed yet")}
+          className={styles.stateBlock}
+        >
+          <div className={styles.emptyActions}>
+            <Button
+              type="primary"
+              icon={<BadgeCheck size={14} />}
+              onClick={() => switchView("official")}
+            >
+              {t("appCenter.browseOfficialApps", "浏览官方应用")}
             </Button>
-          </Empty>
-        ) : filteredApps.length === 0 ? (
-          <Empty
-            image={<AppWindow size={48} strokeWidth={1} />}
-            description={
-              apps.length === 0
-                ? t("appCenter.noApps", "No apps installed yet")
-                : t("appCenter.noResults", "No apps match your search")
-            }
-            style={{ marginTop: 48 }}
-          />
-        ) : (
-          <div className={styles.gridLarge}>
-            {filteredApps.map((app) => (
-              <AppCard
-                key={app.id}
-                app={app}
-                onClick={handleAppClick}
-                onUninstall={handleUninstall}
-              />
-            ))}
+            <Button
+              icon={<Store size={14} />}
+              onClick={() => switchView("market")}
+            >
+              {t("appCenter.browseMarket", "浏览应用市场")}
+            </Button>
           </div>
-        )}
-      </div>
+        </Empty>
+      ) : filteredApps.length === 0 ? (
+        <Empty
+          image={<AppWindow size={44} strokeWidth={1} />}
+          description={t("appCenter.noResults", "No apps match your search")}
+          className={styles.stateBlock}
+        >
+          {hasActiveFilters && (
+            <Button onClick={clearFilters}>
+              {t("appCenter.clearFilters", "清除筛选")}
+            </Button>
+          )}
+        </Empty>
+      ) : (
+        <div className={styles.grid}>
+          {filteredApps.map((app) => (
+            <AppCard
+              key={app.id}
+              app={app}
+              onClick={handleAppClick}
+              onUninstall={handleUninstall}
+            />
+          ))}
+        </div>
+      )}
     </>
   );
 
   return (
     <div className={styles.page}>
-      <PageHeader
-        current={t("nav.apps", "Apps")}
-        extra={
-          <button
-            className={styles.refreshBtn}
-            onClick={fetchApps}
-            title={t("common.refresh", "Refresh")}
-          >
-            <RefreshCw size={16} />
-          </button>
-        }
-      />
+      <PageHeader current={t("nav.apps", "Apps")} />
 
       <div className={styles.pageBody}>
-        {installedContent}
+        <div className={styles.pageInner}>
+          <p className={styles.subtitle}>
+            {t(
+              "appCenter.subtitle",
+              "管理已安装的应用，或从官方与社区渠道扩展工作空间。",
+            )}
+          </p>
 
-        {/* Deferred: only mount the market after the installed apps have
-            finished loading, so it never blocks their rendering/use. The
-            lazy chunk + its fetch then run asynchronously in the background. */}
-        {!loading && (
-          <div className={styles.marketSection}>
-            <h2 className={styles.sectionTitle}>
-              {t("appCenter.marketSectionTitle", "来自应用市场的更多内容")}
-            </h2>
+          {/* Tabs act purely as the accessible view switcher; content is
+              rendered in mutually exclusive branches below so official /
+              market data components are only mounted while active. */}
+          <Tabs
+            activeKey={view}
+            onChange={(key) => switchView(key as AppCenterView)}
+            className={styles.viewTabs}
+            items={[
+              {
+                key: "installed",
+                label: (
+                  <span className={styles.tabLabel}>
+                    <LayoutGrid size={15} />
+                    {t("appCenter.myApps", "我的应用")}
+                    {!loading && !loadError && (
+                      <span
+                        className={styles.countBadge}
+                        aria-label={t("appCenter.installedCount", {
+                          count: apps.length,
+                          defaultValue: `${apps.length} 个应用`,
+                        })}
+                      >
+                        {apps.length}
+                      </span>
+                    )}
+                  </span>
+                ),
+              },
+              {
+                key: "official",
+                label: (
+                  <span className={styles.tabLabel}>
+                    <BadgeCheck size={15} />
+                    {t("appCenter.officialApps", "官方应用")}
+                  </span>
+                ),
+              },
+              {
+                key: "market",
+                label: (
+                  <span className={styles.tabLabel}>
+                    <Store size={15} />
+                    {t("appCenter.appMarket", "应用市场")}
+                  </span>
+                ),
+              },
+            ]}
+          />
+
+          {/* External-data views are mounted (chunk + request) only while
+              the user is actually on the corresponding tab. */}
+          {view === "official" ? (
             <Suspense
               fallback={
-                <Spin style={{ display: "block", margin: "24px auto" }} />
+                <div className={styles.stateBlock}>
+                  <Spin />
+                </div>
+              }
+            >
+              <AppMarket channel="official" onInstalled={fetchApps} />
+            </Suspense>
+          ) : view === "market" ? (
+            <Suspense
+              fallback={
+                <div className={styles.stateBlock}>
+                  <Spin />
+                </div>
               }
             >
               <AppMarket onInstalled={fetchApps} />
             </Suspense>
-          </div>
-        )}
+          ) : (
+            installedContent
+          )}
+        </div>
       </div>
     </div>
   );

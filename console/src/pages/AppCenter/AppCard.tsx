@@ -1,9 +1,10 @@
 /**
  * AppCard.tsx — Individual app card for the App Center grid.
  */
-import { Card, Tag, Typography, Tooltip } from "antd";
-import { AppWindow, Trash2 } from "lucide-react";
-import type { FC } from "react";
+import { Card, Dropdown, Tag, Typography } from "antd";
+import type { MenuProps } from "antd";
+import { AppWindow, MoreHorizontal, Trash2 } from "lucide-react";
+import type { FC, KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./index.module.less";
 
@@ -30,50 +31,80 @@ interface AppCardProps {
 
 export const AppCard: FC<AppCardProps> = ({ app, onClick, onUninstall }) => {
   const { t } = useTranslation();
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onClick(app);
+  };
+
+  const menuItems: MenuProps["items"] = [
+    {
+      key: "uninstall",
+      danger: true,
+      icon: <Trash2 size={14} />,
+      label: t("appCenter.uninstall", "卸载"),
+      onClick: ({ domEvent }) => {
+        domEvent.stopPropagation();
+        onUninstall?.(app);
+      },
+    },
+  ];
+
   return (
-    <Card className={styles.appCardLarge} onClick={() => onClick(app)}>
+    <Card className={`${styles.appCard} ${styles.appCardClickable}`}>
       {onUninstall && (
-        <Tooltip title={t("appCenter.uninstall", "卸载")}>
+        <Dropdown
+          menu={{ items: menuItems }}
+          trigger={["click"]}
+          placement="bottomRight"
+        >
           <button
             type="button"
-            className={styles.cardUninstall}
-            onClick={(e) => {
-              e.stopPropagation();
-              onUninstall(app);
-            }}
+            className={styles.moreBtn}
+            aria-label={t("appCenter.moreActions", "更多操作")}
+            onClick={(e) => e.stopPropagation()}
           >
-            <Trash2 size={18} />
+            <MoreHorizontal size={16} />
           </button>
-        </Tooltip>
+        </Dropdown>
       )}
-      <div className={styles.appCardIconLarge}>
-        {app.icon ? (
-          <span className={styles.appEmojiLarge}>{app.icon}</span>
-        ) : (
-          <AppWindow size={48} strokeWidth={1.5} />
-        )}
-      </div>
-      <div className={styles.appCardBody}>
-        <div className={styles.appCardHeader}>
-          <Text strong className={styles.appCardTitleLarge}>
-            {app.name}
-          </Text>
-          {app.version && (
-            <span className={styles.appCardVersionLarge}>{app.version}</span>
+      <div
+        className={styles.cardOpenButton}
+        onClick={() => onClick(app)}
+        onKeyDown={handleKeyDown}
+        role="button"
+        tabIndex={0}
+        aria-label={app.name}
+      >
+        {/* App icons deliberately fall back to a Lucide glyph: `app.icon` may
+            hold arbitrary text/emoji, which the design system disallows. */}
+        <div className={styles.cardIcon}>
+          <AppWindow size={22} strokeWidth={1.75} />
+        </div>
+        <div className={styles.cardBody}>
+          <div className={styles.cardHeader}>
+            <Text strong className={styles.cardTitle} ellipsis>
+              {app.name}
+            </Text>
+            {app.version && (
+              <span className={styles.cardVersion}>v{app.version}</span>
+            )}
+          </div>
+          <Paragraph
+            type="secondary"
+            className={styles.cardDesc}
+            ellipsis={{ rows: 2 }}
+          >
+            {app.description || t("appCenter.noDescription", "No description")}
+          </Paragraph>
+          {app.category && (
+            <Tag bordered={false} className={styles.cardTag}>
+              {app.category}
+            </Tag>
           )}
         </div>
-        <Paragraph
-          type="secondary"
-          className={styles.appCardDescLarge}
-          ellipsis={{ rows: 2 }}
-        >
-          {app.description || "No description"}
-        </Paragraph>
-        {app.category && (
-          <Tag bordered={false} className={styles.appCardTagLarge}>
-            {app.category}
-          </Tag>
-        )}
       </div>
     </Card>
   );
