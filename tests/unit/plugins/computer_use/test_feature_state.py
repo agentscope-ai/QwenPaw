@@ -1,9 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Tests for the Computer Use feature switch and its dispatch gate."""
+"""How the feature switch reads a state file it cannot trust.
+
+The switch decides whether desktop automation is allowed at all. Its default
+applies to an installation that has never chosen -- not to one whose recorded
+choice has become unreadable, where reading it as on would restore access the
+user may have deliberately withdrawn.
+"""
 
 from __future__ import annotations
 
 import json
+import logging
+from pathlib import Path
 
 import pytest
 
@@ -12,27 +20,59 @@ from computer_use_tool.dispatch import computer_use
 from computer_use_tool.feature_state import ComputerUseFeatureState
 
 
-def test_feature_state_defaults_to_enabled(tmp_path) -> None:
-    state = ComputerUseFeatureState(tmp_path / "feature_state.json")
-
+def test_a_fresh_installation_starts_from_the_default(tmp_path: Path) -> None:
+    state = ComputerUseFeatureState(tmp_path / "absent.json")
     assert state.is_enabled() is True
 
 
-def test_feature_state_persists_across_instances(tmp_path) -> None:
-    path = tmp_path / "feature_state.json"
-    ComputerUseFeatureState(path).set_enabled(False)
-
+def test_a_recorded_choice_is_honoured(tmp_path: Path) -> None:
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps({"enabled": False}), encoding="utf-8")
     assert ComputerUseFeatureState(path).is_enabled() is False
 
-    ComputerUseFeatureState(path).set_enabled(True)
-
+    path.write_text(json.dumps({"enabled": True}), encoding="utf-8")
     assert ComputerUseFeatureState(path).is_enabled() is True
 
 
-def test_feature_state_survives_corrupt_file(tmp_path) -> None:
-    path = tmp_path / "feature_state.json"
-    path.write_text("{not json", encoding="utf-8")
+def test_an_unparseable_file_is_not_read_as_enabled(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The case that matters: a file exists, so a choice was made.
 
+    Which choice cannot be recovered, and the one that must not be invented is
+    the permissive one.
+    """
+    path = tmp_path / "state.json"
+    path.write_text("{ this is not json", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        assert ComputerUseFeatureState(path).is_enabled() is False
+    assert "unreadable" in caplog.text
+
+
+def test_a_file_without_the_flag_is_not_read_as_enabled(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps({"something_else": 1}), encoding="utf-8")
+    assert ComputerUseFeatureState(path).is_enabled() is False
+
+
+def test_a_non_boolean_flag_is_not_coerced(tmp_path: Path) -> None:
+    """``bool("false")`` is True, which is the wrong way to be wrong."""
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps({"enabled": "false"}), encoding="utf-8")
+    assert ComputerUseFeatureState(path).is_enabled() is False
+
+
+def test_turning_it_off_survives_a_reload(tmp_path: Path) -> None:
+    path = tmp_path / "state.json"
+    ComputerUseFeatureState(path).set_enabled(False)
+    assert ComputerUseFeatureState(path).is_enabled() is False
+
+    # And back on again, so the round trip is covered in both directions.
+    ComputerUseFeatureState(path).set_enabled(True)
     assert ComputerUseFeatureState(path).is_enabled() is True
 
 
@@ -46,7 +86,7 @@ def _first_text_block(response) -> dict:
 @pytest.mark.asyncio
 async def test_dispatch_blocks_actions_while_disabled(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     state = ComputerUseFeatureState(tmp_path / "feature_state.json")
     state.set_enabled(False)
@@ -74,7 +114,7 @@ async def test_dispatch_blocks_actions_while_disabled(
 @pytest.mark.asyncio
 async def test_dispatch_allows_wait_while_enabled(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     state = ComputerUseFeatureState(tmp_path / "feature_state.json")
     monkeypatch.setattr(

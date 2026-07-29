@@ -38,28 +38,50 @@ const FOCUS_POLL_INTERVAL_MS: u64 = 25;
 const EVENT_SOURCE_STATE_COMBINED_SESSION: u32 = 1;
 const ANY_INPUT_EVENT_TYPE: u32 = 0xFFFF_FFFF;
 
+/// What the login session says about the lock screen.
+enum LockState {
+    Locked,
+    Unlocked,
+    /// The session could not be read, so nothing is known either way.
+    Unknown,
+}
+
 /// Read the current login-session dictionary and report the lock flag.
-/// Returns `None` when the session dictionary is unavailable (for example
-/// no active GUI session), which callers treat as "not known to be locked".
-fn session_screen_is_locked() -> Option<bool> {
+fn session_lock_state() -> LockState {
     unsafe {
         let dict_ref = CGSessionCopyCurrentDictionary();
         if dict_ref.is_null() {
-            return None;
+            // No session dictionary at all: there may be no GUI session here.
+            return LockState::Unknown;
         }
         let dict: CFDictionary<CFString, CFType> =
             CFDictionary::wrap_under_create_rule(dict_ref);
         let key = CFString::from_static_string("CGSSessionScreenIsLocked");
-        let value = dict.find(&key)?;
-        let number = value.downcast::<CFNumber>()?;
-        Some(number.to_i64().unwrap_or(0) != 0)
+        let Some(value) = dict.find(&key) else {
+            // The key is only present while the screen is locked, so its
+            // absence is a definite unlocked -- not a failure to tell. Reading
+            // it as unknown would refuse every action on a normal desktop.
+            return LockState::Unlocked;
+        };
+        match value.downcast::<CFNumber>().and_then(|number| number.to_i64()) {
+            Some(0) => LockState::Unlocked,
+            Some(_) => LockState::Locked,
+            // Present but not a number the session is describing something
+            // this code does not understand.
+            None => LockState::Unknown,
+        }
     }
 }
 
 /// Report whether the login session is currently locked. A locked session
 /// must not receive synthesized input.
+///
+/// Anything other than a definite unlocked counts as locked. This guard exists
+/// to keep synthesized input off a secure screen, so being unable to read the
+/// session is not a reason to proceed -- it is the case where proceeding would
+/// be least defensible.
 pub(crate) fn desktop_locked() -> bool {
-    session_screen_is_locked().unwrap_or(false)
+    !matches!(session_lock_state(), LockState::Unlocked)
 }
 
 /// Milliseconds since the last keyboard or mouse event anywhere on the desktop.

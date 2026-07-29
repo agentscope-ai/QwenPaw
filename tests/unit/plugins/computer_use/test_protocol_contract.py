@@ -7,8 +7,12 @@ step.
 Nothing catches a drift: a method only one side knows fails at run time as an
 unsupported operation, on whichever machine happens to try it.
 
-This reads the helper's dispatch and compares it against the adapter's declared
-vocabulary, so a name added or renamed on one side alone fails here instead.
+Both sides state their vocabulary as a single declaration that the code
+enforces rather than describes, and this compares the two. Reading a
+declaration matters: an earlier version of this file parsed the helper's
+dispatch, and reported a method as unhandled the first time two match arms were
+grouped -- the code was right and the test was wrong, which is how a suite
+teaches people to ignore it.
 """
 
 from __future__ import annotations
@@ -20,56 +24,69 @@ import pytest
 
 from computer_use_tool.protocol import (
     NATIVE_METHODS,
+    PROTOCOL_VERSION,
     ComputerUseProtocolError,
     NativeRequest,
 )
 
-_DISPATCH = (
+_SERVER = (
     Path(__file__).resolve().parents[4]
     / "console"
     / "src-tauri"
     / "src"
     / "computer_use_server"
-    / "dispatch.rs"
 )
+_DISPATCH = _SERVER / "dispatch.rs"
+_MOD = _SERVER / "mod.rs"
 
 # A method the helper answers but the adapter never sends. Listed rather than
 # ignored, so unused protocol surface stays visible instead of accumulating.
-_HELPER_ONLY = frozenset({"perform_secondary_action"})
+_HELPER_ONLY: frozenset[str] = frozenset()
 
 
-def _methods_the_helper_handles() -> set[str]:
-    """Extract the method names the helper's dispatch acts on."""
+def _rust_string_array(name: str) -> set[str]:
+    """Read a `const NAME: &[&str] = [...]` declaration from the helper.
+
+    Bounded to the literal's own brackets, so nothing after it is picked up.
+    """
     source = _DISPATCH.read_text(encoding="utf-8")
-    handled = set(re.findall(r'^\s*"([a-z_]+)"\s*(?:=>|\|)', source, re.M))
-    handled |= set(re.findall(r'method == "([a-z_]+)"', source))
-    return handled
+    match = re.search(
+        rf"const {name}: &\[&str\] = &\[(.*?)\];",
+        source,
+        re.S,
+    )
+    assert match, f"{name} should be declared in dispatch.rs"
+    return set(re.findall(r'"([a-z_]+)"', match.group(1)))
 
 
-def test_the_helper_handles_every_method_the_adapter_sends() -> None:
-    handled = _methods_the_helper_handles()
-    # ``hello`` is answered during the handshake, before dispatch sees
-    # anything.
-    sent = NATIVE_METHODS - {"hello"}
-    missing = sorted(sent - handled)
+def _methods_the_helper_serves() -> set[str]:
+    """The helper's declared vocabulary, which its dispatch admits against."""
+    served = _rust_string_array("SERVED_METHODS")
+    assert served, "the helper should declare the methods it serves"
+    return served
+
+
+def test_the_helper_serves_every_method_the_adapter_sends() -> None:
+    served = _methods_the_helper_serves()
+    missing = sorted(NATIVE_METHODS - served)
     assert not missing, (
-        f"the adapter sends {missing}, which the helper's dispatch does not "
-        "handle; they would fail as unsupported operations"
+        f"the adapter sends {missing}, which the helper does not serve; they "
+        "would fail as unsupported operations"
     )
 
 
-def test_the_helper_answers_nothing_the_adapter_has_forgotten() -> None:
+def test_the_helper_serves_nothing_the_adapter_has_forgotten() -> None:
     """The other direction: surface the helper answers but nobody asks for.
 
     Not a failure in itself, but it has to be deliberate. Anything unexpected
     here is either a method the adapter stopped sending -- dead protocol -- or
     one it should be sending and does not.
     """
-    handled = _methods_the_helper_handles()
-    # The lock-screen predicate repeats action names; they are all sent.
-    unused = sorted(handled - NATIVE_METHODS - _HELPER_ONLY)
+    unused = sorted(
+        _methods_the_helper_serves() - NATIVE_METHODS - _HELPER_ONLY,
+    )
     assert not unused, (
-        f"the helper handles {unused}, which nothing sends; either wire it up "
+        f"the helper serves {unused}, which nothing sends; either wire it up "
         "or remove it"
     )
 
@@ -84,6 +101,19 @@ def test_the_guarded_set_is_a_subset_of_the_vocabulary() -> None:
     guarded = set(re.findall(r'"([a-z_]+)"', body))
     assert guarded, "the predicate should list the guarded methods"
     assert guarded <= NATIVE_METHODS, sorted(guarded - NATIVE_METHODS)
+
+
+def test_both_sides_speak_the_same_protocol_version() -> None:
+    """The version is declared once per language, with nothing tying them.
+
+    A mismatch is caught at run time as a refused handshake, so it cannot go
+    unnoticed -- but it would be noticed by whoever is holding the machine,
+    after a build and an install. Cheaper to notice here.
+    """
+    source = _MOD.read_text(encoding="utf-8")
+    match = re.search(r"const PROTOCOL_VERSION: u64 = (\d+);", source)
+    assert match, "the helper should declare its protocol version"
+    assert int(match.group(1)) == PROTOCOL_VERSION
 
 
 def test_a_method_outside_the_vocabulary_never_reaches_the_wire() -> None:

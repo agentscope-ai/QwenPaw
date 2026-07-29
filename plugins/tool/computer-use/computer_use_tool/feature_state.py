@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from threading import RLock
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _default_state_path() -> Path:
@@ -26,6 +29,11 @@ class ComputerUseFeatureState:
     The feature is enabled by default so existing installations keep their
     current behaviour; the user can turn it off from the plugin page. The
     flag is installation-scoped and survives restarts.
+
+    That default applies only when no decision has been recorded. A state file
+    that exists but cannot be read is an unknown, not a default, and an unknown
+    resolves to off -- the alternative is quietly restoring desktop access that
+    the user may have switched off.
     """
 
     def __init__(self, persistent_path: Path | None = None) -> None:
@@ -48,10 +56,34 @@ class ComputerUseFeatureState:
         try:
             with self._persistent_path.open(encoding="utf-8") as file:
                 payload = json.load(file)
-        except (OSError, json.JSONDecodeError):
+        except FileNotFoundError:
+            # No decision has been recorded yet, so the installation default
+            # applies. Nothing is lost by starting from it: the feature being
+            # on means an agent may ask, and every action on an application
+            # still waits for the user to approve that application.
             return True
-        enabled = payload.get("enabled", True)
-        return bool(enabled)
+        except (OSError, json.JSONDecodeError) as error:
+            # A file that exists but cannot be read is different: the user may
+            # have turned the feature off, and reading that as on would put a
+            # decision about desktop access back the way they did not choose.
+            _LOGGER.warning(
+                "Computer Use feature state at %s is unreadable (%s); "
+                "treating the feature as off until it is set again.",
+                self._persistent_path,
+                error,
+            )
+            return False
+        enabled = payload.get("enabled")
+        if isinstance(enabled, bool):
+            return enabled
+        # Parsed, but says nothing this code understands -- the same unknown as
+        # an unreadable file.
+        _LOGGER.warning(
+            "Computer Use feature state at %s has no usable 'enabled' flag; "
+            "treating the feature as off until it is set again.",
+            self._persistent_path,
+        )
+        return False
 
     def _save_locked(self) -> None:
         self._persistent_path.parent.mkdir(parents=True, exist_ok=True)
