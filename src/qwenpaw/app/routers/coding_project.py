@@ -525,8 +525,8 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
         def _ignore(directory, contents):
             """Skip artifacts, symlinks, sensitive entries.
 
-            Fuses security checks into the copy walk so
-            there is no TOCTOU gap between scan and copy.
+            Apply security checks during the copy walk instead of
+            performing a separate pre-scan.
             """
             ignored = _pattern_ignore(directory, contents)
             d = Path(directory)
