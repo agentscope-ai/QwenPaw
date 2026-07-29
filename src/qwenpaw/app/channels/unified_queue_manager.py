@@ -195,10 +195,7 @@ class UnifiedQueueManager:
                     priority_level,
                     state,
                 ),
-                name=(
-                    f"consumer_{channel_id}_"
-                    f"{session_id[:20]}_{priority_level}"
-                ),
+                name=(f"consumer_{channel_id}_" f"{session_id[:20]}_{priority_level}"),
             )
 
             state.consumer_task = consumer_task
@@ -377,8 +374,7 @@ class UnifiedQueueManager:
 
             if pending:
                 logger.warning(
-                    f"stop_all: {len(pending)} consumer(s) "
-                    f"still pending after 5s",
+                    f"stop_all: {len(pending)} consumer(s) " f"still pending after 5s",
                 )
 
         # Clear queues dict
@@ -419,11 +415,13 @@ class UnifiedQueueManager:
                             cleanup_state = self._queues.pop(key)
 
                     if cleanup_state is not None:
-                        cleanup_state.consumer_task.cancel()
-                        try:
-                            await cleanup_state.consumer_task
-                        except asyncio.CancelledError:
-                            pass
+                        task = cleanup_state.consumer_task
+                        if task is not None:
+                            task.cancel()
+                            try:
+                                await task
+                            except asyncio.CancelledError:
+                                pass
 
                         channel_id, session_id, priority_level = key
                         logger.info(

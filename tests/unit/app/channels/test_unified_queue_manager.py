@@ -415,9 +415,9 @@ class TestCleanupRaceCondition:
             pass
         await asyncio.sleep(0.05)
 
-        assert queue_key in mgr._queues, (
-            "Old consumer's finally block must not remove the new QueueState"
-        )
+        assert (
+            queue_key in mgr._queues
+        ), "Old consumer's finally block must not remove the new QueueState"
         assert mgr._queues[queue_key] is new_state
 
         # 5. Now let the NEW consumer finish — *its* finally block should
@@ -429,9 +429,9 @@ class TestCleanupRaceCondition:
             pass
         await asyncio.sleep(0.05)
 
-        assert queue_key not in mgr._queues, (
-            "New consumer's finally block must remove its own QueueState"
-        )
+        assert (
+            queue_key not in mgr._queues
+        ), "New consumer's finally block must remove its own QueueState"
 
         # 6. Cleanup
         await mgr.stop_all()
