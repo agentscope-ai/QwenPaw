@@ -487,7 +487,7 @@ cp -R console/dist/. src/qwenpaw/console/
 pip install -e .
 ```
 
-- **Разработка** (тесты, форматирование): `pip install -e ".[dev,full]"`
+- **Разработка** (тесты, форматирование): `pip install -e ".[dev,test,full]"`
 - **Затем**: Выполните `qwenpaw init --defaults`, затем `qwenpaw app`.
 
 > **Примечание при обновлении:** При обновлении до новой мажорной версии после `git pull` пересоберите frontend, переустановите пакет (`pip install -e .`), перезапустите `qwenpaw app` и очистите кэш браузера (`Ctrl+Shift+R` или `Cmd+Shift+R` на macOS).

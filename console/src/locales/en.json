@@ -20,6 +20,7 @@
     "view": "View",
     "content": "Content",
     "loading": "Loading...",
+    "saving": "Saving...",
     "copy": "Copy",
     "copied": "Copied to clipboard",
     "copyFailed": "Failed to copy to clipboard",
@@ -86,6 +87,17 @@
     "id": "ID",
     "category": "Category",
     "description": "Description"
+  },
+  "harnesses": {
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "notConnected": "Not connected",
+    "comingSoon": "Coming soon",
+    "connect": "Connect with ChatGPT",
+    "disconnect": "Disconnect",
+    "apiKeyAuthenticated": "Authenticated with API key",
+    "chatGptAuthenticated": "Connected with ChatGPT",
+    "cliAuthenticated": "{{type}} CLI authenticated"
   },
   "nav": {
     "chat": "Chat",
@@ -590,6 +602,85 @@
     "selectNone": "None",
     "noPoolSkills": "No skills available in pool",
     "addSkillsToAgent": "Add Skills",
+    "backend": {
+      "column": "Backend",
+      "eyebrow": "Agent architecture",
+      "typeTitle": "Choose how this agent works",
+      "typeDescription": "The agent type controls every Chat, Coding, and Channel conversation.",
+      "nativeTitle": "QwenPaw native agent",
+      "nativeBadge": "Native",
+      "nativeDescription": "Uses your configured LLM, Skills, tools, memory, and QwenPaw runtime.",
+      "thirdPartyTitle": "Third-party agent",
+      "thirdPartyBadge": "Third-party",
+      "thirdPartyDescription": "Uses an authorized external agent runtime instead of a QwenPaw model.",
+      "providerTitle": "Choose a third-party agent",
+      "providerDescription": "Authentication is shared on this device; projects and conversations stay isolated per agent.",
+      "codexHint": "ChatGPT OAuth · Agent workspace",
+      "qoderHint": "Qoder account or PAT · Agent workspace",
+      "account": "Codex account",
+      "qoderAccount": "Qoder account",
+      "binary": "Codex executable",
+      "binaryHelp": "Leave blank to use the Codex CLI bundled with the Python SDK or detect a standalone installation. Otherwise enter the full path to codex on macOS/Linux or codex.exe on Windows. Binaries inside the ChatGPT app or editor extensions are not supported. QwenPaw also reads CODEX_BINARY and the backend PATH.",
+      "binaryPlaceholder": "Auto-detect, or paste the Codex executable path",
+      "qoderBinary": "Qoder executable",
+      "qoderBinaryHelp": "Leave blank to use the qodercli bundled with the Python SDK or detect an existing installation. Otherwise enter the full path to qodercli on macOS/Linux or qodercli.exe on Windows. QwenPaw also reads QODERCLI_PATH and the backend PATH.",
+      "qoderBinaryPlaceholder": "Auto-detect, or paste the qodercli executable path",
+      "detect": "Detect",
+      "detectedBinary": "Codex detected",
+      "qoderDetectedBinary": "Qoder detected",
+      "apiKeyLoginHint": "You can also authenticate in a terminal with: codex login --with-api-key",
+      "qoderAuthHint": "Connect opens Qoder browser login. You can also run qodercli login or set QODER_PERSONAL_ACCESS_TOKEN before starting the backend.",
+      "qoderConnect": "Connect to Qoder",
+      "model": "Agent model",
+      "modelDefault": "Use the agent default",
+      "defaultBadge": "Default",
+      "reasoningEffort": "Reasoning effort",
+      "reasoningDefault": "Use the model default",
+      "codexNotFound": "Codex runtime not found. Install qwenpaw[codex] or provide a standalone Codex CLI.",
+      "qoderNotFound": "Qoder runtime not found. Install qwenpaw[qoder] or provide qodercli.",
+      "chatSettingsHint": "Choose the model, reasoning effort, and execution permissions from the Chat toolbar.",
+      "capabilityTitle": "QwenPaw capabilities",
+      "inheritedSkills": "Skills",
+      "inheritedMcp": "MCP servers",
+      "runtimeInherited": "Inherited at runtime · new sessions",
+      "notSupported": "Not supported by this provider",
+      "policyCompatibility": "MCP policy",
+      "toolAllowlistSupported": "Tool allowlist supported",
+      "policyLimited": "Provider limitations apply",
+      "chatModelHint": "Agent-scoped settings · applied on the next turn",
+      "appliesNextTurn": "Applies on the next turn",
+      "approvalMode": "Execution permissions",
+      "approvalPresets": {
+        "ask": {
+          "name": "Ask before changes",
+          "description": "Allow workspace changes and ask before elevated actions."
+        },
+        "read-only": {
+          "name": "Read only",
+          "description": "Inspect files without changing them."
+        },
+        "workspace": {
+          "name": "Workspace access",
+          "description": "Allow workspace changes without confirmation."
+        },
+        "accept-edits": {
+          "name": "Accept edits",
+          "description": "Allow file edits while keeping other safeguards."
+        },
+        "plan": {
+          "name": "Plan only",
+          "description": "Analyze and plan without changing files."
+        },
+        "auto": {
+          "name": "Automatic",
+          "description": "Let Qoder decide which safe actions can run."
+        },
+        "full-access": {
+          "name": "Full access",
+          "description": "Allow unrestricted local execution without confirmation."
+        }
+      }
+    },
     "model": "Model",
     "modelHelp": "Assign a specific LLM model to this agent. Leave empty to use the global default.",
     "modelPlaceholder": "Use global default",
@@ -612,6 +703,19 @@
   "skills": {
     "title": "Skills",
     "description": "Manage agent skills and capabilities.",
+    "qwenpawManaged": "QwenPaw managed",
+    "qwenpawManagedHint": "Editable Skills projected into supported third-party agents at runtime.",
+    "providerManaged": "Third-party agent Skills",
+    "providerManagedHint": "Discovered from the current third-party agent and shown read-only.",
+    "providerOnly": "Current third-party agent only",
+    "readOnly": "Read only",
+    "noDescription": "No description provided.",
+    "providerSkillDetails": "Third-party agent Skill details",
+    "providerManagedDetailHint": "This Skill is managed by the third-party agent. QwenPaw can display and use it, but cannot modify it.",
+    "provider": "Third-party agent",
+    "scope": "Scope",
+    "statusLabel": "Status",
+    "descriptionLabel": "Description",
     "importHub": "Upload via URL",
     "supportedSources": "Supported sources:",
     "importSkills": "Import Skill",
@@ -847,6 +951,12 @@
   },
   "mcp": {
     "title": "MCP Clients",
+    "qwenpawManaged": "QwenPaw managed",
+    "qwenpawManagedHint": "Shared control-plane configuration injected into supported third-party Agents at runtime.",
+    "providerManaged": "{{provider}} local MCP",
+    "providerManagedHint": "Discovered from the third-party agent's own configuration. These entries are read-only and remain available only to that agent.",
+    "providerOnly": "Third-party agent only",
+    "readOnly": "Read only",
     "create": "Create Client",
     "formatSupport": "Supported formats",
     "standardFormat": "Standard (mcpServers wrapper)",
@@ -2478,6 +2588,15 @@
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
+      },
+      "agents": {
+        "description": "List agents available to the current runtime"
+      },
+      "review": {
+        "description": "Review uncommitted workspace changes with Codex"
+      },
+      "status": {
+        "description": "Show the current agent account, model, and workspace"
       },
       "plan": {
         "description": "Create a structured plan to decompose the task into subtasks"

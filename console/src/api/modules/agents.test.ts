@@ -55,6 +55,20 @@ describe("agentsApi", () => {
     expect(result).toEqual(agent);
   });
 
+  it("updates third-party model settings from Chat", async () => {
+    await agentsApi.updateBackendSettings("a1", {
+      model: "gpt-test-codex",
+      reasoning_effort: "high",
+    });
+    expect(request).toHaveBeenCalledWith("/agents/a1/backend-settings", {
+      method: "PATCH",
+      body: JSON.stringify({
+        model: "gpt-test-codex",
+        reasoning_effort: "high",
+      }),
+    });
+  });
+
   it("rebuildMemoryIndex sends POST with an extended timeout", async () => {
     const resp = { status: "completed" } as const;
     vi.mocked(request).mockResolvedValue(resp);

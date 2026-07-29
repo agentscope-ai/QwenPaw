@@ -66,6 +66,12 @@ def test_abspath_decodes_percent():
     )
 
 
+def test_abspath_removes_windows_drive_uri_prefix():
+    assert (
+        _abspath_from_url("file:///D:/tmp/screen.png") == "D:/tmp/screen.png"
+    )
+
+
 # ---------------------------------------------------------------------------
 # _resolve_content_url
 # ---------------------------------------------------------------------------

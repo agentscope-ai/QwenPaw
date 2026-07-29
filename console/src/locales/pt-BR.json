@@ -19,6 +19,7 @@
     "view": "Visualizar",
     "content": "Conteudo",
     "loading": "Carregando...",
+    "saving": "Salvando...",
     "copy": "Copiar",
     "copied": "Copiado para a area de transferencia",
     "copyFailed": "Falha ao copiar para a area de transferencia",
@@ -31,6 +32,17 @@
     "paste": "Colar",
     "yes": "Sim",
     "no": "Nao"
+  },
+  "harnesses": {
+    "connected": "Conectado",
+    "disconnected": "Desconectado",
+    "notConnected": "Não conectado",
+    "comingSoon": "Em breve",
+    "connect": "Conectar com o ChatGPT",
+    "disconnect": "Desconectar",
+    "apiKeyAuthenticated": "Autenticado com chave de API",
+    "chatGptAuthenticated": "Conectado ao ChatGPT",
+    "cliAuthenticated": "{{type}} CLI autenticado"
   },
   "desktop": {
     "closeWindow": {
@@ -353,6 +365,85 @@
     "id": "ID",
     "description": "Descricao",
     "workspace": "Caminho do Workspace",
+    "backend": {
+      "column": "Backend",
+      "eyebrow": "Arquitetura do agente",
+      "typeTitle": "Escolha como este agente funciona",
+      "typeDescription": "O tipo de agente controla todas as conversas no Chat, Coding e Channel.",
+      "nativeTitle": "Agente nativo do QwenPaw",
+      "nativeBadge": "Nativo",
+      "nativeDescription": "Usa o LLM, Skills, ferramentas, memória e runtime do QwenPaw configurados.",
+      "thirdPartyTitle": "Agente de terceiros",
+      "thirdPartyBadge": "Terceiros",
+      "thirdPartyDescription": "Usa um runtime de agente externo autorizado em vez de um modelo do QwenPaw.",
+      "providerTitle": "Escolha um agente de terceiros",
+      "providerDescription": "A autenticação é compartilhada neste dispositivo; projetos e conversas permanecem isolados por agente.",
+      "codexHint": "ChatGPT OAuth · Workspace do agente",
+      "qoderHint": "Conta Qoder ou PAT · Workspace do agente",
+      "account": "Conta do Codex",
+      "qoderAccount": "Conta do Qoder",
+      "binary": "Executável do Codex",
+      "binaryHelp": "Deixe em branco para priorizar o Codex CLI incluído no SDK Python e detectar uma instalação independente. Se preencher, informe o caminho completo para codex no macOS/Linux ou codex.exe no Windows. Binários internos do aplicativo ChatGPT ou de extensões do editor não são compatíveis. O QwenPaw também lê CODEX_BINARY e o PATH do backend.",
+      "binaryPlaceholder": "Detectar automaticamente ou colar o caminho do executável Codex",
+      "qoderBinary": "Executável do Qoder",
+      "qoderBinaryHelp": "Deixe em branco para usar o qodercli incluído no SDK Python ou detectar uma instalação existente. Se preencher, informe o caminho completo para qodercli no macOS/Linux ou qodercli.exe no Windows. O QwenPaw também lê QODERCLI_PATH e o PATH do backend.",
+      "qoderBinaryPlaceholder": "Detectar automaticamente ou colar o caminho do qodercli",
+      "detect": "Detectar",
+      "detectedBinary": "Codex detectado",
+      "qoderDetectedBinary": "Qoder detectado",
+      "apiKeyLoginHint": "Você também pode autenticar no terminal com: codex login --with-api-key",
+      "qoderAuthHint": "Conectar abre o login do Qoder no navegador. Você também pode executar qodercli login ou definir QODER_PERSONAL_ACCESS_TOKEN antes de iniciar o backend.",
+      "qoderConnect": "Conectar ao Qoder",
+      "model": "Modelo do agente",
+      "modelDefault": "Usar o padrão do agente",
+      "defaultBadge": "Padrão",
+      "reasoningEffort": "Nível de raciocínio",
+      "reasoningDefault": "Usar o padrão do modelo",
+      "codexNotFound": "O runtime do Codex não foi encontrado. Instale qwenpaw[codex] ou forneça um Codex CLI independente.",
+      "qoderNotFound": "O runtime do Qoder não foi encontrado. Instale qwenpaw[qoder] ou forneça o qodercli.",
+      "chatSettingsHint": "Escolha o modelo, o nível de raciocínio e as permissões de execução na barra de ferramentas do Chat.",
+      "capabilityTitle": "Recursos do QwenPaw",
+      "inheritedSkills": "Skills",
+      "inheritedMcp": "Servidores MCP",
+      "runtimeInherited": "Herdado em execução · novas sessões",
+      "notSupported": "Não compatível com este provedor",
+      "policyCompatibility": "Política MCP",
+      "toolAllowlistSupported": "Lista de ferramentas compatível",
+      "policyLimited": "Aplicam-se limites do provedor",
+      "chatModelHint": "Configurações por agente · aplicadas no próximo turno",
+      "appliesNextTurn": "Aplicado no próximo turno",
+      "approvalMode": "Permissões de execução",
+      "approvalPresets": {
+        "ask": {
+          "name": "Perguntar antes de alterar",
+          "description": "Permite alterações no workspace e solicita confirmação antes de ações elevadas."
+        },
+        "read-only": {
+          "name": "Somente leitura",
+          "description": "Inspeciona arquivos sem alterá-los."
+        },
+        "workspace": {
+          "name": "Acesso ao workspace",
+          "description": "Permite alterações no workspace sem confirmação."
+        },
+        "accept-edits": {
+          "name": "Aceitar edições",
+          "description": "Permite edições de arquivos mantendo as demais proteções."
+        },
+        "plan": {
+          "name": "Somente planejar",
+          "description": "Analisa e planeja sem alterar arquivos."
+        },
+        "auto": {
+          "name": "Automático",
+          "description": "Deixa o Qoder decidir quais ações seguras podem ser executadas."
+        },
+        "full-access": {
+          "name": "Acesso total",
+          "description": "Permite execução local irrestrita sem confirmação."
+        }
+      }
+    },
     "create": "Criar Agente",
     "createTitle": "Criar Novo Agente",
     "createSuccess": "Agente Criado successfully",
@@ -454,6 +545,19 @@
   "skills": {
     "title": "Skills",
     "description": "Manage agent skills and capabilities.",
+    "qwenpawManaged": "Gerenciado pelo QwenPaw",
+    "qwenpawManagedHint": "Editável e projetado em agentes de terceiros compatíveis durante a execução.",
+    "providerManaged": "Skills do agente de terceiros",
+    "providerManagedHint": "Descobertas no agente de terceiros atual e exibidas somente para leitura.",
+    "providerOnly": "Somente o agente de terceiros atual",
+    "readOnly": "Somente leitura",
+    "noDescription": "Nenhuma descrição disponível.",
+    "providerSkillDetails": "Detalhes da Skill do agente de terceiros",
+    "providerManagedDetailHint": "Esta Skill é gerenciada pelo agente de terceiros. O QwenPaw pode exibi-la e usá-la, mas não pode modificá-la.",
+    "provider": "Agente de terceiros",
+    "scope": "Escopo",
+    "statusLabel": "Status",
+    "descriptionLabel": "Descrição",
     "importHub": "Enviar via URL",
     "supportedSources": "Fontes suportadas:",
     "importSkills": "Importar Skill",
@@ -678,6 +782,12 @@
   },
   "mcp": {
     "title": "MCP Clients",
+    "qwenpawManaged": "Gerenciado pelo QwenPaw",
+    "qwenpawManagedHint": "A configuração compartilhada do painel é injetada nos Agents de terceiros compatíveis durante a execução.",
+    "providerManaged": "MCP local do {{provider}}",
+    "providerManagedHint": "Detectado na configuração do agente de terceiros; é somente leitura e exclusivo desse agente.",
+    "providerOnly": "Somente o agente de terceiros",
+    "readOnly": "Somente leitura",
     "create": "Criar Client",
     "formatSupport": "Supported formats",
     "standardFormat": "Padrao (mcpServers wrapper)",
@@ -2295,6 +2405,15 @@
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
+      },
+      "agents": {
+        "description": "Listar os agentes disponíveis no runtime atual"
+      },
+      "review": {
+        "description": "Revisar com o Codex as alterações não commitadas no workspace"
+      },
+      "status": {
+        "description": "Mostrar a conta, o modelo e o workspace atuais do agente"
       },
       "goal": {
         "description": "Loop Goal — Agente persegue objetivo continuamente, auto-avalia via Rubric"

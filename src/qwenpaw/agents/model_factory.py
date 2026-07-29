@@ -178,21 +178,34 @@ def _anthropic_media_dedup_key(source: Any) -> str | None:
     return None
 
 
-def _video_oversize_placeholder(size: int) -> dict:
-    """Text placeholder substituted for a video that exceeds the inline cap.
+def _video_oversize_placeholder(
+    size: int,
+    *,
+    response_api: bool = False,
+) -> dict:
+    """Text placeholder substituted for a video that exceeds
+    the inline cap.
 
     Mirrors the wording used by ``capping_formatter``'s
-    ``CappingFormatterMixin._placeholder_text`` so oversized-video messages
-    are consistent across every provider path.  Tool-result videos inline
-    through these helpers bypass the capping formatters (which only see
-    ``_format_*_source``), so the cap is enforced here instead.
+    ``CappingFormatterMixin._placeholder_text`` so
+    oversized-video messages are consistent across every
+    provider path.  Tool-result videos inline through these
+    helpers bypass the capping formatters (which only see
+    ``_format_*_source``), so the cap is enforced here
+    instead.
+
+    When *response_api* is True the block uses
+    ``input_text`` instead of ``text``, matching the
+    Responses API content-type convention.
     """
+    txt_type = "input_text" if response_api else "text"
     return {
-        "type": "text",
+        "type": txt_type,
         "text": (
-            f"[video omitted from model context: local file is "
-            f"{size} bytes, exceeds inline limit of "
-            f"{MAX_INLINE_MEDIA_BYTES} bytes]"
+            "[video omitted from model context: "
+            f"local file is {size} bytes, exceeds "
+            f"inline limit of {MAX_INLINE_MEDIA_BYTES}"
+            " bytes]"
         ),
     }
 
@@ -272,43 +285,60 @@ def _format_anthropic_video_data_block(block: Any) -> dict | None:
     return None
 
 
-def _format_openai_video_block(video_block: dict) -> dict:
+def _format_openai_video_block(
+    video_block: dict,
+    response_api: bool = False,
+) -> dict:
     """Format a video block for OpenAI-compatible API.
 
     Local files are converted to base64 data URLs; web URLs are
     passed through directly.
 
+    When ``response_api`` is True the output uses the
+    ``input_video`` content type adopted by Volcengine Ark
+    and other providers that extend the OpenAI Responses API
+    with native video support.  Official OpenAI and DashScope
+    Responses APIs do **not** support video; callers should
+    fall back gracefully (the react-agent already retries
+    without media on 400 errors).
+
     Args:
-        video_block (`dict`):
-            The video block to format.
+        video_block: The video block to format.
+        response_api: When True, emit the Responses API
+            ``input_video`` shape instead of the Chat
+            Completions ``video_url`` shape.
 
     Returns:
-        `dict`:
-            ``{"type": "video_url", "video_url": {"url": ...}}``.
+        Wire-format dict for the provider.
 
     Raises:
-        `ValueError`:
+        ModelFormatterError:
             If the source type or video format is not supported.
     """
     source = video_block["source"]
     if source["type"] == "base64":
         media_type = source["media_type"]
-        # base64 length -> approximate raw byte count.
         size = len(source.get("data") or "") * 3 // 4
         if size > MAX_INLINE_MEDIA_BYTES:
-            return _video_oversize_placeholder(size)
+            return _video_oversize_placeholder(
+                size,
+                response_api=response_api,
+            )
         url = f"data:{media_type};base64,{source['data']}"
     elif source["type"] == "url":
         raw_url = _file_url_to_path(source["url"])
-        if os.path.exists(raw_url) and os.path.isfile(raw_url):
-            # Cap oversized local files before reading/encoding the whole
-            # thing into the request body (see ``capping_formatter``).
+        if os.path.exists(raw_url) and os.path.isfile(
+            raw_url,
+        ):
             try:
                 size = os.path.getsize(raw_url)
             except OSError:
                 size = 0
             if size > MAX_INLINE_MEDIA_BYTES:
-                return _video_oversize_placeholder(size)
+                return _video_oversize_placeholder(
+                    size,
+                    response_api=response_api,
+                )
             ext = os.path.splitext(raw_url)[1].lower()
             media_type = _SUPPORTED_VIDEO_EXTENSIONS.get(ext)
             if not media_type:
@@ -327,8 +357,9 @@ def _format_openai_video_block(video_block: dict) -> dict:
             else:
                 raise ModelFormatterError(
                     message=(
-                        f"Invalid video URL: {source['url']}. "
-                        "It should be a local file or a web URL."
+                        f"Invalid video URL: "
+                        f"{source['url']}. It should be"
+                        " a local file or a web URL."
                     ),
                 )
     else:
@@ -336,6 +367,8 @@ def _format_openai_video_block(video_block: dict) -> dict:
             message=f"Unsupported video source type: {source['type']}",
         )
 
+    if response_api:
+        return {"type": "input_video", "video_url": url}
     return {
         "type": "video_url",
         "video_url": {"url": url},
@@ -345,10 +378,22 @@ def _format_openai_video_block(video_block: dict) -> dict:
 def _replace_video_placeholders(
     messages: list[dict],
     video_subs: dict[str, dict],
+    *,
+    response_api: bool = False,
 ) -> None:
     """Replace video placeholder text blocks with formatted
-    video blocks in OpenAI-formatted messages."""
+    video blocks in OpenAI-formatted messages.
+
+    Only ``user``, ``tool``, and ``system`` messages are
+    processed; ``assistant`` messages keep placeholders
+    as-is because ``input_video`` / ``video_url`` blocks
+    are not valid in assistant content for most providers.
+    """
+    _TEXT_TYPES = ("text", "input_text")
+    _REPLACEABLE_ROLES = ("user", "tool", "system")
     for fmt_msg in messages:
+        if fmt_msg.get("role") not in _REPLACEABLE_ROLES:
+            continue
         content = fmt_msg.get("content")
         if not isinstance(content, list):
             continue
@@ -356,12 +401,13 @@ def _replace_video_placeholders(
         for item in content:
             if (
                 isinstance(item, dict)
-                and item.get("type") == "text"
+                and item.get("type") in _TEXT_TYPES
                 and item.get("text") in video_subs
             ):
                 new_content.append(
                     _format_openai_video_block(
                         video_subs[item["text"]],
+                        response_api=response_api,
                     ),
                 )
             else:
@@ -401,12 +447,17 @@ def _substitute_video_blocks(
 ) -> dict[str, dict]:
     """Replace video blocks in msgs with text placeholders.
 
-    Returns a mapping from placeholder text to the original video
-    block so they can be restored later.  Handles both dict blocks
-    (1.x) and Pydantic DataBlock objects (2.0).
+    Returns a mapping from placeholder text to the original
+    video block so they can be restored later.  Handles both
+    dict blocks (1.x) and Pydantic DataBlock objects (2.0).
+
+    Assistant messages are skipped because video blocks are
+    not valid in assistant content for most providers.
     """
     video_subs: dict[str, dict] = {}
     for msg in msgs:
+        if getattr(msg, "role", "") == "assistant":
+            continue
         if not isinstance(msg.content, list):
             continue
         for i, blk in enumerate(msg.content):
@@ -464,6 +515,8 @@ def _restore_video_blocks(
 def _promote_tool_result_videos(
     msgs: list,
     messages: list[dict],
+    *,
+    response_api: bool = False,
 ) -> list[dict]:
     """Inject promoted video user messages after tool result messages.
 
@@ -531,9 +584,10 @@ def _promote_tool_result_videos(
         if not isinstance(tcid, str) or tcid not in promotions:
             continue
         tool_name, videos = promotions[tcid]
+        txt_type = "input_text" if response_api else "text"
         promoted: list[dict] = [
             {
-                "type": "text",
+                "type": txt_type,
                 "text": "<system-info>The following are "
                 "the video contents from the tool "
                 f"result of '{tool_name}':",
@@ -542,15 +596,21 @@ def _promote_tool_result_videos(
         for url, vid_block in videos:
             promoted.append(
                 {
-                    "type": "text",
+                    "type": txt_type,
                     "text": f"\n- The video from '{url}': ",
                 },
             )
             promoted.append(
-                _format_openai_video_block(vid_block),
+                _format_openai_video_block(
+                    vid_block,
+                    response_api=response_api,
+                ),
             )
         promoted.append(
-            {"type": "text", "text": "</system-info>"},
+            {
+                "type": txt_type,
+                "text": "</system-info>",
+            },
         )
         new_messages.append(
             {"role": "user", "content": promoted},
@@ -1016,7 +1076,11 @@ def _create_file_block_support_formatter(
             messages = await super().format(normalized_msgs)
 
             if video_subs:
-                _replace_video_placeholders(messages, video_subs)
+                _replace_video_placeholders(
+                    messages,
+                    video_subs,
+                    response_api=_is_response_formatter,
+                )
                 _restore_video_blocks(normalized_msgs, video_subs)
 
             if _needs_video and getattr(
@@ -1027,6 +1091,7 @@ def _create_file_block_support_formatter(
                 messages = _promote_tool_result_videos(
                     normalized_msgs,
                     messages,
+                    response_api=_is_response_formatter,
                 )
 
             messages = _reorder_tool_and_promoted_messages(messages)

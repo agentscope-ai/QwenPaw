@@ -19,6 +19,7 @@
     "view": "Lihat",
     "content": "Konten",
     "loading": "Memuat...",
+    "saving": "Menyimpan...",
     "copy": "Salin",
     "copied": "Disalin ke papan klip",
     "copyFailed": "Gagal menyalin ke papan klip",
@@ -31,6 +32,17 @@
     "paste": "Tempel",
     "yes": "Ya",
     "no": "Tidak"
+  },
+  "harnesses": {
+    "connected": "Terhubung",
+    "disconnected": "Terputus",
+    "notConnected": "Belum terhubung",
+    "comingSoon": "Segera hadir",
+    "connect": "Hubungkan dengan ChatGPT",
+    "disconnect": "Putuskan koneksi",
+    "apiKeyAuthenticated": "Diautentikasi dengan API key",
+    "chatGptAuthenticated": "Terhubung dengan ChatGPT",
+    "cliAuthenticated": "{{type}} CLI telah diautentikasi"
   },
   "desktop": {
     "closeWindow": {
@@ -194,6 +206,15 @@
       "skills": {
         "description": "Tampilkan skill yang tersedia untuk chat dan perintah skill eksplisit"
       },
+      "agents": {
+        "description": "Tampilkan agen yang tersedia di runtime saat ini"
+      },
+      "review": {
+        "description": "Tinjau perubahan ruang kerja yang belum di-commit dengan Codex"
+      },
+      "status": {
+        "description": "Tampilkan akun agen, model, dan ruang kerja saat ini"
+      },
       "goal": {
         "description": "Loop Goal — Agen mengejar tujuan secara terus-menerus, evaluasi otomatis via Rubric"
       }
@@ -329,6 +350,85 @@
     "id": "ID",
     "description": "Deskripsi",
     "workspace": "Path Workspace",
+    "backend": {
+      "column": "Backend",
+      "eyebrow": "Arsitektur agen",
+      "typeTitle": "Pilih cara agen ini bekerja",
+      "typeDescription": "Jenis agen mengontrol setiap percakapan Chat, Coding, dan Channel.",
+      "nativeTitle": "Agen native QwenPaw",
+      "nativeBadge": "Native",
+      "nativeDescription": "Menggunakan LLM, Skills, alat, memori, dan runtime QwenPaw yang telah Anda konfigurasi.",
+      "thirdPartyTitle": "Agen pihak ketiga",
+      "thirdPartyBadge": "Pihak ketiga",
+      "thirdPartyDescription": "Menggunakan runtime agen eksternal yang telah diotorisasi, bukan model QwenPaw.",
+      "providerTitle": "Pilih agen pihak ketiga",
+      "providerDescription": "Autentikasi digunakan bersama di perangkat ini; proyek dan percakapan tetap terisolasi untuk setiap agen.",
+      "codexHint": "ChatGPT OAuth · Ruang kerja agen",
+      "qoderHint": "Akun Qoder atau PAT · Ruang kerja agen",
+      "account": "Akun Codex",
+      "qoderAccount": "Akun Qoder",
+      "binary": "File executable Codex",
+      "binaryHelp": "Kosongkan untuk memprioritaskan Codex CLI bawaan Python SDK dan mendeteksi instalasi mandiri. Jika diisi, masukkan path lengkap ke codex di macOS/Linux atau codex.exe di Windows. Biner bawaan aplikasi ChatGPT atau ekstensi editor tidak didukung. QwenPaw juga membaca CODEX_BINARY dan PATH backend.",
+      "binaryPlaceholder": "Deteksi otomatis atau tempel path executable Codex",
+      "qoderBinary": "File executable Qoder",
+      "qoderBinaryHelp": "Kosongkan untuk memakai qodercli yang disertakan dalam SDK Python atau mendeteksi instalasi yang ada. Jika diisi, masukkan path lengkap ke qodercli di macOS/Linux atau qodercli.exe di Windows. QwenPaw juga membaca QODERCLI_PATH dan PATH backend.",
+      "qoderBinaryPlaceholder": "Deteksi otomatis atau tempel path qodercli",
+      "detect": "Deteksi",
+      "detectedBinary": "Codex terdeteksi",
+      "qoderDetectedBinary": "Qoder terdeteksi",
+      "apiKeyLoginHint": "Anda juga dapat melakukan autentikasi di terminal dengan: codex login --with-api-key",
+      "qoderAuthHint": "Hubungkan akan membuka login Qoder di browser. Anda juga dapat menjalankan qodercli login atau mengatur QODER_PERSONAL_ACCESS_TOKEN sebelum memulai backend.",
+      "qoderConnect": "Hubungkan ke Qoder",
+      "model": "Model agen",
+      "modelDefault": "Gunakan default agen",
+      "defaultBadge": "Default",
+      "reasoningEffort": "Tingkat penalaran",
+      "reasoningDefault": "Gunakan default model",
+      "codexNotFound": "Runtime Codex tidak ditemukan. Instal qwenpaw[codex] atau sediakan Codex CLI mandiri.",
+      "qoderNotFound": "Runtime Qoder tidak ditemukan. Instal qwenpaw[qoder] atau sediakan qodercli.",
+      "chatSettingsHint": "Pilih model, tingkat penalaran, dan izin eksekusi dari bilah alat Chat.",
+      "capabilityTitle": "Kemampuan QwenPaw",
+      "inheritedSkills": "Keahlian",
+      "inheritedMcp": "Server MCP",
+      "runtimeInherited": "Diwarisi saat runtime · sesi baru",
+      "notSupported": "Tidak didukung penyedia ini",
+      "policyCompatibility": "Kebijakan MCP",
+      "toolAllowlistSupported": "Daftar izin alat didukung",
+      "policyLimited": "Berlaku batasan penyedia",
+      "chatModelHint": "Pengaturan per agen · diterapkan pada giliran berikutnya",
+      "appliesNextTurn": "Diterapkan pada giliran berikutnya",
+      "approvalMode": "Izin eksekusi",
+      "approvalPresets": {
+        "ask": {
+          "name": "Tanyakan sebelum perubahan",
+          "description": "Izinkan perubahan ruang kerja dan tanyakan sebelum tindakan dengan hak akses lebih tinggi."
+        },
+        "read-only": {
+          "name": "Hanya baca",
+          "description": "Periksa file tanpa mengubahnya."
+        },
+        "workspace": {
+          "name": "Akses ruang kerja",
+          "description": "Izinkan perubahan ruang kerja tanpa konfirmasi."
+        },
+        "accept-edits": {
+          "name": "Terima edit",
+          "description": "Izinkan pengeditan file sambil mempertahankan perlindungan lain."
+        },
+        "plan": {
+          "name": "Hanya rencana",
+          "description": "Analisis dan rencanakan tanpa mengubah file."
+        },
+        "auto": {
+          "name": "Otomatis",
+          "description": "Biarkan Qoder menentukan tindakan aman yang dapat dijalankan."
+        },
+        "full-access": {
+          "name": "Akses penuh",
+          "description": "Izinkan eksekusi lokal tanpa batasan dan tanpa konfirmasi."
+        }
+      }
+    },
     "create": "Buat Agen",
     "createTitle": "Buat Agen Baru",
     "createSuccess": "Agen berhasil dibuat",
@@ -416,6 +516,19 @@
   "skills": {
     "title": "Skill",
     "description": "Kelola skill dan kemampuan agen.",
+    "qwenpawManaged": "Dikelola QwenPaw",
+    "qwenpawManagedHint": "Dapat diedit dan diproyeksikan ke agen pihak ketiga yang didukung saat runtime.",
+    "providerManaged": "Skill agen pihak ketiga",
+    "providerManagedHint": "Ditemukan dari agen pihak ketiga saat ini dan ditampilkan hanya-baca.",
+    "providerOnly": "Hanya agen pihak ketiga saat ini",
+    "readOnly": "Hanya baca",
+    "noDescription": "Tidak ada deskripsi.",
+    "providerSkillDetails": "Detail Skill agen pihak ketiga",
+    "providerManagedDetailHint": "Skill ini dikelola oleh agen pihak ketiga. QwenPaw dapat menampilkan dan menggunakannya, tetapi tidak dapat mengubahnya.",
+    "provider": "Agen pihak ketiga",
+    "scope": "Cakupan",
+    "statusLabel": "Status",
+    "descriptionLabel": "Deskripsi",
     "importHub": "Unggah via URL",
     "supportedSources": "Sumber yang didukung:",
     "importSkills": "Impor Skill",
@@ -801,6 +914,12 @@
   },
   "mcp": {
     "title": "Klien MCP",
+    "qwenpawManaged": "Dikelola QwenPaw",
+    "qwenpawManagedHint": "Konfigurasi panel kontrol bersama disuntikkan ke Agent pihak ketiga yang didukung saat runtime.",
+    "providerManaged": "MCP lokal {{provider}}",
+    "providerManagedHint": "Ditemukan dari konfigurasi agen pihak ketiga; hanya-baca dan hanya tersedia untuk agen tersebut.",
+    "providerOnly": "Khusus agen pihak ketiga",
+    "readOnly": "Hanya-baca",
     "create": "Buat Klien",
     "formatSupport": "Format yang didukung",
     "standardFormat": "Standar (pembungkus mcpServers)",

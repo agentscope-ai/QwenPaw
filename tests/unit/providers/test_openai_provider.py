@@ -264,7 +264,309 @@ async def test_check_model_connection_api_error_returns_false(
     ok, msg = await provider.check_model_connection("gpt-4o-mini", timeout=4)
 
     assert ok is False
-    assert msg == "API error when connecting to model 'gpt-4o-mini'"
+    assert msg.startswith(
+        "API error when connecting to model 'gpt-4o-mini'",
+    )
+    assert "failed" in msg
+
+
+async def test_check_model_connection_non_chat_model_skips_chat_probe(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    chat_calls: list[dict] = []
+    connection_checks: list[float] = []
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            chat_calls.append(kwargs)
+            raise AssertionError("chat probe must not run for non-chat model")
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    async def fake_check_connection(self, timeout=5):
+        del self
+        connection_checks.append(timeout)
+        return True, ""
+
+    monkeypatch.setattr(
+        OpenAIProvider,
+        "check_connection",
+        fake_check_connection,
+    )
+
+    for model_id in (
+        "wan2.2-t2v-plus",
+        "qwen3-asr-flash",
+        "paraformer-realtime-v2",
+        "text-embedding-v3",
+    ):
+        ok, msg = await provider.check_model_connection(model_id, timeout=4)
+        assert ok is True
+        assert "not a chat model" in msg
+
+    assert not chat_calls
+    assert connection_checks == [4, 4, 4, 4]
+
+
+class _FakeHTTPResponse:
+    def __init__(self, status_code: int, payload: dict | None = None):
+        self.status_code = status_code
+        self._payload = payload or {}
+        self.text = str(self._payload)
+
+    def json(self):
+        return self._payload
+
+
+def _install_fake_httpx_get(monkeypatch, requests: list, response) -> None:
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        async def get(self, url, params=None, headers=None):
+            requests.append(
+                {"url": url, "params": params, "headers": headers},
+            )
+            return response
+
+    monkeypatch.setattr(
+        openai_provider_module.httpx,
+        "AsyncClient",
+        FakeAsyncClient,
+    )
+
+
+def _make_dashscope_like_provider() -> OpenAIProvider:
+    return OpenAIProvider(
+        id="dashscope",
+        name="DashScope",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        api_key="sk-test",
+        chat_model="OpenAIChatModel",
+    )
+
+
+async def test_dashscope_non_chat_model_uses_upload_policy_probe(
+    monkeypatch,
+) -> None:
+    provider = _make_dashscope_like_provider()
+    requests: list[dict] = []
+    _install_fake_httpx_get(
+        monkeypatch,
+        requests,
+        _FakeHTTPResponse(200, {"data": {"upload_host": "x"}}),
+    )
+
+    ok, msg = await provider.check_model_connection(
+        "wan2.2-t2v-plus",
+        timeout=4,
+    )
+
+    assert ok is True
+    assert "upload-policy" in msg
+    assert requests[0]["url"] == (
+        "https://dashscope.aliyuncs.com/api/v1/uploads"
+    )
+    assert requests[0]["params"] == {
+        "action": "getPolicy",
+        "model": "wan2.2-t2v-plus",
+    }
+    assert requests[0]["headers"]["Authorization"] == "Bearer sk-test"
+
+
+async def test_dashscope_non_chat_model_invalid_key_fails(
+    monkeypatch,
+) -> None:
+    provider = _make_dashscope_like_provider()
+    requests: list[dict] = []
+    _install_fake_httpx_get(
+        monkeypatch,
+        requests,
+        _FakeHTTPResponse(
+            401,
+            {"code": "InvalidApiKey", "message": "Invalid API-key"},
+        ),
+    )
+
+    ok, msg = await provider.check_model_connection(
+        "qwen3-asr-flash",
+        timeout=4,
+    )
+
+    assert ok is False
+    assert "rejected the API key" in msg
+    assert "InvalidApiKey" in msg
+
+
+async def test_dashscope_non_chat_model_unknown_model_fails(
+    monkeypatch,
+) -> None:
+    provider = _make_dashscope_like_provider()
+    requests: list[dict] = []
+    _install_fake_httpx_get(
+        monkeypatch,
+        requests,
+        _FakeHTTPResponse(
+            400,
+            {"code": "InvalidParameter", "message": "Model not exist"},
+        ),
+    )
+
+    ok, msg = await provider.check_model_connection(
+        "wan99-t2v-fake",
+        timeout=4,
+    )
+
+    assert ok is False
+    assert "does not recognise model" in msg
+
+
+async def test_dashscope_non_chat_model_policy_unsupported_still_ok(
+    monkeypatch,
+) -> None:
+    provider = _make_dashscope_like_provider()
+    requests: list[dict] = []
+    _install_fake_httpx_get(
+        monkeypatch,
+        requests,
+        _FakeHTTPResponse(
+            400,
+            {
+                "code": "InvalidParameter",
+                "message": "file upload is not supported",
+            },
+        ),
+    )
+
+    ok, msg = await provider.check_model_connection(
+        "cosyvoice-tts-v3",
+        timeout=4,
+    )
+
+    assert ok is True
+    assert "API key verified" in msg
+
+
+async def test_dashscope_non_chat_model_transient_statuses_fail(
+    monkeypatch,
+) -> None:
+    for status_code in (404, 408, 429, 500, 502, 503):
+        provider = _make_dashscope_like_provider()
+        requests: list[dict] = []
+        _install_fake_httpx_get(
+            monkeypatch,
+            requests,
+            _FakeHTTPResponse(
+                status_code,
+                {"code": "ServerError", "message": "unavailable"},
+            ),
+        )
+
+        ok, msg = await provider.check_model_connection(
+            "wan2.2-t2v-plus",
+            timeout=4,
+        )
+
+        assert ok is False, status_code
+        assert f"status={status_code}" in msg
+
+
+async def test_ark_non_chat_model_uses_task_list_probe(monkeypatch) -> None:
+    provider = OpenAIProvider(
+        id="volcengine-cn",
+        name="Volcengine",
+        base_url="https://ark.cn-beijing.volces.com/api/v3",
+        api_key="ak-test",
+        chat_model="OpenAIChatModel",
+    )
+    requests: list[dict] = []
+    _install_fake_httpx_get(
+        monkeypatch,
+        requests,
+        _FakeHTTPResponse(200, {"items": [], "total": 0}),
+    )
+
+    ok, msg = await provider.check_model_connection(
+        "doubao-seedance-1-0-pro",
+        timeout=4,
+    )
+
+    assert ok is True
+    assert "task-list" in msg
+    assert requests[0]["url"] == (
+        "https://ark.cn-beijing.volces.com"
+        "/api/v3/contents/generations/tasks"
+    )
+    assert requests[0]["headers"]["Authorization"] == "Bearer ak-test"
+
+
+async def test_ark_non_chat_model_invalid_key_fails(monkeypatch) -> None:
+    provider = OpenAIProvider(
+        id="volcengine-cn",
+        name="Volcengine",
+        base_url="https://ark.cn-beijing.volces.com/api/v3",
+        api_key="ak-bad",
+        chat_model="OpenAIChatModel",
+    )
+    requests: list[dict] = []
+    _install_fake_httpx_get(
+        monkeypatch,
+        requests,
+        _FakeHTTPResponse(
+            401,
+            {
+                "error": {
+                    "code": "AuthenticationError",
+                    "message": "invalid api key",
+                },
+            },
+        ),
+    )
+
+    ok, msg = await provider.check_model_connection(
+        "doubao-seedance-1-0-pro",
+        timeout=4,
+    )
+
+    assert ok is False
+    assert "rejected the API key" in msg
+    assert "AuthenticationError" in msg
+
+
+async def test_check_model_connection_api_type_mismatch_treated_as_ok(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            _ = kwargs
+            raise RuntimeError(
+                "Error code: 403 - current user api does not support "
+                "asynchronous calls",
+            )
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+    monkeypatch.setattr(openai_provider_module, "APIError", Exception)
+
+    # A generation model whose id does not match the non-chat patterns
+    ok, msg = await provider.check_model_connection("my-video-gen", timeout=4)
+
+    assert ok is True
+    assert "dedicated non-chat" in msg
 
 
 async def test_update_config_updates_non_none_values_and_get_info() -> None:

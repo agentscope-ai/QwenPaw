@@ -20,6 +20,7 @@ export { HeaderActions } from "./HeaderActions";
 export { AddSkillDropdown } from "./AddSkillDropdown";
 export { SkillsToolbar } from "./SkillsToolbar";
 export { SkillListItem } from "./SkillListItem";
+export { ProviderSkillDrawer } from "./ProviderSkillDrawer";
 
 export {
   SUPPORTED_SKILL_URL_PREFIXES,
