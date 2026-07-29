@@ -926,6 +926,70 @@ async def test_file_restore_quiesces_internal_workspace_writers(
 
 
 @pytest.mark.asyncio
+async def test_conversation_restore_waits_for_internal_workspace_writer(
+    tmp_path: Path,
+) -> None:
+    class BusyTasks:
+        def __init__(self) -> None:
+            self.waiting = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def list_active_tasks(self) -> list[str]:
+            self.waiting.set()
+            return [] if self.release.is_set() else ["running-agent"]
+
+    class Workspace:
+        def __init__(self) -> None:
+            self.task_tracker = BusyTasks()
+
+    engine = CheckpointService(tmp_path)
+    workspace = Workspace()
+    engine.workspace = workspace
+    session_path = _write_session(tmp_path, "before")
+    first_commit = await _checkpoint(engine, "before")
+    _write_session(tmp_path, "after")
+
+    restore_task = asyncio.create_task(
+        engine.restore(
+            target=first_commit[:12],
+            session_id=SESSION_ID,
+            user_id=USER_ID,
+            channel=CHANNEL,
+        ),
+    )
+    await asyncio.wait_for(workspace.task_tracker.waiting.wait(), timeout=1)
+
+    assert _session_text(session_path) == "after"
+    assert not restore_task.done()
+    assert not engine.query_gate.is_set()
+
+    workspace.task_tracker.release.set()
+    await restore_task
+
+    assert _session_text(session_path) == "before"
+    assert engine.query_gate.is_set()
+
+
+@pytest.mark.asyncio
+async def test_tracked_restore_does_not_wait_for_its_own_task() -> None:
+    class CurrentTaskOnly:
+        @staticmethod
+        async def list_active_tasks() -> list[str]:
+            return ["current-restore"]
+
+    class Workspace:
+        task_tracker = CurrentTaskOnly()
+
+    guard = WorkspaceMutationGuard(
+        Workspace(),
+        timeout=0.01,
+        allowed_active_tasks=1,
+    )
+
+    await guard.quiesce()
+
+
+@pytest.mark.asyncio
 async def test_restore_with_memory_rolls_back_session_on_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -739,6 +739,7 @@ class CheckpointService:
         user_id: str,
         channel: str,
         dry_run: bool = False,
+        tracked_caller: bool = False,
     ) -> RestoreResult:
         """Restore the current conversation session to a checkpoint."""
         return await self._restores.restore(
@@ -747,6 +748,7 @@ class CheckpointService:
             user_id=user_id,
             channel=channel,
             dry_run=dry_run,
+            tracked_caller=tracked_caller,
         )
 
     # -- restore with memory -----------------------------------------------
@@ -759,6 +761,7 @@ class CheckpointService:
         user_id: str,
         channel: str,
         dry_run: bool = False,
+        tracked_caller: bool = False,
     ) -> RestoreResult:
         """Restore conversation + MEMORY.md + memory/ to a checkpoint."""
         return await self._restores.restore_with_memory(
@@ -767,6 +770,7 @@ class CheckpointService:
             user_id=user_id,
             channel=channel,
             dry_run=dry_run,
+            tracked_caller=tracked_caller,
         )
 
     # -- restore with files ------------------------------------------------
@@ -781,6 +785,7 @@ class CheckpointService:
         include_memory: bool = False,
         selected_files: tuple[str, ...] | None = None,
         dry_run: bool = False,
+        tracked_caller: bool = False,
     ) -> RestoreResult:
         """Restore conversation + query-touched files to a checkpoint."""
         return await self._restores.restore_with_files(
@@ -791,6 +796,7 @@ class CheckpointService:
             include_memory=include_memory,
             selected_files=selected_files,
             dry_run=dry_run,
+            tracked_caller=tracked_caller,
         )
 
     def resolve_target(
