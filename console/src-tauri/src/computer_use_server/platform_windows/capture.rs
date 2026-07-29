@@ -2,7 +2,6 @@
 
 use base64::Engine;
 use serde_json::{json, Value};
-use std::fs::remove_file;
 use std::time::Duration;
 use windows::core::HSTRING;
 use windows::Foundation::{PropertyType, PropertyValue};
@@ -25,15 +24,12 @@ pub(crate) fn observe_window(
 ) -> Result<Value, (&'static str, String)> {
     let capture_id = next_id("screenshot");
     let snapshot_id = next_id("snapshot");
-    let output = std::env::temp_dir().join(format!("{capture_id}.bmp"));
     let capture = capture_window(CaptureArgs {
         hwnd: window.hwnd,
-        out: output.clone(),
         timeout: Duration::from_millis(2500),
     })
     .map_err(|error| ("capture_failed", error))?;
-    let bytes = std::fs::read(&output).map_err(|error| ("capture_failed", error.to_string()))?;
-    let _ = remove_file(&output);
+    let bytes = capture.bitmap;
     let (display_width, display_height) = bounded_dimensions(capture.width, capture.height);
     let (media_type, image_bytes) = match encode_screenshot_jpeg(
         &bytes,

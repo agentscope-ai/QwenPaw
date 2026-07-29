@@ -11,9 +11,7 @@
 //! layers above it name no platform API. It lived in the helper binary until the
 //! server ended up importing it back out of its own entry point.
 
-use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::io::Write;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -50,12 +48,13 @@ use super::window::get_visible_window_rect;
 #[derive(Debug)]
 pub(super) struct CaptureArgs {
     pub(super) hwnd: isize,
-    pub(super) out: PathBuf,
     pub(super) timeout: Duration,
 }
 
 #[derive(Debug)]
 pub(super) struct CaptureInfo {
+    /// The frame as a 32bpp top-down bitmap, header included.
+    pub(super) bitmap: Vec<u8>,
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) window_rect: [i32; 4],
@@ -118,9 +117,10 @@ fn capture_window_inner(args: CaptureArgs) -> Result<CaptureInfo, String> {
         .map_err(|err| format!("StartCapture failed: {err}"))?;
 
     let frame = wait_for_frame(&frame_pool, args.timeout)?;
-    let (width, height) = copy_frame_to_bmp(&device, &context, &frame, &args.out)?;
+    let (bitmap, width, height) = frame_to_bitmap(&device, &context, &frame)?;
 
     Ok(CaptureInfo {
+        bitmap,
         width,
         height,
         window_rect: rect_to_array(window_rect),
@@ -218,12 +218,17 @@ fn wait_for_frame(
     }
 }
 
-fn copy_frame_to_bmp(
+/// Read the captured frame back from the GPU as a 32bpp top-down bitmap.
+///
+/// The bytes are returned rather than written anywhere: the caller encodes them
+/// as JPEG. They used to go to a temporary file, which was how a command-line
+/// capture handed its result back -- a round trip through disk that a window on
+/// a large display made expensive, for a buffer the next line reads again.
+fn frame_to_bitmap(
     device: &ID3D11Device,
     context: &ID3D11DeviceContext,
     frame: &Direct3D11CaptureFrame,
-    out: &Path,
-) -> Result<(u32, u32), String> {
+) -> Result<(Vec<u8>, u32, u32), String> {
     let surface = frame
         .Surface()
         .map_err(|err| format!("frame.Surface failed: {err}"))?;
@@ -275,13 +280,13 @@ fn copy_frame_to_bmp(
             .Map(&staging_resource, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
             .map_err(|err| format!("Map staging texture failed: {err}"))?;
     }
-    let write_result = write_bmp(out, desc.Width, desc.Height, mapped.RowPitch, mapped.pData);
+    let write_result = write_bmp(desc.Width, desc.Height, mapped.RowPitch, mapped.pData);
     unsafe {
         context.Unmap(&staging_resource, 0);
     }
-    write_result?;
+    let bitmap = write_result?;
 
-    Ok((desc.Width, desc.Height))
+    Ok((bitmap, desc.Width, desc.Height))
 }
 
 fn rect_to_array(rect: RECT) -> [i32; 4] {
@@ -289,12 +294,11 @@ fn rect_to_array(rect: RECT) -> [i32; 4] {
 }
 
 fn write_bmp(
-    path: &Path,
     width: u32,
     height: u32,
     row_pitch: u32,
     data: *mut std::ffi::c_void,
-) -> Result<(), String> {
+) -> Result<Vec<u8>, String> {
     if data.is_null() {
         return Err("mapped texture data is null".to_string());
     }
@@ -316,9 +320,7 @@ fn write_bmp(
         .and_then(|value| value.checked_add(pixel_bytes))
         .ok_or_else(|| "BMP file size overflow".to_string())?;
 
-    let file = File::create(path)
-        .map_err(|err| format!("failed to create {}: {err}", path.display()))?;
-    let mut writer = BufWriter::new(file);
+    let mut writer = Vec::with_capacity(file_size as usize);
 
     writer.write_all(b"BM").map_err(|err| err.to_string())?;
     write_u32(&mut writer, file_size)?;
@@ -347,7 +349,7 @@ fn write_bmp(
             unsafe { std::slice::from_raw_parts(base.add(y * row_pitch as usize), row_len) };
         writer.write_all(row).map_err(|err| err.to_string())?;
     }
-    writer.flush().map_err(|err| err.to_string())
+    Ok(writer)
 }
 
 fn write_u16(writer: &mut impl Write, value: u16) -> Result<(), String> {
@@ -366,4 +368,70 @@ fn write_i32(writer: &mut impl Write, value: i32) -> Result<(), String> {
     writer
         .write_all(&value.to_le_bytes())
         .map_err(|err| err.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a mapped-texture stand-in: `height` rows of `row_pitch` bytes, of
+    /// which the first `width * 4` carry pixels, mirroring how Direct3D hands
+    /// back a staging texture whose rows are padded to a hardware stride.
+    fn mapped_rows(width: u32, height: u32, row_pitch: u32) -> Vec<u8> {
+        let mut buffer = vec![0_u8; (row_pitch * height) as usize];
+        for row in 0..height {
+            for column in 0..width * 4 {
+                let index = (row * row_pitch + column) as usize;
+                // A value that identifies its row, so a stride mistake shows up
+                // as pixels from the wrong row rather than as plausible noise.
+                buffer[index] = (row * 16 + column) as u8;
+            }
+        }
+        buffer
+    }
+
+    #[test]
+    fn the_header_describes_a_top_down_32bpp_bitmap() {
+        let mut rows = mapped_rows(2, 2, 8);
+        let bitmap = write_bmp(2, 2, 8, rows.as_mut_ptr().cast()).expect("bitmap");
+
+        assert_eq!(&bitmap[0..2], b"BM");
+        assert_eq!(u32::from_le_bytes(bitmap[2..6].try_into().unwrap()), 70);
+        assert_eq!(u32::from_le_bytes(bitmap[10..14].try_into().unwrap()), 54);
+        assert_eq!(u32::from_le_bytes(bitmap[14..18].try_into().unwrap()), 40);
+        assert_eq!(i32::from_le_bytes(bitmap[18..22].try_into().unwrap()), 2);
+        // Negative height means the rows are stored top-down, which is the
+        // order the compositor delivers them; a positive one would flip the
+        // image and every mapped coordinate with it.
+        assert_eq!(i32::from_le_bytes(bitmap[22..26].try_into().unwrap()), -2);
+        assert_eq!(u16::from_le_bytes(bitmap[28..30].try_into().unwrap()), 32);
+        assert_eq!(bitmap.len(), 54 + 16);
+    }
+
+    #[test]
+    fn padded_rows_are_read_without_their_padding() {
+        // A stride wider than the pixels is the normal case, not an edge one.
+        let mut rows = mapped_rows(2, 2, 12);
+        let bitmap = write_bmp(2, 2, 12, rows.as_mut_ptr().cast()).expect("bitmap");
+
+        assert_eq!(bitmap.len(), 54 + 16);
+        let pixels = &bitmap[54..];
+        assert_eq!(pixels[0..8], [0, 1, 2, 3, 4, 5, 6, 7]);
+        // Row one starts at 16 in the generator, so reading it as 12 would mean
+        // the padding was copied instead of skipped.
+        assert_eq!(pixels[8..16], [16, 17, 18, 19, 20, 21, 22, 23]);
+    }
+
+    #[test]
+    fn a_stride_narrower_than_the_pixels_is_refused() {
+        let mut rows = mapped_rows(2, 1, 8);
+        let error = write_bmp(2, 1, 4, rows.as_mut_ptr().cast()).expect_err("must refuse");
+        assert!(error.contains("row pitch"), "{error}");
+    }
+
+    #[test]
+    fn a_null_mapping_is_refused() {
+        let error = write_bmp(2, 2, 8, std::ptr::null_mut()).expect_err("must refuse");
+        assert!(error.contains("null"), "{error}");
+    }
 }
