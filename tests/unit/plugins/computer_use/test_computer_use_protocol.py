@@ -142,11 +142,10 @@ def test_close_window_requires_a_window_id() -> None:
         _native_request("close_window", window_id="")
 
 
-def test_close_window_is_guarded_like_other_state_changes() -> None:
-    """A close can raise a save prompt and follows an approval, so it must
-    take part in both the new-window hint and the post-approval exemption."""
+def test_close_window_is_hinted_like_other_state_changes() -> None:
+    """A close can raise a save prompt, so it takes part in the new-window
+    hint that tells the caller to observe the dialog before acting."""
     assert "close_window" in dispatch_module._DIALOG_HINT_ACTIONS
-    assert "close_window" in client_module._INPUT_METHODS
 
 
 def test_coordinate_input_rejects_missing_snapshot_identifier() -> None:
@@ -392,29 +391,33 @@ async def test_note_new_windows_ignores_probe_failure(
 
 
 @pytest.mark.asyncio
-async def test_post_approval_exemption_rides_the_next_input_action() -> None:
-    """After an approval, exactly one input action carries after_approval."""
+async def test_no_action_ever_carries_a_post_approval_exemption() -> None:
+    """The client never sends after_approval, on any path.
+
+    The exemption is gone: the recency guard has no bypass, so an action right
+    after an approval is refused as retryable user_intervention rather than
+    waved through by a client-held flag. The client therefore has no mechanism
+    left to attach the flag, and this pins that it is absent.
+    """
     transport = _FakeTransport()
     client = ComputerUseClient("session-a", lambda: transport)
     set_current_computer_use_turn_id("turn-1")
     try:
-        client._approvals.intervention_bypass_pending = True
-
-        # A non-input method must neither consume nor forward the exemption.
-        await client.execute("list_windows", {})
-        assert "after_approval" not in transport.messages[-1]["params"]
-        assert client._approvals.intervention_bypass_pending is True
-
-        # The first input action carries the flag and clears the exemption.
         await client.execute("type_text", {"window_id": "1", "text": "x"})
-        assert transport.messages[-1]["params"]["after_approval"] is True
-        assert client._approvals.intervention_bypass_pending is False
+        assert "after_approval" not in transport.messages[-1]["params"]
 
-        # A later input action does not carry it again.
-        await client.execute("type_text", {"window_id": "1", "text": "y"})
+        await client.execute("click", {"window_id": "1"})
         assert "after_approval" not in transport.messages[-1]["params"]
     finally:
         set_current_computer_use_turn_id(None)
+
+
+def test_the_approval_coordinator_holds_no_exemption_state() -> None:
+    """Nothing to arm, so nothing to leak across turns or apps."""
+    assert not hasattr(
+        client_module.ComputerUseApprovalCoordinator(),
+        "intervention_bypass_pending",
+    )
 
 
 def test_element_line_uses_bounds_centre_on_windows() -> None:

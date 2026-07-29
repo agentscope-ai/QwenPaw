@@ -21,13 +21,13 @@ from .access import (
 
 
 class ComputerUseApprovalCoordinator:
-    """The plugin-side adapter for native-originated App approval events."""
+    """The plugin-side adapter for native-originated App approval events.
 
-    def __init__(self) -> None:
-        # Armed for one action after the user resolves an approval prompt, so
-        # the native recency guard does not misread that click as the user
-        # taking over the machine. Consumed by the next input action.
-        self.intervention_bypass_pending = False
+    Holds no state: the recency guard on the helper no longer takes a
+    post-approval exemption, so there is nothing to arm here. An action issued
+    right after an approval is refused as retryable ``user_intervention`` and
+    succeeds once the caller observes again and reissues.
+    """
 
     async def decide(self, message: Mapping[str, Any]) -> dict[str, Any]:
         """Resolve one reverse approval request without widening its scope."""
@@ -50,9 +50,6 @@ class ComputerUseApprovalCoordinator:
             )
         except Exception:  # noqa: BLE001 - approval failures deny by default
             decision = ApprovalDecision.DENIED
-        # The user just interacted with QwenPaw to answer this prompt; exempt
-        # the next action once so it is not rejected as recent human input.
-        self.intervention_bypass_pending = True
         allowed = decision == ApprovalDecision.APPROVED
         store.record_session(request, allowed=allowed)
         return {"allowed": allowed, "source": "session"}

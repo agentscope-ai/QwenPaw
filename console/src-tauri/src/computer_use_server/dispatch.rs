@@ -189,13 +189,9 @@ pub(super) fn dispatch_request(
     // focused. Observation is left out: it reads the screen without moving it.
     let _desktop = if changes_window_state(method) {
         let held = take_desktop()?;
-        let after_approval = params
-            .get("after_approval")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
         // Checked under the turn, so the machine cannot become locked, or the
         // user cannot start typing, between the check and the action.
-        enforce_input_guard(after_approval)?;
+        enforce_input_guard()?;
         Some(held)
     } else {
         None
@@ -248,25 +244,22 @@ pub(super) fn dispatch_request(
 ///
 /// Two conditions, checked together because they answer the same question: the
 /// desktop must not be locked, and the keyboard and mouse must have been idle
-/// long enough that the action is not racing someone. `after_approval` marks
-/// the request that follows an approval, whose own dismissing click would
-/// otherwise read as intervention.
+/// long enough that the action is not racing someone.
 ///
-/// This runs once per request, from the one place every request passes. It used
-/// to sit inside the platform leaves, repeated per action and per platform, and
-/// the exemption had to travel there as connection-local state -- which Windows
-/// then spent twice, resolving both ends of a drag through a shared helper, so
-/// a drag right after an approval could not succeed. Deciding here needs no
-/// state at all, and an exemption cannot outlive the request that carried it.
-fn enforce_input_guard(after_approval: bool) -> Result<(), (&'static str, String)> {
+/// There is deliberately no post-approval exemption. The click that answers an
+/// approval prompt is itself recent input, so an action issued right on its
+/// heels is refused here as `user_intervention` -- a retryable outcome the
+/// caller recovers from by observing again and reissuing, by which point the
+/// grace has passed. An exemption would have to distinguish that approving
+/// click from a person genuinely taking over, which the OS idle timer cannot,
+/// so it could only be a flag that also waved real input through. Refusing and
+/// letting the caller retry keeps the guard honest and holds no state.
+fn enforce_input_guard() -> Result<(), (&'static str, String)> {
     if desktop_locked() {
         return Err((
             "desktop_locked",
             "The desktop is locked; ask the user to unlock it before continuing.".to_string(),
         ));
-    }
-    if after_approval {
-        return Ok(());
     }
     // An unreadable idle time is treated as idle: refusing every action because
     // the platform would not answer would strand the agent entirely.
@@ -365,18 +358,6 @@ mod tests {
         // running, so it can take the focus another session's keystrokes were
         // aimed at -- and it can do it to a person who is mid-sentence.
         assert!(changes_window_state("launch_app"));
-    }
-
-    #[test]
-    fn an_approved_request_is_exempt_from_the_recency_check() {
-        // The click that dismissed the approval prompt is recent user input by
-        // definition, so the request it authorised has to be allowed through.
-        // Nothing persists afterwards: the flag arrives with the request.
-        if desktop_locked() {
-            return;
-        }
-        assert!(enforce_input_guard(true).is_ok());
-        assert!(enforce_input_guard(true).is_ok());
     }
 
     /// Taken by any test that touches the desktop turn.

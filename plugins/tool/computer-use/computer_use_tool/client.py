@@ -42,27 +42,6 @@ _ACQUIRE_ATTEMPTS = 5
 _DESKTOP_BUSY_ATTEMPTS = 5
 _DESKTOP_BUSY_DELAY_SECONDS = 0.15
 _ACQUIRE_RETRY_DELAY_SECONDS = 0.5
-# Native methods that pass through the recency guard, and so are the only ones
-# worth spending a pending post-approval exemption on. The helper acts on the
-# ``after_approval`` flag alone, so this set decides which requests carry the
-# flag and nothing more -- it is not a mirror of any list on that side.
-_INPUT_METHODS = frozenset(
-    {
-        "click",
-        "scroll",
-        "drag",
-        "press_key",
-        "type_text",
-        "invoke_element",
-        "set_value",
-        "close_window",
-        # Raising a window is guarded too: it moves the keyboard focus, and on
-        # Windows escaping the foreground lock synthesizes an Alt tap. Without
-        # it here, the focus call right after an approval would be refused for
-        # the very click that granted it.
-        "set_focus",
-    },
-)
 TransportFactory = Callable[[], ComputerUseTransport]
 
 
@@ -117,13 +96,6 @@ class ComputerUseClient:
                 "turn_stopped",
                 "Computer Use was stopped for this turn.",
             )
-        if (
-            method in _INPUT_METHODS
-            and self._approvals.intervention_bypass_pending
-        ):
-            # Carry the one-shot post-approval exemption to the native guard.
-            params = {**params, "after_approval": True}
-            self._approvals.intervention_bypass_pending = False
         async with self._lock:
             if self._turn_id and self._turn_id != turn_id:
                 await self._end_turn(transport, self._turn_id)

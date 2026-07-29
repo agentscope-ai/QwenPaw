@@ -172,3 +172,57 @@ async def test_other_failures_are_not_retried(
 
     assert failure.value.code == "request_timeout"
     assert transport.attempts == 1, "a timeout must be reported, not repeated"
+
+
+@pytest.mark.asyncio
+async def test_user_intervention_is_a_retryable_soft_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The recency guard's refusal must not tear down the connection.
+
+    Removing the post-approval exemption means an action right after an
+    approval can be refused as ``user_intervention``. The design relies on that
+    being recoverable: the caller observes again and reissues once the grace
+    has passed. So it has to surface as a plain action-level error on a live
+    connection -- not discard the transport the way a broken pipe would, or the
+    retry would pay for a fresh connect every time.
+    """
+    monkeypatch.setattr(
+        client_module,
+        "get_current_computer_use_turn_id",
+        lambda: "turn-1",
+    )
+
+    class _Intervene(_Transport):
+        async def request(self, message: dict[str, Any]) -> dict[str, Any]:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise ComputerUseProtocolError(
+                    "user_intervention",
+                    "Recent user input was detected; observe again.",
+                )
+            return {
+                "protocol_version": message["protocol_version"],
+                "request_id": message["request_id"],
+                "ok": True,
+                "result": {"done": True},
+            }
+
+    transport = _Intervene(busy_replies=0)
+    client = ComputerUseClient(
+        "session-1",
+        transport_factory=lambda: transport,
+    )
+
+    with pytest.raises(ComputerUseProtocolError) as refusal:
+        await client.execute("click", {"window_id": "w"})
+    assert refusal.value.code == "user_intervention"
+    # The connection is intact: not closed, and not retried behind the caller's
+    # back -- a soft refusal, not a transport failure.
+    assert transport.closed is False
+    assert transport.attempts == 1
+
+    # The caller observes again and reissues on the same connection; it works.
+    result = await client.execute("click", {"window_id": "w"})
+    assert result == {"done": True}
+    assert transport.attempts == 2
