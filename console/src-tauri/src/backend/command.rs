@@ -39,7 +39,7 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
             .current_dir(repo_root)
             .env("PYTHONPATH", source_path.display().to_string())
     };
-    Ok(apply_computer_use_environment(app, command))
+    Ok(apply_contributed_environment(app, command))
 }
 
 /// Builds the command used to start the packaged Python backend sidecar.
@@ -68,7 +68,7 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
             "QWENPAW_TAURI_RESOURCE_DIR",
             resource_dir.to_string_lossy().to_string(),
         );
-    let mut command = apply_computer_use_environment(app, command);
+    let mut command = apply_contributed_environment(app, command);
     // Bundled standalone Python used by the backend to install third-party
     // plugin dependencies (sys.executable is the frozen backend, not Python).
     if let Some(python) = packaged_python_runtime(app) {
@@ -115,8 +115,12 @@ fn packaged_python_runtime(app: &tauri::AppHandle) -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.is_file())
 }
 
-fn apply_computer_use_environment(app: &tauri::AppHandle, mut command: Command) -> Command {
-    for (key, value) in crate::computer_use_runtime::backend_environment(app) {
+/// Add the variables desktop features contribute to the backend's environment.
+///
+/// The set comes from [`crate::runtime_env`], so this stays independent of which
+/// feature needs what.
+fn apply_contributed_environment(app: &tauri::AppHandle, mut command: Command) -> Command {
+    for (key, value) in crate::runtime_env::collect(app) {
         command = command.env(key, value);
     }
     command

@@ -4,6 +4,7 @@ mod backend;
 mod backend_download;
 mod computer_use_runtime;
 mod external_link;
+mod runtime_env;
 mod tray;
 mod updates;
 
