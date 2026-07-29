@@ -24,7 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::super::super::get_visible_window_rect;
-use super::super::state::{map_point, ServerState, WindowInfo, USER_INTERVENTION_GRACE_MS};
+use super::super::state::{map_point, ServerState, WindowInfo};
 
 pub(crate) fn click(
     state: &ServerState,
@@ -100,7 +100,6 @@ pub(crate) fn type_text(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or(("invalid_request", "text is required.".to_string()))?;
-    reject_recent_user_intervention()?;
     set_focus(window)?;
     let mut inputs = Vec::with_capacity(text.encode_utf16().count() * 2);
     for unit in text.encode_utf16() {
@@ -122,7 +121,6 @@ pub(crate) fn press_key(
         .filter(|value| !value.is_empty())
         .ok_or(("invalid_request", "key is required.".to_string()))?;
     let keys = parse_key_sequence(key)?;
-    reject_recent_user_intervention()?;
     set_focus(window)?;
     let mut inputs = Vec::with_capacity(keys.len() * 2);
     for value in &keys {
@@ -315,7 +313,6 @@ fn verify_point_with_prefix(
             "Window geometry changed; observe it again.".to_string(),
         ));
     }
-    reject_recent_user_intervention()?;
     set_focus(window)?;
     let x = integer_param(params, &format!("{prefix}x"))?;
     let y = integer_param(params, &format!("{prefix}y"))?;
@@ -426,37 +423,20 @@ fn alt_tap_and_set_foreground(hwnd: HWND) -> bool {
     try_set_foreground(hwnd)
 }
 
-thread_local! {
-    // One-shot exemption for the recency guard. The desktop host sets this
-    // right after the user resolves an approval prompt in QwenPaw, so the
-    // very next action does not misread that click as the user taking over.
-    static INTERVENTION_BYPASS_ONCE: std::cell::Cell<bool> =
-        const { std::cell::Cell::new(false) };
-}
-
-/// Arm or clear the one-shot recency-guard exemption for this connection.
-pub(crate) fn set_intervention_bypass_once(value: bool) {
-    INTERVENTION_BYPASS_ONCE.with(|cell| cell.set(value));
-}
-
-pub(crate) fn reject_recent_user_intervention() -> Result<(), (&'static str, String)> {
-    if INTERVENTION_BYPASS_ONCE.with(|cell| cell.replace(false)) {
-        return Ok(());
-    }
+/// Milliseconds since the last keyboard or mouse event anywhere on the desktop.
+///
+/// `None` when the system will not report it. The decision about what age is
+/// too recent, and the exemption that follows an approval, belong to the shared
+/// input guard; this reports the measurement and nothing else.
+pub(crate) fn last_input_age_ms() -> Option<u32> {
     let mut input = LASTINPUTINFO {
         cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
         ..Default::default()
     };
-    if unsafe { GetLastInputInfo(&mut input) }.as_bool()
-        && unsafe { GetTickCount() }.wrapping_sub(input.dwTime) < USER_INTERVENTION_GRACE_MS
-    {
-        return Err((
-            "user_intervention",
-            "Recent user input was detected; observe the screen again before continuing."
-                .to_string(),
-        ));
+    if !unsafe { GetLastInputInfo(&mut input) }.as_bool() {
+        return None;
     }
-    Ok(())
+    Some(unsafe { GetTickCount() }.wrapping_sub(input.dwTime))
 }
 
 /// Report whether the interactive workstation is currently locked.

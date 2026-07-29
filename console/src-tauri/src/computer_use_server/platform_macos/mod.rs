@@ -29,8 +29,7 @@ mod window;
 pub(super) use accessibility_tree::{invoke_element, set_value, AxElement};
 pub(super) use capture::observe_window;
 pub(super) use input::{
-    click, desktop_locked, drag, press_key, scroll, set_focus, set_intervention_bypass_once,
-    type_text,
+    click, desktop_locked, drag, last_input_age_ms, press_key, scroll, set_focus, type_text,
 };
 pub(super) use window::{
     app_id_from_bundle_path, close_window, is_forbidden, list_apps, list_windows, resolve_window,

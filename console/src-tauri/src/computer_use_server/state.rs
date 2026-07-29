@@ -19,10 +19,6 @@ pub(super) type NativeElement = windows::Win32::UI::Accessibility::IUIAutomation
 #[cfg(target_os = "macos")]
 pub(super) type NativeElement = super::platform_macos::AxElement;
 
-/// How recently a person must have used the keyboard or mouse for an action to
-/// be refused as racing them.
-pub(super) const USER_INTERVENTION_GRACE_MS: u32 = 750;
-
 // Raw window captures are 32bpp bitmaps; re-encode them as JPEG so a
 // single screenshot costs hundreds of kilobytes instead of tens of
 // megabytes once it is base64-encoded into the response payload.

@@ -15,7 +15,6 @@ use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 use super::super::state::{
     element_line, next_id, truncate_document_text, ServerState, WindowInfo, DOC_TEXT_MAX,
 };
-use super::input::reject_recent_user_intervention;
 
 /// Map a UI Automation control-type identifier to a human-readable role
 /// name so callers can recognise actionable controls (for example an
@@ -179,7 +178,6 @@ pub(crate) fn invoke_element(
     params: &serde_json::Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
     let element = accessibility_element(state, window, params)?;
-    reject_recent_user_intervention()?;
     let pattern: IUIAutomationInvokePattern =
         unsafe { element.GetCurrentPatternAs(UIA_InvokePatternId) }.map_err(|_| {
             (
@@ -206,7 +204,6 @@ pub(crate) fn set_value(
         .and_then(Value::as_str)
         .ok_or(("invalid_request", "value is required.".to_string()))?;
     let element = accessibility_element(state, window, params)?;
-    reject_recent_user_intervention()?;
     let pattern: IUIAutomationValuePattern =
         unsafe { element.GetCurrentPatternAs(UIA_ValuePatternId) }.map_err(|_| {
             (

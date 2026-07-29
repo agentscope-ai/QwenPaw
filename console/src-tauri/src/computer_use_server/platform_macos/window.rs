@@ -18,7 +18,6 @@ use std::path::{Path, PathBuf};
 
 use super::super::state::{merge_app_list, InstalledApp, WindowInfo};
 use super::accessibility_tree::find_ax_window;
-use super::input::reject_recent_user_intervention;
 use super::{dict_i64, dict_string, window_owner_pid};
 
 /// Directories a macOS application bundle is normally installed into.
@@ -225,7 +224,6 @@ pub(crate) fn close_window(
         "window_not_found",
         "Accessibility could not locate the window.".to_string(),
     ))?;
-    reject_recent_user_intervention()?;
     let close_button = ax_window
         .attribute(&AXAttribute::new(&CFString::from_static_string(
             "AXCloseButton",

@@ -14,10 +14,14 @@ use super::app_identity::launch_app;
 use super::approval::request_approval;
 use super::state::ServerState;
 use super::{
-    click, close_window, desktop_locked, drag, invoke_element, list_apps, list_windows,
-    observe_window, press_key, resolve_window, scroll, set_focus, set_intervention_bypass_once,
-    set_value, type_text, PROTOCOL_VERSION,
+    click, close_window, desktop_locked, drag, invoke_element, last_input_age_ms, list_apps,
+    list_windows, observe_window, press_key, resolve_window, scroll, set_focus, set_value,
+    type_text, PROTOCOL_VERSION,
 };
+
+/// How recently a person must have used the keyboard or mouse for an action to
+/// be refused as racing them.
+const USER_INTERVENTION_GRACE_MS: u32 = 750;
 
 pub(super) fn dispatch_request(
     connection: &mut (impl Read + Write),
@@ -90,27 +94,15 @@ pub(super) fn dispatch_request(
     }
     let window = window.expect("window exists");
     request_approval(connection, &window, &meta)?;
-    // Actions that synthesize input or change window state must not run
-    // against the secure lock screen. This list is the helper's own policy
-    // about what is unsafe there, decided where the input is synthesized.
-    if changes_window_state(method) && desktop_locked() {
-        return Err((
-            "desktop_locked",
-            "The desktop is locked; ask the user to unlock it before continuing."
-                .to_string(),
-        ));
+    // Everything that disturbs the machine passes the same guard, once, here.
+    if changes_window_state(method) {
+        let after_approval = params
+            .get("after_approval")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        enforce_input_guard(after_approval)?;
     }
-    // The recency guard is exempted once right after the user resolves an
-    // approval prompt in QwenPaw. The caller marks the request that follows an
-    // approval; honouring that flag on its own -- rather than gating it behind
-    // a second list of method names that has to stay in step with the caller's
-    // -- means the two sides cannot drift out of agreement.
-    let after_approval = params
-        .get("after_approval")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    set_intervention_bypass_once(after_approval);
-    let outcome = match method {
+    match method {
         "set_focus" => {
             set_focus(&window)?;
             Ok(json!({"window": window.to_json()}))
@@ -147,18 +139,49 @@ pub(super) fn dispatch_request(
             "unsupported_operation",
             format!("Unsupported method: {method}"),
         )),
-    };
-    // An exemption the action never consumed must not outlive the request that
-    // carried it, or the next action would silently skip the recency guard.
-    set_intervention_bypass_once(false);
-    outcome
+    }
+}
+
+/// Refuse an action that would disturb a machine a person is using.
+///
+/// Two conditions, checked together because they answer the same question: the
+/// desktop must not be locked, and the keyboard and mouse must have been idle
+/// long enough that the action is not racing someone. `after_approval` marks
+/// the request that follows an approval, whose own dismissing click would
+/// otherwise read as intervention.
+///
+/// This runs once per request, from the one place every request passes. It used
+/// to sit inside the platform leaves, repeated per action and per platform, and
+/// the exemption had to travel there as connection-local state -- which Windows
+/// then spent twice, resolving both ends of a drag through a shared helper, so
+/// a drag right after an approval could not succeed. Deciding here needs no
+/// state at all, and an exemption cannot outlive the request that carried it.
+fn enforce_input_guard(after_approval: bool) -> Result<(), (&'static str, String)> {
+    if desktop_locked() {
+        return Err((
+            "desktop_locked",
+            "The desktop is locked; ask the user to unlock it before continuing.".to_string(),
+        ));
+    }
+    if after_approval {
+        return Ok(());
+    }
+    // An unreadable idle time is treated as idle: refusing every action because
+    // the platform would not answer would strand the agent entirely.
+    if last_input_age_ms().is_some_and(|age| age < USER_INTERVENTION_GRACE_MS) {
+        return Err((
+            "user_intervention",
+            "Recent user input was detected; observe the window again before continuing."
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Whether a method synthesizes input or otherwise changes window state.
 ///
-/// Used to refuse those actions on the secure lock screen. It deliberately
-/// governs nothing else, so it stays a local policy rather than a contract the
-/// caller has to mirror.
+/// This is the set the input guard applies to: the actions that reach out and
+/// disturb the machine, as opposed to those that only look at it.
 fn changes_window_state(method: &str) -> bool {
     matches!(
         method,
@@ -171,4 +194,62 @@ fn changes_window_state(method: &str) -> bool {
             | "set_value"
             | "close_window"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Spelled out rather than derived, so adding an action that reaches into
+    /// the desktop cannot pass the guard by being forgotten: the new method has
+    /// to be added here too, which is the moment to decide whether it belongs.
+    #[test]
+    fn every_action_that_disturbs_the_desktop_is_guarded() {
+        for method in [
+            "click",
+            "scroll",
+            "drag",
+            "press_key",
+            "type_text",
+            "invoke_element",
+            "set_value",
+            "close_window",
+        ] {
+            assert!(changes_window_state(method), "{method} must be guarded");
+        }
+    }
+
+    #[test]
+    fn methods_that_only_look_are_not_guarded() {
+        // Observing must keep working while someone is using the machine, and
+        // must not be refused on a locked screen either.
+        for method in [
+            "observe_window",
+            "find_window",
+            "list_apps",
+            "list_windows",
+            "set_focus",
+            "launch_app",
+            "end_turn",
+            "stop_turn",
+            "close",
+        ] {
+            assert!(
+                !changes_window_state(method),
+                "{method} must not be treated as input"
+            );
+        }
+    }
+
+    #[test]
+    fn an_approved_request_is_exempt_from_the_recency_check() {
+        // The click that dismissed the approval prompt is recent user input by
+        // definition, so the request it authorised has to be allowed through.
+        // Nothing persists afterwards: the flag arrives with the request.
+        if desktop_locked() {
+            return;
+        }
+        assert!(enforce_input_guard(true).is_ok());
+        assert!(enforce_input_guard(true).is_ok());
+    }
 }

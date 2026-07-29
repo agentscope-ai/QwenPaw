@@ -30,9 +30,9 @@ const MAX_FRAME_BYTES: usize = 64 * 1024 * 1024;
 mod platform_windows;
 #[cfg(windows)]
 use platform_windows::{
-    click, close_window, desktop_locked, drag, invoke_element, is_forbidden, list_apps,
-    list_windows, observe_window, press_key, resolve_window, scroll, set_focus,
-    set_intervention_bypass_once, set_value, type_text,
+    click, close_window, desktop_locked, drag, invoke_element, is_forbidden, last_input_age_ms,
+    list_apps, list_windows, observe_window, press_key, resolve_window, scroll, set_focus,
+    set_value, type_text,
 };
 
 #[cfg(target_os = "macos")]
@@ -40,6 +40,6 @@ mod platform_macos;
 #[cfg(target_os = "macos")]
 use platform_macos::{
     app_id_from_bundle_path, click, close_window, desktop_locked, drag, invoke_element,
-    is_forbidden, list_apps, list_windows, observe_window, press_key, resolve_window, scroll,
-    set_focus, set_intervention_bypass_once, set_value, type_text,
+    is_forbidden, last_input_age_ms, list_apps, list_windows, observe_window, press_key,
+    resolve_window, scroll, set_focus, set_value, type_text,
 };

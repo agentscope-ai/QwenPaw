@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use super::super::state::{
     element_line, next_id, truncate_document_text, AccessibilitySnapshot, ServerState, WindowInfo,
 };
-use super::input::reject_recent_user_intervention;
 use super::{window_owner_pid, _AXUIElementGetWindow};
 
 /// Native accessibility element handle for the shared snapshot store.
@@ -27,7 +26,6 @@ pub(crate) fn invoke_element(
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
     let element = accessibility_element(state, window, params)?;
-    reject_recent_user_intervention()?;
     element
         .element
         .perform_action(&CFString::from_static_string(kAXPressAction))
@@ -50,7 +48,6 @@ pub(crate) fn set_value(
         .and_then(Value::as_str)
         .ok_or(("invalid_request", "value is required.".to_string()))?;
     let element = accessibility_element(state, window, params)?;
-    reject_recent_user_intervention()?;
     element
         .element
         .set_attribute(&AXAttribute::value(), CFString::new(value).as_CFType())

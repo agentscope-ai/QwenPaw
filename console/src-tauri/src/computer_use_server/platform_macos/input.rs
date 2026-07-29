@@ -22,7 +22,7 @@ use core_graphics::window::{
 };
 use serde_json::{json, Map, Value};
 
-use super::super::state::{map_point, ServerState, Snapshot, WindowInfo, USER_INTERVENTION_GRACE_MS};
+use super::super::state::{map_point, ServerState, Snapshot, WindowInfo};
 use super::accessibility_tree::find_ax_window;
 use super::{
     bounds_from_dict, dict_i64, integer_param, window_bounds, window_owner_pid,
@@ -37,14 +37,6 @@ const FOCUS_POLL_INTERVAL_MS: u64 = 25;
 
 const EVENT_SOURCE_STATE_COMBINED_SESSION: u32 = 1;
 const ANY_INPUT_EVENT_TYPE: u32 = 0xFFFF_FFFF;
-
-thread_local! {
-    // One-shot exemption armed by the host right after the user resolves an
-    // approval prompt, so the following action does not misread that click
-    // as the person taking over the machine.
-    static INTERVENTION_BYPASS_ONCE: std::cell::Cell<bool> =
-        const { std::cell::Cell::new(false) };
-}
 
 /// Read the current login-session dictionary and report the lock flag.
 /// Returns `None` when the session dictionary is unavailable (for example
@@ -64,36 +56,27 @@ fn session_screen_is_locked() -> Option<bool> {
     }
 }
 
-/// Arm or clear the one-shot recency-guard exemption for this connection.
-pub(crate) fn set_intervention_bypass_once(value: bool) {
-    INTERVENTION_BYPASS_ONCE.with(|cell| cell.set(value));
-}
-
 /// Report whether the login session is currently locked. A locked session
 /// must not receive synthesized input.
 pub(crate) fn desktop_locked() -> bool {
     session_screen_is_locked().unwrap_or(false)
 }
 
-/// Reject an action if a person used the keyboard or mouse within the grace
-/// window, so automated input never races a human.
-pub(super) fn reject_recent_user_intervention() -> Result<(), (&'static str, String)> {
-    if INTERVENTION_BYPASS_ONCE.with(|cell| cell.replace(false)) {
-        return Ok(());
-    }
+/// Milliseconds since the last keyboard or mouse event anywhere on the desktop.
+///
+/// The decision about what age is too recent, and the exemption that follows an
+/// approval, belong to the shared input guard; this reports the measurement and
+/// nothing else.
+pub(crate) fn last_input_age_ms() -> Option<u32> {
     let idle_seconds = unsafe {
         CGEventSourceSecondsSinceLastEventType(
             EVENT_SOURCE_STATE_COMBINED_SESSION,
             ANY_INPUT_EVENT_TYPE,
         )
     };
-    if idle_seconds * 1000.0 < f64::from(USER_INTERVENTION_GRACE_MS) {
-        return Err((
-            "user_intervention",
-            "A person used the keyboard or mouse very recently; try again.".to_string(),
-        ));
-    }
-    Ok(())
+    // A machine idle for weeks would overflow; saturating is correct because
+    // anything past the grace window is equally "long ago".
+    Some((idle_seconds * 1000.0).clamp(0.0, f64::from(u32::MAX)) as u32)
 }
 
 pub(crate) fn click(
@@ -102,7 +85,6 @@ pub(crate) fn click(
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
     let point = resolve_point(state, window, params, "x", "y")?;
-    reject_recent_user_intervention()?;
     set_focus(window)?;
     let button = params.get("button").and_then(Value::as_str).unwrap_or("left");
     let count = params
@@ -137,7 +119,6 @@ pub(crate) fn scroll(
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
     let point = resolve_point(state, window, params, "x", "y")?;
-    reject_recent_user_intervention()?;
     set_focus(window)?;
     let delta_y = integer_param(params, "delta_y")? as i32;
     let source = event_source()?;
@@ -155,7 +136,6 @@ pub(crate) fn drag(
 ) -> Result<Value, (&'static str, String)> {
     let start = resolve_point(state, window, params, "start_x", "start_y")?;
     let end = resolve_point(state, window, params, "end_x", "end_y")?;
-    reject_recent_user_intervention()?;
     set_focus(window)?;
     let source = event_source()?;
     post_mouse(&source, CGEventType::MouseMoved, start, CGMouseButton::Left)?;
@@ -174,7 +154,6 @@ pub(crate) fn type_text(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or(("invalid_request", "text is required.".to_string()))?;
-    reject_recent_user_intervention()?;
     set_focus(window)?;
     let source = event_source()?;
     let event = CGEvent::new_keyboard_event(source, 0, true)
@@ -195,7 +174,6 @@ pub(crate) fn press_key(
         .ok_or(("invalid_request", "key is required.".to_string()))?;
     let (keycode, flags) =
         parse_key(key).ok_or(("invalid_request", format!("Unsupported key: {key}")))?;
-    reject_recent_user_intervention()?;
     set_focus(window)?;
     let source = event_source()?;
     let down = CGEvent::new_keyboard_event(source.clone(), keycode, true)

@@ -17,7 +17,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::super::state::merge_app_list;
 use super::super::state::WindowInfo;
-use super::input::reject_recent_user_intervention;
 
 // A close request is asynchronous: wait briefly for the window to go away
 // before reporting that it is still open (usually a save prompt).
@@ -134,7 +133,6 @@ pub(crate) fn close_window(
             "Target window no longer exists.".to_string(),
         ));
     }
-    reject_recent_user_intervention()?;
     unsafe { PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) }
         .map_err(|error| ("input_failed", error.to_string()))?;
     for _ in 0..CLOSE_POLL_ATTEMPTS {
