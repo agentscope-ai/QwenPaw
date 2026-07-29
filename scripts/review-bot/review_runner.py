@@ -73,7 +73,10 @@ def _is_degenerate_review(text: str) -> bool:
     if any(m in low for m in ITERATION_LIMIT_MARKERS):
         return True
     body = re.sub(
-        r"^\s*#.*\n", "", text, count=1
+        r"^\s*#.*\n",
+        "",
+        text,
+        count=1,
     ).strip()  # drop a leading title line
     return len(body) < MIN_REVIEW_CHARS
 
@@ -281,6 +284,38 @@ def _diff_with_adaptive_context(
     return best, False
 
 
+def _render_file_chunk(
+    repo_dir: str,
+    from_sha: str,
+    to_sha: str,
+    path: str,
+    stat: str,
+) -> tuple[str, int, bool]:
+    """Render one file's change-map chunk.
+
+    Returns ``(chunk_text, line_count, truncated)`` where ``truncated``
+    marks that the diff was cut to the per-file budget.
+    """
+    header = f"### {path} ({stat})"
+    if stat == "binary":
+        return f"{header}\n(binary file — diff omitted)\n", 2, False
+    try:
+        diff_lines, truncated = _diff_with_adaptive_context(
+            repo_dir,
+            from_sha,
+            to_sha,
+            path,
+        )
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as e:
+        return f"{header}\n(could not read diff: {e})\n", 0, False
+
+    block = "\n".join(diff_lines)
+    return f"{header}\n```diff\n{block}\n```\n", len(diff_lines) + 3, truncated
+
+
 def build_change_map(repo_dir: str, from_sha: str, to_sha: str) -> str:
     """Build a compact per-file change map for the diff range.
 
@@ -306,32 +341,17 @@ def build_change_map(repo_dir: str, from_sha: str, to_sha: str) -> str:
             skipped_files.append(path)
             continue
 
-        header = f"### {path} ({stat})"
-        if stat == "binary":
-            chunks.append(f"{header}\n(binary file — diff omitted)\n")
-            total_lines += 2
-            continue
-
-        try:
-            diff_lines, truncated = _diff_with_adaptive_context(
-                repo_dir,
-                from_sha,
-                to_sha,
-                path,
-            )
-        except (
-            subprocess.CalledProcessError,
-            subprocess.TimeoutExpired,
-        ) as e:
-            chunks.append(f"{header}\n(could not read diff: {e})\n")
-            continue
-
+        chunk, n_lines, truncated = _render_file_chunk(
+            repo_dir,
+            from_sha,
+            to_sha,
+            path,
+            stat,
+        )
         if truncated:
             truncated_files.append(path)
-
-        block = "\n".join(diff_lines)
-        chunks.append(f"{header}\n```diff\n{block}\n```\n")
-        total_lines += len(diff_lines) + 3
+        chunks.append(chunk)
+        total_lines += n_lines
 
     if skipped_files:
         chunks.append(
@@ -376,6 +396,27 @@ def _extract_stream_text(evt: dict) -> str:
     return fallback if isinstance(fallback, str) else ""
 
 
+def _collect_sse(resp) -> tuple[dict | None, list]:
+    """Read an SSE stream, returning ``(final_event, stream_errors)``."""
+    final_event = None
+    stream_errors: list = []
+    for line in resp.iter_lines():
+        if not line or not line.startswith("data: "):
+            continue
+        if line[6:] == "[DONE]":
+            break
+
+        parsed = parse_agent_sse_line(line)
+        if not parsed:
+            continue
+        if parsed.get("error"):
+            stream_errors.append(str(parsed["error"]))
+        if parsed.get("type") == "turn_usage":
+            continue
+        final_event = parsed
+    return final_event, stream_errors
+
+
 def call_qwenpaw(prompt: str, session_id: str) -> str:
     """Send prompt to QwenPaw console chat API and collect SSE response.
 
@@ -408,20 +449,7 @@ def call_qwenpaw(prompt: str, session_id: str) -> str:
                         time.sleep(5)
                         continue
 
-                    for line in resp.iter_lines():
-                        if not line or not line.startswith("data: "):
-                            continue
-                        if line[6:] == "[DONE]":
-                            break
-
-                        parsed = parse_agent_sse_line(line)
-                        if not parsed:
-                            continue
-                        if parsed.get("error"):
-                            stream_errors.append(str(parsed["error"]))
-                        if parsed.get("type") == "turn_usage":
-                            continue
-                        final_event = parsed
+                    final_event, stream_errors = _collect_sse(resp)
 
             if stream_errors:
                 print(f"  Stream errors: {'; '.join(stream_errors)}")
@@ -686,31 +714,16 @@ def write_outputs(verdict_info: dict, review_text: str):
         f.write(clean_text)
 
 
-def main():
-    print("=" * 60)
-    print("QwenPaw AI Review Bot")
-    print("=" * 60)
+def resolve_change_map(pr_number: int, repo: str) -> tuple[str, str]:
+    """Resolve the PR's change map + head SHA, degrading gracefully.
 
-    pr_number = os.environ.get("PR_NUMBER")
-    repo = os.environ.get("PR_REPO")
-
-    if not pr_number or not repo:
-        print(
-            "ERROR: PR_NUMBER and PR_REPO environment variables "
-            "are required.",
-        )
-        sys.exit(1)
-
-    pr_number = int(pr_number)
-    print(f"\nTarget: {repo} PR #{pr_number}")
-
-    # Pre-compute a per-file change map from an internal blobless clone.
-    # This is an implementation detail — the clone is never surfaced to the
-    # model; only the resulting diff text (and the head SHA, used in the
-    # full-file fetch instruction) go into the prompt. Any failure here
-    # degrades gracefully to the self-fetch (gh pr diff) prompt.
-    change_map = ""
-    head_sha = ""
+    Pre-computes a per-file change map from an internal blobless clone. The
+    clone is an implementation detail — it is never surfaced to the model;
+    only the resulting diff text (and the head SHA, used in the full-file
+    fetch instruction) go into the prompt. Returns ``(change_map, head_sha)``,
+    both ``""`` on any failure so the caller falls back to the self-fetch
+    prompt.
+    """
     try:
         base_ref = fetch_base_branch(pr_number, repo)
         if not base_ref:
@@ -729,6 +742,7 @@ def main():
             )
         else:
             print("  change map empty; using self-fetch prompt")
+        return change_map, head_sha
     except (
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
@@ -737,10 +751,30 @@ def main():
     ) as e:
         print(
             f"  ⚠️  Could not build change map ({e}); "
-            f"falling back to self-fetch prompt"
+            f"falling back to self-fetch prompt",
         )
-        change_map = ""
-        head_sha = ""
+        return "", ""
+
+
+def main():
+    print("=" * 60)
+    print("QwenPaw AI Review Bot")
+    print("=" * 60)
+
+    pr_number = os.environ.get("PR_NUMBER")
+    repo = os.environ.get("PR_REPO")
+
+    if not pr_number or not repo:
+        print(
+            "ERROR: PR_NUMBER and PR_REPO environment variables "
+            "are required.",
+        )
+        sys.exit(1)
+
+    pr_number = int(pr_number)
+    print(f"\nTarget: {repo} PR #{pr_number}")
+
+    change_map, head_sha = resolve_change_map(pr_number, repo)
 
     prompt = build_review_prompt(pr_number, repo, change_map, head_sha)
     print(f"Prompt size: {len(prompt)} chars")
