@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Chat models with UUID management."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -118,6 +119,23 @@ class BatchArchiveResult(BaseModel):
     failed: list[BatchFailure] = Field(default_factory=list)
 
 
+class PendingChatDeletion(BaseModel):
+    """Durable intent for a cross-store chat deletion.
+
+    Moving chats from ``ChatsFile.chats`` into this record is the atomic
+    commit point. Session files and Scroll history can then be cleaned
+    idempotently, including after a process restart.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    chats: list[ChatSpec] = Field(default_factory=list)
+    session_paths: list[str] = Field(default_factory=list)
+    history_watermarks: dict[str, int] = Field(default_factory=dict)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+    )
+
+
 class ChatsFile(BaseModel):
     """Chat registry file for JSON repository.
 
@@ -126,3 +144,6 @@ class ChatsFile(BaseModel):
 
     version: int = 1
     chats: list[ChatSpec] = Field(default_factory=list)
+    pending_deletions: list[PendingChatDeletion] = Field(
+        default_factory=list,
+    )

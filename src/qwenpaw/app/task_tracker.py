@@ -5,6 +5,7 @@
 event buffer. Reconnects get buffer replay + new events. Cleanup when task
 completes.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,6 +19,10 @@ from typing import Any, AsyncGenerator, Callable, Coroutine, Optional
 logger = logging.getLogger(__name__)
 
 _SENTINEL = None
+
+
+class RunBlockedError(RuntimeError):
+    """Raised when a run is reserved by a destructive operation."""
 
 
 @dataclass
@@ -42,6 +47,7 @@ class TaskTracker:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._runs: dict[str, _RunState] = {}
+        self._blocked_runs: set[str] = set()
         self._global_last_run_at: Optional[datetime] = None
         self._global_last_finish_at: Optional[datetime] = None
 
@@ -189,6 +195,26 @@ class TaskTracker:
             pass
         return True
 
+    async def reserve_for_deletion(self, run_keys: set[str]) -> list[str]:
+        """Reserve keys when none is already active or reserved."""
+        keys = {key for key in run_keys if key}
+        async with self._lock:
+            conflicts = sorted(
+                key
+                for key in keys
+                if key in self._blocked_runs
+                or (key in self._runs and not self._runs[key].task.done())
+            )
+            if conflicts:
+                return conflicts
+            self._blocked_runs.update(keys)
+            return []
+
+    async def release_deletion_reservation(self, run_keys: set[str]) -> None:
+        """Allow new runs after deletion preparation/cleanup finishes."""
+        async with self._lock:
+            self._blocked_runs.difference_update(run_keys)
+
     async def attach_or_start(
         self,
         run_key: str,
@@ -200,6 +226,10 @@ class TaskTracker:
         Returns ``(queue, is_new_run)``.
         """
         async with self._lock:
+            if run_key in self._blocked_runs:
+                raise RunBlockedError(
+                    f"run {run_key!r} is being deleted",
+                )
             state = self._runs.get(run_key)
             if state is not None and not state.task.done():
                 q: asyncio.Queue = asyncio.Queue()

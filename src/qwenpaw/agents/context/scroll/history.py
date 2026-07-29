@@ -11,7 +11,8 @@ import threading
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
+from urllib.parse import quote
 
 from ..types import LogEntry
 
@@ -50,6 +51,117 @@ _INSERT_COLUMNS = (
     "created_at",
     "dedup_key",
 )
+
+
+def _connect_existing(path: Path, *, writable: bool) -> sqlite3.Connection:
+    """Open an existing SQLite file without creating or quarantining it."""
+    mode = "rw" if writable else "ro"
+    encoded = quote(path.resolve().as_posix(), safe="/:")
+    conn = sqlite3.connect(
+        f"file:{encoded}?mode={mode}",
+        uri=True,
+    )
+    conn.row_factory = sqlite3.Row
+    conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
+    return conn
+
+
+def history_session_watermarks(
+    db_path: str | Path,
+    session_ids: set[str],
+) -> dict[str, int]:
+    """Return current max seq values without creating or repairing a DB."""
+    path = Path(db_path).expanduser()
+    wanted = sorted(session_id for session_id in session_ids if session_id)
+    if not wanted or not path.is_file():
+        return {}
+    conn = _connect_existing(path, writable=False)
+    try:
+        table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='conversation_history'",
+        ).fetchone()
+        if not table:
+            return {}
+        found: dict[str, int] = {}
+        for start in range(0, len(wanted), 400):
+            chunk = wanted[start : start + 400]
+            placeholders = ", ".join("?" for _ in chunk)
+            rows = conn.execute(
+                "SELECT session_id, MAX(seq) AS max_seq "
+                "FROM conversation_history WHERE session_id IN ("
+                + placeholders
+                + ") GROUP BY session_id",
+                chunk,
+            ).fetchall()
+            found.update(
+                {
+                    str(row["session_id"]): int(row["max_seq"])
+                    for row in rows
+                    if row["max_seq"] is not None
+                },
+            )
+        return found
+    finally:
+        conn.close()
+
+
+def delete_history_sessions(
+    db_path: str | Path,
+    watermarks: Mapping[str, int],
+) -> int:
+    """Delete bounded session rows and their FTS entries transactionally.
+
+    The database must already exist. Corruption and lock failures propagate so
+    the durable chat-deletion tombstone can be retried later.
+    """
+    path = Path(db_path).expanduser()
+    targets = sorted(
+        (session_id, int(max_seq))
+        for session_id, max_seq in watermarks.items()
+        if session_id and int(max_seq) > 0
+    )
+    if not targets or not path.is_file():
+        return 0
+    conn = _connect_existing(path, writable=True)
+    try:
+        table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='conversation_history'",
+        ).fetchone()
+        if not table:
+            return 0
+        has_fts = bool(
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='conversation_history_fts'",
+            ).fetchone(),
+        )
+        removed = 0
+        with conn:
+            for session_id, max_seq in targets:
+                doomed = conn.execute(
+                    "SELECT seq, content FROM conversation_history "
+                    "WHERE session_id = ? AND seq <= ?",
+                    (session_id, max_seq),
+                ).fetchall()
+                if has_fts:
+                    for row in doomed:
+                        conn.execute(
+                            "INSERT INTO conversation_history_fts"
+                            "(conversation_history_fts, rowid, content) "
+                            "VALUES('delete', ?, ?)",
+                            (row["seq"], row["content"] or ""),
+                        )
+                conn.execute(
+                    "DELETE FROM conversation_history "
+                    "WHERE session_id = ? AND seq <= ?",
+                    (session_id, max_seq),
+                )
+                removed += len(doomed)
+        return removed
+    finally:
+        conn.close()
 
 
 class HistoryStore:

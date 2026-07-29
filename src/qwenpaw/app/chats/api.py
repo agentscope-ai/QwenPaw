@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
+
 from __future__ import annotations
 import logging
 from typing import Optional
@@ -10,8 +11,18 @@ from pydantic import BaseModel, Field
 from agentscope.message import Msg
 from agentscope.state import AgentState
 
+from .deletion import (
+    ChatDeletionCleanupError,
+    ChatDeletionInProgressError,
+    ChatDeletionService,
+    history_db_path,
+)
 from .session import SafeJSONSession
-from .manager import ChatManager, MAX_BATCH_SIZE
+from .manager import (
+    ChatDeletionPendingError,
+    ChatManager,
+    MAX_BATCH_SIZE,
+)
 from .models import (
     BatchArchiveResult,
     ChatSpec,
@@ -128,15 +139,64 @@ async def create_chat(
         channel=request.channel,
         meta=request.meta,
     )
-    return await mgr.create_chat(spec)
+    try:
+        return await mgr.create_chat(spec)
+    except ChatDeletionPendingError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Chat storage deletion is still in progress",
+        ) from exc
+
+
+async def _delete_chat_data(
+    chat_ids: list[str],
+    *,
+    mgr: ChatManager,
+    session: SafeJSONSession,
+    workspace,
+) -> bool:
+    """Run the shared single/batch cross-store deletion workflow."""
+    service = ChatDeletionService(
+        manager=mgr,
+        session=session,
+        task_tracker=workspace.task_tracker,
+        db_path=history_db_path(workspace),
+    )
+    try:
+        return await service.delete(chat_ids)
+    except ChatDeletionInProgressError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Chat is currently in progress",
+                "chat_ids": exc.chat_ids,
+            },
+        ) from exc
+    except ChatDeletionCleanupError as exc:
+        logger.exception("Chat persistence cleanup is pending retry")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Chat was queued for deletion, but persistence cleanup "
+                "must be retried"
+            ),
+        ) from exc
+    except Exception as exc:
+        logger.exception("Failed to prepare chat deletion")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to prepare chat deletion",
+        ) from exc
 
 
 @router.post("/batch-delete", response_model=dict)
 async def batch_delete_chats(
     chat_ids: list[str],
     mgr: ChatManager = Depends(get_chat_manager),
+    session: SafeJSONSession = Depends(get_session),
+    workspace=Depends(get_workspace),
 ):
-    """Delete chats by chat IDs.
+    """Delete chats and their unreferenced persisted data by chat IDs.
 
     Args:
         chat_ids: List of chat IDs
@@ -145,7 +205,17 @@ async def batch_delete_chats(
         True if deleted, False if failed
 
     """
-    deleted = await mgr.delete_chats(chat_ids=chat_ids)
+    if len(chat_ids) > MAX_BATCH_SIZE:
+        raise HTTPException(
+            status_code=422,
+            detail=f"At most {MAX_BATCH_SIZE} chats may be deleted at once",
+        )
+    deleted = await _delete_chat_data(
+        chat_ids,
+        mgr=mgr,
+        session=session,
+        workspace=workspace,
+    )
     return {"deleted": deleted}
 
 
@@ -344,11 +414,10 @@ async def update_chat(
 async def delete_chat(
     chat_id: str,
     mgr: ChatManager = Depends(get_chat_manager),
+    session: SafeJSONSession = Depends(get_session),
+    workspace=Depends(get_workspace),
 ):
-    """Delete a chat by UUID.
-
-    Note: This only deletes the chat spec (UUID mapping).
-    JSONSession state is NOT deleted.
+    """Delete a chat and its unreferenced persisted data by UUID.
 
     Args:
         chat_id: Chat UUID
@@ -360,7 +429,12 @@ async def delete_chat(
     Raises:
         HTTPException: If chat not found (404)
     """
-    deleted = await mgr.delete_chats(chat_ids=[chat_id])
+    deleted = await _delete_chat_data(
+        [chat_id],
+        mgr=mgr,
+        session=session,
+        workspace=workspace,
+    )
     if not deleted:
         raise HTTPException(
             status_code=404,

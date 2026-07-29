@@ -134,12 +134,30 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     #
     # Note: being pure backfill, this could later run asynchronously (off the
     # boot path) to speed up startup.
+    deletion_blocked_workspaces = set()
+    deletion_recovery_ready = False
     try:
-        from ..agents.context.scroll.sync import sync_all_scroll_agents
+        from .chats.deletion import recover_pending_chat_deletions
 
-        sync_all_scroll_agents()
-    except Exception:  # noqa: BLE001 - session sync must never block startup
-        logger.warning("session-sync: import/launch failed", exc_info=True)
+        deletion_blocked_workspaces = await recover_pending_chat_deletions()
+        deletion_recovery_ready = True
+    except Exception:  # noqa: BLE001 - recovery must never block startup
+        logger.warning(
+            "chat-deletion: startup recovery failed unexpectedly",
+            exc_info=True,
+        )
+
+    if deletion_recovery_ready:
+        try:
+            from ..agents.context.scroll.sync import sync_all_scroll_agents
+
+            sync_all_scroll_agents(deletion_blocked_workspaces)
+        except Exception:  # noqa: BLE001 - sync must never block startup
+            logger.warning("session-sync: import/launch failed", exc_info=True)
+    else:
+        logger.warning(
+            "session-sync: skipped because deletion recovery was unavailable",
+        )
 
     # Create core managers (instant — no I/O)
     provider_manager = ProviderManager.get_instance()
@@ -222,9 +240,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         factory_kwargs = WorkspaceBootstrapFactory.build_bootstrap_kwargs(
             app_services,
-            extra_command_specs=_api_action_command_specs
-            if _api_action_command_specs
-            else None,
+            extra_command_specs=(
+                _api_action_command_specs
+                if _api_action_command_specs
+                else None
+            ),
         )
         # Merge factory output into workspace_registry._bootstrap_kwargs
         for key, value in factory_kwargs.items():

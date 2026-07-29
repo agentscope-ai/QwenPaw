@@ -477,7 +477,9 @@ def _purge_old_history(
         )
 
 
-def sync_all_scroll_agents() -> None:
+def sync_all_scroll_agents(
+    skip_workspaces: set[Path] | None = None,
+) -> None:
     """Sync every scroll-enabled agent's ``sessions/*.json`` into its history.
 
     Called once at server startup. Fully guarded: any failure is logged and
@@ -486,12 +488,14 @@ def sync_all_scroll_agents() -> None:
     file.
     """
     try:
-        _sync_all_scroll_agents()
+        _sync_all_scroll_agents(skip_workspaces or set())
     except Exception:  # noqa: BLE001 - sync must never break startup
         logger.warning("session-sync: aborted unexpectedly", exc_info=True)
 
 
-def _sync_all_scroll_agents() -> None:
+def _sync_all_scroll_agents(  # pylint: disable=too-many-statements
+    skip_workspaces: set[Path],
+) -> None:
     # Imported lazily to keep this module importable without the app config.
     from ....config import load_config
     from ....config.config import load_agent_config
@@ -526,6 +530,13 @@ def _sync_all_scroll_agents() -> None:
         # at clone time, so every clone points back at the original and they'd
         # all collapse onto one workspace.
         workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+        if workspace_dir.resolve(strict=False) in skip_workspaces:
+            logger.error(
+                "session-sync[%s]: skipped because chat deletion recovery "
+                "did not complete",
+                agent_id,
+            )
+            continue
         sessions_dir = workspace_dir / "sessions"
         if not sessions_dir.is_dir():
             logger.info("session-sync[%s]: no sessions to sync", agent_id)
