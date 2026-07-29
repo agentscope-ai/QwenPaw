@@ -108,7 +108,7 @@ export function ConfigPage() {
         Form.Item,
         {
           name: "api_token",
-          label: "API Token（用于同步用户/角色）",
+          label: "API Token（仅用于读取用户/角色列表,不参与登录鉴权）",
         },
         React.createElement(Input.Password, {
           placeholder: "NocoBase API Token",

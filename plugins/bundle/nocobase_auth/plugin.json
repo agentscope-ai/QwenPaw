@@ -1,12 +1,12 @@
 {
   "id": "nocobase-auth",
   "name": "NocoBase Auth",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "general",
-  "description": "Sync NocoBase users and roles to QwenPaw channel access control. NocoBase is the source of truth; local whitelist/blacklist is used as fallback when NocoBase is unreachable.",
+  "description": "Makes NocoBase the sole authority for QwenPaw console/API users. Identity, roles, and login are verified live against NocoBase per request (no local user store, no mirror); enforces role-to-channel access control for the console.",
   "description_i18n": {
-    "zh-CN": "将 NocoBase 的用户和角色同步到 QwenPaw 频道访问控制。NocoBase 为权威源；NocoBase 不可达时回退到本地白名单/黑名单。",
-    "en-US": "Sync NocoBase users and roles to QwenPaw channel access control. NocoBase is the source of truth; local whitelist/blacklist is used as fallback when NocoBase is unreachable."
+    "zh-CN": "让 NocoBase 成为 QwenPaw console/API 用户的唯一权威。身份、角色、登录均按请求实时向 NocoBase 校验(不再本地存储用户,也无镜像同步);为 console 提供基于角色的频道访问控制。",
+    "en-US": "Makes NocoBase the sole authority for QwenPaw console/API users. Identity, roles, and login are verified live against NocoBase per request (no local user store, no mirror); enforces role-to-channel access control for the console."
   },
   "author": "QwenPaw",
   "entry": {
@@ -18,6 +18,6 @@
   "max_version": "2.1.0",
   "meta": {
     "category": "auth",
-    "features": ["nocobase-sync", "channel-access-control", "role-mapping"]
+    "features": ["nocobase-sso", "live-identity-resolution", "channel-access-control", "role-mapping"]
   }
 }

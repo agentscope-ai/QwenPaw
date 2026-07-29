@@ -2724,7 +2724,7 @@ export default function ChatPage() {
       },
       welcome: {
         ...i18nConfig.welcome,
-        nick: extNick ?? "QwenPaw",
+        nick: extNick ?? "福州大学AI Agent",
         avatar: extAvatar ?? "/qwenpaw.png",
         ...(extGreeting !== undefined ? { greeting: extGreeting } : {}),
         ...(extDescription !== undefined

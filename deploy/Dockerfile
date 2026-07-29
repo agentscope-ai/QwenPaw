@@ -129,8 +129,9 @@ ENV QWENPAW_PORT=8088
 COPY plugins/bundle/nocobase_auth /app/bundled-plugins/nocobase_auth
 
 COPY deploy/config/supervisord.conf.template /etc/supervisor/conf.d/supervisord.conf.template
-COPY --chmod=755 deploy/sync-bundled-plugins.sh /sync-bundled-plugins.sh
-COPY --chmod=755 deploy/entrypoint.sh /entrypoint.sh
+COPY deploy/sync-bundled-plugins.sh /sync-bundled-plugins.sh
+COPY deploy/entrypoint.sh /entrypoint.sh
+RUN chmod 755 /sync-bundled-plugins.sh /entrypoint.sh
 
 EXPOSE 8088
 
