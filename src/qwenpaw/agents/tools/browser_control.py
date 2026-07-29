@@ -959,6 +959,12 @@ def _sync_browser_launch(  # pylint: disable=too-many-branches,too-many-statemen
     executable_path: str = "",
 ):
     """Launch browser using sync Playwright (for hybrid mode)."""
+    if cdp_port and _probe_local_port_in_use(cdp_port):
+        raise RuntimeError(
+            f"Port {cdp_port} is already in use; refusing to "
+            "attach to an existing CDP endpoint. Choose a different "
+            "cdp_port or stop the process using it.",
+        )
     sync_playwright = _ensure_playwright_sync()
     pw = sync_playwright().start()  # Start without context manager
     browser = None
@@ -997,7 +1003,7 @@ def _sync_browser_launch(  # pylint: disable=too-many-branches,too-many-statemen
             )
             state["user_data_dir"] = user_data_dir
             if user_data_dir:
-                Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+                _secure_profile_directory(user_data_dir)
                 context = pw.chromium.launch_persistent_context(
                     user_data_dir=user_data_dir,
                     headless=state["headless"],
@@ -1054,6 +1060,29 @@ def _resolve_chromium_launch_target() -> tuple[Optional[str], Optional[str]]:
     return default_kind, _chromium_executable_path()
 
 
+def _secure_profile_directory(user_data_dir: str) -> None:
+    """Create the browser profile dir and tighten it to 0700 on POSIX.
+
+    Windows note: POSIX mode bits do not express Windows directory ACLs,
+    so this helper only creates the directory there and makes no
+    owner-only claim. Real DACL hardening is tracked as a follow-up.
+    """
+    if not user_data_dir:
+        return
+    path = Path(user_data_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        return
+    try:
+        path.chmod(0o700)
+    except (OSError, NotImplementedError):
+        logger.warning(
+            "Failed to set 0700 permissions on browser profile dir %s",
+            user_data_dir,
+            exc_info=True,
+        )
+
+
 # Chromium treats "--switch", "-switch" and (on Windows) "/switch" as
 # equivalent, so the guard below compares bare switch names.
 _SWITCH_PREFIXES = ("--", "-", "/") if sys.platform == "win32" else ("--", "-")
@@ -1103,22 +1132,52 @@ def _find_free_local_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def _probe_local_port_in_use(port: int) -> bool:
+    """Return True when 127.0.0.1:*port* already accepts connections."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _fetch_cdp_version(url: str) -> dict[str, Any]:
+    """Blocking fetch of /json/version; callers run this off-loop."""
+    with urllib_request.urlopen(url, timeout=1.0) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 async def _wait_for_cdp_ready(
     port: int,
+    proc: subprocess.Popen,
+    user_data_dir: str,
     timeout: float = 15.0,
 ) -> dict[str, Any]:
+    """Wait until our Chrome process owns the CDP endpoint on *port*."""
     deadline = time.monotonic() + timeout
     last_error: Optional[Exception] = None
     url = f"http://127.0.0.1:{port}/json/version"
+    port_file = Path(user_data_dir) / "DevToolsActivePort"
     while time.monotonic() < deadline:
+        exit_code = proc.poll()
+        if exit_code is not None:
+            raise RuntimeError(
+                f"Chrome exited (code {exit_code}) before its CDP endpoint "
+                f"on port {port} became ready; the port may be held by "
+                "another process.",
+            )
         try:
-            with urllib_request.urlopen(url, timeout=1.0) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except Exception as exc:
-            last_error = exc
-            await asyncio.sleep(0.2)
+            first_line = port_file.read_text(encoding="utf-8").splitlines()[
+                0
+            ].strip()
+        except (OSError, IndexError):
+            first_line = ""
+        if first_line == str(port):
+            try:
+                return await asyncio.to_thread(_fetch_cdp_version, url)
+            except Exception as exc:
+                last_error = exc
+        await asyncio.sleep(0.2)
     raise RuntimeError(
-        f"Timed out waiting for Chrome CDP endpoint on port {port}: {last_error}",
+        f"Timed out waiting for Chrome CDP endpoint on port {port}: "
+        f"{last_error or 'DevToolsActivePort not written by our process'}",
     )
 
 
@@ -1129,7 +1188,7 @@ async def _start_managed_cdp_browser(  # pylint: disable=too-many-statements
     browser_args: str = "",
     executable_path: str = "",
 ) -> None:
-    default_kind, exe = _resolve_chromium_launch_target()
+    default_kind, exe = await asyncio.to_thread(_resolve_chromium_launch_target)
     explicit_exe = bool(executable_path)
     if executable_path:
         exe = executable_path
@@ -1150,16 +1209,24 @@ async def _start_managed_cdp_browser(  # pylint: disable=too-many-statements
     state["user_data_dir"] = user_data_dir
 
     chosen_cdp_port = cdp_port or _find_free_local_port()
-    proc = _start_managed_chromium_process(
-        executable_path=exe,
-        user_data_dir=user_data_dir,
-        headless=state["headless"],
-        cdp_port=chosen_cdp_port,
-        browser_args=browser_args,
+    if await asyncio.to_thread(_probe_local_port_in_use, chosen_cdp_port):
+        raise RuntimeError(
+            f"Port {chosen_cdp_port} is already in use; refusing to "
+            "attach to an existing CDP endpoint. Choose a different "
+            "cdp_port or stop the process using it.",
+        )
+    proc = await asyncio.to_thread(
+        lambda: _start_managed_chromium_process(
+            executable_path=exe,
+            user_data_dir=user_data_dir,
+            headless=state["headless"],
+            cdp_port=chosen_cdp_port,
+            browser_args=browser_args,
+        ),
     )
     pw = None
     try:
-        await _wait_for_cdp_ready(chosen_cdp_port)
+        await _wait_for_cdp_ready(chosen_cdp_port, proc, user_data_dir)
         async_playwright = _ensure_playwright_async()
         pw = await async_playwright().start()
         browser = await pw.chromium.connect_over_cdp(
@@ -1212,9 +1279,9 @@ def _start_managed_chromium_process(
     cdp_port: int,
     browser_args: str = "",
 ) -> subprocess.Popen:
-    Path(user_data_dir).mkdir(parents=True, exist_ok=True)
-    with contextlib.suppress(OSError, NotImplementedError):
-        Path(user_data_dir).chmod(0o700)
+    _secure_profile_directory(user_data_dir)
+    with contextlib.suppress(OSError):
+        (Path(user_data_dir) / "DevToolsActivePort").unlink()
     args = [
         executable_path,
         f"--remote-debugging-port={cdp_port}",
@@ -1228,6 +1295,7 @@ def _start_managed_chromium_process(
         "--disable-session-crashed-bubble",
         "--hide-crash-restore-bubble",
         "--password-store=basic",
+        "--use-mock-keychain",
     ]
     args.extend(_chromium_launch_args())
     if browser_args:
@@ -1651,11 +1719,12 @@ async def _ensure_browser(
     try:
         if _USE_SYNC_PLAYWRIGHT:
             # Hybrid mode: use sync Playwright in thread pool
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             pw, browser, context = await loop.run_in_executor(
                 _get_executor(),
                 lambda: _sync_browser_launch(
                     state,
+                    cdp_port=state.get("_cdp_port", 0),
                     browser_args=state.get("_browser_args", ""),
                     executable_path=state.get("_executable_path", ""),
                 ),
@@ -1671,22 +1740,16 @@ async def _ensure_browser(
             state["launch_mode"] = "playwright"
         else:
             if state.get("_expose_cdp"):
-                try:
-                    await _start_managed_cdp_browser(
-                        state,
-                        cdp_port=state.get("_cdp_port", 0),
-                        ensure_pages=True,
-                        browser_args=state.get("_browser_args", ""),
-                        executable_path=state.get("_executable_path", ""),
-                    )
-                except Exception:
-                    await _action_start(
-                        state,
-                        headed=not state["headless"],
-                        private_mode=True,
-                        browser_args=state.get("_browser_args", ""),
-                        executable_path=state.get("_executable_path", ""),
-                    )
+                # The user explicitly opted into CDP sharing; a recovery
+                # failure must fail closed rather than silently downgrading
+                # to pipe mode and dropping the shared endpoint.
+                await _start_managed_cdp_browser(
+                    state,
+                    cdp_port=state.get("_cdp_port", 0),
+                    ensure_pages=True,
+                    browser_args=state.get("_browser_args", ""),
+                    executable_path=state.get("_executable_path", ""),
+                )
             else:
                 await _action_start(
                     state,
@@ -1799,32 +1862,23 @@ async def _action_start(
             return _tool_response(
                 json.dumps(result, ensure_ascii=False, indent=2),
             )
+    if cdp_port and await asyncio.to_thread(_probe_local_port_in_use, cdp_port):
+        return _tool_response(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": (
+                        f"Port {cdp_port} is already in use. "
+                        "Another browser may be running on this port. "
+                        "Choose a different cdp_port or stop the existing process first."
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
     # Default: headless (background). Only headed=True (e.g. browser_visible skill) shows window.
     state["headless"] = not headed
-    # Record the exposure decision next to the other launch intent, before any
-    # preflight check can return early: _reset_browser_state keeps "_" prefixed
-    # keys, so a rejected start must not leave an earlier decision behind for
-    # _ensure_browser to replay.
-    state["_expose_cdp"] = _should_use_managed_cdp(private_mode, cdp_port)
-    state["_cdp_port"] = cdp_port
-
-    if cdp_port:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _s:
-            if _s.connect_ex(("127.0.0.1", cdp_port)) == 0:
-                return _tool_response(
-                    json.dumps(
-                        {
-                            "ok": False,
-                            "error": (
-                                f"Port {cdp_port} is already in use. "
-                                "Another browser may be running on this port. "
-                                "Choose a different cdp_port or stop the existing process first."
-                            ),
-                        },
-                        ensure_ascii=False,
-                        indent=2,
-                    ),
-                )
 
     started_playwright = None
     cleanup_errors: list[str] = []
@@ -1841,7 +1895,7 @@ async def _action_start(
                 executable_path=executable_path,
             )
         elif _USE_SYNC_PLAYWRIGHT:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             pw, browser, context = await loop.run_in_executor(
                 _get_executor(),
                 lambda: _sync_browser_launch(
@@ -1865,7 +1919,9 @@ async def _action_start(
             async_playwright = _ensure_playwright_async()
             pw = await async_playwright().start()
             started_playwright = pw
-            default_kind, exe = _resolve_chromium_launch_target()
+            default_kind, exe = await asyncio.to_thread(
+                _resolve_chromium_launch_target,
+            )
             if executable_path:
                 exe = executable_path
             extra_args = list(_chromium_launch_args())
@@ -1880,9 +1936,10 @@ async def _action_start(
                 # Use persistent context so cookies/storage survive browser restarts
                 user_data_dir = state["user_data_dir"]
                 if user_data_dir:
-                    Path(user_data_dir).mkdir(parents=True, exist_ok=True)
-                    with contextlib.suppress(OSError, NotImplementedError):
-                        Path(user_data_dir).chmod(0o700)
+                    await asyncio.to_thread(
+                        _secure_profile_directory,
+                        user_data_dir,
+                    )
                     context = await pw.chromium.launch_persistent_context(
                         user_data_dir=user_data_dir,
                         headless=state["headless"],
@@ -1938,9 +1995,13 @@ async def _action_start(
         _touch_activity(state)
         _start_idle_watchdog(state)
         await _configure_download_behavior(state)
-        # Store launch config for _ensure_browser fallback restarts
+        # Store launch config for _ensure_browser restarts. These keys mean
+        # "last successfully started configuration": a rejected or failed
+        # start never reaches this point, so it can never be replayed.
         state["_browser_args"] = browser_args
         state["_executable_path"] = executable_path
+        state["_expose_cdp"] = _should_use_managed_cdp(private_mode, cdp_port)
+        state["_cdp_port"] = cdp_port
         msg = (
             "Browser started (visible window)"
             if not state["headless"]
