@@ -20,6 +20,7 @@ import os
 import random
 import struct
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -894,9 +895,43 @@ def _add_traverse_ace(path: str, psid: ctypes.c_void_p) -> bool:
     )
 
 
+def _allow_ace_matches_any_sid(
+    advapi32: Any,
+    ace_ptr: ctypes.c_void_p,
+    sids: List[ctypes.c_void_p],
+    required_access_mask: int = 0,
+) -> bool:
+    """Returns whether an ALLOW ACE grants the requested access to a SID."""
+    if ace_ptr.value is None:
+        return False
+
+    # ACE layout: header (4 bytes), mask (4 bytes), then SID.
+    ace_type = ctypes.cast(
+        ace_ptr,
+        ctypes.POINTER(ctypes.c_ubyte),
+    )[0]
+    if ace_type != 0:  # ACCESS_ALLOWED_ACE_TYPE
+        return False
+
+    access_mask = ctypes.cast(
+        ctypes.c_void_p(ace_ptr.value + 4),
+        ctypes.POINTER(ctypes.wintypes.DWORD),
+    )[0]
+    if required_access_mask and (access_mask & required_access_mask) != (
+        required_access_mask
+    ):
+        return False
+
+    sid_ptr = ctypes.c_void_p(ace_ptr.value + 8)
+    if not advapi32.IsValidSid(sid_ptr):
+        return False
+    return any(advapi32.EqualSid(sid_ptr, candidate) for candidate in sids)
+
+
 def _check_any_sid_in_dacl(
     path: str,
     sids: List[ctypes.c_void_p],
+    required_access_mask: int = 0,
 ) -> bool:
     """Checks whether any of the given SIDs has an ALLOW ACE in the path.
 
@@ -955,24 +990,13 @@ def _check_any_sid_in_dacl(
             ace_ptr = ctypes.c_void_p()
             if not advapi32.GetAce(p_dacl, i, ctypes.byref(ace_ptr)):
                 continue
-            if ace_ptr.value is None:
-                continue
-            # ACE header: AceType(1 byte) AceFlags(1 byte) AceSize(2 bytes)
-            # then Mask(4 bytes) then SID
-            ace_type = ctypes.cast(
+            if _allow_ace_matches_any_sid(
+                advapi32,
                 ace_ptr,
-                ctypes.POINTER(ctypes.c_ubyte),
-            )[0]
-            # ACCESS_ALLOWED_ACE_TYPE = 0
-            if ace_type != 0:
-                continue
-            # SID starts at offset 8 (after AceType+AceFlags+AceSize+Mask)
-            sid_ptr = ctypes.c_void_p(ace_ptr.value + 8)
-            if not advapi32.IsValidSid(sid_ptr):
-                continue
-            for candidate in sids:
-                if advapi32.EqualSid(sid_ptr, candidate):
-                    return True
+                sids,
+                required_access_mask,
+            ):
+                return True
 
         return False
     finally:
@@ -1110,14 +1134,60 @@ def _allow_null_device(psid: ctypes.c_void_p) -> None:
 _python_dir_acl_granted: bool = False
 
 
+def _python_executable_has_group_acl(
+    python_dir: str,
+    group_psid: ctypes.c_void_p,
+) -> bool:
+    """Checks that the active Python executable still has the group ACE."""
+    python_executable = os.path.abspath(sys.executable)
+    try:
+        inside_python_dir = os.path.commonpath(
+            [python_executable, os.path.abspath(python_dir)],
+        ) == os.path.abspath(python_dir)
+    except ValueError:
+        inside_python_dir = False
+
+    if not inside_python_dir or not os.path.isfile(python_executable):
+        return False
+    return _check_any_sid_in_dacl(
+        python_executable,
+        [group_psid],
+        required_access_mask=_ACL_READ_EXECUTE,
+    )
+
+
+def _grant_python_dir_group_acl_recursive(python_dir: str) -> bool:
+    """Recursively restores RX access for existing Python runtime files."""
+    result = _run_cmd_sync(
+        [
+            "icacls",
+            python_dir,
+            "/grant",
+            f"{SANDBOX_USERS_GROUP}:(OI)(CI)RX",
+            "/T",
+            "/C",
+            "/Q",
+        ],
+        timeout=300,
+    )
+    if result is None or result.returncode != 0:
+        logger.warning(
+            "Failed to recursively grant RX to %s on Python dir: %s",
+            SANDBOX_USERS_GROUP,
+            python_dir,
+        )
+        return False
+    return True
+
+
 def _ensure_python_dir_group_acl() -> None:
     """Grants read/execute access to QwenpawUsers on the Python install dir.
 
-    One-time operation; a marker file prevents repeated calls.
+    The active Python executable is checked even when the marker exists because
+    another sandbox manager may have rebuilt inherited ACLs after the initial
+    grant. Existing runtime files are repaired recursively when that happens.
     """
     global _python_dir_acl_granted
-    if _python_dir_acl_granted:
-        return
 
     python_dir = _get_python_install_dir()
     if not python_dir or not os.path.isdir(python_dir):
@@ -1137,27 +1207,29 @@ def _ensure_python_dir_group_acl() -> None:
     group_psid = ctypes.cast(sid_buf, ctypes.c_void_p)
 
     marker_path = os.path.join(python_dir, ".qwenpaw_acl_granted")
-    if os.path.exists(marker_path):
+    acl_present = _python_executable_has_group_acl(python_dir, group_psid)
+    if acl_present:
         logger.debug(
-            "_ensure_python_dir_group_acl: marker exists, skipping ACL set",
+            "_ensure_python_dir_group_acl: Python executable ACL is valid",
         )
         _python_dir_acl_granted = True
         return
 
     logger.info(
-        "Granting RX to %s on Python dir: %s (one-time, may be slow)",
+        "Granting RX to %s on Python dir: %s (recursive, may be slow)",
         SANDBOX_USERS_GROUP,
         python_dir,
     )
-    result = _add_allow_read_ace(python_dir, group_psid)
-    if result:
+    result = _grant_python_dir_group_acl_recursive(python_dir)
+    if result and _python_executable_has_group_acl(python_dir, group_psid):
         try:
             with open(marker_path, "w", encoding="utf-8") as f:
                 f.write(SANDBOX_USERS_GROUP)
         except OSError:
             pass
-
-    _python_dir_acl_granted = True
+        _python_dir_acl_granted = True
+    else:
+        _python_dir_acl_granted = False
 
 
 def _ensure_parent_traverse_acls(
