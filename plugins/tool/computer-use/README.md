@@ -53,8 +53,19 @@ with a leaf directory per platform. Windows builds and tests locally:
 cd console/src-tauri && cargo test --bin qwenpaw-computer-use-helper
 ```
 
-No CI check compiles the macOS leaf: the workflows that build it run on release
-or by hand. So a change under `platform_macos/` has to be verified by running
-the desktop build workflow manually before merging -- twenty-nine compile errors
-once reached a branch that had passed everything else, because nothing had put
-that code in front of a compiler.
+No CI check compiles the macOS leaf, and none compiles the Windows one either:
+no pull-request workflow in this repository runs `cargo` at all. Rust is built
+where the desktop packages are, on release or on demand.
+
+So a change under `platform_macos/` has to be put in front of a compiler by
+hand. The cheapest way is the verification workflow that already exists for
+this, which builds only the macOS package rather than both:
+
+```bash
+gh workflow run fork-verify-desktop.yml -f platforms=macos-only
+```
+
+It is worth actually doing. Twenty-nine compile errors once reached a branch
+that had passed every check the pull request ran, because none of them compiled
+that code -- and static checks are no substitute: they can confirm a symbol
+exists, not that a type, a lifetime or a trait bound holds.
