@@ -8,6 +8,7 @@ markdown configuration files in the working directory.
 import logging
 import re
 from pathlib import Path
+from typing import Any
 
 from qwenpaw.exceptions import (
     ConfigurationException,
@@ -445,6 +446,58 @@ def get_active_model_supports_multimodal() -> bool:
     return model_info.supports_multimodal is not False
 
 
+def get_model_supports_image(current_model: Any = None) -> bool:
+    """Resolve image capability for one call or the configured active model.
+
+    QwenPaw model wrappers expose ``provider_id:model`` through
+    ``model_key``. When no request-local model is supplied, use the configured
+    active model. Visual Compact requires explicit image support; generic
+    multimodal support and unknown metadata are not sufficient.
+    """
+    if current_model is None:
+        model_info, _ = _get_active_model_info()
+        return bool(
+            model_info is not None and model_info.supports_image is True,
+        )
+    try:
+        model_key = getattr(current_model, "model_key", None)
+        provider_id = ""
+        model_name = str(getattr(current_model, "model", "") or "")
+        if isinstance(model_key, str):
+            provider_id, separator, keyed_name = model_key.partition(":")
+            if separator:
+                model_name = keyed_name
+            else:
+                provider_id = ""
+        if not provider_id:
+            provider_id = str(
+                getattr(current_model, "_provider_id", "") or "",
+            )
+        if not provider_id:
+            inner = getattr(current_model, "_inner", None)
+            provider_id = str(getattr(inner, "_provider_id", "") or "")
+        if provider_id and model_name:
+            from ..providers.provider_manager import ProviderManager
+
+            provider = ProviderManager.get_instance().get_provider(
+                provider_id,
+            )
+            if provider is not None:
+                model_info = next(
+                    (
+                        item
+                        for item in provider.models + provider.extra_models
+                        if item.id == model_name
+                    ),
+                    None,
+                )
+                if model_info is not None:
+                    return model_info.supports_image is True
+    except Exception:
+        pass
+    return False
+
+
 def get_active_model_multimodal_raw() -> bool | None:
     """Return the effective multimodal capability flag for the active model.
 
@@ -500,6 +553,7 @@ __all__ = [
     "build_driver_policy_recheck_hint",
     "format_multimodal_hint",
     "get_active_model_supports_multimodal",
+    "get_model_supports_image",
     "get_active_model_multimodal_raw",
     "PromptBuilder",
     "PromptConfig",

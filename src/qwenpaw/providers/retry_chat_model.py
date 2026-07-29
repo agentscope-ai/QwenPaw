@@ -46,6 +46,7 @@ from ..constant import (
     LLM_RATE_LIMIT_JITTER,
     LLM_RATE_LIMIT_PAUSE,
 )
+from .error_utils import extract_status_code as _extract_status_code
 from .model_capability_cache import get_capability_cache
 from .rate_limiter import LLMRateLimiter, get_rate_limiter
 
@@ -150,40 +151,6 @@ def _get_httpx_retryable() -> tuple[type[Exception], ...]:
         except ImportError:
             _httpx_retryable = ()
     return _httpx_retryable
-
-
-def _extract_status_code(exc: Exception) -> int | None:
-    """Best-effort HTTP status extraction from SDK exceptions.
-
-    Streaming SSE errors are raised as plain ``openai.APIError`` without a
-    ``status_code`` attribute; the gateway status is often only present in
-    ``body`` (e.g. ``{"status_code": 502, "error": {...}}``).
-    """
-    status = getattr(exc, "status_code", None)
-    if status is not None:
-        try:
-            return int(status)
-        except (TypeError, ValueError):
-            pass
-
-    body = getattr(exc, "body", None)
-    if not isinstance(body, dict):
-        return None
-
-    for container in (body, body.get("error")):
-        if not isinstance(container, dict):
-            continue
-        raw = container.get("status_code")
-        if raw is None:
-            raw = container.get("code")
-        if raw is None:
-            continue
-        try:
-            return int(raw)
-        except (TypeError, ValueError):
-            continue
-
-    return None
 
 
 def _is_retryable(exc: Exception) -> bool:

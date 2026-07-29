@@ -109,6 +109,49 @@
   width: 100%;
 }
 
+.visualCompactDescription {
+  margin: 0 0 20px !important;
+  line-height: 1.6;
+}
+
+.visualCompactEffortControl {
+  width: 100%;
+  padding: 3px;
+  border: 1px solid rgba(20, 20, 19, 0.08);
+  border-radius: 9px;
+  background: rgba(20, 20, 19, 0.035);
+
+  :global(.ant-segmented-item),
+  :global(.qwenpaw-segmented-item) {
+    border-radius: 7px;
+    font-weight: 500;
+  }
+
+  :global(.ant-segmented-thumb),
+  :global(.qwenpaw-segmented-thumb) {
+    border-radius: 7px;
+    box-shadow: 0 1px 3px rgba(20, 20, 19, 0.12);
+  }
+}
+
+.visualCompactEffortDescription {
+  display: block;
+  min-height: 20px;
+  margin: -12px 0 16px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.visualCompactNote {
+  margin: 0 !important;
+  padding: 10px 12px;
+  border: 1px solid rgba(20, 20, 19, 0.08);
+  border-radius: 8px;
+  background: rgba(20, 20, 19, 0.025);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .form {
   flex: 1;
   min-height: 0;
@@ -219,6 +262,16 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .visualCompactEffortControl {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .visualCompactNote {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
   .pageHeader {
     border-bottom-color: rgba(255, 255, 255, 0.08);
   }

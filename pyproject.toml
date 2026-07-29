@@ -89,6 +89,12 @@ include-package-data = true
     "console/**",
     "agents/md_files/**",
     "agents/skills/**",
+    "agents/context/visual_compression/assets/atlas-gray.ts",
+    "agents/context/visual_compression/assets/atlas-gray-medium.ts",
+    "agents/context/visual_compression/assets/atlas-gray-high.ts",
+    "agents/context/visual_compression/assets/JETBRAINS_MONO_LICENSE.txt",
+    "agents/context/visual_compression/assets/UNIFONT_LICENSE.txt",
+    "agents/context/visual_compression/assets/SPLEEN_LICENSE.txt",
     "tokenizer/**",
     "security/tool_guard/rules/**",
     "security/skill_scanner/rules/**",
@@ -118,7 +124,7 @@ test = [
     "pytest-timeout>=2.3.0",
     "pytest-xdist>=3.5.0",
     "hypothesis>=6.0.0",
-    "qoder-agent-sdk>=1.0.9,<2",
+    "qoder-agent-sdk==1.0.9",
 ]
 dev = [
     "pre-commit>=4.2.0",
@@ -130,10 +136,10 @@ whisper = [
     "openai-whisper>=20231117",
 ]
 codex = [
-    "openai-codex>=0.144.4,<1",
+    "openai-codex==0.144.4",
 ]
 qoder = [
-    "qoder-agent-sdk>=1.0.9,<2",
+    "qoder-agent-sdk==1.0.9",
 ]
 full = [
     "qwenpaw[local,whisper,codex,qoder]",
@@ -185,7 +191,12 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "pass",
 ]
-fail_under = 30
+# Coverage gate (raised in stages per the July quality plan):
+#   30 (baseline) -> 45 (stage 1) -> 50 (current, ~1.6pt headroom under
+#   CI's measured 51.59% per the "leave 1-2pt to resist flaky" rule).
+# Bump up only after natural coverage rises (bug-regression + contract
+# gains), never chase a number.
+fail_under = 50
 show_missing = true
 
 [tool.coverage.html]

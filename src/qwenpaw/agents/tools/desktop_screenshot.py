@@ -97,6 +97,7 @@ async def _capture_macos_screencapture(
     cmd = ["screencapture", "-x", path]
     if capture_window:
         cmd.insert(-1, "-w")
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -106,6 +107,7 @@ async def _capture_macos_screencapture(
         _, stderr = await cancellable_wait(
             proc.communicate(),
             fallback_secs=30,
+            as_kill_deadline=True,
         )
         if proc.returncode != 0:
             stderr_str = (stderr or b"").decode().strip() or "Unknown error"
@@ -116,10 +118,22 @@ async def _capture_macos_screencapture(
             )
         return _tool_ok(path, f"Desktop screenshot saved to {path}")
     except (asyncio.TimeoutError, asyncio.CancelledError):
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except (ProcessLookupError, OSError):
+                pass
         return _tool_error(
             "screencapture timed out (e.g. window selection cancelled)",
         )
     except Exception as e:
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except (ProcessLookupError, OSError):
+                pass
         return _tool_error(f"desktop_screenshot failed: {e!s}")
 
 

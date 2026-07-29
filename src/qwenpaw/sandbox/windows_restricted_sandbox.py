@@ -2838,8 +2838,12 @@ class WindowsRestrictedSandbox:
                 duration_ms=duration_ms,
                 sandbox_violation=violation,
             )
+        except asyncio.CancelledError:
+            await self.stop()
+            raise
         except OSError as e:
             duration_ms = int((time.monotonic() - start) * 1000)
+            await self.stop()
             return ExecutionResult(
                 exit_code=-1,
                 stdout="",
@@ -2853,7 +2857,22 @@ class WindowsRestrictedSandbox:
         Uses ``TerminateJobObject`` when a Job Object is available to kill
         the entire process tree (cmd.exe + all child processes). Falls back
         to ``OpenProcess`` + ``TerminateProcess`` if no job handle exists.
+
+        When no process was ever started (e.g. CreateProcess OSError), skip
+        loading ``kernel32`` so cross-platform unit tests can still exercise
+        the error-mapping path without ``ctypes.WinDLL``.
         """
+        has_process = (
+            self._job_handle is not None
+            or self._process_id is not None
+            or self._process_handle is not None
+        )
+        if not has_process:
+            if self._instance is not None:
+                await _release_sandbox(self._instance)
+                self._instance = None
+            return
+
         kernel32 = _get_kernel32()
 
         if self._job_handle is not None:

@@ -96,7 +96,10 @@ class ExpectedCapabilityRegistry:
         """Register a single baseline entry."""
         self._data[(cap.provider_id, cap.model_id)] = cap
 
-    def _load_baseline(self) -> None:  # pylint: disable=too-many-statements
+    # pylint: disable=too-many-statements,too-many-branches
+    def _load_baseline(
+        self,
+    ) -> None:
         """Load baseline data for built-in providers."""
 
         # ---------------------------------------------------------------
@@ -219,7 +222,11 @@ class ExpectedCapabilityRegistry:
                 expected_image=False,
                 expected_video=False,
                 doc_url=_acp_doc,
-                note="MiniMax models are text-only",
+                note=(
+                    "MiniMax-M2.5 is text-only; on the official MiniMax "
+                    "platform it is now listed as a legacy model "
+                    "(current: M2.7 / M3)"
+                ),
             ),
         )
         self._register(
@@ -296,7 +303,11 @@ class ExpectedCapabilityRegistry:
                 expected_image=False,
                 expected_video=False,
                 doc_url=_atp_doc,
-                note="MiniMax models are text-only",
+                note=(
+                    "MiniMax-M2.5 is text-only; on the official MiniMax "
+                    "platform it is now listed as a legacy model "
+                    "(current: M2.7 / M3)"
+                ),
             ),
         )
         self._register(
@@ -646,11 +657,25 @@ class ExpectedCapabilityRegistry:
 
         # ---------------------------------------------------------------
         # 11. MiniMax (International)
+        #     https://platform.minimax.io/docs/guides/models-intro
         # ---------------------------------------------------------------
-        _mm_doc = "https://www.minimax.io/platform/document/announcement"
+        _mm_doc = "https://platform.minimax.io/docs/guides/models-intro"
+        # Current flagship — frontier multimodal coding model (1M context).
+        self._register(
+            ExpectedCapability(
+                provider_id="minimax",
+                model_id="MiniMax-M3",
+                expected_image=True,
+                expected_video=True,
+                doc_url=_mm_doc,
+                note=(
+                    "M3 is the frontier multimodal coding model "
+                    "(1M context window, supports image + video input)"
+                ),
+            ),
+        )
+        # Current generation — text-only.
         for mid in (
-            "MiniMax-M2.5",
-            "MiniMax-M2.5-highspeed",
             "MiniMax-M2.7",
             "MiniMax-M2.7-highspeed",
         ):
@@ -661,17 +686,52 @@ class ExpectedCapabilityRegistry:
                     expected_image=False,
                     expected_video=False,
                     doc_url=_mm_doc,
-                    note="MiniMax models are text-only",
+                    note="M2.7 series is text-only",
+                ),
+            )
+        # Legacy models — still served on the official docs page.
+        for mid in (
+            "MiniMax-M2.5",
+            "MiniMax-M2.5-highspeed",
+            "MiniMax-M2.1",
+            "MiniMax-M2.1-highspeed",
+            "MiniMax-M2",
+        ):
+            self._register(
+                ExpectedCapability(
+                    provider_id="minimax",
+                    model_id=mid,
+                    expected_image=False,
+                    expected_video=False,
+                    doc_url=_mm_doc,
+                    note=(
+                        "Legacy text-only model "
+                        "(superseded by M2.7 / M3 on MiniMax platform)"
+                    ),
                 ),
             )
 
         # ---------------------------------------------------------------
         # 12. MiniMax (China)
+        #     https://platform.minimaxi.com/docs/guides/models-intro
         # ---------------------------------------------------------------
-        _mm_cn_doc = "https://platform.minimaxi.com/document/announcement"
+        _mm_cn_doc = "https://platform.minimaxi.com/docs/guides/models-intro"
+        # Current flagship — frontier multimodal coding model (1M context).
+        self._register(
+            ExpectedCapability(
+                provider_id="minimax-cn",
+                model_id="MiniMax-M3",
+                expected_image=True,
+                expected_video=True,
+                doc_url=_mm_cn_doc,
+                note=(
+                    "M3 is the frontier multimodal coding model "
+                    "(1M context window, supports image + video input)"
+                ),
+            ),
+        )
+        # Current generation — text-only.
         for mid in (
-            "MiniMax-M2.5",
-            "MiniMax-M2.5-highspeed",
             "MiniMax-M2.7",
             "MiniMax-M2.7-highspeed",
         ):
@@ -682,7 +742,28 @@ class ExpectedCapabilityRegistry:
                     expected_image=False,
                     expected_video=False,
                     doc_url=_mm_cn_doc,
-                    note="MiniMax models are text-only",
+                    note="M2.7 series is text-only",
+                ),
+            )
+        # Legacy models — still served on the official docs page.
+        for mid in (
+            "MiniMax-M2.5",
+            "MiniMax-M2.5-highspeed",
+            "MiniMax-M2.1",
+            "MiniMax-M2.1-highspeed",
+            "MiniMax-M2",
+        ):
+            self._register(
+                ExpectedCapability(
+                    provider_id="minimax-cn",
+                    model_id=mid,
+                    expected_image=False,
+                    expected_video=False,
+                    doc_url=_mm_cn_doc,
+                    note=(
+                        "Legacy text-only model "
+                        "(superseded by M2.7 / M3 on MiniMax platform)"
+                    ),
                 ),
             )
         # ---------------------------------------------------------------

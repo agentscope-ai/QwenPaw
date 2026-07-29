@@ -925,6 +925,24 @@ class ScrollContextConfig(BaseModel):
     )
 
 
+class VisualCompactConfig(BaseModel):
+    """User-facing visual compact settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable request-time text-to-image compression.",
+    )
+    effort: Literal["low", "medium", "high"] = Field(
+        default="low",
+        description=(
+            "Visual compression intensity. Higher effort places more eligible "
+            "context in each image while preserving the same safety policy."
+        ),
+    )
+
+
 class LightContextConfig(BaseModel):
     """Light context manager configuration."""
 
@@ -962,6 +980,9 @@ class LightContextConfig(BaseModel):
     )
     scroll_config: ScrollContextConfig = Field(
         default_factory=ScrollContextConfig,
+    )
+    visual_compact_config: VisualCompactConfig = Field(
+        default_factory=VisualCompactConfig,
     )
 
     @model_validator(mode="after")

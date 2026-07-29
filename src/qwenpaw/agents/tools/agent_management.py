@@ -319,6 +319,39 @@ def collect_final_agent_chat_response(
     return response_data
 
 
+async def collect_final_agent_chat_response_async(
+    base_url: Optional[str],
+    request_payload: Dict[str, Any],
+    to_agent: str,
+    timeout: float,
+) -> Optional[Dict[str, Any]]:
+    """Async SSE collect so coordinator cancel closes the HTTP stream.
+
+    Unlike the sync ``to_thread`` path, cancelling this coroutine exits
+    ``AsyncClient`` context managers and aborts the in-flight request.
+    """
+    normalized = _normalize_api_base_url(base_url)
+    response_data: Optional[Dict[str, Any]] = None
+    async with httpx.AsyncClient(
+        base_url=normalized,
+        timeout=httpx.Timeout(timeout),
+        trust_env=trust_env_for_url(normalized),
+    ) as client:
+        async with client.stream(
+            "POST",
+            "/console/chat",
+            json=request_payload,
+            headers=_request_headers(to_agent),
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line:
+                    parsed = parse_agent_sse_line(line)
+                    if parsed and parsed.get("type") != "turn_usage":
+                        response_data = parsed
+    return response_data
+
+
 def submit_agent_chat_task(
     base_url: Optional[str],
     request_payload: Dict[str, Any],
@@ -543,13 +576,39 @@ async def chat_with_agent(
         root_session_id=final_root_session,
     )
 
-    response_data = await asyncio.to_thread(
-        collect_final_agent_chat_response,
-        None,
-        request_payload,
-        normalized_to_agent,
-        timeout,
+    # Register LLM/tool timeout as kill_deadline so keep_foreground clearing
+    # the shorter hook offload window does not force-cancel early (#6245).
+    from ...tool_calls import (
+        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
+        cancellable_wait,
+        get_call_context,
     )
+
+    # Under ToolCallContext use a large but finite HTTP ceiling so extend
+    # works, while AsyncClient cancel still closes the stream (no zombie
+    # sync thread with timeout=None).
+    http_timeout = (
+        float(COORDINATOR_OWNED_EXEC_TIMEOUT_SECS)
+        if get_call_context() is not None
+        else float(timeout)
+    )
+
+    try:
+        response_data = await cancellable_wait(
+            collect_final_agent_chat_response_async(
+                None,
+                request_payload,
+                normalized_to_agent,
+                http_timeout,
+            ),
+            fallback_secs=float(timeout),
+            as_kill_deadline=True,
+        )
+    except asyncio.CancelledError:
+        return _tool_text_response(
+            "chat_with_agent was cancelled. "
+            "Do not retry unless the user explicitly asks.",
+        )
     if not response_data:
         return _tool_text_response("(No response received)")
 
