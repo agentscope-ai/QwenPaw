@@ -447,7 +447,18 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             response.metadata.get("results") if response.success else None
         )
         if results:
-            # Rerank (only reorders results, answer is rebuilt below)
+            # Parse the original ReMe answer into sections keyed by
+            # "path:line-line" so we can reorder + cap them while preserving
+            # link expansions and hybrid score details.
+            original_answer = str(response.answer or "")
+            answer_sections = (
+                self._parse_answer_into_sections(original_answer)
+                if original_answer
+                else {}
+            )
+
+            # Rerank (only reorders results, answer sections are reordered
+            # below)
             reranker_did_reorder = False
             if reranker_config and len(results) > 1:
                 try:
@@ -469,11 +480,20 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             if truncated:
                 results = results[:cap]
                 response.metadata["results"] = results
-            # Rebuild answer only when order or count actually changed,
-            # preserving the original ReMe answer (including link expansions)
-            # when neither changed.
+            # Reconstruct answer from sections when order or count changed,
+            # preserving the original ReMe answer (including link expansions
+            # and hybrid score details) whenever possible.
             if reranker_did_reorder or truncated:
-                response.answer = self._rebuild_search_answer(results)
+                if answer_sections:
+                    response.answer = (
+                        self._reconstruct_answer_from_sections(
+                            answer_sections, results,
+                        )
+                    )
+                else:
+                    # Fallback: answer didn't match expected format, rebuild
+                    # from result dicts (loses link expansions + hybrid scores)
+                    response.answer = self._rebuild_search_answer(results)
 
         answer = str(response.answer or "").strip()
         if not answer:
@@ -542,6 +562,72 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             )
             answer_lines.append(f"{header}\n{text}")
         return "\n".join(answer_lines)
+
+    @staticmethod
+    def _parse_answer_into_sections(answer: str) -> dict[str, str]:
+        """Parse ReMe search answer into sections keyed by ``path:line-line``.
+
+        Each section starts with a header line like::
+
+            ========== path:line-line [scores] ==========
+
+        and includes everything up to the next such header (or end of string).
+
+        Returns a dict mapping ``"path:start_line-end_line"`` → the full
+        section text (including header).  Returns an empty dict when the
+        answer does not match the expected format.
+        """
+        # Match the section header.
+        #   \S+?  — non-greedy non-whitespace for the path
+        #   \d+-\d+ — start_line-end_line
+        #   \[.*?\] — the score brackets, lazy
+        pat = re.compile(
+            r"^==========\s+(\S+?:\d+-\d+)\s+\[.*?\]\s+==========$",
+            re.MULTILINE,
+        )
+        boundaries = [(m.start(), m.group(1)) for m in pat.finditer(answer)]
+        if not boundaries:
+            return {}
+
+        sections: dict[str, str] = {}
+        for i, (start, key) in enumerate(boundaries):
+            end = boundaries[i + 1][0] if i + 1 < len(boundaries) else len(
+                answer,
+            )
+            sections[key] = answer[start:end].rstrip("\n")
+        return sections
+
+    @staticmethod
+    def _reconstruct_answer_from_sections(
+        sections: dict[str, str],
+        results: list[dict],
+    ) -> str:
+        """Reconstruct search answer from pre-parsed sections in result order.
+
+        Each result's ``path:start_line-end_line`` key is looked up in the
+        *sections* dict.  If a matching section is found, it is used verbatim
+        (preserving link expansions, hybrid score details, etc.).  If not
+        found, a fallback section is built from the result dict fields.
+        """
+        lines: list[str] = []
+        for r in results:
+            key = (
+                f"{r.get('path', '')}:"
+                f"{r.get('start_line', 0)}-{r.get('end_line', 0)}"
+            )
+            section = sections.get(key)
+            if section is not None:
+                lines.append(section)
+            else:
+                # Fallback — should not happen in normal operation
+                text = r.get("text", "")
+                score = r.get("score", 0.0)
+                header = (
+                    f"========== {key} "
+                    f"[score={score:.4f}] =========="
+                )
+                lines.append(f"{header}\n{text}")
+        return "\n".join(lines)
 
     def _get_reranker_config(self) -> RerankerConfig | None:
         """Return the reranker config, or None if not enabled.
