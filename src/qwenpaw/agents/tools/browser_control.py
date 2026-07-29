@@ -1801,6 +1801,12 @@ async def _action_start(
             )
     # Default: headless (background). Only headed=True (e.g. browser_visible skill) shows window.
     state["headless"] = not headed
+    # Record the exposure decision next to the other launch intent, before any
+    # preflight check can return early: _reset_browser_state keeps "_" prefixed
+    # keys, so a rejected start must not leave an earlier decision behind for
+    # _ensure_browser to replay.
+    state["_expose_cdp"] = _should_use_managed_cdp(private_mode, cdp_port)
+    state["_cdp_port"] = cdp_port
 
     if cdp_port:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _s:
@@ -1823,11 +1829,6 @@ async def _action_start(
     started_playwright = None
     cleanup_errors: list[str] = []
     try:
-        # Record the exposure decision before launching, so that a failed
-        # start cannot leave a previous start's decision behind for
-        # _ensure_browser to replay (_reset_browser_state keeps "_" keys).
-        state["_expose_cdp"] = _should_use_managed_cdp(private_mode, cdp_port)
-        state["_cdp_port"] = cdp_port
         if not _USE_SYNC_PLAYWRIGHT and _should_use_managed_cdp(
             private_mode,
             cdp_port,
