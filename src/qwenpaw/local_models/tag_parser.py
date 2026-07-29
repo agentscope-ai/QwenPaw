@@ -153,7 +153,12 @@ def _parse_xml_tool_call(raw_text: str) -> ParsedToolCall | None:
     if func_match:
         name = func_match.group(1).strip()
         if not name:
-            return None
+            logger.warning(
+                "XML tool call has empty function name; using fallback 'unknown'. "
+                "Raw: %s",
+                raw_text[:200],
+            )
+            name = "unknown"
         body = func_match.group(2)
         arguments: dict = {}
         for param_match in _XML_PARAM_RE.finditer(body):
@@ -181,7 +186,12 @@ def _parse_xml_tool_call(raw_text: str) -> ParsedToolCall | None:
 
     name = func_match_lenient.group(1).strip()
     if not name:
-        return None
+        logger.warning(
+            "Lenient XML tool call has empty function name; using fallback 'unknown'. "
+            "Raw: %s",
+            raw_text[:200],
+        )
+        name = "unknown"
 
     body = func_match_lenient.group(2)
     arguments = _extract_params_lenient(body)
@@ -244,10 +254,11 @@ def _parse_single_tool_call(raw_text: str) -> ParsedToolCall | None:
         name = data.get("name", "")
         if not name:
             logger.warning(
-                "Tool call missing 'name' field: %s",
+                "Tool call has empty 'name' field; using fallback name 'unknown'. "
+                "Raw: %s",
                 stripped[:200],
             )
-            return None
+            name = "unknown"
 
         arguments = data.get("arguments", {})
         if isinstance(arguments, str):
