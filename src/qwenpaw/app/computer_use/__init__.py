@@ -4,6 +4,7 @@
 from .runtime import (
     HostRuntimeProvider,
     RuntimeCapability,
+    RuntimeStatus,
     get_current_computer_use_turn_id,
     set_current_computer_use_turn_id,
 )
@@ -11,6 +12,7 @@ from .runtime import (
 __all__ = [
     "HostRuntimeProvider",
     "RuntimeCapability",
+    "RuntimeStatus",
     "get_current_computer_use_turn_id",
     "set_current_computer_use_turn_id",
 ]

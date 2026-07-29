@@ -115,9 +115,15 @@ class ComputerUseToolPlugin:
         )
 
         if not HostRuntimeProvider.is_available():
+            status = HostRuntimeProvider.status()
+            reason = (
+                "this platform has no native helper"
+                if not status.supported_platform
+                else "the desktop host offered no runtime"
+            )
             logger.warning(
-                "Computer Use native runtime is unavailable; tool "
-                "registration is skipped",
+                "Computer Use tool registration is skipped: %s",
+                reason,
             )
             return
 
