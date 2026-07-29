@@ -28,6 +28,17 @@ on:
           - dev
           - post
           - stable
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to create the duty issue for"
+        required: true
+        type: string
+      release_type:
+        description: "Override release type (empty = auto-detect from tag)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   issues: write
@@ -55,10 +66,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           CURRENT_TAG: >-
-            ${{ github.event_name == 'workflow_dispatch'
-                && github.event.inputs.tag
-                || github.event.release.tag_name }}
-          TYPE_OVERRIDE: ${{ github.event.inputs.release_type || '' }}
+            ${{ github.event_name == 'release'
+                && github.event.release.tag_name
+                || inputs.tag }}
+          TYPE_OVERRIDE: ${{ inputs.release_type || '' }}
         run: |
           python - << 'EOF'
           import os
@@ -156,13 +167,10 @@ jobs:
           ASSIGNEES_JSON: ${{ steps.meta.outputs.assignees }}
           RELEASE_TYPE: ${{ steps.meta.outputs.release_type }}
           DUE_TIME: ${{ steps.due.outputs.due }}
-          INPUT_TAG: >-
-            ${{ github.event_name == 'workflow_dispatch'
-                && github.event.inputs.tag
-                || '' }}
+          INPUT_TAG: ${{ inputs.tag }}
         with:
           script: |
-            const isManual = context.eventName === 'workflow_dispatch';
+            const isManual = context.eventName !== 'release';
             let tag, releaseUrl;
 
             if (isManual) {

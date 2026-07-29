@@ -78,6 +78,10 @@ def _active_models_info(
 class ProviderConfigRequest(BaseModel):
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
+    name: Optional[str] = Field(
+        default=None,
+        description=("New display name. Only applied to custom providers."),
+    )
     chat_model: Optional[ChatModelName] = Field(
         default=None,
         description="Chat model class name for protocol selection",
@@ -236,17 +240,22 @@ async def configure_provider(
     provider_id: str = Path(...),
     body: ProviderConfigRequest = Body(...),
 ) -> ProviderInfo:
-    ok = manager.update_provider(
-        provider_id,
-        {
-            "api_key": body.api_key,
-            "base_url": body.base_url,
-            "chat_model": body.chat_model,
-            "generate_kwargs": body.generate_kwargs,
-            "custom_headers": body.custom_headers,
-            "auth_mode": body.auth_mode,
-        },
-    )
+    config = {
+        "api_key": body.api_key,
+        "base_url": body.base_url,
+        "chat_model": body.chat_model,
+        "generate_kwargs": body.generate_kwargs,
+        "custom_headers": body.custom_headers,
+        "auth_mode": body.auth_mode,
+    }
+    # Renaming is restricted to custom providers so built-in
+    # provider names stay immutable.
+    name = body.name.strip() if body.name else None
+    if name:
+        provider = manager.get_provider(provider_id)
+        if provider is not None and provider.is_custom:
+            config["name"] = name
+    ok = manager.update_provider(provider_id, config)
     if not ok:
         raise HTTPException(
             status_code=404,

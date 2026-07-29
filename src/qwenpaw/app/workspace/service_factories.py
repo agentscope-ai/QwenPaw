@@ -119,13 +119,17 @@ async def create_channel_service(ws: "Workspace", _):
     if not ws._config.channels:
         return None
 
-    from ...config import Config, update_last_dispatch
+    from ...config import Config, load_config, update_last_dispatch
     from ..channels.manager import ChannelManager
     from ..channels.access_control import init_access_control_store
 
     init_access_control_store(ws.workspace_dir)
 
-    temp_config = Config(channels=ws._config.channels)
+    root_config = load_config()
+    temp_config = Config(
+        channels=ws._config.channels,
+        show_tool_details=root_config.show_tool_details,
+    )
 
     def on_last_dispatch(channel, user_id, session_id):
         update_last_dispatch(
@@ -144,6 +148,9 @@ async def create_channel_service(ws: "Workspace", _):
     ws._service_manager.services["channel_manager"] = cm
 
     cm.set_workspace(ws)
+    from ..approvals import get_approval_service
+
+    get_approval_service().set_channel_manager(cm, agent_id=ws.agent_id)
 
     agent_language = getattr(ws._config, "language", "zh") or "zh"
     for ch in cm.channels:

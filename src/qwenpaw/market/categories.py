@@ -27,6 +27,13 @@ class _Category(TypedDict):
 
 CATEGORIES: list[_Category] = [
     {
+        "id": "app",
+        "label": {"zh": "应用", "en": "Apps"},
+        "qwenpaw": "app",
+        "modelscope": None,
+        "fallback": {"zh": "应用 PawApp", "en": "app PawApp"},
+    },
+    {
         "id": "engineering-development",
         "label": {"zh": "工程开发", "en": "Engineering"},
         "qwenpaw": "engineering development",

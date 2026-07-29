@@ -586,17 +586,10 @@ AZURE_OPENAI_MODELS: List[ModelInfo] = [
 
 MINIMAX_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="MiniMax-M2.5",
-        name="MiniMax M2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.5-highspeed",
-        name="MiniMax M2.5 Highspeed",
-        supports_image=False,
-        supports_video=False,
+        id="MiniMax-M3",
+        name="MiniMax M3",
+        supports_image=True,
+        supports_video=True,
         probe_source="documentation",
     ),
     ModelInfo(
@@ -609,6 +602,41 @@ MINIMAX_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="MiniMax-M2.7-highspeed",
         name="MiniMax M2.7 Highspeed",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.5",
+        name="MiniMax M2.5 (legacy)",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.5-highspeed",
+        name="MiniMax M2.5 Highspeed (legacy)",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.1",
+        name="MiniMax M2.1 (legacy)",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.1-highspeed",
+        name="MiniMax M2.1 Highspeed (legacy)",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2",
+        name="MiniMax M2 (legacy)",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",

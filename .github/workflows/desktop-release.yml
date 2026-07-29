@@ -6,6 +6,11 @@
 name: QwenPaw Desktop Build
 
 on:
+  # NOTE: legacy fallback path. The standard release flow is now release.yml
+  # (see RELEASING.md), which builds desktop via desktop-build.yml +
+  # desktop-publish.yml and gates the web release on the desktop build.
+  # Publishing a GitHub Release directly still triggers this OLD, un-gated
+  # desktop build. Kept only as an emergency rollback.
   release:
     types: [published]
   workflow_dispatch:

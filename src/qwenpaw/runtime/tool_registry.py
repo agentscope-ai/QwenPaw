@@ -14,6 +14,44 @@ from typing import Any, Callable, Iterable
 
 
 @dataclass(frozen=True)
+class ToolGovernanceSpec:
+    """Governance identity for a tool (type, target param, policy name).
+
+    Empty ``tool_type`` is invalid for collected builtins under
+    ``qwenpaw.agents.tools`` (treated as a governance gap). Dynamic tools
+    that intentionally skip the global builtin collection register via
+    ``register_tool_governance`` / other paths instead.
+
+    ``default_policy`` / ``policy_reason`` drive auto-generated
+    ``ToolName(**)`` entries in the default user rules list.
+
+    Distinct from :attr:`ToolDescriptor.requires_sandbox`:
+    * ``requires_sandbox`` — runtime resource needs the sandbox honors
+      (``file_read``, ``file_write``, ``shell_exec``, …).
+    * ``fail_without_sandbox`` — governance fail-closed flag: when True,
+      the tool is denied unless a ``sandbox_config`` is supplied (e.g.
+      model-authored REPL).
+    """
+
+    tool_type: str = ""
+    target_param: str = ""
+    pattern_param: str = ""
+    policy_name: str = ""
+    fail_without_sandbox: bool = False
+    default_policy: str = ""  # allow | ask | deny; empty = no auto rule
+    policy_reason: str = ""
+
+
+@dataclass(frozen=True)
+class ToolUISpec:
+    """UI / config presentation metadata for a tool."""
+
+    description: str = ""
+    icon: str = ""
+    display_to_user: bool = True
+
+
+@dataclass(frozen=True)
 class ToolDescriptor:
     """Declarative description of one tool function.
 
@@ -42,6 +80,10 @@ class ToolDescriptor:
     async_execution: bool = False
     description: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    governance: ToolGovernanceSpec = field(
+        default_factory=ToolGovernanceSpec,
+    )
+    ui: ToolUISpec = field(default_factory=ToolUISpec)
 
 
 class ToolRegistry:
@@ -64,6 +106,10 @@ class ToolRegistry:
     def register_many(self, descs: Iterable[ToolDescriptor]) -> None:
         for d in descs:
             self.register(d)
+
+    def unregister(self, name: str) -> bool:
+        """Remove a tool by name. Returns ``True`` if it was present."""
+        return self._descs.pop(name, None) is not None
 
     def get(self, name: str) -> ToolDescriptor | None:
         return self._descs.get(name)
@@ -177,6 +223,18 @@ def tool_descriptor(
     requires_sandbox: tuple[str, ...] = (),
     async_execution: bool | None = None,
     description: str = "",
+    # Governance (packed into ToolGovernanceSpec)
+    tool_type: str = "",
+    target_param: str = "",
+    pattern_param: str = "",
+    policy_name: str = "",
+    fail_without_sandbox: bool = False,
+    default_policy: str = "",
+    policy_reason: str = "",
+    # UI (packed into ToolUISpec)
+    ui_description: str = "",
+    ui_icon: str = "",
+    display_to_user: bool = True,
     **metadata: Any,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Attach a :class:`ToolDescriptor` to ``fn._tool_descriptor`` and
@@ -188,10 +246,19 @@ def tool_descriptor(
     Built-in tools (under ``qwenpaw.agents.tools``) are automatically
     discoverable via :func:`get_builtin_tool_funcs` — no manual list
     maintenance or filesystem scanning required.
+
+    Governance kwargs (``tool_type``, ``target_param``, …) are stored on
+    ``ToolDescriptor.governance`` and consumed at startup by
+    ``governance.tool_registry`` to build the policy whitelist.
     """
 
     def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
         import inspect
+
+        from ..governance.tool_registry import (
+            validate_default_policy,
+            validate_tool_type,
+        )
 
         resolved_name = name or fn.__name__
         is_async = (
@@ -199,6 +266,12 @@ def tool_descriptor(
             if async_execution is not None
             else inspect.iscoroutinefunction(fn)
         )
+        # Empty tool_type is allowed here (governance gap / non-collected
+        # tools); non-empty values must be one of the known types.
+        resolved_tool_type = tool_type
+        if resolved_tool_type:
+            resolved_tool_type = validate_tool_type(resolved_tool_type)
+        resolved_default_policy = validate_default_policy(default_policy)
         # pylint: disable=protected-access
         fn._tool_descriptor = ToolDescriptor(  # type: ignore[attr-defined]
             name=resolved_name,
@@ -215,6 +288,20 @@ def tool_descriptor(
                 else description
             ),
             metadata=dict(metadata),
+            governance=ToolGovernanceSpec(
+                tool_type=resolved_tool_type,
+                target_param=target_param,
+                pattern_param=pattern_param,
+                policy_name=policy_name,
+                fail_without_sandbox=fail_without_sandbox,
+                default_policy=resolved_default_policy,
+                policy_reason=policy_reason,
+            ),
+            ui=ToolUISpec(
+                description=ui_description,
+                icon=ui_icon,
+                display_to_user=display_to_user,
+            ),
         )
         # pylint: enable=protected-access
         if id(fn) not in _REGISTERED_IDS:
@@ -227,6 +314,8 @@ def tool_descriptor(
 
 __all__ = [
     "ToolDescriptor",
+    "ToolGovernanceSpec",
+    "ToolUISpec",
     "ToolRegistry",
     "get_builtin_tool_funcs",
     "tool_descriptor",

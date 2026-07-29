@@ -19,6 +19,7 @@ from typing import (
 )
 
 from .base import BaseChannel, ContentType, ProcessHandler, TextContent
+from .renderer import ChannelDisplayConfig
 from .command_registry import CommandRegistry
 from .registry import get_channel_registry
 from .unified_queue_manager import UnifiedQueueManager
@@ -111,7 +112,7 @@ class ChannelManager:
         return cls(channels)
 
     @classmethod
-    # pylint: disable=too-many-branches
+    # pylint: disable=too-many-branches,too-many-statements
     def from_config(
         cls,
         process: ProcessHandler,
@@ -159,42 +160,18 @@ class ChannelManager:
             if not enabled:
                 continue
 
-            # Handle both Pydantic objects (built-in)
-            # and dicts (custom channels)
-            if isinstance(ch_cfg, dict):
-                filter_tool_messages = ch_cfg.get(
-                    "filter_tool_messages",
-                    False,
-                )
-                filter_thinking = ch_cfg.get("filter_thinking", False)
-                no_text_debounce = ch_cfg.get(
-                    "no_text_debounce",
-                    True,
-                )
-            else:
-                filter_tool_messages = getattr(
-                    ch_cfg,
-                    "filter_tool_messages",
-                    False,
-                )
-                filter_thinking = getattr(
-                    ch_cfg,
-                    "filter_thinking",
-                    False,
-                )
-                no_text_debounce = getattr(
-                    ch_cfg,
-                    "no_text_debounce",
-                    True,
-                )
+            no_text_debounce = getattr(ch_cfg, "no_text_debounce", True)
 
-            from_config_kwargs = {
+            # Channel classes may expose different plugin-specific factory
+            # signatures, so this mapping is intentionally dynamic.
+            from_config_kwargs: dict[str, Any] = {
                 "process": process,
                 "config": ch_cfg,
                 "on_reply_sent": on_last_dispatch,
-                "show_tool_details": show_tool_details,
-                "filter_tool_messages": filter_tool_messages,
-                "filter_thinking": filter_thinking,
+                "display_config": ChannelDisplayConfig.from_config(
+                    ch_cfg,
+                    show_tool_details=show_tool_details,
+                ),
                 "no_text_debounce": no_text_debounce,
                 "workspace_dir": workspace_dir,
             }
@@ -203,6 +180,7 @@ class ChannelManager:
             import inspect
 
             sig = inspect.signature(ch_cls.from_config)
+            filtered_kwargs: dict[str, Any]
             if any(
                 p.kind == inspect.Parameter.VAR_KEYWORD
                 for p in sig.parameters.values()

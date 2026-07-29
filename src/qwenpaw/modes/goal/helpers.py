@@ -31,27 +31,20 @@ def register_goal_tools_governance() -> None:
     try:
         from ...governance.tool_registry import (
             DEFAULT_REGISTRY,
+            register_tool_governance,
         )
 
-        for name in (
-            "GetGoal",
-            "CreateGoal",
-            "UpdateGoal",
-        ):
-            if DEFAULT_REGISTRY.get_type(name) == "unknown":
-                DEFAULT_REGISTRY.register(
-                    name,
-                    "internal",
-                    "",
-                )
         for py, policy in (
             ("get_goal", "GetGoal"),
             ("create_goal", "CreateGoal"),
             ("update_goal", "UpdateGoal"),
         ):
-            DEFAULT_REGISTRY.register_python_name(
-                py,
-                policy,
+            register_tool_governance(
+                DEFAULT_REGISTRY,
+                python_name=py,
+                tool_type="internal",
+                policy_name=policy,
+                owner="builtin",
             )
     except Exception:  # noqa: BLE001
         logger.debug(
@@ -108,14 +101,14 @@ def create_doom_loop_gate(
 def create_completion_gate(
     workspace: object,
 ) -> Any:
-    """Create StandaloneRubricGate from config.
+    """Create QualitativeRubricGate from config.
 
     Returns None when the rubric completion check
     is disabled or the config is missing.
     """
     try:
         from ...loop.gates import (
-            StandaloneRubricGate,
+            QualitativeRubricGate,
         )
 
         agent_cfg = getattr(
@@ -139,13 +132,13 @@ def create_completion_gate(
         if rubric_cfg is None or not rubric_cfg.enabled:
             return None
 
-        return StandaloneRubricGate(
-            prompt=rubric_cfg.prompt,
-            max_interventions=(rubric_cfg.max_interventions),
+        return QualitativeRubricGate(
+            rubric=rubric_cfg.prompt,
+            max_evaluations=(rubric_cfg.max_interventions),
         )
     except Exception:  # noqa: BLE001
         logger.debug(
-            "StandaloneRubricGate creation skipped",
+            "QualitativeRubricGate creation skipped",
             exc_info=True,
         )
         return None

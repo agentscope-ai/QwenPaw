@@ -1,0 +1,653 @@
+.section {
+  margin: 4px 0 20px;
+}
+
+.sectionHeading {
+  margin-bottom: 12px;
+
+  h3 {
+    margin: 3px 0;
+    color: #241b15;
+    font-size: 16px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  p {
+    margin: 0;
+    color: #7b716a;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+.eyebrow {
+  color: #d45f00;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.typeGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.typeCard {
+  position: relative;
+  display: flex;
+  min-height: 92px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid #e8dfd8;
+  border-radius: 14px;
+  color: #2d231d;
+  background: #fffdfa;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease,
+    background 160ms ease;
+
+  &:hover {
+    border-color: rgba(255, 127, 22, 0.55);
+    box-shadow: 0 8px 24px rgba(186, 83, 0, 0.09);
+    transform: translateY(-1px);
+  }
+
+  &.selected {
+    border-color: #ff7f16;
+    background: #fff6ed;
+    box-shadow: inset 0 0 0 1px rgba(255, 127, 22, 0.14);
+  }
+}
+
+.typeIcon,
+.providerIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: #79685b;
+  background: #f3ede8;
+}
+
+.selected .typeIcon,
+.providerCardSelected .providerIcon {
+  color: #d45f00;
+  background: #ffe8d3;
+}
+
+.typeIcon {
+  width: 38px;
+  height: 38px;
+}
+
+.typeCopy,
+.providerCopy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+
+  strong {
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  small {
+    color: #7b716a;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+}
+
+.radioMark {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  border: 1px solid #d3c7be;
+  border-radius: 50%;
+}
+
+.selected .radioMark {
+  border: 4px solid #ff7f16;
+  background: #fff;
+}
+
+.thirdPartyPanel {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid #eadfd6;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #fffdfa 0%, #fff7ef 100%);
+}
+
+.panelHeading {
+  margin-bottom: 11px;
+
+  h4 {
+    margin: 0 0 2px;
+    color: #30251e;
+    font-size: 13px;
+  }
+
+  p {
+    margin: 0;
+    color: #82766e;
+    font-size: 11px;
+  }
+}
+
+.providerGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.providerCardSelected,
+.providerCard,
+.providerCardDisabled {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  border-radius: 11px;
+  text-align: left;
+}
+
+.providerCardSelected {
+  border: 1px solid #ff7f16;
+  color: #30251e;
+  background: #fffaf5;
+  cursor: default;
+  box-shadow: 0 5px 16px rgba(186, 83, 0, 0.08);
+}
+
+.providerCard {
+  border: 1px solid #e5d9cf;
+  color: #30251e;
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    transform 150ms ease;
+
+  &:hover {
+    border-color: rgba(255, 127, 22, 0.55);
+    background: #fffaf5;
+    transform: translateY(-1px);
+  }
+}
+
+.providerCardDisabled {
+  border: 1px solid #e9e1da;
+  color: #9d948d;
+  background: rgba(255, 255, 255, 0.62);
+
+  small {
+    color: #aaa19a;
+  }
+}
+
+.providerIcon {
+  width: 31px;
+  height: 31px;
+  border-radius: 8px;
+}
+
+.providerCheck {
+  flex: 0 0 auto;
+  color: #e66900;
+}
+
+.providerConfig {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #eadfd6;
+}
+
+.binaryField {
+  margin-bottom: 7px;
+
+  :global(.ant-form-item-label) {
+    padding-bottom: 4px;
+  }
+
+  :global(.ant-input-affix-wrapper) {
+    min-height: 38px;
+    padding-right: 4px;
+  }
+}
+
+.binaryLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.helpIcon {
+  display: inline-flex;
+  color: #9a8d83;
+  cursor: help;
+  transition: color 150ms ease;
+
+  &:hover {
+    color: #d45f00;
+  }
+}
+
+.detectLabel {
+  margin-left: 2px;
+}
+
+.binaryStatus {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin: 0 2px 10px;
+  padding: 6px 8px;
+  border: 1px solid;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.detected {
+  border-color: #d6e8d8;
+  background: #f5faf5;
+}
+
+.notDetected {
+  border-color: #eadfd6;
+  background: #faf7f4;
+}
+
+.binaryStatusLabel {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.detected .binaryStatusLabel {
+  color: #357544;
+}
+
+.notDetected .binaryStatusLabel {
+  color: #8b7464;
+}
+
+.binaryPath {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #70655d;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copyPathButton {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: #887a70;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background 150ms ease;
+
+  &:hover {
+    color: #c95700;
+    background: rgba(255, 127, 22, 0.1);
+  }
+}
+
+.authHint {
+  margin: 0 2px 10px;
+  color: #7b6d62;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.accountRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 12px;
+  border: 1px solid #e9ded5;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.chatSettingsHint {
+  margin: 10px 2px 0;
+  color: #7b6d62;
+  font-size: 12px;
+}
+
+.capabilityPanel {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e9ded5;
+}
+
+.capabilityTitle {
+  display: block;
+  margin-bottom: 10px;
+  color: #81756c;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.capabilityGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.capabilityItem {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid #eadfd6;
+  border-radius: 10px;
+  color: #d45f00;
+  background: rgba(255, 127, 22, 0.035);
+
+  > span {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+  }
+
+  strong {
+    overflow: hidden;
+    color: #2d231d;
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small {
+    color: #7b716a;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+}
+
+.accountState {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.accountLabel {
+  color: #81756c;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.connectedState,
+.disconnectedState {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.connectedState {
+  color: #c95700;
+}
+
+.disconnectedState {
+  color: #82766d;
+}
+
+.accountAction {
+  flex: 0 0 auto;
+}
+
+:global(.dark-mode) {
+  .sectionHeading h3,
+  .typeCard,
+  .panelHeading h4,
+  .providerCardSelected {
+    color: #f5eee8;
+  }
+
+  .providerCard {
+    border-color: #3b332d;
+    color: #e8dfd7;
+    background: rgba(255, 255, 255, 0.025);
+
+    &:hover {
+      border-color: rgba(255, 127, 22, 0.65);
+      background: rgba(255, 127, 22, 0.07);
+    }
+  }
+
+  .eyebrow {
+    color: #ff9a47;
+  }
+
+  .sectionHeading p,
+  .typeCopy small,
+  .providerCopy small,
+  .panelHeading p,
+  .accountLabel {
+    color: #a99d94;
+  }
+
+  .typeCard {
+    border-color: #3b332d;
+    background: #211e1b;
+
+    &:hover {
+      border-color: rgba(255, 127, 22, 0.7);
+      background: #26211d;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+    }
+  }
+
+  .typeCard.selected {
+    border-color: #ff7f16;
+    background: rgba(255, 127, 22, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(255, 153, 70, 0.12);
+  }
+
+  .typeIcon,
+  .providerIcon {
+    color: #bca99a;
+    background: #332d28;
+  }
+
+  .selected .typeIcon,
+  .providerCardSelected .providerIcon {
+    color: #ff9a47;
+    background: rgba(255, 127, 22, 0.16);
+  }
+
+  .radioMark {
+    border-color: #62564d;
+  }
+
+  .selected .radioMark {
+    border-color: #ff7f16;
+    background: #211d19;
+  }
+
+  .thirdPartyPanel {
+    border-color: #41362e;
+    background: linear-gradient(145deg, #211d19 0%, #191817 100%);
+  }
+
+  .providerCardSelected {
+    border-color: #e87313;
+    background: rgba(255, 127, 22, 0.09);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  }
+
+  .providerCardDisabled {
+    border-color: #332f2b;
+    color: #716a64;
+    background: rgba(255, 255, 255, 0.018);
+
+    small {
+      color: #716a64;
+    }
+  }
+
+  .providerConfig {
+    border-top-color: #3b332d;
+  }
+
+  .accountRow {
+    border-color: #3d352f;
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .connectedState {
+    color: #ff9a47;
+  }
+
+  .disconnectedState {
+    color: #a99d94;
+  }
+
+  .chatSettingsHint {
+    color: #a99d94;
+  }
+
+  .authHint {
+    color: #a99d94;
+  }
+
+  .helpIcon {
+    color: #8f837a;
+
+    &:hover {
+      color: #ff9a47;
+    }
+  }
+
+  .detected {
+    border-color: rgba(91, 158, 105, 0.32);
+    background: rgba(70, 129, 82, 0.1);
+  }
+
+  .notDetected {
+    border-color: #423a34;
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  .capabilityPanel {
+    border-color: #423a34;
+  }
+
+  .capabilityTitle,
+  .capabilityItem small {
+    color: #a99d94;
+  }
+
+  .capabilityItem {
+    border-color: #423a34;
+    color: #ff9a47;
+    background: rgba(255, 127, 22, 0.06);
+
+    strong {
+      color: #f5eee8;
+    }
+  }
+
+  .detected .binaryStatusLabel {
+    color: #86c792;
+  }
+
+  .notDetected .binaryStatusLabel,
+  .binaryPath {
+    color: #a99d94;
+  }
+
+  .copyPathButton {
+    color: #91857c;
+
+    &:hover {
+      color: #ff9a47;
+      background: rgba(255, 127, 22, 0.12);
+    }
+  }
+}
+
+@media (max-width: 680px) {
+  .typeGrid,
+  .providerGrid,
+  .capabilityGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .typeCard {
+    min-height: 80px;
+  }
+
+  .accountRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .accountAction :global(.ant-btn) {
+    width: 100%;
+  }
+
+  .binaryStatus {
+    flex-wrap: wrap;
+  }
+
+  .binaryPath {
+    min-width: 160px;
+    order: 3;
+    flex-basis: calc(100% - 32px);
+    margin-left: 19px;
+  }
+
+  .copyPathButton {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 420px) {
+  .detectLabel {
+    display: none;
+  }
+}

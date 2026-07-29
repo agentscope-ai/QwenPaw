@@ -46,6 +46,16 @@ export default function MainLayout() {
     [currentPath, routes],
   );
 
+  // PawApp inline routes (`/apps/<id>`) are rendered *inside* the App Center
+  // page (with its "← App Center" bar), never as standalone full-page routes.
+  // They stay in the registry so the App Center can look up their component;
+  // we just skip them here. The App Center's own `/apps/:appId` route (with a
+  // colon) is kept, so a deep-link / refresh lands on the App Center wrapper.
+  const renderableRoutes = useMemo(
+    () => routes.filter((r) => !/^\/apps\/(?!:)/.test(r.path)),
+    [routes],
+  );
+
   return (
     <Layout className={styles.mainLayout}>
       <Header />
@@ -66,7 +76,7 @@ export default function MainLayout() {
                 }
               >
                 <Routes>
-                  {routes.map((r) => (
+                  {renderableRoutes.map((r) => (
                     <Route key={r.id} path={r.path} element={<r.Component />} />
                   ))}
                 </Routes>

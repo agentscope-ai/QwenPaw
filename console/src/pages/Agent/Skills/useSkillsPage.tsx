@@ -45,6 +45,7 @@ export function useSkillsPage() {
 
   const {
     skills,
+    providerSkills,
     loading,
     uploading,
     importing,
@@ -678,6 +679,7 @@ export function useSkillsPage() {
 
   return {
     skills,
+    providerSkills,
     sortedSkills,
     visibleSkills,
     hasMore,

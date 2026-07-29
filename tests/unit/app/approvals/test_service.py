@@ -345,6 +345,62 @@ async def test_get_all_pending_by_agent_no_cross_agent_leak():
     assert found_c == []
 
 
+async def test_spawn_child_notification_targets_root_session():
+    class _Channel:
+        def __init__(self):
+            self.calls = []
+
+        async def send_approval_notification(self, **kwargs):
+            self.calls.append(kwargs)
+
+    channel = _Channel()
+
+    class _Manager:
+        async def get_channel(self, channel_name):
+            assert channel_name == "qq"
+            return channel
+
+    svc = ApprovalService()
+    svc.set_channel_manager(_Manager(), agent_id="agent-A")
+    await svc.create_pending(
+        session_id="child-session",
+        root_session_id="root-session",
+        owner_agent_id="agent-A",
+        user_id="u1",
+        channel="qq",
+        agent_id="agent-A",
+        tool_name="Bash",
+        result=_make_result(),
+        extra={"_spawn_subagent": True},
+    )
+    await asyncio.sleep(0)
+
+    assert channel.calls[0]["session_id"] == "root-session"
+
+
+async def test_non_spawn_notification_keeps_pending_session():
+    class _Channel:
+        def __init__(self):
+            self.calls = []
+
+        async def send_approval_notification(self, **kwargs):
+            self.calls.append(kwargs)
+
+    channel = _Channel()
+    svc = ApprovalService()
+    pending = _make_pending(
+        "other",
+        session_id="child-session",
+        root_session_id="root-session",
+        extra={"_channel_instance": channel},
+    )
+    pending.channel = "qq"
+
+    await svc._notify_channel(pending, "approval")
+
+    assert channel.calls[0]["session_id"] == "child-session"
+
+
 # ---------------------------------------------------------------------------
 # wait_for_approval
 # ---------------------------------------------------------------------------

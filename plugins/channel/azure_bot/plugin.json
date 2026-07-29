@@ -1,7 +1,7 @@
 {
   "id": "azure-bot",
   "name": "Azure Bot",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "channel",
   "description": "Azure Bot Service channel (Bot Framework) integration for QwenPaw. Supports Teams, Slack, Web Chat and other Azure Bot channels.",
   "description_i18n": {
@@ -18,7 +18,7 @@
     "msal>=1.20.0"
   ],
   "qwenpaw_version": {
-    "min": "2.0.0",
+    "min": "2.0.1b1",
     "max": "2.1.0"
   }
 }

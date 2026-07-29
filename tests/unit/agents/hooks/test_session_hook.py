@@ -20,14 +20,18 @@ class _FakeSession:
     def __init__(self) -> None:
         self.loaded = False
         self.saved = False
+        self.load_payload = {}
+        self.saved_payload = {}
 
     async def load_session_state(self, *args, **kwargs) -> None:
-        del args, kwargs
+        del args
         self.loaded = True
+        kwargs["agent"].load_state_dict(self.load_payload)
 
     async def save_session_state(self, *args, **kwargs) -> None:
-        del args, kwargs
+        del args
         self.saved = True
+        self.saved_payload = kwargs["agent"].state_dict()
 
 
 def _ctx(session: _FakeSession, *, ephemeral: bool):
@@ -40,6 +44,7 @@ def _ctx(session: _FakeSession, *, ephemeral: bool):
         workspace=SimpleNamespace(session=session),
         agent=SimpleNamespace(state_dict=lambda: {"context": []}),
         session_id="warmup-session",
+        mode_state={},
     )
 
 
@@ -56,6 +61,9 @@ async def test_ephemeral_request_skips_session_load_and_save():
 
 async def test_normal_request_loads_and_saves_session_state():
     session = _FakeSession()
+    session.load_payload = {
+        "mode_state": {"mission": {"active": True}},
+    }
     ctx = _ctx(session, ephemeral=False)
 
     await SessionLoadHook().run(ctx)
@@ -63,3 +71,5 @@ async def test_normal_request_loads_and_saves_session_state():
 
     assert session.loaded is True
     assert session.saved is True
+    assert ctx.mode_state == {"mission": {"active": True}}
+    assert session.saved_payload["mode_state"] == ctx.mode_state

@@ -1477,6 +1477,7 @@ from qwenpaw.app.channels.base import (
     OnReplySent,
     ProcessHandler,
 )
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 logger = logging.getLogger(__name__)
 
@@ -1494,17 +1495,13 @@ class SampleChannel(BaseChannel):
         signing_secret: str = "",
         bot_prefix: str = "",
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         **kwargs,
     ):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config,
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
@@ -1517,9 +1514,7 @@ class SampleChannel(BaseChannel):
         process: ProcessHandler,
         config,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         workspace_dir: Optional[Path] = None,
     ) -> "SampleChannel":
         """Create from config.
@@ -1535,9 +1530,8 @@ class SampleChannel(BaseChannel):
             signing_secret=getattr(config, "signing_secret", ""),
             bot_prefix=getattr(config, "bot_prefix", ""),
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
         )
 
     async def start(self):

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=wrong-import-position
 """Tests for Langfuse observability integration components.
 
 Covers:
@@ -7,16 +8,23 @@ Covers:
 - LangfuseToolSpanMiddleware: tool observations created/skipped correctly
 - OpenAIChatModelCompat.__call__: Langfuse kwargs injection
 """
+
 from __future__ import annotations
 
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 
-from qwenpaw.observability import langfuse as lf
+# flake8: noqa: E402,E501
+pytest.importorskip(
+    "langfuse",
+    reason="langfuse SDK required for observability tests",
+)
 
+from qwenpaw.observability import langfuse as lf
 
 # ---------------------------------------------------------------------------
 # Shared fakes
@@ -39,14 +47,28 @@ class FakeObservation:
 
 
 class FakeClient:
-    def __init__(self):
+    def __init__(self, *, trace_id=None, observation_id=None):
         self.started: list[dict] = []
         self.next_id = 0
+        self._trace_id = trace_id
+        self._observation_id = observation_id
 
     def start_observation(self, **kwargs):
         self.started.append(kwargs)
         self.next_id += 1
         return FakeObservation(f"obs-{self.next_id}")
+
+    @contextmanager
+    def start_as_current_observation(self, **kwargs):
+        self.started.append(kwargs)
+        self.next_id += 1
+        yield FakeObservation(f"obs-{self.next_id}")
+
+    def get_current_observation_id(self):
+        return self._observation_id or f"obs-{self.next_id}"
+
+    def get_current_trace_id(self):
+        return self._trace_id
 
 
 @pytest.fixture(autouse=True)
@@ -129,7 +151,7 @@ class TestLangfuseTraceHook:
         assert lf.get_current_trace().name == "qwenpaw.agent.react_loop"
         assert len(client.started) == 1
 
-    async def test_handles_scope_open_failure(self, monkeypatch):
+    async def test_handles_scope_open_failure(self, monkeypatch, caplog):
         """Hook swallows exceptions from scope.__aenter__ gracefully."""
         from qwenpaw.hooks.observability.langfuse_hook import (
             LangfuseTraceHook,
@@ -146,10 +168,35 @@ class TestLangfuseTraceHook:
         hook = LangfuseTraceHook()
         ctx = _make_hook_context()
 
-        result = await hook.run(ctx)
+        with caplog.at_level("WARNING"):
+            result = await hook.run(ctx)
 
         assert _LANGFUSE_SCOPE_KEY not in ctx.extras
         assert result.action.value == "continue"
+        assert "langfuse trace scope open failed" in caplog.text
+
+    async def test_trace_id_is_hex_without_dashes(self, monkeypatch):
+        """Hook emits a 32-char hex trace_id (uuid4().hex), not a dashed UUID.
+
+        Langfuse requires hex trace ids; the old ``str(uuid.uuid4())``
+        produced dashes and was rejected by the SDK.
+        """
+        import re
+
+        from qwenpaw.hooks.observability.langfuse_hook import LangfuseTraceHook
+
+        client = FakeClient()
+        monkeypatch.setattr(lf, "is_langfuse_enabled", lambda: True)
+        monkeypatch.setattr(lf, "_langfuse_client", lambda: client)
+
+        hook = LangfuseTraceHook()
+        ctx = _make_hook_context()
+        await hook.run(ctx)
+
+        trace = lf.get_current_trace()
+        assert trace is not None
+        assert "-" not in trace.trace_id
+        assert re.fullmatch(r"[0-9a-f]{32}", trace.trace_id)
 
 
 # ===========================================================================
