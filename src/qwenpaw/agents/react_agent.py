@@ -483,7 +483,23 @@ class QwenPawAgent(CodingModeMixin, Agent):
             "prompt too long",
             "too many input tokens",
         )
-        return any(marker in error_str for marker in overflow_markers)
+        if any(marker in error_str for marker in overflow_markers):
+            return True
+
+        gemini_overflow_marker_groups = (
+            (
+                "input token count",
+                "exceeds the maximum number of tokens allowed",
+            ),
+            (
+                "input token count",
+                "model only supports up to",
+            ),
+        )
+        return any(
+            all(marker in error_str for marker in marker_group)
+            for marker_group in gemini_overflow_marker_groups
+        )
 
     async def _call_model(
         self,

@@ -243,13 +243,26 @@ def test_context_overflow_classifier_requires_400_and_specific_marker(
     assert QwenPawAgent._is_context_overflow_error(exc) is expected
 
 
-def test_context_overflow_classifier_supports_gemini_client_error():
+@pytest.mark.parametrize(
+    "message",
+    [
+        (
+            "The input token count (1337419) exceeds the maximum number "
+            "of tokens allowed (1048576)."
+        ),
+        (
+            "Unable to submit request because the input token count is "
+            "135538 but model only supports up to 32768"
+        ),
+    ],
+)
+def test_context_overflow_classifier_supports_gemini_client_error(message):
     exc = genai_errors.ClientError(
         400,
         {
             "error": {
                 "status": "INVALID_ARGUMENT",
-                "message": "context length exceeded",
+                "message": message,
             },
         },
     )
