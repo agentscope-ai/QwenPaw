@@ -25,8 +25,8 @@ The plugin has no Python GUI automation dependencies.
 
 Its tests live in `tests/unit/plugins/computer_use/` rather than here, so the
 standard `pytest tests/unit` suite collects them: pytest ignores `testpaths`
-whenever a path is passed on the command line, which is how every CI workflow
-invokes it, and a suite inside the plugin directory would therefore never run.
+whenever a path is passed on the command line, and a suite inside the plugin
+directory would therefore never run.
 
 ## Console UI
 
@@ -53,19 +53,12 @@ with a leaf directory per platform. Windows builds and tests locally:
 cd console/src-tauri && cargo test --bin qwenpaw-computer-use-helper
 ```
 
-No CI check compiles the macOS leaf, and none compiles the Windows one either:
-no pull-request workflow in this repository runs `cargo` at all. Rust is built
-where the desktop packages are, on release or on demand.
-
-So a change under `platform_macos/` has to be put in front of a compiler by
-hand. The cheapest way is the verification workflow that already exists for
-this, which builds only the macOS package rather than both:
+A change under `platform_macos/` needs a macOS compiler, so verify it with the
+desktop verification workflow, which can build that platform on its own:
 
 ```bash
 gh workflow run fork-verify-desktop.yml -f platforms=macos-only
 ```
 
-It is worth actually doing. Twenty-nine compile errors once reached a branch
-that had passed every check the pull request ran, because none of them compiled
-that code -- and static checks are no substitute: they can confirm a symbol
-exists, not that a type, a lifetime or a trait bound holds.
+Worth actually running rather than reasoning about: static checks can confirm a
+symbol exists, not that a type, a lifetime or a trait bound holds.
