@@ -851,8 +851,12 @@ class WindowsAppContainerSandbox(WindowsSandboxBase):
                 duration_ms=duration_ms,
                 sandbox_violation=violation,
             )
+        except asyncio.CancelledError:
+            await self.stop()
+            raise
         except OSError as e:
             duration_ms = int((time.monotonic() - start) * 1000)
+            await self.stop()
             return ExecutionResult(
                 exit_code=-1,
                 stdout="",

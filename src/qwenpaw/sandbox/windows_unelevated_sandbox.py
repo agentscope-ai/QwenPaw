@@ -2214,9 +2214,12 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
                 duration_ms=duration_ms,
                 sandbox_violation=violation,
             )
-
+        except asyncio.CancelledError:
+            await self.stop()
+            raise
         except OSError as e:
             duration_ms = int((time.monotonic() - start) * 1000)
+            await self.stop()
             return ExecutionResult(
                 exit_code=-1,
                 stdout="",
@@ -2245,7 +2248,23 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         )
 
     async def stop(self) -> None:
-        """Terminates any running process and releases token handles."""
+        """Terminates the child process tree and releases Win32 resources.
+
+        The base termination helper uses ``TerminateJobObject`` when a Job
+        Object is available, ensuring that cmd.exe and all of its children
+        are stopped together.  If initialization or process creation failed
+        before any Win32 resource was acquired, avoid loading ``kernel32``.
+        """
+        has_resources = (
+            self._job_handle is not None
+            or self._process_handle is not None
+            or self._h_token is not None
+            or self._cap_psid is not None
+        )
+        if not has_resources:
+            self._initialized = False
+            return
+
         kernel32 = _get_kernel32()
 
         self._terminate_process()
