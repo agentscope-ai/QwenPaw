@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
+from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.checkpoints.service import CheckpointService
 from qwenpaw.checkpoints.policy import (
     sanitize_ref_component,
@@ -856,6 +857,52 @@ async def test_memory_restore_fails_when_workspace_does_not_quiesce() -> None:
 
     with pytest.raises(CheckpointError, match="did not become idle"):
         await guard.quiesce()
+
+
+@pytest.mark.asyncio
+async def test_precise_guard_timeout_resumes_cron() -> None:
+    class CronExecutor:
+        def __init__(self) -> None:
+            self.paused = False
+            self.resume_count = 0
+
+        def pause(self) -> None:
+            self.paused = True
+
+        def resume(self) -> None:
+            self.paused = False
+            self.resume_count += 1
+
+    class Workspace:
+        def __init__(self) -> None:
+            self.task_tracker = TaskTracker()
+            self.cron_executor = CronExecutor()
+
+    workspace = Workspace()
+    release = asyncio.Event()
+
+    async def running_agent(_payload):
+        await release.wait()
+        yield "done"
+
+    queue, _ = await workspace.task_tracker.attach_or_start(
+        "running-agent",
+        None,
+        running_agent,
+    )
+    guard = WorkspaceMutationGuard(workspace, timeout=0.01)
+
+    with pytest.raises(CheckpointError, match="did not become idle"):
+        await guard.quiesce()
+
+    assert workspace.cron_executor.paused is False
+    assert workspace.cron_executor.resume_count == 1
+    release.set()
+    async for _ in workspace.task_tracker.stream_from_queue(
+        queue,
+        "running-agent",
+    ):
+        pass
 
 
 @pytest.mark.asyncio

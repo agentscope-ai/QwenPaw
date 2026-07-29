@@ -66,6 +66,40 @@ async def test_attach_returns_none_for_unknown_run_key():
     assert await tracker.attach("missing") is None
 
 
+@pytest.mark.asyncio
+async def test_has_active_tasks_excluding_uses_task_identity():
+    tracker = TaskTracker()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    producer_sees_other: list[bool] = []
+
+    async def producer(_payload):
+        producer_sees_other.append(
+            await tracker.has_active_tasks_excluding(
+                asyncio.current_task(),
+            ),
+        )
+        started.set()
+        await release.wait()
+        yield "data: done\n\n"
+
+    queue, _ = await tracker.attach_or_start(
+        "tracked-producer",
+        None,
+        producer,
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    assert producer_sees_other == [False]
+    assert await tracker.has_active_tasks_excluding(
+        asyncio.current_task(),
+    )
+
+    release.set()
+    async for _ in tracker.stream_from_queue(queue, "tracked-producer"):
+        pass
+
+
 # ---------------------------------------------------------------------------
 # attach_or_start: producer/consumer flow
 # ---------------------------------------------------------------------------

@@ -117,6 +117,26 @@ class WorkspaceMutationGuard:
         task_tracker = getattr(self.workspace, "task_tracker", None)
         if task_tracker is not None and hasattr(
             task_tracker,
+            "has_active_tasks_excluding",
+        ):
+            try:
+                async with asyncio.timeout(self.timeout):
+                    await self._wait_for_other_tasks(
+                        task_tracker,
+                        asyncio.current_task(),
+                    )
+            except TimeoutError as exc:
+                raise CheckpointError(
+                    "Checkpoint restore was cancelled because workspace "
+                    f"tasks did not become idle within {self.timeout:.1f}s.",
+                ) from exc
+            except Exception as exc:
+                raise CheckpointError(
+                    "Checkpoint restore was cancelled because active tasks "
+                    "could not be inspected.",
+                ) from exc
+        elif task_tracker is not None and hasattr(
+            task_tracker,
             "wait_all_idle",
         ):
             try:
@@ -140,7 +160,7 @@ class WorkspaceMutationGuard:
         ):
             try:
                 await asyncio.wait_for(
-                    self._wait_for_other_tasks(task_tracker),
+                    self._wait_for_no_active_tasks(task_tracker),
                     timeout=self.timeout,
                 )
             except asyncio.TimeoutError as exc:
@@ -154,7 +174,16 @@ class WorkspaceMutationGuard:
                     "could not be inspected.",
                 ) from exc
 
-    async def _wait_for_other_tasks(self, task_tracker) -> None:
+    @staticmethod
+    async def _wait_for_other_tasks(
+        task_tracker,
+        restore_task: asyncio.Task | None,
+    ) -> None:
+        while await task_tracker.has_active_tasks_excluding(restore_task):
+            await asyncio.sleep(0.5)
+
+    @staticmethod
+    async def _wait_for_no_active_tasks(task_tracker) -> None:
         while True:
             active = await task_tracker.list_active_tasks()
             if not active:

@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.checkpoints import policy as checkpoint_policy
 from qwenpaw.runtime.commands.control.checkpoint_handler import (
     CheckpointCommandHandler,
@@ -371,15 +372,6 @@ async def test_restore_command_validates_and_preserves_file_selection(
 async def test_control_restore_waits_for_active_agent(
     workspace: _Workspace,
 ) -> None:
-    class BusyTasks:
-        def __init__(self) -> None:
-            self.waiting = asyncio.Event()
-            self.release = asyncio.Event()
-
-        async def list_active_tasks(self) -> list[str]:
-            self.waiting.set()
-            return [] if self.release.is_set() else ["running-agent"]
-
     engine = _engine(workspace)
     session_path = _write_session(workspace.workspace_dir, "before")
     ref = await engine.make_auto_checkpoint(
@@ -390,23 +382,64 @@ async def test_control_restore_waits_for_active_agent(
     )
     target = engine.repository.run_git("rev-parse", ref)
     _write_session(workspace.workspace_dir, "after")
-    workspace.task_tracker = BusyTasks()
+    tracker = TaskTracker()
+    workspace.task_tracker = tracker
+    agent_started = asyncio.Event()
+    release_agent = asyncio.Event()
+    restore_started = asyncio.Event()
+    restore_finished = asyncio.Event()
+    restore_result: list[str] = []
 
-    restore_task = asyncio.create_task(
-        _run(workspace, f"restore {target[:12]} --confirm"),
+    async def running_agent(_payload):
+        agent_started.set()
+        await release_agent.wait()
+        yield "agent finished"
+
+    async def restore_command(_payload):
+        restore_started.set()
+        restore_result.append(
+            await _run(
+                workspace,
+                f"restore {target[:12]} --confirm",
+            ),
+        )
+        restore_finished.set()
+        yield "restore finished"
+
+    agent_queue, _ = await tracker.attach_or_start(
+        "running-agent",
+        None,
+        running_agent,
     )
-    await asyncio.wait_for(workspace.task_tracker.waiting.wait(), timeout=1)
+    await asyncio.wait_for(agent_started.wait(), timeout=1)
+    restore_queue, _ = await tracker.attach_or_start(
+        "restore-command",
+        None,
+        restore_command,
+    )
+    await asyncio.wait_for(restore_started.wait(), timeout=1)
+    for _ in range(100):
+        if not engine.query_gate.is_set():
+            break
+        await asyncio.sleep(0.01)
 
     assert "after" in session_path.read_text(encoding="utf-8")
-    assert not restore_task.done()
+    assert not restore_finished.is_set()
     assert not engine.query_gate.is_set()
 
-    workspace.task_tracker.release.set()
-    result = await restore_task
+    release_agent.set()
+    await asyncio.wait_for(restore_finished.wait(), timeout=30)
+    async for _ in tracker.stream_from_queue(agent_queue, "running-agent"):
+        pass
+    async for _ in tracker.stream_from_queue(restore_queue, "restore-command"):
+        pass
 
-    assert "**Restore complete**" in result
+    assert "**Restore complete**" in restore_result[0]
     assert "before" in session_path.read_text(encoding="utf-8")
     assert engine.query_gate.is_set()
+    assert not engine.maintenance_lock.locked()
+    assert not engine.lock.locked()
+    assert await tracker.list_active_tasks() == []
 
 
 @pytest.mark.asyncio
