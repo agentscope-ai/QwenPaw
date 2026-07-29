@@ -12,7 +12,6 @@ wait_for, pdf, close. Uses refs from snapshot for ref-based actions.
 import asyncio
 import atexit
 from collections.abc import Iterable
-import contextlib
 from concurrent import futures
 import json
 import logging
@@ -1147,14 +1146,25 @@ def _fetch_cdp_version(url: str) -> dict[str, Any]:
 async def _wait_for_cdp_ready(
     port: int,
     proc: subprocess.Popen,
-    user_data_dir: str,
     timeout: float = 15.0,
 ) -> dict[str, Any]:
-    """Wait until our Chrome process owns the CDP endpoint on *port*."""
+    """Wait until the CDP endpoint of the Chrome we spawned answers on *port*.
+
+    Ownership model: _start_managed_cdp_browser() verified the port was free
+    immediately before spawning *proc* (fail-closed preflight), and this loop
+    fails closed as soon as *proc* exits -- including right after a probe
+    succeeded, so a foreign endpoint answering while our Chrome dies from a
+    bind conflict is still rejected. The remaining race -- a foreign process
+    binding the port in the milliseconds between preflight and Chrome's own
+    bind while our Chrome keeps running unbound -- is an accepted residual:
+    this guard targets accidental exposure, not a hostile local process.
+    DevToolsActivePort cannot serve as an ownership proof here: with a fixed
+    --remote-debugging-port, current Chrome (verified on 150) never writes
+    that file.
+    """
     deadline = time.monotonic() + timeout
     last_error: Optional[Exception] = None
     url = f"http://127.0.0.1:{port}/json/version"
-    port_file = Path(user_data_dir) / "DevToolsActivePort"
     while time.monotonic() < deadline:
         exit_code = proc.poll()
         if exit_code is not None:
@@ -1164,20 +1174,22 @@ async def _wait_for_cdp_ready(
                 "another process.",
             )
         try:
-            first_line = (
-                port_file.read_text(encoding="utf-8").splitlines()[0].strip()
-            )
-        except (OSError, IndexError):
-            first_line = ""
-        if first_line == str(port):
-            try:
-                return await asyncio.to_thread(_fetch_cdp_version, url)
-            except Exception as exc:
-                last_error = exc
+            version = await asyncio.to_thread(_fetch_cdp_version, url)
+        except Exception as exc:
+            last_error = exc
+        else:
+            exit_code = proc.poll()
+            if exit_code is not None:
+                raise RuntimeError(
+                    f"Chrome exited (code {exit_code}) right after the CDP "
+                    f"endpoint on port {port} answered; refusing to attach "
+                    "to an endpoint our process does not own.",
+                )
+            return version
         await asyncio.sleep(0.2)
     raise RuntimeError(
         f"Timed out waiting for Chrome CDP endpoint on port {port}: "
-        f"{last_error or 'DevToolsActivePort not written by our process'}",
+        f"{last_error or 'no response from endpoint'}",
     )
 
 
@@ -1228,7 +1240,7 @@ async def _start_managed_cdp_browser(  # pylint: disable=too-many-statements
     )
     pw = None
     try:
-        await _wait_for_cdp_ready(chosen_cdp_port, proc, user_data_dir)
+        await _wait_for_cdp_ready(chosen_cdp_port, proc)
         async_playwright = _ensure_playwright_async()
         pw = await async_playwright().start()
         browser = await pw.chromium.connect_over_cdp(
@@ -1282,8 +1294,6 @@ def _start_managed_chromium_process(
     browser_args: str = "",
 ) -> subprocess.Popen:
     _secure_profile_directory(user_data_dir)
-    with contextlib.suppress(OSError):
-        (Path(user_data_dir) / "DevToolsActivePort").unlink()
     args = [
         executable_path,
         f"--remote-debugging-port={cdp_port}",
@@ -1854,6 +1864,14 @@ async def _action_start(
                 await _action_stop(state)
             except Exception:
                 pass
+            # The old session is being destroyed to satisfy this new request,
+            # so its recorded launch config no longer describes a live
+            # session. On success the block below records the new config; on
+            # failure _ensure_browser must not replay the dead session.
+            state.pop("_expose_cdp", None)
+            state.pop("_cdp_port", None)
+            state.pop("_browser_args", None)
+            state.pop("_executable_path", None)
         else:
             result: dict[str, Any] = {
                 "ok": True,
