@@ -1022,6 +1022,14 @@ def reconcile_pool_manifest() -> dict[str, Any]:
 
         for skill_name in list(skills):
             if skill_name not in discovered:
+                # Plugin-sourced skills have no on-disk directory by design
+                # (registered as lightweight stubs); preserve them across
+                # reconcile so user-assigned tags survive restart. See #6537.
+                existing = normalize_skill_manifest_entry(
+                    skills.get(skill_name),
+                )
+                if str(existing.get("source") or "").startswith("plugin:"):
+                    continue
                 skills.pop(skill_name, None)
 
         return payload
@@ -1132,6 +1140,14 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
 
         for skill_name in list(skills):
             if skill_name not in discovered:
+                # Plugin-sourced skills have no on-disk directory by design
+                # (registered as lightweight stubs); preserve them across
+                # reconcile so user-assigned tags survive restart. See #6537.
+                existing = normalize_skill_manifest_entry(
+                    skills.get(skill_name),
+                )
+                if str(existing.get("source") or "").startswith("plugin:"):
+                    continue
                 skills.pop(skill_name, None)
 
         return payload
