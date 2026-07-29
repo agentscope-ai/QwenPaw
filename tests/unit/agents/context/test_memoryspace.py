@@ -419,27 +419,153 @@ def test_search_loads_duplicate_hit_turn_once(
     assert load_calls == 1
 
 
-def test_search_turn_expansion_has_total_row_budget(tmp_path: Path):
+def test_search_pages_until_it_finds_k_distinct_turns(tmp_path: Path):
     history = HistoryStore(tmp_path / "history.db")
     history.append(
         session_id="archive",
         agent_id="ag1",
-        dedup_key="user",
+        dedup_key="first-user",
         entry=LogEntry(
             kind="context_msg",
             role="user",
-            content="budget question",
+            content="first question",
         ),
     )
-    for index in range(10):
+    for index in range(80):
         history.append(
             session_id="archive",
             agent_id="ag1",
-            dedup_key=f"row-{index}",
+            dedup_key=f"first-hit-{index}",
             entry=LogEntry(
                 kind="model_turn",
                 role="assistant",
-                content=f"budget-needle row {index}",
+                content=f"needle {index}",
+            ),
+        )
+    second_start = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="second-user",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="second question",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="second-hit",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="needle " + ("lower ranked filler " * 40),
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+    try:
+        rows = space.search("needle", k=2)
+    finally:
+        space.close()
+
+    turns = [row for row in rows if row["kind"] != "_notice"]
+    assert len(turns) == 2
+    assert second_start in {row["turn_start_seq"] for row in turns}
+    assert not [row for row in rows if row["kind"] == "_notice"]
+
+
+def test_search_marks_partial_when_raw_hit_cap_hides_turns(tmp_path: Path):
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="first-user",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="first question",
+        ),
+    )
+    for index in range(20):
+        history.append(
+            session_id="archive",
+            agent_id="ag1",
+            dedup_key=f"first-hit-{index}",
+            entry=LogEntry(
+                kind="model_turn",
+                role="assistant",
+                content=f"needle {index}",
+            ),
+        )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="second-user",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="second question",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="second-hit",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="needle " + ("lower ranked filler " * 40),
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+        row_cap=10,
+    )
+    try:
+        rows = space.search("needle", k=2)
+    finally:
+        space.close()
+
+    turns = [row for row in rows if row["kind"] != "_notice"]
+    notices = [row for row in rows if row["kind"] == "_notice"]
+    assert len(turns) == 1
+    assert len(notices) == 1
+    assert "maximum 10 matching rows" in notices[0]["content"]
+
+
+def test_search_turn_expansion_has_total_row_budget(tmp_path: Path):
+    history = HistoryStore(tmp_path / "history.db")
+    turn_seqs = [
+        history.append(
+            session_id="archive",
+            agent_id="ag1",
+            dedup_key="user",
+            entry=LogEntry(
+                kind="context_msg",
+                role="user",
+                content="budget question",
+            ),
+        ),
+    ]
+    for index in range(10):
+        turn_seqs.append(
+            history.append(
+                session_id="archive",
+                agent_id="ag1",
+                dedup_key=f"row-{index}",
+                entry=LogEntry(
+                    kind="model_turn",
+                    role="assistant",
+                    content=f"budget-needle row {index}",
+                ),
             ),
         )
     history.close()
@@ -454,9 +580,13 @@ def test_search_turn_expansion_has_total_row_budget(tmp_path: Path):
     finally:
         space.close()
 
-    turn = next(row["turn"] for row in rows if row["kind"] != "_notice")
+    result = next(row for row in rows if row["kind"] != "_notice")
+    turn = result["turn"]
     assert len([row for row in turn if not row.get("_truncated")]) == 3
     assert turn[-1]["_truncated"] is True
+    assert result["turn_end_seq"] == turn_seqs[-1]
+    assert result["turn_loaded_end_seq"] == turn_seqs[2]
+    assert result["turn_complete"] is False
     notices = [row for row in rows if row["kind"] == "_notice"]
     assert len(notices) == 1
     assert "total turn row budget" in notices[0]["content"]
@@ -464,7 +594,7 @@ def test_search_turn_expansion_has_total_row_budget(tmp_path: Path):
 
 def test_search_turn_expansion_has_total_byte_budget(tmp_path: Path):
     history = HistoryStore(tmp_path / "history.db")
-    history.append(
+    user_seq = history.append(
         session_id="archive",
         agent_id="ag1",
         dedup_key="user",
@@ -474,7 +604,7 @@ def test_search_turn_expansion_has_total_byte_budget(tmp_path: Path):
             content="small byte budget question",
         ),
     )
-    history.append(
+    actual_end = history.append(
         session_id="archive",
         agent_id="ag1",
         dedup_key="large",
@@ -496,9 +626,13 @@ def test_search_turn_expansion_has_total_byte_budget(tmp_path: Path):
     finally:
         space.close()
 
-    turn = next(row["turn"] for row in rows if row["kind"] != "_notice")
+    result = next(row for row in rows if row["kind"] != "_notice")
+    turn = result["turn"]
     assert len([row for row in turn if not row.get("_truncated")]) == 1
     assert turn[-1]["_truncated"] is True
+    assert result["turn_end_seq"] == actual_end
+    assert result["turn_loaded_end_seq"] == user_seq
+    assert result["turn_complete"] is False
     notices = [row for row in rows if row["kind"] == "_notice"]
     assert len(notices) == 1
     assert "total turn byte budget" in notices[0]["content"]
@@ -869,6 +1003,56 @@ def test_search_filters_by_created_at_calendar_dates(tmp_path: Path):
     assert {row["content"] for row in like if row["seq"] >= 0} == {
         "logged 18 tasks",
     }
+
+
+def test_date_only_search_keeps_null_content_rows(tmp_path: Path):
+    history = HistoryStore(tmp_path / "history.db")
+    target_seq = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="structured",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content=None,
+            blocks=[{"type": "text", "text": "structured history"}],
+            created_at="2024-11-05T08:00:00Z",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="next-day",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="next boundary",
+            created_at="2024-11-06T08:00:00Z",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+    space._fts_ok = False
+    try:
+        matching_rows = space.search(
+            "",
+            created_on="2024-11-05",
+            include_turn=False,
+        )
+        turns = space.search("", created_on="2024-11-05")
+    finally:
+        space.close()
+
+    assert [row["seq"] for row in matching_rows] == [target_seq]
+    assert matching_rows[0]["content"] is None
+    assert len(turns) == 1
+    assert turns[0]["turn_start_seq"] == target_seq
+    assert turns[0]["turn"][0]["content"] is None
+    assert all(row["kind"] != "_notice" for row in turns)
 
 
 @pytest.mark.parametrize(

@@ -17,6 +17,7 @@ import re
 import sqlite3
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -24,6 +25,7 @@ from pathlib import Path
 _DEFAULT_ROW_CAP = 1000
 _DEFAULT_SEARCH_TURN_MAX_BYTES = 4 * 1024 * 1024
 _DEFAULT_SEARCH_MAX_SECONDS = 5.0
+_SEARCH_HIT_PAGE_SIZE = 64
 _TURN_BOUNDARY_BATCH_SIZE = 200
 _SAVED_TOOL_CANDIDATE_PAGE_SIZE = 200
 _SAVED_TOOL_SCAN_MAX_BYTES = 32 * 1024 * 1024
@@ -153,6 +155,10 @@ class _SearchBudget:
         self.remaining_rows -= 1
         self.remaining_bytes -= encoded_size
         return True
+
+
+class _FtsQueryError(RuntimeError):
+    """An FTS MATCH failure that should degrade to the LIKE path."""
 
 
 def fts_match_query(raw: str) -> str:
@@ -714,11 +720,14 @@ class MemorySpace:
         starts at the nearest real user row in the same
         ``session_id``/``agent_id`` lineage and ends before the next real user
         row. Matches from the same turn are deduplicated and their seqs are
-        collected in ``matched_seqs``. Pass ``include_turn=False`` for the
-        legacy matching-row-only shape. By default searches this agent across
-        all its sessions. Pass ``all_agents=True`` to span every agent, or pin
-        a *specific* conversation / agent with ``session_id='cron:<job>'``
-        and/or ``agent_id='<other>'`` (these AND-combine and take precedence).
+        collected in ``matched_seqs``. ``turn_end_seq`` is the actual boundary;
+        ``turn_loaded_end_seq`` and ``turn_complete`` expose budget-truncated
+        payloads without misreporting their span. Pass ``include_turn=False``
+        for the legacy matching-row-only shape. By default searches this agent
+        across all its sessions. Pass ``all_agents=True`` to span every agent,
+        or pin a *specific* conversation / agent with
+        ``session_id='cron:<job>'`` and/or ``agent_id='<other>'`` (these
+        AND-combine and take precedence).
         ``kind`` optionally filters by row kind. ``created_on`` restricts to
         one calendar date; ``created_from``/``created_to`` form an inclusive
         date range. These strict ISO date filters apply to ``created_at`` and
@@ -749,34 +758,218 @@ class MemorySpace:
             created_from=created_from,
             created_to=created_to,
         )
-        # A turn may contain several matching rows. Fetch beyond the requested
-        # number so deduplication can still return a useful number of distinct
-        # turns. The row cap remains the hard upper bound.
-        raw_limit = (
-            min(self._row_cap, max(requested * 4, requested))
-            if include_turn
-            else requested
-        )
+        if query == "":
+            fetch_page = lambda offset, page_limit: self._search_date_rows(
+                targets,
+                kind,
+                page_limit,
+                offset=offset,
+                created_bounds=created_bounds,
+            )
+            if not include_turn:
+                return fetch_page(0, requested)
+            rows, raw_partial, _ = self._collect_distinct_hits(
+                fetch_page,
+                requested,
+                _budget,
+            )
+            return self._attach_search_turns(
+                rows,
+                requested,
+                _budget,
+                raw_hits_partial=raw_partial,
+            )
+
         # FTS5 MATCH takes a query grammar, not plain text. Sanitize first; an
         # all-punctuation query (no word tokens) has nothing to MATCH, so use
         # the LIKE scan instead — as we also do when FTS5 is unavailable.
         match = fts_match_query(query)
-        if not self._fts_available() or not match:
-            rows = self._search_like(
+        fts_available = self._fts_available()
+        use_like = not fts_available or not match
+        if not include_turn:
+            return self._search_matching_rows_only(
+                query,
+                match,
+                targets,
+                kind,
+                requested,
+                use_like=use_like,
+                created_bounds=created_bounds,
+                budget=_budget,
+            )
+
+        def like_page(offset: int, page_limit: int) -> list[dict]:
+            return self._search_like_rows(
                 query,
                 targets,
                 kind,
-                raw_limit,
+                page_limit,
+                offset=offset,
                 created_bounds=created_bounds,
             )
-            return (
-                self._attach_search_turns(rows, requested, _budget)
-                if include_turn
-                else rows[:requested]
+
+        def fts_page(offset: int, page_limit: int) -> list[dict]:
+            return self._search_fts_rows(
+                match,
+                targets,
+                kind,
+                page_limit,
+                offset=offset,
+                created_bounds=created_bounds,
             )
-        # bm25 and the `tbl MATCH` syntax need the table NAME, not an alias.
+
+        try:
+            rows, raw_partial, distinct_count = self._collect_distinct_hits(
+                like_page if use_like else fts_page,
+                requested,
+                _budget,
+            )
+        except _FtsQueryError:
+            _budget.ensure_time()
+            use_like = True
+            rows, raw_partial, distinct_count = self._collect_distinct_hits(
+                like_page,
+                requested,
+                _budget,
+            )
+
+        # Search saved full tool outputs only after indexed/database hits are
+        # exhausted. A keyword-free date query never scans artifacts.
+        if (
+            not raw_partial
+            and distinct_count < requested
+            and kind in (None, "tool_result")
+            and len(rows) < self._row_cap
+        ):
+            rows.extend(
+                self._search_saved_tool_files(
+                    query,
+                    targets,
+                    limit=max(0, self._row_cap - len(rows)),
+                    created_bounds=created_bounds,
+                ),
+            )
+        if use_like and not fts_available:
+            rows.insert(0, self._like_notice())
+        return self._attach_search_turns(
+            rows,
+            requested,
+            _budget,
+            raw_hits_partial=raw_partial,
+        )
+
+    def _search_matching_rows_only(
+        self,
+        query: str,
+        match: str,
+        targets: list[tuple[str, str]],
+        kind: str | None,
+        limit: int,
+        *,
+        use_like: bool,
+        created_bounds: tuple[str | None, str | None],
+        budget: _SearchBudget,
+    ) -> list[dict]:
+        """Run the legacy matching-row-only search shape."""
+        if use_like:
+            return self._search_like(
+                query,
+                targets,
+                kind,
+                limit,
+                created_bounds=created_bounds,
+            )
+        try:
+            rows = self._search_fts_rows(
+                match,
+                targets,
+                kind,
+                limit,
+                created_bounds=created_bounds,
+            )
+        except _FtsQueryError:
+            budget.ensure_time()
+            return self._search_like(
+                query,
+                targets,
+                kind,
+                limit,
+                created_bounds=created_bounds,
+            )
+        if kind in (None, "tool_result") and len(rows) < limit:
+            rows.extend(
+                self._search_saved_tool_files(
+                    query,
+                    targets,
+                    limit=limit - len(rows),
+                    created_bounds=created_bounds,
+                ),
+            )
+        return rows[:limit]
+
+    def _collect_distinct_hits(
+        self,
+        fetch_page: Callable[[int, int], list[dict]],
+        limit: int,
+        budget: _SearchBudget,
+    ) -> tuple[list[dict], bool, int]:
+        """Page raw hits until ``limit`` distinct turns or a hard boundary.
+
+        Returns ``(rows, raw_hits_partial, distinct_count)``. Fetching one
+        extra row per page distinguishes exhaustion from the total raw-hit
+        cap, so callers never silently present a cap-limited result as
+        complete.
+        """
+        rows: list[dict] = []
+        distinct: set[tuple[object, object, int]] = set()
+        offset = 0
+        has_more = False
+        while len(distinct) < limit and offset < self._row_cap:
+            budget.ensure_time()
+            page_size = min(
+                _SEARCH_HIT_PAGE_SIZE,
+                self._row_cap - offset,
+            )
+            fetched = fetch_page(offset, page_size + 1)
+            page = fetched[:page_size]
+            has_more = len(fetched) > page_size
+            if not page:
+                has_more = False
+                break
+            rows.extend(page)
+            starts = self._turn_start_seqs(page, budget)
+            for row in page:
+                if row.get("_truncated") or int(row.get("seq", -1)) < 0:
+                    continue
+                seq = int(row["seq"])
+                start = starts.get(seq)
+                distinct.add(
+                    (
+                        row.get("session_id"),
+                        row.get("agent_id"),
+                        start if start is not None else seq,
+                    ),
+                )
+            offset += len(page)
+            if not has_more:
+                break
+        raw_partial = (
+            len(distinct) < limit and offset >= self._row_cap and has_more
+        )
+        return rows, raw_partial, len(distinct)
+
+    def _search_fts_rows(
+        self,
+        match: str,
+        targets: list[tuple[str, str]],
+        kind: str | None,
+        limit: int,
+        *,
+        offset: int = 0,
+        created_bounds: tuple[str | None, str | None] = (None, None),
+    ) -> list[dict]:
+        """Return one stable BM25-ranked page of raw FTS hits."""
         fts = "conversation_history_fts"
-        # Exclude the recall tool's own turns (NULL-safe: keep un-named rows).
         where = [
             f"{fts} MATCH ?",
             f"(ch.name IS NULL OR ch.name NOT IN "
@@ -806,44 +999,16 @@ class MemorySpace:
             f"ON ch.seq = {fts}.rowid "
             "WHERE "
             + " AND ".join(where)
-            + f" ORDER BY bm25({fts}), ch.seq LIMIT ?"
+            + f" ORDER BY bm25({fts}), ch.seq LIMIT ? OFFSET ?"
         )
-        params.append(raw_limit)
+        params.extend((int(limit), int(offset)))
         try:
-            rows = [
-                {kk: r[kk] for kk in r.keys()}
-                for r in self._conn.execute(sql, params)
+            return [
+                {key: row[key] for key in row.keys()}
+                for row in self._conn.execute(sql, params)
             ]
-        except sqlite3.OperationalError:
-            _budget.ensure_time()
-            # Backstop: any residual MATCH-grammar edge case the sanitizer
-            # missed degrades to LIKE rather than crashing the recall call.
-            rows = self._search_like(
-                query,
-                targets,
-                kind,
-                raw_limit,
-                created_bounds=created_bounds,
-            )
-            return (
-                self._attach_search_turns(rows, requested, _budget)
-                if include_turn
-                else rows[:requested]
-            )
-        if kind in (None, "tool_result") and len(rows) < raw_limit:
-            rows.extend(
-                self._search_saved_tool_files(
-                    query,
-                    targets,
-                    limit=max(0, raw_limit - len(rows)),
-                    created_bounds=created_bounds,
-                ),
-            )
-        return (
-            self._attach_search_turns(rows, requested, _budget)
-            if include_turn
-            else rows[:requested]
-        )
+        except sqlite3.OperationalError as exc:
+            raise _FtsQueryError from exc
 
     @staticmethod
     def _real_user_conditions(prefix: str = "") -> tuple[list[str], list]:
@@ -908,7 +1073,7 @@ class MemorySpace:
         hit: dict,
         start_seq: int | None,
         budget: _SearchBudget,
-    ) -> tuple[int, int, list[dict]]:
+    ) -> tuple[int, int, int | None, bool, list[dict]]:
         """Load one already-deduplicated turn under the shared budget."""
         budget.ensure_time()
         hit_seq = int(hit["seq"])
@@ -932,6 +1097,7 @@ class MemorySpace:
                 (hit_seq,),
             )
             effective_start = hit_seq
+            actual_end = hit_seq
         else:
             user_conditions, user_params = self._real_user_conditions()
             next_row = self._conn.execute(
@@ -952,6 +1118,17 @@ class MemorySpace:
             if next_user_seq is not None:
                 span_conditions.append("seq < ?")
                 span_params.append(int(next_user_seq))
+            end_row = self._conn.execute(
+                "SELECT MAX(seq) AS seq "
+                "FROM hist.conversation_history WHERE "
+                + " AND ".join(span_conditions),
+                tuple(span_params),
+            ).fetchone()
+            actual_end = (
+                int(end_row["seq"])
+                if end_row and end_row["seq"] is not None
+                else hit_seq
+            )
             cursor = self._conn.execute(
                 f"SELECT {select_columns} "
                 "FROM hist.conversation_history WHERE "
@@ -977,10 +1154,18 @@ class MemorySpace:
             turn.append(row)
         real_rows = [row for row in turn if not row.get("_truncated")]
         if not real_rows:
-            return hit_seq, hit_seq, [dict(hit)]
+            if not turn:
+                return hit_seq, hit_seq, hit_seq, True, [dict(hit)]
+            return effective_start, actual_end, None, False, turn
+        loaded_end = int(real_rows[-1]["seq"])
+        complete = loaded_end == actual_end and all(
+            not row.get("_truncated") for row in turn
+        )
         return (
             effective_start,
-            int(real_rows[-1]["seq"]),
+            actual_end,
+            loaded_end,
+            complete,
             turn,
         )
 
@@ -989,6 +1174,8 @@ class MemorySpace:
         rows: list[dict],
         limit: int,
         budget: _SearchBudget,
+        *,
+        raw_hits_partial: bool = False,
     ) -> list[dict]:
         """Deduplicate boundaries first, then load each selected turn once."""
         starts = self._turn_start_seqs(rows, budget)
@@ -1024,7 +1211,7 @@ class MemorySpace:
             if not budget.has_turn_capacity():
                 break
             row = group["hit"]
-            start, end, turn = self._load_turn(
+            start, end, loaded_end, complete, turn = self._load_turn(
                 row,
                 group["start_seq"],
                 budget,
@@ -1036,6 +1223,8 @@ class MemorySpace:
                     "matched_seqs": sorted(group["matched_seqs"]),
                     "turn_start_seq": start,
                     "turn_end_seq": end,
+                    "turn_loaded_end_seq": loaded_end,
+                    "turn_complete": complete,
                     "turn": turn,
                 },
             )
@@ -1045,6 +1234,8 @@ class MemorySpace:
                 break
         if loaded_groups < len(groups) or budget.exhausted_reason is not None:
             results.append(self._turn_budget_notice(budget))
+        if raw_hits_partial:
+            results.append(self._raw_hit_cap_notice())
         return results
 
     @staticmethod
@@ -1063,6 +1254,24 @@ class MemorySpace:
                 f"NOTE: complete-turn expansion reached its {reason} "
                 f"({budget.max_rows} rows / {budget.max_bytes} bytes total). "
                 "Results are partial; narrow the query or lower k."
+            ),
+        }
+
+    def _raw_hit_cap_notice(self) -> dict:
+        """Flag that raw-hit paging stopped before finding ``k`` turns."""
+        return {
+            "seq": -1,
+            "session_id": None,
+            "kind": "_notice",
+            "role": None,
+            "name": None,
+            "headline": "search hit collection was partial",
+            "created_at": None,
+            "content": (
+                "NOTE: search inspected the maximum "
+                f"{self._row_cap} matching rows before collecting the "
+                "requested number of distinct turns. Results are partial; "
+                "narrow the query."
             ),
         }
 
@@ -1094,6 +1303,43 @@ class MemorySpace:
         from :meth:`_scope_filters` (already accounts for scope vs explicit
         session_id/agent_id).
         """
+        rows = self._search_like_rows(
+            query,
+            targets,
+            kind,
+            k,
+            created_bounds=created_bounds,
+        )
+        if kind in (None, "tool_result") and len(rows) < int(k):
+            rows.extend(
+                self._search_saved_tool_files(
+                    query,
+                    targets,
+                    limit=max(0, int(k) - len(rows)),
+                    created_bounds=created_bounds,
+                ),
+            )
+        # If this is the *FTS-unavailable* fallback (not just an
+        # all-punctuation query on an FTS-capable build), tell the model its
+        # search degraded:
+        # LIKE is a literal substring scan with no ranking and no boolean/OR
+        # grammar, so it must query one term at a time. The notice shares the
+        # row schema so a ``r["content"]`` loop over results never breaks.
+        if not self._fts_available():
+            rows.insert(0, self._like_notice())
+        return rows
+
+    def _search_like_rows(
+        self,
+        query: str,
+        targets: list[tuple[str, str]],
+        kind: str | None,
+        limit: int,
+        *,
+        offset: int = 0,
+        created_bounds: tuple[str | None, str | None] = (None, None),
+    ) -> list[dict]:
+        """Return one stable page from the literal LIKE fallback."""
         # Exclude the recall tool's own turns (NULL-safe: keep un-named rows).
         where = [
             "content LIKE ?",
@@ -1119,31 +1365,57 @@ class MemorySpace:
             "SELECT seq, session_id, agent_id, kind, role, name, headline, "
             "content, metadata, created_at "
             "FROM hist.conversation_history "
-            "WHERE " + " AND ".join(where) + " ORDER BY seq DESC LIMIT ?"
+            "WHERE "
+            + " AND ".join(where)
+            + " ORDER BY seq DESC LIMIT ? OFFSET ?"
         )
-        params.append(k)
-        rows = [
-            {kk: r[kk] for kk in r.keys()}
-            for r in self._conn.execute(sql, params)
+        params.extend((int(limit), int(offset)))
+        return [
+            {key: row[key] for key in row.keys()}
+            for row in self._conn.execute(sql, params)
         ]
-        if kind in (None, "tool_result") and len(rows) < int(k):
-            rows.extend(
-                self._search_saved_tool_files(
-                    query,
-                    targets,
-                    limit=max(0, int(k) - len(rows)),
-                    created_bounds=created_bounds,
-                ),
-            )
-        # If this is the *FTS-unavailable* fallback (not just an
-        # all-punctuation query on an FTS-capable build), tell the model its
-        # search degraded:
-        # LIKE is a literal substring scan with no ranking and no boolean/OR
-        # grammar, so it must query one term at a time. The notice shares the
-        # row schema so a ``r["content"]`` loop over results never breaks.
-        if not self._fts_available():
-            rows.insert(0, self._like_notice())
-        return rows
+
+    def _search_date_rows(
+        self,
+        targets: list[tuple[str, str]],
+        kind: str | None,
+        limit: int,
+        *,
+        offset: int = 0,
+        created_bounds: tuple[str | None, str | None] = (None, None),
+    ) -> list[dict]:
+        """Return a date-only page without requiring textual ``content``."""
+        where = [
+            f"(name IS NULL OR name NOT IN ({_RECALL_EXCL_PLACEHOLDERS}))",
+        ]
+        params: list = [*_RECALL_TOOL_NAMES]
+        excl = self._active_turn_exclusion()
+        if excl:
+            where.append(excl[0])
+            params.extend(excl[1])
+        for col, val in targets:
+            where.append(f"{col} = ?")
+            params.append(val)
+        created_where, created_params = self._created_conditions(
+            created_bounds,
+        )
+        where.extend(created_where)
+        params.extend(created_params)
+        if kind:
+            where.append("kind = ?")
+            params.append(kind)
+        sql = (
+            "SELECT seq, session_id, agent_id, kind, role, name, headline, "
+            "content, metadata, created_at "
+            "FROM hist.conversation_history WHERE "
+            + " AND ".join(where)
+            + " ORDER BY seq DESC LIMIT ? OFFSET ?"
+        )
+        params.extend((int(limit), int(offset)))
+        return [
+            {key: row[key] for key in row.keys()}
+            for row in self._conn.execute(sql, params)
+        ]
 
     def _saved_tool_candidates(
         self,

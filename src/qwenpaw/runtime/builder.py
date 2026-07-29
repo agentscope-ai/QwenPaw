@@ -10,7 +10,6 @@ injects all dependencies into the agent constructor.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Iterable
@@ -790,7 +789,7 @@ class AgentBuilder:
         # history.db is shared across sessions in this workspace; rows are
         # keyed by session_id (the conversation) and agent_id (which agent
         # wrote them).
-        return await asyncio.to_thread(
+        return await run_sync_io(
             build_scroll_components,
             agent_config=agent_config,
             workspace_dir=workspace_dir,

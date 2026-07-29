@@ -284,14 +284,15 @@ plus your earlier sessions. Pick an op:
     timestamps, including Z or +/-HH:MM timezones. Set inclusive=true to count
     both endpoints while preserving direction. This operation never pages.
 
-Search turns show their matched seq(s) and complete seq span. Other ops
-return individual rows with their seq. A page ending in next_cursor is
-incomplete; continue with the SAME arguments plus cursor=next_cursor. Never
-retry the same cursor. The cursor is bound to the original arguments and
-result snapshot; changing the query, range, filters, or k fails. An empty
-result is stated explicitly and means the history genuinely holds nothing for
-that span/query. For anything beyond these operations, use a more advanced
-Python recall tool if one is available to you.
+Search turns show their matched seq(s), actual complete seq span, loaded end,
+and whether the turn payload is complete. Other ops return individual rows
+with their seq. A page ending in next_cursor is incomplete; continue with the
+SAME arguments plus cursor=next_cursor. Never retry the same cursor. The
+cursor is bound to the original arguments and result snapshot; changing the
+query, range, filters, or k fails. An empty result is stated explicitly and
+means the history genuinely holds nothing for that span/query. For anything
+beyond these operations, use a more advanced Python recall tool if one is
+available to you.
 
 Args:
     op (str): One of "expand", "search", "recall_tool", "days_between".
@@ -350,6 +351,11 @@ def _render_rows(rows: list[dict]) -> str:
                 if row.get(key) not in (None, "")
             )
             header = f"— matched_seq={matched} turn_seq={span}"
+            if row.get("turn_complete") is False:
+                header += (
+                    " turn_complete=false"
+                    f" loaded_through={row.get('turn_loaded_end_seq')}"
+                )
             if lineage:
                 header += f" {lineage}"
             rendered_turn = _render_rows(turn)

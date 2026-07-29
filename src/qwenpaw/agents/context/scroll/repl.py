@@ -51,8 +51,10 @@ Helpers return `list[dict]`; text is in `content`. A trailing
               created_on=None, created_from=None, created_to=None)
     Keyword/FTS search across your sessions; uppercase OR is supported. Each
     hit includes its complete user-bounded `turn` by default, plus
-    `matched_seqs`, `turn_start_seq`, and `turn_end_seq`. Pass
-    `include_turn=False` only when matching rows alone are sufficient.
+    `matched_seqs`, the actual `turn_start_seq` / `turn_end_seq` boundary,
+    and `turn_loaded_end_seq` / `turn_complete` when an expansion budget
+    truncates the payload. Pass `include_turn=False` only when matching rows
+    alone are sufficient.
     Use created_on="YYYY-MM-DD" for one source date, or created_from/created_to
     for an inclusive range; an empty query performs date-only recall.
   • ms.recall_tool(tool_call_id, all_agents=False)
