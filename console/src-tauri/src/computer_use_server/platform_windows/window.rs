@@ -112,10 +112,15 @@ fn process_image_path(pid: u32) -> Option<String> {
 pub(crate) fn is_forbidden(window: &WindowInfo) -> bool {
     let class_name = window.class_name.to_ascii_lowercase();
     let title = window.title.to_ascii_lowercase();
+    // Matched on the owning process name, not only the title: the self-ban must
+    // hold even for a window whose title is empty or unexpected, so that the
+    // agent can never drive QwenPaw's own UI -- the approval prompt above all.
+    // The process image name is always available.
+    let name = window.display_name.to_ascii_lowercase();
     class_name.contains("credential")
         || title.contains("windows security")
         || title.contains("credential")
-        || title.contains("qwenpaw")
+        || name.contains("qwenpaw")
 }
 
 /// Ask a window to close the same way its own title-bar button would.
@@ -172,4 +177,40 @@ pub(super) fn get_visible_window_rect(hwnd: HWND) -> Result<RECT, String> {
         return Err("window rect has zero area".to_string());
     }
     Ok(rect)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::computer_use_server::state::WindowInfo;
+
+    fn window(title: &str, display_name: &str, class_name: &str) -> WindowInfo {
+        WindowInfo {
+            hwnd: 1,
+            app_id: String::new(),
+            display_name: display_name.to_string(),
+            title: title.to_string(),
+            class_name: class_name.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_qwenpaw_window_is_forbidden_even_with_an_empty_title() {
+        // The self-ban must not hinge on the title: it can be absent, and a ban
+        // that lapsed when the title was empty would let the agent reach
+        // QwenPaw's own approval prompt.
+        let win = window("", "qwenpaw-desktop", "Chrome_WidgetWin_1");
+        assert!(is_forbidden(&win));
+    }
+
+    #[test]
+    fn credential_dialogs_stay_forbidden() {
+        assert!(is_forbidden(&window("Windows Security", "svc", "Credential")));
+        assert!(is_forbidden(&window("Sign in", "svc", "CredentialDialog")));
+    }
+
+    #[test]
+    fn an_ordinary_window_is_allowed() {
+        assert!(!is_forbidden(&window("Untitled - Notepad", "notepad", "Notepad")));
+    }
 }
