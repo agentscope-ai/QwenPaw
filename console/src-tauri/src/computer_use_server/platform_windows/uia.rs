@@ -183,13 +183,13 @@ pub(crate) fn invoke_element(
     let pattern: IUIAutomationInvokePattern =
         unsafe { element.GetCurrentPatternAs(UIA_InvokePatternId) }.map_err(|_| {
             (
-                "uia_pattern_unavailable",
+                "unsupported_operation",
                 "The element does not support Invoke.".to_string(),
             )
         })?;
     unsafe { pattern.Invoke() }.map_err(|error| {
         (
-            "uia_action_failed",
+            "action_failed",
             format!("UI Automation invoke failed: {error}"),
         )
     })?;
@@ -210,13 +210,13 @@ pub(crate) fn set_value(
     let pattern: IUIAutomationValuePattern =
         unsafe { element.GetCurrentPatternAs(UIA_ValuePatternId) }.map_err(|_| {
             (
-                "uia_pattern_unavailable",
+                "unsupported_operation",
                 "The element does not support Value.".to_string(),
             )
         })?;
     unsafe { pattern.SetValue(&BSTR::from(value)) }.map_err(|error| {
         (
-            "uia_action_failed",
+            "action_failed",
             format!("UI Automation value update failed: {error}"),
         )
     })?;

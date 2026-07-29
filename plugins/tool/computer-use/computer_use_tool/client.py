@@ -34,8 +34,10 @@ _DEFAULT_DEADLINE_MS = 10000
 # the idempotent acquire a few times to cover that cold-start window.
 _ACQUIRE_ATTEMPTS = 5
 _ACQUIRE_RETRY_DELAY_SECONDS = 0.5
-# Native methods that synthesize input and therefore pass through the native
-# recency guard; only these consume a pending post-approval exemption.
+# Native methods that pass through the recency guard, and so are the only ones
+# worth spending a pending post-approval exemption on. The helper acts on the
+# ``after_approval`` flag alone, so this set decides which requests carry the
+# flag and nothing more -- it is not a mirror of any list on that side.
 _INPUT_METHODS = frozenset(
     {
         "click",

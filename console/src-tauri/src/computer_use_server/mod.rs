@@ -345,34 +345,26 @@ fn dispatch_request(
     let window = window.expect("window exists");
     request_approval(connection, &window, &meta)?;
     // Actions that synthesize input or change window state must not run
-    // against the secure lock screen, and the recency guard is exempted once
-    // right after the user resolves an approval prompt in QwenPaw.
-    let is_input_method = matches!(
-        method,
-        "click"
-            | "scroll"
-            | "drag"
-            | "press_key"
-            | "type_text"
-            | "invoke_element"
-            | "set_value"
-            | "close_window"
-    );
-    if is_input_method {
-        if desktop_locked() {
-            return Err((
-                "desktop_locked",
-                "The desktop is locked; ask the user to unlock it before continuing."
-                    .to_string(),
-            ));
-        }
-        let after_approval = params
-            .get("after_approval")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        set_intervention_bypass_once(after_approval);
+    // against the secure lock screen. This list is the helper's own policy
+    // about what is unsafe there, decided where the input is synthesized.
+    if changes_window_state(method) && desktop_locked() {
+        return Err((
+            "desktop_locked",
+            "The desktop is locked; ask the user to unlock it before continuing."
+                .to_string(),
+        ));
     }
-    match method {
+    // The recency guard is exempted once right after the user resolves an
+    // approval prompt in QwenPaw. The caller marks the request that follows an
+    // approval; honouring that flag on its own -- rather than gating it behind
+    // a second list of method names that has to stay in step with the caller's
+    // -- means the two sides cannot drift out of agreement.
+    let after_approval = params
+        .get("after_approval")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    set_intervention_bypass_once(after_approval);
+    let outcome = match method {
         "set_focus" => {
             set_focus(&window)?;
             Ok(json!({"window": window.to_json()}))
@@ -409,7 +401,30 @@ fn dispatch_request(
             "unsupported_operation",
             format!("Unsupported method: {method}"),
         )),
-    }
+    };
+    // An exemption the action never consumed must not outlive the request that
+    // carried it, or the next action would silently skip the recency guard.
+    set_intervention_bypass_once(false);
+    outcome
+}
+
+/// Whether a method synthesizes input or otherwise changes window state.
+///
+/// Used to refuse those actions on the secure lock screen. It deliberately
+/// governs nothing else, so it stays a local policy rather than a contract the
+/// caller has to mirror.
+fn changes_window_state(method: &str) -> bool {
+    matches!(
+        method,
+        "click"
+            | "scroll"
+            | "drag"
+            | "press_key"
+            | "type_text"
+            | "invoke_element"
+            | "set_value"
+            | "close_window"
+    )
 }
 
 fn launch_app(

@@ -36,6 +36,12 @@ pub(super) use window::{
     app_id_from_bundle_path, close_window, is_forbidden, list_apps, list_windows, resolve_window,
 };
 
+/// How long to wait on a single accessibility request before giving up.
+///
+/// An unresponsive application would otherwise block the helper indefinitely,
+/// since these calls are synchronous round trips into that process.
+const AX_MESSAGING_TIMEOUT_SECONDS: f32 = 2.0;
+
 // Private ApplicationServices API mapping an accessibility window element to
 // its CoreGraphics window id. It is the reliable way to match a CGWindowID
 // (the id carried by the shared protocol) to the app's AX window subtree.

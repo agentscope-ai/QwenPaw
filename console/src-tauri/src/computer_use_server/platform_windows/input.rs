@@ -285,18 +285,18 @@ fn verify_point_with_prefix(
     let snapshot_id = params
         .get("snapshot_id")
         .and_then(Value::as_str)
-        .ok_or(("stale_state", "snapshot_id is required.".to_string()))?;
+        .ok_or(("stale_snapshot", "snapshot_id is required.".to_string()))?;
     let screenshot_id = params.get("screenshot_id").and_then(Value::as_str).ok_or((
-        "screenshot_not_found",
+        "stale_snapshot",
         "screenshot_id is required.".to_string(),
     ))?;
     let snapshot = state.snapshots.get(snapshot_id).ok_or((
-        "stale_state",
+        "stale_snapshot",
         "Snapshot is no longer available.".to_string(),
     ))?;
     if snapshot.screenshot_id != screenshot_id || snapshot.window.hwnd != window.hwnd {
         return Err((
-            "stale_state",
+            "stale_snapshot",
             "Snapshot does not belong to this window.".to_string(),
         ));
     }
@@ -311,7 +311,7 @@ fn verify_point_with_prefix(
     ];
     if current_bounds != snapshot.bounds {
         return Err((
-            "stale_state",
+            "stale_snapshot",
             "Window geometry changed; observe it again.".to_string(),
         ));
     }
@@ -362,7 +362,7 @@ pub(crate) fn set_focus(window: &WindowInfo) -> Result<(), (&'static str, String
         }
     }
     Err((
-        "activation_failed",
+        "focus_failed",
         "Could not activate the target window.".to_string(),
     ))
 }
@@ -451,7 +451,7 @@ pub(crate) fn reject_recent_user_intervention() -> Result<(), (&'static str, Str
         && unsafe { GetTickCount() }.wrapping_sub(input.dwTime) < USER_INTERVENTION_GRACE_MS
     {
         return Err((
-            "user_intervened",
+            "user_intervention",
             "Recent user input was detected; observe the screen again before continuing."
                 .to_string(),
         ));

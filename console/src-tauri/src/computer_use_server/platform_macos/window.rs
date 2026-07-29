@@ -220,7 +220,7 @@ pub(crate) fn close_window(
         "Could not resolve the window's process.".to_string(),
     ))?;
     let app = AXUIElement::application(pid);
-    let _ = app.set_messaging_timeout(2.0);
+    let _ = app.set_messaging_timeout(super::AX_MESSAGING_TIMEOUT_SECONDS);
     let ax_window = find_ax_window(&app, window.hwnd as u32).ok_or((
         "window_not_found",
         "Accessibility could not locate the window.".to_string(),
