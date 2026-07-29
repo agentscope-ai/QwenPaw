@@ -812,7 +812,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   ): void {
     this.lastActiveChatId = effectiveId;
     this.lastNavigatedChatId = effectiveId;
-    if (persistFn && agentId) {
+    // Never persist a temporary local timestamp id. These ids only exist in
+    // memory for brand-new chats before the first message is sent; persisting
+    // them causes an unknown id to be restored on agent switch.
+    if (persistFn && agentId && !isLocalTimestamp(effectiveId)) {
       persistFn(agentId, effectiveId);
     }
   }
