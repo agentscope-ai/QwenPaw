@@ -48,28 +48,13 @@ pub(super) fn dispatch_request(
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    let turn_id = meta
-        .get("turn_id")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
 
-    if state.stopped_turn.as_deref() == Some(turn_id) && method != "close" {
-        return Err((
-            "turn_stopped",
-            "Computer Use was stopped for this turn.".to_string(),
-        ));
-    }
     match method {
-        "close" => return Ok(json!({})),
         "end_turn" => {
+            // The turn is over, so its screenshots and accessibility handles
+            // can never be acted on again.
             state.snapshots.clear();
             state.accessibility.clear();
-            return Ok(json!({}));
-        }
-        "stop_turn" => {
-            state.snapshots.clear();
-            state.accessibility.clear();
-            state.stopped_turn = Some(turn_id.to_string());
             return Ok(json!({}));
         }
         "list_apps" => return Ok(json!({"apps": list_apps()})),
@@ -231,8 +216,6 @@ mod tests {
             "set_focus",
             "launch_app",
             "end_turn",
-            "stop_turn",
-            "close",
         ] {
             assert!(
                 !changes_window_state(method),

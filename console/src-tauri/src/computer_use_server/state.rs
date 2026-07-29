@@ -88,7 +88,6 @@ pub(super) struct AccessibilitySnapshot {
 pub(super) struct ServerState {
     pub(super) snapshots: HashMap<String, Snapshot>,
     pub(super) accessibility: HashMap<String, AccessibilitySnapshot>,
-    pub(super) stopped_turn: Option<String>,
 }
 
 /// Bound document text by character count, flagging that more remains.
