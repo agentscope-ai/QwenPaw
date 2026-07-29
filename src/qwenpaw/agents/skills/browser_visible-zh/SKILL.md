@@ -2,7 +2,7 @@
 name: browser_visible
 description: "当用户需要控制 browser_use 的浏览器启动方式时，使用本 skill。browser_use 默认由 Playwright 通过管道直接管理、不开放调试端口（需让其他本地工具附加时显式传 `cdp_port`）；`headed` 控制是否显示窗口，`private_mode` 保留用于兼容、不再改变默认行为，`browser_args` 传入额外的 Chromium 启动参数，`executable_path` 指定自定义浏览器可执行文件路径。"
 metadata:
-  builtin_skill_version: "1.3"
+  builtin_skill_version: "1.4"
   qwenpaw:
     emoji: "🖥️"
     requires: {}
@@ -19,7 +19,7 @@ metadata:
 参数含义：
 
 - `headed`：是否显示浏览器窗口
-- `private_mode`：是否禁用 CDP，改走 Playwright
+- `private_mode`：保留用于兼容，不再改变启动方式
 - `browser_args`：额外的 Chromium 启动参数（字符串），多个参数用空格分隔。适用于所有启动路径（headless、headed、managed CDP）。例如 `"--incognito"` 启用隐身模式，`"--proxy-server=http://127.0.0.1:7890"` 设置代理。默认空字符串（无额外参数）。
 - `executable_path`：自定义浏览器可执行文件路径（字符串）。设置后覆盖系统默认浏览器检测，可指定任意基于 Chromium 的浏览器。例如 `"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"`。仅允许包含已知浏览器关键词（chrome、chromium、edge、firefox、brave 等）的可执行文件，且文件必须存在。默认空字符串（使用系统默认）。
 
@@ -37,16 +37,6 @@ metadata:
 {"action": "start", "headed": true}
 ```
 
-不走 CDP：
-```json
-{"action": "start", "private_mode": true}
-```
-
-可见窗口 + 不走 CDP：
-```json
-{"action": "start", "headed": true, "private_mode": true}
-```
-
 隐身模式：
 ```json
 {"action": "start", "headed": true, "browser_args": "--incognito"}
@@ -57,15 +47,9 @@ metadata:
 {"action": "start", "headed": true, "browser_args": "--proxy-server=http://127.0.0.1:7890", "executable_path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"}
 ```
 
-## 什么时候用 `private_mode`
+## `private_mode`
 
-只有当用户明确要求以下之一时，再设置 `private_mode=true`：
-
-- 不想通过 CDP 管理浏览器
-- 想改走 Playwright
-- 想减少被其他本地工具通过 CDP 连接的可能性
-
-否则只按需设置 `headed=true` 即可。
+已是默认行为，无需设置。该参数仅为兼容旧调用而保留，与 `cdp_port` 同时传入会被拒绝。
 
 ## 什么时候用 `browser_args`
 
@@ -94,7 +78,6 @@ metadata:
 - 默认由 Playwright 直接管理，不开放调试端口
 - 启动方式完全由调用参数决定
 - managed CDP 依赖本机存在 Chrome / Chromium / Edge
-- `private_mode=true` 不等于绝对不可检测，只是改为 Playwright 管理
 - 用户手动操作可见浏览器时，不一定会刷新 idle 计时
 - `private_mode`、`browser_args`、`executable_path` 都是每次 `start` 的显式参数，不会持久保存
 - 若当前已有浏览器在运行，需要先 `stop` 再重新 `start`，才能切换启动方式、窗口可见性或启动参数。

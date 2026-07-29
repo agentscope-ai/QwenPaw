@@ -2,7 +2,7 @@
 name: browser_cdp
 description: "当用户明确希望连接到已运行的 Chrome 浏览器、扫描本地 CDP 端口、显式指定 `cdp_port`，或让多个 agent / 工具共享同一个浏览器时，使用本 skill。browser_use 默认不开放调试端口；仅当用户明确希望其他本地工具附加时才显式传入 `cdp_port`。"
 metadata:
-  builtin_skill_version: "1.2"
+  builtin_skill_version: "1.3"
   qwenpaw:
     emoji: "🔌"
     requires: {}
@@ -10,7 +10,7 @@ metadata:
 
 # 浏览器 CDP 使用参考
 
-当前 **browser_use** 默认就是以 **managed CDP** 方式启动并接管本地 Chrome/Chromium，但这不等于每次都应该把 CDP 端口暴露给用户或其他工具。
+**browser_use** 默认不开放调试端口，浏览器由 Playwright 通过管道直接管理。本 skill 关注的是有意需要 CDP 端口的场景。
 
 本 skill 关注的是更“显式”的 CDP 用法：
 
@@ -21,12 +21,12 @@ metadata:
 
 也就是说：
 
-- 普通 `start` 默认会使用 managed CDP，但通常不需要用户理解或感知 CDP 细节
+- 普通 `start` 不开放调试端口，通常不需要用户理解或感知 CDP 细节
 - 只有在用户明确提出“连接现有浏览器 / 扫描端口 / 指定端口 / 共享浏览器”时，才应进入本 skill 的语义范围
 
 > **隐私建议**
 >
-> 如果用户不希望暴露浏览器历史、Cookies、页面内容或会话信息，推荐使用 `private_mode=true`，改走 Playwright 直接管理模式。
+> 默认 `start` 本身不暴露任何东西——不会开放调试端口。只有用户明确希望其他本地工具附加时才传 `cdp_port`，并应先提示暴露风险。
 
 > **⚠️ 单 workspace 单浏览器实例**
 >
@@ -121,8 +121,8 @@ metadata:
 当前行为说明：
 
 - 如果显式指定的 `cdp_port` 已被占用，会直接报错，不会强行复用
-- 如果不指定 `cdp_port`，默认会自动挑选空闲端口，通常可避免多 workspace 冲突
-- 自动挑空闲端口仍存在极小 race window：在“找到空闲端口”和“Chrome 真正绑定端口”之间理论上可能被别的进程抢占；当前失败时会清理并报错，但不会自动重试
+- 如果不指定 `cdp_port`，则完全不开放端口，也不会自动挑选端口
+- 显式指定端口时仍存在极小 race window：在“检测端口空闲”和“Chrome 真正绑定端口”之间理论上可能被别的进程抢占；当前失败时会清理并报错，但不会自动重试
 
 因此：
 
@@ -136,11 +136,11 @@ metadata:
 当前多 workspace 下的端口策略是：
 
 - **显式指定端口**：先检测 `127.0.0.1:cdp_port` 是否已占用；若已占用则直接失败，提示用户换端口或先停止旧进程
-- **未显式指定端口**：通过自动选空闲端口来降低冲突概率
+- **未显式指定端口**：不开放端口，因而不存在冲突
 
 这意味着：
 
-- 多个 workspace 同时使用默认启动，通常可以并存
+- 多个 workspace 同时使用默认启动一定可以并存，因为不开放端口
 - 如果多个 workspace 都要求同一个固定 `cdp_port`，后启动的那个会因为端口已占用而失败
 
 ---
@@ -152,12 +152,6 @@ CDP 相关 stop 需要区分两类：
 ### 1. QwenPaw 自己启动的 managed CDP
 
 例如：
-
-```json
-{"action": "start"}
-```
-
-或：
 
 ```json
 {"action": "start", "cdp_port": 9222}
@@ -197,7 +191,7 @@ CDP 相关 stop 需要区分两类：
 
 ## 注意
 
-- 默认 `start` 虽然底层使用 managed CDP，但这属于 tool 的内部默认实现，不代表每次都要把 CDP 概念暴露给用户
+- 默认 `start` 不开放调试端口；只有用户明确询问时才向其暴露 CDP 概念
 - 使用显式 CDP 能力前，应提醒用户存在敏感数据暴露风险
 - external CDP 的 auto-stop 是“自动断开”，不是“自动关闭用户浏览器”
 - 当前 activity 主要由 tool 操作刷新；用户手动在浏览器窗口中的本地交互，通常不会刷新 idle 计时

@@ -2,7 +2,7 @@
 name: browser_cdp
 description: "Use this skill when the user explicitly wants to connect to a running Chrome browser, scan local CDP ports, specify a `cdp_port`, or share a single browser across multiple agents/tools. By default browser_use opens no debugging port; pass an explicit `cdp_port` only when the user wants another local tool to attach."
 metadata:
-  builtin_skill_version: "1.2"
+  builtin_skill_version: "1.3"
   qwenpaw:
     emoji: "🔌"
     requires: {}
@@ -10,7 +10,7 @@ metadata:
 
 # Browser CDP Reference
 
-By default, **browser_use** launches and manages the local Chrome/Chromium via **managed CDP**, but this does not mean the CDP port should be exposed to the user or other tools every time.
+By default, **browser_use** opens no debugging port: the browser is managed directly by Playwright over a pipe. This skill covers the cases where a CDP port is wanted on purpose.
 
 This skill focuses on more "explicit" CDP usage:
 
@@ -21,12 +21,12 @@ This skill focuses on more "explicit" CDP usage:
 
 In other words:
 
-- The default `start` uses managed CDP under the hood, but users typically do not need to understand or be aware of CDP details
+- The default `start` opens no debugging port, so users typically do not need to understand or be aware of CDP details
 - Only enter the scope of this skill when the user explicitly mentions "connect to an existing browser / scan ports / specify a port / share a browser"
 
 > **Privacy Recommendation**
 >
-> If the user does not want to expose browser history, cookies, page content, or session data, recommend using `private_mode=true`, which switches to Playwright-managed mode.
+> The default `start` exposes nothing — no debugging port is opened. Only pass `cdp_port` when the user explicitly wants another local tool to attach, and warn about the exposure first.
 
 > **Warning: One browser instance per workspace**
 >
@@ -121,8 +121,8 @@ To also open a visible window:
 Current behavior:
 
 - If the explicitly specified `cdp_port` is already in use, an error is raised immediately — it will not forcefully reuse the port
-- If `cdp_port` is not specified, an available port is automatically selected, which usually avoids multi-workspace conflicts
-- Auto-selecting an available port still has a tiny race window: between "finding an available port" and "Chrome actually binding to the port", another process could theoretically claim it; on failure, cleanup occurs and an error is reported, but there is no automatic retry
+- If `cdp_port` is not specified, no port is opened and none is chosen automatically
+- An explicitly specified port still has a tiny race window: between "checking that the port is free" and "Chrome actually binding to it", another process could theoretically claim it; on failure, cleanup occurs and an error is reported, but there is no automatic retry
 
 Therefore:
 
@@ -136,11 +136,11 @@ Therefore:
 The current port strategy for multiple workspaces:
 
 - **Explicitly specified port**: checks whether `127.0.0.1:cdp_port` is already in use; if so, fails immediately and prompts the user to choose a different port or stop the old process
-- **No explicit port**: reduces conflict probability by automatically selecting an available port
+- **No explicit port**: no port is opened, so there is no conflict to begin with
 
 This means:
 
-- Multiple workspaces using the default launch can usually coexist
+- Multiple workspaces using the default launch always coexist, because no port is opened
 - If multiple workspaces all request the same fixed `cdp_port`, the later one will fail because the port is already in use
 
 ---
@@ -152,12 +152,6 @@ CDP-related stop behavior differs depending on the type:
 ### 1. Managed CDP launched by QwenPaw
 
 For example:
-
-```json
-{"action": "start"}
-```
-
-Or:
 
 ```json
 {"action": "start", "cdp_port": 9222}
@@ -197,7 +191,7 @@ In short:
 
 ## Notes
 
-- Although the default `start` uses managed CDP internally, this is the tool's default implementation detail and does not mean CDP concepts should be exposed to the user every time
+- The default `start` opens no debugging port; surface CDP concepts to the user only when they explicitly ask for them
 - Before using explicit CDP capabilities, warn the user about the risk of sensitive data exposure
 - Auto-stop for external CDP means "auto-disconnect," not "auto-close the user's browser"
 - Activity is currently refreshed primarily by tool operations; the user's manual interactions in the browser window typically do not reset the idle timer
