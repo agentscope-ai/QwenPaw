@@ -12,10 +12,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 from ..agents.acp.meta import ACP_CODING_PROJECT_META_KEY
 from ..utils.io_utils import run_sync_io
+
+if TYPE_CHECKING:
+    from ..agents.context.visual_compression.runtime.recovery import (
+        TurnRecoveryStore,
+    )
 
 _logger = logging.getLogger(__name__)
 
@@ -261,12 +266,26 @@ class AgentBuilder:
             local_ws.set_governor(governor)
 
         # Toolkit.
+        from ..agents.context.visual_compression.runtime.recovery import (
+            TurnRecoveryStore,
+        )
+
+        visual_recovery_store = TurnRecoveryStore()
         extra_tools = self._collect_coding_mode_tools(
             agent_config,
             workspace_dir,
             agent_id,
             request_context,
             governor,
+        )
+        extra_tools.extend(
+            self._collect_visual_compression_tools(
+                agent_config,
+                agent_id,
+                request_context,
+                governor,
+                visual_recovery_store,
+            ),
         )
         (
             driver_tools,
@@ -340,7 +359,11 @@ class AgentBuilder:
         # System prompt.
         sys_prompt = self.build_prompt(ctx, agent_config)
 
-        middlewares = self._build_middlewares(ctx, agent_config)
+        middlewares = self._build_middlewares(
+            ctx,
+            agent_config,
+            visual_recovery_store,
+        )
 
         running_config = agent_config.running
 
@@ -693,6 +716,41 @@ class AgentBuilder:
         )
 
     @staticmethod
+    def _collect_visual_compression_tools(
+        agent_config: Any,
+        agent_id: str,
+        request_context: dict[str, Any],
+        governor: Any = None,
+        recovery_store: TurnRecoveryStore | None = None,
+    ) -> list[Any]:
+        """Collect the optional visual-context recovery tool."""
+        config = (
+            agent_config.running.light_context_config.visual_compact_config
+        )
+        if not config.enabled:
+            return []
+
+        from ..agents.context.visual_compression.runtime.recovery import (
+            TurnRecoveryStore,
+            make_recover_visual_context_tool,
+        )
+
+        store = (
+            recovery_store
+            if recovery_store is not None
+            else TurnRecoveryStore()
+        )
+        recover_visual_context = make_recover_visual_context_tool(store)
+        return [
+            AgentBuilder._wrap_tool(
+                recover_visual_context,
+                agent_id,
+                request_context,
+                governor,
+            ),
+        ]
+
+    @staticmethod
     def _get_driver_prompt_hints(ctx: Any) -> list[str]:
         extras = getattr(ctx, "extras", {}) or {}
         hints = extras.get("driver_prompt_hints") or []
@@ -1021,6 +1079,7 @@ class AgentBuilder:
     def _build_middlewares(
         ctx: Any,
         agent_config: Any,
+        visual_recovery_store: TurnRecoveryStore | None = None,
     ) -> list[Any]:
         """Build middleware list.
 
@@ -1028,6 +1087,7 @@ class AgentBuilder:
         1. ToolResultPruningMiddleware — tiered tool result pruning
         2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
+        4. VisualCompressionMiddleware — innermost pre-provider transform
         """
         mws: list[Any] = []
 
@@ -1114,6 +1174,22 @@ class AgentBuilder:
                     reg.plugin_id,
                     exc_info=True,
                 )
+
+        # Visual compression is a request-boundary middleware. It reads the
+        # validated per-agent config and does not mutate it.
+        from ..agents.context.visual_compression.runtime.middleware import (
+            VisualCompressionMiddleware,
+        )
+
+        visual_config = (
+            agent_config.running.light_context_config.visual_compact_config
+        )
+        mws.append(
+            VisualCompressionMiddleware(
+                visual_config,
+                visual_recovery_store,
+            ),
+        )
 
         return mws
 

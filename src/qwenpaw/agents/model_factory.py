@@ -10,8 +10,10 @@ Example:
 """
 
 import base64
+import hashlib
 import logging
 import os
+import re
 from typing import List, Sequence, Tuple, Type, Any, Union, Optional
 from urllib.parse import unquote, urlparse
 
@@ -43,6 +45,42 @@ from ..providers.retry_chat_model import (
     RateLimitConfig,
 )
 from ..token_usage import TokenRecordingModelWrapper
+
+# TODO(AgentScope compatibility): This is a temporary workaround for
+# AgentScope releases that emit random promoted-media identifiers. Remove it
+# once QwenPaw's minimum AgentScope version provides stable, request-unique
+# identifiers; QwenPaw should then preserve the upstream identifiers.
+_PROMOTED_TOOL_MEDIA_LABEL = re.compile(r"^-\s+([^\s]+)\s+\(")
+
+
+def _stabilize_promoted_tool_result_media_identifiers(
+    text: str,
+    promoted: Sequence[Any],
+) -> tuple[str, Sequence[Any]]:
+    """Replace formatter-generated media labels with stable identifiers."""
+    rewritten = list(promoted)
+    for index, item in enumerate(rewritten[:-1]):
+        if not isinstance(item, TextBlock):
+            continue
+        match = _PROMOTED_TOOL_MEDIA_LABEL.match(item.text)
+        source = getattr(rewritten[index + 1], "source", None)
+        if match is None or source is None:
+            continue
+        old = match.group(1)
+        media_type = str(getattr(source, "media_type", "") or "")
+        value = str(
+            getattr(source, "url", None)
+            or getattr(source, "data", None)
+            or getattr(source, "path", None)
+            or "",
+        )
+        digest = hashlib.sha256(
+            f"{index}\0{media_type}\0{value}".encode("utf-8"),
+        ).hexdigest()[:12]
+        stable = f"qwenpaw-media-{digest}"
+        text = text.replace(f"[{old}]", f"[{stable}]")
+        rewritten[index] = TextBlock(text=item.text.replace(old, stable))
+    return text, rewritten
 
 
 def _file_url_to_path(url: str) -> str:
@@ -1172,16 +1210,18 @@ def _create_file_block_support_formatter(
             if isinstance(output, str):
                 return output, []
 
-            # Try parent class method first
             try:
-                return super().convert_tool_result_to_string(output)
-            except ValueError as e:
-                if "Unsupported block type: file" not in str(e):
+                text, promoted = super().convert_tool_result_to_string(output)
+                return _stabilize_promoted_tool_result_media_identifiers(
+                    text,
+                    promoted,
+                )
+            except ValueError as exc:
+                if "Unsupported block type: file" not in str(exc):
                     raise ModelFormatterError(
-                        message=str(e),
-                    ) from e
+                        message=str(exc),
+                    ) from exc
 
-                # Handle output containing file blocks
                 textual_output = []
                 multimodal_data = []
 
@@ -1192,7 +1232,7 @@ def _create_file_block_support_formatter(
                                 f"Invalid block: {block}, "
                                 "expected a dict with 'type' key"
                             ),
-                        ) from e
+                        ) from exc
 
                     if block["type"] == "file":
                         file_path = block.get("path", "") or block.get(
@@ -1207,11 +1247,9 @@ def _create_file_block_support_formatter(
                         )
                         multimodal_data.append((file_path, block))
                     else:
-                        # Delegate other block types to parent class
-                        (
-                            text,
-                            data,
-                        ) = super().convert_tool_result_to_string([block])
+                        text, data = super().convert_tool_result_to_string(
+                            [block],
+                        )
                         textual_output.append(text)
                         multimodal_data.extend(data)
 
@@ -1305,7 +1343,6 @@ def create_model_and_formatter(
             its schema, or a string of the form ``"<provider_id>:<model>"``.
             The model name itself may contain ``:`` (e.g. version tags);
             only the first ``:`` is treated as the separator.
-
     Returns:
         Tuple of (model_instance, formatter_instance)
 
