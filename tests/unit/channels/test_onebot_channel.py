@@ -6,12 +6,17 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+from qwenpaw.config.config import OneBotConfig
 from qwenpaw.schemas import (
     ContentType,
     TextContent,
 )
 
-from qwenpaw.app.channels.onebot.channel import OneBotChannel
+from qwenpaw.app.channels.onebot.channel import (
+    OneBotChannel,
+    _clean_onebot_plain_text,
+    _onebot_media_file_ref,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +40,23 @@ def _make_channel(**overrides: Any) -> OneBotChannel:
     }
     defaults.update(overrides)
     return OneBotChannel(**defaults)
+
+
+def test_from_config_sets_media_base64_options():
+    async def _noop_process(_request):
+        yield  # pragma: no cover
+
+    ch = OneBotChannel.from_config(
+        _noop_process,
+        OneBotConfig(
+            enabled=True,
+            media_base64=True,
+            media_base64_max_bytes=123,
+        ),
+    )
+
+    assert ch._media_base64 is True
+    assert ch._media_base64_max_bytes == 123
 
 
 def _make_message_event(
@@ -412,6 +434,93 @@ class TestSend:
         assert args[0][0] == "send_group_msg"
         assert args[0][1]["group_id"] == 67890
 
+    async def test_send_cleans_link_markup_and_preserves_comments(self):
+        ch = _make_channel()
+        ch._call_api = AsyncMock(return_value={"retcode": 0})
+
+        await ch.send(
+            "12345",
+            "为你找到了链接：\n**https://example.com/profile**\n"
+            "[profile](https://example.com/card)\n"
+            "<!-- internal lookup note -->",
+            {"sender_id": "12345"},
+        )
+
+        args = ch._call_api.call_args[0]
+        assert args[0] == "send_private_msg"
+        assert args[1]["message"] == [
+            {
+                "type": "text",
+                "data": {
+                    "text": "为你找到了链接：\n"
+                    "https://example.com/profile\n"
+                    "profile: https://example.com/card\n"
+                    "<!-- internal lookup note -->",
+                },
+            },
+        ]
+
+    def test_clean_onebot_text_preserves_non_link_markup_and_code_fence(self):
+        raw = (
+            "正文 **https://example.com/a** <!-- keep me -->\n"
+            "```\n"
+            "literal = '**https://example.com/keep** <!-- keep -->'\n"
+            "```"
+        )
+
+        assert _clean_onebot_plain_text(raw) == (
+            "正文 https://example.com/a <!-- keep me -->\n"
+            "```\n"
+            "literal = '**https://example.com/keep** <!-- keep -->'\n"
+            "```"
+        )
+
+    def test_clean_onebot_text_strips_trailing_url_markup(self):
+        assert (
+            _clean_onebot_plain_text("链接 https://example.com/path**")
+            == "链接 https://example.com/path"
+        )
+
+    def test_onebot_media_file_ref_converts_data_url(self):
+        assert (
+            _onebot_media_file_ref("data:image/png;base64,ZmFrZQ==")
+            == "base64://ZmFrZQ=="
+        )
+
+    def test_onebot_media_file_ref_preserves_local_file_by_default(
+        self,
+        tmp_path,
+    ):
+        image = tmp_path / "pic.png"
+        image.write_bytes(b"fake")
+
+        assert _onebot_media_file_ref(image.as_uri()) == image.as_uri()
+
+    def test_onebot_media_file_ref_converts_local_file_when_enabled(
+        self,
+        tmp_path,
+    ):
+        image = tmp_path / "pic.png"
+        image.write_bytes(b"fake")
+
+        assert (
+            _onebot_media_file_ref(image.as_uri(), media_base64=True)
+            == "base64://ZmFrZQ=="
+        )
+
+    def test_onebot_media_file_ref_respects_size_cap(self, tmp_path):
+        image = tmp_path / "pic.png"
+        image.write_bytes(b"fake")
+
+        assert (
+            _onebot_media_file_ref(
+                image.as_uri(),
+                media_base64=True,
+                media_base64_max_bytes=1,
+            )
+            == image.as_uri()
+        )
+
 
 class TestSendMedia:
     async def test_send_image(self):
@@ -431,6 +540,57 @@ class TestSendMedia:
         assert args[0] == "send_private_msg"
         assert args[1]["message"][0]["type"] == "image"
 
+    async def test_send_image_file_url_preserves_path_by_default(
+        self,
+        tmp_path,
+    ):
+        from qwenpaw.schemas import (
+            ImageContent,
+        )
+
+        image = tmp_path / "screenshot.png"
+        image.write_bytes(b"fake")
+        ch = _make_channel()
+        ch._call_api = AsyncMock(return_value={"retcode": 0})
+        part = ImageContent(
+            type=ContentType.IMAGE,
+            image_url=image.as_uri(),
+        )
+        await ch.send_media("12345", part, {"sender_id": "12345"})
+        ch._call_api.assert_called_once()
+        args = ch._call_api.call_args[0]
+        assert args[0] == "send_private_msg"
+        assert args[1]["message"] == [
+            {
+                "type": "image",
+                "data": {"file": image.as_uri()},
+            },
+        ]
+
+    async def test_send_image_file_url_converts_when_enabled(self, tmp_path):
+        from qwenpaw.schemas import (
+            ImageContent,
+        )
+
+        image = tmp_path / "screenshot.png"
+        image.write_bytes(b"fake")
+        ch = _make_channel(media_base64=True)
+        ch._call_api = AsyncMock(return_value={"retcode": 0})
+        part = ImageContent(
+            type=ContentType.IMAGE,
+            image_url=image.as_uri(),
+        )
+        await ch.send_media("12345", part, {"sender_id": "12345"})
+        ch._call_api.assert_called_once()
+        args = ch._call_api.call_args[0]
+        assert args[0] == "send_private_msg"
+        assert args[1]["message"] == [
+            {
+                "type": "image",
+                "data": {"file": "base64://ZmFrZQ=="},
+            },
+        ]
+
     async def test_send_audio(self):
         from qwenpaw.schemas import (
             AudioContent,
@@ -443,6 +603,27 @@ class TestSendMedia:
         ch._call_api.assert_called_once()
         args = ch._call_api.call_args[0]
         assert args[1]["message"][0]["type"] == "record"
+
+    async def test_send_audio_data_url(self):
+        from qwenpaw.schemas import (
+            AudioContent,
+        )
+
+        ch = _make_channel()
+        ch._call_api = AsyncMock(return_value={"retcode": 0})
+        part = AudioContent(
+            type=ContentType.AUDIO,
+            data="data:audio/mp3;base64,ZmFrZQ==",
+        )
+        await ch.send_media("12345", part, {"sender_id": "12345"})
+        ch._call_api.assert_called_once()
+        args = ch._call_api.call_args[0]
+        assert args[1]["message"] == [
+            {
+                "type": "record",
+                "data": {"file": "base64://ZmFrZQ=="},
+            },
+        ]
 
     async def test_send_video(self):
         from qwenpaw.schemas import (
@@ -538,6 +719,49 @@ class TestSendMedia:
         args = ch._call_api.call_args[0]
         assert args[0] == "send_group_msg"
         assert args[1]["group_id"] == 67890
+
+    async def test_send_content_parts_sends_media_without_fallback_text(self):
+        from qwenpaw.schemas import ImageContent
+
+        ch = _make_channel()
+        ch._call_api = AsyncMock(return_value={"retcode": 0})
+
+        await ch.send_content_parts(
+            "12345",
+            [
+                TextContent(type=ContentType.TEXT, text="这是截图"),
+                ImageContent(
+                    type=ContentType.IMAGE,
+                    image_url="https://img.example.com/pic.png",
+                ),
+            ],
+            {"sender_id": "12345"},
+        )
+
+        assert ch._call_api.call_count == 2
+        first = ch._call_api.call_args_list[0][0]
+        second = ch._call_api.call_args_list[1][0]
+        assert first == (
+            "send_private_msg",
+            {
+                "user_id": 12345,
+                "message": [
+                    {"type": "text", "data": {"text": "这是截图"}},
+                ],
+            },
+        )
+        assert second == (
+            "send_private_msg",
+            {
+                "user_id": 12345,
+                "message": [
+                    {
+                        "type": "image",
+                        "data": {"file": "https://img.example.com/pic.png"},
+                    },
+                ],
+            },
+        )
 
 
 # ===================================================================
