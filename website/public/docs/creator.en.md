@@ -1,6 +1,6 @@
-# QwenPaw Creator
+# NousAIPaw Creator
 
-<p class="creator-lead">QwenPaw Creator is an <strong>agentic video creation platform</strong>: you set the goal, provide sources, and steer the direction; an Agent team handles planning, generation, editing, and composition, returning every important decision to you.</p>
+<p class="creator-lead">NousAIPaw Creator is an <strong>agentic video creation platform</strong>: you set the goal, provide sources, and steer the direction; an Agent team handles planning, generation, editing, and composition, returning every important decision to you.</p>
 
 - **The Agent stays throughout the process**: screenwriting, directing, visual development, motion, and editing Specialists collaborate against live project state;
 - **You remain in control**: redirect the work with a sentence or fine-tune an object directly on the timeline;
@@ -17,11 +17,11 @@
 
 ### 1. Open Creator
 
-Creator is installed and opened from **Apps** in QwenPaw. Start QwenPaw and open the console (default `http://127.0.0.1:8088/`), select **Apps** in the left navigation, find **QwenPaw Creator**, and choose Install. After installation, open it from the same Apps page.
+Creator is installed and opened from **Apps** in NousAIPaw. Start NousAIPaw and open the console (default `http://127.0.0.1:8088/`), select **Apps** in the left navigation, find **NousAIPaw Creator**, and choose Install. After installation, open it from the same Apps page.
 
 <figure class="creator-figure">
-  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01MXPKfU25B6V6preKc_!!6000000007487-2-tps-850-620.png" alt="The Apps navigation and QwenPaw Creator card on the QwenPaw Apps page" />
-  <figcaption>Find QwenPaw Creator in Apps, install it, and open it from the same page.</figcaption>
+  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01MXPKfU25B6V6preKc_!!6000000007487-2-tps-850-620.png" alt="The Apps navigation and NousAIPaw Creator card on the NousAIPaw Apps page" />
+  <figcaption>Find NousAIPaw Creator in Apps, install it, and open it from the same page.</figcaption>
 </figure>
 
 ### 2. Configure models
@@ -138,6 +138,6 @@ Before a paid image or video generation call, the Agent presents a **production 
 
 ## Appendix: installation and runtime
 
-Open **Apps** in the QwenPaw console, find **QwenPaw Creator**, and select Install. After installation, open Creator directly from Apps.
+Open **Apps** in the NousAIPaw console, find **NousAIPaw Creator**, and select Install. After installation, open Creator directly from Apps.
 
 Creator uses a few local tools without changing your system installation: `ffmpeg` handles media processing and composition (set `CREATOR_FFMPEG_PATH`, otherwise it falls back to system `ffmpeg` or `imageio-ffmpeg`); `jq` supports structured Agent edits to project files (`CREATOR_JQ_PATH` or `PATH`). If a dependency is missing, Creator starts in degraded mode; inspect `GET /api/qwenpaw-creator/health` for details.

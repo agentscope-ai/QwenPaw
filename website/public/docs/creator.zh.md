@@ -1,6 +1,6 @@
-# QwenPaw Creator
+# NousAIPaw Creator
 
-<p class="creator-lead">QwenPaw Creator 是一个 <strong>Agentic 视频创作平台</strong>：你负责提出目标、提供素材和把握方向，Agent 团队负责策划、生成、剪辑与合成，并在关键节点把决定权交还给你。</p>
+<p class="creator-lead">NousAIPaw Creator 是一个 <strong>Agentic 视频创作平台</strong>：你负责提出目标、提供素材和把握方向，Agent 团队负责策划、生成、剪辑与合成，并在关键节点把决定权交还给你。</p>
 
 - **Agent 贯穿全程**：编剧、导演、视觉开发、动效、剪辑等 Specialist 按项目状态协作，不是一次性生成后就结束；
 - **你始终掌舵**：随时用一句话改变方向，也可以直接在时间线上手动精修；
@@ -17,11 +17,11 @@
 
 ### 1. 打开 Creator
 
-Creator 通过 QwenPaw 的 **Apps（应用中心）** 安装和打开。启动 QwenPaw 并进入控制台（默认 `http://127.0.0.1:8088/`），在左侧选择 **Apps**；找到 **QwenPaw Creator** 并点击安装，安装完成后从同一位置打开。
+Creator 通过 NousAIPaw 的 **Apps（应用中心）** 安装和打开。启动 NousAIPaw 并进入控制台（默认 `http://127.0.0.1:8088/`），在左侧选择 **Apps**；找到 **NousAIPaw Creator** 并点击安装，安装完成后从同一位置打开。
 
 <figure class="creator-figure">
-  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01MXPKfU25B6V6preKc_!!6000000007487-2-tps-850-620.png" alt="QwenPaw Apps 页面中的 Apps 导航和 QwenPaw Creator 应用卡片" />
-  <figcaption>在 QwenPaw 的 Apps 页面找到 QwenPaw Creator，完成安装后即可从同一位置打开。</figcaption>
+  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01MXPKfU25B6V6preKc_!!6000000007487-2-tps-850-620.png" alt="NousAIPaw Apps 页面中的 Apps 导航和 NousAIPaw Creator 应用卡片" />
+  <figcaption>在 NousAIPaw 的 Apps 页面找到 NousAIPaw Creator，完成安装后即可从同一位置打开。</figcaption>
 </figure>
 
 ### 2. 配置模型
@@ -138,6 +138,6 @@ Agent 生成的媒体和修改的文本会进入决策托盘；你手动编辑�
 
 ## 附录：安装与运行环境
 
-请打开 QwenPaw 控制台的 **Apps（应用中心）**，找到 **QwenPaw Creator** 并点击安装；安装完成后，直接从 Apps 打开 Creator。
+请打开 NousAIPaw 控制台的 **Apps（应用中心）**，找到 **NousAIPaw Creator** 并点击安装；安装完成后，直接从 Apps 打开 Creator。
 
 Creator 会使用若干本地工具，但不会改动系统安装：`ffmpeg` 负责媒体处理与合成（可用 `CREATOR_FFMPEG_PATH` 指定，否则回退系统 `ffmpeg` 或 `imageio-ffmpeg`）；`jq` 支撑 Agent 对项目文件的结构化编辑（`CREATOR_JQ_PATH` 或 `PATH`）。依赖缺失时 Creator 以降级模式启动，可通过 `GET /api/qwenpaw-creator/health` 查看缺失项。

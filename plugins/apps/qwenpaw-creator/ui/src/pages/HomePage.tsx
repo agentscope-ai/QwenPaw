@@ -278,7 +278,7 @@ export default function HomePage() {
           <div className="flex items-center gap-2">
             <img src={logoMarkUrl} alt="" width={38} height={38} />
             <span className="text-xl font-medium leading-6 text-[var(--color-text-primary)]">
-              QwenPaw Creator
+              NousAIPaw Creator
             </span>
           </div>
           <div

@@ -72,7 +72,7 @@ export default function HeroTitle() {
       >
         <img
           src={wordmarkUrl}
-          alt="QwenPaw"
+          alt="NousAIPaw"
           width={279.95}
           height={47.99}
           className="shrink-0"

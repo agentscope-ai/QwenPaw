@@ -1,14 +1,14 @@
 {
   "id": "qwenpaw-creator",
-  "name": "QwenPaw Creator",
+  "name": "NousAIPaw Creator",
   "version": "1.0.1",
   "type": "app",
-  "description": "QwenPaw plugin that brings the QwenPaw-Creator script-to-assets-to-video workflow into QwenPaw.",
+  "description": "NousAIPaw plugin that brings the NousAIPaw-Creator script-to-assets-to-video workflow into NousAIPaw.",
   "description_i18n": {
-    "zh-CN": "将 QwenPaw-Creator 的剧本、资产、分镜与视频工作流作为插件接入 QwenPaw。",
-    "en-US": "QwenPaw plugin that brings the QwenPaw-Creator script, asset, storyboard, and video workflow into QwenPaw."
+    "zh-CN": "将 NousAIPaw-Creator 的剧本、资产、分镜与视频工作流作为插件接入 NousAIPaw。",
+    "en-US": "NousAIPaw plugin that brings the NousAIPaw-Creator script, asset, storyboard, and video workflow into NousAIPaw."
   },
-  "author": "QwenPaw Creator Team",
+  "author": "NousAIPaw Creator Team",
   "entry": {
     "backend": "backend/main.py",
     "frontend": "ui/dist/index.js"
@@ -62,7 +62,7 @@
     "tools": [
       {
         "name": "creator_text_model",
-        "description": "QwenPaw Creator text model configuration for script, storyboard, and prompt planning",
+        "description": "NousAIPaw Creator text model configuration for script, storyboard, and prompt planning",
         "icon": "📝",
         "requires_config": true,
         "config_fields": [
@@ -93,7 +93,7 @@
       },
       {
         "name": "creator_vlm_model",
-        "description": "QwenPaw Creator native multimodal understanding configuration",
+        "description": "NousAIPaw Creator native multimodal understanding configuration",
         "icon": "👁️",
         "requires_config": false,
         "config_fields": [
@@ -124,7 +124,7 @@
       },
       {
         "name": "creator_web_grounding",
-        "description": "QwenPaw Creator web and image grounding configuration",
+        "description": "NousAIPaw Creator web and image grounding configuration",
         "icon": "🌐",
         "requires_config": false,
         "config_fields": [
@@ -225,7 +225,7 @@
       },
       {
         "name": "creator_image_model",
-        "description": "QwenPaw Creator image generation/editing configuration",
+        "description": "NousAIPaw Creator image generation/editing configuration",
         "icon": "🎨",
         "requires_config": true,
         "config_fields": [
@@ -274,7 +274,7 @@
       },
       {
         "name": "creator_asr_model",
-        "description": "QwenPaw Creator speech-to-text configuration for source understanding",
+        "description": "NousAIPaw Creator speech-to-text configuration for source understanding",
         "icon": "🎙️",
         "requires_config": false,
         "config_fields": [
@@ -287,7 +287,7 @@
       },
       {
         "name": "creator_video_model",
-        "description": "QwenPaw Creator reference-to-video configuration",
+        "description": "NousAIPaw Creator reference-to-video configuration",
         "icon": "🎬",
         "requires_config": true,
         "config_fields": [
@@ -338,7 +338,7 @@
       },
       {
         "name": "creator_media_oss",
-        "description": "QwenPaw Creator OSS and provider-bound media upload configuration",
+        "description": "NousAIPaw Creator OSS and provider-bound media upload configuration",
         "icon": "🪣",
         "requires_config": false,
         "config_fields": [

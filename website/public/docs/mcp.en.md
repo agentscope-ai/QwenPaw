@@ -326,7 +326,7 @@ Configure this option on the `execute_shell_command` tool card (only this tool s
 
 **Browser Automation**
 
-- `browser(code)`: Execute async Python against QwenPaw's built-in Browser SDK to drive a real browser — navigate, locate elements, act, and read visible page state. The complete SDK API is delivered to the agent automatically on first use.
+- `browser(code)`: Execute async Python against NousAIPaw's built-in Browser SDK to drive a real browser — navigate, locate elements, act, and read visible page state. The complete SDK API is delivered to the agent automatically on first use.
 
 **Screenshots and Images**
 

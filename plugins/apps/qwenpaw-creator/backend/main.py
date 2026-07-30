@@ -134,7 +134,7 @@ def configure_creator_runtime_environment(
     return data_root, model_config_path
 
 
-app = PawApp("QwenPaw Creator", app_id="qwenpaw-creator")
+app = PawApp("NousAIPaw Creator", app_id="qwenpaw-creator")
 app.include_router(creator_router)
 
 # Creator file runtime handle kept for the lifetime of the app.

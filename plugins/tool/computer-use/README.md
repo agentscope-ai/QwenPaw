@@ -1,6 +1,6 @@
 # Computer Use
 
-Computer Use is a desktop plugin backed by the QwenPaw desktop host, supported
+Computer Use is a desktop plugin backed by the NousAIPaw desktop host, supported
 on Windows and macOS. The Python plugin contains only the tool adapter,
 approval bridge, and usage skill. Window discovery, screen capture,
 accessibility inspection, input injection, and target validation run in the
