@@ -1,6 +1,6 @@
 ---
 name: computer_use
-description: "Read before using computer_use. Work through approved Apps and observed windows; UI Automation and visual coordinates are separate target channels."
+description: "Read before using computer_use. Work through approved Apps and fresh observations; element and coordinate actions use the observation context."
 metadata:
   builtin_skill_version: "5.1"
   qwenpaw:
@@ -39,10 +39,13 @@ all. If a path is refused, say so rather than guessing repeatedly.
 
 `observe_window` returns a point-in-time observation:
 
-- `window.id` identifies the target window.
-- `snapshot_id` and `screenshots[0].id` identify the visual frame.
-- `accessibility_revision` and `accessibility.elements` identify the UI
-  Automation frame when the application exposes one.
+- `observation_id` identifies the complete action context.
+- `window` identifies the observed target for reference only.
+- `accessibility.elements` lists controls when the application exposes them.
+
+Use `observation_id` for every subsequent action. The desktop runtime keeps
+the associated window, visual frame, and accessibility handles together, so
+they cannot be accidentally combined from different observations.
 
 Start with the summary fields when they are present, because they answer the
 most common questions without reading the whole listing:
@@ -58,16 +61,18 @@ most common questions without reading the whole listing:
 `accessibility.elements` is a listing with one control per line:
 
 ```
-uia-12 Edit "File name:" @980,1290
-uia-18 Button "Save" @1662,1290
-uia-31 ListItem "All files (*.*)" @1355,832 [offscreen]
+uia-12 Edit "File name:" screen@980,1290
+uia-18 Button "Save" screen@1662,1290
+uia-31 ListItem "All files (*.*)" screen@1355,832 [offscreen]
 ```
 
 Each line is `element_id`, `control_type_name` (for example `Edit`, `Button`,
 `ComboBox`, `MenuItem`), the control's `name` in quotes, and a locator. On
-Windows the locator is `@x,y`, the centre point of the control, which can be
-passed straight to a coordinate action. On macOS it is `=value`, the control's
-current value, because that platform reports values rather than pixel bounds.
+Windows the locator is `screen@x,y`, the centre point in desktop coordinates;
+it is a recognition aid, not a click parameter. Coordinate actions always use
+the screenshot's own `viewport` coordinates. On macOS the locator is `=value`,
+the control's current value, because that platform reports values rather than
+pixel bounds.
 
 Two optional markers may follow. `[disabled]` means the control is present but
 cannot be acted on right now, so choose another route instead of retrying it.
@@ -82,9 +87,8 @@ separate image attachment for visual context; the actionable structure lives in
 Refresh the state after navigation, an action that can alter layout or focus,
 an error about stale state, or any user interruption. Do not retry an old
 coordinate or element identifier after a stale-state error. When an action
-opens a new window or dialog, treat that window as a separate target: select
-it and call `observe_window` on it before acting, instead of sending more
-input to the previous window.
+opens a new window or dialog, list windows again and observe that target before
+acting. Standard macOS sheets are observed as their own target.
 
 ## Choose One Target Channel
 
@@ -97,8 +101,7 @@ This is preferred over keystrokes when a matching element exists.
 ```json
 {
   "action": "invoke",
-  "window_id": "123456",
-  "accessibility_revision": "accessibility-7",
+  "observation_id": "observation-7",
   "element_id": "uia-12"
 }
 ```
@@ -108,23 +111,19 @@ For an editable control that supports its Value pattern:
 ```json
 {
   "action": "set_value",
-  "window_id": "123456",
-  "accessibility_revision": "accessibility-7",
+  "observation_id": "observation-7",
   "element_id": "uia-18",
   "value": "hello"
 }
 ```
 
 Use visual coordinates only when UI Automation is unavailable or unsuitable.
-Every visual action must contain all three identifiers from the same
-observation: `window_id`, `snapshot_id`, and `screenshot_id`.
+Every visual action uses the `observation_id` returned by `observe_window`.
 
 ```json
 {
   "action": "click",
-  "window_id": "123456",
-  "snapshot_id": "snapshot-4",
-  "screenshot_id": "screenshot-3",
+  "observation_id": "observation-7",
   "x": 420,
   "y": 260
 }
@@ -136,7 +135,7 @@ try to bypass those failures by reusing the same coordinate; observe again.
 
 ## Keyboard Input
 
-`type` and `press_key` target the selected window through the native runtime.
+`type` and `press_key` target the observed window through the native runtime.
 Focus the intended control first, then send the smallest useful batch and
 observe again when confirmation is needed.
 
@@ -148,11 +147,11 @@ and editing or navigation keys such as `ENTER`, `TAB`, `ESC`, `SPACE`,
 arrow keys `UP`/`DOWN`/`LEFT`/`RIGHT`.
 
 ```json
-{"action": "press_key", "window_id": "123456", "key": "CTRL+L"}
+{"action": "press_key", "observation_id": "observation-7", "key": "CTRL+L"}
 ```
 
 ```json
-{"action": "type", "window_id": "123456", "text": "https://example.com"}
+{"action": "type", "observation_id": "observation-7", "text": "https://example.com"}
 ```
 
 ## Finish Cleanly
@@ -168,7 +167,7 @@ close the applications you launched during this task. Leave windows the user
 already had open alone unless the user asked you to close them.
 
 ```json
-{"action": "close_window", "window_id": "123456"}
+{"action": "close_window", "observation_id": "observation-7"}
 ```
 
 `close_window` asks the window to close the same way its own close button

@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Native accessibility element handle stored in an accessibility snapshot.
+/// Native accessibility element handle stored with an observation.
 /// Windows uses a UI Automation element; macOS uses an AXUIElement wrapper.
 #[cfg(windows)]
 pub(super) type NativeElement = windows::Win32::UI::Accessibility::IUIAutomationElement;
@@ -65,29 +65,29 @@ impl WindowInfo {
     }
 }
 
-pub(super) struct Snapshot {
+/// Everything an action needs from one observed window.
+///
+/// The identifier for this object is the only native context exposed to the
+/// model. Window handles, screenshot identifiers, and accessibility handles
+/// remain local so callers cannot accidentally combine state from separate
+/// observations.
+pub(super) struct Observation {
     pub(super) window: WindowInfo,
     /// The window's on-screen rectangle as `[left, top, width, height]`.
     /// Origin plus size is used on both platforms so the meaning of each slot
-    /// is unambiguous wherever a snapshot is read.
+    /// is unambiguous wherever an observation is read.
     pub(super) bounds: [i32; 4],
-    pub(super) screenshot_id: String,
     // Pixel size of the delivered (possibly downscaled) screenshot. Model
     // coordinates are expressed in this space and mapped back to physical
     // window pixels before input is injected.
     pub(super) display_width: u32,
     pub(super) display_height: u32,
-}
-
-pub(super) struct AccessibilitySnapshot {
-    pub(super) window_hwnd: isize,
     pub(super) elements: HashMap<String, NativeElement>,
 }
 
 #[derive(Default)]
 pub(super) struct ServerState {
-    pub(super) snapshots: HashMap<String, Snapshot>,
-    pub(super) accessibility: HashMap<String, AccessibilitySnapshot>,
+    pub(super) observations: HashMap<String, Observation>,
 }
 
 /// Bound document text by character count, flagging that more remains.
@@ -121,10 +121,7 @@ pub(super) struct InstalledApp {
 /// An application that owns a window is reported as running and carries those
 /// windows; one found only on disk is reported with no windows. Both platforms
 /// share this so `is_running` can never mean different things on each.
-pub(super) fn merge_app_list(
-    installed: Vec<InstalledApp>,
-    windows: Vec<WindowInfo>,
-) -> Vec<Value> {
+pub(super) fn merge_app_list(installed: Vec<InstalledApp>, windows: Vec<WindowInfo>) -> Vec<Value> {
     let mut order: Vec<String> = Vec::new();
     let mut entries: HashMap<String, (String, bool, Vec<Value>)> = HashMap::new();
     for app in installed {
@@ -166,12 +163,12 @@ pub(super) fn merge_app_list(
 /// platforms share the bounds check so a coordinate outside the delivered
 /// screenshot can never be extrapolated onto another application's window.
 pub(super) fn map_point(
-    snapshot: &Snapshot,
+    observation: &Observation,
     x: i64,
     y: i64,
 ) -> Result<(f64, f64), (&'static str, String)> {
-    let display_width = i64::from(snapshot.display_width.max(1));
-    let display_height = i64::from(snapshot.display_height.max(1));
+    let display_width = i64::from(observation.display_width.max(1));
+    let display_height = i64::from(observation.display_height.max(1));
     if x < 0 || y < 0 || x >= display_width || y >= display_height {
         return Err((
             "point_outside_viewport",
@@ -180,8 +177,8 @@ pub(super) fn map_point(
     }
     // The screenshot may have been downscaled, so scale back to the window's
     // own pixels. With no downscaling these ratios are 1:1.
-    let width = f64::from(snapshot.bounds[2]);
-    let height = f64::from(snapshot.bounds[3]);
+    let width = f64::from(observation.bounds[2]);
+    let height = f64::from(observation.bounds[3]);
     Ok((
         x as f64 * width / display_width as f64,
         y as f64 * height / display_height as f64,
@@ -196,8 +193,8 @@ pub(super) fn next_id(prefix: &str) -> String {
 mod tests {
     use super::*;
 
-    fn snapshot(bounds: [i32; 4], display: (u32, u32)) -> Snapshot {
-        Snapshot {
+    fn observation(bounds: [i32; 4], display: (u32, u32)) -> Observation {
+        Observation {
             window: WindowInfo {
                 hwnd: 1,
                 app_id: "app:test".to_string(),
@@ -206,9 +203,9 @@ mod tests {
                 class_name: String::new(),
             },
             bounds,
-            screenshot_id: "screenshot-1".to_string(),
             display_width: display.0,
             display_height: display.1,
+            elements: HashMap::new(),
         }
     }
 
@@ -259,21 +256,21 @@ mod tests {
     #[test]
     fn a_point_inside_the_viewport_maps_by_proportion() {
         // A 200x100 window delivered as a 100x50 screenshot is a 2:1 scale.
-        let snap = snapshot([10, 20, 200, 100], (100, 50));
+        let snap = observation([10, 20, 200, 100], (100, 50));
         let (x, y) = map_point(&snap, 50, 25).unwrap();
         assert_eq!((x as i32, y as i32), (100, 50));
     }
 
     #[test]
     fn an_unscaled_screenshot_maps_one_to_one() {
-        let snap = snapshot([0, 0, 100, 100], (100, 100));
+        let snap = observation([0, 0, 100, 100], (100, 100));
         let (x, y) = map_point(&snap, 30, 40).unwrap();
         assert_eq!((x as i32, y as i32), (30, 40));
     }
 
     #[test]
     fn points_outside_the_viewport_are_refused() {
-        let snap = snapshot([0, 0, 100, 100], (100, 100));
+        let snap = observation([0, 0, 100, 100], (100, 100));
         for (x, y) in [(-1, 0), (0, -1), (100, 0), (0, 100)] {
             let error = map_point(&snap, x, y).expect_err("must be refused");
             assert_eq!(error.0, "point_outside_viewport");
@@ -284,7 +281,10 @@ mod tests {
     fn a_running_application_reports_its_windows() {
         let apps = merge_app_list(
             Vec::new(),
-            vec![window("app:editor", "Editor", 1), window("app:editor", "Editor", 2)],
+            vec![
+                window("app:editor", "Editor", 1),
+                window("app:editor", "Editor", 2),
+            ],
         );
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0]["is_running"], serde_json::json!(true));

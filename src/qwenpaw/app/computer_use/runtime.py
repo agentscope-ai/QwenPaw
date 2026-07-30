@@ -23,7 +23,8 @@ _PROTOCOL_ENV = "QWENPAW_COMPUTER_USE_PROTOCOL"
 _CONTROL_HOST_ENV = "QWENPAW_COMPUTER_USE_CONTROL_HOST"
 _CONTROL_PORT_ENV = "QWENPAW_COMPUTER_USE_CONTROL_PORT"
 _CONTROL_TOKEN_ENV = "QWENPAW_COMPUTER_USE_CONTROL_TOKEN"
-_CONTROL_PROTOCOL_ENV = "QWENPAW_COMPUTER_USE_CONTROL_PROTOCOL"
+# Request/response contract shared by the plugin and native helper.
+COMPUTER_USE_PROTOCOL_VERSION = 1
 _CONTROL_MAX_MESSAGE_BYTES = 4096
 # The desktop host answers acquire only after it has spawned the helper
 # process; the first spawn after an install or update can be slowed by
@@ -79,7 +80,6 @@ class _ControlEndpoint:
     host: str
     port: int
     token: str
-    protocol_version: int
 
 
 class HostRuntimeProvider:
@@ -181,12 +181,19 @@ def _environment_capability() -> RuntimeCapability | None:
     """Return a capability injected when the backend was restarted."""
     pipe_name = os.environ.get(_PIPE_ENV, "").strip()
     secret = os.environ.get(_CAPABILITY_ENV, "").strip()
-    raw_version = os.environ.get(_PROTOCOL_ENV, "1").strip()
+    raw_version = os.environ.get(
+        _PROTOCOL_ENV,
+        str(COMPUTER_USE_PROTOCOL_VERSION),
+    ).strip()
     try:
         protocol_version = int(raw_version)
     except ValueError:
         return None
-    if not pipe_name or not secret or protocol_version < 1:
+    if (
+        not pipe_name
+        or not secret
+        or protocol_version != COMPUTER_USE_PROTOCOL_VERSION
+    ):
         return None
     return RuntimeCapability(pipe_name, secret, protocol_version)
 
@@ -196,22 +203,15 @@ def _control_endpoint() -> _ControlEndpoint | None:
     token = os.environ.get(_CONTROL_TOKEN_ENV, "").strip()
     try:
         port = int(os.environ.get(_CONTROL_PORT_ENV, ""))
-        protocol_version = int(os.environ.get(_CONTROL_PROTOCOL_ENV, "1"))
     except ValueError:
         return None
-    if (
-        host != "127.0.0.1"
-        or not 0 < port < 65536
-        or not token
-        or protocol_version != 1
-    ):
+    if host != "127.0.0.1" or not 0 < port < 65536 or not token:
         return None
-    return _ControlEndpoint(host, port, token, protocol_version)
+    return _ControlEndpoint(host, port, token)
 
 
 def _request_capability(control: _ControlEndpoint) -> RuntimeCapability | None:
     request = {
-        "protocol_version": control.protocol_version,
         "token": control.token,
         "action": "acquire",
     }
@@ -237,16 +237,11 @@ def _request_capability(control: _ControlEndpoint) -> RuntimeCapability | None:
         return None
     pipe_name = response.get("pipe_name")
     secret = response.get("capability")
-    version = response.get("protocol_version")
-    if (
-        not isinstance(pipe_name, str)
-        or not isinstance(secret, str)
-        or version != control.protocol_version
-    ):
+    if not isinstance(pipe_name, str) or not isinstance(secret, str):
         return None
     if not pipe_name or not secret:
         return None
-    return RuntimeCapability(pipe_name, secret, version)
+    return RuntimeCapability(pipe_name, secret, COMPUTER_USE_PROTOCOL_VERSION)
 
 
 def set_current_computer_use_turn_id(turn_id: str | None) -> None:

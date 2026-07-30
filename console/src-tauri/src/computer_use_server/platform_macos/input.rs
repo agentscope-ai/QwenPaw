@@ -22,12 +22,11 @@ use core_graphics::window::{
 };
 use serde_json::{json, Map, Value};
 
-use super::super::state::{map_point, ServerState, Snapshot, WindowInfo};
+use super::super::state::{map_point, Observation, WindowInfo};
 use super::accessibility_tree::find_ax_window;
 use super::{
     bounds_from_dict, dict_i64, integer_param, window_bounds, window_owner_pid,
     CGEventSourceSecondsSinceLastEventType, CGSessionCopyCurrentDictionary,
-    _AXUIElementGetWindow,
 };
 
 /// How long to wait for a raised window to actually hold focus before
@@ -54,8 +53,7 @@ fn session_lock_state() -> LockState {
             // No session dictionary at all: there may be no GUI session here.
             return LockState::Unknown;
         }
-        let dict: CFDictionary<CFString, CFType> =
-            CFDictionary::wrap_under_create_rule(dict_ref);
+        let dict: CFDictionary<CFString, CFType> = CFDictionary::wrap_under_create_rule(dict_ref);
         let key = CFString::from_static_string("CGSSessionScreenIsLocked");
         let Some(value) = dict.find(&key) else {
             // The key is only present while the screen is locked, so its
@@ -63,7 +61,10 @@ fn session_lock_state() -> LockState {
             // it as unknown would refuse every action on a normal desktop.
             return LockState::Unlocked;
         };
-        match value.downcast::<CFNumber>().and_then(|number| number.to_i64()) {
+        match value
+            .downcast::<CFNumber>()
+            .and_then(|number| number.to_i64())
+        {
             Some(0) => LockState::Unlocked,
             Some(_) => LockState::Locked,
             // Present but not a number the session is describing something
@@ -102,13 +103,15 @@ pub(crate) fn last_input_age_ms() -> Option<u32> {
 }
 
 pub(crate) fn click(
-    state: &ServerState,
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
-    let point = resolve_point(state, window, params, "x", "y")?;
-    set_focus(window)?;
-    let button = params.get("button").and_then(Value::as_str).unwrap_or("left");
+    let point = resolve_point(observation, params, "x", "y")?;
+    set_focus(&observation.window)?;
+    let button = params
+        .get("button")
+        .and_then(Value::as_str)
+        .unwrap_or("left");
     let count = params
         .get("count")
         .and_then(Value::as_i64)
@@ -136,39 +139,52 @@ pub(crate) fn click(
 }
 
 pub(crate) fn scroll(
-    state: &ServerState,
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
-    let point = resolve_point(state, window, params, "x", "y")?;
-    set_focus(window)?;
+    let point = resolve_point(observation, params, "x", "y")?;
+    set_focus(&observation.window)?;
     let delta_y = integer_param(params, "delta_y")? as i32;
     let source = event_source()?;
     post_mouse(&source, CGEventType::MouseMoved, point, CGMouseButton::Left)?;
     let event = CGEvent::new_scroll_event(source, ScrollEventUnit::PIXEL, 1, -delta_y, 0, 0)
-        .map_err(|_| ("input_failed", "Could not create the scroll event.".to_string()))?;
+        .map_err(|_| {
+            (
+                "input_failed",
+                "Could not create the scroll event.".to_string(),
+            )
+        })?;
     event.post(CGEventTapLocation::HID);
     Ok(json!({"applied": true}))
 }
 
 pub(crate) fn drag(
-    state: &ServerState,
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
-    let start = resolve_point(state, window, params, "start_x", "start_y")?;
-    let end = resolve_point(state, window, params, "end_x", "end_y")?;
-    set_focus(window)?;
+    let start = resolve_point(observation, params, "start_x", "start_y")?;
+    let end = resolve_point(observation, params, "end_x", "end_y")?;
+    set_focus(&observation.window)?;
     let source = event_source()?;
     post_mouse(&source, CGEventType::MouseMoved, start, CGMouseButton::Left)?;
-    post_mouse(&source, CGEventType::LeftMouseDown, start, CGMouseButton::Left)?;
-    post_mouse(&source, CGEventType::LeftMouseDragged, end, CGMouseButton::Left)?;
+    post_mouse(
+        &source,
+        CGEventType::LeftMouseDown,
+        start,
+        CGMouseButton::Left,
+    )?;
+    post_mouse(
+        &source,
+        CGEventType::LeftMouseDragged,
+        end,
+        CGMouseButton::Left,
+    )?;
     post_mouse(&source, CGEventType::LeftMouseUp, end, CGMouseButton::Left)?;
     Ok(json!({"applied": true}))
 }
 
 pub(crate) fn type_text(
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
     let text = params
@@ -176,17 +192,21 @@ pub(crate) fn type_text(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or(("invalid_request", "text is required.".to_string()))?;
-    set_focus(window)?;
+    set_focus(&observation.window)?;
     let source = event_source()?;
-    let event = CGEvent::new_keyboard_event(source, 0, true)
-        .map_err(|_| ("input_failed", "Could not create the keyboard event.".to_string()))?;
+    let event = CGEvent::new_keyboard_event(source, 0, true).map_err(|_| {
+        (
+            "input_failed",
+            "Could not create the keyboard event.".to_string(),
+        )
+    })?;
     event.set_string(text);
     event.post(CGEventTapLocation::HID);
     Ok(json!({"applied": true}))
 }
 
 pub(crate) fn press_key(
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
     let key = params
@@ -196,14 +216,22 @@ pub(crate) fn press_key(
         .ok_or(("invalid_request", "key is required.".to_string()))?;
     let (keycode, flags) =
         parse_key(key).ok_or(("invalid_request", format!("Unsupported key: {key}")))?;
-    set_focus(window)?;
+    set_focus(&observation.window)?;
     let source = event_source()?;
-    let down = CGEvent::new_keyboard_event(source.clone(), keycode, true)
-        .map_err(|_| ("input_failed", "Could not create the key event.".to_string()))?;
+    let down = CGEvent::new_keyboard_event(source.clone(), keycode, true).map_err(|_| {
+        (
+            "input_failed",
+            "Could not create the key event.".to_string(),
+        )
+    })?;
     down.set_flags(flags);
     down.post(CGEventTapLocation::HID);
-    let up = CGEvent::new_keyboard_event(source, keycode, false)
-        .map_err(|_| ("input_failed", "Could not create the key event.".to_string()))?;
+    let up = CGEvent::new_keyboard_event(source, keycode, false).map_err(|_| {
+        (
+            "input_failed",
+            "Could not create the key event.".to_string(),
+        )
+    })?;
     up.set_flags(flags);
     up.post(CGEventTapLocation::HID);
     Ok(json!({"applied": true}))
@@ -335,37 +363,35 @@ pub(crate) fn set_focus(window: &WindowInfo) -> Result<(), (&'static str, String
         "window_not_found",
         "Accessibility could not locate the window.".to_string(),
     ))?;
-    ax_window
-        .perform_action(&CFString::from_static_string(kAXRaiseAction))
-        .map_err(|_| {
-            (
-                "focus_failed",
-                "The window did not accept being brought forward.".to_string(),
-            )
-        })?;
+    if window_holds_focus(&app, &ax_window) {
+        return Ok(());
+    }
+    // Sheets commonly reject AXRaise even while their text field already owns
+    // input. Treat raising as a best-effort request and verify the actual
+    // focused element below instead of failing on that implementation detail.
+    let _ = ax_window.perform_action(&CFString::from_static_string(kAXRaiseAction));
     // Raising is asynchronous, so wait for the window to actually hold focus.
     // Reporting success without it would let keyboard input land in whatever
     // application happens to be in front -- one this session may never have
     // been approved for.
     for _ in 0..FOCUS_POLL_ATTEMPTS {
-        if window_holds_focus(&app, window.hwnd as u32) {
+        if window_holds_focus(&app, &ax_window) {
             return Ok(());
         }
-        std::thread::sleep(std::time::Duration::from_millis(
-            FOCUS_POLL_INTERVAL_MS,
-        ));
+        std::thread::sleep(std::time::Duration::from_millis(FOCUS_POLL_INTERVAL_MS));
     }
     Err((
         "focus_failed",
-        "The window did not take focus; it may be blocked by another window."
-            .to_string(),
+        "The window did not take focus; it may be blocked by another window.".to_string(),
     ))
 }
 
-/// Whether the target window is the one that would receive keyboard input:
-/// its application is frontmost and the window is that application's focused
-/// window.
-fn window_holds_focus(app: &AXUIElement, target: u32) -> bool {
+/// Whether keyboard input belongs to this window or one of its descendants.
+///
+/// A modal sheet is represented as a descendant of its owner rather than as
+/// the application's `AXFocusedWindow` on several macOS apps. Checking the
+/// focused element's parent chain covers that normal sheet shape.
+fn window_holds_focus(app: &AXUIElement, target: &AXUIElement) -> bool {
     let frontmost = app
         .attribute(&AXAttribute::new(&CFString::from_static_string(
             "AXFrontmost",
@@ -377,17 +403,38 @@ fn window_holds_focus(app: &AXUIElement, target: u32) -> bool {
     if !frontmost {
         return false;
     }
-    let Ok(focused) = app.attribute(&AXAttribute::new(
-        &CFString::from_static_string("AXFocusedWindow"),
-    )) else {
-        return false;
-    };
-    let Some(element) = focused.downcast_into::<AXUIElement>() else {
-        return false;
-    };
-    let mut id: u32 = 0;
-    let status = unsafe { _AXUIElementGetWindow(element.as_concrete_TypeRef(), &mut id) };
-    status == 0 && id == target
+    for attribute in ["AXFocusedUIElement", "AXFocusedWindow"] {
+        let Ok(value) = app.attribute(&AXAttribute::new(&CFString::from_static_string(attribute)))
+        else {
+            continue;
+        };
+        let Some(element) = value.downcast_into::<AXUIElement>() else {
+            continue;
+        };
+        if is_descendant_of(&element, target) {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_descendant_of(element: &AXUIElement, ancestor: &AXUIElement) -> bool {
+    let mut current = element.clone();
+    for _ in 0..64 {
+        if current.as_concrete_TypeRef() == ancestor.as_concrete_TypeRef() {
+            return true;
+        }
+        let Ok(parent) =
+            current.attribute(&AXAttribute::new(&CFString::from_static_string("AXParent")))
+        else {
+            return false;
+        };
+        let Some(parent) = parent.downcast_into::<AXUIElement>() else {
+            return false;
+        };
+        current = parent;
+    }
+    false
 }
 
 fn event_source() -> Result<CGEventSource, (&'static str, String)> {
@@ -405,46 +452,26 @@ fn post_mouse(
     point: CGPoint,
     button: CGMouseButton,
 ) -> Result<(), (&'static str, String)> {
-    let event = CGEvent::new_mouse_event(source.clone(), event_type, point, button)
-        .map_err(|_| ("input_failed", "Could not create the mouse event.".to_string()))?;
+    let event =
+        CGEvent::new_mouse_event(source.clone(), event_type, point, button).map_err(|_| {
+            (
+                "input_failed",
+                "Could not create the mouse event.".to_string(),
+            )
+        })?;
     event.post(CGEventTapLocation::HID);
     Ok(())
 }
 
 fn resolve_point(
-    state: &ServerState,
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
     x_key: &str,
     y_key: &str,
 ) -> Result<CGPoint, (&'static str, String)> {
-    let snapshot_id = params
-        .get("snapshot_id")
-        .and_then(Value::as_str)
-        .ok_or(("stale_snapshot", "snapshot_id is required.".to_string()))?;
-    let screenshot_id = params
-        .get("screenshot_id")
-        .and_then(Value::as_str)
-        .ok_or(("stale_snapshot", "screenshot_id is required.".to_string()))?;
-    let snapshot = state.snapshots.get(snapshot_id).ok_or((
-        "stale_snapshot",
-        "Snapshot is no longer available; observe the window again.".to_string(),
-    ))?;
-    if snapshot.window.hwnd != window.hwnd {
-        return Err((
-            "stale_snapshot",
-            "Snapshot does not belong to this window.".to_string(),
-        ));
-    }
-    if snapshot.screenshot_id != screenshot_id {
-        return Err((
-            "stale_snapshot",
-            "Screenshot id does not match the snapshot.".to_string(),
-        ));
-    }
-    // The window must still be where it was when the screenshot was taken,
+    // The window must still be where it was when the observation was taken,
     // or the mapping below would aim at whatever now occupies those pixels.
-    let current = window_bounds(window.hwnd as i64).ok_or((
+    let current = window_bounds(observation.window.hwnd as i64).ok_or((
         "stale_window",
         "Window geometry is no longer available.".to_string(),
     ))?;
@@ -454,22 +481,22 @@ fn resolve_point(
         current.2 as i32,
         current.3 as i32,
     ];
-    if current_bounds != snapshot.bounds {
+    if current_bounds != observation.bounds {
         return Err((
-            "stale_snapshot",
+            "stale_observation",
             "Window geometry changed; observe it again.".to_string(),
         ));
     }
     let x = integer_param(params, x_key)?;
     let y = integer_param(params, y_key)?;
-    let (x_offset, y_offset) = map_point(snapshot, x, y)?;
+    let (x_offset, y_offset) = map_point(observation, x, y)?;
     let point = CGPoint {
-        x: f64::from(snapshot.bounds[0]) + x_offset,
-        y: f64::from(snapshot.bounds[1]) + y_offset,
+        x: f64::from(observation.bounds[0]) + x_offset,
+        y: f64::from(observation.bounds[1]) + y_offset,
     };
     // Finally confirm the target still owns that point: another window may
     // sit above it even though the target itself has not moved.
-    if !point_belongs_to_window(point, window.hwnd as i64) {
+    if !point_belongs_to_window(point, observation.window.hwnd as i64) {
         return Err((
             "target_not_at_point",
             "Target window is no longer at this point.".to_string(),
@@ -502,10 +529,8 @@ fn point_belongs_to_window(point: CGPoint, window_id: i64) -> bool {
         let Some((left, top, width, height)) = bounds_from_dict(&dict) else {
             continue;
         };
-        let inside = point.x >= left
-            && point.y >= top
-            && point.x < left + width
-            && point.y < top + height;
+        let inside =
+            point.x >= left && point.y >= top && point.x < left + width && point.y < top + height;
         if inside {
             return number == window_id;
         }

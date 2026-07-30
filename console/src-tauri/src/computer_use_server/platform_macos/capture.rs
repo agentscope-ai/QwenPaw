@@ -1,7 +1,7 @@
 //! Window capture and observation on macOS.
 //!
 //! Mirrors the Windows `capture.rs` leaf: produces the screenshot plus the
-//! snapshot that binds later input to what the model actually saw.
+//! observation that binds later input to what the model actually saw.
 
 use base64::Engine;
 use core_graphics::geometry::{CGPoint, CGRect, CGSize};
@@ -9,11 +9,10 @@ use core_graphics::window::{
     create_image, kCGWindowImageBoundsIgnoreFraming, kCGWindowListOptionIncludingWindow, CGWindowID,
 };
 use jpeg_encoder::{ColorType, Encoder};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 use super::super::state::{
-    next_id, AccessibilitySnapshot, ServerState, Snapshot, WindowInfo, SCREENSHOT_JPEG_QUALITY,
-    SCREENSHOT_MAX_EDGE,
+    next_id, Observation, ServerState, WindowInfo, SCREENSHOT_JPEG_QUALITY, SCREENSHOT_MAX_EDGE,
 };
 use super::accessibility_tree::collect_accessibility;
 use super::window_bounds;
@@ -42,7 +41,10 @@ pub(crate) fn observe_window(
         window.hwnd as CGWindowID,
         kCGWindowImageBoundsIgnoreFraming,
     )
-    .ok_or(("capture_failed", "Could not capture the window.".to_string()))?;
+    .ok_or((
+        "capture_failed",
+        "Could not capture the window.".to_string(),
+    ))?;
 
     let width = image.width();
     let height = image.height();
@@ -97,49 +99,36 @@ pub(crate) fn observe_window(
         )
         .map_err(|error| ("capture_failed", format!("JPEG encoding failed: {error}")))?;
 
-    let capture_id = next_id("screenshot");
-    let snapshot_id = next_id("snapshot");
+    let observation_id = next_id("observation");
     // Store the window's on-screen bounds in points so coordinate input can map
     // display-space fractions back to the global point coordinates CGEvent uses.
     let point_bounds = window_bounds(window.hwnd as i64)
         .map(|(x, y, w, h)| [x as i32, y as i32, w as i32, h as i32])
         .unwrap_or([0, 0, width as i32, height as i32]);
-    state.snapshots.insert(
-        snapshot_id.clone(),
-        Snapshot {
+    let (accessibility, elements) = match collect_accessibility(window) {
+        Ok((description, elements)) => (description, elements),
+        Err(reason) => (
+            json!({"available": false, "reason": reason, "elements": []}),
+            Default::default(),
+        ),
+    };
+    state.observations.insert(
+        observation_id.clone(),
+        Observation {
             window: window.clone(),
             bounds: point_bounds,
-            screenshot_id: capture_id.clone(),
             display_width: display_width as u32,
             display_height: display_height as u32,
+            elements,
         },
     );
 
-    let (accessibility_revision, accessibility) = match collect_accessibility(window) {
-        Ok((revision, description, elements)) => {
-            state.accessibility.insert(
-                revision.clone(),
-                AccessibilitySnapshot {
-                    window_hwnd: window.hwnd,
-                    elements,
-                },
-            );
-            (revision, description)
-        }
-        Err(reason) => (
-            String::new(),
-            json!({"available": false, "reason": reason, "elements": []}),
-        ),
-    };
-
     Ok(json!({
-        "snapshot_id": snapshot_id,
-        "geometry_revision": next_id("geometry"),
-        "accessibility_revision": accessibility_revision,
+        "observation_id": observation_id,
         "window": window.to_json(),
+        "viewport": {"width": display_width, "height": display_height},
         "accessibility": accessibility,
         "screenshots": [{
-            "id": capture_id,
             "url": format!(
                 "data:image/jpeg;base64,{}",
                 base64::engine::general_purpose::STANDARD.encode(&jpeg),

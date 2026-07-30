@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 use std::sync::{mpsc, Mutex};
 
+#[cfg(windows)]
+use std::os::windows::{io::AsRawHandle, process::CommandExt};
 use std::{
     io::{BufRead, BufReader, Read, Write},
     net::{Ipv4Addr, TcpListener, TcpStream},
@@ -21,12 +23,12 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
-#[cfg(windows)]
-use std::os::windows::{io::AsRawHandle, process::CommandExt};
 
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
+
+use crate::computer_use_protocol::VERSION as PROTOCOL_VERSION;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -34,7 +36,6 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 // the same name in computer_use_server::parse_arguments, which is a separate
 // binary and cannot share the constant.
 const CAPABILITY_ENV: &str = "QWENPAW_CU_CAPABILITY";
-const CONTROL_PROTOCOL_VERSION: u8 = 1;
 const CONTROL_MAX_MESSAGE_BYTES: usize = 4096;
 // This is emitted by the direct helper child after it has created an endpoint
 // that the Python client can connect to. Keep it in step with the helper's
@@ -77,14 +78,13 @@ struct ControlEndpoint {
 
 #[derive(Deserialize)]
 struct ControlRequest {
-    protocol_version: u8,
     token: String,
     action: String,
 }
 
 #[derive(Deserialize)]
 struct HelperReadyPayload {
-    protocol_version: u8,
+    protocol_version: u64,
 }
 
 #[derive(Serialize)]
@@ -95,8 +95,6 @@ struct ControlResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     capability: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    protocol_version: Option<u8>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<&'static str>,
 }
 
@@ -106,7 +104,6 @@ impl ControlResponse {
             ok: true,
             pipe_name: Some(capability.pipe_name),
             capability: Some(capability.secret),
-            protocol_version: Some(CONTROL_PROTOCOL_VERSION),
             error: None,
         }
     }
@@ -116,7 +113,6 @@ impl ControlResponse {
             ok: false,
             pipe_name: None,
             capability: None,
-            protocol_version: None,
             error: Some(error),
         }
     }
@@ -329,10 +325,10 @@ fn parse_helper_ready_line(line: &str) -> Result<Option<()>, String> {
     };
     let ready: HelperReadyPayload = serde_json::from_str(payload)
         .map_err(|error| format!("Computer Use helper emitted invalid readiness JSON: {error}"))?;
-    if ready.protocol_version != CONTROL_PROTOCOL_VERSION {
+    if ready.protocol_version != PROTOCOL_VERSION {
         return Err(format!(
             "Computer Use helper protocol {} is incompatible with host protocol {}",
-            ready.protocol_version, CONTROL_PROTOCOL_VERSION
+            ready.protocol_version, PROTOCOL_VERSION
         ));
     }
     Ok(Some(()))
@@ -446,8 +442,8 @@ fn assign_helper_to_job(state: &ComputerUseRuntimeState, child: &Child) {
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
-        JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
 
@@ -515,10 +511,6 @@ pub(crate) fn backend_environment(app: &tauri::AppHandle) -> Vec<(String, String
                     "QWENPAW_COMPUTER_USE_CONTROL_TOKEN".to_string(),
                     control.token.clone(),
                 ),
-                (
-                    "QWENPAW_COMPUTER_USE_CONTROL_PROTOCOL".to_string(),
-                    CONTROL_PROTOCOL_VERSION.to_string(),
-                ),
             ]);
         }
     }
@@ -535,7 +527,10 @@ pub(crate) fn backend_environment(app: &tauri::AppHandle) -> Vec<(String, String
                     "QWENPAW_COMPUTER_USE_CAPABILITY".to_string(),
                     capability.secret.clone(),
                 ),
-                ("QWENPAW_COMPUTER_USE_PROTOCOL".to_string(), "1".to_string()),
+                (
+                    "QWENPAW_COMPUTER_USE_PROTOCOL".to_string(),
+                    PROTOCOL_VERSION.to_string(),
+                ),
             ]);
         }
     }
@@ -713,11 +708,7 @@ fn serve_control_connection(
         .map_err(|err| err.to_string())?;
 
     let response = match read_control_request(&stream) {
-        Ok(request)
-            if request.protocol_version == CONTROL_PROTOCOL_VERSION
-                && request.token == token
-                && request.action == "acquire" =>
-        {
+        Ok(request) if request.token == token && request.action == "acquire" => {
             match ensure(app).and_then(|_| {
                 runtime_capability(app)
                     .ok_or_else(|| "Computer Use helper did not expose a capability".to_string())
@@ -825,10 +816,8 @@ mod tests {
 
     #[test]
     fn rejects_incompatible_helper_ready_line() {
-        let error = parse_helper_ready_line(
-            "QWENPAW_COMPUTER_USE_READY {\"protocol_version\":2}",
-        )
-        .expect_err("protocol mismatch must fail startup");
+        let error = parse_helper_ready_line("QWENPAW_COMPUTER_USE_READY {\"protocol_version\":2}")
+            .expect_err("protocol mismatch must fail startup");
 
         assert!(error.contains("incompatible"));
     }

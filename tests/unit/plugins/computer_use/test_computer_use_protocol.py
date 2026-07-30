@@ -16,17 +16,17 @@ from typing import Any
 
 import pytest
 
+from agentscope.message import ToolResultState
 import computer_use_tool.client as client_module
-import computer_use_tool.dispatch as dispatch_module
 from computer_use_tool.client import ComputerUseClient
 from computer_use_tool.dispatch import (
-    _dialog_hint,
     _element_line,
+    _error,
     _native_request,
-    _note_new_windows,
     _response,
     _with_compact_elements,
 )
+from computer_use_tool.protocol import ComputerUseProtocolError
 from computer_use_tool.transport.base import (
     ComputerUseTransport,
     ReverseRequestHandler,
@@ -47,7 +47,6 @@ def _reset_host_runtime(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         "QWENPAW_COMPUTER_USE_CONTROL_HOST",
         "QWENPAW_COMPUTER_USE_CONTROL_PORT",
         "QWENPAW_COMPUTER_USE_CONTROL_TOKEN",
-        "QWENPAW_COMPUTER_USE_CONTROL_PROTOCOL",
     ):
         monkeypatch.delenv(name, raising=False)
     HostRuntimeProvider._capability = None
@@ -71,8 +70,7 @@ def test_host_runtime_requests_a_capability_only_when_needed(
             with connection, connection.makefile("rwb") as stream:
                 received.update(json.loads(stream.readline()))
                 stream.write(
-                    b'{"ok":true,"pipe_name":"pipe-1","capability":"secret-1",'
-                    b'"protocol_version":1}\n',
+                    b'{"ok":true,"pipe_name":"pipe-1","capability":"secret-1"}\n',
                 )
                 stream.flush()
 
@@ -81,7 +79,6 @@ def test_host_runtime_requests_a_capability_only_when_needed(
     monkeypatch.setenv("QWENPAW_COMPUTER_USE_CONTROL_HOST", "127.0.0.1")
     monkeypatch.setenv("QWENPAW_COMPUTER_USE_CONTROL_PORT", str(port))
     monkeypatch.setenv("QWENPAW_COMPUTER_USE_CONTROL_TOKEN", token)
-    monkeypatch.setenv("QWENPAW_COMPUTER_USE_CONTROL_PROTOCOL", "1")
 
     assert HostRuntimeProvider.is_available() is True
     assert received == {}
@@ -94,18 +91,15 @@ def test_host_runtime_requests_a_capability_only_when_needed(
         1,
     )
     assert received == {
-        "protocol_version": 1,
         "token": token,
         "action": "acquire",
     }
 
 
-def test_coordinate_input_requires_one_complete_visual_snapshot() -> None:
+def test_coordinate_input_uses_one_observation_context() -> None:
     method, params, include_images = _native_request(
         "click",
-        window_id="123",
-        snapshot_id="snapshot-1",
-        screenshot_id="screenshot-1",
+        observation_id="observation-1",
         x=40,
         y=60,
         button="left",
@@ -115,9 +109,7 @@ def test_coordinate_input_requires_one_complete_visual_snapshot() -> None:
     assert method == "click"
     assert include_images is False
     assert params == {
-        "window_id": "123",
-        "snapshot_id": "snapshot-1",
-        "screenshot_id": "screenshot-1",
+        "observation_id": "observation-1",
         "x": 40,
         "y": 60,
         "button": "left",
@@ -126,35 +118,27 @@ def test_coordinate_input_requires_one_complete_visual_snapshot() -> None:
 
 
 def test_close_window_maps_to_the_native_method() -> None:
-    """Closing needs only the window, and returns no screenshot."""
+    """Closing acts through the observation and returns no screenshot."""
     method, params, include_images = _native_request(
         "close_window",
-        window_id="123",
+        observation_id="observation-1",
     )
 
     assert method == "close_window"
-    assert params == {"window_id": "123"}
+    assert params == {"observation_id": "observation-1"}
     assert include_images is False
 
 
-def test_close_window_requires_a_window_id() -> None:
-    with pytest.raises(ValueError, match="window_id"):
-        _native_request("close_window", window_id="")
+def test_close_window_requires_an_observation() -> None:
+    with pytest.raises(ValueError, match="observation_id"):
+        _native_request("close_window", observation_id="")
 
 
-def test_close_window_is_hinted_like_other_state_changes() -> None:
-    """A close can raise a save prompt, so it takes part in the new-window
-    hint that tells the caller to observe the dialog before acting."""
-    assert "close_window" in dispatch_module._DIALOG_HINT_ACTIONS
-
-
-def test_coordinate_input_rejects_missing_snapshot_identifier() -> None:
-    with pytest.raises(ValueError, match="snapshot_id"):
+def test_coordinate_input_rejects_missing_observation() -> None:
+    with pytest.raises(ValueError, match="observation_id"):
         _native_request(
             "click",
-            window_id="123",
-            snapshot_id="",
-            screenshot_id="screenshot-1",
+            observation_id="",
             x=40,
             y=60,
             button="left",
@@ -190,18 +174,23 @@ def test_screenshot_data_stays_out_of_the_text_block() -> None:
     assert "screenshot-1" in text_blocks[0].text
 
 
-def test_uia_input_keeps_its_own_revision_and_element() -> None:
+def test_native_error_marks_the_tool_call_as_failed() -> None:
+    response = _error("stale_observation", "Observe the window again.")
+
+    assert response.state == ToolResultState.ERROR
+    assert '"ok":false' in response.content[-1].text
+
+
+def test_uia_input_uses_observation_and_element() -> None:
     method, params, _ = _native_request(
         "invoke",
-        window_id="123",
-        accessibility_revision="accessibility-1",
+        observation_id="observation-1",
         element_id="uia-7",
     )
 
     assert method == "invoke_element"
     assert params == {
-        "window_id": "123",
-        "accessibility_revision": "accessibility-1",
+        "observation_id": "observation-1",
         "element_id": "uia-7",
     }
 
@@ -281,6 +270,22 @@ async def test_acquire_capability_retries_cold_start_misses(
 
 
 @pytest.mark.asyncio
+async def test_acquire_capability_rejects_an_incompatible_desktop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        client_module.HostRuntimeProvider,
+        "acquire_capability",
+        lambda: runtime_module.RuntimeCapability("pipe-1", "secret-1", 2),
+    )
+
+    with pytest.raises(ComputerUseProtocolError) as refusal:
+        await ComputerUseClient._acquire_capability()
+
+    assert refusal.value.code == "protocol_mismatch"
+
+
+@pytest.mark.asyncio
 async def test_acquire_capability_gives_up_after_bounded_attempts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -304,92 +309,6 @@ async def test_acquire_capability_gives_up_after_bounded_attempts(
     assert len(attempts) == client_module._ACQUIRE_ATTEMPTS
 
 
-def test_observe_windows_seeds_then_reports_new_windows() -> None:
-    """First observation seeds the baseline; later ones surface new windows."""
-    client = ComputerUseClient("session-x", lambda: _FakeTransport())
-
-    assert client.observe_windows([{"id": "1", "title": "Editor"}]) == []
-
-    new = client.observe_windows(
-        [{"id": "1", "title": "Editor"}, {"id": "9", "title": "Save As"}],
-    )
-    assert [window["id"] for window in new] == ["9"]
-
-    # A closed window updates the baseline without reporting anything new.
-    assert client.observe_windows([{"id": "1", "title": "Editor"}]) == []
-
-
-def test_dialog_hint_lists_new_windows() -> None:
-    hint = _dialog_hint([{"id": "9", "title": "Save As"}])
-
-    assert "id=9" in hint
-    assert "Save As" in hint
-    assert "observe_window" in hint
-
-
-@pytest.mark.asyncio
-async def test_note_new_windows_attaches_hint_for_opened_dialog(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A control action that opens a window must annotate its result."""
-    client = ComputerUseClient("session-y", lambda: _FakeTransport())
-    client.observe_windows([{"id": "1", "title": "Editor"}])
-
-    async def _fake_execute(method, params, *, deadline_ms=10000):
-        assert method == "list_windows"
-        return {
-            "windows": [
-                {"id": "1", "title": "Editor"},
-                {"id": "9", "title": "Save As"},
-            ],
-        }
-
-    monkeypatch.setattr(client, "execute", _fake_execute)
-
-    payload: dict[str, Any] = {"ok": True, "action": "press_key"}
-    await _note_new_windows(client, payload)
-
-    assert "id=9" in payload["hint"]
-
-
-@pytest.mark.asyncio
-async def test_note_new_windows_stays_silent_without_new_windows(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No new window means no hint is added to the acknowledgement."""
-    client = ComputerUseClient("session-z", lambda: _FakeTransport())
-    client.observe_windows([{"id": "1", "title": "Editor"}])
-
-    async def _fake_execute(method, params, *, deadline_ms=10000):
-        return {"windows": [{"id": "1", "title": "Editor"}]}
-
-    monkeypatch.setattr(client, "execute", _fake_execute)
-
-    payload: dict[str, Any] = {"ok": True, "action": "type"}
-    await _note_new_windows(client, payload)
-
-    assert "hint" not in payload
-
-
-@pytest.mark.asyncio
-async def test_note_new_windows_ignores_probe_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A failed probe must not raise or annotate the action result."""
-    client = ComputerUseClient("session-w", lambda: _FakeTransport())
-    client.observe_windows([{"id": "1", "title": "Editor"}])
-
-    async def _boom(method, params, *, deadline_ms=10000):
-        raise RuntimeError("transport down")
-
-    monkeypatch.setattr(client, "execute", _boom)
-
-    payload: dict[str, Any] = {"ok": True, "action": "click"}
-    await _note_new_windows(client, payload)
-
-    assert "hint" not in payload
-
-
 @pytest.mark.asyncio
 async def test_no_action_ever_carries_a_post_approval_exemption() -> None:
     """The client never sends after_approval, on any path.
@@ -403,10 +322,13 @@ async def test_no_action_ever_carries_a_post_approval_exemption() -> None:
     client = ComputerUseClient("session-a", lambda: transport)
     set_current_computer_use_turn_id("turn-1")
     try:
-        await client.execute("type_text", {"window_id": "1", "text": "x"})
+        await client.execute(
+            "type_text",
+            {"observation_id": "observation-1", "text": "x"},
+        )
         assert "after_approval" not in transport.messages[-1]["params"]
 
-        await client.execute("click", {"window_id": "1"})
+        await client.execute("click", {"observation_id": "observation-1"})
         assert "after_approval" not in transport.messages[-1]["params"]
     finally:
         set_current_computer_use_turn_id(None)
@@ -432,7 +354,7 @@ def test_element_line_uses_bounds_centre_on_windows() -> None:
             "offscreen": False,
         },
     )
-    assert line == 'uia-1 Edit "text editor" @200,300'
+    assert line == 'uia-1 Edit "text editor" screen@200,300'
 
 
 def test_element_line_uses_value_on_macos() -> None:
@@ -461,7 +383,7 @@ def test_element_line_keeps_disabled_and_offscreen_visible() -> None:
             "offscreen": True,
         },
     )
-    assert line == 'uia-9 Button "Save" @5,5 [disabled] [offscreen]'
+    assert line == 'uia-9 Button "Save" screen@5,5 [disabled] [offscreen]'
 
 
 def test_compact_elements_preserves_protocol_fields() -> None:
@@ -469,13 +391,10 @@ def test_compact_elements_preserves_protocol_fields() -> None:
     payload = {
         "ok": True,
         "action": "observe_window",
-        "snapshot_id": "snapshot-1",
-        "accessibility_revision": "accessibility-1",
-        "geometry_revision": "geometry-1",
+        "observation_id": "observation-1",
         "window": {"id": "42", "title": "Editor"},
         "accessibility": {
             "available": True,
-            "revision": "accessibility-1",
             "elements": [
                 {
                     "id": "uia-0",
@@ -494,14 +413,12 @@ def test_compact_elements_preserves_protocol_fields() -> None:
     }
     result = _with_compact_elements(payload)
 
-    assert result["snapshot_id"] == "snapshot-1"
-    assert result["accessibility_revision"] == "accessibility-1"
-    assert result["geometry_revision"] == "geometry-1"
+    assert result["observation_id"] == "observation-1"
     assert result["window"] == {"id": "42", "title": "Editor"}
     assert result["accessibility"]["available"] is True
-    assert result["accessibility"]["revision"] == "accessibility-1"
     assert result["accessibility"]["elements"] == (
-        'uia-0 Window "Editor" @50,50\nuia-1 Button "OK" @20,20'
+        'uia-0 Window "Editor" screen@50,50\n'
+        'uia-1 Button "OK" screen@20,20'
     )
     # The original payload must not be mutated.
     accessibility = payload["accessibility"]
@@ -522,8 +439,7 @@ def test_response_text_is_compact_and_carries_summary_fields() -> None:
         "action": "observe_window",
         "accessibility": {
             "available": True,
-            "revision": "accessibility-1",
-            "focused_element": 'uia-1 Edit "text editor" @200,300',
+            "focused_element": 'uia-1 Edit "text editor" screen@200,300',
             "document_text": "hello world",
             "elements": [
                 {
@@ -541,7 +457,9 @@ def test_response_text_is_compact_and_carries_summary_fields() -> None:
     decoded = json.loads(text)
     accessibility = decoded["accessibility"]
     assert accessibility["focused_element"] == (
-        'uia-1 Edit "text editor" @200,300'
+        'uia-1 Edit "text editor" screen@200,300'
     )
     assert accessibility["document_text"] == "hello world"
-    assert accessibility["elements"] == 'uia-1 Edit "text editor" @200,300'
+    assert accessibility["elements"] == (
+        'uia-1 Edit "text editor" screen@200,300'
+    )

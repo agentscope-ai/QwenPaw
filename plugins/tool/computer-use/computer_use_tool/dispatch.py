@@ -14,7 +14,7 @@ import threading
 import time
 from typing import Any, Mapping
 
-from agentscope.message import DataBlock, TextBlock, URLSource
+from agentscope.message import DataBlock, TextBlock, ToolResultState, URLSource
 from agentscope.tool import ToolResponse
 
 from qwenpaw.runtime.tool_registry import tool_descriptor
@@ -28,25 +28,6 @@ _MAX_ACTIONS_PER_MINUTE = 60
 _action_times: list[float] = []
 _rate_limit_lock = threading.Lock()
 _SCREENSHOT_URL_PLACEHOLDER = "<image delivered as a separate attachment>"
-
-# Control actions that can open a dialog, prompt, or error window. After one
-# of these we probe the window list and flag anything that just appeared, so
-# the model observes it instead of blindly sending more input to the old
-# window.
-_DIALOG_HINT_ACTIONS = frozenset(
-    {
-        "press_key",
-        "type",
-        "click",
-        "double_click",
-        "right_click",
-        "drag",
-        "invoke",
-        "set_value",
-        "close_window",
-    },
-)
-_WINDOW_PROBE_DEADLINE_MS = 3000
 
 
 def _check_rate_limit() -> None:
@@ -112,7 +93,7 @@ def _element_line(element: Mapping[str, Any]) -> str:
         except (TypeError, ValueError):
             pass
         else:
-            parts.append(f"@{(left + right) // 2},{(top + bottom) // 2}")
+            parts.append(f"screen@{(left + right) // 2},{(top + bottom) // 2}")
     elif isinstance(value, str) and value:
         parts.append(f"={value}")
     # Both states stay visible: an offscreen entry may become reachable
@@ -148,6 +129,7 @@ def _response(
     payload: Mapping[str, Any],
     *,
     include_images: bool = False,
+    state: ToolResultState = ToolResultState.SUCCESS,
 ) -> ToolResponse:
     content: list[Any] = []
     if include_images:
@@ -174,92 +156,17 @@ def _response(
             ),
         ),
     )
-    return ToolResponse(content=content)
+    return ToolResponse(content=content, state=state)
 
 
 def _error(code: str, message: str) -> ToolResponse:
     return _response(
-        {"ok": False, "error": {"code": code, "message": message}},
+        {
+            "ok": False,
+            "error": {"code": code, "message": message},
+        },
+        state=ToolResultState.ERROR,
     )
-
-
-def _dialog_hint(new_windows: list[Mapping[str, Any]]) -> str:
-    listed = "; ".join(
-        f'id={window.get("id")} "{window.get("title", "")}"'
-        for window in new_windows[:5]
-    )
-    return (
-        f"A new window appeared after this action ({listed}). It may be a "
-        "dialog, prompt, or error that needs handling. Select it and call "
-        "observe_window before continuing; act through its accessibility "
-        "elements rather than sending more input to the previous window."
-    )
-
-
-async def _note_new_windows(client: Any, payload: dict[str, Any]) -> None:
-    """Flag any window a control action just opened (best-effort).
-
-    Probing must never fail the action it follows, so transport errors are
-    swallowed and the original acknowledgement is returned unchanged.
-    """
-    try:
-        probe = await client.execute(
-            "list_windows",
-            {},
-            deadline_ms=_WINDOW_PROBE_DEADLINE_MS,
-        )
-    except Exception:  # noqa: BLE001 - a probe must not break the action
-        return
-    new_windows = client.observe_windows(probe.get("windows"))
-    if new_windows:
-        payload["hint"] = _dialog_hint(new_windows)
-
-
-def _window_id(value: str, action: str) -> str:
-    window_id = str(value or "").strip()
-    if not window_id:
-        raise ValueError(f"{action} requires window_id from list_windows.")
-    return window_id
-
-
-def _snapshot_params(
-    *,
-    window_id: str,
-    snapshot_id: str,
-    screenshot_id: str,
-) -> dict[str, str]:
-    if not snapshot_id:
-        raise ValueError(
-            "Coordinate input requires snapshot_id from observe_window.",
-        )
-    if not screenshot_id:
-        raise ValueError(
-            "Coordinate input requires screenshot_id from observe_window.",
-        )
-    return {
-        "window_id": window_id,
-        "snapshot_id": snapshot_id,
-        "screenshot_id": screenshot_id,
-    }
-
-
-def _point_params(
-    *,
-    window_id: str,
-    snapshot_id: str,
-    screenshot_id: str,
-    x: int,
-    y: int,
-) -> dict[str, Any]:
-    return {
-        **_snapshot_params(
-            window_id=window_id,
-            snapshot_id=snapshot_id,
-            screenshot_id=screenshot_id,
-        ),
-        "x": x,
-        "y": y,
-    }
 
 
 @tool_descriptor(
@@ -276,9 +183,7 @@ async def computer_use(
     action: str,
     app: str = "",
     window_id: str = "",
-    snapshot_id: str = "",
-    screenshot_id: str = "",
-    accessibility_revision: str = "",
+    observation_id: str = "",
     element_id: str = "",
     x: int = 0,
     y: int = 0,
@@ -294,14 +199,13 @@ async def computer_use(
     key: str = "",
     wait_ms: int = 500,
     timeout_ms: int = 10000,
-    **_ignored: Any,
 ) -> ToolResponse:
     """Control one observed window at a time.
 
     Use ``list_apps`` or ``list_windows`` first. Observe a target with
-    ``observe_window`` before any coordinate action. Visual input always
-    requires the exact ``window_id``, ``snapshot_id``, and ``screenshot_id``
-    returned by that observation; stale geometry is rejected by Native.
+    ``observe_window`` before acting. Every later action uses the returned
+    ``observation_id``; Native keeps the associated window, screenshot, and
+    accessibility state together and rejects stale observations.
     ``launch_app`` accepts an App ID returned by ``list_apps`` or an absolute
     ``.exe`` path.
     """
@@ -334,9 +238,7 @@ async def computer_use(
             action,
             app=app,
             window_id=window_id,
-            snapshot_id=snapshot_id,
-            screenshot_id=screenshot_id,
-            accessibility_revision=accessibility_revision,
+            observation_id=observation_id,
             element_id=element_id,
             x=x,
             y=y,
@@ -357,10 +259,6 @@ async def computer_use(
             deadline_ms=max(100, min(timeout_ms, 30_000)),
         )
         payload = {"ok": True, "action": action, **result}
-        if action == "list_windows":
-            client.observe_windows(result.get("windows"))
-        elif action in _DIALOG_HINT_ACTIONS:
-            await _note_new_windows(client, payload)
         return _response(payload, include_images=include_images)
     except ComputerUseProtocolError as error:
         return _error(error.code, str(error))
@@ -395,67 +293,57 @@ def _native_request(
             )
         return action, {"app": app}, False
 
-    window_id = _window_id(values["window_id"], action)
-    if action == "find_window":
-        return action, {"window_id": window_id}, False
     if action == "observe_window":
+        window_id = str(values["window_id"] or "").strip()
+        if not window_id:
+            raise ValueError("observe_window requires window_id from list_windows.")
         return action, {"window_id": window_id}, True
-    if action == "set_focus":
-        return action, {"window_id": window_id}, False
-    if action == "close_window":
-        return action, {"window_id": window_id}, False
-    if action in {"click", "double_click", "right_click"}:
-        params = _point_params(
-            window_id=window_id,
-            snapshot_id=values["snapshot_id"],
-            screenshot_id=values["screenshot_id"],
-            x=values["x"],
-            y=values["y"],
+    observation_id = str(values["observation_id"] or "").strip()
+    if not observation_id:
+        raise ValueError(
+            f"{action} requires observation_id from observe_window.",
         )
+    if action == "close_window":
+        return action, {"observation_id": observation_id}, False
+    if action in {"click", "double_click", "right_click"}:
+        params = {
+            "observation_id": observation_id,
+            "x": values["x"],
+            "y": values["y"],
+        }
         params["button"] = (
             "right" if action == "right_click" else values["button"]
         )
         params["count"] = 2 if action == "double_click" else values["count"]
         return "click", params, False
     if action == "scroll":
-        params = _point_params(
-            window_id=window_id,
-            snapshot_id=values["snapshot_id"],
-            screenshot_id=values["screenshot_id"],
-            x=values["x"],
-            y=values["y"],
-        )
+        params = {
+            "observation_id": observation_id,
+            "x": values["x"],
+            "y": values["y"],
+        }
         params["delta_y"] = values["delta_y"]
         return action, params, False
     if action == "drag":
-        params = _snapshot_params(
-            window_id=window_id,
-            snapshot_id=values["snapshot_id"],
-            screenshot_id=values["screenshot_id"],
-        )
-        params.update(
-            start_x=values["start_x"],
-            start_y=values["start_y"],
-            end_x=values["end_x"],
-            end_y=values["end_y"],
-        )
+        params = {
+            "observation_id": observation_id,
+            "start_x": values["start_x"],
+            "start_y": values["start_y"],
+            "end_x": values["end_x"],
+            "end_y": values["end_y"],
+        }
         return action, params, False
     if action == "type":
         text = str(values["text"] or "")
         if not text:
             raise ValueError("type requires non-empty text.")
-        return "type_text", {"window_id": window_id, "text": text}, False
+        return "type_text", {"observation_id": observation_id, "text": text}, False
     if action in {"invoke", "set_value"}:
-        revision = str(values["accessibility_revision"] or "").strip()
         element_id = str(values["element_id"] or "").strip()
-        if not revision or not element_id:
-            raise ValueError(
-                f"{action} requires accessibility_revision and element_id "
-                "from observe_window.",
-            )
+        if not element_id:
+            raise ValueError(f"{action} requires element_id from observe_window.")
         params = {
-            "window_id": window_id,
-            "accessibility_revision": revision,
+            "observation_id": observation_id,
             "element_id": element_id,
         }
         if action == "set_value":
@@ -469,10 +357,10 @@ def _native_request(
         key = str(values["key"] or "").strip()
         if not key:
             raise ValueError("press_key requires key.")
-        return action, {"window_id": window_id, "key": key}, False
+        return action, {"observation_id": observation_id, "key": key}, False
     raise ValueError(
-        "Unknown action. Valid actions: list_apps, list_windows, find_window, "
-        "observe_window, launch_app, set_focus, close_window, click, "
+        "Unknown action. Valid actions: list_apps, list_windows, "
+        "observe_window, launch_app, close_window, click, "
         "double_click, right_click, scroll, drag, type, press_key, invoke, "
         "set_value, wait, stop.",
     )

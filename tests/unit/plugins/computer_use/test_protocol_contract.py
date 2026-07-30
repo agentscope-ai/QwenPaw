@@ -37,7 +37,7 @@ _SERVER = (
     / "computer_use_server"
 )
 _DISPATCH = _SERVER / "dispatch.rs"
-_MOD = _SERVER / "mod.rs"
+_PROTOCOL = _SERVER.parent / "computer_use_protocol.rs"
 
 # A method the helper answers but the adapter never sends. Listed rather than
 # ignored, so unused protocol surface stays visible instead of accumulating.
@@ -110,8 +110,8 @@ def test_both_sides_speak_the_same_protocol_version() -> None:
     unnoticed -- but it would be noticed by whoever is holding the machine,
     after a build and an install. Cheaper to notice here.
     """
-    source = _MOD.read_text(encoding="utf-8")
-    match = re.search(r"const PROTOCOL_VERSION: u64 = (\d+);", source)
+    source = _PROTOCOL.read_text(encoding="utf-8")
+    match = re.search(r"const VERSION: u64 = (\d+);", source)
     assert match, "the helper should declare its protocol version"
     assert int(match.group(1)) == PROTOCOL_VERSION
 

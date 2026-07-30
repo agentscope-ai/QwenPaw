@@ -13,11 +13,11 @@ use std::sync::Mutex;
 
 use super::app_identity::{launch_at, resolve_launch_target};
 use super::approval::request_approval;
-use super::state::ServerState;
+use super::state::{Observation, ServerState};
 use super::{
     click, close_window, desktop_locked, drag, invoke_element, last_input_age_ms, list_apps,
-    list_windows, observe_window, press_key, resolve_window, scroll, set_focus, set_value,
-    type_text, PROTOCOL_VERSION,
+    list_windows, observe_window, press_key, resolve_window, scroll, set_value, type_text,
+    PROTOCOL_VERSION,
 };
 
 /// How recently a person must have used the keyboard or mouse for an action to
@@ -39,7 +39,6 @@ const SERVED_METHODS: &[&str] = &[
     "close_window",
     "drag",
     "end_turn",
-    "find_window",
     "hello",
     "invoke_element",
     "launch_app",
@@ -48,7 +47,6 @@ const SERVED_METHODS: &[&str] = &[
     "observe_window",
     "press_key",
     "scroll",
-    "set_focus",
     "set_value",
     "type_text",
 ];
@@ -153,8 +151,7 @@ pub(super) fn dispatch_request(
         "end_turn" => {
             // The turn is over, so its screenshots and accessibility handles
             // can never be acted on again.
-            state.snapshots.clear();
-            state.accessibility.clear();
+            state.observations.clear();
             return Ok(json!({}));
         }
         "list_apps" => return Ok(json!({"apps": list_apps()})),
@@ -162,24 +159,40 @@ pub(super) fn dispatch_request(
         _ => {}
     }
 
-    // What the user is being asked to approve. A launch names an application
-    // rather than a window, so its target comes from the path it resolves to --
-    // resolved here, before approval, so that everything which disturbs the
-    // desktop goes on to meet the guard below by the same route.
-    let (target, launch_path) = if method == "launch_app" {
+    // A launch names an application rather than a window. Observation creates
+    // a context from a listed window. Every other action resolves the target
+    // from its observation, keeping native handles out of the model contract.
+    let (target, launch_path, observation_id) = if method == "launch_app" {
         let (target, path) = resolve_launch_target(&params)?;
-        (target, Some(path))
-    } else {
+        (target, Some(path), None)
+    } else if method == "observe_window" {
         let value = params
             .get("window_id")
             .and_then(Value::as_str)
             .ok_or(("invalid_request", "window_id is required.".to_string()))?;
-        (resolve_window(value)?, None)
+        (resolve_window(value)?, None, None)
+    } else {
+        let id = params
+            .get("observation_id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or((
+                "invalid_request",
+                "observation_id is required; observe the window again first.".to_string(),
+            ))?;
+        let observed = state.observations.get(id).ok_or((
+            "stale_observation",
+            "Observation is no longer available; observe the window again.".to_string(),
+        ))?;
+        let current = resolve_window(&observed.window.hwnd.to_string())?;
+        if current.app_id != observed.window.app_id {
+            return Err((
+                "stale_observation",
+                "The observed window no longer belongs to the same application.".to_string(),
+            ));
+        }
+        (current, None, Some(id))
     };
-    if method == "find_window" {
-        // A lookup, so it neither asks for approval nor takes the desktop.
-        return Ok(json!({"window": target.to_json()}));
-    }
     let window = target;
     request_approval(connection, &window, &meta)?;
     // One session at a time may disturb the desktop, and it holds that right
@@ -201,10 +214,6 @@ pub(super) fn dispatch_request(
         return Ok(json!({"launched": true, "app_id": window.app_id}));
     }
     match method {
-        "set_focus" => {
-            set_focus(&window)?;
-            Ok(json!({"window": window.to_json()}))
-        }
         "observe_window" => observe_window(state, &window),
         "close_window" => {
             let result = close_window(&window)?;
@@ -212,23 +221,19 @@ pub(super) fn dispatch_request(
                 // Observations of a closed window can never be acted on
                 // again; drop them so a later action fails fast as stale
                 // instead of pointing at a dead handle.
-                let hwnd = window.hwnd;
                 state
-                    .snapshots
-                    .retain(|_, snapshot| snapshot.window.hwnd != hwnd);
-                state
-                    .accessibility
-                    .retain(|_, snapshot| snapshot.window_hwnd != hwnd);
+                    .observations
+                    .retain(|_, observation| observation.window.hwnd != window.hwnd);
             }
             Ok(result)
         }
-        "click" => click(state, &window, &params),
-        "scroll" => scroll(state, &window, &params),
-        "drag" => drag(state, &window, &params),
-        "press_key" => press_key(&window, &params),
-        "type_text" => type_text(&window, &params),
-        "invoke_element" => invoke_element(state, &window, &params),
-        "set_value" => set_value(state, &window, &params),
+        "click" => click(observation(state, observation_id)?, &params),
+        "scroll" => scroll(observation(state, observation_id)?, &params),
+        "drag" => drag(observation(state, observation_id)?, &params),
+        "press_key" => press_key(observation(state, observation_id)?, &params),
+        "type_text" => type_text(observation(state, observation_id)?, &params),
+        "invoke_element" => invoke_element(observation(state, observation_id)?, &params),
+        "set_value" => set_value(observation(state, observation_id)?, &params),
         "perform_secondary_action" => Err((
             "unsupported_operation",
             format!("{method} is not available in this helper build."),
@@ -238,6 +243,17 @@ pub(super) fn dispatch_request(
             format!("Unsupported method: {method}"),
         )),
     }
+}
+
+fn observation<'a>(
+    state: &'a ServerState,
+    id: Option<&str>,
+) -> Result<&'a Observation, (&'static str, String)> {
+    let id = id.ok_or(("invalid_request", "observation_id is required.".to_string()))?;
+    state.observations.get(id).ok_or((
+        "stale_observation",
+        "Observation is no longer available; observe the window again.".to_string(),
+    ))
 }
 
 /// Refuse an action that would disturb a machine a person is using.
@@ -277,16 +293,10 @@ fn enforce_input_guard() -> Result<(), (&'static str, String)> {
 ///
 /// This is the set that takes a turn at the desktop and meets the input guard.
 /// The question is not "does it synthesize input" but "does it change what the
-/// machine does next" -- classifying by the narrower one is how `set_focus` and
-/// `launch_app` were both missed.
+/// machine does next". Launching and input both take focus away from whatever
+/// the person was using, so both are guarded.
 ///
-/// `set_focus` belongs here even though it reads like navigation. Raising a
-/// window takes the keyboard away from whatever the person was typing into, and
-/// on Windows getting past the foreground lock means synthesizing an Alt tap and
-/// un-minimizing the target -- input injection and a visible change, on a
-/// machine that may be locked or in someone's hands.
-///
-/// `launch_app` belongs here for the same reason. Starting an application brings
+/// `launch_app` belongs here because starting an application brings
 /// it to the front, and on macOS `open` activates one that is already running,
 /// so a launch during another session's action moves the focus its keystrokes
 /// were bound for.
@@ -301,7 +311,6 @@ fn changes_window_state(method: &str) -> bool {
             | "invoke_element"
             | "set_value"
             | "close_window"
-            | "set_focus"
             | "launch_app"
     )
 }
@@ -324,9 +333,6 @@ mod tests {
             "invoke_element",
             "set_value",
             "close_window",
-            // Raising a window moves the keyboard focus, and on Windows the
-            // foreground lock is escaped by synthesizing an Alt tap.
-            "set_focus",
         ] {
             assert!(changes_window_state(method), "{method} must be guarded");
         }
@@ -336,13 +342,7 @@ mod tests {
     fn methods_that_only_look_are_not_guarded() {
         // Observing must keep working while someone is using the machine, and
         // must not be refused on a locked screen either.
-        for method in [
-            "observe_window",
-            "find_window",
-            "list_apps",
-            "list_windows",
-            "end_turn",
-        ] {
+        for method in ["observe_window", "list_apps", "list_windows", "end_turn"] {
             assert!(
                 !changes_window_state(method),
                 "{method} must not be treated as input"

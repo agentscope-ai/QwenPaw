@@ -20,6 +20,10 @@
 // that module, and since no such directory exists, Unix cannot walk `..` out of
 // it -- only Windows folds those segments away without touching the filesystem.
 #[cfg(any(windows, target_os = "macos"))]
+#[path = "../computer_use_protocol.rs"]
+mod computer_use_protocol;
+
+#[cfg(any(windows, target_os = "macos"))]
 #[path = "../computer_use_server/mod.rs"]
 mod computer_use_server;
 

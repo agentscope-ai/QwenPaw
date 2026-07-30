@@ -7,7 +7,9 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-PROTOCOL_VERSION = 1
+from qwenpaw.app.computer_use import COMPUTER_USE_PROTOCOL_VERSION
+
+PROTOCOL_VERSION = COMPUTER_USE_PROTOCOL_VERSION
 
 # Every method name this adapter may put on the wire. The helper matches on
 # these, so the two sides have to agree exactly -- a name only one of them
@@ -25,7 +27,6 @@ NATIVE_METHODS = frozenset(
         "close_window",
         "drag",
         "end_turn",
-        "find_window",
         "hello",
         "invoke_element",
         "launch_app",
@@ -34,7 +35,6 @@ NATIVE_METHODS = frozenset(
         "observe_window",
         "press_key",
         "scroll",
-        "set_focus",
         "set_value",
         "type_text",
     },

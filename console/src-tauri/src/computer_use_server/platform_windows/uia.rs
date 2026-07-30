@@ -7,13 +7,13 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationInvokePattern,
-    IUIAutomationTextPattern, IUIAutomationValuePattern, TreeScope_Subtree,
-    UIA_InvokePatternId, UIA_TextPatternId, UIA_ValuePatternId,
+    IUIAutomationTextPattern, IUIAutomationValuePattern, TreeScope_Subtree, UIA_InvokePatternId,
+    UIA_TextPatternId, UIA_ValuePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
 use super::super::state::{
-    element_line, next_id, truncate_document_text, ServerState, WindowInfo, DOC_TEXT_MAX,
+    element_line, truncate_document_text, Observation, WindowInfo, DOC_TEXT_MAX,
 };
 
 /// Map a UI Automation control-type identifier to a human-readable role
@@ -97,7 +97,7 @@ fn element_text(element: &IUIAutomationElement) -> Option<String> {
 
 pub(crate) fn collect_accessibility(
     window: &WindowInfo,
-) -> Result<(String, Value, HashMap<String, IUIAutomationElement>), String> {
+) -> Result<(Value, HashMap<String, IUIAutomationElement>), String> {
     let automation: IUIAutomation = unsafe {
         CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
             .map_err(|error| format!("UI Automation is unavailable: {error}"))?
@@ -111,7 +111,6 @@ pub(crate) fn collect_accessibility(
     let count = unsafe { items.Length() }
         .map_err(|error| format!("UI Automation item count failed: {error}"))?
         .clamp(0, 300);
-    let revision = next_id("accessibility");
     let mut elements = HashMap::new();
     let mut descriptions = Vec::new();
     // The focused element is picked out of this window's own subtree, so it
@@ -133,8 +132,9 @@ pub(crate) fn collect_accessibility(
         }
         let bounds = unsafe { element.CurrentBoundingRectangle() }.unwrap_or_default();
         let element_id = format!("uia-{index}");
-        let control_type =
-            unsafe { element.CurrentControlType() }.map(|value| value.0).unwrap_or_default();
+        let control_type = unsafe { element.CurrentControlType() }
+            .map(|value| value.0)
+            .unwrap_or_default();
         if focused.is_none()
             && unsafe { element.CurrentHasKeyboardFocus() }
                 .map(|value| value.as_bool())
@@ -161,7 +161,6 @@ pub(crate) fn collect_accessibility(
     // observation never fails because a control withheld its text.
     let mut accessibility = serde_json::Map::new();
     accessibility.insert("available".to_string(), json!(true));
-    accessibility.insert("revision".to_string(), json!(revision));
     if let Some((line, element)) = focused.as_ref() {
         accessibility.insert("focused_element".to_string(), json!(line));
         if let Some(text) = element_text(element) {
@@ -169,15 +168,14 @@ pub(crate) fn collect_accessibility(
         }
     }
     accessibility.insert("elements".to_string(), json!(descriptions));
-    Ok((revision, Value::Object(accessibility), elements))
+    Ok((Value::Object(accessibility), elements))
 }
 
 pub(crate) fn invoke_element(
-    state: &ServerState,
-    window: &WindowInfo,
+    observation: &Observation,
     params: &serde_json::Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
-    let element = accessibility_element(state, window, params)?;
+    let element = accessibility_element(observation, params)?;
     let pattern: IUIAutomationInvokePattern =
         unsafe { element.GetCurrentPatternAs(UIA_InvokePatternId) }.map_err(|_| {
             (
@@ -195,15 +193,14 @@ pub(crate) fn invoke_element(
 }
 
 pub(crate) fn set_value(
-    state: &ServerState,
-    window: &WindowInfo,
+    observation: &Observation,
     params: &serde_json::Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
     let value = params
         .get("value")
         .and_then(Value::as_str)
         .ok_or(("invalid_request", "value is required.".to_string()))?;
-    let element = accessibility_element(state, window, params)?;
+    let element = accessibility_element(observation, params)?;
     let pattern: IUIAutomationValuePattern =
         unsafe { element.GetCurrentPatternAs(UIA_ValuePatternId) }.map_err(|_| {
             (
@@ -221,40 +218,22 @@ pub(crate) fn set_value(
 }
 
 fn accessibility_element<'a>(
-    state: &'a ServerState,
-    window: &WindowInfo,
+    observation: &'a Observation,
     params: &serde_json::Map<String, Value>,
 ) -> Result<&'a IUIAutomationElement, (&'static str, String)> {
-    let revision = params
-        .get("accessibility_revision")
-        .and_then(Value::as_str)
-        .ok_or((
-            "stale_accessibility",
-            "accessibility_revision is required.".to_string(),
-        ))?;
     let element_id = params
         .get("element_id")
         .and_then(Value::as_str)
         .ok_or(("invalid_request", "element_id is required.".to_string()))?;
-    let snapshot = state.accessibility.get(revision).ok_or((
-        "stale_accessibility",
-        "Accessibility state is no longer available; observe the window again.".to_string(),
-    ))?;
-    if snapshot.window_hwnd != window.hwnd {
-        return Err((
-            "stale_accessibility",
-            "Element does not belong to this window.".to_string(),
-        ));
-    }
-    if !unsafe { IsWindow(Some(HWND(window.hwnd as _))).as_bool() } {
+    if !unsafe { IsWindow(Some(HWND(observation.window.hwnd as _))).as_bool() } {
         return Err((
             "window_not_found",
             "Target window no longer exists.".to_string(),
         ));
     }
-    let element = snapshot.elements.get(element_id).ok_or((
+    let element = observation.elements.get(element_id).ok_or((
         "element_not_found",
-        "Element is not available in this accessibility revision.".to_string(),
+        "Element is not available in this observation.".to_string(),
     ))?;
     if !unsafe { element.CurrentIsEnabled() }
         .map(|value| value.as_bool())

@@ -16,8 +16,8 @@ use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
 use core_foundation::number::CFNumber;
 use core_foundation::string::{CFString, CFStringRef};
 use core_graphics::window::{
-    copy_window_info, kCGNullWindowID, kCGWindowBounds, kCGWindowListExcludeDesktopElements,
-    kCGWindowListOptionIncludingWindow, kCGWindowNumber, kCGWindowOwnerPID, CGWindowID,
+    copy_window_info, kCGWindowBounds, kCGWindowListOptionIncludingWindow, kCGWindowNumber,
+    kCGWindowOwnerPID, CGWindowID,
 };
 use serde_json::{Map, Value};
 
@@ -29,7 +29,7 @@ mod window;
 pub(super) use accessibility_tree::{invoke_element, set_value, AxElement};
 pub(super) use capture::observe_window;
 pub(super) use input::{
-    click, desktop_locked, drag, last_input_age_ms, press_key, scroll, set_focus, type_text,
+    click, desktop_locked, drag, last_input_age_ms, press_key, scroll, type_text,
 };
 pub(super) use window::{
     app_id_from_bundle_path, close_window, is_forbidden, list_apps, list_windows, resolve_window,
@@ -92,19 +92,25 @@ fn bounds_from_dict(dict: &CFDictionary<CFString, CFType>) -> Option<(f64, f64, 
 fn dict_i64(dict: &CFDictionary<CFString, CFType>, key: CFStringRef) -> Option<i64> {
     let key = unsafe { CFString::wrap_under_get_rule(key) };
     let value = dict.find(&key)?;
-    value.downcast::<CFNumber>().and_then(|number| number.to_i64())
+    value
+        .downcast::<CFNumber>()
+        .and_then(|number| number.to_i64())
 }
 
 fn dict_string(dict: &CFDictionary<CFString, CFType>, key: CFStringRef) -> Option<String> {
     let key = unsafe { CFString::wrap_under_get_rule(key) };
     let value = dict.find(&key)?;
-    value.downcast::<CFString>().map(|string| string.to_string())
+    value
+        .downcast::<CFString>()
+        .map(|string| string.to_string())
 }
 
 fn dict_f64(dict: &CFDictionary<CFString, CFType>, key: &str) -> Option<f64> {
     let key = CFString::new(key);
     let value = dict.find(&key)?;
-    value.downcast::<CFNumber>().and_then(|number| number.to_f64())
+    value
+        .downcast::<CFNumber>()
+        .and_then(|number| number.to_f64())
 }
 
 fn window_owner_pid(window_id: i64) -> Option<i32> {

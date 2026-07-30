@@ -6,24 +6,23 @@ use std::time::Duration;
 use windows::core::HSTRING;
 use windows::Foundation::{PropertyType, PropertyValue};
 use windows::Graphics::Imaging::{
-    BitmapAlphaMode, BitmapEncoder, BitmapInterpolationMode, BitmapPixelFormat,
-    BitmapPropertySet, BitmapTypedValue,
+    BitmapAlphaMode, BitmapEncoder, BitmapInterpolationMode, BitmapPixelFormat, BitmapPropertySet,
+    BitmapTypedValue,
 };
 use windows::Storage::Streams::{DataReader, InMemoryRandomAccessStream};
 
-use super::wgc::{capture_window, CaptureArgs};
 use super::super::state::{
-    next_id, AccessibilitySnapshot, ServerState, Snapshot, WindowInfo, BMP_HEADER_BYTES,
-    SCREENSHOT_JPEG_QUALITY, SCREENSHOT_MAX_EDGE,
+    next_id, Observation, ServerState, WindowInfo, BMP_HEADER_BYTES, SCREENSHOT_JPEG_QUALITY,
+    SCREENSHOT_MAX_EDGE,
 };
 use super::uia::collect_accessibility;
+use super::wgc::{capture_window, CaptureArgs};
 
 pub(crate) fn observe_window(
     state: &mut ServerState,
     window: &WindowInfo,
 ) -> Result<Value, (&'static str, String)> {
-    let capture_id = next_id("screenshot");
-    let snapshot_id = next_id("snapshot");
+    let observation_id = next_id("observation");
     let capture = capture_window(CaptureArgs {
         hwnd: window.hwnd,
         timeout: Duration::from_millis(2500),
@@ -46,43 +45,32 @@ pub(crate) fn observe_window(
             ("image/bmp", bytes)
         }
     };
-    // Snapshots record origin plus size, while the capture reports edges.
+    // Observations record origin plus size, while the capture reports edges.
     let [left, top, right, bottom] = capture.window_rect;
     let bounds = [left, top, right - left, bottom - top];
-    state.snapshots.insert(
-        snapshot_id.clone(),
-        Snapshot {
-            window: window.clone(),
-            bounds,
-            screenshot_id: capture_id.clone(),
-            display_width,
-            display_height,
-        },
-    );
-    let (accessibility_revision, accessibility) = match collect_accessibility(window) {
-        Ok((revision, description, elements)) => {
-            state.accessibility.insert(
-                revision.clone(),
-                AccessibilitySnapshot {
-                    window_hwnd: window.hwnd,
-                    elements,
-                },
-            );
-            (revision, description)
-        }
+    let (accessibility, elements) = match collect_accessibility(window) {
+        Ok((description, elements)) => (description, elements),
         Err(message) => (
-            String::new(),
             json!({"available": false, "reason": message, "elements": []}),
+            Default::default(),
         ),
     };
+    state.observations.insert(
+        observation_id.clone(),
+        Observation {
+            window: window.clone(),
+            bounds,
+            display_width,
+            display_height,
+            elements,
+        },
+    );
     Ok(json!({
-        "snapshot_id": snapshot_id,
-        "geometry_revision": next_id("geometry"),
-        "accessibility_revision": accessibility_revision,
+        "observation_id": observation_id,
         "window": window.to_json(),
+        "viewport": {"width": display_width, "height": display_height},
         "accessibility": accessibility,
         "screenshots": [{
-            "id": capture_id,
             "url": format!(
                 "data:{media_type};base64,{}",
                 base64::engine::general_purpose::STANDARD.encode(image_bytes),

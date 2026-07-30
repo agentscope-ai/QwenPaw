@@ -31,7 +31,6 @@ def test_status_route_does_not_acquire_native_runtime(monkeypatch) -> None:
     monkeypatch.setenv("QWENPAW_COMPUTER_USE_CONTROL_HOST", "127.0.0.1")
     monkeypatch.setenv("QWENPAW_COMPUTER_USE_CONTROL_PORT", "8080")
     monkeypatch.setenv("QWENPAW_COMPUTER_USE_CONTROL_TOKEN", "test-token")
-    monkeypatch.setenv("QWENPAW_COMPUTER_USE_CONTROL_PROTOCOL", "1")
 
     route = next(
         route for route in build_router().routes if route.path == "/status"

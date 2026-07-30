@@ -15,13 +15,17 @@ from qwenpaw.app.computer_use import (
     RuntimeCapability,
     get_current_computer_use_turn_id,
 )
-from qwenpaw.app.agent_context import get_current_session_id
 from qwenpaw.config.context import (
     get_current_session_id as get_tool_session_id,
 )
 
 from .approval import ComputerUseApprovalCoordinator
-from .protocol import ComputerUseProtocolError, NativeRequest, parse_response
+from .protocol import (
+    PROTOCOL_VERSION,
+    ComputerUseProtocolError,
+    NativeRequest,
+    parse_response,
+)
 from .transport import (
     ComputerUseTransport,
     UnixSocketTransport,
@@ -71,10 +75,6 @@ class ComputerUseClient:
         # HTTP server's loop instead.
         self._loop: asyncio.AbstractEventLoop | None = None
         self._approvals = ComputerUseApprovalCoordinator()
-        # Baseline of window ids seen from the last observation. ``None``
-        # until the first observation so we seed state without flagging
-        # every existing window as newly opened.
-        self._known_window_ids: set[str] | None = None
 
     async def execute(
         self,
@@ -156,26 +156,6 @@ class ComputerUseClient:
                 "desktop_busy",
                 "Another Computer Use session is using the desktop.",
             )
-
-    def observe_windows(self, windows: Any) -> list[dict[str, Any]]:
-        """Update the known-window baseline; return newly appeared windows.
-
-        Returns an empty list until a baseline exists so the first
-        observation only seeds state instead of reporting every open
-        window as new. Used to surface a dialog or prompt that an action
-        just opened.
-        """
-        if not isinstance(windows, list):
-            return []
-        current: dict[str, dict[str, Any]] = {}
-        for window in windows:
-            if isinstance(window, Mapping) and window.get("id") is not None:
-                current[str(window["id"])] = dict(window)
-        known = self._known_window_ids
-        self._known_window_ids = set(current)
-        if known is None:
-            return []
-        return [window for wid, window in current.items() if wid not in known]
 
     @property
     def has_active_turn(self) -> bool:
@@ -322,6 +302,11 @@ class ComputerUseClient:
                 HostRuntimeProvider.acquire_capability,
             )
             if capability is not None:
+                if capability.protocol_version != PROTOCOL_VERSION:
+                    raise ComputerUseProtocolError(
+                        "protocol_mismatch",
+                        "Computer Use plugin and desktop runtime versions are incompatible.",
+                    )
                 return capability
             if attempt + 1 < _ACQUIRE_ATTEMPTS:
                 await asyncio.sleep(_ACQUIRE_RETRY_DELAY_SECONDS)
@@ -368,8 +353,7 @@ _clients: dict[str, ComputerUseClient] = {}
 # client's own async lock.
 _clients_lock = threading.Lock()
 
-# A client caches per-session state that has to outlive a single tool call --
-# the active turn and the window baseline used to notice newly opened windows.
+# A client caches the per-session native turn that outlives a single tool call.
 # Nothing tells the plugin when a session is gone, so the cache is bounded
 # instead: on insert, idle sessions are dropped oldest-first. The backend is a
 # long-lived desktop process, so an unbounded dict would keep every session
@@ -416,6 +400,10 @@ def _evict_idle_clients() -> list[ComputerUseClient]:
 
 def get_computer_use_client() -> ComputerUseClient:
     """Return the controlled client for the active QwenPaw session."""
+    # The request-context module initializes the web workspace stack. Defer it
+    # until session lookup so transport and protocol code remain lightweight.
+    from qwenpaw.app.agent_context import get_current_session_id
+
     session_id = get_current_session_id() or get_tool_session_id() or ""
     if not session_id:
         raise ComputerUseProtocolError(

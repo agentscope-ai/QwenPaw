@@ -75,7 +75,7 @@ async def test_a_busy_desktop_is_retried_until_it_frees_up(
         transport_factory=lambda: transport,
     )
 
-    result = await client.execute("click", {"window_id": "w"})
+    result = await client.execute("click", {"observation_id": "observation-1"})
 
     assert result == {"done": True}
     assert transport.attempts == 3, "should have retried past both refusals"
@@ -98,7 +98,7 @@ async def test_a_desktop_busy_for_too_long_is_reported(
     )
 
     with pytest.raises(ComputerUseProtocolError) as refusal:
-        await client.execute("click", {"window_id": "w"})
+        await client.execute("click", {"observation_id": "observation-1"})
 
     assert refusal.value.code == "desktop_busy"
     assert transport.attempts == client_module._DESKTOP_BUSY_ATTEMPTS
@@ -132,7 +132,7 @@ async def test_a_stop_ends_the_retrying(
 
     stopper = asyncio.create_task(_stop_once_contended())
     with pytest.raises(ComputerUseProtocolError) as refusal:
-        await client.execute("click", {"window_id": "w"})
+        await client.execute("click", {"observation_id": "observation-1"})
     await stopper
 
     assert refusal.value.code == "turn_stopped"
@@ -168,7 +168,7 @@ async def test_other_failures_are_not_retried(
     )
 
     with pytest.raises(ComputerUseProtocolError) as failure:
-        await client.execute("click", {"window_id": "w"})
+        await client.execute("click", {"observation_id": "observation-1"})
 
     assert failure.value.code == "request_timeout"
     assert transport.attempts == 1, "a timeout must be reported, not repeated"
@@ -215,7 +215,7 @@ async def test_user_intervention_is_a_retryable_soft_refusal(
     )
 
     with pytest.raises(ComputerUseProtocolError) as refusal:
-        await client.execute("click", {"window_id": "w"})
+        await client.execute("click", {"observation_id": "observation-1"})
     assert refusal.value.code == "user_intervention"
     # The connection is intact: not closed, and not retried behind the caller's
     # back -- a soft refusal, not a transport failure.
@@ -223,6 +223,6 @@ async def test_user_intervention_is_a_retryable_soft_refusal(
     assert transport.attempts == 1
 
     # The caller observes again and reissues on the same connection; it works.
-    result = await client.execute("click", {"window_id": "w"})
+    result = await client.execute("click", {"observation_id": "observation-1"})
     assert result == {"done": True}
     assert transport.attempts == 2

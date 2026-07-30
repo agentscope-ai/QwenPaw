@@ -5,33 +5,30 @@ use serde_json::{json, Map, Value};
 use std::thread;
 use std::time::Duration;
 use windows::Win32::Foundation::{HWND, POINT};
-use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::System::StationsAndDesktops::{
     CloseDesktop, OpenInputDesktop, DESKTOP_CONTROL_FLAGS, DESKTOP_READOBJECTS,
 };
+use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    mouse_event, GetLastInputInfo, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD,
-    KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, LASTINPUTINFO,
-    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
-    MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+    mouse_event, GetLastInputInfo, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
+    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, LASTINPUTINFO, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
     MOUSEEVENTF_WHEEL, VIRTUAL_KEY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, GetAncestor, GetForegroundWindow, GetWindowThreadProcessId,
-    IsWindow, SetCursorPos, SetForegroundWindow, ShowWindow, WindowFromPoint,
-    GA_ROOT, SW_RESTORE,
+    BringWindowToTop, GetAncestor, GetForegroundWindow, GetWindowThreadProcessId, IsWindow,
+    SetCursorPos, SetForegroundWindow, ShowWindow, WindowFromPoint, GA_ROOT, SW_RESTORE,
 };
 
+use super::super::state::{map_point, Observation, WindowInfo};
 use super::window::get_visible_window_rect;
-use super::super::state::{map_point, ServerState, WindowInfo};
 
 pub(crate) fn click(
-    state: &ServerState,
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
-    let point = verify_point(state, window, params)?;
+    let point = verify_point(observation, params)?;
     let button = params
         .get("button")
         .and_then(Value::as_str)
@@ -58,11 +55,10 @@ pub(crate) fn click(
 }
 
 pub(crate) fn scroll(
-    state: &ServerState,
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
-    let point = verify_point(state, window, params)?;
+    let point = verify_point(observation, params)?;
     let delta = params
         .get("delta_y")
         .and_then(Value::as_i64)
@@ -76,12 +72,11 @@ pub(crate) fn scroll(
 }
 
 pub(crate) fn drag(
-    state: &ServerState,
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
-    let start = verify_point_with_prefix(state, window, params, "start_")?;
-    let end = verify_point_with_prefix(state, window, params, "end_")?;
+    let start = verify_point_with_prefix(observation, params, "start_")?;
+    let end = verify_point_with_prefix(observation, params, "end_")?;
     unsafe {
         SetCursorPos(start.x, start.y).map_err(|error| ("input_failed", error.to_string()))?;
         mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
@@ -92,7 +87,7 @@ pub(crate) fn drag(
 }
 
 pub(crate) fn type_text(
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
     let text = params
@@ -100,7 +95,7 @@ pub(crate) fn type_text(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or(("invalid_request", "text is required.".to_string()))?;
-    set_focus(window)?;
+    set_focus(&observation.window)?;
     let mut inputs = Vec::with_capacity(text.encode_utf16().count() * 2);
     for unit in text.encode_utf16() {
         inputs.push(unicode_input(unit, KEYEVENTF_UNICODE));
@@ -111,7 +106,7 @@ pub(crate) fn type_text(
 }
 
 pub(crate) fn press_key(
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
     let key = params
@@ -121,7 +116,7 @@ pub(crate) fn press_key(
         .filter(|value| !value.is_empty())
         .ok_or(("invalid_request", "key is required.".to_string()))?;
     let keys = parse_key_sequence(key)?;
-    set_focus(window)?;
+    set_focus(&observation.window)?;
     let mut inputs = Vec::with_capacity(keys.len() * 2);
     for value in &keys {
         inputs.push(virtual_key_input(*value, Default::default()));
@@ -214,9 +209,7 @@ fn function_key_code(name: &str) -> u16 {
 }
 
 fn is_numpad_digit(name: &str) -> bool {
-    name.len() == 7
-        && name.starts_with("NUMPAD")
-        && name.as_bytes()[6].is_ascii_digit()
+    name.len() == 7 && name.starts_with("NUMPAD") && name.as_bytes()[6].is_ascii_digit()
 }
 
 fn unicode_input(
@@ -267,63 +260,43 @@ fn send_inputs(inputs: &[INPUT]) -> Result<(), (&'static str, String)> {
 }
 
 fn verify_point(
-    state: &ServerState,
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<POINT, (&'static str, String)> {
-    verify_point_with_prefix(state, window, params, "")
+    verify_point_with_prefix(observation, params, "")
 }
 
 fn verify_point_with_prefix(
-    state: &ServerState,
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
     prefix: &str,
 ) -> Result<POINT, (&'static str, String)> {
-    let snapshot_id = params
-        .get("snapshot_id")
-        .and_then(Value::as_str)
-        .ok_or(("stale_snapshot", "snapshot_id is required.".to_string()))?;
-    let screenshot_id = params.get("screenshot_id").and_then(Value::as_str).ok_or((
-        "stale_snapshot",
-        "screenshot_id is required.".to_string(),
-    ))?;
-    let snapshot = state.snapshots.get(snapshot_id).ok_or((
-        "stale_snapshot",
-        "Snapshot is no longer available.".to_string(),
-    ))?;
-    if snapshot.screenshot_id != screenshot_id || snapshot.window.hwnd != window.hwnd {
-        return Err((
-            "stale_snapshot",
-            "Snapshot does not belong to this window.".to_string(),
-        ));
-    }
-    let current =
-        get_visible_window_rect(HWND(window.hwnd as _)).map_err(|error| ("stale_window", error))?;
-    // Snapshots record origin plus size, so compare in the same form.
+    let current = get_visible_window_rect(HWND(observation.window.hwnd as _))
+        .map_err(|error| ("stale_window", error))?;
+    // Observations record origin plus size, so compare in the same form.
     let current_bounds = [
         current.left,
         current.top,
         current.right - current.left,
         current.bottom - current.top,
     ];
-    if current_bounds != snapshot.bounds {
+    if current_bounds != observation.bounds {
         return Err((
-            "stale_snapshot",
+            "stale_observation",
             "Window geometry changed; observe it again.".to_string(),
         ));
     }
-    set_focus(window)?;
+    set_focus(&observation.window)?;
     let x = integer_param(params, &format!("{prefix}x"))?;
     let y = integer_param(params, &format!("{prefix}y"))?;
-    let (x_offset, y_offset) = map_point(snapshot, i64::from(x), i64::from(y))?;
+    let (x_offset, y_offset) = map_point(observation, i64::from(x), i64::from(y))?;
     let point = POINT {
-        x: snapshot.bounds[0] + x_offset as i32,
-        y: snapshot.bounds[1] + y_offset as i32,
+        x: observation.bounds[0] + x_offset as i32,
+        y: observation.bounds[1] + y_offset as i32,
     };
     let hit = unsafe { WindowFromPoint(point) };
     let root = unsafe { GetAncestor(hit, GA_ROOT) };
-    if root.0 != window.hwnd as *mut _ {
+    if root.0 != observation.window.hwnd as *mut _ {
         return Err((
             "target_not_at_point",
             "Target window is no longer at this point.".to_string(),
@@ -456,7 +429,6 @@ pub(crate) fn desktop_locked() -> bool {
         }
     }
 }
-
 
 fn integer_param(params: &Map<String, Value>, name: &str) -> Result<i32, (&'static str, String)> {
     params

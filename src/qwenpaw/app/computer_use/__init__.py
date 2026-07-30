@@ -2,6 +2,7 @@
 """Core integration points for the Computer Use native runtime."""
 
 from .runtime import (
+    COMPUTER_USE_PROTOCOL_VERSION,
     HostRuntimeProvider,
     RuntimeCapability,
     RuntimeStatus,
@@ -10,6 +11,7 @@ from .runtime import (
 )
 
 __all__ = [
+    "COMPUTER_USE_PROTOCOL_VERSION",
     "HostRuntimeProvider",
     "RuntimeCapability",
     "RuntimeStatus",

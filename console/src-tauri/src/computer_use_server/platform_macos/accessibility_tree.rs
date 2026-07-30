@@ -10,22 +10,19 @@ use core_foundation::string::CFString;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
-use super::super::state::{
-    element_line, next_id, truncate_document_text, AccessibilitySnapshot, ServerState, WindowInfo,
-};
-use super::{window_owner_pid, _AXUIElementGetWindow};
+use super::super::state::{element_line, truncate_document_text, Observation, WindowInfo};
+use super::{_AXUIElementGetWindow, window_owner_pid};
 
-/// Native accessibility element handle for the shared snapshot store.
+/// Native accessibility element handle for the shared observation store.
 pub(crate) struct AxElement {
     element: AXUIElement,
 }
 
 pub(crate) fn invoke_element(
-    state: &ServerState,
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
-    let element = accessibility_element(state, window, params)?;
+    let element = accessibility_element(observation, params)?;
     element
         .element
         .perform_action(&CFString::from_static_string(kAXPressAction))
@@ -39,15 +36,14 @@ pub(crate) fn invoke_element(
 }
 
 pub(crate) fn set_value(
-    state: &ServerState,
-    window: &WindowInfo,
+    observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
     let value = params
         .get("value")
         .and_then(Value::as_str)
         .ok_or(("invalid_request", "value is required.".to_string()))?;
-    let element = accessibility_element(state, window, params)?;
+    let element = accessibility_element(observation, params)?;
     element
         .element
         .set_attribute(&AXAttribute::value(), CFString::new(value).as_CFType())
@@ -61,47 +57,28 @@ pub(crate) fn set_value(
 }
 
 fn accessibility_element<'a>(
-    state: &'a ServerState,
-    window: &WindowInfo,
+    observation: &'a Observation,
     params: &Map<String, Value>,
 ) -> Result<&'a AxElement, (&'static str, String)> {
-    let revision = params
-        .get("accessibility_revision")
-        .and_then(Value::as_str)
-        .ok_or((
-            "stale_accessibility",
-            "accessibility_revision is required.".to_string(),
-        ))?;
     let element_id = params
         .get("element_id")
         .and_then(Value::as_str)
         .ok_or(("invalid_request", "element_id is required.".to_string()))?;
-    let snapshot = state.accessibility.get(revision).ok_or((
-        "stale_accessibility",
-        "Accessibility state is no longer available; observe the window again.".to_string(),
-    ))?;
-    if snapshot.window_hwnd != window.hwnd {
-        return Err((
-            "stale_accessibility",
-            "Element does not belong to this window.".to_string(),
-        ));
-    }
-    snapshot.elements.get(element_id).ok_or((
+    observation.elements.get(element_id).ok_or((
         "element_not_found",
-        "Element is not available in this accessibility revision.".to_string(),
+        "Element is not available in this observation.".to_string(),
     ))
 }
 
 pub(super) fn collect_accessibility(
     window: &WindowInfo,
-) -> Result<(String, Value, HashMap<String, AxElement>), String> {
+) -> Result<(Value, HashMap<String, AxElement>), String> {
     let pid = window_owner_pid(window.hwnd as i64)
         .ok_or_else(|| "Could not resolve the window's process.".to_string())?;
     let app = AXUIElement::application(pid);
     let _ = app.set_messaging_timeout(super::AX_MESSAGING_TIMEOUT_SECONDS);
     let root = find_ax_window(&app, window.hwnd as u32)
         .ok_or_else(|| "Accessibility could not locate the window.".to_string())?;
-    let revision = next_id("accessibility");
     let mut elements = HashMap::new();
     let mut descriptions = Vec::new();
     // The focused element is picked out of this window's own subtree, so it
@@ -112,7 +89,6 @@ pub(super) fn collect_accessibility(
     // observation never fails because a control withheld its text.
     let mut accessibility = serde_json::Map::new();
     accessibility.insert("available".to_string(), json!(true));
-    accessibility.insert("revision".to_string(), json!(revision));
     if let Some((line, element)) = focused.as_ref() {
         accessibility.insert("focused_element".to_string(), json!(line));
         if let Some(text) = ax_string(element, "AXValue") {
@@ -123,7 +99,7 @@ pub(super) fn collect_accessibility(
         }
     }
     accessibility.insert("elements".to_string(), json!(descriptions));
-    Ok((revision, Value::Object(accessibility), elements))
+    Ok((Value::Object(accessibility), elements))
 }
 
 /// Read a string-valued accessibility attribute, if the element exposes one.
@@ -139,15 +115,25 @@ fn ax_string(element: &AXUIElement, attribute: &'static str) -> Option<String> {
 }
 
 pub(super) fn find_ax_window(app: &AXUIElement, target: u32) -> Option<AXUIElement> {
-    let windows = app.attribute(&AXAttribute::children()).ok()?;
-    for window in windows.iter() {
-        let mut id: u32 = 0;
-        let status = unsafe { _AXUIElementGetWindow(window.as_concrete_TypeRef(), &mut id) };
-        if status == 0 && id == target {
-            return Some(window.clone());
-        }
+    find_ax_window_in(app, target, 0)
+}
+
+/// Sheets are nested below their owning window in many macOS applications,
+/// while ordinary windows are immediate application children. Search both
+/// shapes so a standard save/open sheet can be observed and acted on directly.
+fn find_ax_window_in(element: &AXUIElement, target: u32, depth: usize) -> Option<AXUIElement> {
+    if depth > 12 {
+        return None;
     }
-    None
+    let mut id: u32 = 0;
+    let status = unsafe { _AXUIElementGetWindow(element.as_concrete_TypeRef(), &mut id) };
+    if status == 0 && id == target {
+        return Some(element.clone());
+    }
+    let children = element.attribute(&AXAttribute::children()).ok()?;
+    children
+        .iter()
+        .find_map(|child| find_ax_window_in(&child, target, depth + 1))
 }
 
 fn walk_accessibility(

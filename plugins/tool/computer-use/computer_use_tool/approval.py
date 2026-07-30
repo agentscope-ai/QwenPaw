@@ -6,7 +6,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from qwenpaw.app import agent_context
 from qwenpaw.app.approvals import ApprovalRequestSummary, get_approval_service
 from qwenpaw.config.context import (
     get_current_session_id as get_tool_session_id,
@@ -18,6 +17,13 @@ from .access import (
     AppApprovalRequest,
     get_computer_use_access_store,
 )
+
+
+def _agent_context():
+    """Load request-scoped context only while resolving an approval."""
+    from qwenpaw.app import agent_context
+
+    return agent_context
 
 
 class ComputerUseApprovalCoordinator:
@@ -56,6 +62,7 @@ class ComputerUseApprovalCoordinator:
 
     @staticmethod
     def _matches_active_session(request: AppApprovalRequest) -> bool:
+        agent_context = _agent_context()
         active_session = (
             agent_context.get_current_session_id()
             or get_tool_session_id()
@@ -94,6 +101,7 @@ class ComputerUseApprovalCoordinator:
 
     @staticmethod
     async def _create_pending(request: AppApprovalRequest):
+        agent_context = _agent_context()
         current_session = (
             agent_context.get_current_session_id() or request.session_id
         )

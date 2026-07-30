@@ -127,6 +127,16 @@ def test_a_spent_environment_capability_stops_being_returned(
     assert replacement.names_same_endpoint(_capability("pipe-fresh"))
 
 
+def test_an_incompatible_desktop_capability_is_not_exposed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_COMPUTER_USE_PIPE", "pipe-old")
+    monkeypatch.setenv("QWENPAW_COMPUTER_USE_CAPABILITY", "secret")
+    monkeypatch.setenv("QWENPAW_COMPUTER_USE_PROTOCOL", "2")
+
+    assert HostRuntimeProvider.get_capability() is None
+
+
 def test_no_host_and_no_environment_means_no_capability(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -19,7 +19,7 @@ pub(super) use connection::run;
 
 /// Version of the request/response contract this helper speaks. The host
 /// refuses a helper that does not match, so a stale binary cannot half-work.
-const PROTOCOL_VERSION: u64 = 1;
+pub(crate) use crate::computer_use_protocol::VERSION as PROTOCOL_VERSION;
 const MAX_FRAME_BYTES: usize = 64 * 1024 * 1024;
 
 // Platform leaves expose the same function surface (window discovery, capture,
@@ -31,8 +31,8 @@ mod platform_windows;
 #[cfg(windows)]
 use platform_windows::{
     click, close_window, desktop_locked, drag, invoke_element, is_forbidden, last_input_age_ms,
-    list_apps, list_windows, observe_window, press_key, resolve_window, scroll, set_focus,
-    set_value, type_text,
+    list_apps, list_windows, observe_window, press_key, resolve_window, scroll, set_value,
+    type_text,
 };
 
 #[cfg(target_os = "macos")]
@@ -41,5 +41,5 @@ mod platform_macos;
 use platform_macos::{
     app_id_from_bundle_path, click, close_window, desktop_locked, drag, invoke_element,
     is_forbidden, last_input_age_ms, list_apps, list_windows, observe_window, press_key,
-    resolve_window, scroll, set_focus, set_value, type_text,
+    resolve_window, scroll, set_value, type_text,
 };
