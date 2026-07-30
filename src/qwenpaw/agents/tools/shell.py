@@ -108,10 +108,14 @@ def _collapse_newlines_outside_quotes(cmd: str) -> str:
                 # Preserve newlines inside double quotes
                 result.append(char)
             else:
-                # Collapse \r\n as a single space
+                # Collapse \r\n as a single character
                 if char == "\r" and i + 1 < length and cmd[i + 1] == "\n":
                     i += 1
-                result.append(" ")
+                # Use ; (command separator) on Unix so multi-line
+                # commands are preserved.  On Windows cmd.exe this
+                # function is never called (see _collapse_embedded_newlines
+                # which takes the cmd.exe path for Windows).
+                result.append("; ")
             i += 1
             continue
 
@@ -891,51 +895,81 @@ async def execute_shell_command(
                 shell_executable,
             )
         else:
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                bufsize=0,
-                cwd=str(working_dir),
-                env=env,
-                start_new_session=True,
-                executable=shell_executable,
-            )
-
+            # Use tempfile redirection instead of PIPE to prevent hangs
+            # when background processes (nohup, &, etc.) inherit pipe FDs.
+            # Same rationale as the Windows path (see _execute_subprocess_sync).
+            stdout_path_linux: str | None = None
+            stderr_path_linux: str | None = None
+            stdout_file_linux = None
+            stderr_file_linux = None
             try:
-                # Apply timeout to communicate directly; wait()+communicate()
-                # can hang if descendants keep stdout/stderr pipes open.
-                from ...tool_calls import cancellable_wait
-
-                stdout, stderr = await cancellable_wait(
-                    proc.communicate(),
-                    fallback_secs=timeout,
-                    as_kill_deadline=True,
+                stdout_fd_linux, stdout_path_linux = tempfile.mkstemp(
+                    prefix="qwenpaw_out_"
                 )
-                stdout_str = smart_decode(stdout)
-                stderr_str = smart_decode(stderr)
-                returncode = proc.returncode
-
-            except asyncio.TimeoutError:
-                stderr_suffix = (
-                    f"⚠️ TimeoutError: The command execution exceeded "
-                    f"the timeout of {timeout} seconds. "
-                    f"Please consider increasing the timeout value if this command "
-                    f"requires more time to complete."
+                stderr_fd_linux, stderr_path_linux = tempfile.mkstemp(
+                    prefix="qwenpaw_err_"
                 )
-                returncode = -1
-                stdout_str, stderr_str = await _cleanup_proc(
-                    proc,
-                    stderr_suffix,
+                stdout_file_linux = os.fdopen(stdout_fd_linux, "wb")
+                stderr_file_linux = os.fdopen(stderr_fd_linux, "wb")
+
+                proc = await asyncio.create_subprocess_exec(
+                    *([shell_executable] if shell_executable else ["/bin/sh"]),
+                    "-c",
+                    cmd,
+                    stdout=stdout_file_linux,
+                    stderr=stderr_file_linux,
+                    cwd=str(working_dir),
+                    env=env,
+                    start_new_session=True,
                 )
 
-            except asyncio.CancelledError:
-                stderr_suffix = _cancel_stderr_message(timeout)
-                returncode = -1
-                stdout_str, stderr_str = await _cleanup_proc(
-                    proc,
-                    stderr_suffix,
-                )
+                stdout_file_linux.close()
+                stdout_file_linux = None
+                stderr_file_linux.close()
+                stderr_file_linux = None
+
+                try:
+                    from ...tool_calls import cancellable_wait
+
+                    returncode = await cancellable_wait(
+                        proc.wait(),
+                        fallback_secs=timeout,
+                        as_kill_deadline=True,
+                    )
+                    if returncode is None:
+                        returncode = -1
+
+                except asyncio.TimeoutError:
+                    stderr_suffix = (
+                        f"\u26a0\ufe0f TimeoutError: The command execution "
+                        f"exceeded the timeout of {timeout} seconds. "
+                        f"Please consider increasing the timeout value if "
+                        f"this command requires more time to complete."
+                    )
+                    returncode = -1
+                    await _cleanup_proc(proc, stderr_suffix)
+
+                except asyncio.CancelledError:
+                    stderr_suffix = _cancel_stderr_message(timeout)
+                    returncode = -1
+                    await _cleanup_proc(proc, stderr_suffix)
+
+                stdout_str = _read_temp_file(stdout_path_linux)
+                stderr_str = _read_temp_file(stderr_path_linux)
+
+            finally:
+                for _f in (stdout_file_linux, stderr_file_linux):
+                    if _f is not None:
+                        try:
+                            _f.close()
+                        except OSError:
+                            pass
+                for _p in (stdout_path_linux, stderr_path_linux):
+                    if _p is not None:
+                        try:
+                            os.unlink(_p)
+                        except OSError:
+                            pass
 
         if returncode == 0:
             if stdout_str:
