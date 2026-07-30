@@ -28,6 +28,7 @@ from computer_use_tool.transport import (
     ComputerUseTransport,
     ReverseRequestHandler,
 )
+from qwenpaw.app import agent_context
 from qwenpaw.app.computer_use import set_current_computer_use_turn_id
 
 
@@ -49,7 +50,7 @@ class _RecordingTransport(ComputerUseTransport):
 
     def set_reverse_request_handler(
         self,
-        handler: ReverseRequestHandler,
+        _handler: ReverseRequestHandler,
     ) -> None:
         return None
 
@@ -113,7 +114,7 @@ async def test_the_cache_refuses_rather_than_growing_past_its_bound(
     assert all(held.has_active_turn for held in busy)
 
     monkeypatch.setattr(
-        client_module,
+        agent_context,
         "get_current_session_id",
         lambda: "newcomer",
     )
@@ -149,7 +150,7 @@ async def test_an_evicted_client_has_its_connection_closed(
         client_module._clients["idle-session"] = idle
 
         monkeypatch.setattr(
-            client_module,
+            agent_context,
             "get_current_session_id",
             lambda: "next",
         )
