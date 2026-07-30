@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import errno
 import json as _json
 import logging
 import os
@@ -116,6 +117,11 @@ class ConsoleChannel(BaseChannel):
         else:
             self._media_dir = DEFAULT_MEDIA_DIR
         self._media_dir.mkdir(parents=True, exist_ok=True)
+
+        # When the controlling TTY/pipe is gone (e.g. daemon after terminal
+        # close), further print() calls raise EIO/EPIPE; skip them after
+        # one warning so daemon logs are not flooded.
+        self._stdout_broken = False
 
         # Windows stdout encoding fix
         if sys.platform == "win32":
@@ -531,15 +537,34 @@ class ConsoleChannel(BaseChannel):
 
     # ── pretty-print helpers ────────────────────────────────────────
 
+    def _mark_stdout_broken(self, exc: OSError) -> None:
+        """Disable further console prints after stdout becomes unusable."""
+        if self._stdout_broken:
+            return
+        self._stdout_broken = True
+        logger.warning(
+            "Console stdout is unavailable (%s); "
+            "suppressing further console prints",
+            exc,
+        )
+
     def _safe_print(self, text: str) -> None:
         """Safely print text, handling Windows encoding and pipe issues.
 
         On Windows, print() can raise OSError [Errno 22] when output is
         piped or contains unsupported characters. This wrapper handles
         such cases gracefully.
+
+        When stdout is detached/closed (common for ``qwenpaw app`` after
+        the launching terminal exits), print() raises EIO/EPIPE. Log once
+        and suppress further prints instead of flooding ERROR logs.
         """
+        if self._stdout_broken:
+            return
         try:
             print(text)
+        except BrokenPipeError as e:
+            self._mark_stdout_broken(e)
         except OSError as e:
             if e.errno == 22:
                 logger.warning(
@@ -557,6 +582,8 @@ class ConsoleChannel(BaseChannel):
                         "Failed to print even with fallback: %s",
                         fallback_err,
                     )
+            elif e.errno in (errno.EIO, errno.EPIPE):
+                self._mark_stdout_broken(e)
             else:
                 logger.error("Print failed with OSError: %s", e)
 
