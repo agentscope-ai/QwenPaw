@@ -2385,6 +2385,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-screen-capture-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74b7c5390f477482f001bc354d6571a70db7e4f8d5288e860c45521fbce11394"
+dependencies = [
+ "block2",
+ "objc2",
+ "objc2-core-graphics",
+ "objc2-foundation",
+]
+
+[[package]]
 name = "objc2-ui-kit"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2794,6 +2806,7 @@ dependencies = [
  "accessibility",
  "accessibility-sys",
  "base64 0.22.1",
+ "block2",
  "core-foundation",
  "core-graphics 0.24.0",
  "dirs 5.0.1",
@@ -2802,6 +2815,10 @@ dependencies = [
  "libc",
  "log",
  "minisign-verify",
+ "objc2",
+ "objc2-core-graphics",
+ "objc2-foundation",
+ "objc2-screen-capture-kit",
  "rand 0.9.5",
  "reqwest 0.12.28",
  "semver",

@@ -775,7 +775,35 @@ fn helper_path(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("Computer Use helper not found at {}", path.display()))
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(all(not(debug_assertions), target_os = "macos"))]
+fn helper_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|err| format!("failed to resolve resources: {err}"))?;
+    let path = macos_helper_path(&resource_dir)?;
+    path.is_file()
+        .then_some(path.clone())
+        .ok_or_else(|| format!("Computer Use helper not found at {}", path.display()))
+}
+
+// Keep the capture process in the application executable directory on macOS.
+// TCC can then attribute its screen-capture request to the desktop app instead
+// of treating the copy embedded in the PyInstaller resource tree as unrelated
+// responsible code.
+#[cfg(target_os = "macos")]
+#[allow(dead_code)] // The debug helper path differs; tests and release builds use this.
+fn macos_helper_path(resource_dir: &Path) -> Result<PathBuf, String> {
+    let contents_dir = resource_dir.parent().ok_or_else(|| {
+        format!(
+            "resources has no Contents directory: {}",
+            resource_dir.display()
+        )
+    })?;
+    Ok(contents_dir.join("MacOS").join(helper_name()))
+}
+
+#[cfg(all(not(debug_assertions), not(target_os = "macos")))]
 fn helper_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let path = app
         .path()
@@ -830,5 +858,17 @@ mod tests {
 
         assert!(buffer.chars().count() <= MAX_CAPTURED_HELPER_STDERR_CHARS);
         assert!(buffer.ends_with("latest\n"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_helper_is_next_to_the_desktop_executable() {
+        let helper = macos_helper_path(Path::new("/Applications/QwenPaw.app/Contents/Resources"))
+            .expect("a bundled resource directory has a Contents parent");
+
+        assert_eq!(
+            helper,
+            Path::new("/Applications/QwenPaw.app/Contents/MacOS/qwenpaw-computer-use-helper")
+        );
     }
 }

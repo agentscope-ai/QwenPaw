@@ -149,39 +149,6 @@ echo "== Staging bundled Node runtime =="
     --dest "${BINARIES_DIR}/node-runtime"
 echo ""
 
-# Build and stage the Computer Use helper next to the backend so the desktop
-# runtime resolves it from resources/binaries/qwenpaw-backend. macOS only: the
-# helper's OS leaves are gated to Windows/macOS, so it does not build on Linux.
-# Staging here (before the backend dir is code-signed) lets the signing step
-# cover the helper Mach-O as well.
-if [ "$(uname -s)" = "Darwin" ]; then
-    echo "== Building Computer Use helper =="
-    if ! command -v cargo &>/dev/null; then
-        echo "ERROR: cargo not found; Rust toolchain is required to build qwenpaw-computer-use-helper"
-        exit 1
-    fi
-    TAURI_DIR="${REPO_ROOT}/console/src-tauri"
-    (cd "${TAURI_DIR}" && cargo build --release --bin qwenpaw-computer-use-helper)
-    TARGET_DIR="${CARGO_TARGET_DIR:-${TAURI_DIR}/target}"
-    # Cargo ran in TAURI_DIR, so a relative CARGO_TARGET_DIR is relative to
-    # there and not to wherever this script was invoked from. Without this the
-    # helper builds and then cannot be found, which the PowerShell packer
-    # already accounts for.
-    case "${TARGET_DIR}" in
-        /*) ;;
-        *) TARGET_DIR="${TAURI_DIR}/${TARGET_DIR}" ;;
-    esac
-    HELPER_BIN="${TARGET_DIR}/release/qwenpaw-computer-use-helper"
-    if [ ! -f "${HELPER_BIN}" ]; then
-        echo "ERROR: Computer Use helper not found at ${HELPER_BIN}"
-        exit 1
-    fi
-    cp -f "${HELPER_BIN}" "${DEST}/qwenpaw-computer-use-helper"
-    chmod +x "${DEST}/qwenpaw-computer-use-helper"
-    echo "Computer Use helper staged: ${DEST}/qwenpaw-computer-use-helper"
-    echo ""
-fi
-
 echo "========================================="
 echo "PyInstaller Build Complete!"
 echo "========================================="

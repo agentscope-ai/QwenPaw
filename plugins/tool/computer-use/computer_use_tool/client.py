@@ -305,7 +305,8 @@ class ComputerUseClient:
                 if capability.protocol_version != PROTOCOL_VERSION:
                     raise ComputerUseProtocolError(
                         "protocol_mismatch",
-                        "Computer Use plugin and desktop runtime versions are incompatible.",
+                        "Computer Use plugin and desktop runtime "
+                        "versions are incompatible.",
                     )
                 return capability
             if attempt + 1 < _ACQUIRE_ATTEMPTS:

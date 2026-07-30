@@ -296,7 +296,9 @@ def _native_request(
     if action == "observe_window":
         window_id = str(values["window_id"] or "").strip()
         if not window_id:
-            raise ValueError("observe_window requires window_id from list_windows.")
+            raise ValueError(
+                "observe_window requires window_id from list_windows."
+            )
         return action, {"window_id": window_id}, True
     observation_id = str(values["observation_id"] or "").strip()
     if not observation_id:
@@ -337,11 +339,17 @@ def _native_request(
         text = str(values["text"] or "")
         if not text:
             raise ValueError("type requires non-empty text.")
-        return "type_text", {"observation_id": observation_id, "text": text}, False
+        return (
+            "type_text",
+            {"observation_id": observation_id, "text": text},
+            False,
+        )
     if action in {"invoke", "set_value"}:
         element_id = str(values["element_id"] or "").strip()
         if not element_id:
-            raise ValueError(f"{action} requires element_id from observe_window.")
+            raise ValueError(
+                f"{action} requires element_id from observe_window."
+            )
         params = {
             "observation_id": observation_id,
             "element_id": element_id,

@@ -70,7 +70,8 @@ def test_host_runtime_requests_a_capability_only_when_needed(
             with connection, connection.makefile("rwb") as stream:
                 received.update(json.loads(stream.readline()))
                 stream.write(
-                    b'{"ok":true,"pipe_name":"pipe-1","capability":"secret-1"}\n',
+                    b'{"ok":true,"pipe_name":"pipe-1",'
+                    b'"capability":"secret-1"}\n',
                 )
                 stream.flush()
 
@@ -417,8 +418,7 @@ def test_compact_elements_preserves_protocol_fields() -> None:
     assert result["window"] == {"id": "42", "title": "Editor"}
     assert result["accessibility"]["available"] is True
     assert result["accessibility"]["elements"] == (
-        'uia-0 Window "Editor" screen@50,50\n'
-        'uia-1 Button "OK" screen@20,20'
+        'uia-0 Window "Editor" screen@50,50\n' 'uia-1 Button "OK" screen@20,20'
     )
     # The original payload must not be mutated.
     accessibility = payload["accessibility"]
