@@ -308,7 +308,6 @@
       "fileSizeLimit": "Satu file hingga {{limit}}MB",
       "fileSizeExceeded": "Ukuran file melebihi batas {{limit}}MB. File saat ini: {{size}}MB",
       "multimodalDisabled": "Model saat ini tidak mendukung unggahan file",
-      "multimodalWarning": "Kemampuan multimodal tidak terdeteksi untuk model saat ini, gambar atau video mungkin tidak diproses dengan benar",
       "imageOnlyAccept": "Model saat ini hanya mendukung file gambar",
       "imageOnlyWarning": "Model saat ini hanya mendukung gambar, file non-gambar seperti video mungkin tidak diproses dengan benar"
     },

@@ -2759,7 +2759,6 @@
       "fileSizeLimit": "单文件不超过 {{limit}}MB",
       "fileSizeExceeded": "文件大小超过 {{limit}}MB 限制。当前文件：{{size}}MB",
       "multimodalDisabled": "当前模型不支持文件上传",
-      "multimodalWarning": "当前模型未检测到多模态能力，图片或视频可能无法被正确处理",
       "imageOnlyAccept": "当前模型仅支持图片文件",
       "imageOnlyWarning": "当前模型仅检测到图片支持，视频等非图片文件可能无法被正确处理"
     },

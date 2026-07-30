@@ -199,6 +199,7 @@ import {
   requiresQwenPawModel,
   supportsAgentAttachments,
 } from "../../utils/agentBackend";
+import { getAttachmentWarningKey } from "./attachmentWarnings";
 
 // ---------------------------------------------------------------------------
 // Background queue sender — keeps sending after ChatPage unmounts.
@@ -2722,16 +2723,9 @@ export default function ChatPage() {
     }) => {
       const { file, onSuccess, onError, onProgress } = options;
       try {
-        // Warn when model has no multimodal support
-        if (usesQwenPawBackend && !multimodalCaps.supportsMultimodal) {
-          message.warning(t("chat.attachments.multimodalWarning"));
-        } else if (
-          multimodalCaps.supportsImage &&
-          !multimodalCaps.supportsVideo &&
-          !file.type.startsWith("image/")
-        ) {
-          // Warn (not block) when only image is supported
-          message.warning(t("chat.attachments.imageOnlyWarning"));
+        const warningKey = getAttachmentWarningKey(multimodalCaps, file.type);
+        if (warningKey) {
+          message.warning(t(warningKey));
         }
         const sizeMb = file.size / 1024 / 1024;
         const uploadLimit = useUploadLimitStore.getState().uploadMaxSizeMb;
@@ -2765,7 +2759,7 @@ export default function ChatPage() {
         onError?.(e instanceof Error ? e : new Error(String(e)));
       }
     },
-    [multimodalCaps, t, usesQwenPawBackend],
+    [multimodalCaps, t],
   );
 
   const compactSender = filesDrawerState.kind === "workspace";

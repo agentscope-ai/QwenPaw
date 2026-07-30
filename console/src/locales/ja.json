@@ -2472,7 +2472,6 @@
       "fileSizeLimit": "1ファイルあたり最大{{limit}}MB",
       "fileSizeExceeded": "ファイルサイズが{{limit}}MBの制限を超えています。現在のファイル: {{size}}MB",
       "multimodalDisabled": "現在のモデルはファイルアップロードに対応していません",
-      "multimodalWarning": "現在のモデルにマルチモーダル機能が検出されていません。画像や動画が正しく処理されない場合があります",
       "imageOnlyAccept": "現在のモデルは画像ファイルのみ対応しています",
       "imageOnlyWarning": "現在のモデルは画像のみ対応しています。動画などの非画像ファイルは正しく処理されない場合があります"
     },
