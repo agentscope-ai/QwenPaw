@@ -297,7 +297,7 @@ def _native_request(
         window_id = str(values["window_id"] or "").strip()
         if not window_id:
             raise ValueError(
-                "observe_window requires window_id from list_windows."
+                "observe_window requires window_id from list_windows.",
             )
         return action, {"window_id": window_id}, True
     observation_id = str(values["observation_id"] or "").strip()
@@ -348,7 +348,7 @@ def _native_request(
         element_id = str(values["element_id"] or "").strip()
         if not element_id:
             raise ValueError(
-                f"{action} requires element_id from observe_window."
+                f"{action} requires element_id from observe_window.",
             )
         params = {
             "observation_id": observation_id,
