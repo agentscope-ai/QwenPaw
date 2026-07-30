@@ -32,8 +32,6 @@ cookbook/_build
 # production
 /build
 dist/
-!plugins/tool/computer-use/dist/
-!plugins/tool/computer-use/dist/index.js
 .wheelshim/
 # Console frontend build (generated in Docker/CI, do not commit)
 console/.cursor/
