@@ -34,6 +34,7 @@ from .windows_unelevated_sandbox import (
     _build_shell_command_line,
     _create_stdio_pipes,
     _decode_pipe_output,
+    _get_bundled_python_runtime_dir,
     _get_python_install_dir,
     _is_admin,
     _is_pid_alive,
@@ -261,21 +262,28 @@ def _apply_all_acls(config: SandboxConfig, sid: str) -> Dict[str, Any]:
             grant_paths.append(mount.path)
             _set_path_ace(mount.path, psid, mask, _WC.SET_ACCESS)
 
-        python_dir = _get_python_install_dir()
-        if python_dir and os.path.isdir(python_dir):
-            python_norm = os.path.normcase(os.path.normpath(python_dir))
-            if python_norm != ws_norm:
-                grant_paths.append(python_dir)
-                _set_path_ace(
-                    python_dir,
-                    psid,
-                    _ACL_READ_EXECUTE,
-                    _WC.SET_ACCESS,
-                )
-                logger.debug(
-                    "Granted RX on Python install dir: %s",
-                    python_dir,
-                )
+        granted_norms: set[str] = set()
+        for py_dir in (
+            _get_python_install_dir(),
+            _get_bundled_python_runtime_dir(),
+        ):
+            if not py_dir or not os.path.isdir(py_dir):
+                continue
+            py_norm = os.path.normcase(os.path.normpath(py_dir))
+            if py_norm == ws_norm or py_norm in granted_norms:
+                continue
+            granted_norms.add(py_norm)
+            grant_paths.append(py_dir)
+            _set_path_ace(
+                py_dir,
+                psid,
+                _ACL_READ_EXECUTE,
+                _WC.SET_ACCESS,
+            )
+            logger.debug(
+                "Granted RX on Python runtime dir: %s",
+                py_dir,
+            )
 
         for deny_path in config.deny_paths:
             expanded = os.path.expanduser(deny_path)
@@ -611,6 +619,7 @@ def _compute_acl_fingerprint(config: SandboxConfig) -> str:
         16-character hex fingerprint string.
     """
     python_dir = _get_python_install_dir()
+    bundled_dir = _get_bundled_python_runtime_dir()
     data = {
         "workspace_dir": os.path.normpath(config.workspace_dir),
         "deny_paths": sorted(
@@ -622,6 +631,9 @@ def _compute_acl_fingerprint(config: SandboxConfig) -> str:
         ),
         "network_allow": sorted(config.network_allow),
         "python_dir": os.path.normpath(python_dir) if python_dir else None,
+        "bundled_python_dir": (
+            os.path.normpath(bundled_dir) if bundled_dir else None
+        ),
     }
     return hashlib.sha256(
         json.dumps(data, sort_keys=True).encode(),

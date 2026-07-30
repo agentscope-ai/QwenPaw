@@ -16,6 +16,7 @@ Python variables do not persist across calls; derived tables do, because the
 import asyncio
 import os
 import shlex
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -173,9 +174,12 @@ def make_recall_history_python(
         argv = [python, str(cell)]
         try:
             if sandbox_config is not None:
-                # The sandbox runs a shell command string; quote each argv
-                # element (POSIX shell inside the sandbox).
-                cmd = " ".join(shlex.quote(a) for a in argv)
+                # The sandbox runs a shell command string; use platform-
+                # appropriate quoting so paths with spaces survive.
+                if sys.platform == "win32":
+                    cmd = subprocess.list2cmdline(argv)
+                else:
+                    cmd = " ".join(shlex.quote(a) for a in argv)
                 stdout, stderr, code = await _run_sandboxed(
                     cmd,
                     sandbox_config,

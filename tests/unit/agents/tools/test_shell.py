@@ -1723,3 +1723,198 @@ async def test_execute_shell_command_win32_uses_windows_host():
 
     mock_win.assert_awaited_once()
     assert "win-ok" in result.content[0].text
+
+
+# ---------------------------------------------------------------------------
+# Bundled Python environment (issue #6160)
+# ---------------------------------------------------------------------------
+
+
+class TestBundledPythonEnv:
+    """Verify execute_shell_command env when QWENPAW_DESKTOP_PY_RUNTIME is set.
+
+    The tests mock the full subprocess/sandbox path and inspect the *env*
+    dict that would be handed to the child process.
+    """
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
+    @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
+    @patch(
+        "qwenpaw.agents.tools.shell" + ".get_current_shell_command_executable",
+    )
+    async def test_bundled_python_prepended_to_path(
+        self,
+        mock_shell_exe,
+        mock_workspace,
+        mock_timeout,
+        monkeypatch,
+        tmp_path,
+    ):
+        mock_shell_exe.return_value = None
+        mock_workspace.return_value = None
+        mock_timeout.return_value = None
+
+        fake_py = tmp_path / "python3"
+        fake_py.write_text("stub", encoding="utf-8")
+        monkeypatch.setenv(
+            "QWENPAW_DESKTOP_PY_RUNTIME",
+            str(fake_py),
+        )
+
+        captured_env = {}
+
+        async def fake_wait_for(coro, timeout=None):
+            return await coro
+
+        mock_proc = MagicMock()
+        mock_proc.communicate = AsyncMock(
+            return_value=(b"ok", b""),
+        )
+        mock_proc.returncode = 0
+        mock_proc.pid = 1
+
+        async def capture_create(*a, **kw):
+            captured_env.update(kw.get("env", {}))
+            return mock_proc
+
+        with (
+            patch(
+                "qwenpaw.agents.tools.shell"
+                ".asyncio.create_subprocess_shell",
+                side_effect=capture_create,
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.wait_for",
+                side_effect=fake_wait_for,
+            ),
+        ):
+            from qwenpaw.agents.tools.shell import (
+                execute_shell_command,
+            )
+
+            await execute_shell_command("echo hi")
+
+        path_val = captured_env.get("PATH", "")
+        assert str(tmp_path) in path_val.split(os.pathsep)[0]
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
+    @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
+    @patch(
+        "qwenpaw.agents.tools.shell" + ".get_current_shell_command_executable",
+    )
+    async def test_pythonhome_removed_from_env(
+        self,
+        mock_shell_exe,
+        mock_workspace,
+        mock_timeout,
+        monkeypatch,
+        tmp_path,
+    ):
+        mock_shell_exe.return_value = None
+        mock_workspace.return_value = None
+        mock_timeout.return_value = None
+
+        fake_py = tmp_path / "python3"
+        fake_py.write_text("stub", encoding="utf-8")
+        monkeypatch.setenv(
+            "QWENPAW_DESKTOP_PY_RUNTIME",
+            str(fake_py),
+        )
+        monkeypatch.setenv("PYTHONHOME", "/poisoned")
+
+        captured_env = {}
+
+        async def fake_wait_for(coro, timeout=None):
+            return await coro
+
+        mock_proc = MagicMock()
+        mock_proc.communicate = AsyncMock(
+            return_value=(b"ok", b""),
+        )
+        mock_proc.returncode = 0
+        mock_proc.pid = 1
+
+        async def capture_create(*a, **kw):
+            captured_env.update(kw.get("env", {}))
+            return mock_proc
+
+        with (
+            patch(
+                "qwenpaw.agents.tools.shell"
+                ".asyncio.create_subprocess_shell",
+                side_effect=capture_create,
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.wait_for",
+                side_effect=fake_wait_for,
+            ),
+        ):
+            from qwenpaw.agents.tools.shell import (
+                execute_shell_command,
+            )
+
+            await execute_shell_command("python -c pass")
+
+        assert "PYTHONHOME" not in captured_env
+
+    @pytest.mark.asyncio
+    async def test_sandbox_env_neutralises_pythonhome(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        """_execute_in_sandbox injects PYTHONHOME='' when bundled."""
+        fake_py = tmp_path / "python3"
+        fake_py.write_text("stub", encoding="utf-8")
+        monkeypatch.setenv(
+            "QWENPAW_DESKTOP_PY_RUNTIME",
+            str(fake_py),
+        )
+
+        captured_config = {}
+
+        class FakeSandbox:
+            def __init__(self, config):
+                self._config = config
+
+            async def execute(self, cmd, cwd=None):
+                captured_config["env_vars"] = dict(
+                    self._config.env_vars,
+                )
+                return ExecutionResult(
+                    exit_code=0,
+                    stdout="ok",
+                    stderr="",
+                )
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                pass
+
+        def fake_sandbox_ctx(config):
+            return FakeSandbox(config)
+
+        env = {"PATH": "/usr/bin"}
+        config = SandboxConfig(
+            mode=SandboxMode.NONE,
+            workspace_dir=str(tmp_path),
+        )
+
+        with patch(
+            "qwenpaw.sandbox.create_sandbox",
+            side_effect=fake_sandbox_ctx,
+        ):
+            result = await _execute_in_sandbox(
+                "echo hi",
+                config,
+                30.0,
+                str(tmp_path),
+                env,
+            )
+
+        assert captured_config["env_vars"].get("PYTHONHOME") == ""
+        assert result.exit_code == 0

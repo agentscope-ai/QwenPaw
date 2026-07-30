@@ -165,3 +165,52 @@ def test_main_supports_frozen_entry_without_package_context(
     entry.main()
 
     assert calls == ["sandbox-check", "info"]
+
+
+# ---------------------------------------------------------------------------
+# PYTHONHOME cleanup (issue #6160)
+# ---------------------------------------------------------------------------
+
+
+def test_install_subprocess_guard_clears_pythonhome_in_frozen(monkeypatch):
+    """_install_subprocess_guard must remove PYTHONHOME when frozen."""
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("PYTHONHOME", "/fake/backend")
+    monkeypatch.setenv("QWENPAW_DESKTOP", "1")
+
+    entry._install_subprocess_guard()
+
+    assert "PYTHONHOME" not in os.environ
+
+
+def test_install_subprocess_guard_noop_when_not_frozen(monkeypatch):
+    """_install_subprocess_guard is a no-op in non-frozen builds."""
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    monkeypatch.delenv("QWENPAW_DESKTOP_APP", raising=False)
+    monkeypatch.setenv("PYTHONHOME", "/some/venv")
+
+    entry._install_subprocess_guard()
+
+    assert os.environ.get("PYTHONHOME") == "/some/venv"
+
+
+def test_reexec_clears_pythonhome(monkeypatch, tmp_path):
+    """_reexec_as_bundled_python must clear PYTHONHOME before os.execv."""
+    fake_py = tmp_path / "python3"
+    fake_py.write_text("#!/bin/sh", encoding="utf-8")
+    fake_py.chmod(0o755)
+    monkeypatch.setenv("QWENPAW_DESKTOP_PY_RUNTIME", str(fake_py))
+    monkeypatch.setenv("PYTHONHOME", "/poisoned/backend")
+
+    captured_env = {}
+
+    def fake_execv(_path, _argv):
+        captured_env["PYTHONHOME"] = os.environ.get("PYTHONHOME")
+        raise SystemExit(99)
+
+    monkeypatch.setattr(os, "execv", fake_execv)
+
+    with pytest.raises(SystemExit, match="99"):
+        entry._reexec_as_bundled_python(["-c", "pass"])
+
+    assert captured_env["PYTHONHOME"] is None

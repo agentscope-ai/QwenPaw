@@ -42,6 +42,7 @@ from .windows_unelevated_sandbox import (
     _create_well_known_sid,
     _enable_privilege,
     _get_logon_sid_bytes,
+    _get_bundled_python_runtime_dir,
     _get_python_install_dir,
     _is_admin,
     _iter_orphaned_metadata,
@@ -1132,6 +1133,7 @@ def _allow_null_device(psid: ctypes.c_void_p) -> None:
 
 
 _python_dir_acl_granted: bool = False
+_bundled_runtime_acl_granted: bool = False
 
 
 def _python_executable_has_group_acl(
@@ -1151,6 +1153,20 @@ def _python_executable_has_group_acl(
         return False
     return _check_any_sid_in_dacl(
         python_executable,
+        [group_psid],
+        required_access_mask=_ACL_READ_EXECUTE,
+    )
+
+
+def _dir_has_group_rx_acl(
+    target_dir: str,
+    group_psid: ctypes.c_void_p,
+) -> bool:
+    """Check whether *target_dir* itself has a RX ACE for *group_psid*."""
+    if not os.path.isdir(target_dir):
+        return False
+    return _check_any_sid_in_dacl(
+        target_dir,
         [group_psid],
         required_access_mask=_ACL_READ_EXECUTE,
     )
@@ -1230,6 +1246,50 @@ def _ensure_python_dir_group_acl() -> None:
         _python_dir_acl_granted = True
     else:
         _python_dir_acl_granted = False
+
+
+def _ensure_bundled_runtime_group_acl() -> None:
+    """Grants RX to QwenpawUsers on the bundled standalone CPython dir.
+
+    In frozen desktop builds the bundled runtime lives in a sibling directory
+    to the backend binary and needs its own ACL grant so sandbox processes can
+    execute it.
+    """
+    global _bundled_runtime_acl_granted
+    if _bundled_runtime_acl_granted:
+        return
+
+    bundled_dir = _get_bundled_python_runtime_dir()
+    if not bundled_dir or not os.path.isdir(bundled_dir):
+        _bundled_runtime_acl_granted = True
+        return
+
+    python_dir = _get_python_install_dir()
+    if python_dir and os.path.normcase(
+        os.path.normpath(bundled_dir),
+    ) == os.path.normcase(os.path.normpath(python_dir)):
+        _bundled_runtime_acl_granted = True
+        return
+
+    result = _lookup_account_sid(SANDBOX_USERS_GROUP)
+    if result is None:
+        _bundled_runtime_acl_granted = True
+        return
+
+    sid_buf, _ = result
+    group_psid = ctypes.cast(sid_buf, ctypes.c_void_p)
+
+    if _dir_has_group_rx_acl(bundled_dir, group_psid):
+        _bundled_runtime_acl_granted = True
+        return
+
+    logger.info(
+        "Granting RX to %s on bundled Python runtime: %s",
+        SANDBOX_USERS_GROUP,
+        bundled_dir,
+    )
+    if _grant_python_dir_group_acl_recursive(bundled_dir):
+        _bundled_runtime_acl_granted = True
 
 
 def _ensure_parent_traverse_acls(
@@ -1419,6 +1479,7 @@ def _apply_all_acls(
         _grant_workspace_and_mounts(psid, "cap")
 
         _ensure_python_dir_group_acl()
+        _ensure_bundled_runtime_group_acl()
 
         # Grant traverse on %USERPROFILE% for the QwenpawUsers group
         # so that PowerShell/.NET can validate the path chain when
@@ -1805,10 +1866,16 @@ async def _async_wait_and_read(
 
 def _compute_elevated_fingerprint(config: SandboxConfig) -> str:
     python_dir = _get_python_install_dir()
+    bundled_dir = _get_bundled_python_runtime_dir()
     return _compute_config_fingerprint(
         config,
         extra_fields={
-            "python_dir": os.path.normpath(python_dir) if python_dir else None,
+            "python_dir": (
+                os.path.normpath(python_dir) if python_dir else None
+            ),
+            "bundled_python_dir": (
+                os.path.normpath(bundled_dir) if bundled_dir else None
+            ),
         },
     )
 

@@ -373,6 +373,20 @@ def _get_python_install_dir() -> Optional[str]:
     return install_dir
 
 
+def _get_bundled_python_runtime_dir() -> Optional[str]:
+    """Returns the bundled standalone CPython directory, or None.
+
+    In the frozen desktop build ``sys.executable`` is the backend binary, not
+    Python.  The Tauri layer provides the real runtime path via
+    ``QWENPAW_DESKTOP_PY_RUNTIME``.  When present, its parent directory is
+    returned so sandbox ACLs can grant RX on it.
+    """
+    bundled = os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME", "").strip()
+    if not bundled or not os.path.isfile(bundled):
+        return None
+    return os.path.dirname(os.path.abspath(bundled))
+
+
 def _is_admin() -> bool:
     """Returns True if the current process has administrator privileges."""
     try:
