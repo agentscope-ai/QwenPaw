@@ -234,6 +234,11 @@ async def _run_sandboxed(
     from ....sandbox import create_sandbox
 
     sandbox_config.timeout_seconds = int(timeout_s)
+    # In frozen desktop builds the sandbox backend may inject PYTHONHOME
+    # pointing at the PyInstaller backend dir, crashing the bundled CPython.
+    # An empty value is treated as unset by CPython's prefix auto-detection.
+    if os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME", "").strip():
+        sandbox_config.env_vars = {**sandbox_config.env_vars, "PYTHONHOME": ""}
     async with create_sandbox(sandbox_config) as sandbox:
         result = await sandbox.execute(cmd, cwd=cwd)
     return result.stdout, result.stderr, result.exit_code

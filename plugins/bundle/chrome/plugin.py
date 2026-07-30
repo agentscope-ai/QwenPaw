@@ -8,7 +8,7 @@ from qwenpaw.plugins.api import PluginApi
 
 # Kept for the milestone-A bridge wiring contract.  A semantic dispatcher is
 # deliberately not registered until the later control milestone.
-# pylint: disable=unused-import
+# pylint: disable=unused-import,no-name-in-module
 from .api.routes import (
     api_router,
     configure_nm_bridge,

@@ -113,6 +113,9 @@ def _reexec_as_bundled_python(args: Sequence[str]) -> None:
             file=sys.stderr,
         )
         raise SystemExit(2)
+    # PyInstaller's PYTHONHOME points at the backend dir which lacks a real
+    # stdlib; the bundled standalone CPython must discover its own prefix.
+    os.environ.pop("PYTHONHOME", None)
     site_dir = (os.environ.get("QWENPAW_PLUGIN_SITE") or "").strip()
     if site_dir:
         existing = os.environ.get("PYTHONPATH", "")
@@ -139,6 +142,16 @@ def _install_subprocess_guard() -> None:
     """
     if not _is_frozen_desktop():
         return
+
+    # PyInstaller sets PYTHONHOME to the backend directory for its own
+    # embedded interpreter. Once Python has initialised, the env var is no
+    # longer needed by the running process, but it poisons every child
+    # process that spawns a real CPython (the bundled runtime or any
+    # user-installed Python) — the child tries to load stdlib from the
+    # backend dir which lacks ``encodings`` and fatally exits (issue #6160).
+    # Clearing it here is the earliest, most comprehensive fix.
+    os.environ.pop("PYTHONHOME", None)
+
     import subprocess
 
     if getattr(subprocess.Popen, "_qwenpaw_guarded", False):

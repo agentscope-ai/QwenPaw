@@ -191,8 +191,8 @@ class TestCollapseEmbeddedNewlines:
     ):
         mock_sys.platform = "win32"
         command = (
-            f'$content = @"{newline}hello{newline}'
-            f'world{newline}"@{newline}$content'
+            f'$content = @"{newline}hello'
+            f'{newline}world{newline}"@{newline}$content'
         )
         assert _collapse_embedded_newlines(command, shell) == command
 

@@ -529,6 +529,13 @@ async def _execute_in_sandbox(
         )
         sandbox_env[path_key] = env[path_key]
 
+    # In frozen desktop builds the sandbox backend may re-inject PYTHONHOME
+    # via its own env builder (e.g. WindowsUnelevatedSandbox._build_base_env).
+    # Setting it to "" in env_vars neutralises it: CPython treats an empty
+    # PYTHONHOME the same as unset and falls back to prefix auto-detection.
+    if os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME", "").strip():
+        sandbox_env.setdefault("PYTHONHOME", "")
+
     ctx = get_call_context()
     # Under ToolCallContext the coordinator owns kill via cancellable_wait /
     # cancel_event. Do not freeze sandbox wait_for to the original timeout or
@@ -804,6 +811,9 @@ async def execute_shell_command(
         _bundled_dir = str(Path(_bundled_py).parent)
         if _bundled_dir != python_bin_dir:
             env["PATH"] = _bundled_dir + os.pathsep + env["PATH"]
+        # PyInstaller's PYTHONHOME would make the bundled CPython look for
+        # stdlib in the backend directory, which fatally crashes it.
+        env.pop("PYTHONHOME", None)
 
     if sandbox_config is not None:
         # Create a copy with resolved shell and timeout to avoid mutating
@@ -833,8 +843,7 @@ async def execute_shell_command(
                     TextBlock(
                         type="text",
                         text=(
-                            "Command failed with exit code -1.\n"
-                            f"[stderr]\n{stderr_msg}"
+                            f"Command failed with exit code -1.\n[stderr]\n{stderr_msg}"
                         ),
                     ),
                 ],
