@@ -158,6 +158,7 @@ pub(super) fn spawn_parent_death_watch() {
             return;
         }
         let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+        let mut parent_exited = false;
         loop {
             let count =
                 unsafe { libc::kevent(kq, std::ptr::null(), 0, &mut event, 1, std::ptr::null()) };
@@ -165,13 +166,22 @@ pub(super) fn spawn_parent_death_watch() {
                 if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
                     continue;
                 }
+                log::warn!(
+                    "[computer-use] parent-death watcher failed: {}",
+                    std::io::Error::last_os_error()
+                );
                 break;
             }
             if count > 0 && (event.fflags & libc::NOTE_EXIT) != 0 {
+                parent_exited = true;
                 break;
             }
         }
         unsafe { libc::close(kq) };
-        std::process::exit(0);
+        // A watcher failure must never take down a healthy helper. Only an
+        // actual NOTE_EXIT notification means the desktop parent is gone.
+        if parent_exited {
+            std::process::exit(0);
+        }
     });
 }

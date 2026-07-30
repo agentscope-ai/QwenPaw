@@ -20,6 +20,11 @@ use super::PROTOCOL_VERSION;
 
 use serde_json::{json, Value};
 
+// This line is consumed only by the desktop process that spawned the helper:
+// stdout is a direct child-process pipe, not a user-visible protocol channel.
+// Keep its prefix in step with `computer_use_runtime::HELPER_READY_PREFIX`.
+const HELPER_READY_PREFIX: &str = "QWENPAW_COMPUTER_USE_READY ";
+
 // Windows named-pipe server primitives. The macOS build listens on a Unix
 // domain socket instead (see the platform_macos leaf and the cfg-split run).
 #[cfg(windows)]
@@ -48,8 +53,9 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         return Err(format!("CoInitializeEx failed: {result}"));
     }
     let pipe_path = format!(r"\\.\pipe\{pipe_name}");
+    let mut ready_sent = false;
     loop {
-        let mut connection = accept_connection(&pipe_path)?;
+        let mut connection = accept_connection(&pipe_path, &mut ready_sent)?;
         let worker_capability = capability.clone();
         let worker = thread::Builder::new()
             .name("computer-use-conn".to_string())
@@ -78,10 +84,12 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let _ = std::fs::remove_file(&socket_path);
     let listener = UnixListener::bind(&socket_path)
         .map_err(|error| format!("failed to bind Computer Use socket: {error}"))?;
-    let _ = std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600));
+    std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))
+        .map_err(|error| format!("failed to secure Computer Use socket: {error}"))?;
     // macOS has no Job Object; exit when the desktop parent goes away so the
     // helper is reaped on host crash or force-quit.
     super::platform_macos::spawn_parent_death_watch();
+    emit_ready()?;
     for stream in listener.incoming() {
         let mut connection = match stream {
             Ok(stream) => stream,
@@ -134,7 +142,7 @@ fn parse_arguments(args: &[String]) -> Result<(String, String), String> {
 }
 
 #[cfg(windows)]
-fn accept_connection(pipe_path: &str) -> Result<File, String> {
+fn accept_connection(pipe_path: &str, ready_sent: &mut bool) -> Result<File, String> {
     let wide = super::framing::wide_string(pipe_path);
     let handle = unsafe {
         CreateNamedPipeW(
@@ -154,6 +162,14 @@ fn accept_connection(pipe_path: &str) -> Result<File, String> {
             unsafe { GetLastError() }.0
         ));
     }
+    // A Windows named pipe becomes connectable as soon as CreateNamedPipeW
+    // succeeds. Announce readiness before ConnectNamedPipe blocks waiting for
+    // the first client, otherwise the host and client would wait on each
+    // other.
+    if !*ready_sent {
+        emit_ready()?;
+        *ready_sent = true;
+    }
     if let Err(error) = unsafe { ConnectNamedPipe(handle, None) } {
         let expected = windows::core::HRESULT::from_win32(ERROR_PIPE_CONNECTED.0);
         if error.code() != expected {
@@ -161,6 +177,25 @@ fn accept_connection(pipe_path: &str) -> Result<File, String> {
         }
     }
     Ok(unsafe { File::from_raw_handle(handle.0 as _) })
+}
+
+/// Announce that the platform endpoint has been created and is safe for the
+/// desktop host to hand to the Python client. This is deliberately separate
+/// from the request/response protocol: only the direct spawning parent reads
+/// helper stdout.
+fn emit_ready() -> Result<(), String> {
+    let line = ready_line()?;
+    let stdout = std::io::stdout();
+    let mut stdout = stdout.lock();
+    writeln!(stdout, "{line}")
+        .and_then(|_| stdout.flush())
+        .map_err(|error| format!("failed to announce Computer Use readiness: {error}"))
+}
+
+fn ready_line() -> Result<String, String> {
+    let payload = serde_json::to_string(&json!({"protocol_version": PROTOCOL_VERSION}))
+        .map_err(|error| format!("failed to encode Computer Use readiness: {error}"))?;
+    Ok(format!("{HELPER_READY_PREFIX}{payload}"))
 }
 
 fn serve_connection(connection: &mut (impl Read + Write), capability: &str) -> Result<(), String> {
@@ -197,4 +232,23 @@ fn serve_connection(connection: &mut (impl Read + Write), capability: &str) -> R
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ready_line_carries_the_native_protocol_version() {
+        let line = ready_line().expect("ready line should serialize");
+        let payload = line
+            .strip_prefix(HELPER_READY_PREFIX)
+            .expect("ready prefix should be present");
+        let value: Value = serde_json::from_str(payload).expect("payload should be JSON");
+
+        assert_eq!(
+            value.get("protocol_version").and_then(Value::as_u64),
+            Some(PROTOCOL_VERSION),
+        );
+    }
 }
