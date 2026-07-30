@@ -1105,16 +1105,16 @@ cloudflared tunnel --url http://localhost:8088
 
 **Voice 频道专属字段说明：**
 
-| 字段                 | 类型   | 默认值                                       | 说明                               |
-| -------------------- | ------ | -------------------------------------------- | ---------------------------------- |
-| `twilio_account_sid` | string | `""`（必填）                                 | Twilio Account SID                 |
-| `twilio_auth_token`  | string | `""`（必填）                                 | Twilio Auth Token                  |
-| `phone_number`       | string | `""`（必填）                                 | 购买的电话号码（如 `+1234567890`） |
-| `phone_number_sid`   | string | `""`（必填）                                 | 电话号码的 SID                     |
-| `tts_provider`       | string | `"google"`                                   | 文本转语音提供商                   |
-| `tts_voice`          | string | `"en-US-Journey-D"`                          | TTS 语音模型                       |
-| `stt_provider`       | string | `"deepgram"`                                 | 语音转文本提供商                   |
-| `language`           | string | `"en-US"`                                    | 语言代码                           |
+| 字段                 | 类型   | 默认值                                         | 说明                               |
+| -------------------- | ------ | ---------------------------------------------- | ---------------------------------- |
+| `twilio_account_sid` | string | `""`（必填）                                   | Twilio Account SID                 |
+| `twilio_auth_token`  | string | `""`（必填）                                   | Twilio Auth Token                  |
+| `phone_number`       | string | `""`（必填）                                   | 购买的电话号码（如 `+1234567890`） |
+| `phone_number_sid`   | string | `""`（必填）                                   | 电话号码的 SID                     |
+| `tts_provider`       | string | `"google"`                                     | 文本转语音提供商                   |
+| `tts_voice`          | string | `"en-US-Journey-D"`                            | TTS 语音模型                       |
+| `stt_provider`       | string | `"deepgram"`                                   | 语音转文本提供商                   |
+| `language`           | string | `"en-US"`                                      | 语言代码                           |
 | `welcome_greeting`   | string | `"Hi! This is NousAIPaw. How can I help you?"` | 欢迎语（接通电话后的第一句话）     |
 
 > **注意**：Voice 频道需要持续的网络连接和内网穿透工具运行。建议在生产环境使用稳定的内网穿透方案（如 Cloudflare Tunnel、ngrok 付费版等）。
@@ -1326,26 +1326,26 @@ pip install "qwenpaw[sip,sip-livekit]"
 
 ### SIP 频道专属字段说明
 
-| 字段                 | 类型   | 默认值                                       | 说明                                                   |
-| -------------------- | ------ | -------------------------------------------- | ------------------------------------------------------ |
-| `sip_mode`           | string | `"dev"`                                      | 后端模式：`"dev"`（pyVoIP）或 `"livekit"`              |
-| `sip_server`         | string | `""`                                         | SIP 注册服务器地址，留空使用内置注册服务器（dev 模式） |
-| `sip_username`       | string | `""`                                         | SIP 账号用户名（内置注册服务器默认 `agent`）           |
-| `sip_password`       | string | `""`                                         | SIP 账号密码                                           |
-| `sip_host`           | string | `"0.0.0.0"`                                  | 本地绑定地址                                           |
-| `sip_port`           | int    | `5061`                                       | 本地 SIP 端口（agent 侧）                              |
-| `sip_transport`      | string | `"UDP"`                                      | SIP 传输协议：`UDP`、`TCP` 或 `TLS`                    |
-| `rtp_port_low`       | int    | `10000`                                      | RTP 端口范围起始（仅 dev 模式）                        |
-| `rtp_port_high`      | int    | `20000`                                      | RTP 端口范围结束（仅 dev 模式）                        |
-| `livekit_url`        | string | `""`                                         | LiveKit Server WebSocket URL（生产模式）               |
-| `livekit_api_key`    | string | `""`                                         | LiveKit API 密钥（生产模式）                           |
-| `livekit_api_secret` | string | `""`                                         | LiveKit API 密钥（生产模式）                           |
-| `tts_provider`       | string | `"aliyun"`                                   | TTS 提供商（目前支持 `aliyun`）                        |
-| `tts_voice`          | string | `"longxiaochun"`                             | TTS 语音模型                                           |
-| `stt_provider`       | string | `"aliyun"`                                   | STT 提供商（目前支持 `aliyun`）                        |
-| `language`           | string | `"zh-CN"`                                    | 语言代码                                               |
+| 字段                 | 类型   | 默认值                                         | 说明                                                   |
+| -------------------- | ------ | ---------------------------------------------- | ------------------------------------------------------ |
+| `sip_mode`           | string | `"dev"`                                        | 后端模式：`"dev"`（pyVoIP）或 `"livekit"`              |
+| `sip_server`         | string | `""`                                           | SIP 注册服务器地址，留空使用内置注册服务器（dev 模式） |
+| `sip_username`       | string | `""`                                           | SIP 账号用户名（内置注册服务器默认 `agent`）           |
+| `sip_password`       | string | `""`                                           | SIP 账号密码                                           |
+| `sip_host`           | string | `"0.0.0.0"`                                    | 本地绑定地址                                           |
+| `sip_port`           | int    | `5061`                                         | 本地 SIP 端口（agent 侧）                              |
+| `sip_transport`      | string | `"UDP"`                                        | SIP 传输协议：`UDP`、`TCP` 或 `TLS`                    |
+| `rtp_port_low`       | int    | `10000`                                        | RTP 端口范围起始（仅 dev 模式）                        |
+| `rtp_port_high`      | int    | `20000`                                        | RTP 端口范围结束（仅 dev 模式）                        |
+| `livekit_url`        | string | `""`                                           | LiveKit Server WebSocket URL（生产模式）               |
+| `livekit_api_key`    | string | `""`                                           | LiveKit API 密钥（生产模式）                           |
+| `livekit_api_secret` | string | `""`                                           | LiveKit API 密钥（生产模式）                           |
+| `tts_provider`       | string | `"aliyun"`                                     | TTS 提供商（目前支持 `aliyun`）                        |
+| `tts_voice`          | string | `"longxiaochun"`                               | TTS 语音模型                                           |
+| `stt_provider`       | string | `"aliyun"`                                     | STT 提供商（目前支持 `aliyun`）                        |
+| `language`           | string | `"zh-CN"`                                      | 语言代码                                               |
 | `welcome_greeting`   | string | `"Hi! This is NousAIPaw. How can I help you?"` | 欢迎语（接通电话后的第一句话）                         |
-| `call_timeout`       | float  | `30.0`                                       | 呼出超时时间（秒）                                     |
+| `call_timeout`       | float  | `30.0`                                         | 呼出超时时间（秒）                                     |
 
 ## Azure Bot（Microsoft 机器人服务）
 

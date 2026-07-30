@@ -9,8 +9,8 @@
 | **模型**               | 多模型切换                                                | 进行中 |
 | **Browser-use**        | 支持 Chrome 扩展                                          | 进行中 |
 | **长期记忆**           | 个人知识库                                                | 进行中 |
-| **NousAIPaw 应用**       | NousAIPaw Creator                                           | 进行中 |
-|                        | NousAIPaw Insight                                           | 进行中 |
+| **NousAIPaw 应用**     | NousAIPaw Creator                                         | 进行中 |
+|                        | NousAIPaw Insight                                         | 进行中 |
 | **多智能体**           | 兼容 Claude Code 等既有 Agent                             | 计划中 |
 |                        | 群聊                                                      | 计划中 |
 |                        | Subagent 可视化                                           | 计划中 |

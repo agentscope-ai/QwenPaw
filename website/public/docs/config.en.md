@@ -585,7 +585,7 @@ NousAIPaw needs an LLM provider to work. You can set it up in three ways:
 
 | Provider                           | ID                       | Default Base URL                                    | API Key Prefix |
 | ---------------------------------- | ------------------------ | --------------------------------------------------- | -------------- |
-| NousAIPaw Local                      | `qwenpaw-local`          | _(local)_                                           | _(none)_       |
+| NousAIPaw Local                    | `qwenpaw-local`          | _(local)_                                           | _(none)_       |
 | Ollama                             | `ollama`                 | `http://localhost:11434`                            | _(none)_       |
 | LM Studio                          | `lmstudio`               | `http://localhost:1234/v1`                          | _(none)_       |
 | OpenRouter                         | `openrouter`             | `https://openrouter.ai/api/v1`                      | `sk-or-v1-`    |

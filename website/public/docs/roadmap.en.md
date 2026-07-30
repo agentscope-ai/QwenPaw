@@ -9,8 +9,8 @@
 | **Models**                     | Multi-model switching                                                                                        | In Progress          |
 | **Browser-use**                | Support Chrome extension                                                                                     | In Progress          |
 | **Long-term Memory**           | Personal knowledge base                                                                                      | In Progress          |
-| **NousAIPaw Application**        | NousAIPaw Creator                                                                                              | In Progress          |
-|                                | NousAIPaw Insight                                                                                              | In Progress          |
+| **NousAIPaw Application**      | NousAIPaw Creator                                                                                            | In Progress          |
+|                                | NousAIPaw Insight                                                                                            | In Progress          |
 | **Multi-agent**                | Compatibility with existing agents (e.g. Claude Code)                                                        | Planned              |
 |                                | Group chat                                                                                                   | Planned              |
 |                                | Subagent visualization                                                                                       | Planned              |

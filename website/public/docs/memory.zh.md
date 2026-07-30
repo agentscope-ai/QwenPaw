@@ -31,15 +31,15 @@ graph TB
 
 长期记忆管理包含以下能力：
 
-| 能力               | 说明                                                                                    |
-| ------------------ | --------------------------------------------------------------------------------------- |
-| **嵌入式 ReMe**    | NousAIPaw 在进程内启动 ReMe，并将当前 Agent 使用的 NousAIPaw 模型注入到 ReMe 默认 LLM 组件  |
-| **Auto-Memory**    | 每隔可配置数量的用户回合，将对话中值得保留的事实抽取为每日 Markdown 记忆                |
-| **上下文压缩保存** | 上下文压缩前，可把尚未写入的回合先提交给同一套 `auto_memory` 流程                       |
-| **Auto-Dream**     | 定时从近期每日记忆中提取更高层的 digest 单元和主动交互兴趣主题                          |
-| **混合检索**       | `memory_search` 调用 ReMe `search` job，通过 BM25 + 可选向量检索，并使用 RRF 融合排序   |
-| **资源记忆**       | `resource/` 下的外部文件会被编目，变更后可通过 `auto_resource` 转成带来源链接的每日记忆 |
-| **Inbox 通知**     | `auto_memory`、`auto_dream`、`auto_resource` 产生结果时，会推送到 NousAIPaw inbox         |
+| 能力               | 说明                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| **嵌入式 ReMe**    | NousAIPaw 在进程内启动 ReMe，并将当前 Agent 使用的 NousAIPaw 模型注入到 ReMe 默认 LLM 组件 |
+| **Auto-Memory**    | 每隔可配置数量的用户回合，将对话中值得保留的事实抽取为每日 Markdown 记忆                   |
+| **上下文压缩保存** | 上下文压缩前，可把尚未写入的回合先提交给同一套 `auto_memory` 流程                          |
+| **Auto-Dream**     | 定时从近期每日记忆中提取更高层的 digest 单元和主动交互兴趣主题                             |
+| **混合检索**       | `memory_search` 调用 ReMe `search` job，通过 BM25 + 可选向量检索，并使用 RRF 融合排序      |
+| **资源记忆**       | `resource/` 下的外部文件会被编目，变更后可通过 `auto_resource` 转成带来源链接的每日记忆    |
+| **Inbox 通知**     | `auto_memory`、`auto_dream`、`auto_resource` 产生结果时，会推送到 NousAIPaw inbox          |
 
 ---
 

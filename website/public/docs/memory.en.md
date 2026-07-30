@@ -30,14 +30,14 @@ graph TB
 
 Long-term memory management includes the following capabilities:
 
-| Capability             | Description                                                                                                      |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **Embedded ReMe app**  | NousAIPaw starts ReMe in-process and injects the active NousAIPaw model into ReMe's default LLM component            |
-| **Auto-Memory**        | After a configurable number of user turns, ReMe extracts useful conversation facts into daily Markdown notes     |
-| **Context compaction** | Before context compression, pending turns can be flushed into the same `auto_memory` pipeline                    |
-| **Auto-Dream**         | A cron job extracts higher-level digest units and proactive-interest topics from recent daily notes              |
-| **Hybrid Search**      | `memory_search` calls ReMe's `search` job, using BM25 plus optional vector search and reciprocal-rank fusion     |
-| **Resource Memory**    | Files under `resource/` are cataloged and can be interpreted into source-linked daily notes                      |
+| Capability             | Description                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Embedded ReMe app**  | NousAIPaw starts ReMe in-process and injects the active NousAIPaw model into ReMe's default LLM component          |
+| **Auto-Memory**        | After a configurable number of user turns, ReMe extracts useful conversation facts into daily Markdown notes       |
+| **Context compaction** | Before context compression, pending turns can be flushed into the same `auto_memory` pipeline                      |
+| **Auto-Dream**         | A cron job extracts higher-level digest units and proactive-interest topics from recent daily notes                |
+| **Hybrid Search**      | `memory_search` calls ReMe's `search` job, using BM25 plus optional vector search and reciprocal-rank fusion       |
+| **Resource Memory**    | Files under `resource/` are cataloged and can be interpreted into source-linked daily notes                        |
 | **Inbox Results**      | `auto_memory`, `auto_dream`, and `auto_resource` results are pushed to NousAIPaw's inbox when they produce changes |
 
 ---

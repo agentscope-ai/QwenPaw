@@ -44,7 +44,7 @@ qwenpaw app --log-level debug           # 详细日志
 | `--port`      | `8088`      | 绑定端口                                                      |
 | `--reload`    | 关闭        | 文件变动时自动重载（仅开发用）                                |
 | `--log-level` | `info`      | `critical` / `error` / `warning` / `info` / `debug` / `trace` |
-| `--workers`   | —           | **[已废弃]** 将被忽略，NousAIPaw 始终使用 1 个 worker           |
+| `--workers`   | —           | **[已废弃]** 将被忽略，NousAIPaw 始终使用 1 个 worker         |
 
 > **说明：** `--workers` 选项因稳定性原因已废弃。NousAIPaw 被设计为单 worker 进程运行。多 worker 模式会导致内存状态管理和 WebSocket 连接出现问题。此选项将在未来版本中移除。
 

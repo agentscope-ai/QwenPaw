@@ -71,8 +71,8 @@ plugin = MyPlugin()
 | 字段                                                                                                                | 类型     | 旧版                   | 新版                                                  | 迁移建议                         |
 | ------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------- | ----------------------------------------------------- | -------------------------------- |
 | `qwenpaw_version`                                                                                                   | `object` | 未定义，会被忽略       | 新增，推荐使用                                        | 新版插件建议增加该字段           |
-| `qwenpaw_version.min`                                                                                               | `string` | 未定义                 | 最低兼容 NousAIPaw 版本，包含该版本                     | 写为实际验证过的最低新版版本     |
-| `qwenpaw_version.max`                                                                                               | `string` | 未定义                 | 最高兼容 NousAIPaw 版本，不包含该版本                   | 建议显式填写                     |
+| `qwenpaw_version.min`                                                                                               | `string` | 未定义                 | 最低兼容 NousAIPaw 版本，包含该版本                   | 写为实际验证过的最低新版版本     |
+| `qwenpaw_version.max`                                                                                               | `string` | 未定义                 | 最高兼容 NousAIPaw 版本，不包含该版本                 | 建议显式填写                     |
 | `min_version`                                                                                                       | `string` | 支持，但不用于加载拦截 | 遗留字段，仅在没有 `qwenpaw_version` 时参与兼容性判断 | 需要兼容旧版时可以保留           |
 | `max_version`                                                                                                       | `string` | 未定义                 | 遗留字段，配合 `min_version` 使用                     | 仅旧清单兼容场景使用             |
 | `id`、`version`、`name`、`type`、`description`、`author`、`entry.backend`、`entry.frontend`、`dependencies`、`meta` | —        | 支持                   | 继续支持                                              | 保持不变                         |
@@ -334,8 +334,8 @@ api.unregister_skill_provider()
 | 字段                  | 类型     | 读取优先级 | 说明                                      |
 | --------------------- | -------- | ---------- | ----------------------------------------- |
 | `qwenpaw_version`     | `object` | 1          | 推荐字段，格式与插件清单一致              |
-| `qwenpaw_version.min` | `string` | 1          | 最低兼容 NousAIPaw 版本，包含该版本         |
-| `qwenpaw_version.max` | `string` | 1          | 最高兼容 NousAIPaw 版本，不包含该版本       |
+| `qwenpaw_version.min` | `string` | 1          | 最低兼容 NousAIPaw 版本，包含该版本       |
+| `qwenpaw_version.max` | `string` | 1          | 最高兼容 NousAIPaw 版本，不包含该版本     |
 | `min_version`         | `string` | 2          | 旧字段，仅在没有 `qwenpaw_version` 时使用 |
 | `max_version`         | `string` | 2          | 旧字段，仅在没有 `qwenpaw_version` 时使用 |
 | 无版本约束            | -        | 3          | 会被视为兼容，但发布时不建议省略          |
