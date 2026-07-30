@@ -263,6 +263,12 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     token_usage_manager = get_token_usage_manager()
     token_usage_manager.start(flush_interval=10)
 
+    # Start message recording manager background tasks
+    from ..message_recording import get_message_recording_manager
+
+    msg_rec_manager = get_message_recording_manager()
+    msg_rec_manager.start()
+
     # Expose to endpoints (must be set before first request arrives).
     # WorkspaceRegistry IS-A MultiAgentManager — backward compat for
     # routers / agent_context that read app.state.multi_agent_manager.
@@ -577,6 +583,15 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                     f"Error stopping TokenUsageManager: {e}",
                 )
 
+        async def _stop_message_recording():
+            try:
+                logger.info("Stopping MessageRecordingManager...")
+                await msg_rec_manager.stop()
+            except Exception as e:
+                logger.error(
+                    f"Error stopping MessageRecordingManager: {e}",
+                )
+
         async def _stop_browsers():
             try:
                 await stop_all_browsers()
@@ -595,6 +610,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         await asyncio.gather(
             _stop_token_usage(),
+            _stop_message_recording(),
             _stop_browsers(),
             _close_hub(),
         )

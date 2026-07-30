@@ -119,6 +119,38 @@
   }
 }
 
+/* ─── Message Recording ─────────────────────────────────────────────────── */
+.recordingFields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.recordingField {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  > span:first-child {
+    min-width: 140px;
+  }
+}
+
+.recordingStatus {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  code {
+    font-size: 12px;
+    background: rgba(0, 0, 0, 0.04);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      monospace;
+  }
+}
+
 /* ─── Mobile Adaptation ──────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .content {

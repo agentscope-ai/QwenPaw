@@ -181,4 +181,9 @@ export interface AgentsRunningConfig {
   reme_light_memory_config: ReMeLightMemoryConfig;
   approval_level?: string;
   auto_title_config: AutoTitleConfig;
+  message_recording?: {
+    enabled: boolean;
+    max_content_length: number | null;
+    storage_dir: string;
+  };
 }

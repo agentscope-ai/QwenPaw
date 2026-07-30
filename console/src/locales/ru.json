@@ -110,6 +110,17 @@
       "refreshBackend": "Обновить backend-логи",
       "refreshSuccess": "Логи обновлены",
       "copyBackend": "Копировать backend-логи"
+    },
+    "messageRecording": {
+      "title": "Запись сообщений",
+      "desc": "Записывать входные и выходные данные вызовов LLM в ежедневные файлы JSONL. По умолчанию хранятся 3 дня (настраивается через QWENPAW_MESSAGE_RECORDING_RETENTION_DAYS).",
+      "enabled": "Включить запись",
+      "maxContentLength": "Макс. длина содержимого",
+      "maxContentLengthTooltip": "Обрезать текстовое содержимое, превышающее эту длину. Оставьте пустым для отключения обрезки.",
+      "status": "Статус",
+      "statusRecording": "Запись",
+      "statusStopped": "Остановлено",
+      "storagePath": "Путь хранения"
     }
   },
   "agent": {

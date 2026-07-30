@@ -1145,6 +1145,44 @@ class AgentBuilder:
         if tool_coordinator is None and pruning_middleware is not None:
             mws.append(pruning_middleware)
 
+        # Message Recording middleware
+        try:
+            _rec_cfg = agent_config.running.message_recording
+            if _rec_cfg.enabled:
+                from ..message_recording import (
+                    MessageRecordingMiddleware,
+                )
+
+                _provider_id = (
+                    getattr(
+                        agent_config.active_model,
+                        "provider_id",
+                        "",
+                    )
+                    or ""
+                )
+                _model_name = (
+                    getattr(
+                        agent_config.active_model,
+                        "model",
+                        "",
+                    )
+                    or ""
+                )
+                _max_len = _rec_cfg.max_content_length
+                mws.append(
+                    MessageRecordingMiddleware(
+                        provider_id=_provider_id,
+                        model_name=_model_name,
+                        max_content_length=_max_len,
+                    ),
+                )
+        except Exception:
+            _logger.debug(
+                "MessageRecordingMiddleware not created",
+                exc_info=True,
+            )
+
         # Langfuse tool observability
         try:
             from ..observability.langfuse import is_langfuse_enabled

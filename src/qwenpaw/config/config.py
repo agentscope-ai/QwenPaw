@@ -1034,6 +1034,48 @@ class AutoTitleConfig(BaseModel):
     )
 
 
+class MessageRecordingConfig(BaseModel):
+    """Local LLM I/O recording configuration for debugging."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable recording of full LLM call inputs "
+            "and outputs to local JSONL files."
+        ),
+    )
+
+    max_content_length: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Truncate text content exceeding this length. "
+            "None means no truncation."
+        ),
+    )
+
+    storage_dir: str = Field(
+        default=str(WORKING_DIR / "message_logs"),
+        description=(
+            "Storage directory for JSONL files. "
+            "Always derived from WORKING_DIR; "
+            "API input is ignored."
+        ),
+    )
+
+    # pylint: disable=no-self-argument
+    @field_validator("storage_dir", mode="before")
+    @classmethod
+    def _force_storage_dir(
+        cls,
+        v: Any,  # pylint: disable=unused-argument
+    ) -> str:
+        """Override any user input with the canonical path."""
+        return str(WORKING_DIR / "message_logs")
+
+
 class DoomLoopStageConfig(BaseModel):
     """One escalation stage in doom loop detection."""
 
@@ -1562,6 +1604,14 @@ class AgentsRunningConfig(BaseModel):
         description=(
             "Async chat-title generation toggle and timeout. See "
             "AutoTitleConfig."
+        ),
+    )
+
+    message_recording: MessageRecordingConfig = Field(
+        default_factory=MessageRecordingConfig,
+        description=(
+            "Local LLM I/O recording for debugging. "
+            "See MessageRecordingConfig."
         ),
     )
 

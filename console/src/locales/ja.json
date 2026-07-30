@@ -110,6 +110,17 @@
       "refreshBackend": "バックエンドログを更新",
       "refreshSuccess": "ログを更新しました",
       "copyBackend": "バックエンドログをコピー"
+    },
+    "messageRecording": {
+      "title": "メッセージ記録",
+      "desc": "LLM呼び出しの入出力を日付別のJSONLファイルに記録します。デフォルトで3日間保持されます（QWENPAW_MESSAGE_RECORDING_RETENTION_DAYSで変更可能）。",
+      "enabled": "記録を有効にする",
+      "maxContentLength": "最大コンテンツ長",
+      "maxContentLengthTooltip": "この長さを超えるテキストは切り詰められます。空欄の場合は切り詰めません。",
+      "status": "ステータス",
+      "statusRecording": "記録中",
+      "statusStopped": "停止中",
+      "storagePath": "保存先パス"
     }
   },
   "agent": {
