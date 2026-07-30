@@ -157,7 +157,7 @@ def test_main_supports_frozen_entry_without_package_context(
     monkeypatch.setattr(entry, "_run_backend_server", calls.append)
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path)
     monkeypatch.setattr(
-        "qwenpaw.utils.platform.auto_disable_sandbox_on_windows",
+        "qwenpaw.utils.platform.warn_unelevated_sandbox",
         lambda: calls.append("sandbox-check"),
     )
     monkeypatch.delenv("QWENPAW_LOG_LEVEL", raising=False)

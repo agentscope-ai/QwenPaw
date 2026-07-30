@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """Tauri sidecar entry point for starting the Python backend."""
+
 from __future__ import annotations
 
-from collections.abc import Sequence
 import json
 import logging
 import multiprocessing as mp
 import os
 import socket
 import sys
+from collections.abc import Sequence
 
 import click
 
@@ -18,6 +19,7 @@ from qwenpaw.tauri.env import (
     DESKTOP_READY_PREFIX,
     ensure_desktop_cors_origins,
 )
+from qwenpaw.browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
 from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
 
 logger = logging.getLogger(__name__)
@@ -318,6 +320,8 @@ def _run_backend_server(log_level: str) -> None:
         # /console/push-messages) cannot stall the lifespan shutdown that
         # flushes memory/index on exit.
         timeout_graceful_shutdown=5,
+        # Chrome Native Messaging inbound limit; this applies server-wide.
+        ws_max_size=NM_MAX_INBOUND_BYTES,
     )
 
     if reused_socket:
@@ -370,12 +374,11 @@ def main() -> None:
             label="initialization",
         )
 
-    # On Windows, auto-disable sandbox when not running as admin so the
-    # desktop backend starts without a half-broken sandbox layer (mirrors
-    # the same guard in cli/app_cmd.py for `qwenpaw app`).
-    from qwenpaw.utils.platform import auto_disable_sandbox_on_windows
+    # On Windows without admin, warn that sandbox runs in unelevated mode
+    # with limited isolation (mirrors the same guard in cli/app_cmd.py).
+    from qwenpaw.utils.platform import warn_unelevated_sandbox
 
-    auto_disable_sandbox_on_windows()
+    warn_unelevated_sandbox()
 
     _run_backend_server(os.environ.get(LOG_LEVEL_ENV, "info"))
 

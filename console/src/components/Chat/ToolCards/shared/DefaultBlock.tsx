@@ -1,8 +1,9 @@
 /**
  * DefaultBlock — reusable Input/Output block with title + copy button.
  *
- * Renders monospace text or auto-detected markdown/JSON content inside a
+ * Renders declared-language content or auto-detected markdown/JSON inside a
  * bordered block with a copy button in the header.
+ * - Declared language → rendered via syntax highlighting before auto-detection
  * - Markdown content → rendered via Markdown component
  * - JSON content → pretty-printed and rendered with syntax highlighting
  * - Plain text → rendered with syntax highlighting
@@ -21,6 +22,7 @@ export interface DefaultBlockProps {
   title: string;
   content: string;
   copyTitle?: string;
+  language?: string;
 }
 
 /** Try to parse JSON. Returns parsed object or null. */
@@ -39,6 +41,16 @@ function tryParseJson(text: string): unknown | null {
   return null;
 }
 
+function splitStdout(content: string): { head: string; stdout: string | null } {
+  const match = /^\[stdout\]\n/m.exec(content);
+  if (!match || match.index === undefined)
+    return { head: content, stdout: null };
+  return {
+    head: content.slice(0, match.index),
+    stdout: content.slice(match.index + match[0].length),
+  };
+}
+
 const highlighterStyle = {
   margin: 0,
   borderRadius: 0,
@@ -53,13 +65,19 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
   title,
   content,
   copyTitle,
+  language,
 }) => {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isMarkdown = useMemo(() => looksLikeMarkdown(content), [content]);
+  const { head, stdout } = useMemo(() => splitStdout(content), [content]);
+  const declared = typeof language === "string" && language.length > 0;
+  const isMarkdown = useMemo(
+    () => !declared && looksLikeMarkdown(head),
+    [declared, head],
+  );
   const parsedJson = useMemo(
-    () => (isMarkdown ? null : tryParseJson(content)),
-    [content, isMarkdown],
+    () => (declared || isMarkdown ? null : tryParseJson(head)),
+    [declared, head, isMarkdown],
   );
 
   const handleCopy = useCallback(() => {
@@ -73,10 +91,22 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
   }, [content]);
 
   const renderContent = () => {
+    if (declared) {
+      return (
+        <SyntaxHighlighter
+          language={language}
+          style={oneDark}
+          customStyle={highlighterStyle}
+          wrapLongLines
+        >
+          {head}
+        </SyntaxHighlighter>
+      );
+    }
     if (isMarkdown) {
       return (
         <div className={styles.defaultBlockContentMd}>
-          <Markdown content={content} />
+          <Markdown content={head} />
         </div>
       );
     }
@@ -99,7 +129,7 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
         customStyle={highlighterStyle}
         wrapLongLines
       >
-        {content}
+        {head}
       </SyntaxHighlighter>
     );
   };
@@ -118,6 +148,16 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
         </button>
       </div>
       {renderContent()}
+      {stdout !== null && (
+        <SyntaxHighlighter
+          language="text"
+          style={oneDark}
+          customStyle={highlighterStyle}
+          wrapLongLines
+        >
+          {stdout}
+        </SyntaxHighlighter>
+      )}
     </div>
   );
 };

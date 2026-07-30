@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Per-tool before/after hooks and timeout metadata."""
+
 from __future__ import annotations
 
 import logging
@@ -22,9 +23,9 @@ class _HookPair:
     """Per-tool runtime metadata.
 
     ``max_internal_timeout_secs`` marks an absolute hard cap the deadline
-    API must honor (e.g. browser_use Playwright, or sandbox/HTTP's
-    coordinator-owned 24h ceiling). When set, ``no_deadline`` and extends
-    past ``started_at + cap`` are refused.
+    API must honor (for example, browser Playwright or a coordinator-owned
+    24-hour ceiling). When set, ``no_deadline`` and extensions past
+    ``started_at + cap`` are refused.
     """
 
     before: BeforeHook | None = None

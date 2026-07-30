@@ -54,6 +54,16 @@ _COVERAGE_SUBPROC_BASENAME = "integration_subproc"
 _COVERAGE_RCFILE_NAME = "coverage_subprocess.ini"
 
 
+@pytest.fixture
+def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Redirect user-home lookup so tests cannot touch developer files."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    return home
+
+
 def _write_integration_subprocess_rc(root: Path, dest_ini: Path) -> None:
     """Write a coverage rcfile with absolute ``source`` for the app subprocess.
 

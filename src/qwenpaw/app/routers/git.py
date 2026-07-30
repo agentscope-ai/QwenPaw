@@ -62,6 +62,7 @@ customized_skills/
 tool_result/
 tool_results/
 skills/
+checkpoints/
 
 # QwenPaw runtime files
 chats.json

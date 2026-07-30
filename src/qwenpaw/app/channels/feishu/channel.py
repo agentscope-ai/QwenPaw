@@ -72,7 +72,6 @@ from .utils import (
     sender_display_string,
     short_session_id_from_full_id,
 )
-from .cards import FeishuCardHandler
 
 
 # Compatibility for setuptools>=82 where pkg_resources may be absent.
@@ -120,6 +119,7 @@ class _EventLoopProxy:
 
 
 try:
+    from .cards import FeishuCardHandler
     import lark_oapi as lark
     from lark_oapi.api.contact.v3 import GetUserRequest
     from lark_oapi.api.im.v1 import (
