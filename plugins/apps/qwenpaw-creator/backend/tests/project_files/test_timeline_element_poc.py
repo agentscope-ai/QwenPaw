@@ -42,6 +42,7 @@ from services.project_files.models import (
     TimelineSpan,
     TransitionCreation,
 )
+from services.project_files.review import ReviewDecisionItem
 from services.runtime_files.models import ChangeOrigin, ReviewPolicy
 
 # pylint: disable=no-name-in-module
@@ -391,6 +392,19 @@ def test_storyboard_and_r2v_publish_named_element_outputs(
         ].selected_version_id
         == image.artifact_version_id
     )
+    for review in services.reviews.all_pending("r2v-project"):
+        services.reviews.decide(
+            project_id="r2v-project",
+            review_id=review.review_id,
+            decision_token=review.decision_token,
+            decisions=[
+                ReviewDecisionItem(
+                    operation_id=operation.operation_id,
+                    decision="ACCEPT",
+                )
+                for operation in review.operations
+            ],
+        )
 
     async def generate():
         worker = FileR2VExecutionService(

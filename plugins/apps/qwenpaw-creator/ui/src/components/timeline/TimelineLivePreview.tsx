@@ -19,7 +19,7 @@ import {
   playbackLayersInWindow,
   transitionOpacityAtTick,
 } from "@/selectors/elementPlaybackSelectors";
-import { ELEMENT_TYPE_META } from "@/selectors/timelineElementSelectors";
+import { resolveElementVisualMeta } from "@/selectors/timelineElementSelectors";
 import {
   InterviewSummaryBox,
   PetOsBubble,
@@ -100,7 +100,7 @@ function mediaTargetSeconds(
 
 function PlaceholderLayer({ layer }: { layer: ElementPlayback }) {
   const { element, status } = layer;
-  const meta = ELEMENT_TYPE_META[element.creation.type];
+  const meta = resolveElementVisualMeta(element);
   const label = ELEMENT_PLAYBACK_STATUS_LABEL[status];
   const fullFrame = isFullFrame(element.location);
   const StatusIcon =

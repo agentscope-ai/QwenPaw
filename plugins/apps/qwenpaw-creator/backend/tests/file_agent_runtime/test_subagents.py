@@ -66,3 +66,70 @@ def test_r2v_and_edit_use_element_domain_targets() -> None:
         },
     )
     edit.validate_contract(project_id="project-1")
+
+
+def test_visual_entity_target_aliases_normalize_to_asset_refs() -> None:
+    """Both spellings observed in production map onto asset:<id>.
+
+    project.json keys entities as char:/scene:/prop:<x> and the UI shows
+    visual-entity:<id>, so models keep guessing those forms; the contract
+    accepts and maps them instead of failing a recoverable delegation.
+    """
+
+    delegated = DelegateToAgentInput.model_validate(
+        {
+            "role": "visual_development_agent",
+            "target_refs": [
+                "char:haaland",
+                "visual-entity:char:haaland",
+                "scene:idol-stage",
+                "prop:trophy",
+                "asset:char:depaul",
+            ],
+            "task": "为角色和场景生成设计图",
+        },
+    )
+    delegated.validate_contract(project_id="project-1")
+    # char:haaland and its visual-entity spelling collapse into one ref.
+    assert delegated.target_refs == [
+        "asset:char:haaland",
+        "asset:scene:idol-stage",
+        "asset:prop:trophy",
+        "asset:char:depaul",
+    ]
+
+    source = DelegateToAgentInput.model_validate(
+        {
+            "role": "source_intelligence_agent",
+            "target_refs": ["char:haaland"],
+            "task": "理解角色参考素材",
+        },
+    )
+    source.validate_contract(project_id="project-1")
+    assert source.target_refs == ["asset:char:haaland"]
+
+
+def test_visual_entity_aliases_stay_rejected_for_element_domain_roles() -> (
+    None
+):
+    delegated = DelegateToAgentInput.model_validate(
+        {
+            "role": "r2v_generation_director",
+            "target_refs": ["char:haaland"],
+            "task": "生成视频",
+        },
+    )
+    with pytest.raises(ValueError, match="does not allow targetRef"):
+        delegated.validate_contract(project_id="project-1")
+
+
+def test_unknown_target_kinds_still_fail_the_contract() -> None:
+    delegated = DelegateToAgentInput.model_validate(
+        {
+            "role": "visual_development_agent",
+            "target_refs": ["storyline:act-1"],
+            "task": "非法目标",
+        },
+    )
+    with pytest.raises(ValueError, match="does not allow targetRef"):
+        delegated.validate_contract(project_id="project-1")

@@ -184,7 +184,8 @@ class TestMotionDesignSafety:
         "html",
         [
             "<html><body onload='alert(1)'><i></i></body></html>",
-            "<html><body><iframe src='file:///etc/passwd'></iframe></body></html>",
+            "<html><body><iframe src='file:///etc/passwd'>"
+            "</iframe></body></html>",
             "<html><body><a href='javascript:alert(1)'></a></body></html>",
         ],
     )

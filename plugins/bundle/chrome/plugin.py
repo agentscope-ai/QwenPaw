@@ -8,6 +8,8 @@ from qwenpaw.plugins.api import PluginApi
 
 # Kept for the milestone-A bridge wiring contract.  A semantic dispatcher is
 # deliberately not registered until the later control milestone.
+# no-name-in-module: astroid confuses this namespace-relative "api" package
+# with other plugins' top-level "api" packages during whole-repo lint runs.
 # pylint: disable=unused-import,no-name-in-module
 from .api.routes import (
     api_router,

@@ -36,6 +36,11 @@ Project
 - Edit 的 `span.duration_tick` 必须等于 `round((source_out_tick-source_in_tick)/playback_rate)`。
 - Project 不持久化额外的内容分组、轨道、独立 Content、ProductionFlow 或顺序 Composition。
 - `creation.type` 表达 r2v/edit/overlay/transition/audio 的创作语义；执行器与任务状态不属于该结构。
+- Overlay `creation` 结构（`type="overlay"`）：字段只有 `overlay_kind`、`text`、`vibe`、`prompt`、`reference_version_ids`、`motion`。`emotion`、`entrance`、`exit`、`intensity`、`theme`、`variant`、`motif`、`html`、`fps`、`loop`、`design_notes` 等动效字段属于 `MotionGraphic`，必须放在 `creation.motion` 子对象内，不得直接写在 `creation` 上。`overlay_kind=motion` 或 `media` 的 Overlay 必须携带非空 `prompt`。正确示例：
+  ```json
+  {"type":"overlay","overlay_kind":"motion","prompt":"聚焦标记动效","motion":{"html":"<html>…</html>","emotion":"curious","entrance":"pop","exit":"soft_fade","intensity":0.6}}
+  ```
+- Transition 元素的 `span` 必须完全包含在其两个端点元素 span 的交集中，即 `max(from.start, to.start) <= transition.start` 且 `transition.end <= min(from.end, to.end)`。创建 transition 前必须确保 `from_element_id` 和 `to_element_id` 对应的两个元素存在时间重叠，并将 transition 的 span 设在该重叠区间内。
 - outputs 通过 ArtifactSlot 表达具名产物，render_source 表达当前实际渲染来源。
 - source、visual、artifact、file 等引用必须指向当前 Project 中已经存在的实体或版本。
 - `assets` 中的文件和版本记录来自素材入库、素材理解或媒体生成结果；未产出的结果保持 `null` 或空集合。

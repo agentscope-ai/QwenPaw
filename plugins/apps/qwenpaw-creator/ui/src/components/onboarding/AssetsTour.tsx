@@ -41,7 +41,7 @@ const STEPS: TourStepBlueprint[] = [
     selectors: ['[data-onboarding-id="assets-detail"]'],
     title: "资产详情",
     description:
-      "点击任意卡片，在这里查看它的版本、引用关系与产物状态；点「交给 Agent」可以让创作助手检查或完善这项资产。",
+      "点击任意卡片，在这里查看它的版本、引用关系与产物状态；需要检查或完善某项资产时，可在创作助手对话中 @ 引用它。",
   },
 ];
 
