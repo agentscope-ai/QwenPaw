@@ -252,7 +252,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 - **时机**：应用启动时，对每个 `strategy` 为 `"scroll"` 的 Agent 执行。
 - **来源**：`{working_dir}/sessions/*.json`（含渠道子目录）。原始会话文件不会被修改或删除。
 - **逐文件一次性**：`sessions/.synced.json` 清单记录已导入的内容，之后的启动会跳过未变更的文件。重复导入是空操作——`UNIQUE` 索引会去重。
-- **遵循保留期**：导入时会跳过早于 `scroll_config.history_retention_days`（默认 `30`）的消息，与同次启动把 `history.db` 裁剪到保留期的清理保持一致。把 `history_retention_days` 设为 `0` 可保留并导入全部历史。
+- **遵循保留期**：导入时只跳过最后一条消息也早于 `scroll_config.history_retention_days`（默认 `30`）的非活跃会话；活跃会话会完整导入，与同次启动按会话清理 `history.db` 的行为一致。把 `history_retention_days` 设为 `0` 可保留并导入全部历史。
 - **不阻塞启动**：回填失败也不影响启动，该 Agent 只是没导入旧对话，scroll 仍会正常记录新轮次。
 
 > 首次启动导入会话文件时会打印一次性提示，因为积压较多时可能需要一点时间；之后的启动有清单，会直接跳过。
@@ -304,7 +304,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 | `scroll_config.db_filename`                      | `"history.db"` | 相对工作区的 SQLite 文件名。                                                      |
 | `scroll_config.tool_output_token_cap`            | `3000`         | 已废弃且会被忽略；显式配置会输出 warning。请改用 `pruning_recent_msg_max_bytes`。 |
 | `scroll_config.repl_timeout_s`                   | `300`          | `recall_history_python` 单次调用超时时间。                                        |
-| `scroll_config.history_retention_days`           | `30`           | 自动清理早于该天数的历史行；设为 `0` 表示永久保留。                               |
+| `scroll_config.history_retention_days`           | `30`           | 整体清理超过该天数没有新记录的会话；活跃会话完整保留，设为 `0` 表示永久保留。     |
 | `scroll_config.offload_dialog`                   | `false`        | 是否额外写旧版 `dialog/*.jsonl` 归档；`history.db` 仍是真相来源。                 |
 
 ## 手动压缩

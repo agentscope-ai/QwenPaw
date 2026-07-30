@@ -223,6 +223,41 @@ def test_purge_dry_run_reports_count_without_deleting(store: HistoryStore):
     assert store.count("s") == 1
 
 
+def test_purge_inactive_sessions_keeps_active_session_whole(
+    store: HistoryStore,
+):
+    old = "2020-01-01T00:00:00+00:00"
+    recent = "2030-01-01T00:00:00+00:00"
+    store.append(
+        session_id="active",
+        dedup_key="old",
+        entry=_entry("active-old", created_at=old),
+    )
+    store.append(
+        session_id="active",
+        dedup_key="new",
+        entry=_entry("active-new", created_at=recent),
+    )
+    store.append(
+        session_id="inactive",
+        dedup_key="old-1",
+        entry=_entry("inactive-1", created_at=old),
+    )
+    store.append(
+        session_id="inactive",
+        dedup_key="old-2",
+        entry=_entry("inactive-2", created_at=old),
+    )
+
+    removed = store.purge_inactive_sessions(
+        before="2025-01-01T00:00:00+00:00",
+    )
+
+    assert removed == 2
+    assert store.count("active") == 2
+    assert store.count("inactive") == 0
+
+
 def test_estimate_purge_reports_rows_and_bytes(store: HistoryStore):
     store.append(
         session_id="s",
