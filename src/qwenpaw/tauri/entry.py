@@ -19,6 +19,7 @@ from qwenpaw.tauri.env import (
     DESKTOP_READY_PREFIX,
     ensure_desktop_cors_origins,
 )
+from qwenpaw.browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
 from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
 
 logger = logging.getLogger(__name__)
@@ -319,6 +320,8 @@ def _run_backend_server(log_level: str) -> None:
         # /console/push-messages) cannot stall the lifespan shutdown that
         # flushes memory/index on exit.
         timeout_graceful_shutdown=5,
+        # Chrome Native Messaging inbound limit; this applies server-wide.
+        ws_max_size=NM_MAX_INBOUND_BYTES,
     )
 
     if reused_socket:

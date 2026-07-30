@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 # Config cache with mtime tracking for reducing disk IO
 _config_cache: Optional[Config] = None
 _config_mtime: Optional[float] = None
-_config_lock = threading.Lock()
+_config_lock = threading.RLock()
 
 # Agent config cache: {agent_id: (config, mtime)}
 # Using Any for forward reference to AgentProfileConfig

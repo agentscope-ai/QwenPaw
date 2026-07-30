@@ -501,6 +501,41 @@ async def test_spawn_subagent_inherits_root_channel_context(monkeypatch):
     assert "done" in response.content[0].text
 
 
+async def test_spawn_subagent_inherits_approval_level(monkeypatch):
+    captured = {}
+
+    def fake_collect(_base_url, request_payload, _to_agent, _timeout):
+        captured["payload"] = request_payload
+        return {
+            "output": [
+                {"content": [{"type": "text", "text": "done"}]},
+            ],
+        }
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    from qwenpaw.app import agent_context
+
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response",
+        fake_collect,
+    )
+    monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(agent_context, "get_current_agent_id", lambda: "bot-a")
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_approval_route",
+        lambda: {"approval_level": "off"},
+    )
+
+    await agent_management.spawn_subagent("do work")
+
+    context = captured["payload"]["request_context"]
+    assert context["approval_level"] == "off"
+
+
 def test_normalize_str_list_accepts_json_array_string():
     assert agent_management._normalize_str_list(
         '["read_file", "write_file"]',

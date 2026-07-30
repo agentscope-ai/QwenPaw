@@ -176,6 +176,16 @@ def check_pending_gates(  # pylint: disable=protected-access
     Returns:
         StopHandlerResult if pending TERMINATE applies, otherwise None.
     """
+    from ...browser.handoff_signal import take_pending
+    from ...config.context import get_current_session_id
+
+    handoff = take_pending(get_current_session_id() or "default")
+    if handoff is not None:
+        return StopHandlerResult(
+            action=StopAction.TERMINATE,
+            reason=f"Browser handoff: {handoff.get('reason', '')}",
+        )
+
     pending = getattr(agent, "_gate_pending_stop", None)
     if pending is not None:
         agent._gate_pending_stop = None

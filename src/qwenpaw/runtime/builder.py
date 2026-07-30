@@ -25,6 +25,48 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
+def _descriptor_for(tool: Any) -> Any | None:
+    """Return the descriptor from a tool or its common wrapper attributes."""
+    for candidate in (
+        tool,
+        getattr(tool, "func", None),
+        getattr(tool, "_func", None),
+    ):
+        descriptor = getattr(candidate, "_tool_descriptor", None)
+        if descriptor is not None:
+            return descriptor
+    return None
+
+
+def _bound_skill_loader_dirs(tools: Iterable[Any]) -> list[str]:
+    """Resolve descriptor-declared skill directories with language variants."""
+    from ..agents.skill_system.registry import (
+        get_builtin_skill_language_preference,
+    )
+
+    language = get_builtin_skill_language_preference()
+    dirs: list[str] = []
+    for tool in tools:
+        metadata = getattr(_descriptor_for(tool), "metadata", None) or {}
+        names = metadata.get("bound_skills") or ()
+        root = metadata.get("bound_skills_root")
+        if not names or not root:
+            continue
+        for name in names:
+            preferred = Path(root) / f"{name}-{language}"
+            fallback = Path(root) / f"{name}-en"
+            chosen = preferred if preferred.is_dir() else fallback
+            if (chosen / "SKILL.md").exists():
+                dirs.append(str(chosen))
+            else:
+                _logger.warning(
+                    "bound skill %r has no SKILL.md under %s; not injected",
+                    name,
+                    root,
+                )
+    return dirs
+
+
 class AgentBuilder:
     """Compose an agent for each request.
 
@@ -104,6 +146,9 @@ class AgentBuilder:
             effective_skills,
             workspace_dir,
         )
+        for extra in _bound_skill_loader_dirs(tools):
+            if extra not in skill_dirs:
+                skill_dirs.append(extra)
 
         return Toolkit(tools=tools, skills_or_loaders=skill_dirs)
 
