@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import gzip
-import http.client
 import json
 import logging
 import urllib.error
@@ -15,43 +14,12 @@ from typing import Any
 from packaging.version import InvalidVersion, Version
 
 from .._version_compat import check_plugin_version_compat
-from ..constant import EnvVarLoader
 from ..plugins.architecture import PluginManifest
 
 logger = logging.getLogger(__name__)
 
-PLUGIN_DOWNLOAD_CDN_ENV = "QWENPAW_PLUGIN_CDN"
-DEFAULT_PLUGIN_DOWNLOAD_CDN = "https://download.qwenpaw.agentscope.io"
+PLUGIN_DOWNLOAD_CDN = "https://download.qwenpaw.agentscope.io"
 _FETCH_TIMEOUT = 30
-
-# Everything a fetch of the catalog can raise. The console has to keep working
-# when the catalog cannot be read, so this has to cover the failures that
-# actually happen rather than the obvious one: a reset connection, a TLS error
-# and a truncated response are all routine on a flaky network, and none of them
-# is a URLError. OSError covers the first two and the timeout; HTTPException
-# covers the truncated read; ValueError covers a body that is not JSON.
-_FETCH_FAILURES = (OSError, http.client.HTTPException, ValueError)
-
-
-def plugin_download_cdn() -> str:
-    """Where to look for the official plugin index.
-
-    Overridable so a build can point at the infrastructure it belongs to -- a
-    fork publishes to its own bucket, and the catalog it serves has to be the
-    one it published. The desktop shell passes this through to the backend,
-    since an application launched from the desktop inherits no shell
-    environment of its own.
-
-    It also makes this module reachable from a test. Nothing could exercise the
-    catalog without the real host answering, which is why the endpoint's
-    integration test is marked expected-to-fail: it returns a different status
-    depending on whether the machine running it can reach the internet.
-    """
-    configured = EnvVarLoader.get_str(
-        PLUGIN_DOWNLOAD_CDN_ENV,
-        DEFAULT_PLUGIN_DOWNLOAD_CDN,
-    ).strip()
-    return configured or DEFAULT_PLUGIN_DOWNLOAD_CDN
 
 
 def _fetch_json(url: str) -> Any:
@@ -135,15 +103,7 @@ def _installed_plugin_ids() -> dict[str, str]:
         return {}
 
     installed: dict[str, str] = {}
-    try:
-        entries = list(plugins_dir.iterdir())
-    except OSError as exc:
-        # Listing can fail on a directory that exists but cannot be read. The
-        # catalog is still worth answering; the entries just lose their
-        # already-installed marking.
-        logger.warning("Plugin catalog: cannot list %s: %s", plugins_dir, exc)
-        return {}
-    for item in entries:
+    for item in plugins_dir.iterdir():
         if not item.is_dir():
             continue
         manifest_path = item / "plugin.json"
@@ -235,30 +195,6 @@ def _is_entry_compatible(entry: dict[str, Any]) -> bool:
         return False
 
 
-def _fetch_object(
-    url: str,
-    description: str,
-) -> tuple[dict[str, Any] | None, str]:
-    """Fetch JSON expected to be an object, reporting why if it is not.
-
-    Returns the object and an empty message, or ``None`` and a message fit for
-    the console. Both failure kinds are collapsed here because the caller does
-    the same thing with either: a request that did not arrive and a body that
-    is not what was asked for are both "no catalog this time".
-    """
-    try:
-        body = _fetch_json(url)
-    except _FETCH_FAILURES as exc:
-        logger.warning("Plugin catalog: %s fetch failed: %s", description, exc)
-        return None, f"Failed to fetch {description}"
-    if not isinstance(body, dict):
-        # Valid JSON that is not an object -- an error page served as JSON,
-        # say. Reading it as one would raise straight past the caller.
-        logger.warning("Plugin catalog: %s is not an object", description)
-        return None, f"Malformed {description}"
-    return body, ""
-
-
 def build_plugin_catalog() -> dict[str, Any]:
     """Download main + plugins index from CDN and normalize for the console.
 
@@ -266,22 +202,19 @@ def build_plugin_catalog() -> dict[str, Any]:
         Dict with ``updated_at`` and ``plugins`` list.  On CDN failure returns
         empty ``plugins`` and optional ``error`` message (HTTP 200 still).
     """
-    base = plugin_download_cdn().rstrip("/")
+    base = PLUGIN_DOWNLOAD_CDN.rstrip("/")
     result: dict[str, Any] = {"updated_at": None, "plugins": [], "error": None}
 
-    main_index, failure = _fetch_object(
-        f"{base}/metadata/index.json",
-        "plugin catalog index",
-    )
-    if main_index is None:
-        result["error"] = failure
+    try:
+        main_index = _fetch_json(f"{base}/metadata/index.json")
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+        logger.warning("Plugin catalog: main index fetch failed: %s", exc)
+        result["error"] = "Failed to fetch plugin catalog index"
         return result
 
-    products = main_index.get("products")
-    plugins_product = (
-        products.get("plugins") if isinstance(products, dict) else None
-    )
-    if not isinstance(plugins_product, dict):
+    products = main_index.get("products") or {}
+    plugins_product = products.get("plugins")
+    if not plugins_product:
         return result
 
     index_path = str(plugins_product.get("index_url") or "")
@@ -289,20 +222,15 @@ def build_plugin_catalog() -> dict[str, Any]:
         result["error"] = "Invalid plugins index_url in main metadata"
         return result
 
-    plugins_index, failure = _fetch_object(
-        f"{base}{index_path}",
-        "plugins metadata",
-    )
-    if plugins_index is None:
-        result["error"] = failure
+    try:
+        plugins_index = _fetch_json(f"{base}{index_path}")
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+        logger.warning("Plugin catalog: plugins index fetch failed: %s", exc)
+        result["error"] = "Failed to fetch plugins metadata"
         return result
 
     result["updated_at"] = plugins_index.get("updated_at")
     files = plugins_index.get("files") or {}
-    if not isinstance(files, dict):
-        logger.warning("Plugin catalog: plugins index files is not an object")
-        result["error"] = "Malformed plugins metadata"
-        return result
     installed = _installed_plugin_ids()
 
     plugins: list[dict[str, Any]] = []
