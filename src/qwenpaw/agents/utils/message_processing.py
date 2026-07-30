@@ -462,13 +462,18 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
             # download / mutation entirely (it would replace the Pydantic
             # block with a dict and break ``msg.has_content_blocks(...)``
             # in agentscope ``_handle_incoming_messages``).  We only need
-            # the local path for the sibling-text-block injection below.
+            # the local path + original display name for the sibling-text-
+            # block injection below.
             if not isinstance(block, dict):
                 source = getattr(block, "source", None)
                 url = str(getattr(source, "url", "")) if source else ""
                 if url.startswith("file://"):
                     local_path = url.removeprefix("file://")
-                    downloaded_files.append((i, local_path))
+                    display_name = _sanitize_display_filename(
+                        getattr(block, "name", None),
+                        local_path,
+                    )
+                    downloaded_files.append((i, local_path, display_name))
                 # Remote URL or no URL on a Pydantic block: skip silently.
                 # Adding remote-download for Pydantic DataBlock is a
                 # separate feature (would need to also convert the dict
@@ -491,20 +496,102 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
                 block_dict,
             )
             if local_path:
-                downloaded_files.append((i, local_path))
+                display_name = _sanitize_display_filename(
+                    block_dict.get("name"),
+                    local_path,
+                )
+                downloaded_files.append((i, local_path, display_name))
 
         if downloaded_files:
             lang = load_config().agents.language
-            for i, local_path in reversed(downloaded_files):
-                text = (
-                    f"用户上传文件，已经下载到 {local_path}"
-                    if lang == "zh"
-                    else f"User uploaded a file, downloaded to {local_path}"
-                )
+            for i, local_path, display_name in reversed(downloaded_files):
+                if lang == "zh":
+                    if display_name and Path(local_path).name != display_name:
+                        text = (
+                            "用户上传文件“" f"{display_name}”，已经下载到 " f"{local_path}"
+                        )
+                    else:
+                        text = f"用户上传文件，已经下载到 {local_path}"
+                elif display_name and Path(local_path).name != display_name:
+                    text = (
+                        f'User uploaded a file "{display_name}", '
+                        f"downloaded to {local_path}"
+                    )
+                else:
+                    text = f"User uploaded a file, downloaded to {local_path}"
                 message.content.insert(
                     i + 1,
                     TextBlock(type="text", text=text),
                 )
+
+
+def _sanitize_display_filename(
+    raw_name: Optional[str],
+    fallback_path: str,
+) -> str:
+    """Return a filename safe for inline prompt injection.
+
+    ``raw_name`` comes from the untrusted client-supplied ``DataBlock.name``
+    / ``dict["name"]`` field.  We collapse any control characters, vertical
+    whitespace, and bidirectional overrides that could mislead the LLM (or
+    break prompt layout), and trim the result to a reasonable fixed
+    display width so a single huge filename can't dominate the context
+    window.
+
+    Falls back to ``basename(fallback_path)`` when the caller has no
+    display name or after sanitization nothing useful remains.
+    This keeps storage paths intact while surfacing the original user
+    filename in prompt hints — resolving Issue #6453 where CJK display
+    names were being dropped entirely because only the UUID-prefixed
+    media path was shown.
+    """
+    name = raw_name if isinstance(raw_name, str) else ""
+    # URL-percent CJK names (sometimes produced by multipart uploads when
+    # the browser pre-escapes filenames without RFC 5987 encoding) are
+    # unquoted here so the user-facing prompt shows the original glyphs.
+    if name and ("%" in name):
+        try:
+            name = urllib.parse.unquote(name, errors="strict")
+        except ValueError:
+            pass
+    if name:
+        # Remove every C0/C1 control character, vertical whitespace,
+        # bidirectional formatting (LRO/RLO/LRE/RLE/PDF), and the
+        # replacement character itself — anything that can scramble a
+        # one-line prompt.
+        cleaned = "".join(
+            ch
+            for ch in name
+            if not (
+                ord(ch) < 0x20
+                or 0x7F <= ord(ch) <= 0x9F
+                or ch
+                in (
+                    "\u202a",
+                    "\u202b",
+                    "\u202c",
+                    "\u202d",
+                    "\u202e",
+                    "\u200e",
+                    "\u200f",
+                    "\ufeff",
+                    "\ufffc",
+                    "\ufffd",
+                )
+                or ch in ("\r", "\n", "\v", "\f")
+            )
+        ).strip()
+        # Collapse interior runs of whitespace to a single SP so filenames
+        # that were accidentally encoded with embedded newlines / tabs
+        # don't span multiple prompt lines.
+        cleaned = " ".join(cleaned.split())
+        if len(cleaned) > 120:
+            stem = cleaned[:112]
+            suffix = cleaned[-8:]
+            cleaned = f"{stem}…{suffix}"
+        if cleaned:
+            return cleaned
+    return Path(fallback_path).name
 
 
 def is_first_user_interaction(messages: list) -> bool:
