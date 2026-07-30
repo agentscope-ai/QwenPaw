@@ -980,10 +980,10 @@ async def design_motion_overlays(
             intensity=0.6,
         )
         location = ElementLocation(
-            x=0.78,
-            y=0.23,
-            width=0.34,
-            height=0.30,
+            x=0.50,
+            y=0.88,
+            width=0.80,
+            height=0.18,
             anchor_x=0.5,
             anchor_y=0.5,
         )

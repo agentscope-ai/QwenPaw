@@ -874,10 +874,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             "lsp_diagnostics",
         ):
             mgr.hooks.register(name, default_timeout_secs=20.0)
-        mgr.hooks.register(
-            "browser_use",
-            max_internal_timeout_secs=3600.0,
-        )
 
         agent_id = (self._request_context or {}).get(
             "agent_id",

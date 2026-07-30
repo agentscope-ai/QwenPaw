@@ -342,8 +342,7 @@ def test_corrupt_or_duplicate_key_project_is_not_silently_listed(tmp_path):
 
     with pytest.raises(ProjectIntegrityError):
         store.read("project-1")
-    with pytest.raises(ProjectIntegrityError):
-        store.list()
+    assert store.list() == []
     assert store.discover_project_ids() == ("project-1",)
 
     # Keep the variable used to make this test's intentional corruption clear.

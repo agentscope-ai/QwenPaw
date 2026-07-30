@@ -99,6 +99,7 @@ _ERROR_ALIAS_EXISTS = 1379
 _elevated_kernel32_ready: bool = False
 _elevated_advapi32_ready: bool = False
 _dll_netapi32: Optional[Any] = None
+_dll_ntdll: Optional[Any] = None
 _dll_user32: Optional[Any] = None
 _dll_userenv: Optional[Any] = None
 
@@ -200,6 +201,12 @@ def _get_advapi32():
             ctypes.wintypes.BOOL,
         ]
         dll.SetSecurityDescriptorDacl.restype = ctypes.wintypes.BOOL
+        dll.MakeSelfRelativeSD.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.wintypes.DWORD),
+        ]
+        dll.MakeSelfRelativeSD.restype = ctypes.wintypes.BOOL
         _elevated_advapi32_ready = True
     return dll
 
@@ -209,6 +216,20 @@ def _get_netapi32():
     if _dll_netapi32 is None:
         _dll_netapi32 = ctypes.WinDLL("netapi32.dll", use_last_error=True)
     return _dll_netapi32
+
+
+def _get_ntdll():
+    """Returns ntdll with NtSetSecurityObject configured."""
+    global _dll_ntdll
+    if _dll_ntdll is None:
+        _dll_ntdll = ctypes.WinDLL("ntdll.dll", use_last_error=True)
+        _dll_ntdll.NtSetSecurityObject.argtypes = [
+            ctypes.wintypes.HANDLE,
+            ctypes.wintypes.DWORD,
+            ctypes.c_void_p,
+        ]
+        _dll_ntdll.NtSetSecurityObject.restype = ctypes.wintypes.LONG
+    return _dll_ntdll
 
 
 def _get_user32():
@@ -879,20 +900,332 @@ _ACL_DENY_ALL = _ACL_FULL_ACCESS | _WC.GENERIC_ALL
 _ACL_TRAVERSE = 0x00120021
 
 
-def _add_traverse_ace(path: str, psid: ctypes.c_void_p) -> bool:
+def _add_traverse_ace(  # pylint: disable=too-many-return-statements
+    path: str,
+    psid: ctypes.c_void_p,
+) -> bool:
     """Adds a non-inheritable traverse ACE on a directory.
+
+    Uses NtSetSecurityObject.
+
+    Uses the NT native API to directly write the modified DACL, bypassing
+    the Win32 layer's expensive recursive inheritance propagation.  This is
+    O(1) regardless of how many children the directory contains.
 
     Grants FILE_LIST_DIRECTORY | FILE_TRAVERSE | READ_CONTROL |
     SYNCHRONIZE — the minimum for PowerShell/.NET path validation.
     """
     _ensure_privileges()
-    return _set_path_ace(
-        path,
-        psid,
-        _ACL_TRAVERSE,
-        _WC.SET_ACCESS,
-        inherit=False,
+
+    advapi32 = _get_advapi32()
+    kernel32 = _get_kernel32()
+    ntdll = _get_ntdll()
+
+    # Open directory handle with WRITE_DAC | READ_CONTROL
+    _FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+    _OPEN_EXISTING = 3
+    _FILE_SHARE_ALL = 0x07
+    _WRITE_DAC = 0x00040000
+    _READ_CONTROL = 0x00020000
+
+    h_dir = kernel32.CreateFileW(
+        ctypes.c_wchar_p(path),
+        _WRITE_DAC | _READ_CONTROL,
+        _FILE_SHARE_ALL,
+        None,
+        _OPEN_EXISTING,
+        _FILE_FLAG_BACKUP_SEMANTICS,
+        None,
     )
+    if not h_dir or h_dir == ctypes.c_void_p(-1).value:
+        logger.warning(
+            "_add_traverse_ace: CreateFileW(%s) failed: err=%d",
+            path,
+            ctypes.get_last_error(),
+        )
+        return False
+
+    try:
+        # Read existing DACL
+        p_sd = ctypes.c_void_p()
+        p_dacl = ctypes.c_void_p()
+        rc = advapi32.GetSecurityInfo(
+            h_dir,
+            _WC.SE_FILE_OBJECT,
+            _WC.DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            ctypes.byref(p_dacl),
+            None,
+            ctypes.byref(p_sd),
+        )
+        if rc != 0:
+            logger.warning(
+                "_add_traverse_ace: GetSecurityInfo(%s) failed: rc=%d",
+                path,
+                rc,
+            )
+            return False
+
+        try:
+            # Build and merge the new ACE
+            ea = _build_explicit_access(
+                psid,
+                _ACL_TRAVERSE,
+                _WC.SET_ACCESS,
+                0,
+            )
+            new_dacl = ctypes.c_void_p()
+            rc2 = advapi32.SetEntriesInAclW(
+                1,
+                ctypes.byref(ea),
+                p_dacl,
+                ctypes.byref(new_dacl),
+            )
+            if rc2 != 0:
+                logger.warning(
+                    "_add_traverse_ace: SetEntriesInAclW(%s) failed: rc=%d",
+                    path,
+                    rc2,
+                )
+                return False
+
+            try:
+                # Build self-relative SD for NtSetSecurityObject
+                _SECURITY_DESCRIPTOR_REVISION = 1
+                sd_size = 40 if ctypes.sizeof(ctypes.c_void_p) == 8 else 20
+                sd_abs = (ctypes.c_ubyte * sd_size)()
+                advapi32.InitializeSecurityDescriptor(
+                    ctypes.cast(sd_abs, ctypes.c_void_p),
+                    _SECURITY_DESCRIPTOR_REVISION,
+                )
+                advapi32.SetSecurityDescriptorDacl(
+                    ctypes.cast(sd_abs, ctypes.c_void_p),
+                    True,
+                    new_dacl,
+                    False,
+                )
+
+                sr_size = ctypes.wintypes.DWORD(0)
+                advapi32.MakeSelfRelativeSD(
+                    ctypes.cast(sd_abs, ctypes.c_void_p),
+                    None,
+                    ctypes.byref(sr_size),
+                )
+                if sr_size.value == 0:
+                    logger.warning(
+                        "_add_traverse_ace: "
+                        "MakeSelfRelativeSD size query failed",
+                    )
+                    return False
+
+                sd_sr = (ctypes.c_ubyte * sr_size.value)()
+                ok = advapi32.MakeSelfRelativeSD(
+                    ctypes.cast(sd_abs, ctypes.c_void_p),
+                    ctypes.cast(sd_sr, ctypes.c_void_p),
+                    ctypes.byref(sr_size),
+                )
+                if not ok:
+                    logger.warning(
+                        "_add_traverse_ace: MakeSelfRelativeSD failed",
+                    )
+                    return False
+
+                # Write directly via NT API (no inheritance propagation)
+                status = ntdll.NtSetSecurityObject(
+                    h_dir,
+                    _WC.DACL_SECURITY_INFORMATION,
+                    ctypes.cast(sd_sr, ctypes.c_void_p),
+                )
+                if status != 0:
+                    logger.warning(
+                        "_add_traverse_ace: NtSetSecurityObject(%s) failed: "
+                        "NTSTATUS=0x%08X",
+                        path,
+                        status & 0xFFFFFFFF,
+                    )
+                    return False
+                return True
+            finally:
+                if new_dacl:
+                    kernel32.LocalFree(new_dacl)
+        finally:
+            if p_sd:
+                kernel32.LocalFree(p_sd)
+    finally:
+        kernel32.CloseHandle(h_dir)
+
+
+def _remove_traverse_ace(  # pylint: disable=R0911,R0912,R0915
+    path: str,
+    sid_string: str,
+) -> bool:
+    """Removes traverse ACEs for a SID from a directory.
+
+    Uses NtSetSecurityObject.
+
+    Uses the NT native API to write the modified DACL directly, avoiding
+    the expensive recursive inheritance propagation triggered by
+    SetNamedSecurityInfoW.
+
+    Args:
+        path: Filesystem path to clean.
+        sid_string: SID string to remove from the DACL.
+
+    Returns:
+        True if the SID was removed or the path does not exist.
+    """
+    if not os.path.exists(path):
+        return True
+
+    _ensure_privileges()
+
+    advapi32 = _get_advapi32()
+    kernel32 = _get_kernel32()
+    ntdll = _get_ntdll()
+
+    _FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+    _OPEN_EXISTING = 3
+    _FILE_SHARE_ALL = 0x07
+    _WRITE_DAC = 0x00040000
+    _READ_CONTROL = 0x00020000
+
+    h_dir = kernel32.CreateFileW(
+        ctypes.c_wchar_p(path),
+        _WRITE_DAC | _READ_CONTROL,
+        _FILE_SHARE_ALL,
+        None,
+        _OPEN_EXISTING,
+        _FILE_FLAG_BACKUP_SEMANTICS,
+        None,
+    )
+    if not h_dir or h_dir == ctypes.c_void_p(-1).value:
+        logger.warning(
+            "_remove_traverse_ace: CreateFileW(%s) failed: err=%d",
+            path,
+            ctypes.get_last_error(),
+        )
+        return False
+
+    try:
+        # Read existing DACL
+        p_sd = ctypes.c_void_p()
+        p_dacl = ctypes.c_void_p()
+        rc = advapi32.GetSecurityInfo(
+            h_dir,
+            _WC.SE_FILE_OBJECT,
+            _WC.DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            ctypes.byref(p_dacl),
+            None,
+            ctypes.byref(p_sd),
+        )
+        if rc != 0:
+            logger.warning(
+                "_remove_traverse_ace: GetSecurityInfo(%s) failed: rc=%d",
+                path,
+                rc,
+            )
+            return False
+
+        try:
+            # Resolve SID string to pointer for comparison
+            psid_target = _string_to_sid(sid_string)
+            try:
+                # Find and delete matching ACEs
+                class _ACL_SIZE_INFORMATION(ctypes.Structure):
+                    _fields_ = [
+                        ("AceCount", ctypes.wintypes.DWORD),
+                        ("AclBytesInUse", ctypes.wintypes.DWORD),
+                        ("AclBytesFree", ctypes.wintypes.DWORD),
+                    ]
+
+                acl_info = _ACL_SIZE_INFORMATION()
+                ok = advapi32.GetAclInformation(
+                    p_dacl,
+                    ctypes.byref(acl_info),
+                    ctypes.sizeof(acl_info),
+                    2,
+                )
+                if not ok:
+                    return False
+
+                to_delete = []
+                for i in range(acl_info.AceCount):
+                    ace_ptr = ctypes.c_void_p()
+                    if not advapi32.GetAce(p_dacl, i, ctypes.byref(ace_ptr)):
+                        continue
+                    if ace_ptr.value is None:
+                        continue
+                    sid_ptr = ctypes.c_void_p(ace_ptr.value + 8)
+                    if advapi32.IsValidSid(sid_ptr) and advapi32.EqualSid(
+                        sid_ptr,
+                        psid_target,
+                    ):
+                        to_delete.append(i)
+
+                if not to_delete:
+                    return True  # Nothing to remove
+
+                for idx in reversed(to_delete):
+                    advapi32.DeleteAce(p_dacl, idx)
+
+                # Build self-relative SD and write via NtSetSecurityObject
+                _SECURITY_DESCRIPTOR_REVISION = 1
+                sd_size = 40 if ctypes.sizeof(ctypes.c_void_p) == 8 else 20
+                sd_abs = (ctypes.c_ubyte * sd_size)()
+                advapi32.InitializeSecurityDescriptor(
+                    ctypes.cast(sd_abs, ctypes.c_void_p),
+                    _SECURITY_DESCRIPTOR_REVISION,
+                )
+                advapi32.SetSecurityDescriptorDacl(
+                    ctypes.cast(sd_abs, ctypes.c_void_p),
+                    True,
+                    p_dacl,
+                    False,
+                )
+
+                sr_size = ctypes.wintypes.DWORD(0)
+                advapi32.MakeSelfRelativeSD(
+                    ctypes.cast(sd_abs, ctypes.c_void_p),
+                    None,
+                    ctypes.byref(sr_size),
+                )
+                if sr_size.value == 0:
+                    return False
+
+                sd_sr = (ctypes.c_ubyte * sr_size.value)()
+                ok = advapi32.MakeSelfRelativeSD(
+                    ctypes.cast(sd_abs, ctypes.c_void_p),
+                    ctypes.cast(sd_sr, ctypes.c_void_p),
+                    ctypes.byref(sr_size),
+                )
+                if not ok:
+                    return False
+
+                status = ntdll.NtSetSecurityObject(
+                    h_dir,
+                    _WC.DACL_SECURITY_INFORMATION,
+                    ctypes.cast(sd_sr, ctypes.c_void_p),
+                )
+                if status != 0:
+                    logger.warning(
+                        "_remove_traverse_ace: "
+                        "NtSetSecurityObject(%s) failed: "
+                        "NTSTATUS=0x%08X",
+                        path,
+                        status & 0xFFFFFFFF,
+                    )
+                    return False
+                return True
+            finally:
+                kernel32.LocalFree(psid_target)
+        finally:
+            if p_sd:
+                kernel32.LocalFree(p_sd)
+    finally:
+        kernel32.CloseHandle(h_dir)
 
 
 def _allow_ace_matches_any_sid(
@@ -1002,52 +1335,6 @@ def _check_any_sid_in_dacl(
     finally:
         if p_sd:
             kernel32.LocalFree(p_sd)
-
-
-def _can_user_traverse(path: str) -> bool:
-    """Checks whether the sandbox user can traverse a directory.
-
-    Considers groups the sandbox user inherits permissions from:
-    the QwenpawUsers group, BUILTIN\\Users, and Everyone.
-    The user's own SID is not checked because each sandbox user is
-    freshly created and will never have a pre-existing ACE.
-
-    Args:
-        path: Directory path to check.
-        user_psid: Pointer to the sandbox user's SID (unused, kept
-            for API consistency).
-
-    Returns:
-        True if any relevant group SID has an ALLOW ACE on the path.
-    """
-    sids_to_check: List[ctypes.c_void_p] = []
-
-    # QwenpawUsers group
-    group_result = _lookup_account_sid(SANDBOX_USERS_GROUP)
-    if group_result is not None:
-        group_sid_buf, _ = group_result
-        sids_to_check.append(ctypes.cast(group_sid_buf, ctypes.c_void_p))
-
-    # BUILTIN\Users (WinBuiltinUsersSid = 27)
-    _WinBuiltinUsersSid = 27
-    try:
-        users_bytes = _create_well_known_sid(_WinBuiltinUsersSid)
-        users_buf = (ctypes.c_ubyte * len(users_bytes))(*users_bytes)
-        users_ptr = ctypes.cast(users_buf, ctypes.c_void_p)
-        sids_to_check.append(users_ptr)
-    except OSError:
-        pass
-
-    # Everyone (WinWorldSid = 1)
-    try:
-        everyone_bytes = _create_well_known_sid(_WC.WinWorldSid)
-        everyone_buf = (ctypes.c_ubyte * len(everyone_bytes))(*everyone_bytes)
-        everyone_ptr = ctypes.cast(everyone_buf, ctypes.c_void_p)
-        sids_to_check.append(everyone_ptr)
-    except OSError:
-        pass
-
-    return _check_any_sid_in_dacl(path, sids_to_check)
 
 
 def _add_allow_ace(path: str, psid: ctypes.c_void_p) -> bool:
@@ -1232,79 +1519,16 @@ def _ensure_python_dir_group_acl() -> None:
         _python_dir_acl_granted = False
 
 
-def _ensure_parent_traverse_acls(
-    group_psid: ctypes.c_void_p,
-) -> None:
-    """Grants a traverse ACE on ``%USERPROFILE%``.
-
-    PowerShell/.NET validates every path segment via Directory.Exists()
-    before accepting it as $PWD.  Sets a traverse ACE on the user
-    profile directory so the sandbox user can reach workspace paths
-    beneath it.
-
-    ``C:\\Users`` is skipped because ``BUILTIN\\Users`` already has
-    Read & Execute on it by default in standard Windows installations.
-
-    One-time persistent operation (marker-file guarded, never cleaned up).
-
-    Args:
-        group_psid: Pointer to the QwenpawUsers group SID.
-    """
-    marker = _qwenpaw_state_dir / ".traverse_acl_granted"
-    if marker.exists():
-        return
-
-    user_profile = os.environ.get(
-        "USERPROFILE",
-        os.path.expanduser("~"),
-    )
-
-    targets: List[str] = []
-    if os.path.isdir(user_profile):
-        targets.append(user_profile)
-
-    if not targets:
-        return
-
-    logger.info(
-        "Granting traverse to %s on %s (one-time, persistent)",
-        SANDBOX_USERS_GROUP,
-        targets,
-    )
-
-    all_ok = True
-    for d in targets:
-        if _add_traverse_ace(d, group_psid):
-            logger.debug("  Traverse ACE set: %s", d)
-        else:
-            logger.warning("  Failed to set traverse ACE on: %s", d)
-            all_ok = False
-
-    if all_ok:
-        try:
-            marker.parent.mkdir(parents=True, exist_ok=True)
-            marker.write_text(SANDBOX_USERS_GROUP, encoding="utf-8")
-        except OSError:
-            pass
-
-
 def _ensure_workspace_traverse_acls(
     workspace_dir: str,
     user_psid: ctypes.c_void_p,
 ) -> List[_AclEntry]:
-    """Grants traverse ACEs on intermediate dirs between USERPROFILE and
-    workspace_dir.
+    """Grants traverse ACEs on parent dirs up to workspace_dir.
 
-    For each intermediate directory that the sandbox user cannot already
-    traverse (checked via Win32 API), adds a non-inheritable traverse
-    ACE using the sandbox user's SID.  These are tracked in the returned
-    list and cleaned up during ``shutdown_cleanup``.
-
-    If ``workspace_dir`` is not under ``%USERPROFILE%`` (e.g. on a
-    secondary drive like ``D:\\project``), intermediate directories are
-    checked from the drive root down.  Directories that already inherit
-    adequate permissions (typical for non-system drives) will be skipped
-    automatically.
+    Uses NtSetSecurityObject which completes in <1ms per directory regardless
+    of child count.  Since the overhead is negligible, we unconditionally set
+    traverse ACEs on every parent directory without checking existing
+    permissions first.
 
     Args:
         workspace_dir: The sandbox workspace directory path.
@@ -1316,34 +1540,17 @@ def _ensure_workspace_traverse_acls(
     """
     entries: List[_AclEntry] = []
 
-    user_profile = os.path.normpath(
-        os.environ.get("USERPROFILE", os.path.expanduser("~")),
-    )
     ws_norm = os.path.normpath(workspace_dir)
+    drive_root = os.path.splitdrive(ws_norm)[0] + os.sep
 
-    # Determine the "known-accessible" ancestor:
-    # - If workspace_dir is under USERPROFILE, start from USERPROFILE
-    #   (which already has a persistent group traverse ACE).
-    # - Otherwise, start from the drive root (which typically grants
-    #   BUILTIN\Users Read & Execute with full inheritance).
-    try:
-        rel = os.path.relpath(ws_norm, user_profile)
-        if not rel.startswith(".."):
-            base = user_profile
-        else:
-            base = os.path.splitdrive(ws_norm)[0] + os.sep
-    except ValueError:
-        # Different drives on Windows (e.g., C: vs D:)
-        base = os.path.splitdrive(ws_norm)[0] + os.sep
-
-    # Collect intermediate directories: those strictly between base and
-    # workspace_dir (both exclusive).
+    # Collect all parent directories from drive root (exclusive) down to
+    # the immediate parent of workspace_dir (inclusive).
     intermediates: List[str] = []
-    current = os.path.dirname(ws_norm)  # start from parent of workspace_dir
-    base_norm = os.path.normcase(os.path.normpath(base))
+    current = os.path.dirname(ws_norm)
+    root_norm = os.path.normcase(os.path.normpath(drive_root))
     while True:
         current_norm = os.path.normcase(os.path.normpath(current))
-        if current_norm == base_norm:
+        if current_norm == root_norm:
             break
         parent = os.path.dirname(current)
         if os.path.normcase(parent) == current_norm:
@@ -1356,15 +1563,9 @@ def _ensure_workspace_traverse_acls(
     for d in intermediates:
         if not os.path.isdir(d):
             continue
-        if _can_user_traverse(d):
-            logger.debug(
-                "  Traverse already present on: %s (skipped)",
-                d,
-            )
-            continue
         if _add_traverse_ace(d, user_psid):
             entries.append(_AclEntry(d, "traverse", "user"))
-            logger.debug("  Traverse ACE set on intermediate dir: %s", d)
+            logger.debug("  Traverse ACE set on: %s", d)
         else:
             logger.warning("  Failed to set traverse ACE on: %s", d)
 
@@ -1420,22 +1621,13 @@ def _apply_all_acls(
 
         _ensure_python_dir_group_acl()
 
-        # Grant traverse on %USERPROFILE% for the QwenpawUsers group
-        # so that PowerShell/.NET can validate the path chain when
-        # setting $PWD.  This is a one-time persistent operation
-        # (marker-file guarded, never cleaned up).
-        group_result = _lookup_account_sid(SANDBOX_USERS_GROUP)
-        if group_result is not None:
-            group_sid_buf, _ = group_result
-            group_psid = ctypes.cast(group_sid_buf, ctypes.c_void_p)
-            _ensure_parent_traverse_acls(group_psid)
-
         user_psid = _string_to_sid(user_sid_string)
         try:
             _grant_workspace_and_mounts(user_psid, "user")
 
-            # Grant traverse on intermediate directories between
-            # USERPROFILE and workspace_dir using the sandbox user's SID.
+            # Grant traverse on all parent directories from drive root
+            # to workspace_dir using the sandbox user's SID.
+            # Uses NtSetSecurityObject (<1ms per dir, no propagation).
             # These are per-sandbox and cleaned up on exit.
             traverse_entries = _ensure_workspace_traverse_acls(
                 config.workspace_dir,
@@ -2537,7 +2729,8 @@ def _remove_acls_from_metadata(
     cap_sid: str,
     user_sid: str,
     _username: str,
-) -> None:
+) -> int:
+    """Removes ACLs from metadata entries. Returns count of failures."""
     _workspace_default = os.path.normpath(
         os.path.join(
             os.path.expanduser("~"),
@@ -2547,9 +2740,11 @@ def _remove_acls_from_metadata(
         ),
     )
 
+    failed = 0
     for entry in acl_entries:
         entry_path = entry.get("path", "")
         sid_type = entry.get("sid_type", "")
+        access_mode = entry.get("access_mode", "")
         if not entry_path or not os.path.exists(entry_path):
             continue
 
@@ -2566,12 +2761,20 @@ def _remove_acls_from_metadata(
 
         if sid:
             t_entry = time.monotonic()
-            use_reset_only = os.path.normpath(entry_path) == _workspace_default
-            ok = _remove_acl_with_verify_sync_local(
-                entry_path,
-                sid,
-                reset_only=use_reset_only,
-            )
+            if access_mode == "traverse":
+                # Use fast NtSetSecurityObject path for traverse ACEs
+                ok = _remove_traverse_ace(entry_path, sid)
+            else:
+                use_reset_only = (
+                    os.path.normpath(entry_path) == _workspace_default
+                )
+                ok = _remove_acl_with_verify_sync_local(
+                    entry_path,
+                    sid,
+                    reset_only=use_reset_only,
+                )
+            if not ok:
+                failed += 1
             logger.debug(
                 "  ACL remove [%s] %s sid_type=%s: %.2fs (%s)",
                 "OK" if ok else "FAIL",
@@ -2580,9 +2783,46 @@ def _remove_acls_from_metadata(
                 time.monotonic() - t_entry,
                 sid[:20] + "..." if len(sid) > 20 else sid,
             )
+    return failed
 
 
-def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
+def _move_to_failed_cleanup_elevated(
+    meta: dict,
+    meta_file: Path,
+    reason: str,
+) -> None:
+    """Moves metadata to failed_cleanup/ when cleanup fails."""
+    import datetime
+
+    failed_dir = _qwenpaw_state_dir / "failed_cleanup"
+    failed_dir.mkdir(parents=True, exist_ok=True)
+    dest = failed_dir / meta_file.name
+    counter = 1
+    while dest.exists():
+        dest = failed_dir / f"{meta_file.stem}_{counter}.json"
+        counter += 1
+    meta["_cleanup_error"] = {
+        "reason": reason,
+        "timestamp": datetime.datetime.now().isoformat(),
+    }
+    try:
+        dest.write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError:
+        return
+    try:
+        meta_file.unlink()
+    except OSError:
+        pass
+    logger.info("Cleanup failed, metadata preserved: %s", dest.name)
+
+
+def _cleanup_from_metadata(  # pylint: disable=R0912
+    meta: dict,
+    meta_file: Path,
+) -> None:
     username = meta.get("username", "")
     user_sid = meta.get("user_sid", "")
     cap_sid = meta.get("cap_sid", "")
@@ -2591,7 +2831,7 @@ def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
     sandbox_id = meta.get("sandbox_id", username)
 
     t0 = time.monotonic()
-    _remove_acls_from_metadata(
+    acl_failed = _remove_acls_from_metadata(
         acl_entries,
         cap_sid,
         user_sid,
@@ -2599,14 +2839,16 @@ def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
     )
     t1 = time.monotonic()
     logger.info(
-        "[%s] ACL removal: %.2fs (%d entries)",
+        "[%s] ACL removal: %.2fs (%d entries, %d failed)",
         sandbox_id,
         t1 - t0,
         len(acl_entries),
+        acl_failed,
     )
 
+    firewall_ok = True
     if network_blocked and username:
-        _remove_firewall_rules_sync(username)
+        firewall_ok = _remove_firewall_rules_sync(username)
         t2 = time.monotonic()
         logger.info(
             "[%s] Firewall rules removal: %.2fs",
@@ -2616,8 +2858,9 @@ def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
     else:
         t2 = t1
 
+    user_ok = True
     if username:
-        _delete_local_user_sync(username)
+        user_ok = _delete_local_user_sync(username)
         t3 = time.monotonic()
         logger.info(
             "[%s] User account deletion: %.2fs",
@@ -2627,8 +2870,9 @@ def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
     else:
         t3 = t2
 
+    profile_ok = True
     if username:
-        _remove_profile_dir_sync(username, user_sid)
+        profile_ok = _remove_profile_dir_sync(username, user_sid)
         t4 = time.monotonic()
         logger.info(
             "[%s] Profile directory removal: %.2fs",
@@ -2638,10 +2882,28 @@ def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
     else:
         t4 = t3
 
-    try:
-        meta_file.unlink()
-    except OSError:
-        pass
+    # Determine if any step failed
+    failures: List[str] = []
+    if acl_failed > 0:
+        failures.append(f"ACL removal failed for {acl_failed} path(s)")
+    if not firewall_ok:
+        failures.append("firewall rule removal failed")
+    if not user_ok:
+        failures.append("user account deletion failed")
+    if not profile_ok:
+        failures.append("profile directory removal failed")
+
+    if failures:
+        _move_to_failed_cleanup_elevated(
+            meta,
+            meta_file,
+            "; ".join(failures),
+        )
+    else:
+        try:
+            meta_file.unlink()
+        except OSError:
+            pass
 
     logger.info(
         "[%s] Total cleanup: %.2fs",

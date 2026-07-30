@@ -48,7 +48,7 @@ def test_dashscope_model_falls_back_when_model_config_raises(monkeypatch):
 
     monkeypatch.setattr(
         provider_config.model_config,
-        "get_text_model_name",
+        "get_web_grounding_search_model_name",
         fail_model_name,
     )
 
@@ -754,7 +754,9 @@ def test_search_web_retries_dashscope_timeout_with_sixty_second_client(
     assert "dashscope_web_search:retry_succeeded:2" in result["issues"]
 
 
-def test_search_visual_refs_prefers_tavily_when_it_has_results(monkeypatch):
+def test_search_visual_refs_supplements_insufficient_tavily_results(
+    monkeypatch,
+):
     monkeypatch.delenv("WEB_GROUNDING_IMAGE_PROVIDERS", raising=False)
     monkeypatch.delenv("WEB_GROUNDING_VISUAL_PROVIDERS", raising=False)
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
@@ -770,23 +772,50 @@ def test_search_visual_refs_prefers_tavily_when_it_has_results(monkeypatch):
             },
         ]
 
-    async def fail_dashscope(*args, **kwargs):
-        raise AssertionError(
-            "DashScope fallback should not run when Tavily has results",
-        )
+    async def fake_dashscope(client, query, limit):
+        return [
+            {
+                "url": "https://img.test/qwen.jpg",
+                "title": "Qwen image",
+                "provider": "dashscope_web_search_image",
+                "query": query,
+            },
+        ]
 
     monkeypatch.setattr(provider_search, "_search_tavily_visuals", fake_tavily)
     monkeypatch.setattr(
         provider_search,
         "_search_dashscope_web_search_image_visuals",
-        fail_dashscope,
+        fake_dashscope,
     )
 
     result = asyncio.run(web_grounding.search_visual_refs("Erling Haaland"))
 
-    assert result["providers"] == ["tavily"]
-    assert result["provider"] == "tavily"
-    assert result["visual_sources"][0]["url"] == "https://img.test/tavily.jpg"
+    assert result["providers"] == [
+        "tavily",
+        "dashscope_web_search_image",
+    ]
+    assert result["provider"] == "dashscope_web_search_image"
+    assert [source["url"] for source in result["visual_sources"]] == [
+        "https://img.test/tavily.jpg",
+        "https://img.test/qwen.jpg",
+    ]
+
+
+def test_visual_provider_order_is_fixed_and_ignores_legacy_override(
+    monkeypatch,
+):
+    monkeypatch.setenv(
+        "WEB_GROUNDING_IMAGE_PROVIDERS",
+        "dashscope_web_search_image,tavily",
+    )
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
+    monkeypatch.setenv("TEXT_API_KEY", "dashscope-test")
+
+    assert provider_config.visual_search_provider_order() == (
+        "tavily",
+        "dashscope_web_search_image",
+    )
 
 
 def test_search_visual_refs_falls_back_to_dashscope_when_tavily_empty(
@@ -1149,7 +1178,7 @@ def test_visual_verification_failure_marks_every_candidate_unusable(
 ):
     monkeypatch.setattr(
         verification.model_config,
-        "get_vlm_api_key",
+        "get_web_grounding_model_api_key",
         lambda: "key",
     )
 
@@ -1194,7 +1223,7 @@ def test_visual_verification_uses_explicit_zero_timeout_consistently(
     captured = {}
     monkeypatch.setattr(
         verification.model_config,
-        "get_vlm_api_key",
+        "get_web_grounding_model_api_key",
         lambda: "key",
     )
     monkeypatch.setattr(
@@ -1237,6 +1266,110 @@ def test_visual_verification_uses_explicit_zero_timeout_consistently(
 
     assert trace["status"] == "success"
     assert captured == {"inner_timeout": 0, "outer_timeout": 0}
+
+
+def test_visual_verification_retries_timeout_with_bounded_backoff(
+    monkeypatch,
+):
+    calls: list[float] = []
+    monkeypatch.setattr(
+        verification.model_config,
+        "get_web_grounding_model_api_key",
+        lambda: "key",
+    )
+    monkeypatch.setattr(
+        verification.model_config,
+        "get_web_grounding_verification_max_attempts",
+        lambda: 3,
+    )
+    monkeypatch.setattr(
+        verification.model_config,
+        "get_web_grounding_verification_total_budget_seconds",
+        lambda: 300,
+    )
+    monkeypatch.setattr(
+        verification.model_config,
+        "get_web_grounding_retry_base_seconds",
+        lambda: 1,
+    )
+    monkeypatch.setattr(
+        verification.model_config,
+        "get_web_grounding_retry_max_seconds",
+        lambda: 8,
+    )
+    monkeypatch.setattr(verification.random, "uniform", lambda _low, _high: 0)
+    monkeypatch.setattr(
+        verification,
+        "multimodal_media_part",
+        lambda url, media_type: {
+            "type": "image_url",
+            "image_url": {"url": url},
+        },
+    )
+
+    async def flaky_chat_completion(*args, **kwargs):
+        calls.append(kwargs["timeout"])
+        if len(calls) == 1:
+            raise TimeoutError("provider timed out")
+        return json.dumps({"selected": [], "rejected": [], "summary": ""})
+
+    monkeypatch.setattr(
+        verification.vlm_model,
+        "chat_completion",
+        flaky_chat_completion,
+    )
+
+    _sources, trace = asyncio.run(
+        verification.verify_visual_grounding_with_vlm(
+            "fictional athlete",
+            [
+                {
+                    "index": 1,
+                    "local_url": "file:///tmp/reference.jpg",
+                    "vlm_image_url": "file:///tmp/reference.jpg",
+                },
+            ],
+            timeout=120,
+        ),
+    )
+
+    assert trace["status"] == "success"
+    assert trace["attempt_count"] == 2
+    assert [item["status"] for item in trace["attempts"]] == [
+        "failed",
+        "success",
+    ]
+    assert trace["attempts"][0]["retryable"] is True
+    assert calls == [120, 120]
+
+
+def test_ground_prompt_context_skips_every_stage_when_disabled(monkeypatch):
+    monkeypatch.setattr(
+        web_grounding.model_config,
+        "get_web_grounding_enabled",
+        lambda: False,
+    )
+
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("grounding stage should not run")
+
+    monkeypatch.setattr(
+        web_grounding,
+        "triage_grounding_request",
+        fail_if_called,
+    )
+
+    result = asyncio.run(
+        web_grounding.ground_prompt_context(
+            "find current references",
+            force=True,
+            include_visuals=True,
+        ),
+    )
+
+    assert result["status"] == "skipped"
+    assert result["detector"] == "disabled"
+    assert result["issues"] == ["grounding_disabled"]
 
 
 def test_query_coverage_skips_duplicate_before_selecting_valid_candidate():
@@ -1612,7 +1745,7 @@ def test_ground_prompt_context_can_verify_visual_sources_with_vlm(
     )
     monkeypatch.setattr(
         verification.model_config,
-        "get_vlm_api_key",
+        "get_web_grounding_model_api_key",
         lambda: "key",
     )
     monkeypatch.setattr(
@@ -1797,7 +1930,7 @@ def test_visual_grounding_ranks_per_entity_and_filters_bad_person_identity_refs(
     )
     monkeypatch.setattr(
         verification.model_config,
-        "get_vlm_api_key",
+        "get_web_grounding_model_api_key",
         lambda: "key",
     )
     monkeypatch.setattr(
@@ -2033,7 +2166,7 @@ def test_strict_identity_visual_grounding_retries_until_photo_is_accepted(
     )
     monkeypatch.setattr(
         verification.model_config,
-        "get_vlm_api_key",
+        "get_web_grounding_model_api_key",
         lambda: "key",
     )
     monkeypatch.setattr(
@@ -2154,7 +2287,7 @@ def test_strict_identity_visual_grounding_degrades_when_no_photo_is_accepted(
     )
     monkeypatch.setattr(
         verification.model_config,
-        "get_vlm_api_key",
+        "get_web_grounding_model_api_key",
         lambda: "key",
     )
     monkeypatch.setattr(
@@ -2246,7 +2379,7 @@ def test_ground_prompt_context_renders_visual_refs_in_grounded_context(
     )
     monkeypatch.setattr(
         verification.model_config,
-        "get_vlm_api_key",
+        "get_web_grounding_model_api_key",
         lambda: "",
     )
 
@@ -2309,6 +2442,37 @@ def test_search_web_reports_when_both_provider_keys_are_missing(monkeypatch):
         "tavily_api_key_missing",
         "dashscope_web_search_api_key_missing",
     ]
+
+
+def test_search_web_skips_incompatible_native_search_model(monkeypatch):
+    monkeypatch.setattr(provider_search, "_tavily_api_key", lambda: "")
+    monkeypatch.setattr(
+        provider_search,
+        "_dashscope_web_search_api_key",
+        lambda: "generic-key",
+    )
+    monkeypatch.setattr(
+        provider_search,
+        "_dashscope_native_search_unavailable_reason",
+        lambda **kwargs: "native_search_provider_incompatible",
+    )
+
+    async def fail_native_search(*args, **kwargs):
+        raise AssertionError("incompatible model must not receive web_search")
+
+    monkeypatch.setattr(
+        provider_search,
+        "_search_dashscope_web",
+        fail_native_search,
+    )
+
+    result = asyncio.run(web_grounding.search_web("Erling Haaland"))
+
+    assert result["providers_attempted"] == []
+    assert (
+        "dashscope_web_search:native_search_provider_incompatible"
+        in result["issues"]
+    )
 
 
 def test_public_provider_helpers_are_removed():

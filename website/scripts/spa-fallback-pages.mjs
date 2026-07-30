@@ -24,6 +24,7 @@ const DOC_SLUGS = [
   "config",
   "backup",
   "cli",
+  "creator",
   "community",
   "contributing",
 ];

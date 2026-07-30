@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 import os
@@ -15,10 +15,13 @@ import shutil
 import stat
 import tempfile
 import threading
+from typing import Any, Final
 from uuid import uuid4
 
 from pydantic import ValidationError
 from services.runtime_files.locking import CrossProcessFileLock
+from services.storage_root import require_creator_data_root
+from utils.logger import setup_logger
 
 from .models import Project
 from .serialization import (
@@ -27,6 +30,8 @@ from .serialization import (
     project_etag,
     project_file_bytes,
 )
+
+logger = setup_logger("store")
 
 
 DEFAULT_MAX_PROJECT_JSON_BYTES = 8 * 1024 * 1024
@@ -77,6 +82,105 @@ class ProjectSummary:
     created_at: datetime
     updated_at: datetime
     etag: str
+    cover_version_id: str | None = None
+    cover_version_source: str | None = None
+    final_video_version_id: str | None = None
+
+
+# Storyboard frames represent a Project best; character/scene reference images
+# are the next best thing before falling back to any rendered or uploaded image.
+_COVER_ARTIFACT_KINDS: Final = ("r2v_storyboard_image", "visual_asset_image")
+# Editing Projects usually own no still at all, so a rendered cut or an uploaded
+# clip supplies the cover through a keyframe instead of staying empty.
+_COVER_VIDEO_ARTIFACT_KINDS: Final = ("final_video", "element_video")
+
+
+def _cover_reference(project: Project) -> tuple[str, str] | None:
+    """Pick a stable preview image for *project* from its asset index.
+
+    Returns the version id plus the media family serving it: ``artifact`` or
+    ``source`` for images, ``artifact_frame`` or ``source_frame`` when the cover
+    must be extracted from a video.  ``None`` means the Project holds no visual
+    media at all.  The oldest candidate wins so the cover does not shuffle while
+    a Project keeps generating new frames.
+    """
+
+    files = project.assets.files_by_id
+
+    def _is_image(file_id: str | None) -> bool:
+        if file_id is None:
+            return False
+        indexed = files.get(file_id)
+        return bool(indexed and indexed.media_type.startswith("image/"))
+
+    def _is_video(file_id: str | None) -> bool:
+        if file_id is None:
+            return False
+        indexed = files.get(file_id)
+        return bool(indexed and indexed.media_type.startswith("video/"))
+
+    def _oldest(candidates: list[Any]) -> Any:
+        return min(
+            candidates,
+            key=lambda version: (version.created_at, version.version_id),
+        )
+
+    artifacts = list(project.assets.artifact_versions_by_id.values())
+    images = [version for version in artifacts if _is_image(version.file_id)]
+    for kind in (*_COVER_ARTIFACT_KINDS, None):
+        candidates = [
+            version
+            for version in images
+            if kind is None or version.kind == kind
+        ]
+        if candidates:
+            return _oldest(candidates).version_id, "artifact"
+    sources = list(project.assets.source_versions_by_id.values())
+    image_sources = [
+        version
+        for version in sources
+        if version.media_kind == "image" and _is_image(version.file_id)
+    ]
+    if image_sources:
+        return _oldest(image_sources).version_id, "source"
+    videos = [version for version in artifacts if _is_video(version.file_id)]
+    for kind in (*_COVER_VIDEO_ARTIFACT_KINDS, None):
+        candidates = [
+            version
+            for version in videos
+            if kind is None or version.kind == kind
+        ]
+        if candidates:
+            return _oldest(candidates).version_id, "artifact_frame"
+    # Uploaded clips may still live in the remote cache only; the keyframe route
+    # reports that as "not cached yet" and the card keeps its placeholder.
+    video_sources = [
+        version for version in sources if version.media_kind == "video"
+    ]
+    if video_sources:
+        return _oldest(video_sources).version_id, "source_frame"
+    return None
+
+
+def _final_video_reference(project: Project) -> str | None:
+    """Pick the newest rendered final cut of *project*, if any."""
+
+    files = project.assets.files_by_id
+    candidates = [
+        version
+        for version in project.assets.artifact_versions_by_id.values()
+        if version.kind == "final_video"
+        and version.file_id is not None
+        and (indexed := files.get(version.file_id)) is not None
+        and indexed.media_type.startswith("video/")
+    ]
+    if not candidates:
+        return None
+    newest = max(
+        candidates,
+        key=lambda version: (version.created_at, version.version_id),
+    )
+    return newest.version_id
 
 
 class ProjectStore:
@@ -278,8 +382,9 @@ class ProjectStore:
         and ``name``. *sort_order* accepts ``asc`` or ``desc`` (default).
 
         Incomplete directories without ``project.json`` and internal deletion
-        tombstones are ignored. A discovered but corrupt Project is surfaced as
-        an integrity error instead of being silently hidden from callers.
+        tombstones are ignored. A discovered but corrupt Project is logged as
+        a warning and skipped so that one bad Project does not block listing
+        the remaining healthy ones.
         """
 
         summaries: list[ProjectSummary] = []
@@ -302,7 +407,12 @@ class ProjectStore:
                 continue
             if not (entry / "project.json").exists():
                 continue
-            snapshot = self.read(safe_id)
+            try:
+                snapshot = self.read(safe_id)
+            except ProjectStoreError as exc:
+                logger.warning("Skipping corrupt Project %s: %s", safe_id, exc)
+                continue
+            cover = _cover_reference(snapshot.project)
             summaries.append(
                 ProjectSummary(
                     project_id=safe_id,
@@ -316,6 +426,11 @@ class ProjectStore:
                     created_at=snapshot.project.created_at,
                     updated_at=snapshot.project.updated_at,
                     etag=snapshot.etag,
+                    cover_version_id=cover[0] if cover else None,
+                    cover_version_source=cover[1] if cover else None,
+                    final_video_version_id=_final_video_reference(
+                        snapshot.project,
+                    ),
                 ),
             )
         reverse = sort_order == "desc"
@@ -396,6 +511,66 @@ class ProjectStore:
                 raise ProjectStoreError(
                     f"Project was removed but tombstone cleanup failed: {safe_id}",
                 ) from exc
+
+    def export(self, project_id: str) -> tuple[int, Iterator[bytes]]:
+        """Compress the whole Project folder into a zip under ``CREATOR_DATA_ROOT``/exports/.
+        Returns the archive byte size plus an iterator yielding the contents
+        in 8192-byte chunks, so HTTP callers can advertise Content-Length for
+        download progress without loading the whole file into memory.
+
+        This is a best-effort snapshot of the on-disk tree: it does not take
+        the lifecycle lock, so a concurrent mutation may be partially captured.
+        """
+        export_root = require_creator_data_root() / "exports"
+        export_root.mkdir(parents=True, exist_ok=True)
+
+        safe_id = _safe_project_id(project_id)
+        zip_file_stem = f"{safe_id}-{uuid4().hex}"
+        logger.info(f"exporting to:{str(export_root / zip_file_stem)}")
+
+        archive_path = None
+        with self.lifecycle_lock(safe_id), self._lock:
+            # Confirm the Project exists and is loadable before archiving.
+            self.read(safe_id)
+            try:
+                archive_path = shutil.make_archive(
+                    str(export_root / zip_file_stem),
+                    "zip",
+                    root_dir=str(self.root),
+                    base_dir=safe_id,
+                )
+                logger.info(f"export file path:{archive_path}")
+            except Exception as e:
+                logger.error(
+                    f"failed to create export file for project {safe_id}",
+                    exc_info=True,
+                )
+                raise ProjectStoreError(
+                    f"failed to create export file for project {safe_id}",
+                ) from e
+
+        return (
+            Path(archive_path).stat().st_size,
+            self._stream_export_archive(archive_path),
+        )
+
+    def _stream_export_archive(self, archive_path: str) -> Iterator[bytes]:
+        try:
+            with open(archive_path, "rb") as archive_file:
+                while True:
+                    chunk = archive_file.read(8192)
+                    if not chunk:
+                        break
+                    yield chunk
+        except Exception as e:
+            logger.error(
+                f"failed to export project bytes:{archive_path}",
+                exc_info=True,
+            )
+            raise ProjectStoreError("failed to export project bytes") from e
+        finally:
+            Path(archive_path).unlink(missing_ok=True)
+            logger.info(f"deleted project export zip file {archive_path}")
 
     def lifecycle_lock(self, project_id: str) -> CrossProcessFileLock:
         """Serialize creation/deletion with all Project-scoped mutations."""

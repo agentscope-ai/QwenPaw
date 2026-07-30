@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Modal, Form, Input, Select } from "@agentscope-ai/design";
+import type { FormInstance } from "antd";
 import { useTranslation } from "react-i18next";
 import type { ToolGuardRule } from "../../../../api/modules/security";
 
@@ -19,7 +20,10 @@ const CATEGORY_OPTIONS = [
 const BUILTIN_TOOLS = [
   "execute_shell_command",
   "execute_python_code",
-  "browser_use",
+  "browser",
+  // ── DEPRECATED BROWSER (remove together with backend deprecated_browser/) ──
+  "browser",
+  // ── END DEPRECATED BROWSER ──
   "desktop_screenshot",
   "view_image",
   "read_file",
@@ -37,7 +41,7 @@ interface RuleModalProps {
   existingRuleIds: string[];
   onOk: () => void;
   onCancel: () => void;
-  form: any;
+  form: FormInstance;
 }
 
 export function RuleModal({

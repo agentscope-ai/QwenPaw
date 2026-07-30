@@ -5,6 +5,7 @@ import { Card, Dropdown, Tag, Typography } from "antd";
 import type { MenuProps } from "antd";
 import { AppWindow, MoreHorizontal, Trash2 } from "lucide-react";
 import type { FC, KeyboardEvent } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./index.module.less";
 
@@ -17,6 +18,7 @@ export interface AppCardData {
   description: string;
   category: string;
   icon: string;
+  icon_url?: string;
   entry_page: string;
   launch_scope?: string;
   status: string;
@@ -31,6 +33,17 @@ interface AppCardProps {
 
 export const AppCard: FC<AppCardProps> = ({ app, onClick, onUninstall }) => {
   const { t } = useTranslation();
+  const [iconFailed, setIconFailed] = useState(false);
+  // icon_url points to an image while icon stays a legacy glyph. plugin.json
+  // is developer-controlled, but reject script-like schemes anyway and fall
+  // back to the Lucide glyph when the image cannot load (e.g. the plugin was
+  // installed without a built ui/dist). Arbitrary text/emoji icons are
+  // disallowed by the design system, so non-image icons use the glyph too.
+  const imageRef = /^(https?:\/\/|\/|data:image\/)/;
+  const iconSrc = [app.icon_url ?? "", app.icon].find((ref) =>
+    imageRef.test(ref),
+  );
+  const isImageIcon = !!iconSrc && !iconFailed;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return;
@@ -78,10 +91,17 @@ export const AppCard: FC<AppCardProps> = ({ app, onClick, onUninstall }) => {
         tabIndex={0}
         aria-label={app.name}
       >
-        {/* App icons deliberately fall back to a Lucide glyph: `app.icon` may
-            hold arbitrary text/emoji, which the design system disallows. */}
         <div className={styles.cardIcon}>
-          <AppWindow size={22} strokeWidth={1.75} />
+          {isImageIcon ? (
+            <img
+              src={iconSrc}
+              alt=""
+              className={styles.cardIconImage}
+              onError={() => setIconFailed(true)}
+            />
+          ) : (
+            <AppWindow size={22} strokeWidth={1.75} />
+          )}
         </div>
         <div className={styles.cardBody}>
           <div className={styles.cardHeader}>

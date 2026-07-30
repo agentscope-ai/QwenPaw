@@ -3,6 +3,7 @@
 
 `qwenpaw doctor fix` — conservative repairs with backup.
 """
+
 from __future__ import annotations
 
 # pylint: disable=too-many-branches,too-many-statements
@@ -31,11 +32,11 @@ from ..utils.system_info import summarize_python_environment
 from .doctor_checks import (
     active_llm_local_failure_hint,
     api_target_mismatch_note,
-    browser_automation_notes,
     check_agent_json_profiles,
     check_agent_profile_workspaces,
     check_agent_workspace_writable,
     check_app_log_writable,
+    check_browser_readiness,
     check_cron_jobs_files,
     check_enabled_agents_load_agent_config,
     check_enabled_agents_model_connections,
@@ -627,17 +628,6 @@ def run_doctor_checks(
                 click.style("OK", fg="green") + " — no skill layout warnings",
             )
 
-        click.echo("\n=== Browser (browser_use / Playwright) ===")
-        br_notes = browser_automation_notes(cfg)
-        if br_notes:
-            for line in br_notes:
-                click.echo(click.style("Note:", fg="yellow") + f" {line}")
-        else:
-            click.echo(
-                click.style("OK", fg="green")
-                + " — no browser automation warnings",
-            )
-
         click.echo("\n=== Security (baseline) ===")
         sec_notes = security_baseline_notes(cfg)
         if sec_notes:
@@ -714,17 +704,6 @@ def run_doctor_checks(
             + _skipped_when_cfg_invalid
             + ". Fix the config file, then re-run `qwenpaw doctor`.",
         )
-        click.echo("\n=== Browser (browser_use / Playwright) ===")
-        br_skip = browser_automation_notes(None)
-        if br_skip:
-            for line in br_skip:
-                click.echo(click.style("Note:", fg="yellow") + f" {line}")
-        else:
-            click.echo(
-                click.style("OK", fg="green")
-                + " — no browser automation warnings",
-            )
-
     click.echo("\n=== Working directory ===")
     wd_ok, detail = _check_working_dir()
     if wd_ok:
@@ -768,6 +747,15 @@ def run_doctor_checks(
             )
         if config_ok:
             cfg_sp = load_config()
+            browser_ok, browser_detail = check_browser_readiness(cfg_sp)
+            click.echo(
+                click.style(
+                    "OK" if browser_ok else "FAIL",
+                    fg="green" if browser_ok else "red",
+                )
+                + f" — browser: {browser_detail}",
+            )
+            failed = failed or not browser_ok
             ws_w_ok, ws_w_detail = check_agent_workspace_writable(cfg_sp)
             if ws_w_ok:
                 click.echo(

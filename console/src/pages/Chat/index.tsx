@@ -59,6 +59,7 @@ import {
 import { PluginSlotBoundary } from "../../plugins/registry/PluginSlotBoundary";
 import {
   resolveLocalized,
+  type ChatApprovalRendererItem,
   type WelcomeRenderProps,
 } from "../../plugins/registry/types";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
@@ -91,6 +92,7 @@ interface ApprovalMessageData {
   isGeneralized?: boolean;
   exactTarget?: string;
   similarTarget?: string;
+  sourceType: string;
 }
 
 import WhisperSpeechButton, {
@@ -1624,11 +1626,37 @@ export default function ChatPage() {
         isGeneralized: approval.is_generalized,
         exactTarget: approval.exact_target,
         similarTarget: approval.similar_target,
+        sourceType: approval.source_type,
       });
     }
 
     setApprovalRequests(newMap);
   }, [approvals, chatId]);
+
+  const approvalRenderers = useMemo(() => {
+    const renderers = new Map<
+      string,
+      { pluginId: string; item: ChatApprovalRendererItem }
+    >();
+    for (const entry of extLists[ChatList.approvalRenderers]) {
+      renderers.set(entry.item.sourceType, entry);
+    }
+    return renderers;
+  }, [extLists]);
+
+  const dismissApproval = useCallback(
+    (requestId: string) => {
+      setApprovals((previous) =>
+        previous.filter((item) => item.request_id !== requestId),
+      );
+      setApprovalRequests((previous) => {
+        const next = new Map(previous);
+        next.delete(requestId);
+        return next;
+      });
+    },
+    [setApprovals, setApprovalRequests],
+  );
 
   const handleApprove = useCallback(
     async (requestId: string, scope?: "exact" | "similar") => {
@@ -3294,19 +3322,10 @@ export default function ChatPage() {
         )}
 
         {/* Render approval cards as overlays */}
-        {Array.from(approvalRequests.values()).map((request) => (
-          <div
-            key={request.requestId}
-            data-approval-id={request.requestId}
-            style={{
-              position: "fixed",
-              bottom: 80,
-              right: 24,
-              zIndex: 1000,
-              maxWidth: 480,
-              width: "calc(100vw - 48px)",
-            }}
-          >
+        {Array.from(approvalRequests.values()).map((request) => {
+          const renderer = approvalRenderers.get(request.sourceType);
+          const CustomApprovalCard = renderer?.item.render;
+          const defaultApprovalCard = (
             <ApprovalCard
               requestId={request.requestId}
               agentId={request.agentId}
@@ -3356,8 +3375,38 @@ export default function ChatPage() {
                 }
               }}
             />
-          </div>
-        ))}
+          );
+
+          return (
+            <div
+              key={request.requestId}
+              data-approval-id={request.requestId}
+              style={{
+                position: "fixed",
+                bottom: 80,
+                right: 24,
+                zIndex: 1000,
+                maxWidth: 480,
+                width: "calc(100vw - 48px)",
+              }}
+            >
+              {CustomApprovalCard ? (
+                <PluginSlotBoundary
+                  slot={`approval:${request.sourceType}`}
+                  pluginId={renderer.pluginId}
+                  fallback={defaultApprovalCard}
+                >
+                  <CustomApprovalCard
+                    approval={request}
+                    onResolved={() => dismissApproval(request.requestId)}
+                  />
+                </PluginSlotBoundary>
+              ) : (
+                defaultApprovalCard
+              )}
+            </div>
+          );
+        })}
 
         <Modal
           open={usesQwenPawBackend && showModelPrompt}

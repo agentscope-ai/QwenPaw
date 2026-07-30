@@ -24,6 +24,9 @@ from .config import (
 from .config import (
     is_retryable_visual_search_error as _is_retryable_visual_search_error,
 )
+from .config import (
+    dashscope_native_search_unavailable_reason as _dashscope_native_search_unavailable_reason,
+)
 from .config import tavily_api_key as _tavily_api_key
 from .config import (
     visual_search_min_results_for_fallback as _visual_search_min_results_for_fallback,
@@ -33,7 +36,7 @@ from .config import (
 )
 
 DEFAULT_MAX_SOURCES = 6
-DEFAULT_TIMEOUT = 8.0
+DEFAULT_TIMEOUT = 60.0
 DEFAULT_TEXT_SEARCH_TIMEOUT = 60.0
 DEFAULT_TEXT_SEARCH_RETRIES = 1
 DEFAULT_VISUAL_SEARCH_TIMEOUT = 120.0
@@ -184,7 +187,11 @@ async def search_web(
             )
 
         if not sources:
-            if _dashscope_web_search_api_key():
+            native_search_key = _dashscope_web_search_api_key()
+            native_search_issue = _dashscope_native_search_unavailable_reason(
+                api_key_override=native_search_key,
+            )
+            if native_search_key and not native_search_issue:
                 providers_attempted.append("dashscope_web_search")
                 effective_timeout = max(
                     float(timeout),
@@ -236,10 +243,15 @@ async def search_web(
                 else:
                     issues.append("dashscope_web_search:no_text_sources")
             else:
-                issues.append("dashscope_web_search_api_key_missing")
+                issues.append(
+                    "dashscope_web_search_api_key_missing"
+                    if not native_search_key
+                    else f"dashscope_web_search:{native_search_issue}",
+                )
                 logger.info(
-                    "Web grounding provider skipped query=%r provider=dashscope_web_search reason=api_key_missing",
+                    "Web grounding provider skipped query=%r provider=dashscope_web_search reason=%s",
                     query,
+                    native_search_issue or "api_key_missing",
                 )
     sources = _dedupe_sources(sources, max_sources=max_sources)
     logger.info(
@@ -290,6 +302,18 @@ async def search_visual_refs(
     collected: list[dict[str, Any]] = []
     used_providers: list[str] = []
     attempted_providers: list[str] = []
+    if not providers:
+        if not _tavily_api_key():
+            issues.append("tavily_api_key_missing")
+        native_search_key = _dashscope_web_search_image_api_key()
+        native_search_issue = _dashscope_native_search_unavailable_reason(
+            api_key_override=native_search_key,
+        )
+        issues.append(
+            "dashscope_web_search_image_api_key_missing"
+            if not native_search_key
+            else f"dashscope_web_search_image:{native_search_issue}",
+        )
     async with httpx.AsyncClient(
         timeout=effective_timeout,
         follow_redirects=True,
@@ -328,11 +352,22 @@ async def search_visual_refs(
                         exc,
                     )
             elif provider == "dashscope_web_search_image":
-                if not _dashscope_web_search_image_api_key():
-                    issues.append("dashscope_web_search_image_api_key_missing")
+                native_search_key = _dashscope_web_search_image_api_key()
+                native_search_issue = (
+                    _dashscope_native_search_unavailable_reason(
+                        api_key_override=native_search_key,
+                    )
+                )
+                if not native_search_key or native_search_issue:
+                    issues.append(
+                        "dashscope_web_search_image_api_key_missing"
+                        if not native_search_key
+                        else f"dashscope_web_search_image:{native_search_issue}",
+                    )
                     logger.info(
-                        "Visual grounding provider skipped query=%r provider=dashscope_web_search_image reason=api_key_missing",
+                        "Visual grounding provider skipped query=%r provider=dashscope_web_search_image reason=%s",
                         query,
+                        native_search_issue or "api_key_missing",
                     )
                     continue
                 attempted_providers.append(provider)
