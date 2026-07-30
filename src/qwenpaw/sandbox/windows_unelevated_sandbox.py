@@ -2023,6 +2023,14 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         self._config_fingerprint = fingerprint
         self._sandbox_name = sandbox_name
 
+        if self._config.deny_paths:
+            logger.warning(
+                "WindowsUnelevatedSandbox does not enforce deny_paths. "
+                "Sensitive paths are NOT protected from read access: %s. "
+                "Run as administrator to enable full deny_paths enforcement.",
+                ", ".join(self._config.deny_paths),
+            )
+
         # File lock ensures only one thread/process at a time can
         # check-then-create for the same sandbox_name.  This prevents
         # concurrent callers from generating different capability SIDs
@@ -2147,6 +2155,8 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         assert self._cap_psid is not None
         ws_abs = os.path.abspath(workspace)
         for mount in self._config.mounts:
+            if not mount.writable:
+                continue
             if not os.path.exists(mount.path):
                 continue
             mount_path = os.path.abspath(mount.path)
