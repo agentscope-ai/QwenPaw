@@ -55,13 +55,17 @@ _TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     ConnectionResetError,
     BrokenPipeError,
 )
+_STALE_SESSION_ERROR_MARKERS = (
+    "session terminated",
+    "session transport closed",
+)
 
 
-# How long ``list_tools`` waits for an in-flight reconnect before raising.
+# How long a request waits for an in-flight reconnect before raising.
 # Picked to cover typical HTTP MCP reconnect latency (sub-second to ~1s
 # in practice) with headroom, while still failing fast enough that a
 # permanently-broken client doesn't stall every turn for long.
-_LIST_TOOLS_RECONNECT_WAIT: float = 3.0
+_MCP_RECONNECT_WAIT: float = 3.0
 _LIFECYCLE_CLEANUP_TIMEOUT: float = 5.0
 _LIFECYCLE_REAPERS: dict[asyncio.Task, asyncio.Task] = {}
 
@@ -74,6 +78,30 @@ def _is_transport_error(exc: BaseException) -> bool:
     ``_TRANSPORT_ERRORS`` for the full list of recognised exception types.
     """
     return isinstance(exc, _TRANSPORT_ERRORS)
+
+
+def _is_stale_session_error(exc: BaseException) -> bool:
+    """Return True when an exception chain reports an expired MCP session."""
+    pending = [exc]
+    seen: set[int] = set()
+
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+
+        message = str(current).casefold()
+        if any(marker in message for marker in _STALE_SESSION_ERROR_MARKERS):
+            return True
+
+        pending.extend(getattr(current, "exceptions", ()) or ())
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+        if current.__context__ is not None:
+            pending.append(current.__context__)
+
+    return False
 
 
 def _is_401_error(exc: BaseException) -> bool:
@@ -324,36 +352,29 @@ class _MCPClientMixin:
         Raises:
             RuntimeError: If not connected and no reconnect is in flight,
                 or if the reconnect does not complete within
-                ``_LIST_TOOLS_RECONNECT_WAIT`` seconds.
+                ``_MCP_RECONNECT_WAIT`` seconds.
         """
         if not self.is_connected:
-            has_task = self._lifecycle_task is not None and not (
-                self._lifecycle_task.done()
-            )
-            if has_task:
+            if self._lifecycle_is_running():
                 logger.info(
                     "MCP client '%s' not connected; waiting up to %.1fs "
                     "for reconnect before list_tools.",
                     self.name,
-                    _LIST_TOOLS_RECONNECT_WAIT,
+                    _MCP_RECONNECT_WAIT,
                 )
-                try:
-                    await asyncio.wait_for(
-                        self._ready_event.wait(),
-                        timeout=_LIST_TOOLS_RECONNECT_WAIT,
-                    )
-                except asyncio.TimeoutError:
-                    pass
+                await self._wait_for_reconnect()
 
         # Reconnect succeeded — go fetch fresh schemas.
         if self.is_connected and self.session is not None:
             try:
-                res = await self.session.list_tools()
+                return await self._fetch_tools()
             except Exception as exc:
-                self._handle_transport_error(exc)
-                raise
-            self._cached_tools = res.tools
-            return res.tools
+                if not _is_stale_session_error(exc):
+                    raise
+                if not await self._wait_for_reconnect():
+                    raise
+
+            return await self._fetch_tools()
 
         # Reconnect didn't land in time.  Fall back to the cache from the
         # last successful list_tools call (preserved across transient
@@ -364,7 +385,7 @@ class _MCPClientMixin:
                 "MCP client '%s' still disconnected after %.1fs; serving "
                 "cached schemas from last successful list_tools.",
                 self.name,
-                _LIST_TOOLS_RECONNECT_WAIT,
+                _MCP_RECONNECT_WAIT,
             )
             return self._cached_tools
 
@@ -388,11 +409,15 @@ class _MCPClientMixin:
             RuntimeError: If not connected
         """
         self._validate_connection()
+        session = self.session
+        assert session is not None
 
         try:
-            return await self.session.call_tool(name, arguments or {})
+            return await session.call_tool(name, arguments or {})
         except Exception as exc:
-            self._handle_transport_error(exc)
+            self._handle_transport_error(exc, failed_session=session)
+            if _is_stale_session_error(exc):
+                await self._wait_for_reconnect()
             raise
 
     async def close(self, ignore_errors: bool = True) -> None:
@@ -500,9 +525,45 @@ class _MCPClientMixin:
         await asyncio.gather(task, return_exceptions=True)
         self._clear_lifecycle_state(task)
 
-    def _handle_transport_error(self, exc: BaseException) -> None:
-        """Mark the client as disconnected and schedule a reconnect when *exc*
-        indicates a transport/stream failure rather than an MCP-level error.
+    def _lifecycle_is_running(self) -> bool:
+        """Return whether the lifecycle task can complete a reconnect."""
+        return self._lifecycle_task is not None and not (
+            self._lifecycle_task.done()
+        )
+
+    async def _wait_for_reconnect(self) -> bool:
+        """Wait for an in-flight lifecycle reload to establish a session."""
+        if self._stop_event.is_set() or not self._lifecycle_is_running():
+            return False
+        try:
+            await asyncio.wait_for(
+                self._ready_event.wait(),
+                timeout=_MCP_RECONNECT_WAIT,
+            )
+        except asyncio.TimeoutError:
+            return False
+        return self.is_connected and self.session is not None
+
+    async def _fetch_tools(self):
+        """Fetch and cache tool schemas from the active MCP session."""
+        self._validate_connection()
+        session = self.session
+        assert session is not None
+        try:
+            res = await session.list_tools()
+        except Exception as exc:
+            self._handle_transport_error(exc, failed_session=session)
+            raise
+        self._cached_tools = res.tools
+        return res.tools
+
+    def _handle_transport_error(
+        self,
+        exc: BaseException,
+        *,
+        failed_session: Any | None = None,
+    ) -> None:
+        """Mark the client disconnected for a transport or stale-session error.
 
         **HTTP / streamable_http scenario**
         ``streamable_http_client``'s ``post_writer`` background task silently
@@ -534,10 +595,16 @@ class _MCPClientMixin:
         replaces it.  Clearing it here would require a lock (the lifecycle
         task also writes ``session``), adding unnecessary complexity.
         """
-        if not _is_transport_error(exc):
+        if not (_is_transport_error(exc) or _is_stale_session_error(exc)):
+            return
+        if failed_session is not None and self.session is not failed_session:
+            logger.debug(
+                "Ignoring connection error from replaced MCP session '%s'",
+                self.name,
+            )
             return
         logger.warning(
-            "Transport error on MCP client '%s' (%s: %s); "
+            "Recoverable connection error on MCP client '%s' (%s: %s); "
             "marking as disconnected and scheduling reconnect.",
             self.name,
             type(exc).__name__,

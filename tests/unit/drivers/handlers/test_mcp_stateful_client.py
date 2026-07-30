@@ -25,8 +25,12 @@ deterministic unit coverage behind the ``fail_under`` gate.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
+
 import httpx
 import pytest
+from mcp import McpError
+from mcp.types import ErrorData
 
 import qwenpaw.drivers.handlers.mcp_stateful_client as mod
 from qwenpaw.drivers.handlers.mcp_stateful_client import (
@@ -44,6 +48,10 @@ def _client() -> HttpStatefulClient:
     synchronous and lifecycle helper methods directly.
     """
     return HttpStatefulClient("test-client", "streamable_http", "http://x")
+
+
+def _stale_session_error(message: str = "Session terminated") -> McpError:
+    return McpError(ErrorData(code=32600, message=message))
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +92,24 @@ def test_is_401_error_drills_into_exception_group():
 
     clean_group = ExceptionGroup("grpc failures", [ValueError()])
     assert not _is_401_error(clean_group)
+
+
+def test_is_stale_session_error_drills_into_wrapped_exceptions():
+    stale = _stale_session_error()
+    group = ExceptionGroup("request failures", [ValueError(), stale])
+    wrapper = RuntimeError("MCP request failed")
+    wrapper.__cause__ = group
+
+    assert mod._is_stale_session_error(wrapper)
+    context_wrapper = RuntimeError("MCP request failed")
+    context_wrapper.__context__ = stale
+    assert mod._is_stale_session_error(context_wrapper)
+    assert mod._is_stale_session_error(
+        RuntimeError("Session transport closed"),
+    )
+    assert not mod._is_stale_session_error(
+        _stale_session_error("Tool execution failed"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +402,168 @@ async def test_list_tools_raises_on_cold_start_without_cache():
         await c.list_tools()
 
 
+async def test_list_tools_reconnects_and_retries_stale_session_once():
+    c = _client()
+    c.is_connected = True
+    c._ready_event.set()
+
+    class StaleSession:
+        calls = 0
+
+        async def list_tools(self):
+            self.calls += 1
+            raise _stale_session_error()
+
+    class FreshSession:
+        calls = 0
+
+        async def list_tools(self):
+            self.calls += 1
+            return SimpleNamespace(tools=["fresh-tool"])
+
+    stale_session = StaleSession()
+    fresh_session = FreshSession()
+    c.session = stale_session  # type: ignore[assignment]
+
+    async def lifecycle_reload() -> None:
+        await c._reload_event.wait()
+        c.session = fresh_session  # type: ignore[assignment]
+        c.is_connected = True
+        c._ready_event.set()
+        await asyncio.Event().wait()
+
+    lifecycle_task = asyncio.create_task(lifecycle_reload())
+    c._lifecycle_task = lifecycle_task
+    try:
+        assert await c.list_tools() == ["fresh-tool"]
+    finally:
+        lifecycle_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await lifecycle_task
+
+    assert stale_session.calls == 1
+    assert fresh_session.calls == 1
+    assert c._cached_tools == ["fresh-tool"]
+
+
+async def test_concurrent_stale_list_calls_share_one_reconnect(monkeypatch):
+    monkeypatch.setattr(mod, "_MCP_RECONNECT_WAIT", 0.5)
+    c = _client()
+    c.is_connected = True
+    c._ready_event.set()
+    both_started = asyncio.Event()
+    session_replaced = asyncio.Event()
+
+    class StaleSession:
+        calls = 0
+
+        async def list_tools(self):
+            self.calls += 1
+            call_number = self.calls
+            if self.calls == 2:
+                both_started.set()
+            await both_started.wait()
+            if call_number == 2:
+                await session_replaced.wait()
+            raise _stale_session_error()
+
+    class FreshSession:
+        calls = 0
+
+        async def list_tools(self):
+            self.calls += 1
+            return SimpleNamespace(tools=["fresh-tool"])
+
+    stale_session = StaleSession()
+    fresh_session = FreshSession()
+    c.session = stale_session  # type: ignore[assignment]
+
+    async def lifecycle_reload() -> None:
+        await c._reload_event.wait()
+        c._reload_event.clear()
+        c.session = fresh_session  # type: ignore[assignment]
+        c.is_connected = True
+        c._ready_event.set()
+        session_replaced.set()
+        await asyncio.Event().wait()
+
+    lifecycle_task = asyncio.create_task(lifecycle_reload())
+    c._lifecycle_task = lifecycle_task
+    try:
+        results = await asyncio.gather(c.list_tools(), c.list_tools())
+    finally:
+        lifecycle_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await lifecycle_task
+
+    assert results == [["fresh-tool"], ["fresh-tool"]]
+    assert stale_session.calls == 2
+    assert fresh_session.calls == 2
+    assert c.is_connected is True
+    assert c.session is fresh_session
+    assert not c._reload_event.is_set()
+
+
+async def test_list_tools_retries_stale_session_only_once():
+    c = _client()
+    c.is_connected = True
+    c._ready_event.set()
+
+    class StaleSession:
+        calls = 0
+
+        async def list_tools(self):
+            self.calls += 1
+            raise _stale_session_error()
+
+    first_session = StaleSession()
+    replacement_session = StaleSession()
+    c.session = first_session  # type: ignore[assignment]
+
+    async def lifecycle_reload() -> None:
+        await c._reload_event.wait()
+        c._reload_event.clear()
+        c.session = replacement_session  # type: ignore[assignment]
+        c.is_connected = True
+        c._ready_event.set()
+        await asyncio.Event().wait()
+
+    lifecycle_task = asyncio.create_task(lifecycle_reload())
+    c._lifecycle_task = lifecycle_task
+    try:
+        with pytest.raises(McpError, match="Session terminated"):
+            await c.list_tools()
+    finally:
+        lifecycle_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await lifecycle_task
+
+    assert first_session.calls == 1
+    assert replacement_session.calls == 1
+
+
+async def test_list_tools_does_not_retry_other_mcp_errors():
+    c = _client()
+    c.is_connected = True
+
+    class FailingSession:
+        calls = 0
+
+        async def list_tools(self):
+            self.calls += 1
+            raise _stale_session_error("Permission denied")
+
+    session = FailingSession()
+    c.session = session  # type: ignore[assignment]
+
+    with pytest.raises(McpError, match="Permission denied"):
+        await c.list_tools()
+
+    assert session.calls == 1
+    assert c.is_connected is True
+    assert not c._reload_event.is_set()
+
+
 async def test_call_tool_raises_when_disconnected():
     c = _client()
     with pytest.raises(RuntimeError, match="not connected"):
@@ -396,6 +584,53 @@ async def test_call_tool_handles_transport_error_and_marks_disconnected():
     # _handle_transport_error marked it for reconnect.
     assert c.is_connected is False
     assert c._reload_event.is_set()
+
+
+async def test_call_tool_reconnects_stale_session_without_replaying_call():
+    c = _client()
+    c.is_connected = True
+    c._ready_event.set()
+
+    class StaleSession:
+        calls = 0
+
+        async def call_tool(self, name: str, args: dict) -> None:
+            del name, args
+            self.calls += 1
+            raise _stale_session_error()
+
+    class FreshSession:
+        calls = 0
+
+        async def call_tool(self, name: str, args: dict) -> None:
+            del name, args
+            self.calls += 1
+
+    stale_session = StaleSession()
+    fresh_session = FreshSession()
+    c.session = stale_session  # type: ignore[assignment]
+
+    async def lifecycle_reload() -> None:
+        await c._reload_event.wait()
+        c.session = fresh_session  # type: ignore[assignment]
+        c.is_connected = True
+        c._ready_event.set()
+        await asyncio.Event().wait()
+
+    lifecycle_task = asyncio.create_task(lifecycle_reload())
+    c._lifecycle_task = lifecycle_task
+    try:
+        with pytest.raises(McpError, match="Session terminated"):
+            await c.call_tool("submit_job", {"value": 1})
+    finally:
+        lifecycle_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await lifecycle_task
+
+    assert stale_session.calls == 1
+    assert fresh_session.calls == 0
+    assert c.is_connected is True
+    assert c.session is fresh_session
 
 
 # ---------------------------------------------------------------------------
