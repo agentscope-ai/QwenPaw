@@ -1160,8 +1160,7 @@ def _remove_traverse_ace(  # pylint: disable=R0911,R0912,R0915
                         continue
                     sid_ptr = ctypes.c_void_p(ace_ptr.value + 8)
                     if advapi32.IsValidSid(sid_ptr) and advapi32.EqualSid(
-                        sid_ptr,
-                        psid_target,
+                        sid_ptr, psid_target
                     ):
                         to_delete.append(i)
 
@@ -2729,7 +2728,8 @@ def _remove_acls_from_metadata(
     cap_sid: str,
     user_sid: str,
     _username: str,
-) -> None:
+) -> int:
+    """Removes ACLs from metadata entries. Returns count of failures."""
     _workspace_default = os.path.normpath(
         os.path.join(
             os.path.expanduser("~"),
@@ -2739,6 +2739,7 @@ def _remove_acls_from_metadata(
         ),
     )
 
+    failed = 0
     for entry in acl_entries:
         entry_path = entry.get("path", "")
         sid_type = entry.get("sid_type", "")
@@ -2771,6 +2772,8 @@ def _remove_acls_from_metadata(
                     sid,
                     reset_only=use_reset_only,
                 )
+            if not ok:
+                failed += 1
             logger.debug(
                 "  ACL remove [%s] %s sid_type=%s: %.2fs (%s)",
                 "OK" if ok else "FAIL",
@@ -2779,9 +2782,43 @@ def _remove_acls_from_metadata(
                 time.monotonic() - t_entry,
                 sid[:20] + "..." if len(sid) > 20 else sid,
             )
+    return failed
 
 
-def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
+def _move_to_failed_cleanup_elevated(
+    meta: dict,
+    meta_file: Path,
+    reason: str,
+) -> None:
+    """Moves metadata to failed_cleanup/ when cleanup fails."""
+    import datetime
+
+    failed_dir = _qwenpaw_state_dir / "failed_cleanup"
+    failed_dir.mkdir(parents=True, exist_ok=True)
+    dest = failed_dir / meta_file.name
+    counter = 1
+    while dest.exists():
+        dest = failed_dir / f"{meta_file.stem}_{counter}.json"
+        counter += 1
+    meta["_cleanup_error"] = {
+        "reason": reason,
+        "timestamp": datetime.datetime.now().isoformat(),
+    }
+    try:
+        dest.write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError:
+        return
+    try:
+        meta_file.unlink()
+    except OSError:
+        pass
+    logger.info("Cleanup failed, metadata preserved: %s", dest.name)
+
+
+def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:  # pylint: disable=R0912
     username = meta.get("username", "")
     user_sid = meta.get("user_sid", "")
     cap_sid = meta.get("cap_sid", "")
@@ -2790,7 +2827,7 @@ def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
     sandbox_id = meta.get("sandbox_id", username)
 
     t0 = time.monotonic()
-    _remove_acls_from_metadata(
+    acl_failed = _remove_acls_from_metadata(
         acl_entries,
         cap_sid,
         user_sid,
@@ -2798,14 +2835,16 @@ def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
     )
     t1 = time.monotonic()
     logger.info(
-        "[%s] ACL removal: %.2fs (%d entries)",
+        "[%s] ACL removal: %.2fs (%d entries, %d failed)",
         sandbox_id,
         t1 - t0,
         len(acl_entries),
+        acl_failed,
     )
 
+    firewall_ok = True
     if network_blocked and username:
-        _remove_firewall_rules_sync(username)
+        firewall_ok = _remove_firewall_rules_sync(username)
         t2 = time.monotonic()
         logger.info(
             "[%s] Firewall rules removal: %.2fs",
@@ -2815,8 +2854,9 @@ def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
     else:
         t2 = t1
 
+    user_ok = True
     if username:
-        _delete_local_user_sync(username)
+        user_ok = _delete_local_user_sync(username)
         t3 = time.monotonic()
         logger.info(
             "[%s] User account deletion: %.2fs",
@@ -2826,8 +2866,9 @@ def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
     else:
         t3 = t2
 
+    profile_ok = True
     if username:
-        _remove_profile_dir_sync(username, user_sid)
+        profile_ok = _remove_profile_dir_sync(username, user_sid)
         t4 = time.monotonic()
         logger.info(
             "[%s] Profile directory removal: %.2fs",
@@ -2837,10 +2878,28 @@ def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
     else:
         t4 = t3
 
-    try:
-        meta_file.unlink()
-    except OSError:
-        pass
+    # Determine if any step failed
+    failures: List[str] = []
+    if acl_failed > 0:
+        failures.append(f"ACL removal failed for {acl_failed} path(s)")
+    if not firewall_ok:
+        failures.append("firewall rule removal failed")
+    if not user_ok:
+        failures.append("user account deletion failed")
+    if not profile_ok:
+        failures.append("profile directory removal failed")
+
+    if failures:
+        _move_to_failed_cleanup_elevated(
+            meta,
+            meta_file,
+            "; ".join(failures),
+        )
+    else:
+        try:
+            meta_file.unlink()
+        except OSError:
+            pass
 
     logger.info(
         "[%s] Total cleanup: %.2fs",

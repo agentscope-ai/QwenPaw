@@ -2332,6 +2332,39 @@ def _migrate_legacy_state_file() -> None:
         logger.warning("Failed to migrate legacy state file: %s", e)
 
 
+def _move_to_failed_cleanup_unelevated(
+    meta: dict,
+    meta_file: Path,
+    reason: str,
+) -> None:
+    """Moves metadata to failed_cleanup/ when cleanup fails."""
+    import datetime
+
+    failed_dir = _qwenpaw_state_dir / "failed_cleanup"
+    failed_dir.mkdir(parents=True, exist_ok=True)
+    dest = failed_dir / meta_file.name
+    counter = 1
+    while dest.exists():
+        dest = failed_dir / f"{meta_file.stem}_{counter}.json"
+        counter += 1
+    meta["_cleanup_error"] = {
+        "reason": reason,
+        "timestamp": datetime.datetime.now().isoformat(),
+    }
+    try:
+        dest.write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError:
+        return
+    try:
+        meta_file.unlink()
+    except OSError:
+        pass
+    logger.info("Cleanup failed, metadata preserved: %s", dest.name)
+
+
 def shutdown_cleanup() -> None:
     """Best-effort cleanup of unelevated sandbox ACLs on process exit.
 
@@ -2399,10 +2432,17 @@ def shutdown_cleanup() -> None:
             len(failed_paths),
         )
 
-        try:
-            meta_file.unlink()
-        except OSError:
-            pass
+        if failed_paths:
+            _move_to_failed_cleanup_unelevated(
+                meta,
+                meta_file,
+                f"ACL removal failed for {len(failed_paths)} path(s)",
+            )
+        else:
+            try:
+                meta_file.unlink()
+            except OSError:
+                pass
 
         sandboxes_processed += 1
 
