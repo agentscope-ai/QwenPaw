@@ -1,11 +1,11 @@
 @echo off
 setlocal EnableDelayedExpansion
 
-REM QwenPaw Installer for Windows (cmd.exe / batch)
+REM NousAIPaw Installer for Windows (cmd.exe / batch)
 REM Usage: install.bat [-Version X.Y.Z] [-FromSource] [-SourceDir DIR]
 REM                         [-Extras "dev,whisper"] [-UvPath PATH] [-Help]
 REM
-REM Installs QwenPaw into %USERPROFILE%\.qwenpaw with a uv-managed Python environment.
+REM Installs NousAIPaw into %USERPROFILE%\.qwenpaw with a uv-managed Python environment.
 REM Users do NOT need Python pre-installed -- uv handles everything.
 REM
 REM uv is obtained automatically (no action required from the user):
@@ -22,7 +22,7 @@ if defined QWENPAW_HOME (
 set "QWENPAW_VENV=%QWENPAW_HOME%\venv"
 set "QWENPAW_BIN=%QWENPAW_HOME%\bin"
 set "PYTHON_VERSION=3.12"
-set "QWENPAW_REPO=https://github.com/agentscope-ai/QwenPaw.git"
+set "QWENPAW_REPO=https://github.com/uaixo/awesome-NousAI-PAW.git"
 
 REM ──── Argument defaults ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 set "ARG_VERSION="
@@ -82,7 +82,7 @@ goto :main
 
 REM ──── Help ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 :show_help
-echo QwenPaw Installer for Windows
+echo NousAIPaw Installer for Windows
 echo.
 echo Usage: install.bat [OPTIONS]
 echo.
@@ -308,7 +308,7 @@ exit /b 0
 
 REM ══════════════════════════════ MAIN ═════════════════════════════════════════
 :main
-echo [qwenpaw] Installing QwenPaw into %QWENPAW_HOME%
+echo [qwenpaw] Installing NousAIPaw into %QWENPAW_HOME%
 
 REM ──── Step 1: Ensure uv ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 call :ensure_uv
@@ -336,7 +336,7 @@ if not exist "%VENV_PYTHON%" (
 for /f "delims=" %%v in ('"%VENV_PYTHON%" --version 2^>^&1') do set "PY_VERSION=%%v"
 echo [qwenpaw] Python environment ready (%PY_VERSION%)
 
-REM ──── Step 3: Install QwenPaw ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+REM ──── Step 3: Install NousAIPaw ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 set "EXTRAS_SUFFIX="
 if defined ARG_EXTRAS set "EXTRAS_SUFFIX=[%ARG_EXTRAS%]"
 
@@ -353,7 +353,7 @@ goto :install_from_github_qwenpaw
 
 :install_from_local
 for %%I in ("%ARG_SOURCE_DIR%") do set "ARG_SOURCE_DIR=%%~fI"
-echo [qwenpaw] Installing QwenPaw from local source: %ARG_SOURCE_DIR%
+echo [qwenpaw] Installing NousAIPaw from local source: %ARG_SOURCE_DIR%
 call :prepare_console "%ARG_SOURCE_DIR%"
 echo [qwenpaw] Installing package from source...
 
@@ -405,10 +405,10 @@ where git >nul 2>&1
 if errorlevel 1 (
     echo [qwenpaw] ERROR: git is required for -FromSource without a local directory.
     echo [qwenpaw]        Please install Git from https://git-scm.com/ or pass a local path:
-    echo [qwenpaw]        install-w-uv.bat -FromSource -SourceDir C:\path\to\QwenPaw
+    echo [qwenpaw]        install-w-uv.bat -FromSource -SourceDir C:\path\to\awesome-NousAI-PAW
     exit /b 1
 )
-echo [qwenpaw] Installing QwenPaw from source (GitHub)...
+echo [qwenpaw] Installing NousAIPaw from source (GitHub)...
 set "CLONE_DIR=%TEMP%\qwenpaw-install-%RANDOM%"
 git clone --depth 1 %QWENPAW_REPO% "%CLONE_DIR%"
 if errorlevel 1 (
@@ -467,7 +467,7 @@ if not exist "%VENV_QWENPAW%" (
     echo [qwenpaw] ERROR: Installation failed: qwenpaw CLI not found in venv
     exit /b 1
 )
-echo [qwenpaw] QwenPaw installed successfully
+echo [qwenpaw] NousAIPaw installed successfully
 
 REM Check console availability (for PyPI installs, probe the installed package)
 if "%CONSOLE_AVAILABLE%"=="0" (
@@ -482,14 +482,14 @@ if not exist "%QWENPAW_BIN%" mkdir "%QWENPAW_BIN%"
 
 REM PowerShell wrapper
 set "WRAPPER_PS1=%QWENPAW_BIN%\qwenpaw.ps1"
-echo # QwenPaw CLI wrapper -- delegates to the uv-managed environment. > "%WRAPPER_PS1%"
+echo # NousAIPaw CLI wrapper -- delegates to the uv-managed environment. > "%WRAPPER_PS1%"
 echo $ErrorActionPreference = "Stop" >> "%WRAPPER_PS1%"
 echo. >> "%WRAPPER_PS1%"
 echo $QwenpawHome = if ($env:QWENPAW_HOME) { $env:QWENPAW_HOME } else { Join-Path $HOME ".qwenpaw" } >> "%WRAPPER_PS1%"
 echo $RealBin = Join-Path $QwenpawHome "venv\Scripts\qwenpaw.exe" >> "%WRAPPER_PS1%"
 echo. >> "%WRAPPER_PS1%"
 echo if (-not (Test-Path $RealBin)) { >> "%WRAPPER_PS1%"
-echo     Write-Error "QwenPaw environment not found at $QwenpawHome\venv" >> "%WRAPPER_PS1%"
+echo     Write-Error "NousAIPaw environment not found at $QwenpawHome\venv" >> "%WRAPPER_PS1%"
 echo     Write-Error "Please reinstall: irm ^<install-url^> ^| iex" >> "%WRAPPER_PS1%"
 echo     exit 1 >> "%WRAPPER_PS1%"
 echo } >> "%WRAPPER_PS1%"
@@ -500,12 +500,12 @@ echo [qwenpaw] Wrapper created at %WRAPPER_PS1%
 REM CMD wrapper
 set "WRAPPER_CMD=%QWENPAW_BIN%\qwenpaw.cmd"
 echo @echo off > "%WRAPPER_CMD%"
-echo REM QwenPaw CLI wrapper -- delegates to the uv-managed environment. >> "%WRAPPER_CMD%"
+echo REM NousAIPaw CLI wrapper -- delegates to the uv-managed environment. >> "%WRAPPER_CMD%"
 echo set "QWENPAW_HOME=%%QWENPAW_HOME%%" >> "%WRAPPER_CMD%"
 echo if "%%QWENPAW_HOME%%"=="" set "QWENPAW_HOME=%%USERPROFILE%%\.qwenpaw" >> "%WRAPPER_CMD%"
 echo set "REAL_BIN=%%QWENPAW_HOME%%\venv\Scripts\qwenpaw.exe" >> "%WRAPPER_CMD%"
 echo if not exist "%%REAL_BIN%%" ( >> "%WRAPPER_CMD%"
-echo     echo Error: QwenPaw environment not found at %%QWENPAW_HOME%%\venv ^>^&2 >> "%WRAPPER_CMD%"
+echo     echo Error: NousAIPaw environment not found at %%QWENPAW_HOME%%\venv ^>^&2 >> "%WRAPPER_CMD%"
 echo     echo Please reinstall ^>^&2 >> "%WRAPPER_CMD%"
 echo     exit /b 1 >> "%WRAPPER_CMD%"
 echo ) >> "%WRAPPER_CMD%"
@@ -545,7 +545,7 @@ if /i "%path_check%" neq "%path_check:%check_str%=%" (
 
 REM ──── Done ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 echo.
-echo QwenPaw installed successfully!
+echo NousAIPaw installed successfully!
 echo.
 echo   Install location:  %QWENPAW_HOME%
 echo   Python:            %PY_VERSION%
@@ -559,7 +559,7 @@ echo.
 echo To get started, open a new terminal and run:
 echo.
 echo   qwenpaw init       # first-time setup
-echo   qwenpaw app        # start QwenPaw
+echo   qwenpaw app        # start NousAIPaw
 echo.
 echo To upgrade later, re-run this installer.
 echo To uninstall, run: qwenpaw uninstall

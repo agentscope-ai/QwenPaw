@@ -1,8 +1,8 @@
-# 发布 QwenPaw
+# 发布 NousAIPaw
 
 _English: [RELEASING.md](RELEASING.md)_
 
-QwenPaw 一个版本会发布四种产物——**PyPI** wheel、**Docker** 镜像、**桌面**应用
+NousAIPaw 一个版本会发布四种产物——**PyPI** wheel、**Docker** 镜像、**桌面**应用
 （Tauri，Windows + macOS）和**插件**包。它们由一个统一编排的 workflow 一起发布：
 任一产物失败都会拦下整个发布，绝不会出现"Web 版发了、却没有对应桌面版"这种情况。
 

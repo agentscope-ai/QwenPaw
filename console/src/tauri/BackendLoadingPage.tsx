@@ -52,7 +52,7 @@ export default function BackendLoadingPage({
       style={style}
     >
       <div className={styles.card}>
-        <img src="/qwenpaw.png" alt="QwenPaw" className={styles.logo} />
+        <img src="/qwenpaw.png" alt="NousAIPaw" className={styles.logo} />
 
         <Progress
           type="dashboard"

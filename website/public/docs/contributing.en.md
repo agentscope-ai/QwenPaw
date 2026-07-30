@@ -1,6 +1,6 @@
 # Open Source & Contribution
 
-QwenPaw is open source. The project repository is hosted on GitHub:
+NousAIPaw is open source. The project repository is hosted on GitHub:
 
 **https://github.com/agentscope-ai/QwenPaw**
 
@@ -8,7 +8,7 @@ QwenPaw is open source. The project repository is hosted on GitHub:
 
 ## 🎯 How to Contribute
 
-Thank you for your interest in QwenPaw, and we warmly welcome all forms of contribution! To keep collaboration smooth and maintain quality, please follow these guidelines.
+Thank you for your interest in NousAIPaw, and we warmly welcome all forms of contribution! To keep collaboration smooth and maintain quality, please follow these guidelines.
 
 ### 1. Check Existing Plans and Issues
 
@@ -101,4 +101,4 @@ Check our [Roadmap](/docs/roadmap) for items marked **Seeking Contributors** (e.
 
 ---
 
-Thank you for contributing to QwenPaw. Your work helps make it a better assistant for everyone. 🐾
+Thank you for contributing to NousAIPaw. Your work helps make it a better assistant for everyone. 🐾

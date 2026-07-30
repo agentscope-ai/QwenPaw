@@ -1,9 +1,9 @@
-# QwenPaw Pet (plugin + desktop runtime)
+# NousAIPaw Pet (plugin + desktop runtime)
 
-Full-stack QwenPaw plugin: backend hooks, console UI sidebar, **and** the
+Full-stack NousAIPaw plugin: backend hooks, console UI sidebar, **and** the
 desktop pet runtime itself (`qwenpaw_pet_desktop/`). Installing this
 plugin gives you everything: the Qt floating pet window, the local HTTP
-bridge on `127.0.0.1:8765`, and the QwenPaw side hooks that emit
+bridge on `127.0.0.1:8765`, and the NousAIPaw side hooks that emit
 lifecycle events into it.
 
 ```text
@@ -29,7 +29,7 @@ plugins/qwenpaw-pet/
 ```
 
 `plugin.py` injects the plugin directory into `sys.path` at import
-time, so `qwenpaw_pet_desktop` is importable from QwenPaw's Python
+time, so `qwenpaw_pet_desktop` is importable from NousAIPaw's Python
 process without any `pip install` step. See
 [`qwenpaw_pet_desktop/README.md`](qwenpaw_pet_desktop/README.md) for
 internals of the desktop runtime itself.
@@ -38,8 +38,8 @@ internals of the desktop runtime itself.
 
 Two equivalent ways:
 
-- **From the QwenPaw console** — open the plugin management page and
-  install `qwenpaw-pet` like any other QwenPaw plugin. Three input
+- **From the NousAIPaw console** — open the plugin management page and
+  install `qwenpaw-pet` like any other NousAIPaw plugin. Three input
   shapes are accepted:
   - point it at a local folder,
   - upload a `.zip`, or
@@ -52,14 +52,14 @@ Two equivalent ways:
   ```
 
 > [!IMPORTANT]
-> **Restart QwenPaw after install** — the backend only picks up new
+> **Restart NousAIPaw after install** — the backend only picks up new
 > plugin code (hooks, HTTP routes) on startup. The browser console
 > usually also needs a hard refresh (`Cmd+Shift+R` / `Ctrl+Shift+R`)
 > to drop the cached `dist/index.js` and pull in the new sidebar UI.
 
 ### Python dependencies
 
-QwenPaw's interpreter needs these packages on its `sys.path` (declared
+NousAIPaw's interpreter needs these packages on its `sys.path` (declared
 in `plugin.json`'s `dependencies`):
 
 - `httpx>=0.27` — fire-and-forget HTTP client
@@ -73,7 +73,7 @@ in `plugin.json`'s `dependencies`):
   also installs `PySide6-Addons` — ~800 MB of WebEngine, 3D,
   Multimedia, etc. that this plugin never touches).
 
-If your QwenPaw install does not auto-resolve plugin dependencies,
+If your NousAIPaw install does not auto-resolve plugin dependencies,
 install them manually into the same environment:
 
 ```bash
@@ -81,7 +81,7 @@ pip install -r plugins/qwenpaw-pet/requirements.txt
 ```
 
 PySide6-Essentials wheels exist only for **Python 3.10–3.13**. On 3.14
-the pet window cannot start; QwenPaw itself will still run, the pet
+the pet window cannot start; NousAIPaw itself will still run, the pet
 will just stay offline and the plugin logs a warning.
 
 ## Running the desktop pet
@@ -173,7 +173,7 @@ must contain `pet.json` and the spritesheet referenced by it
 (1536×1872 webp); a single top-level subfolder is also accepted, which
 is what macOS Finder's "Compress" produces.
 
-## QwenPaw plugin HTTP routes
+## NousAIPaw plugin HTTP routes
 
 ```text
 GET  /api/qwenpaw-pet/status
@@ -220,7 +220,7 @@ POST /pet       # hot-switch pet (pet_id or pet_dir)
 
 Mutating endpoints (`POST /event`, `POST /bubble`, `POST /pet`) require
 `X-QwenPaw-Pet-Token: <runtime/update-token>` by default — the bundled
-QwenPaw plugin reads the token file automatically; standalone clients
+NousAIPaw plugin reads the token file automatically; standalone clients
 must do the same. Set `QWENPAW_PET_REQUIRE_TOKEN=0` to disable the check
 (only recommended for trusted single-user development setups).
 
@@ -271,12 +271,12 @@ will take precedence over the cache and the network fetch.
   `logger.exception` so a broken plugin install does not stay silently
   dead.
 - `register_shutdown_hook` — emits `qwenpaw.shutdown`, terminates the
-  pet desktop process that this QwenPaw process has adopted (either
+  pet desktop process that this NousAIPaw process has adopted (either
   autostarted by the plugin or already healthy on startup /
   `desktop/start`; controlled by `QWENPAW_PET_STOP_ON_SHUTDOWN`), and
-  restores the patched class methods. So when the user exits QwenPaw
+  restores the patched class methods. So when the user exits NousAIPaw
   the floating pet exits with it, including the case where the pet was
-  a leftover from a previous QwenPaw run.
+  a leftover from a previous NousAIPaw run.
 - `register_http_router` — mounts `router.py` under `/qwenpaw-pet`.
 
 ## Environment variables
@@ -292,7 +292,7 @@ will take precedence over the cache and the network fetch.
 | `QWENPAW_PET_TOKEN_PATH` | Path to the local update token | `~/.qwenpaw-pet/runtime/update-token` |
 | `QWENPAW_PET_REQUIRE_TOKEN` | `0` ⇒ desktop *skips* the token check on mutating endpoints (anything else, including unset, enforces it) | `1` |
 | `QWENPAW_PET_AUTOSTART` | `0` ⇒ plugin will not spawn the desktop | `1` |
-| `QWENPAW_PET_STOP_ON_SHUTDOWN` | `0` ⇒ leave the pet desktop running after QwenPaw exits. Default: terminate any pet desktop QwenPaw has adopted (either by autostarting it or by seeing it healthy at startup / explicit `desktop/start`). | `1` |
+| `QWENPAW_PET_STOP_ON_SHUTDOWN` | `0` ⇒ leave the pet desktop running after NousAIPaw exits. Default: terminate any pet desktop NousAIPaw has adopted (either by autostarting it or by seeing it healthy at startup / explicit `desktop/start`). | `1` |
 | `QWENPAW_PET_HOME` | Runtime dir (PID file, log, **cache**, token) | `~/.qwenpaw-pet/` |
 | `QWENPAW_PET_SNOWPAW_URL` | CDN URL for snowpaw's `spritesheet.webp` (downloaded once on first install) | Alicdn-hosted default |
 | `QWENPAW_WORKING_DIR` / `COPAW_WORKING_DIR` | Where `pets/` lives | falls back to `~/.copaw` then `~/.qwenpaw` |
@@ -303,7 +303,7 @@ will take precedence over the cache and the network fetch.
 desktop process.
 
 - **`ModuleNotFoundError: No module named 'PySide6'`** — install Qt into the
-  **same** Python as QwenPaw:
+  **same** Python as NousAIPaw:
   `pip install "pyside6-essentials>=6.6"` (see `plugin.json` / `requirements.txt`).
 
 - **`[Errno 48] address already in use` (uvicorn)** — something else is bound

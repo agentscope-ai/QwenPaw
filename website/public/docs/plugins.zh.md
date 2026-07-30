@@ -1,6 +1,6 @@
 # 插件系统
 
-QwenPaw 提供了插件系统，允许用户扩展 QwenPaw 的功能。
+NousAIPaw 提供了插件系统，允许用户扩展 NousAIPaw 的功能。
 
 ## 概述
 
@@ -36,7 +36,7 @@ qwenpaw plugin install https://example.com/plugin.zip
 qwenpaw plugin install /path/to/plugin --force
 ```
 
-**注意**：插件操作只能在 QwenPaw 离线时执行。
+**注意**：插件操作只能在 NousAIPaw 离线时执行。
 
 ### 列出已安装插件
 
@@ -118,9 +118,9 @@ my-plugin/
 | `entry.backend`   | `string`        | 否\* | 相对插件目录的 Python 入口文件路径，需在其中导出 `plugin`。                                                                                       |
 | `entry.frontend`  | `string`        | 否\* | 已构建的前端 bundle 路径（如 `dist/index.js`）。                                                                                                  |
 | `dependencies`    | `string[]`      | 否   | Python 依赖列表，安装时通过 pip / uv 自动安装。                                                                                                   |
-| `qwenpaw_version` | `object`        | 否   | QwenPaw 版本约束（推荐）。包含 `min`（包含）和 `max`（不包含，可选）两个子字段，语义为 `>=min, <max`。省略 `max` 时默认取 `{major}.{minor+1}.0`。 |
-| `min_version`     | `string`        | 否   | **遗留字段。** 需要的最低 QwenPaw 版本。当 `qwenpaw_version` 存在时被忽略，仅为兼容第三方旧插件保留。                                             |
-| `max_version`     | `string`        | 否   | **遗留字段。** 不兼容的第一个 QwenPaw 版本（不包含）。配合 `min_version` 使用；省略时从 `min_version` 推导。                                      |
+| `qwenpaw_version` | `object`        | 否   | NousAIPaw 版本约束（推荐）。包含 `min`（包含）和 `max`（不包含，可选）两个子字段，语义为 `>=min, <max`。省略 `max` 时默认取 `{major}.{minor+1}.0`。 |
+| `min_version`     | `string`        | 否   | **遗留字段。** 需要的最低 NousAIPaw 版本。当 `qwenpaw_version` 存在时被忽略，仅为兼容第三方旧插件保留。                                             |
+| `max_version`     | `string`        | 否   | **遗留字段。** 不兼容的第一个 NousAIPaw 版本（不包含）。配合 `min_version` 使用；省略时从 `min_version` 推导。                                      |
 | `meta`            | `object`        | 否   | 自由元数据。前端 UI 与 `type` 推断都会读取（如 `meta.tools[]`、`meta.hook_type`、`meta.provider_id`）。                                           |
 | `entry_point`     | `string`        | 否   | **遗留字段。** 等价于 `entry.backend`，仅为兼容老插件保留，新插件请使用 `entry.backend`。                                                         |
 
@@ -786,7 +786,7 @@ plugin = MyLLMProviderPlugin()
 # 安装插件
 qwenpaw plugin install my-llm-provider
 
-# 启动 QwenPaw
+# 启动 NousAIPaw
 qwenpaw app
 
 # 在 Web UI 中配置 API Key
@@ -795,7 +795,7 @@ qwenpaw app
 
 ### 示例 2：添加启动钩子
 
-假设你想在 QwenPaw 启动时初始化一个监控服务。
+假设你想在 NousAIPaw 启动时初始化一个监控服务。
 
 #### 1. 创建插件
 
@@ -855,7 +855,7 @@ class MonitoringHookPlugin:
 
                 # 初始化你的监控服务
                 # from my_monitoring import init_monitoring
-                # init_monitoring(app_name="QwenPaw")
+                # init_monitoring(app_name="NousAIPaw")
 
                 logger.info("✓ Monitoring initialized successfully")
 
@@ -1008,7 +1008,7 @@ const WelcomePage = () => {
         background: theme === "dark" ? "#1f1f1f" : "#fff",
       }}
     >
-      <Typography.Title level={2}>Welcome to QwenPaw</Typography.Title>
+      <Typography.Title level={2}>Welcome to NousAIPaw</Typography.Title>
       <Typography.Paragraph>插件系统运行正常！</Typography.Paragraph>
     </Card>
   );
@@ -1071,8 +1071,8 @@ const pluginId = "custom-greeting-plugin";
 window.QwenPaw.chat.welcome.set(pluginId, {
   greeting: (locale) =>
     locale.startsWith("zh")
-      ? "你好！我是定制版 QwenPaw"
-      : "Hello! I'm customized QwenPaw",
+      ? "你好！我是定制版 NousAIPaw"
+      : "Hello! I'm customized NousAIPaw",
   description: "这是一个定制化的聊天助手",
   prompts: [
     { label: "分析代码", value: "帮我分析这段代码" },
@@ -1085,7 +1085,7 @@ window.QwenPaw.chat.welcome.set(pluginId, {
 ### 示例 7：暴露 FastAPI 接口
 
 后端插件可以通过注册 `fastapi.APIRouter` 暴露自己的 HTTP 接口。路由会挂载在
-`/api` 加上你指定的前缀下，与 QwenPaw 核心 API 使用同一个 FastAPI 应用，因此
+`/api` 加上你指定的前缀下，与 NousAIPaw 核心 API 使用同一个 FastAPI 应用，因此
 共享 CORS、鉴权等设置，并会出现在 `/openapi.json` 与 `/docs` 中。
 
 下面示例增加一个简单的 `/api/pets` 接口：列出宠物，并支持新增。
@@ -1218,7 +1218,7 @@ plugin = PetApiPlugin()
 qwenpaw plugin install pet-api-plugin
 ```
 
-启动 QwenPaw 后，可在终端用 `curl` 测试（端口请按你本地实际为准，例如 `8088`）：
+启动 NousAIPaw 后，可在终端用 `curl` 测试（端口请按你本地实际为准，例如 `8088`）：
 
 ```bash
 # 列出全部宠物
@@ -1252,7 +1252,7 @@ curl -X POST http://127.0.0.1:8088/api/pets \
   "name": "Tracing Middleware Demo",
   "version": "1.0.0",
   "description": "Demo: logs tool calls with execution timing to a trace file",
-  "author": "QwenPaw Team",
+  "author": "NousAIPaw Team",
   "type": "general",
   "entry": {
     "backend": "tracing_plugin.py"
@@ -1345,7 +1345,7 @@ plugin = TracingPlugin()
   "name": "Thinking Log Middleware Demo",
   "version": "1.0.0",
   "description": "Demo: prints model reasoning steps to stdout",
-  "author": "QwenPaw Team",
+  "author": "NousAIPaw Team",
   "type": "general",
   "entry": {
     "backend": "thinking_log_plugin.py"
@@ -1410,7 +1410,7 @@ plugin = ThinkingLogPlugin()
 
 ### 示例 10：注册自定义消息频道
 
-Channel 插件可以为 QwenPaw 添加新的消息平台。注册后的频道会在控制台 UI 中与内置
+Channel 插件可以为 NousAIPaw 添加新的消息平台。注册后的频道会在控制台 UI 中与内置
 频道（钉钉、Telegram 等）一起显示，支持同样的启用/禁用和配置方式。
 
 #### 1. 创建插件目录
@@ -1427,7 +1427,7 @@ mkdir sample-channel-plugin && cd sample-channel-plugin
   "name": "Sample Channel",
   "version": "1.0.0",
   "type": "channel",
-  "description": "Sample messaging channel integration for QwenPaw",
+  "description": "Sample messaging channel integration for NousAIPaw",
   "author": "Your Name",
   "entry": {
     "backend": "plugin.py"
@@ -1759,7 +1759,7 @@ api.register_startup_hook("late", callback, priority=200)
    qwenpaw plugin list
    ```
 
-2. 查看 QwenPaw 日志：
+2. 查看 NousAIPaw 日志：
 
    ```bash
    tail -f ~/.qwenpaw/logs/qwenpaw.log | grep -i plugin
@@ -1781,7 +1781,7 @@ api.register_startup_hook("late", callback, priority=200)
 
 ### Provider 未显示
 
-1. 确认插件已安装并重启 QwenPaw
+1. 确认插件已安装并重启 NousAIPaw
 2. 检查 Web UI 的模型管理页面
 3. 查看日志中的 provider 注册信息
 
@@ -1793,7 +1793,7 @@ api.register_startup_hook("late", callback, priority=200)
 
 ## 安全注意事项
 
-1. **只安装可信插件**：插件代码会在 QwenPaw 进程中执行
+1. **只安装可信插件**：插件代码会在 NousAIPaw 进程中执行
 2. **检查依赖**：确保插件依赖来自可信源
 3. **审查代码**：安装前审查插件源代码
 4. **热加载注意**：当前版本支持运行中通过 API 热安装/热卸载插件，无需重启。请注意热加载时的状态一致性
@@ -1977,7 +1977,7 @@ qwenpaw plugin install https://example.com/my-plugin-1.0.0.zip
 
 ## 常见问题
 
-### Q: 插件可以访问哪些 QwenPaw API？
+### Q: 插件可以访问哪些 NousAIPaw API？
 
 A: 插件通过 `PluginApi` 访问核心功能，包括：
 
@@ -1988,7 +1988,7 @@ A: 插件通过 `PluginApi` 访问核心功能，包括：
 - HTTP 路由注册（`register_http_router`）
 - Runtime helpers（provider_manager 等）
 
-### Q: 插件可以修改 QwenPaw 的核心行为吗？
+### Q: 插件可以修改 NousAIPaw 的核心行为吗？
 
 A: 可以，通过 `register_middleware`（注入 AgentScope middleware）、`register_control_command`、`register_tool`、runtime hooks 和其他 PluginApi 方法。请谨慎使用，确保不会破坏核心功能。
 
@@ -2000,18 +2000,18 @@ A: 如果多个插件注册相同的 provider_id 或 command_name，后注册的
 
 ### GPT Image 2 工具插件
 
-一个为 QwenPaw agents 添加 OpenAI GPT Image 2 图片生成能力的工具插件。
+一个为 NousAIPaw agents 添加 OpenAI GPT Image 2 图片生成能力的工具插件。
 
 **系统要求：**
 
-- QwenPaw 最低版本：`1.1.5`
+- NousAIPaw 最低版本：`1.1.5`
 
 **安装方法：**
 
 ```bash
-# 克隆 QwenPaw 仓库（如果尚未克隆）
-git clone https://github.com/agentscope-ai/QwenPaw.git
-cd QwenPaw
+# 克隆 NousAIPaw 仓库（如果尚未克隆）
+git clone https://github.com/uaixo/awesome-NousAI-PAW.git
+cd awesome-NousAI-PAW
 
 # 安装插件
 qwenpaw plugin install plugins/tool/gpt-image2
@@ -2019,7 +2019,7 @@ qwenpaw plugin install plugins/tool/gpt-image2
 
 **配置步骤：**
 
-1. 安装完成后，重启 QwenPaw
+1. 安装完成后，重启 NousAIPaw
 2. 进入 Agent 设置 → 工具管理
 3. 找到 "generate_image_gpt" 工具
 4. 点击"配置"按钮，输入你的 OpenAI API Key

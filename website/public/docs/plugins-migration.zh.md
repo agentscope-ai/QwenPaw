@@ -1,6 +1,6 @@
 # 插件系统迁移指南
 
-QwenPaw 新版保留了旧版插件系统的大部分公开 API。旧版公开 API 多数签名保持兼容，可以继续调用；但如果插件依赖 agent 状态、workspace 信息、runtime helper、工具配置结构或前端页面结构，仍需要在新版环境中验证实际行为。
+NousAIPaw 新版保留了旧版插件系统的大部分公开 API。旧版公开 API 多数签名保持兼容，可以继续调用；但如果插件依赖 agent 状态、workspace 信息、runtime helper、工具配置结构或前端页面结构，仍需要在新版环境中验证实际行为。
 
 ## 适用范围
 
@@ -64,15 +64,15 @@ plugin = MyPlugin()
 | `"min": "2.0.0"`  | `>=2.0.0, <2.1.0`  |
 | `"min": "1.1.10"` | `>=1.1.10, <1.2.0` |
 
-因此，把旧版插件原样放到新版时，如果只保留 `"min_version": "1.1.10"`，新版会将它解释为 `>=1.1.10, <1.2.0`，在 QwenPaw 2.0.x 下会被判定为不兼容。
+因此，把旧版插件原样放到新版时，如果只保留 `"min_version": "1.1.10"`，新版会将它解释为 `>=1.1.10, <1.2.0`，在 NousAIPaw 2.0.x 下会被判定为不兼容。
 
 ### 清单字段说明
 
 | 字段                                                                                                                | 类型     | 旧版                   | 新版                                                  | 迁移建议                         |
 | ------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------- | ----------------------------------------------------- | -------------------------------- |
 | `qwenpaw_version`                                                                                                   | `object` | 未定义，会被忽略       | 新增，推荐使用                                        | 新版插件建议增加该字段           |
-| `qwenpaw_version.min`                                                                                               | `string` | 未定义                 | 最低兼容 QwenPaw 版本，包含该版本                     | 写为实际验证过的最低新版版本     |
-| `qwenpaw_version.max`                                                                                               | `string` | 未定义                 | 最高兼容 QwenPaw 版本，不包含该版本                   | 建议显式填写                     |
+| `qwenpaw_version.min`                                                                                               | `string` | 未定义                 | 最低兼容 NousAIPaw 版本，包含该版本                     | 写为实际验证过的最低新版版本     |
+| `qwenpaw_version.max`                                                                                               | `string` | 未定义                 | 最高兼容 NousAIPaw 版本，不包含该版本                   | 建议显式填写                     |
 | `min_version`                                                                                                       | `string` | 支持，但不用于加载拦截 | 遗留字段，仅在没有 `qwenpaw_version` 时参与兼容性判断 | 需要兼容旧版时可以保留           |
 | `max_version`                                                                                                       | `string` | 未定义                 | 遗留字段，配合 `min_version` 使用                     | 仅旧清单兼容场景使用             |
 | `id`、`version`、`name`、`type`、`description`、`author`、`entry.backend`、`entry.frontend`、`dependencies`、`meta` | —        | 支持                   | 继续支持                                              | 保持不变                         |
@@ -329,18 +329,18 @@ api.unregister_skill_provider()
 
 ## 发布到插件市场
 
-新版插件市场目录会按 QwenPaw 版本过滤插件条目。过滤规则与加载器一致。
+新版插件市场目录会按 NousAIPaw 版本过滤插件条目。过滤规则与加载器一致。
 
 | 字段                  | 类型     | 读取优先级 | 说明                                      |
 | --------------------- | -------- | ---------- | ----------------------------------------- |
 | `qwenpaw_version`     | `object` | 1          | 推荐字段，格式与插件清单一致              |
-| `qwenpaw_version.min` | `string` | 1          | 最低兼容 QwenPaw 版本，包含该版本         |
-| `qwenpaw_version.max` | `string` | 1          | 最高兼容 QwenPaw 版本，不包含该版本       |
+| `qwenpaw_version.min` | `string` | 1          | 最低兼容 NousAIPaw 版本，包含该版本         |
+| `qwenpaw_version.max` | `string` | 1          | 最高兼容 NousAIPaw 版本，不包含该版本       |
 | `min_version`         | `string` | 2          | 旧字段，仅在没有 `qwenpaw_version` 时使用 |
 | `max_version`         | `string` | 2          | 旧字段，仅在没有 `qwenpaw_version` 时使用 |
 | 无版本约束            | -        | 3          | 会被视为兼容，但发布时不建议省略          |
 
-发布新版插件时，建议插件包内的 `plugin.json` 与市场索引条目使用一致的版本约束。如果旧条目只写了 `"min_version": "1.1.10"`，在 QwenPaw 2.0.x 下可能会被过滤。
+发布新版插件时，建议插件包内的 `plugin.json` 与市场索引条目使用一致的版本约束。如果旧条目只写了 `"min_version": "1.1.10"`，在 NousAIPaw 2.0.x 下可能会被过滤。
 
 ## 迁移步骤
 
@@ -349,7 +349,7 @@ api.unregister_skill_provider()
 3. 搜索 `register_prompt_section`，将调用改为关键字参数形式，并显式传入 `after`。
 4. 如果插件提供 skill，验证用户手动修改开关后的持久化行为。
 5. 在新版环境执行插件安装和校验。
-6. 启动 QwenPaw，检查日志中是否有 `is incompatible` 或插件注册失败信息。
+6. 启动 NousAIPaw，检查日志中是否有 `is incompatible` 或插件注册失败信息。
 7. 如果发布到插件市场，同步更新市场索引中的版本约束。
 
 ## 常见问题

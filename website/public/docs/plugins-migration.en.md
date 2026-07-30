@@ -1,6 +1,6 @@
 # Plugin System Migration Guide
 
-The new version of QwenPaw keeps most of the public API from the previous plugin system. Most legacy public APIs keep the same signature and can still be called as-is. However, if a plugin depends on agent state, workspace internals, runtime helpers, tool config structures, or frontend page structure, you still need to verify the actual behavior in the new version.
+The new version of NousAIPaw keeps most of the public API from the previous plugin system. Most legacy public APIs keep the same signature and can still be called as-is. However, if a plugin depends on agent state, workspace internals, runtime helpers, tool config structures, or frontend page structure, you still need to verify the actual behavior in the new version.
 
 ## Scope
 
@@ -64,15 +64,15 @@ The version range uses `>= min, < max` semantics. When `max` is omitted, the new
 | `"min": "2.0.0"`  | `>=2.0.0, <2.1.0`  |
 | `"min": "1.1.10"` | `>=1.1.10, <1.2.0` |
 
-So if you drop a legacy plugin into the new version unchanged and it only has `"min_version": "1.1.10"`, the new version interprets it as `>=1.1.10, <1.2.0`, which is judged incompatible under QwenPaw 2.0.x.
+So if you drop a legacy plugin into the new version unchanged and it only has `"min_version": "1.1.10"`, the new version interprets it as `>=1.1.10, <1.2.0`, which is judged incompatible under NousAIPaw 2.0.x.
 
 ### Manifest Field Reference
 
 | Field                                                                                                               | Type     | Legacy                                   | New                                                                               | Migration advice                                            |
 | ------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | `qwenpaw_version`                                                                                                   | `object` | Undefined, ignored                       | New, recommended                                                                  | New plugins should add this field                           |
-| `qwenpaw_version.min`                                                                                               | `string` | Undefined                                | Minimum compatible QwenPaw version, inclusive                                     | Set to the lowest new version you actually verified against |
-| `qwenpaw_version.max`                                                                                               | `string` | Undefined                                | Highest compatible QwenPaw version, exclusive                                     | Recommended to set explicitly                               |
+| `qwenpaw_version.min`                                                                                               | `string` | Undefined                                | Minimum compatible NousAIPaw version, inclusive                                     | Set to the lowest new version you actually verified against |
+| `qwenpaw_version.max`                                                                                               | `string` | Undefined                                | Highest compatible NousAIPaw version, exclusive                                     | Recommended to set explicitly                               |
 | `min_version`                                                                                                       | `string` | Supported, but not enforced at load time | Legacy field, only used for compatibility checks when `qwenpaw_version` is absent | Keep it if you need legacy compatibility                    |
 | `max_version`                                                                                                       | `string` | Undefined                                | Legacy field, used together with `min_version`                                    | Only for legacy-manifest compatibility scenarios            |
 | `id`, `version`, `name`, `type`, `description`, `author`, `entry.backend`, `entry.frontend`, `dependencies`, `meta` | —        | Supported                                | Still supported                                                                   | No change                                                   |
@@ -330,18 +330,18 @@ Hidden directories starting with `.` and directories ending in `.disabled` are n
 
 ## Publishing to the Plugin Marketplace
 
-The new version's plugin marketplace catalog filters entries by QwenPaw version. The filtering rules match the loader:
+The new version's plugin marketplace catalog filters entries by NousAIPaw version. The filtering rules match the loader:
 
 | Field                 | Type     | Read priority | Description                                                                        |
 | --------------------- | -------- | ------------- | ---------------------------------------------------------------------------------- |
 | `qwenpaw_version`     | `object` | 1             | Recommended field, same format as the plugin manifest                              |
-| `qwenpaw_version.min` | `string` | 1             | Minimum compatible QwenPaw version, inclusive                                      |
-| `qwenpaw_version.max` | `string` | 1             | Highest compatible QwenPaw version, exclusive                                      |
+| `qwenpaw_version.min` | `string` | 1             | Minimum compatible NousAIPaw version, inclusive                                      |
+| `qwenpaw_version.max` | `string` | 1             | Highest compatible NousAIPaw version, exclusive                                      |
 | `min_version`         | `string` | 2             | Legacy field, only used when `qwenpaw_version` is absent                           |
 | `max_version`         | `string` | 2             | Legacy field, only used when `qwenpaw_version` is absent                           |
 | No version constraint | -        | 3             | Treated as compatible, but omitting constraints is not recommended when publishing |
 
-When publishing a new-version plugin, keep the version constraints in the packaged `plugin.json` consistent with the marketplace index entry. If an existing entry only has `"min_version": "1.1.10"`, it may get filtered out under QwenPaw 2.0.x.
+When publishing a new-version plugin, keep the version constraints in the packaged `plugin.json` consistent with the marketplace index entry. If an existing entry only has `"min_version": "1.1.10"`, it may get filtered out under NousAIPaw 2.0.x.
 
 ## Migration Steps
 
@@ -350,7 +350,7 @@ When publishing a new-version plugin, keep the version constraints in the packag
 3. Search for `register_prompt_section`, and change calls to keyword-argument style with `after` passed explicitly.
 4. If the plugin provides a skill, verify the persistence behavior after a user manually toggles it.
 5. Run plugin install and validation in the new version.
-6. Start QwenPaw and check the logs for `is incompatible` or plugin registration failure messages.
+6. Start NousAIPaw and check the logs for `is incompatible` or plugin registration failure messages.
 7. If published to the plugin marketplace, update the version constraints in the marketplace index as well.
 
 ## FAQ

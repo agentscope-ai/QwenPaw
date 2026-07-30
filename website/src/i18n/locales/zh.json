@@ -29,15 +29,15 @@
     "titleright": "专业AI助手",
     "slogan": "懂你所需，伴你左右",
     "sub": "v2.0.0 五大方面能力升级：",
-    "sub1": "为 QwenPaw 量身定制的 Agent OS, TUI, 循环工程, 滚动上下文, 新版 ReMe",
-    "releaseNote": "QwenPaw v2.0.0版本全新发布",
+    "sub1": "为 NousAIPaw 量身定制的 Agent OS, TUI, 循环工程, 滚动上下文, 新版 ReMe",
+    "releaseNote": "NousAIPaw v2.0.0版本全新发布",
     "cta": "查看文档",
     "quickStart": "快速开始",
     "quickTry": "快速体验"
   },
   "follow": {
     "title": "关注我们",
-    "sub": "第一时间获取 QwenPaw 最新动态",
+    "sub": "第一时间获取 NousAIPaw 最新动态",
     "xiaohongshu": "小红书：",
     "x": "X："
   },
@@ -48,16 +48,16 @@
   },
   "finalCta": {
     "titleBefore": "欢迎使用",
-    "titleEmphasis": "QwenPaw",
+    "titleEmphasis": "NousAIPaw",
     "titleAfter": "，",
     "titleLine2": "懂你所需，伴你左右",
     "downloadFromGithub": "前往 GitHub 下载"
   },
   "whyQwenpaw": {
     "headingPrefix": "Why",
-    "headingEmphasis": "QwenPaw?",
+    "headingEmphasis": "NousAIPaw?",
     "sub": "安装简单，可部署在本机或云端；\n支持多种 IM 应用；能力可轻松扩展。",
-    "heroLine": "QwenPaw 既是 Qwen Personal Agent Workstation（千问个人智能体工作台），也寓意 Qwen 的智识，Paw 的温度。",
+    "heroLine": "NousAIPaw 既是 Qwen Personal Agent Workstation（千问个人智能体工作台），也寓意 Qwen 的智识，Paw 的温度。",
     "secondPrefix": "我们希望它不是冰冷的工具，而是一只随时准备帮忙的智慧、温暖“小爪子”，是你数字生活中最默契的伙伴。"
   },
   "worksForYou": {
@@ -67,7 +67,7 @@
     "cards": {
       "agentOs": {
         "title": "Agent OS",
-        "desc": "QwenPaw 2.0 以类操作系统的 Harness 架构连接模型与应用，将 Agent 从独立应用升级为开放的智能基座。未来还将持续推出面向不同场景的 QwenPaw 小程序与轻量应用。"
+        "desc": "NousAIPaw 2.0 以类操作系统的 Harness 架构连接模型与应用，将 Agent 从独立应用升级为开放的智能基座。未来还将持续推出面向不同场景的 NousAIPaw 小程序与轻量应用。"
       },
       "tui": {
         "title": "终端交互",
@@ -85,14 +85,14 @@
   },
   "clientVoices": {
     "title": "聆听来自我们社区的用户之声",
-    "sub": "来自真实 QwenPaw 用户的反馈",
+    "sub": "来自真实 NousAIPaw 用户的反馈",
     "items": {
       "t1": {
-        "text": "QwenPaw 是一个真正开箱即用的通用型 AI Agent 框架。随着底层能力持续迭代，我们自研的业务智能体也能实现智能跃迁，显著降低长期维护成本与技术负担。",
+        "text": "NousAIPaw 是一个真正开箱即用的通用型 AI Agent 框架。随着底层能力持续迭代，我们自研的业务智能体也能实现智能跃迁，显著降低长期维护成本与技术负担。",
         "role": "阿里云开发工程师"
       },
       "t2": {
-        "text": "阿里通义这次出手很稳。QwenPaw 强化了本地+云端双模部署，这在当前隐私敏感和算力需求并存的环境下非常实用。开源策略也显示出阿里在 AI 生态布局上的开放态度。",
+        "text": "阿里通义这次出手很稳。NousAIPaw 强化了本地+云端双模部署，这在当前隐私敏感和算力需求并存的环境下非常实用。开源策略也显示出阿里在 AI 生态布局上的开放态度。",
         "role": "开发者"
       },
       "t3": {
@@ -104,11 +104,11 @@
         "role": "开发者"
       },
       "t5": {
-        "text": "无需重启即可热切换 MCP 是 Agent 工作流里最亮眼的能力。你可以在同一会话中扩展 QwenPaw 的工具集，不打断上下文、也没有重启成本；Skill Hub + Claw Hub 的整合会让生态增长更快。",
+        "text": "无需重启即可热切换 MCP 是 Agent 工作流里最亮眼的能力。你可以在同一会话中扩展 NousAIPaw 的工具集，不打断上下文、也没有重启成本；Skill Hub + Claw Hub 的整合会让生态增长更快。",
         "role": "开发者"
       },
       "t6": {
-        "text": "通义实验室的 QwenPaw 开源项目真的很棒！看到大家在使用过程中既有成功的喜悦，也有整理桌面变删除文件的有趣经历。开源 AI Agent 框架对于推动整个行业的发展非常重要，期待看到更多基于 QwenPaw 的创新应用。",
+        "text": "通义实验室的 NousAIPaw 开源项目真的很棒！看到大家在使用过程中既有成功的喜悦，也有整理桌面变删除文件的有趣经历。开源 AI Agent 框架对于推动整个行业的发展非常重要，期待看到更多基于 NousAIPaw 的创新应用。",
         "role": "开发者"
       }
     }
@@ -117,7 +117,7 @@
     "title": "核心能力",
     "channels": {
       "title": "全域触达",
-      "desc": "支持钉钉、飞书、QQ、Discord、iMessage 等频道，一个 QwenPaw 按需连接。"
+      "desc": "支持钉钉、飞书、QQ、Discord、iMessage 等频道，一个 NousAIPaw 按需连接。"
     },
     "private": {
       "title": "由你掌控",
@@ -125,35 +125,35 @@
     },
     "skills": {
       "title": "Skills 扩展",
-      "desc": "内置定时任务，自定义技能目录，QwenPaw 自动加载。"
+      "desc": "内置定时任务，自定义技能目录，NousAIPaw 自动加载。"
     }
   },
   "testimonials": {
     "title": "社区怎么说",
     "viewAll": "查看全部",
-    "1": "QwenPaw 就该这样：多频道一个入口，Python 好改好部署。",
+    "1": "NousAIPaw 就该这样：多频道一个入口，Python 好改好部署。",
     "2": "定时和心跳很实用，Skills 自己加，数据都在本地。",
     "3": "想完全掌控的团队用着很顺手。"
   },
   "usecases": {
-    "title": "QwenPaw可以为你做些什么",
+    "title": "NousAIPaw可以为你做些什么",
     "sub": "记忆配置与个性化设置，由你掌控。",
     "categories": {
       "social": {
         "title": "社交媒体",
-        "description": "QwenPaw 帮你追踪社交动态：根据你的兴趣，汇总热门帖子、新视频和账号规律。"
+        "description": "NousAIPaw 帮你追踪社交动态：根据你的兴趣，汇总热门帖子、新视频和账号规律。"
       },
       "creative": {
         "title": "创意与构建",
-        "description": "QwenPaw 可以全天候在您的设备上运行，帮助您实现想法，并支持从创意构思到实现的整个内容创作过程。"
+        "description": "NousAIPaw 可以全天候在您的设备上运行，帮助您实现想法，并支持从创意构思到实现的整个内容创作过程。"
       },
       "productivity": {
         "title": "生产力",
-        "description": "QwenPaw 提升生产力：汇总更新、整理联系人、分析个人日志，发现有用规律。"
+        "description": "NousAIPaw 提升生产力：汇总更新、整理联系人、分析个人日志，发现有用规律。"
       },
       "research": {
         "title": "研究与学习",
-        "description": "QwenPaw 帮助您追踪重要的企业动态，并支持建立您的个人通用知识库，以便日常轻松检索和重复使用。"
+        "description": "NousAIPaw 帮助您追踪重要的企业动态，并支持建立您的个人通用知识库，以便日常轻松检索和重复使用。"
       }
     }
   },
@@ -164,7 +164,7 @@
     "serviceNotice": "几分钟，获得专属AI助理。一行命令，或双击桌面应用，自己动手，轻松搞定。",
     "hintBefore": "安装 → 初始化 → 启动；频道配置见 ",
     "hintLink": "文档",
-    "hintAfter": "，即可通过钉钉、飞书、QQ 等频道使用 QwenPaw。",
+    "hintAfter": "，即可通过钉钉、飞书、QQ 等频道使用 NousAIPaw。",
     "method": {
       "pip": "pip",
       "script": "脚本安装",
@@ -211,7 +211,7 @@
   "contributors": {
     "titlePrefix": "感谢每一位",
     "titleHighlight": "贡献者",
-    "sub": "QwenPaw 的每一行代码、每一个 PR，都凝聚着社区成员的热爱与投入。",
+    "sub": "NousAIPaw 的每一行代码、每一个 PR，都凝聚着社区成员的热爱与投入。",
     "prev": "上一页贡献者",
     "next": "下一页贡献者",
     "noteLine1Prefix": "贡献者列表按 GitHub ID 字母顺序排列，如对名单有任何疑问，欢迎",
@@ -220,7 +220,7 @@
     "noteLine2Prefix": "数据来源于"
   },
   "footer": {
-    "text": "QwenPaw — 懂你所需，伴你左右",
+    "text": "NousAIPaw — 懂你所需，伴你左右",
     "sections": {
       "builtBy": "生态",
       "resources": "资源",
@@ -267,8 +267,8 @@
   "blog": {
     "breadcrumbHome": "首页",
     "breadcrumbCurrent": "博客",
-    "title": "QwenPaw 团队的博客",
-    "subtitle": "来自 QwenPaw 的最新动态、深度解析和用户故事。",
+    "title": "NousAIPaw 团队的博客",
+    "subtitle": "来自 NousAIPaw 的最新动态、深度解析和用户故事。",
     "latestUpdate": "最近更新 {{date}}",
     "totalPosts": "共 {{count}} 篇",
     "readTime": "阅读时间 {{minutes}} 分钟",
@@ -329,8 +329,8 @@
     "demoTitle": "功能演示",
     "demoVideos": {
       "skill": "/skills：智能体技能的按需调用",
-      "doctor": "QwenPaw Doctor：一键全面系统诊断",
-      "missionMode": "QwenPaw 任务模式：复杂任务的自主执行",
+      "doctor": "NousAIPaw Doctor：一键全面系统诊断",
+      "missionMode": "NousAIPaw 任务模式：复杂任务的自主执行",
       "autoContinue": "纯文本步骤自动续跑功能介绍"
     },
     "textVersion": "查看文字版文档",
@@ -356,8 +356,8 @@
     },
     "quickStart": {
       "install": {
-        "q": "如何安装 QwenPaw",
-        "p1": "QwenPaw 支持多种安装方式，包括：",
+        "q": "如何安装 NousAIPaw",
+        "p1": "NousAIPaw 支持多种安装方式，包括：",
         "li1": "桌面应用（Beta）：下载并运行桌面 App，无需命令行，适合不熟悉终端的用户。",
         "li2": "脚本安装：在本机运行，无需手动配置 Python 环境。",
         "li3": "pip 安装：如果你希望自行管理 Python 环境。",
@@ -369,22 +369,22 @@
         "ctaSuffix": "。"
       },
       "update": {
-        "q": "如何更新 QwenPaw",
-        "p1": "更新 QwenPaw 请使用与你安装方式匹配的方法：",
+        "q": "如何更新 NousAIPaw",
+        "p1": "更新 NousAIPaw 请使用与你安装方式匹配的方法：",
         "li1": "若通过一行脚本安装，重新执行安装脚本即可升级。",
         "li2Prefix": "若通过 pip 安装，执行：",
         "li3": "若从源码安装，拉取最新代码并重新安装。",
         "li4": "若使用 Docker，拉取最新镜像并重启容器。",
         "li5Prefix": "若使用 Windows 桌面应用（exe），目前需要卸载后重装：",
-        "li5a": "从电脑中卸载 QwenPaw。",
+        "li5a": "从电脑中卸载 NousAIPaw。",
         "li5bPrefix": "从以下地址下载最新版本：",
         "li5bLink": "GitHub Releases",
         "li5bSuffix": "。",
         "li5c": "重新安装。",
-        "p2": "原 CoPaw 用户升级 QwenPaw，下载最新的 QwenPaw 即可，无需做额外适配即可继续使用 CoPaw 时期的所有配置、记忆、技能等。"
+        "p2": "原 CoPaw 用户升级 NousAIPaw，下载最新的 NousAIPaw 即可，无需做额外适配即可继续使用 CoPaw 时期的所有配置、记忆、技能等。"
       },
       "initialize": {
-        "q": "如何初始化并启动 QwenPaw 服务",
+        "q": "如何初始化并启动 NousAIPaw 服务",
         "p1": "推荐快速初始化：",
         "p2": "启动服务：",
         "p3Prefix": "默认 Console 地址为",
@@ -392,7 +392,7 @@
       },
       "upgrade": {
         "q": "在哪里查看最新版本更新内容",
-        "p1": "你可以在 Console 的 Change Log 区域查看版本变更，或前往 QwenPaw 的",
+        "p1": "你可以在 Console 的 Change Log 区域查看版本变更，或前往 NousAIPaw 的",
         "link": "GitHub Releases",
         "p2": "页面查看。"
       }
@@ -400,7 +400,7 @@
     "features": {
       "jobs": {
         "q": "如何管理定时任务（Cron Jobs）",
-        "a": "创建定时任务最简单的方法是在你的目标频道里直接让 QwenPaw 创建。例如：Create a scheduled task that reminds me to drink water every five minutes. 你也可以在 Console → Control → Cron Jobs 中手动创建与管理。"
+        "a": "创建定时任务最简单的方法是在你的目标频道里直接让 NousAIPaw 创建。例如：Create a scheduled task that reminds me to drink water every five minutes. 你也可以在 Console → Control → Cron Jobs 中手动创建与管理。"
       },
       "models": {
         "q": "如何配置模型",
@@ -450,26 +450,26 @@
       },
       "localModels": {
         "q": "本地模型故障排查",
-        "p1": "大多数情况下这不是 QwenPaw 的 bug，根因通常是模型的上下文长度（context length）配置过小。",
-        "p2": "当你用 Ollama 或 LM Studio 部署本地模型时，如果 context length 太低，QwenPaw 可能出现：",
+        "p1": "大多数情况下这不是 NousAIPaw 的 bug，根因通常是模型的上下文长度（context length）配置过小。",
+        "p2": "当你用 Ollama 或 LM Studio 部署本地模型时，如果 context length 太低，NousAIPaw 可能出现：",
         "li1": "多轮对话难以稳定持续",
         "li2": "复杂工具调用时丢失上下文",
         "li3": "忘记较早轮次的指令",
         "li4": "长任务交互中逐渐偏离目标",
         "fixTitle": "如何修复：",
-        "fix1": "运行 QwenPaw 前，把模型的 context length 设为至少 32K。",
+        "fix1": "运行 NousAIPaw 前，把模型的 context length 设为至少 32K。",
         "fix2": "更复杂的任务、更频繁的工具调用或更长对话，可能需要高于 32K 的值。"
       },
       "cron": {
         "q": "定时任务（Cron Jobs）故障排查",
         "p1": "如果定时任务没有按预期执行，可以按以下步骤排查：",
-        "s1": "确认 QwenPaw 服务正在运行。",
+        "s1": "确认 NousAIPaw 服务正在运行。",
         "s2": "在 Console 中进入 Control → Cron Jobs，确认任务 Status 为 Enabled。",
         "s3": "在同页确认 Dispatch Channel 选择了目标频道（例如 Console、钉钉、飞书、Discord、iMessage）。",
         "s4": "确认 Dispatch Target User ID 与 Dispatch Target Session ID 配置正确。",
         "s5": "在 Console 中进入 Control → Sessions，找到创建任务时使用的 session；其中的 User ID 与 Session ID 必须与任务的 Dispatch Target User ID / Dispatch Target Session ID 一致，回复才会出现在该会话中。",
         "s6": "如果执行时间不对，回到 Control → Cron Jobs 检查 Schedule（Cron）表达式。",
-        "s7": "手动测试可在 Cron Jobs 页面点击 Execute Now；成功后回复会出现在目标频道。也可以直接问 QwenPaw：\"Trigger the 'drink water reminder' task I just created.\""
+        "s7": "手动测试可在 Cron Jobs 页面点击 Execute Now；成功后回复会出现在目标频道。也可以直接问 NousAIPaw：\"Trigger the 'drink water reminder' task I just created.\""
       },
       "help": {
         "q": "需要帮助怎么办",
@@ -480,15 +480,15 @@
         "dingtalk": "钉钉",
         "discord": "Discord",
         "s2Prefix": "在",
-        "githubIssues": "QwenPaw GitHub",
+        "githubIssues": "NousAIPaw GitHub",
         "s2Mid": "提交 issue，并附上完整错误信息、错误详情文件（例如",
-        "s2Suffix": "）、你的模型供应商、模型名称和 QwenPaw 版本。"
+        "s2Suffix": "）、你的模型供应商、模型名称和 NousAIPaw 版本。"
       }
     }
   },
   "downloads": {
     "title": "下载资源",
-    "subtitle": "获取 QwenPaw 的各种安装包和工具",
+    "subtitle": "获取 NousAIPaw 的各种安装包和工具",
     "loading": "加载中...",
     "emptyTitle": "暂无可下载内容",
     "emptyDesc": "桌面应用正在构建中，请稍后再来查看。",
@@ -520,7 +520,7 @@
     "helpLink": "安装向导",
     "helpSuffix": "了解详细的安装步骤和配置说明。",
     "pluginsTitle": "插件",
-    "pluginsDesc": "下载 QwenPaw 仓库中已发布的插件 zip 包，可在本地安装使用。",
+    "pluginsDesc": "下载 NousAIPaw 仓库中已发布的插件 zip 包，可在本地安装使用。",
     "downloadZip": "下载 zip"
   },
   "releaseNotes": {

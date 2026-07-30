@@ -1,6 +1,6 @@
-# QwenPaw Agent Team Practice Guide
+# NousAIPaw Agent Team Practice Guide
 
-This guide introduces how to build multi-agent collaborative teams using QwenPaw + AgentTeams, achieving the capability leap from single Agent to Agent Team.
+This guide introduces how to build multi-agent collaborative teams using NousAIPaw + AgentTeams, achieving the capability leap from single Agent to Agent Team.
 
 ---
 
@@ -15,12 +15,12 @@ However, "running multiple Agents simultaneously" and "multiple Agents collabora
 - **Orchestration**: Managing Agent lifecycle, resource allocation, and security isolation—solving "how to run multiple Agents"
 - **Collaboration**: Defining organizational relationships, communication permissions, task delegation, and state sharing among Agents—solving "how multiple Agents work together"
 
-### QwenPaw Team Solution
+### NousAIPaw Team Solution
 
-QwenPaw Team provides a complete multi-Agent orchestration and collaboration solution by combining **QwenPaw** + **[AgentTeams](https://hiclaw.io/)**:
+NousAIPaw Team provides a complete multi-Agent orchestration and collaboration solution by combining **NousAIPaw** + **[AgentTeams](https://hiclaw.io/)**:
 
-- **QwenPaw Team Leader**: Built on QwenPaw, serves as team coordinator, responsible for task decomposition, work allocation, and result aggregation
-- **QwenPaw Workers**: Built on QwenPaw, serve as task executors, focusing on domain-specific work, receiving Leader instructions and returning results
+- **NousAIPaw Team Leader**: Built on NousAIPaw, serves as team coordinator, responsible for task decomposition, work allocation, and result aggregation
+- **NousAIPaw Workers**: Built on NousAIPaw, serve as task executors, focusing on domain-specific work, receiving Leader instructions and returning results
 - **AgentTeams**: Open-source multi-Agent collaborative operating system, providing declarative configuration, automated deployment, and lifecycle management
 
 ![Architecture Diagram](https://img.alicdn.com/imgextra/i2/O1CN01LtRoaN1I5gcjMEEkl_!!6000000000842-55-tps-601-509.svg)
@@ -299,13 +299,13 @@ The Worker's `soul` field defines the Agent's identity, role, and behavioral nor
 
 ## Related Documentation
 
-- [QwenPaw Quick Start](./quickstart)
-- [QwenPaw Multi-Agent](./multi-agent)
-- [QwenPaw Skills](./skills)
+- [NousAIPaw Quick Start](./quickstart)
+- [NousAIPaw Multi-Agent](./multi-agent)
+- [NousAIPaw Skills](./skills)
 - [AgentTeams Official Documentation](https://hiclaw.io/)
 
 ---
 
 ## Summary
 
-QwenPaw Agent Team, through the combination of QwenPaw and AgentTeams, provides powerful multi-agent collaboration capabilities for individual developers and small teams. Through proper team design and task allocation, work efficiency can be significantly improved, achieving a "one-person team."
+NousAIPaw Agent Team, through the combination of NousAIPaw and AgentTeams, provides powerful multi-agent collaboration capabilities for individual developers and small teams. Through proper team design and task allocation, work efficiency can be significantly improved, achieving a "one-person team."

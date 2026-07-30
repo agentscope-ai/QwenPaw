@@ -1,6 +1,6 @@
 # Plugin System
 
-QwenPaw provides a plugin system that allows users to extend QwenPaw's functionality.
+NousAIPaw provides a plugin system that allows users to extend NousAIPaw's functionality.
 
 ## Overview
 
@@ -36,7 +36,7 @@ Force reinstall:
 qwenpaw plugin install /path/to/plugin --force
 ```
 
-**Note**: Plugin operations can only be performed when QwenPaw is offline.
+**Note**: Plugin operations can only be performed when NousAIPaw is offline.
 
 ### List Installed Plugins
 
@@ -118,9 +118,9 @@ my-plugin/
 | `entry.backend`   | `string`           | no\*     | Path (relative to plugin dir) of the Python entry file that exports `plugin`.                                                                                                                        |
 | `entry.frontend`  | `string`           | no\*     | Path of the built frontend bundle (e.g. `dist/index.js`).                                                                                                                                            |
 | `dependencies`    | `string[]`         | no       | Python package requirements installed via pip/uv at install time.                                                                                                                                    |
-| `qwenpaw_version` | `object`           | no       | QwenPaw version constraint (recommended). Contains `min` (inclusive) and `max` (exclusive, optional) sub-fields. Semantics: `>=min, <max`. When `max` is omitted, defaults to `{major}.{minor+1}.0`. |
-| `min_version`     | `string`           | no       | **Legacy.** Minimum QwenPaw version required. Ignored when `qwenpaw_version` is present. Retained only for backward compatibility with third-party plugins.                                          |
-| `max_version`     | `string`           | no       | **Legacy.** First incompatible QwenPaw version (exclusive). Used with `min_version`; when omitted, derived from `min_version`.                                                                       |
+| `qwenpaw_version` | `object`           | no       | NousAIPaw version constraint (recommended). Contains `min` (inclusive) and `max` (exclusive, optional) sub-fields. Semantics: `>=min, <max`. When `max` is omitted, defaults to `{major}.{minor+1}.0`. |
+| `min_version`     | `string`           | no       | **Legacy.** Minimum NousAIPaw version required. Ignored when `qwenpaw_version` is present. Retained only for backward compatibility with third-party plugins.                                          |
+| `max_version`     | `string`           | no       | **Legacy.** First incompatible NousAIPaw version (exclusive). Used with `min_version`; when omitted, derived from `min_version`.                                                                       |
 | `meta`            | `object`           | no       | Free-form plugin metadata. Used by the UI and by `type` inference (e.g. `meta.tools[]`, `meta.hook_type`, `meta.provider_id`).                                                                       |
 | `entry_point`     | `string`           | no       | **Legacy.** Equivalent to `entry.backend`. Still accepted for backwards compatibility with older plugins; new plugins should use `entry.backend`.                                                    |
 
@@ -786,13 +786,13 @@ plugin = MyLLMProviderPlugin()
 # Install plugin
 qwenpaw plugin install my-llm-provider
 
-# Start QwenPaw
+# Start NousAIPaw
 qwenpaw app
 ```
 
 ### Example 2: Add Startup Hook
 
-Let's say you want to initialize a monitoring service when QwenPaw starts.
+Let's say you want to initialize a monitoring service when NousAIPaw starts.
 
 #### 1. Create Plugin
 
@@ -852,7 +852,7 @@ class MonitoringHookPlugin:
 
                 # Initialize your monitoring service
                 # from my_monitoring import init_monitoring
-                # init_monitoring(app_name="QwenPaw")
+                # init_monitoring(app_name="NousAIPaw")
 
                 logger.info("✓ Monitoring initialized successfully")
 
@@ -1005,7 +1005,7 @@ const WelcomePage = () => {
         background: theme === "dark" ? "#1f1f1f" : "#fff",
       }}
     >
-      <Typography.Title level={2}>Welcome to QwenPaw</Typography.Title>
+      <Typography.Title level={2}>Welcome to NousAIPaw</Typography.Title>
       <Typography.Paragraph>Plugin system is working!</Typography.Paragraph>
     </Card>
   );
@@ -1074,8 +1074,8 @@ const pluginId = "custom-greeting-plugin";
 window.QwenPaw.chat.welcome.set(pluginId, {
   greeting: (locale) =>
     locale.startsWith("zh")
-      ? "Hello! I'm customized QwenPaw"
-      : "Hello! I'm customized QwenPaw",
+      ? "Hello! I'm customized NousAIPaw"
+      : "Hello! I'm customized NousAIPaw",
   description: "This is a customized chat assistant",
   prompts: [
     { label: "Analyze code", value: "Help me analyze this code" },
@@ -1089,7 +1089,7 @@ window.QwenPaw.chat.welcome.set(pluginId, {
 
 Backend plugins can expose their own HTTP endpoints by registering a
 `fastapi.APIRouter`. The router is mounted under `/api` + your prefix
-and is served by the same FastAPI app as QwenPaw's core API, so it
+and is served by the same FastAPI app as NousAIPaw's core API, so it
 shares CORS settings, the auth layer, and is included in
 `/openapi.json` / `/docs`.
 
@@ -1224,7 +1224,7 @@ plugin = PetApiPlugin()
 qwenpaw plugin install pet-api-plugin
 ```
 
-Once QwenPaw is running:
+Once NousAIPaw is running:
 
 ```bash
 # List pets
@@ -1263,7 +1263,7 @@ This example demonstrates how to register an `on_acting` middleware that logs ev
   "name": "Tracing Middleware Demo",
   "version": "1.0.0",
   "description": "Demo: logs tool calls with execution timing to a trace file",
-  "author": "QwenPaw Team",
+  "author": "NousAIPaw Team",
   "type": "general",
   "entry": {
     "backend": "tracing_plugin.py"
@@ -1356,7 +1356,7 @@ This example demonstrates how to register an `on_reasoning` middleware that capt
   "name": "Thinking Log Middleware Demo",
   "version": "1.0.0",
   "description": "Demo: prints model reasoning steps to stdout",
-  "author": "QwenPaw Team",
+  "author": "NousAIPaw Team",
   "type": "general",
   "entry": {
     "backend": "thinking_log_plugin.py"
@@ -1421,7 +1421,7 @@ plugin = ThinkingLogPlugin()
 
 ### Example 10: Register a Custom Channel
 
-Channel plugins let you add new messaging platforms to QwenPaw. The channel
+Channel plugins let you add new messaging platforms to NousAIPaw. The channel
 appears in the Console UI alongside built-in channels (DingTalk, Telegram,
 etc.) and can be configured, enabled, and disabled the same way.
 
@@ -1439,7 +1439,7 @@ mkdir sample-channel-plugin && cd sample-channel-plugin
   "name": "Sample Channel",
   "version": "1.0.0",
   "type": "channel",
-  "description": "Sample messaging channel integration for QwenPaw",
+  "description": "Sample messaging channel integration for NousAIPaw",
   "author": "Your Name",
   "entry": {
     "backend": "plugin.py"
@@ -1784,7 +1784,7 @@ api.register_startup_hook("late", callback, priority=200)
    qwenpaw plugin list
    ```
 
-2. View QwenPaw logs:
+2. View NousAIPaw logs:
 
    ```bash
    tail -f ~/.qwenpaw/logs/qwenpaw.log | grep -i plugin
@@ -1806,7 +1806,7 @@ api.register_startup_hook("late", callback, priority=200)
 
 ### Provider Not Showing
 
-1. Confirm plugin is installed and restart QwenPaw
+1. Confirm plugin is installed and restart NousAIPaw
 2. Check the model management page in Web UI
 3. Review provider registration info in logs
 
@@ -1818,7 +1818,7 @@ api.register_startup_hook("late", callback, priority=200)
 
 ## Security Considerations
 
-1. **Only install trusted plugins**: Plugin code executes in the QwenPaw process
+1. **Only install trusted plugins**: Plugin code executes in the NousAIPaw process
 2. **Check dependencies**: Ensure plugin dependencies come from trusted sources
 3. **Review code**: Review plugin source code before installation
 4. **Hot-loading awareness**: The current version supports hot-installing/uninstalling plugins via API while the app is running. Be mindful of state consistency during hot-loading
@@ -2028,7 +2028,7 @@ qwenpaw plugin install https://example.com/my-plugin-1.0.0.zip
 
 ## FAQ
 
-### Q: What QwenPaw APIs can plugins access?
+### Q: What NousAIPaw APIs can plugins access?
 
 A: Plugins access core functionality through `PluginApi`, including:
 
@@ -2039,7 +2039,7 @@ A: Plugins access core functionality through `PluginApi`, including:
 - HTTP router registration (`register_http_router`)
 - Runtime helpers (provider_manager, etc.)
 
-### Q: Can plugins modify QwenPaw's core behavior?
+### Q: Can plugins modify NousAIPaw's core behavior?
 
 A: Yes, through `register_middleware` (inject AgentScope middlewares), `register_control_command`, `register_tool`, runtime hooks, and other PluginApi methods. Use with caution to avoid breaking core functionality.
 
@@ -2051,18 +2051,18 @@ A: If multiple plugins register the same provider_id or command_name, the later 
 
 ### GPT Image 2 Tool Plugin
 
-A tool plugin that adds OpenAI's GPT Image 2 image generation capability to QwenPaw agents.
+A tool plugin that adds OpenAI's GPT Image 2 image generation capability to NousAIPaw agents.
 
 **Requirements:**
 
-- Minimum QwenPaw version: `1.1.5`
+- Minimum NousAIPaw version: `1.1.5`
 
 **Installation:**
 
 ```bash
-# Clone the QwenPaw repository (if not already cloned)
-git clone https://github.com/agentscope-ai/QwenPaw.git
-cd QwenPaw
+# Clone the NousAIPaw repository (if not already cloned)
+git clone https://github.com/uaixo/awesome-NousAI-PAW.git
+cd awesome-NousAI-PAW
 
 # Install the plugin
 qwenpaw plugin install plugins/tool/gpt-image2
@@ -2070,7 +2070,7 @@ qwenpaw plugin install plugins/tool/gpt-image2
 
 **Configuration:**
 
-1. After installation, restart QwenPaw
+1. After installation, restart NousAIPaw
 2. Go to Agent Settings → Tools
 3. Find "generate_image_gpt" tool
 4. Click "Configure" and enter your OpenAI API Key

@@ -1,12 +1,12 @@
 # Community & Communication
 
-Welcome to the QwenPaw community! Whether you want to report bugs, seek help, share experiences, or contribute to development, you can reach us through the following channels.
+Welcome to the NousAIPaw community! Whether you want to report bugs, seek help, share experiences, or contribute to development, you can reach us through the following channels.
 
 ---
 
 ## 💬 User Community
 
-For all QwenPaw users: questions, discussions, feature suggestions, and more.
+For all NousAIPaw users: questions, discussions, feature suggestions, and more.
 
 | [Discord](https://discord.gg/eYMpfnkG8h)                                                                | [X (Twitter)](https://x.com/agentscope_ai)                            | [DingTalk](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
 | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -15,7 +15,7 @@ For all QwenPaw users: questions, discussions, feature suggestions, and more.
 ### Great for:
 
 - **Ask questions and get help** - Installation, configuration, usage issues
-- **Share experiences** - Your QwenPaw use cases and tips
+- **Share experiences** - Your NousAIPaw use cases and tips
 - **Feature suggestions** - New features you'd like to see
 - **Bug reports** - Found an issue? Let us know
 - **Stay updated** - Release announcements, feature previews
@@ -24,7 +24,7 @@ For all QwenPaw users: questions, discussions, feature suggestions, and more.
 
 ## 🛠️ Developer Community
 
-For contributors focused on development: if you have submitted a PR, claimed a feature, or would like to contribute to QwenPaw development, you are welcome to join the following developer channels (mainly for development collaboration and technical discussions).
+For contributors focused on development: if you have submitted a PR, claimed a feature, or would like to contribute to NousAIPaw development, you are welcome to join the following developer channels (mainly for development collaboration and technical discussions).
 
 | [Discord (Developers)](https://discord.gg/4jpsveW6)                                                      | [DingTalk Developer Group](https://qr.dingtalk.com/action/joingroup?code=v1,k1,+SpJ3xFo3kyf+jluVHIPnlImW0zNNx1GlxBBTPiFXiE=&_dt_no_comment=1&origin=11) |
 | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -32,9 +32,9 @@ For contributors focused on development: if you have submitted a PR, claimed a f
 
 ### Requirements to join:
 
-- **DingTalk Developer Group**: This group is application-based. In your join request note, include one of the following: a PR you submitted (for example: PR#1221), a feature you have claimed (for example: Claim Issue#133), or the QwenPaw development area you want to help with (for example: QwenPaw frontend, unit tests). Your request will not be approved if none of these is provided.
+- **DingTalk Developer Group**: This group is application-based. In your join request note, include one of the following: a PR you submitted (for example: PR#1221), a feature you have claimed (for example: Claim Issue#133), or the NousAIPaw development area you want to help with (for example: NousAIPaw frontend, unit tests). Your request will not be approved if none of these is provided.
 
-- **Discord (Developers)**: Please first post one of the three items above in the QwenPaw Discord community. After admin confirmation, you will be invited to the private developer channel.
+- **Discord (Developers)**: Please first post one of the three items above in the NousAIPaw Discord community. After admin confirmation, you will be invited to the private developer channel.
 
 ### Great for discussing:
 

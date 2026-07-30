@@ -16,11 +16,11 @@ into the agent's reasoning loop.
 These plugins are **not** auto-loaded. Install them explicitly:
 
 ```bash
-# While QwenPaw is running (hot-load, no restart needed):
+# While NousAIPaw is running (hot-load, no restart needed):
 qwenpaw plugin install plugins/middleware-demo/tracing-middleware
 qwenpaw plugin install plugins/middleware-demo/thinking-log-middleware
 
-# Or when QwenPaw is stopped (loaded on next start):
+# Or when NousAIPaw is stopped (loaded on next start):
 qwenpaw plugin install plugins/middleware-demo/tracing-middleware
 qwenpaw plugin install plugins/middleware-demo/thinking-log-middleware
 ```

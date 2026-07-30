@@ -1,30 +1,30 @@
 # ACP 集成
 
-QwenPaw 对 **ACP（Agent Client Protocol）** 提供两种互补的支持方式：
+NousAIPaw 对 **ACP（Agent Client Protocol）** 提供两种互补的支持方式：
 
-1. **QwenPaw 将 ACP 作为 Tool 使用**：QwenPaw 连接外部 ACP runner，并将其作为委托协作能力使用
-2. **QwenPaw 作为 ACP Server**：外部客户端通过 ACP 连接到 QwenPaw
+1. **NousAIPaw 将 ACP 作为 Tool 使用**：NousAIPaw 连接外部 ACP runner，并将其作为委托协作能力使用
+2. **NousAIPaw 作为 ACP Server**：外部客户端通过 ACP 连接到 NousAIPaw
 
 本页会同时介绍这两种模式，以及各自适合的使用场景。
 
 ---
 
-## QwenPaw 将 ACP 作为 Tool 使用
+## NousAIPaw 将 ACP 作为 Tool 使用
 
-在这种模式下，QwenPaw 会作为 **ACP client / orchestrator**，连接**已配置并启用的外部 ACP runner**，并将它们接入当前会话，作为委托协作能力使用。
+在这种模式下，NousAIPaw 会作为 **ACP client / orchestrator**，连接**已配置并启用的外部 ACP runner**，并将它们接入当前会话，作为委托协作能力使用。
 
-这类能力的实际调用入口是内置工具 `delegate_external_agent`。它适用于你希望 QwenPaw 与其他支持 ACP 的外部 agent runtime 协作的场景，例如源码中默认内置的 `opencode`、`qwen_code`、`claude_code`、`codex`。这些 agent 可参考 ACP 官方的 Agent 列表与接入说明：<https://agentclientprotocol.com/get-started/agents>。换句话说，QwenPaw 不是“直接和任意外部 agent 交互”，而是通过 ACP 配置中已注册的 runner，在会话内发起、继续、响应和关闭一次委托式协作。
+这类能力的实际调用入口是内置工具 `delegate_external_agent`。它适用于你希望 NousAIPaw 与其他支持 ACP 的外部 agent runtime 协作的场景，例如源码中默认内置的 `opencode`、`qwen_code`、`claude_code`、`codex`。这些 agent 可参考 ACP 官方的 Agent 列表与接入说明：<https://agentclientprotocol.com/get-started/agents>。换句话说，NousAIPaw 不是“直接和任意外部 agent 交互”，而是通过 ACP 配置中已注册的 runner，在会话内发起、继续、响应和关闭一次委托式协作。
 
 ### 这种模式能做什么
 
-在这种模式下，QwenPaw 会通过内置的 `delegate_external_agent` 工具来：
+在这种模式下，NousAIPaw 会通过内置的 `delegate_external_agent` 工具来：
 
 - 启动一个外部 ACP runner 会话
 - 向该 runner 发送后续消息
 - 响应该 runner 发起的权限请求
 - 在任务完成后关闭委托会话
 
-从概念上看，这让 QwenPaw 可以把一个外部 agent 当作“可协作的工具能力”来使用，同时仍然由 QwenPaw 负责主会话编排。
+从概念上看，这让 NousAIPaw 可以把一个外部 agent 当作“可协作的工具能力”来使用，同时仍然由 NousAIPaw 负责主会话编排。
 
 ### 如何配置外部 runner
 
@@ -32,7 +32,7 @@ QwenPaw 对 **ACP（Agent Client Protocol）** 提供两种互补的支持方式
 
 ![qwen](https://gw.alicdn.com/imgextra/i1/O1CN01XtTTNP1IuyyyKi5ZS_!!6000000000954-2-tps-1196-664.png)
 
-命令行侧准备完成后，你可以在 QwenPaw 中配置自定义 runner，或直接使用内置 runner 与其协作。
+命令行侧准备完成后，你可以在 NousAIPaw 中配置自定义 runner，或直接使用内置 runner 与其协作。
 
 外部 runner 需要先在 **Workspace → ACP** 页面中完成配置并启用，之后才能被 `delegate_external_agent` 调用。
 
@@ -93,7 +93,7 @@ QwenPaw 对 **ACP（Agent Client Protocol）** 提供两种互补的支持方式
 
 ### 权限处理
 
-当外部 ACP runner 请求权限时，QwenPaw **不会替用户做决定**。
+当外部 ACP runner 请求权限时，NousAIPaw **不会替用户做决定**。
 
 相反，它会：
 
@@ -101,36 +101,36 @@ QwenPaw 对 **ACP（Agent Client Protocol）** 提供两种互补的支持方式
 - 展示权限详情和可选项
 - 等待用户明确选择如何继续
 
-这样可以让委托式 ACP 执行与 QwenPaw 其他能力保持一致的用户可控安全模型。
+这样可以让委托式 ACP 执行与 NousAIPaw 其他能力保持一致的用户可控安全模型。
 
 ### 什么时候使用 ACP as Tool
 
 以下场景适合使用这种模式：
 
-- 你希望 QwenPaw 与另一个 agent runtime 协作
+- 你希望 NousAIPaw 与另一个 agent runtime 协作
 - 你有一个专门处理某类任务的 ACP-compatible 外部 runner
-- 你希望由 QwenPaw 作为主控编排者，把部分工作委托给外部 agent
+- 你希望由 NousAIPaw 作为主控编排者，把部分工作委托给外部 agent
 
 ### ACP Tool 与 MCP 的区别
 
 ACP as Tool 和 MCP 解决的问题并不相同：
 
-- **MCP**：让 QwenPaw 连接外部服务和工具服务器
-- **ACP as Tool**：让 QwenPaw 连接外部 **agent** runtime
+- **MCP**：让 NousAIPaw 连接外部服务和工具服务器
+- **ACP as Tool**：让 NousAIPaw 连接外部 **agent** runtime
 
 如果你需要接入 API、数据库、文件系统或服务能力，优先使用 **MCP**。
 如果你需要 agent 与 agent 之间的协作，优先使用 **ACP as Tool**。
 
 ---
 
-## QwenPaw as ACP Server
+## NousAIPaw as ACP Server
 
-在这种模式下，QwenPaw 会通过 stdio JSON-RPC 将自己暴露为一个符合 [Agent Client Protocol (ACP)](https://github.com/agentclientprotocol/python-sdk) 规范的智能体服务。外部客户端，如 [Zed](https://zed.dev)、[OpenCode](https://github.com/nicholasgasior/opencode) 或任何兼容 ACP 的编辑器，都可以通过 `qwenpaw acp` 命令连接到 QwenPaw，并以编程方式与之交互。
+在这种模式下，NousAIPaw 会通过 stdio JSON-RPC 将自己暴露为一个符合 [Agent Client Protocol (ACP)](https://github.com/agentclientprotocol/python-sdk) 规范的智能体服务。外部客户端，如 [Zed](https://zed.dev)、[OpenCode](https://github.com/nicholasgasior/opencode) 或任何兼容 ACP 的编辑器，都可以通过 `qwenpaw acp` 命令连接到 NousAIPaw，并以编程方式与之交互。
 
 ### 快速开始
 
 ```bash
-# 启动 QwenPaw 作为 ACP 智能体
+# 启动 NousAIPaw 作为 ACP 智能体
 qwenpaw acp
 
 # 使用指定的智能体配置
@@ -206,11 +206,11 @@ ACP 智能体按以下优先级解析配置：
 
 ## ACP Server vs ACP Tool
 
-| 维度           | QwenPaw as ACP Server            | QwenPaw using ACP as Tool           |
+| 维度           | NousAIPaw as ACP Server            | NousAIPaw using ACP as Tool           |
 | -------------- | -------------------------------- | ----------------------------------- |
-| QwenPaw 的角色 | Server / 被连接的智能体          | Client / 编排者                     |
-| 连接方向       | 外部客户端连接 QwenPaw           | QwenPaw 连接外部 runner             |
-| 主要目的       | 让编辑器或外部客户端驱动 QwenPaw | 让 QwenPaw 把工作委托给另一个 agent |
+| NousAIPaw 的角色 | Server / 被连接的智能体          | Client / 编排者                     |
+| 连接方向       | 外部客户端连接 NousAIPaw           | NousAIPaw 连接外部 runner             |
+| 主要目的       | 让编辑器或外部客户端驱动 NousAIPaw | 让 NousAIPaw 把工作委托给另一个 agent |
 | 典型入口       | `qwenpaw acp`                    | delegation tool + ACP runner 配置   |
 | 适用场景       | 编辑器集成、程序化控制           | 多智能体协作、外部专用 runner       |
 
@@ -218,10 +218,10 @@ ACP 智能体按以下优先级解析配置：
 
 ## 总结
 
-ACP 在 QwenPaw 中并不是单一能力，而是支持两个方向：
+ACP 在 NousAIPaw 中并不是单一能力，而是支持两个方向：
 
-- **向外暴露 QwenPaw**：作为 ACP server
-- **从 QwenPaw 向外协作**：把外部 ACP agent 当作委托工具使用
+- **向外暴露 NousAIPaw**：作为 ACP server
+- **从 NousAIPaw 向外协作**：把外部 ACP agent 当作委托工具使用
 
-如果你是要把 QwenPaw 接入另一个客户端，优先看 **ACP Server**。
-如果你是希望 QwenPaw 去协调另一个 agent runtime，优先看 **ACP as Tool**。
+如果你是要把 NousAIPaw 接入另一个客户端，优先看 **ACP Server**。
+如果你是希望 NousAIPaw 去协调另一个 agent runtime，优先看 **ACP as Tool**。

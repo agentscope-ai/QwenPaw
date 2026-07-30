@@ -1,12 +1,12 @@
 # 智能体的人设
 
-QwenPaw 通过一组 Markdown 文件定义智能体的"人设"，这些文件会被加载到系统提示词（System Prompt）中，决定智能体的行为风格、工作方式和个性特征。你可以通过编辑这些文件，让智能体成为符合你需求的专属助手——无论是严谨的工作助理、温暖的生活伙伴，还是技术专家。
+NousAIPaw 通过一组 Markdown 文件定义智能体的"人设"，这些文件会被加载到系统提示词（System Prompt）中，决定智能体的行为风格、工作方式和个性特征。你可以通过编辑这些文件，让智能体成为符合你需求的专属助手——无论是严谨的工作助理、温暖的生活伙伴，还是技术专家。
 
 ---
 
 ## 人设文件
 
-QwenPaw 的人设由 Markdown 文件定义，默认位于智能体工作区目录下。工作区目录的位置取决于 `QWENPAW_WORKING_DIR` 环境变量（默认为 `~/.qwenpaw`），完整路径为：
+NousAIPaw 的人设由 Markdown 文件定义，默认位于智能体工作区目录下。工作区目录的位置取决于 `QWENPAW_WORKING_DIR` 环境变量（默认为 `~/.qwenpaw`），完整路径为：
 
 ```
 $QWENPAW_WORKING_DIR/workspaces/{agent_id}/
@@ -197,20 +197,20 @@ Your agent id is `{agent_id}`. This is your unique identifier in the multi-agent
 
 ## 内置 QA 智能体
 
-QwenPaw 在首次运行 `qwenpaw init` 时会自动创建一个名为 **"QA Agent"** 的内置智能体（ID：`QwenPaw_QA_Agent_0.2`）。
+NousAIPaw 在首次运行 `qwenpaw init` 时会自动创建一个名为 **"QA Agent"** 的内置智能体（ID：`QwenPaw_QA_Agent_0.2`）。
 
 ### QA 智能体的特点
 
-这是一个**专门用于回答 QwenPaw 相关问题**的智能体：
+这是一个**专门用于回答 NousAIPaw 相关问题**的智能体：
 
 - **专属人设**：使用专门为问答优化的人设文件（与普通智能体不同）
-- **预装技能**：自动启用 `guidance` 和 `QA_source_index` 技能，可以查询 QwenPaw 官方文档和源码
+- **预装技能**：自动启用 `guidance` 和 `QA_source_index` 技能，可以查询 NousAIPaw 官方文档和源码
 - **工具配置**：默认只启用核心工具（execute_shell_command、read_file、write_file、edit_file、view_image），其他内置工具默认禁用
 - **自动维护**：每次运行 `qwenpaw init` 时会自动确保该智能体存在
 
 ### 如何使用？
 
-您可以在控制台右上角的智能体切换器中选择 "QA Agent"，然后向它提问关于 QwenPaw 的任何问题。
+您可以在控制台右上角的智能体切换器中选择 "QA Agent"，然后向它提问关于 NousAIPaw 的任何问题。
 
 **适合问什么：**
 

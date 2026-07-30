@@ -1,18 +1,18 @@
 # RESTful API 接口
 
-本文档将指导你如何使用 RESTful API 调用 QwenPaw 的 Agent。
+本文档将指导你如何使用 RESTful API 调用 NousAIPaw 的 Agent。
 
-> **协议详情**：QwenPaw 的 API 基于 AgentScope Runtime 协议的拓展。更多详细信息请参考：
+> **协议详情**：NousAIPaw 的 API 基于 AgentScope Runtime 协议的拓展。更多详细信息请参考：
 > [AgentScope Runtime 协议文档（中文）](https://runtime.agentscope.io/zh/protocol.html)
 
 > ⚠️ **安全提醒**：
-> 如果您的 QwenPaw 实例对**公网开放**，强烈建议启用 [Web 登录认证](./security#Web-登录认证)！
+> 如果您的 NousAIPaw 实例对**公网开放**，强烈建议启用 [Web 登录认证](./security#Web-登录认证)！
 > 未启用认证的公网实例存在严重安全风险，任何人都可以访问和控制您的 Agent。
 > 详见文档末尾的 [Web 认证令牌](#web-认证令牌可选) 章节。
 
 ## 概述
 
-QwenPaw 提供了 RESTful API 接口，允许你通过 HTTP 请求与 Agent 进行交互。通过 API，你可以：
+NousAIPaw 提供了 RESTful API 接口，允许你通过 HTTP 请求与 Agent 进行交互。通过 API，你可以：
 
 - 发送消息给 Agent 并获取回复
 - 管理多个 Agent 实例
@@ -175,7 +175,7 @@ data: {"sequence_number":0,"object":"response","status":"created",...}
 
 data: {"sequence_number":1,"object":"response","status":"in_progress",...}
 
-data: {"sequence_number":2,"object":"response","status":"in_progress","output":[{"role":"assistant","content":[{"type":"text","text":"你好！我是 QwenPaw..."}]}],...}
+data: {"sequence_number":2,"object":"response","status":"in_progress","output":[{"role":"assistant","content":[{"type":"text","text":"你好！我是 NousAIPaw..."}]}],...}
 
 data: {"sequence_number":3,"object":"response","status":"completed",...}
 ```
@@ -200,7 +200,7 @@ data: {"sequence_number":3,"object":"response","status":"completed",...}
 
 ## 多轮对话
 
-QwenPaw 通过 `session_id` 和 `user_id` 自动管理对话上下文。只需在不同的请求中使用相同的 `session_id`，系统会自动保存和加载对话历史：
+NousAIPaw 通过 `session_id` 和 `user_id` 自动管理对话上下文。只需在不同的请求中使用相同的 `session_id`，系统会自动保存和加载对话历史：
 
 **第一轮对话**：
 
@@ -609,7 +609,7 @@ curl -X POST http://localhost:8088/api/console/chat \
 
 #### 注册账号
 
-**首次使用需要先注册管理员账号**（QwenPaw 采用单用户模式）：
+**首次使用需要先注册管理员账号**（NousAIPaw 采用单用户模式）：
 
 ```bash
 curl -X POST http://localhost:8088/api/auth/register \
@@ -666,7 +666,7 @@ rm ~/.qwenpaw.secret/auth.json
 # 或者使用 QWENPAW_SECRET_DIR 环境变量
 rm "${QWENPAW_SECRET_DIR}/auth.json"
 
-# 重启 QwenPaw 后重新注册
+# 重启 NousAIPaw 后重新注册
 qwenpaw app
 ```
 
@@ -682,7 +682,7 @@ docker exec -it <容器名> qwenpaw auth reset-password
 
 **自动注册**（可选）：
 
-你也可以在启动 QwenPaw 时通过环境变量自动创建账号：
+你也可以在启动 NousAIPaw 时通过环境变量自动创建账号：
 
 ```bash
 export QWENPAW_AUTH_ENABLED=true
@@ -902,7 +902,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ### 无法连接到服务器
 
-确认 QwenPaw 服务正在运行：
+确认 NousAIPaw 服务正在运行：
 
 ```bash
 # 检查服务状态

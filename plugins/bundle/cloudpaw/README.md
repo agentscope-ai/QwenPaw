@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Cloud Capability Enhancement Plugin for QwenPaw</strong>
+  <strong>Cloud Capability Enhancement Plugin for NousAIPaw</strong>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 
 ---
 
-CloudPaw is a cloud capability enhancement plugin for QwenPaw, combining **QwenPaw + Aliyun CLI** with deep **IaC** integration. It's not just a chatbot — it's an intelligent assistant with a cloud-native execution engine.
+CloudPaw is a cloud capability enhancement plugin for NousAIPaw, combining **NousAIPaw + Aliyun CLI** with deep **IaC** integration. It's not just a chatbot — it's an intelligent assistant with a cloud-native execution engine.
 
 Simply describe your needs in natural language, and CloudPaw will automate the entire process from resource creation to application deployment. For example:
 
@@ -34,19 +34,19 @@ CloudPaw runs entirely in your own environment, keeping your data secure and und
 
 | Item | Requirement |
 |------|-------------|
-| **QwenPaw version** | **≥ v1.1.7** |
+| **NousAIPaw version** | **≥ v1.1.7** |
 | **Python** | 3.10 ~ 3.13 |
 | **Alibaba Cloud account** | Access Key required for cloud operations |
 
-> For QwenPaw installation, see [QwenPaw Quickstart](https://qwenpaw.agentscope.io/docs/quickstart). If your QwenPaw version is below v1.1.7, upgrade first: `pip install --upgrade qwenpaw>=1.1.7`.
+> For NousAIPaw installation, see [NousAIPaw Quickstart](https://qwenpaw.agentscope.io/docs/quickstart). If your NousAIPaw version is below v1.1.7, upgrade first: `pip install --upgrade qwenpaw>=1.1.7`.
 
 ### 1. Install CloudPaw Plugin
 
 **Via Console (recommended):**
 
-1. Launch QwenPaw (`qwenpaw app`), open http://127.0.0.1:8088/
+1. Launch NousAIPaw (`qwenpaw app`), open http://127.0.0.1:8088/
 2. Click "Plugin Manager" in the left sidebar (under Settings), then click "Install Plugin"
-3. Install by dragging the `cloudpaw/` folder into the install dialog, or selecting a ZIP file (CloudPaw is pre-bundled with QwenPaw v1.1.7+ at `plugins/bundle/cloudpaw/`)
+3. Install by dragging the `cloudpaw/` folder into the install dialog, or selecting a ZIP file (CloudPaw is pre-bundled with NousAIPaw v1.1.7+ at `plugins/bundle/cloudpaw/`)
 4. Wait for installation to complete
 
 **Via CLI:**
@@ -61,9 +61,9 @@ qwenpaw plugin install /path/to/cloudpaw
 
 After installing CloudPaw, complete these configurations:
 
-#### ① QwenPaw Model
+#### ① NousAIPaw Model
 
-Configure an LLM provider and API Key in console Settings → Models. See [QwenPaw Models docs](https://qwenpaw.agentscope.io/docs/models).
+Configure an LLM provider and API Key in console Settings → Models. See [NousAIPaw Models docs](https://qwenpaw.agentscope.io/docs/models).
 
 #### ② Alibaba Cloud Credentials
 
@@ -77,11 +77,11 @@ You can also configure via system environment variables or CLI. For instructions
 
 #### ③ iac-code Model Configuration
 
-CloudPaw relies on [iac-code](https://github.com/aliyun/iac-code) (≥ 0.1.2) for IaC template generation. **No manual model configuration is needed** — CloudPaw automatically syncs QwenPaw's active model to iac-code.
+CloudPaw relies on [iac-code](https://github.com/aliyun/iac-code) (≥ 0.1.2) for IaC template generation. **No manual model configuration is needed** — CloudPaw automatically syncs NousAIPaw's active model to iac-code.
 
-When the CloudPaw plugin starts, it writes `llm_source: qwenpaw` to `~/.iac-code/settings.yml`. This tells iac-code to read model configuration (provider, API key, model name, etc.) directly from QwenPaw's active model. As long as you have configured a working model in QwenPaw (step ①), iac-code will use the same model automatically — no extra setup required.
+When the CloudPaw plugin starts, it writes `llm_source: qwenpaw` to `~/.iac-code/settings.yml`. This tells iac-code to read model configuration (provider, API key, model name, etc.) directly from NousAIPaw's active model. As long as you have configured a working model in NousAIPaw (step ①), iac-code will use the same model automatically — no extra setup required.
 
-**Manual override:** If you need iac-code to use a different model from QwenPaw, set the `IAC_CODE_PROVIDER` environment variable (via QwenPaw's Environment Variables page or system env). When this variable is present, CloudPaw skips automatic injection and iac-code uses your manual configuration. For details, see the [iac-code LLM configuration docs](https://aliyun.github.io/iac-code/docs/configuration/llm-providers).
+**Manual override:** If you need iac-code to use a different model from NousAIPaw, set the `IAC_CODE_PROVIDER` environment variable (via NousAIPaw's Environment Variables page or system env). When this variable is present, CloudPaw skips automatic injection and iac-code uses your manual configuration. For details, see the [iac-code LLM configuration docs](https://aliyun.github.io/iac-code/docs/configuration/llm-providers).
 
 ### 3. Start Using
 
@@ -96,10 +96,10 @@ Select "CloudPaw-Master" from the agent dropdown in the chat page to start.
 
 ## Architecture
 
-CloudPaw integrates via the QwenPaw native plugin system.
+CloudPaw integrates via the NousAIPaw native plugin system.
 
 ```
-QwenPaw/
+NousAIPaw/
 └── plugins/
     └── bundle/
         └── cloudpaw/           # CloudPaw plugin (frontend & backend)
@@ -118,8 +118,8 @@ QwenPaw/
 
 - **IaC Deployment Orchestration**: Automate Alibaba Cloud resource deployment via [iac-code](https://github.com/aliyun/iac-code) engine for ROS/Terraform template generation
 - **Resource Proposal Selection**: Interactive multi-proposal comparison and selection with dedicated frontend rendering (`proposal_choice` tool)
-- **PRD Management Frontend Enhancement**: Custom frontend rendering for QwenPaw Mission Mode's PRD management (`manage_prd` tool)
-- **Multi-Agent Collaboration**: Orchestrate multiple agents for complex deployment tasks via QwenPaw Mission Mode
+- **PRD Management Frontend Enhancement**: Custom frontend rendering for NousAIPaw Mission Mode's PRD management (`manage_prd` tool)
+- **Multi-Agent Collaboration**: Orchestrate multiple agents for complex deployment tasks via NousAIPaw Mission Mode
 - **Alibaba Cloud Skills Remote Agent Integration**: Connect and call remote agents hosted on Alibaba Cloud Skills Hub via A2A protocol with real-time streaming display
 - **Auto-dependency Setup**: Automatically installs `iac-code` and Alibaba Cloud CLI during plugin startup
 
@@ -171,7 +171,7 @@ Enter `/a2a` without arguments to list all registered remote A2A agents and thei
 
 ## Multi-Agent Architecture
 
-CloudPaw implements multi-agent collaboration via QwenPaw's **Mission Mode**. Users interact with the master agent, which automatically breaks down requirements into a PRD (Product Requirements Document) and delegates tasks to specialized sub-agents by story priority.
+CloudPaw implements multi-agent collaboration via NousAIPaw's **Mission Mode**. Users interact with the master agent, which automatically breaks down requirements into a PRD (Product Requirements Document) and delegates tasks to specialized sub-agents by story priority.
 
 | Agent | Responsibility |
 |---|---|

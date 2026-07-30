@@ -1,10 +1,10 @@
 # 安全
 
-QwenPaw 内置了安全功能，保护你的 Agent 在运行过程中产生的不安全行为和不安全技能的影响。这些功能在控制台 **设置 → 安全** 中配置，也可以通过 `config.json` 进行设置。
+NousAIPaw 内置了安全功能，保护你的 Agent 在运行过程中产生的不安全行为和不安全技能的影响。这些功能在控制台 **设置 → 安全** 中配置，也可以通过 `config.json` 进行设置。
 
 ## 概述
 
-QwenPaw 的安全系统由五个核心安全层组成:
+NousAIPaw 的安全系统由五个核心安全层组成:
 
 ```
 安全架构:
@@ -370,7 +370,7 @@ QwenPaw 的安全系统由五个核心安全层组成:
 
 ### 支持平台
 
-QwenPaw 在启动时自动检测最佳可用的沙箱后端：
+NousAIPaw 在启动时自动检测最佳可用的沙箱后端：
 
 | 平台    | 后端                                          | 机制                                             | 检测方式                                             |
 | ------- | --------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------- |
@@ -433,7 +433,7 @@ QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 
 ### 违规检测
 
-当沙箱内的命令尝试访问其允许视图之外的路径时，操作系统内核会阻止该操作。QwenPaw 通过匹配 stderr 模式来检测这些违规：
+当沙箱内的命令尝试访问其允许视图之外的路径时，操作系统内核会阻止该操作。NousAIPaw 通过匹配 stderr 模式来检测这些违规：
 
 | 平台             | 检测模式                                                                                 |
 | ---------------- | ---------------------------------------------------------------------------------------- |
@@ -482,27 +482,27 @@ cat /proc/sys/kernel/unprivileged_userns_clone
 bwrap --ro-bind / / --dev /dev --unshare-user --unshare-pid --proc /proc -- /bin/echo OK
 ```
 
-如果 user namespace 被禁用（Docker 容器、部分安全加固内核），QwenPaw 会自动回退到 Landlock。
+如果 user namespace 被禁用（Docker 容器、部分安全加固内核），NousAIPaw 会自动回退到 Landlock。
 
 **Windows: AppContainer ACL 设置失败**
 
 AppContainer（`allow_read_all=False`）的 `icacls` ACL 操作需要管理员权限。如果看到 ACL 设置失败的警告：
 
-1. 以管理员身份运行 QwenPaw（右键 → 以管理员身份运行）
+1. 以管理员身份运行 NousAIPaw（右键 → 以管理员身份运行）
 2. 确认 `icacls.exe` 在 PATH 中（所有 Windows 版本均自带）
 3. 使用 `scripts/cleanup_windows_sandbox.py` 清理旧的 AppContainer profile 和 ACL
 
 **Windows: Restricted_token 用户创建失败**
 
-Restricted_token（`allow_read_all=True`）使用专用本地用户和 WFP 防火墙规则实现完整隔离，需要管理员权限。在非管理员模式下，QwenPaw 会自动回退到非提权沙箱模式，提供有限的隔离保护。如果看到用户创建或防火墙设置相关错误：
+Restricted_token（`allow_read_all=True`）使用专用本地用户和 WFP 防火墙规则实现完整隔离，需要管理员权限。在非管理员模式下，NousAIPaw 会自动回退到非提权沙箱模式，提供有限的隔离保护。如果看到用户创建或防火墙设置相关错误：
 
 1. 非提权沙箱仍然处于活动状态，提供基本的写入限制
-2. 如需完整沙箱保护，以管理员身份运行 QwenPaw（右键 → 以管理员身份运行）
+2. 如需完整沙箱保护，以管理员身份运行 NousAIPaw（右键 → 以管理员身份运行）
 3. 使用 `scripts/cleanup_windows_sandbox.py` 清理旧的沙箱用户和防火墙规则
 
 **Windows: 不满足最低版本要求**
 
-两种 Windows 沙箱后端均需要 Windows 10（build 10240）或更高版本。如果探测输出中出现 `"AppContainer requires Windows 10+"` 消息，说明当前运行的 Windows 版本不受支持。请升级到 Windows 10 或更高版本以使用沙箱隔离。在旧版系统上，QwenPaw 将回退到 `mode=none`（无内核隔离）。
+两种 Windows 沙箱后端均需要 Windows 10（build 10240）或更高版本。如果探测输出中出现 `"AppContainer requires Windows 10+"` 消息，说明当前运行的 Windows 版本不受支持。请升级到 Windows 10 或更高版本以使用沙箱隔离。在旧版系统上，NousAIPaw 将回退到 `mode=none`（无内核隔离）。
 
 **Windows: 系统目录（如 Program Files）ACL 授权失败**
 
@@ -908,13 +908,13 @@ policy:
 
 ## Web 登录认证
 
-QwenPaw 支持可选的 Web 登录认证,保护控制台免受未授权访问。认证**默认关闭**,需要通过 `QWENPAW_AUTH_ENABLED` 环境变量显式启用。
+NousAIPaw 支持可选的 Web 登录认证,保护控制台免受未授权访问。认证**默认关闭**,需要通过 `QWENPAW_AUTH_ENABLED` 环境变量显式启用。
 
 ![login](https://img.alicdn.com/imgextra/i4/O1CN01VdXCuP1tWpsl0TlQ5_!!6000000005910-2-tps-3822-2070.png)
 
 ### 工作原理
 
-1. **启用认证** — 设置 `QWENPAW_AUTH_ENABLED=true` 并启动 QwenPaw
+1. **启用认证** — 设置 `QWENPAW_AUTH_ENABLED=true` 并启动 NousAIPaw
 2. **注册流程**:
    - 首次访问时,控制台显示**注册页面**
    - 创建唯一的管理员账户(用户名 + 密码)
@@ -925,7 +925,7 @@ QwenPaw 支持可选的 Web 登录认证,保护控制台免受未授权访问。
    - 令牌存储在浏览器 localStorage,自动附加到所有 API 请求
 4. **自动注册**(可选):
    - 设置 `QWENPAW_AUTH_USERNAME` 和 `QWENPAW_AUTH_PASSWORD` 环境变量
-   - QwenPaw 启动时自动创建管理员账户,跳过网页注册
+   - NousAIPaw 启动时自动创建管理员账户,跳过网页注册
    - 适用于 Docker、Kubernetes、服务器管理面板等自动化部署场景
 5. **本地免认证** — 来自本地(`127.0.0.1` / `::1`)的请求自动跳过认证,CLI 命令(`qwenpaw app`、`qwenpaw chat` 等)无需令牌即可正常工作
 
@@ -1063,7 +1063,7 @@ QWENPAW_AUTH_PASSWORD=mypassword
 
 ### 关闭认证
 
-移除或取消环境变量并重启 QwenPaw：
+移除或取消环境变量并重启 NousAIPaw：
 
 ```bash
 # Linux / macOS
@@ -1101,7 +1101,7 @@ docker exec -it <容器名> qwenpaw auth reset-password
 ```bash
 # 删除认证文件
 rm ~/.qwenpaw.secret/auth.json  # 或 $WORKING_DIR.secret/auth.json
-# 重启 QwenPaw,下次访问时重新注册
+# 重启 NousAIPaw,下次访问时重新注册
 qwenpaw app
 ```
 

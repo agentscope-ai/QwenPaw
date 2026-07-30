@@ -533,7 +533,7 @@ Use `/model openai:gpt-4o` to switch to this model.
 
 ## 系统控制命令
 
-控制和监控 QwenPaw 运行状态的命令，无需通过 Agent 理解意图，直接执行。
+控制和监控 NousAIPaw 运行状态的命令，无需通过 Agent 理解意图，直接执行。
 
 可在对话中发送 `/daemon <子命令>` 或短名（如 `/status`），也可在终端执行 `qwenpaw daemon <子命令>`。
 
@@ -613,7 +613,7 @@ qwenpaw daemon reload-config      # 在终端
 
 ### `/daemon version` - 版本信息
 
-显示 QwenPaw 版本号、工作目录路径、日志文件路径。
+显示 NousAIPaw 版本号、工作目录路径、日志文件路径。
 
 **用法：**
 

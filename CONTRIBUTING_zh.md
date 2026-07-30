@@ -1,8 +1,8 @@
-# 为 QwenPaw 贡献代码
+# 为 NousAIPaw 贡献代码
 
 ## 欢迎！🐾
 
-感谢你对 QwenPaw 的关注！QwenPaw 是一个开源的**个人 AI 助手**，可以在你自己的环境中运行——无论是你的机器还是云端。它可以连接钉钉、飞书、QQ、Discord、iMessage 等聊天应用，支持定时任务和心跳机制，并通过 **Skills** 扩展其能力。我们热烈欢迎能让 QwenPaw 对所有人更有用的贡献：无论是添加新的频道、新的模型提供商、Skill，改进文档，还是修复 bug。
+感谢你对 NousAIPaw 的关注！NousAIPaw 是一个开源的**个人 AI 助手**，可以在你自己的环境中运行——无论是你的机器还是云端。它可以连接钉钉、飞书、QQ、Discord、iMessage 等聊天应用，支持定时任务和心跳机制，并通过 **Skills** 扩展其能力。我们热烈欢迎能让 NousAIPaw 对所有人更有用的贡献：无论是添加新的频道、新的模型提供商、Skill，改进文档，还是修复 bug。
 
 **快速链接：** [GitHub](https://github.com/agentscope-ai/QwenPaw) · [文档](https://qwenpaw.agentscope.io/) · [许可证：Apache 2.0](LICENSE)
 
@@ -88,20 +88,20 @@ docs(skills): document Skills Hub import
 
 ## 贡献类型
 
-QwenPaw 设计为**可扩展的**：你可以添加模型、频道、Skills 等。以下是我们关心的主要贡献领域。
+NousAIPaw 设计为**可扩展的**：你可以添加模型、频道、Skills 等。以下是我们关心的主要贡献领域。
 
 ---
 
 ### 添加新模型 / 模型提供商
 
-QwenPaw 支持多种提供商：包括云提供商（如 DashScope、ModelScope）以及本地提供商（如 Ollama、LM Studio），但我们也欢迎新的模型供应商以丰富用户选择。
+NousAIPaw 支持多种提供商：包括云提供商（如 DashScope、ModelScope）以及本地提供商（如 Ollama、LM Studio），但我们也欢迎新的模型供应商以丰富用户选择。
 
 贡献的模型提供商具有以下特征：
 
 1. （强制）原生兼容 OpenAI `chat.completions` API 或 Anthropic `messages` API，如不满足该条件，请先创建 issue 讨论，直接添加一个不兼容的提供商会大幅增加维护成本。
 2. （推荐）支持 `/model/list` 端点以自动获取模型列表，虽然不强制，但这会大大提升用户体验。
 
-确定满足上述条件后，可以在 `src/qwenpaw/providers/provider_manager.py` 中创建新的 Provider 实例并在 `ProviderManager` 类中注册，使其成为 QwenPaw 内置的提供商。
+确定满足上述条件后，可以在 `src/qwenpaw/providers/provider_manager.py` 中创建新的 Provider 实例并在 `ProviderManager` 类中注册，使其成为 NousAIPaw 内置的提供商。
 
 如果想要将新的提供商作为内置提供商贡献，请在 PR 中提供以下内容：
 
@@ -113,7 +113,7 @@ QwenPaw 支持多种提供商：包括云提供商（如 DashScope、ModelScope�
 
 ### 添加新频道
 
-频道是 QwenPaw 与**钉钉、飞书、QQ、Discord、iMessage** 等通信的方式。你可以添加新频道，以便 QwenPaw 可以与你喜欢的 IM 或机器人平台配合使用。
+频道是 NousAIPaw 与**钉钉、飞书、QQ、Discord、iMessage** 等通信的方式。你可以添加新频道，以便 NousAIPaw 可以与你喜欢的 IM 或机器人平台配合使用。
 
 - **协议：** 所有频道使用统一的进程内契约：**原生 payload → `content_parts`**（如 `TextContent`、`ImageContent`、`FileContent`）。agent 接收带有这些内容部分的 `AgentRequest`；回复通过频道的发送路径返回。
 - **实现：** 实现 **`BaseChannel` 的子类**（在 `src/qwenpaw/app/channels/base.py` 中）：
@@ -129,7 +129,7 @@ QwenPaw 支持多种提供商：包括云提供商（如 DashScope、ModelScope�
 
 ### 添加基础 Skills
 
-**Skills** 定义了 QwenPaw 可以做什么：cron、文件读取、PDF/Office、新闻、浏览器等。我们欢迎**广泛有用的**基础 skills（生产力、文档、通信、自动化），适合大多数用户。
+**Skills** 定义了 NousAIPaw 可以做什么：cron、文件读取、PDF/Office、新闻、浏览器等。我们欢迎**广泛有用的**基础 skills（生产力、文档、通信、自动化），适合大多数用户。
 
 - **结构：** 每个 skill 是一个**目录**，包含：
   - **`SKILL.md`** — agent 的 Markdown 指令。使用 YAML front matter 至少包含 `name` 和 `description`；可选的 `metadata`（如用于 Console）。
@@ -174,7 +174,7 @@ description: "Use this skill whenever user wants to [主要功能]. Trigger espe
 | Desktop Control | "控制桌面应用" | "Use this skill whenever user wants to control desktop applications or make phone calls. Trigger especially when user mentions: \"call\" (呼叫), \"dial\" (拨打), \"phone\" (电话), \"microsip\", or requests to use specific desktop apps." |
 | File Reader | "读取文件" | "Use this skill when user asks to read or summarize local text-based files. PDFs, Office documents, and images are out of scope." |
 
-- **Skills Hub：** QwenPaw 支持从社区 hub（如 ClawHub）导入 skills。如果你希望你的 skill 可以通过 hub 安装，请遵循相同的 `SKILL.md` + `references/`/`scripts/` 布局和 hub 的打包格式。
+- **Skills Hub：** NousAIPaw 支持从社区 hub（如 ClawHub）导入 skills。如果你希望你的 skill 可以通过 hub 安装，请遵循相同的 `SKILL.md` + `references/`/`scripts/` 布局和 hub 的打包格式。
 
 仓库内基础 skills 的示例：**cron**、**file_reader**、**news**、**pdf**、**docx**、**pptx**、**xlsx**、**browser_visible**。贡献新的基础 skill 通常意味着：在 `agents/skills/` 下添加目录，在文档中添加简短条目（如 `website/public/docs/skills.*.md` 中的 Skills 表），并确保它正确同步到工作目录。
 
@@ -182,7 +182,7 @@ description: "Use this skill whenever user wants to [主要功能]. Trigger espe
 
 ### 平台支持（Windows、Linux、macOS 等）
 
-QwenPaw 旨在在 **Windows**、**Linux** 和 **macOS** 上运行。欢迎改进特定平台支持的贡献。
+NousAIPaw 旨在在 **Windows**、**Linux** 和 **macOS** 上运行。欢迎改进特定平台支持的贡献。
 
 - **兼容性修复：** 路径处理、行尾、shell 命令或在不同操作系统上行为不同的依赖项。例如：内存/向量栈的 Windows 兼容性，或在 Linux 和 macOS 上都能工作的安装脚本。
 - **安装和运行：** 一行安装（`install.sh`）、`pip` 安装，以及 `qwenpaw init` / `qwenpaw app` 应该在每个支持的平台上工作（或有清晰的文档说明）。对给定操作系统上的安装或启动的修复很有价值。
@@ -195,7 +195,7 @@ QwenPaw 旨在在 **Windows**、**Linux** 和 **macOS** 上运行。欢迎改进
 
 ### 其他贡献
 
-- **MCP（模型上下文协议）：** QwenPaw 支持运行时 **MCP 工具**发现和热插拔。贡献新的 MCP 服务器或工具（或关于如何附加它们的文档）可以帮助用户扩展 agent 而无需更改核心代码。
+- **MCP（模型上下文协议）：** NousAIPaw 支持运行时 **MCP 工具**发现和热插拔。贡献新的 MCP 服务器或工具（或关于如何附加它们的文档）可以帮助用户扩展 agent 而无需更改核心代码。
 - **文档：** 对 [文档](https://qwenpaw.agentscope.io/)（位于 `website/public/docs/` 下）和 README 的修复和改进始终受欢迎。
 - **Bug 修复和重构：** 小的修复、更清晰的错误消息以及保持行为相同的重构都很有价值。对于较大的重构，最好先创建 issue，以便我们可以就方法达成一致。
 - **示例和工作流程：** 教程或示例工作流程（如"每日摘要到钉钉"、"本地模型 + cron"）可以记录或从仓库/文档链接。
@@ -230,4 +230,4 @@ QwenPaw 旨在在 **Windows**、**Linux** 和 **macOS** 上运行。欢迎改进
 - **Bug 和功能：** [GitHub Issues](https://github.com/agentscope-ai/QwenPaw/issues)
 - **社区：** 钉钉群（见 [README](README_zh.md)）和 [Discord](https://discord.gg/eYMpfnkG8h)
 
-感谢你为 QwenPaw 贡献代码。你的工作帮助它成为每个人更好的助手。🐾
+感谢你为 NousAIPaw 贡献代码。你的工作帮助它成为每个人更好的助手。🐾

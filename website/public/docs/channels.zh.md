@@ -1,6 +1,6 @@
 # 频道配置
 
-**频道** = 你和 QwenPaw 在「哪里」对话：接钉钉就在钉钉里回，接 QQ 就在 QQ 里回。不熟悉这个词的话可以先看 [项目介绍](./intro)。
+**频道** = 你和 NousAIPaw 在「哪里」对话：接钉钉就在钉钉里回，接 QQ 就在 QQ 里回。不熟悉这个词的话可以先看 [项目介绍](./intro)。
 
 配置频道有两种方式：
 
@@ -50,7 +50,7 @@
 
    ![client](https://img.alicdn.com/imgextra/i3/O1CN01JsRrwx1hJImLfM7O1_!!6000000004256-2-tps-2809-1585.png)
 
-7. （可选） **将服务器 IP 加入白名单** — 调用钉钉开放平台 API（如下载用户发送的图片和文件）时需要此配置。在应用设置中进入 **"安全设置→服务器出口 IP"**，添加运行 QwenPaw 的机器的公网 IP。可在终端执行 `curl ifconfig.me` 查看公网 IP。若未配置白名单，图片和文件下载将报 `Forbidden.AccessDenied.IpNotInWhiteList` 错误。
+7. （可选） **将服务器 IP 加入白名单** — 调用钉钉开放平台 API（如下载用户发送的图片和文件）时需要此配置。在应用设置中进入 **"安全设置→服务器出口 IP"**，添加运行 NousAIPaw 的机器的公网 IP。可在终端执行 `curl ifconfig.me` 查看公网 IP。若未配置白名单，图片和文件下载将报 `Forbidden.AccessDenied.IpNotInWhiteList` 错误。
 
 ### 绑定应用
 
@@ -96,7 +96,7 @@
 >
 > - 工具调用和结果可以分别控制是否显示；最大长度设置为 `0` 时不截断。
 > - AI Card 模式：将 `message_type` 设为 `card`，并填写 `card_template_id`；`card_template_key` 必须与钉钉模板变量名完全一致。
-> - 群聊场景建议显式配置 `robot_code`；留空时 QwenPaw 会回退使用 `client_id`。
+> - 群聊场景建议显式配置 `robot_code`；留空时 NousAIPaw 会回退使用 `client_id`。
 
 保存后若服务已运行会自动重载；未运行则执行 `qwenpaw app` 启动。
 
@@ -142,7 +142,7 @@
 
 3. 在 `agent.json` 中填写上述 **App ID** 和 **App Secret**（见下方「填写 agent.json」），保存
 
-4. 执行 **`qwenpaw app`** 启动 QwenPaw 服务
+4. 执行 **`qwenpaw app`** 启动 NousAIPaw 服务
 
 5. 回到飞书开放平台，在「能力」中启用 **机器人**
 
@@ -182,7 +182,7 @@
 
 7. 在「事件与回调」中，点击「事件配置」，选择订阅方式为**长连接（WebSocket）** 模式（无需公网 IP）
 
-> 注：**操作顺序**为先配置 App ID/Secret → 启动 `qwenpaw app` → 再在开放平台配置长连接，如果此处仍显示错误，尝试先暂停 QwenPaw 服务并重新启动 `qwenpaw app`。
+> 注：**操作顺序**为先配置 App ID/Secret → 启动 `qwenpaw app` → 再在开放平台配置长连接，如果此处仍显示错误，尝试先暂停 NousAIPaw 服务并重新启动 `qwenpaw app`。
 
 ![websocket](https://img.alicdn.com/imgextra/i2/O1CN01LQwKON1x7QMNP41kC_!!6000000006396-2-tps-4082-2126.png)
 
@@ -247,7 +247,7 @@
 
 如果你使用 SOCKS 代理联网，还需安装 `python-socks`（例如 `pip install python-socks`），否则可能报错：`python-socks is required to use a SOCKS proxy`。
 
-> 注: **App ID** 和 **App Secret** 信息也可以在Console前端填写，但需重启 QwenPaw 服务，才能继续配置长链接的操作。
+> 注: **App ID** 和 **App Secret** 信息也可以在Console前端填写，但需重启 NousAIPaw 服务，才能继续配置长链接的操作。
 > ![console](https://img.alicdn.com/imgextra/i3/O1CN01KCQj1b1z8utMnRr6y_!!6000000006670-2-tps-3822-2070.png)
 
 ### 机器人权限建议
@@ -269,7 +269,7 @@
 | 获取与上传图片或文件资源       | im:resource                    | 应用身份     | -              |
 | **以应用身份读取通讯录**       | **contact:user.base:readonly** | **应用身份** | **见下方说明** |
 
-> **获取用户昵称（推荐）**：若希望会话和日志中显示**用户昵称**（如「张三#1d1a」）而非「unknown#1d1a」，需额外开通通讯录只读权限 **以应用身份读取通讯录**（`contact:user.base:readonly`）。未开通时，飞书仅返回 open_id 等身份字段，不返回姓名，QwenPaw 无法解析昵称。开通后需重新发布/更新应用版本，权限生效后即可正常显示用户名称。
+> **获取用户昵称（推荐）**：若希望会话和日志中显示**用户昵称**（如「张三#1d1a」）而非「unknown#1d1a」，需额外开通通讯录只读权限 **以应用身份读取通讯录**（`contact:user.base:readonly`）。未开通时，飞书仅返回 open_id 等身份字段，不返回姓名，NousAIPaw 无法解析昵称。开通后需重新发布/更新应用版本，权限生效后即可正常显示用户名称。
 
 ### 将机器人添加到常用
 
@@ -313,7 +313,7 @@
    > cp ./bin/imsg /usr/local/bin/
    > ```
 
-3. 为了使 iMessage 中的信息能被获取，需要 **终端** （或你用来运行 QwenPaw 的 app） 和 **消息** 有 **完全磁盘访问权限**（系统设置 → 隐私与安全性 → 完全磁盘访问权限）。
+3. 为了使 iMessage 中的信息能被获取，需要 **终端** （或你用来运行 NousAIPaw 的 app） 和 **消息** 有 **完全磁盘访问权限**（系统设置 → 隐私与安全性 → 完全磁盘访问权限）。
 
    ![权限](https://img.alicdn.com/imgextra/i2/O1CN01gCbMWX1S2c77mcoPo_!!6000000002189-2-tps-958-440.png)
 
@@ -449,7 +449,7 @@
 
 5. 在**开发管理**中获取**AppID**和**AppSecret**（即 ClientSecret），填入 `agent.json`，方式见下方填写 agent.json。在**IP白名单**中添加一个IP。
 
-   > **提示：** 如果使用魔搭创空间部署QwenPaw，QQ频道的IP白名单应填写：`47.92.200.108`
+   > **提示：** 如果使用魔搭创空间部署NousAIPaw，QQ频道的IP白名单应填写：`47.92.200.108`
 
 ![1](https://img.alicdn.com/imgextra/i4/O1CN012UQWI21cnvBAUcz54_!!6000000003646-2-tps-4082-2126.png)
 
@@ -491,16 +491,16 @@
 
 ## OneBot v11（NapCat / QQ 完整协议）
 
-**OneBot** 渠道通过**反向 WebSocket** 将 QwenPaw 连接到 [NapCat](https://github.com/NapNeko/NapCatQQ)、[go-cqhttp](https://github.com/Mrs4s/go-cqhttp)、[Lagrange](https://github.com/LagrangeDev/Lagrange.Core) 或其他任何兼容 [OneBot v11](https://github.com/botuniverse/onebot-11) 的实现。
+**OneBot** 渠道通过**反向 WebSocket** 将 NousAIPaw 连接到 [NapCat](https://github.com/NapNeko/NapCatQQ)、[go-cqhttp](https://github.com/Mrs4s/go-cqhttp)、[Lagrange](https://github.com/LagrangeDev/Lagrange.Core) 或其他任何兼容 [OneBot v11](https://github.com/botuniverse/onebot-11) 的实现。
 
 与内置 QQ 渠道（使用官方 QQ Bot API，功能受限）不同，OneBot v11 提供**完整 QQ 协议**支持：个人号、群聊无需 @、富媒体消息等。
 
 ### 工作原理
 
-QwenPaw 启动一个 WebSocket 服务器，OneBot 实现（如 NapCat）作为客户端连接过来：
+NousAIPaw 启动一个 WebSocket 服务器，OneBot 实现（如 NapCat）作为客户端连接过来：
 
 ```
-NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
+NapCat  ──反向 WS──▶  NousAIPaw (:6199/ws)
 ```
 
 ### 配置 NapCat
@@ -519,7 +519,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 3. 进入 **网络配置** → **新建** → **WebSocket 客户端**（反向 WS）：
    - URL：`ws://<qwenpaw地址>:6199/ws`
-   - Access Token：与 QwenPaw 配置中的 `access_token` 保持一致（可选）
+   - Access Token：与 NousAIPaw 配置中的 `access_token` 保持一致（可选）
 
 ### 填写 agent.json
 
@@ -542,7 +542,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 | `access_token`           | string | `""`      | 可选的认证 Token（需与 NapCat 配置一致）                      |
 | `share_session_in_group` | bool   | `false`   | 为 `true` 时群成员共享一个会话；为 `false` 时每个成员独立会话 |
 
-> **Docker Compose 提示：** QwenPaw 和 NapCat 一起用 Docker Compose 部署时，NapCat 的反向 WS 地址填 `ws://qwenpaw:6199/ws`（使用服务名）。
+> **Docker Compose 提示：** NousAIPaw 和 NapCat 一起用 Docker Compose 部署时，NapCat 的反向 WS 地址填 `ws://qwenpaw:6199/ws`（使用服务名）。
 
 **多模态支持：**
 
@@ -554,7 +554,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 | 视频 | 🚧   | ✓    |
 | 文件 | ✓    | ✓    |
 
-> **提示：** 语音和视频在渠道层已正确接收，但需要配置 QwenPaw 的转写服务（`transcription_provider_type`）才能让 LLM 理解内容。未配置时语音消息显示为占位符。
+> **提示：** 语音和视频在渠道层已正确接收，但需要配置 NousAIPaw 的转写服务（`transcription_provider_type`）才能让 LLM 理解内容。未配置时语音消息显示为占位符。
 
 ---
 
@@ -642,7 +642,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 ### 扫码登录（推荐通过 Console）
 
-1. 在 QwenPaw Web Console 中进入 **设置 → 通道 → 微信个人（iLink）**。
+1. 在 NousAIPaw Web Console 中进入 **设置 → 通道 → 微信个人（iLink）**。
 2. 点击 **获取登录二维码**，等待二维码显示。
 3. 用手机微信扫描二维码并确认授权。
 4. 扫码成功后，Bot Token 会自动填入表单，点击 **保存** 即可。
@@ -829,7 +829,7 @@ JSON消息格式
 
 2. 模糊匹配订阅和自动推送
 
-   模糊订阅全server/+/up主题，根据客户端的client_id自动推送到对应的主题，例如客户端向`/server/client_a/up`推送QwenPaw处理完后，将会向`/client/client_b/down`推送消息。
+   模糊订阅全server/+/up主题，根据客户端的client_id自动推送到对应的主题，例如客户端向`/server/client_a/up`推送NousAIPaw处理完后，将会向`/client/client_b/down`推送消息。
 
    | subscribe_topic | publish_topic           |
    | --------------- | ----------------------- |
@@ -846,13 +846,13 @@ JSON消息格式
    }
    ```
 
-   消息会根据redirect_client_id属性，推送至 `client/client_b/down`，从而实现跨主题推送。在物联网场景，可以做到以QwenPaw为核心，根据个人需求，多设备间自主推送消息。
+   消息会根据redirect_client_id属性，推送至 `client/client_b/down`，从而实现跨主题推送。在物联网场景，可以做到以NousAIPaw为核心，根据个人需求，多设备间自主推送消息。
 
 ---
 
 ## Matrix
 
-Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 QwenPaw 接入任意 Matrix 服务器，支持私聊和群聊房间中的文本消息收发。
+Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 NousAIPaw 接入任意 Matrix 服务器，支持私聊和群聊房间中的文本消息收发。
 
 ### 创建机器人账号并获取 Access Token
 
@@ -908,7 +908,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 | `user_id`      | string | `""`（必填） | 机器人 User ID（如 `@mybot:matrix.org`）     |
 | `access_token` | string | `""`（必填） | 机器人的 Access Token（以 `syt_` 开头）      |
 
-保存后，若 QwenPaw 已在运行，频道会自动重载。
+保存后，若 NousAIPaw 已在运行，频道会自动重载。
 
 ### 开始聊天
 
@@ -932,7 +932,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 
    ![创建Bot](https://img.alicdn.com/imgextra/i3/O1CN01ChYAcN1L0b4pj7ODV_!!6000000001237-2-tps-2112-1440.png)
 
-2. 在 Bot 设置中找到 **方式2**，获取 **AppID** 和 **AppSecret**，填入 QwenPaw 的频道设置中，点击 **我已操作**。
+2. 在 Bot 设置中找到 **方式2**，获取 **AppID** 和 **AppSecret**，填入 NousAIPaw 的频道设置中，点击 **我已操作**。
 
    ![AppID 和 AppSecret](https://img.alicdn.com/imgextra/i2/O1CN01F4vbLs29ID63r4cGf_!!6000000008044-2-tps-2112-1440.png)
 
@@ -1000,12 +1000,12 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 
 ## Voice
 
-Voice 频道通过 Twilio ConversationRelay 实现电话语音交互，支持语音转文本（STT）、文本转语音（TTS），让用户可以直接拨打电话与 QwenPaw 对话。
+Voice 频道通过 Twilio ConversationRelay 实现电话语音交互，支持语音转文本（STT）、文本转语音（TTS），让用户可以直接拨打电话与 NousAIPaw 对话。
 
 ### 前置要求
 
 1. **Twilio 账号**：从 [Twilio 官网](https://www.twilio.com/) 注册账号并获取凭证
-2. **Cloudflare Tunnel**（或其他内网穿透方案）：将本地 QwenPaw 服务暴露到公网，供 Twilio 回调使用
+2. **Cloudflare Tunnel**（或其他内网穿透方案）：将本地 NousAIPaw 服务暴露到公网，供 Twilio 回调使用
 
 ### 创建 Twilio 账号并获取凭证
 
@@ -1020,7 +1020,7 @@ Voice 频道通过 Twilio ConversationRelay 实现电话语音交互，支持语
 
 ### 配置 Cloudflare Tunnel
 
-Twilio 需要通过公网回调 QwenPaw 的 Webhook 接口，因此需要将本地服务暴露到公网。
+Twilio 需要通过公网回调 NousAIPaw 的 Webhook 接口，因此需要将本地服务暴露到公网。
 
 1. 安装 Cloudflare Tunnel 客户端：
 
@@ -1076,7 +1076,7 @@ cloudflared tunnel --url http://localhost:8088
       "tts_voice": "en-US-Journey-D",
       "stt_provider": "deepgram",
       "language": "en-US",
-      "welcome_greeting": "Hi! This is QwenPaw. How can I help you?"
+      "welcome_greeting": "Hi! This is NousAIPaw. How can I help you?"
     }
   }
 }
@@ -1096,11 +1096,11 @@ cloudflared tunnel --url http://localhost:8088
 
 ### 使用方式
 
-配置完成后，直接拨打你购买的 Twilio 电话号码，即可与 QwenPaw 进行语音对话：
+配置完成后，直接拨打你购买的 Twilio 电话号码，即可与 NousAIPaw 进行语音对话：
 
 1. 拨打电话
 2. 听到欢迎语后开始说话
-3. QwenPaw 将语音转文本，调用 Agent 处理
+3. NousAIPaw 将语音转文本，调用 Agent 处理
 4. 将 Agent 的回复转为语音播放给用户
 
 **Voice 频道专属字段说明：**
@@ -1115,7 +1115,7 @@ cloudflared tunnel --url http://localhost:8088
 | `tts_voice`          | string | `"en-US-Journey-D"`                          | TTS 语音模型                       |
 | `stt_provider`       | string | `"deepgram"`                                 | 语音转文本提供商                   |
 | `language`           | string | `"en-US"`                                    | 语言代码                           |
-| `welcome_greeting`   | string | `"Hi! This is QwenPaw. How can I help you?"` | 欢迎语（接通电话后的第一句话）     |
+| `welcome_greeting`   | string | `"Hi! This is NousAIPaw. How can I help you?"` | 欢迎语（接通电话后的第一句话）     |
 
 > **注意**：Voice 频道需要持续的网络连接和内网穿透工具运行。建议在生产环境使用稳定的内网穿透方案（如 Cloudflare Tunnel、ngrok 付费版等）。
 
@@ -1123,7 +1123,7 @@ cloudflared tunnel --url http://localhost:8088
 
 ## SIP
 
-SIP 频道让你可以通过标准 SIP 电话或软电话（如 Linphone、MicroSIP、IP 座机）与 QwenPaw 进行语音对话。完全在本地网络或私有基础设施上运行，无需云账号或公网 URL。
+SIP 频道让你可以通过标准 SIP 电话或软电话（如 Linphone、MicroSIP、IP 座机）与 NousAIPaw 进行语音对话。完全在本地网络或私有基础设施上运行，无需云账号或公网 URL。
 
 提供两种后端模式：
 
@@ -1134,7 +1134,7 @@ SIP 频道让你可以通过标准 SIP 电话或软电话（如 Linphone、Micro
 
 ### 快速体验：Dev 模式（3 分钟，零外部依赖）
 
-最快的体验方式。QwenPaw 会自动启动内置 SIP 注册服务器，无需 Asterisk、FreeSWITCH 或任何外部服务。
+最快的体验方式。NousAIPaw 会自动启动内置 SIP 注册服务器，无需 Asterisk、FreeSWITCH 或任何外部服务。
 
 1. 安装：
 
@@ -1142,21 +1142,21 @@ SIP 频道让你可以通过标准 SIP 电话或软电话（如 Linphone、Micro
 pip install "qwenpaw[sip]"
 ```
 
-2. 启动 QwenPaw 并在控制台中配置：
+2. 启动 NousAIPaw 并在控制台中配置：
 
 ```bash
 qwenpaw init --defaults
 qwenpaw app
 ```
 
-打开 **http://127.0.0.1:8088/** → **设置 → 模型**：配置模型提供商和 API Key。然后进入 **控制 → 频道 → SIP**：启用，填入 DashScope API Key，点击 **保存**。其他字段全部留空即可 — `sip_server` 留空时 QwenPaw 自动启动内置注册服务器，STT/TTS 默认使用 `aliyun`，语音模型自动选择默认音色。
+打开 **http://127.0.0.1:8088/** → **设置 → 模型**：配置模型提供商和 API Key。然后进入 **控制 → 频道 → SIP**：启用，填入 DashScope API Key，点击 **保存**。其他字段全部留空即可 — `sip_server` 留空时 NousAIPaw 自动启动内置注册服务器，STT/TTS 默认使用 `aliyun`，语音模型自动选择默认音色。
 
-QwenPaw 会自动重启 SIP 频道，终端中会看到：
+NousAIPaw 会自动重启 SIP 频道，终端中会看到：
 
 ```
 [SIP] Built-in SIP registrar started on 0.0.0.0:5060
 [SIP] Quickstart: register your softphone to <你的IP>:5060
-[SIP] Dial 'sip:agent@<你的IP>:5060' to talk with QwenPaw!
+[SIP] Dial 'sip:agent@<你的IP>:5060' to talk with NousAIPaw!
 ```
 
 3. 打开 [Linphone](https://www.linphone.org/linphone)（或任意 SIP 软电话）并配置：
@@ -1168,7 +1168,7 @@ QwenPaw 会自动重启 SIP 频道，终端中会看到：
    - 无需密码 — 内置注册服务器接受所有注册
    - 拨号：`sip:agent@127.0.0.1:5060`
 
-   你会听到欢迎语，然后说话 — QwenPaw 会回复！
+   你会听到欢迎语，然后说话 — NousAIPaw 会回复！
 
    **也可以用 pjsua（命令行，使用系统麦克风/扬声器）**
 
@@ -1191,7 +1191,7 @@ QwenPaw 会自动重启 SIP 频道，终端中会看到：
 
 1. 注册 [LiveKit Cloud](https://cloud.livekit.io/)（有免费额度），创建项目。在 **Settings → Project** 中获取项目 URL，在 **Settings → API keys** 中获取 API Key 和 API Secret。
 
-2. 安装、启动 QwenPaw 并在控制台中配置：
+2. 安装、启动 NousAIPaw 并在控制台中配置：
 
 ```bash
 pip install "qwenpaw[sip,sip-livekit]"
@@ -1227,7 +1227,7 @@ qwenpaw app
    - 打开 [meet.livekit.io](https://meet.livekit.io/) → 点击底部 **"Custom"**
    - 输入你的 LiveKit Cloud URL（如 `wss://<your-project>.livekit.cloud`）
    - 粘贴生成的 Token 并点击 **Connect**
-   - 允许麦克风权限，然后说话 — QwenPaw 会回复！
+   - 允许麦克风权限，然后说话 — NousAIPaw 会回复！
 
 > **注意**：浏览器测试与真实 SIP 电话走的是完全相同的音频管线（流式 STT、24kHz TTS、语音打断），是 LiveKit 模式的完整验证。
 
@@ -1237,7 +1237,7 @@ qwenpaw app
 
 **Dev 模式 + 外部 SIP 服务器：**
 
-使用 Asterisk、FreeSWITCH 或任意 SIP PBX 作为注册服务器。将 `sip_server` 设为 PBX 地址，QwenPaw 注册为 SIP 分机，由 PBX 路由来电。
+使用 Asterisk、FreeSWITCH 或任意 SIP PBX 作为注册服务器。将 `sip_server` 设为 PBX 地址，NousAIPaw 注册为 SIP 分机，由 PBX 路由来电。
 
 **LiveKit 模式 + SIP Trunk：**
 
@@ -1270,17 +1270,17 @@ Dev 模式使用 `pyVoIP` — 一个纯 Python SIP 库。
       "tts_provider": "aliyun",
       "tts_voice": "longxiaochun",
       "language": "zh-CN",
-      "welcome_greeting": "你好，我是QwenPaw"
+      "welcome_greeting": "你好，我是NousAIPaw"
     }
   }
 }
 ```
 
-`sip_server` 留空时，QwenPaw 自动在 5060 端口启动内置 SIP 注册服务器，agent 自动注册。设置 `sip_server`（如 `"192.168.1.100:5060"`）时，QwenPaw 注册到该外部服务器。
+`sip_server` 留空时，NousAIPaw 自动在 5060 端口启动内置 SIP 注册服务器，agent 自动注册。设置 `sip_server`（如 `"192.168.1.100:5060"`）时，NousAIPaw 注册到该外部服务器。
 
 ### LiveKit 模式配置
 
-生产模式将 SIP/RTP 委托给 LiveKit SIP Server，处理 NAT 穿透、抖动缓冲和编解码协商。QwenPaw 作为 AI 参与者加入 LiveKit 房间。
+生产模式将 SIP/RTP 委托给 LiveKit SIP Server，处理 NAT 穿透、抖动缓冲和编解码协商。NousAIPaw 作为 AI 参与者加入 LiveKit 房间。
 
 1. 安装扩展：
 
@@ -1303,7 +1303,7 @@ pip install "qwenpaw[sip,sip-livekit]"
       "tts_provider": "aliyun",
       "tts_voice": "longxiaochun",
       "language": "zh-CN",
-      "welcome_greeting": "你好，我是QwenPaw"
+      "welcome_greeting": "你好，我是NousAIPaw"
     }
   }
 }
@@ -1311,14 +1311,14 @@ pip install "qwenpaw[sip,sip-livekit]"
 
 > **`livekit_url`**：LiveKit Cloud 使用 `wss://<project>.livekit.cloud`，自建 LiveKit Server 使用 `ws://<host>:<port>`。
 
-3. 启动 QwenPaw。如需 SIP 电话呼入，还需部署 LiveKit 基础设施并配置 SIP Trunk 和 Dispatch Rule（参见 [LiveKit SIP 文档](https://docs.livekit.io/sip/)）。浏览器测试请参见上方[快速体验](#快速体验livekit-模式浏览器测试3-分钟无需-sip-电话)。
+3. 启动 NousAIPaw。如需 SIP 电话呼入，还需部署 LiveKit 基础设施并配置 SIP Trunk 和 Dispatch Rule（参见 [LiveKit SIP 文档](https://docs.livekit.io/sip/)）。浏览器测试请参见上方[快速体验](#快速体验livekit-模式浏览器测试3-分钟无需-sip-电话)。
 
 ### 使用方式
 
 配置完成后，从 SIP 电话或浏览器发起通话：
 
 1. 电话接通，听到欢迎语
-2. 开始说话 — QwenPaw 通过流式 STT 将语音转为文本
+2. 开始说话 — NousAIPaw 通过流式 STT 将语音转为文本
 3. Agent 处理消息并生成回复
 4. 回复通过 TTS 转为语音播放给你
 5. 自然地继续对话 — 完全支持多轮对话
@@ -1344,16 +1344,16 @@ pip install "qwenpaw[sip,sip-livekit]"
 | `tts_voice`          | string | `"longxiaochun"`                             | TTS 语音模型                                           |
 | `stt_provider`       | string | `"aliyun"`                                   | STT 提供商（目前支持 `aliyun`）                        |
 | `language`           | string | `"zh-CN"`                                    | 语言代码                                               |
-| `welcome_greeting`   | string | `"Hi! This is QwenPaw. How can I help you?"` | 欢迎语（接通电话后的第一句话）                         |
+| `welcome_greeting`   | string | `"Hi! This is NousAIPaw. How can I help you?"` | 欢迎语（接通电话后的第一句话）                         |
 | `call_timeout`       | float  | `30.0`                                       | 呼出超时时间（秒）                                     |
 
 ## Azure Bot（Microsoft 机器人服务）
 
-Azure Bot channel 基于 [Bot Framework](https://dev.botframework.com/) Webhook 协议，支持将 QwenPaw 接入 **Microsoft Teams**、**Web Chat**、**DirectLine** 等所有 Azure Bot Service 支持的频道。
+Azure Bot channel 基于 [Bot Framework](https://dev.botframework.com/) Webhook 协议，支持将 NousAIPaw 接入 **Microsoft Teams**、**Web Chat**、**DirectLine** 等所有 Azure Bot Service 支持的频道。
 
-配置分为以下几步：先在 **Microsoft Entra ID** 注册应用以获取凭证，再创建 **Azure Bot** 资源并关联已有注册，最后将 QwenPaw 的 Webhook 地址填入并启用目标频道。
+配置分为以下几步：先在 **Microsoft Entra ID** 注册应用以获取凭证，再创建 **Azure Bot** 资源并关联已有注册，最后将 NousAIPaw 的 Webhook 地址填入并启用目标频道。
 
-> **提示**：Azure Bot 是**插件频道**，并非内置频道。使用前请先在 QwenPaw 控制台的**插件市场**中搜索并安装 `azure-bot` 插件；安装完成后，该频道才会出现在「频道」设置中。
+> **提示**：Azure Bot 是**插件频道**，并非内置频道。使用前请先在 NousAIPaw 控制台的**插件市场**中搜索并安装 `azure-bot` 插件；安装完成后，该频道才会出现在「频道」设置中。
 
 ### 第一步：创建应用注册（App Registration）
 
@@ -1421,11 +1421,11 @@ Azure Bot channel 基于 [Bot Framework](https://dev.botframework.com/) Webhook 
 
 ### 第三步：暴露 Webhook 端点
 
-QwenPaw 会在本地启动一个独立 HTTP 服务（默认端口 `3978`）接收 Azure 转发的消息。Azure Bot Service 要求该端点**可从公网通过 HTTPS 访问**。
+NousAIPaw 会在本地启动一个独立 HTTP 服务（默认端口 `3978`）接收 Azure 转发的消息。Azure Bot Service 要求该端点**可从公网通过 HTTPS 访问**。
 
 **方式 A：固定域名 + 反向代理（推荐生产环境）**
 
-如果 QwenPaw 运行在有公网 IP 的服务器上，使用 Nginx 反向代理并配置 HTTPS 证书，Webhook 地址形如：
+如果 NousAIPaw 运行在有公网 IP 的服务器上，使用 Nginx 反向代理并配置 HTTPS 证书，Webhook 地址形如：
 
 ```
 https://your-domain.com/api/messages
@@ -1513,8 +1513,8 @@ https://xxxx.ngrok-free.app/api/messages
 - **HTTPS 必须**：Azure Bot Service 要求 Messaging Endpoint 使用 HTTPS，本地开发请使用 ngrok 或配置了 SSL 的反向代理。
 - **端口防火墙**：确保服务器安全组 / 防火墙已开放 `http_port`（默认 3978）的入站流量，或通过反向代理在标准端口（443）上对外提供服务。
 - **群聊 @mention**：在 Teams 群聊中建议开启 `require_mention: true`，避免每条群消息都触发机器人回复；私聊不受此限制。
-- **多频道并行**：同一个 Azure Bot 资源可同时连接 Teams、Web Chat、DirectLine 等多个频道，QwenPaw 会自动识别来源频道并路由回复。
-- **会话引用持久化**：QwenPaw 将各用户 / 群聊的会话引用保存在工作区的 `azure_bot_refs.json` 中，重启后可继续主动向用户发送消息。
+- **多频道并行**：同一个 Azure Bot 资源可同时连接 Teams、Web Chat、DirectLine 等多个频道，NousAIPaw 会自动识别来源频道并路由回复。
+- **会话引用持久化**：NousAIPaw 将各用户 / 群聊的会话引用保存在工作区的 `azure_bot_refs.json` 中，重启后可继续主动向用户发送消息。
 - **客户端机密有效期**：Azure AD 客户端机密有效期最长 2 年，到期需重新生成并更新 `app_password` 配置。
 
 ---
@@ -1635,7 +1635,7 @@ https://xxxx.ngrok-free.app/api/messages
 
 ### 注意事项
 
-- QwenPaw 魔法命令（如 `/stop`、`/model list`）可以作为原生 Slack 斜杠命令发送。也可以作为普通消息发送 — 在线程中发送时加一个空格前缀（如 ` /stop`）即可绕过 Slack 的斜杠命令拦截。
+- NousAIPaw 魔法命令（如 `/stop`、`/model list`）可以作为原生 Slack 斜杠命令发送。也可以作为普通消息发送 — 在线程中发送时加一个空格前缀（如 ` /stop`）即可绕过 Slack 的斜杠命令拦截。
 - 若后续更改权限范围或事件订阅，**必须重新安装该应用**，更改才能生效。
 - 要控制哪些用户可以与机器人互动，请使用访问控制字段（`access_control_dm`、`access_control_group`）。Slack 使用**成员 ID**（例如 `U01ABC2DEF3`）来识别用户 — 您可通过“个人资料”→ ⋮ → “复制成员 ID”来获取。
 - 可以在 manifest 的 `slash_commands` 数组中添加更多斜杠命令来注册额外的魔法命令（如 `/stop`、`/status`）。

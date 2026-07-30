@@ -1,6 +1,6 @@
-# QwenPaw Creator
+# NousAIPaw Creator
 
-Creator is a QwenPaw PawApp for file-native script, asset, storyboard, video
+Creator is a NousAIPaw PawApp for file-native script, asset, storyboard, video
 generation, editing, and composition workflows.
 
 ## Native runtime tools
@@ -27,5 +27,5 @@ degraded mode and reports the missing dependency through
 unavailable until jq is configured.
 
 Model and OSS credentials should normally be configured through the six
-`creator_*` entries in QwenPaw Tools. `.env.example` documents local-development
+`creator_*` entries in NousAIPaw Tools. `.env.example` documents local-development
 fallback variables.

@@ -1,10 +1,10 @@
 # Models
 
-Before using QwenPaw, you need to configure at least one available model. QwenPaw supports multiple model providers, which you can configure and manage on the **Settings -> Models** page in the left sidebar.
+Before using NousAIPaw, you need to configure at least one available model. NousAIPaw supports multiple model providers, which you can configure and manage on the **Settings -> Models** page in the left sidebar.
 
 ![Settings Models](https://img.alicdn.com/imgextra/i2/O1CN01cmjcv31YO2MD9GzGn_!!6000000003048-2-tps-3810-2064.png)
 
-QwenPaw supports various LLM providers:
+NousAIPaw supports various LLM providers:
 
 - **Local Providers** (llama.cpp / Ollama / LM Studio)
 - **Cloud Providers** (usually require an API Key)
@@ -12,31 +12,31 @@ QwenPaw supports various LLM providers:
 
 Currently supported local providers include:
 
-- [QwenPaw Local (llama.cpp)](https://github.com/ggml-org/llama.cpp)
+- [NousAIPaw Local (llama.cpp)](https://github.com/ggml-org/llama.cpp)
 - [Ollama](https://ollama.com/)
 - [LM Studio](https://lmstudio.ai/)
 
-QwenPaw Local (llama.cpp) is built into QwenPaw and does not require additional software installation. Ollama and LM Studio require you to install the corresponding software in advance.
+NousAIPaw Local (llama.cpp) is built into NousAIPaw and does not require additional software installation. Ollama and LM Studio require you to install the corresponding software in advance.
 
-QwenPaw also provides the QwenPaw-Flash series for local deployment. It includes 2B, 4B, and 9B variants, with original, 4-bit, and 8-bit versions for different VRAM and performance requirements. These models are open-sourced on [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) and [Hugging Face](https://huggingface.co/agentscope-ai/models). The following sections explain how to use QwenPaw-Flash with each local provider.
+NousAIPaw also provides the QwenPaw-Flash series for local deployment. It includes 2B, 4B, and 9B variants, with original, 4-bit, and 8-bit versions for different VRAM and performance requirements. These models are open-sourced on [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) and [Hugging Face](https://huggingface.co/agentscope-ai/models). The following sections explain how to use QwenPaw-Flash with each local provider.
 
-## QwenPaw Local (llama.cpp) Configuration
+## NousAIPaw Local (llama.cpp) Configuration
 
-> QwenPaw Local is currently still in the testing phase, and there may be issues with stability and GPU compatibility. If you are looking for a more stable local model experience or need GPU acceleration, it is recommended to use Ollama or LM Studio as your local model provider in the short term.
+> NousAIPaw Local is currently still in the testing phase, and there may be issues with stability and GPU compatibility. If you are looking for a more stable local model experience or need GPU acceleration, it is recommended to use Ollama or LM Studio as your local model provider in the short term.
 
-QwenPaw Local is a local model provider based on llama.cpp. You can configure and manage it on the **Models** page.
+NousAIPaw Local is a local model provider based on llama.cpp. You can configure and manage it on the **Models** page.
 
-![QwenPaw Local Provider](https://img.alicdn.com/imgextra/i4/O1CN01BBeBIR1zXeIQfAK8b_!!6000000006724-2-tps-3810-2064.png)
+![NousAIPaw Local Provider](https://img.alicdn.com/imgextra/i4/O1CN01BBeBIR1zXeIQfAK8b_!!6000000006724-2-tps-3810-2064.png)
 
-When configuring QwenPaw Local for the first time, you need to download the llama.cpp runtime. Click the **Download llama.cpp** button, and QwenPaw will automatically download and configure the runtime. Once the download is complete, you can use the QwenPaw Local provider.
+When configuring NousAIPaw Local for the first time, you need to download the llama.cpp runtime. Click the **Download llama.cpp** button, and NousAIPaw will automatically download and configure the runtime. Once the download is complete, you can use the NousAIPaw Local provider.
 
 ![Download llama.cpp](https://img.alicdn.com/imgextra/i1/O1CN01VhSJKd1yhtWZ0SgYc_!!6000000006611-2-tps-1530-1290.png)
 
-QwenPaw team has trained a series of small models (the QwenPaw-Flash series) suitable for local deployment. Based on your current device (CPU / NVIDIA GPU / Apple M series chip), QwenPaw will automatically recommend suitable model versions for you. If you want to use QwenPaw-Flash, simply choose an appropriate version here, download it, and start it. If you want to use other models, you can add them by entering the _Model Repository ID_ and _Download Source_. The Model Repository ID refers to the identifier of the model in ModelScope / Hugging Face, such as `Qwen/Qwen3-0.6B-GGUF`. The Download Source refers to where the model is downloaded from. Currently, ModelScope and Hugging Face are supported.
+NousAIPaw team has trained a series of small models (the QwenPaw-Flash series) suitable for local deployment. Based on your current device (CPU / NVIDIA GPU / Apple M series chip), NousAIPaw will automatically recommend suitable model versions for you. If you want to use QwenPaw-Flash, simply choose an appropriate version here, download it, and start it. If you want to use other models, you can add them by entering the _Model Repository ID_ and _Download Source_. The Model Repository ID refers to the identifier of the model in ModelScope / Hugging Face, such as `Qwen/Qwen3-0.6B-GGUF`. The Download Source refers to where the model is downloaded from. Currently, ModelScope and Hugging Face are supported.
 
 ![Download Model](https://img.alicdn.com/imgextra/i4/O1CN01ualQNr1KMkbpBiuTa_!!6000000001150-2-tps-1342-1680.png)
 
-After the model is downloaded, you can click the **Start** button to launch the model. The startup time may vary depending on the model size. Once started, QwenPaw will automatically set this model as the global default. Only one model can be running at a time; starting another model will automatically stop the currently running one.
+After the model is downloaded, you can click the **Start** button to launch the model. The startup time may vary depending on the model size. Once started, NousAIPaw will automatically set this model as the global default. Only one model can be running at a time; starting another model will automatically stop the currently running one.
 
 ![Start Model](https://img.alicdn.com/imgextra/i4/O1CN019nuWG21Zy36HLYRWR_!!6000000003262-2-tps-1344-1678.png)
 
@@ -44,7 +44,7 @@ When you do not need to use a model temporarily, you can click **Stop** to stop 
 
 ![Stop Model](https://img.alicdn.com/imgextra/i2/O1CN01fkeHhn1onG0ItKjT5_!!6000000005269-2-tps-1358-1786.png)
 
-QwenPaw Local will automatically record the model's running state. If you close the QwenPaw process while a QwenPaw Local model is running, it will attempt to restart the last used model the next time you open QwenPaw, so you do not need to start the model manually each time.
+NousAIPaw Local will automatically record the model's running state. If you close the NousAIPaw process while a NousAIPaw Local model is running, it will attempt to restart the last used model the next time you open NousAIPaw, so you do not need to start the model manually each time.
 
 ## Ollama Configuration
 
@@ -52,9 +52,9 @@ Before using Ollama, you need to install the latest version of [Ollama](https://
 
 ![Ollama Settings](https://gw.alicdn.com/imgextra/i4/O1CN01pWWxlV1QiApLwDzbU_!!6000000002009-2-tps-1912-1510.png)
 
-To verify that Ollama is working properly, go to the **Settings** page of the QwenPaw Ollama provider and click the **Test Connection** button.
+To verify that Ollama is working properly, go to the **Settings** page of the NousAIPaw Ollama provider and click the **Test Connection** button.
 
-> For users deploying QwenPaw in a Docker container, if Ollama is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's Ollama service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `http://host.docker.internal:11434`.
+> For users deploying NousAIPaw in a Docker container, if Ollama is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's Ollama service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `http://host.docker.internal:11434`.
 
 If you want to use QwenPaw-Flash with Ollama, it is recommended to choose a `Q8_0` or `Q4_K_M` quantized variant and import it with the following steps:
 
@@ -91,9 +91,9 @@ PARAMETER top_p 0.95
 ollama create qwenpaw-flash -f qwenpaw-flash.txt
 ```
 
-4. Go back to the QwenPaw Ollama provider page and click **Discover Models** to add the model to QwenPaw.
+4. Go back to the NousAIPaw Ollama provider page and click **Discover Models** to add the model to NousAIPaw.
 
-After installing and configuring Ollama, go to the **Models** page of the QwenPaw Ollama provider and click **Discover Models** to get the list of available Ollama models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
+After installing and configuring Ollama, go to the **Models** page of the NousAIPaw Ollama provider and click **Discover Models** to get the list of available Ollama models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
 
 ![Ollama Model List](https://img.alicdn.com/imgextra/i1/O1CN01BbAw7o1W7QkXG8C8k_!!6000000002741-2-tps-1290-1504.png)
 
@@ -105,13 +105,13 @@ By default, LM Studio does not enable the model API service. After installing LM
 
 ![LM Studio Local Server](https://gw.alicdn.com/imgextra/i3/O1CN01kLXu3D1VwRF3lokZz_!!6000000002717-2-tps-1654-1256.png)
 
-To ensure a good experience in QwenPaw, set the **Default Context Length** to at least 32768 in **Settings -> Model Defaults**, and enable "When applicable, separate `reasoning_content` and `content` in API responses" in **Settings -> Developer -> Experimental Settings**.
+To ensure a good experience in NousAIPaw, set the **Default Context Length** to at least 32768 in **Settings -> Model Defaults**, and enable "When applicable, separate `reasoning_content` and `content` in API responses" in **Settings -> Developer -> Experimental Settings**.
 
 ![LM Studio Context Length](https://gw.alicdn.com/imgextra/i4/O1CN011jc2q71hc51etcf7x_!!6000000004297-2-tps-1654-1256.png)
 
 ![LM Studio Reasoning Content](https://gw.alicdn.com/imgextra/i4/O1CN01dInPGl1oDX6nOH0Wh_!!6000000005191-2-tps-1654-1256.png)
 
-After completing the above LM Studio configuration, go to the **Settings** page of the QwenPaw LM Studio provider and enter the LM Studio API address, which can be found on the **Developer -> Local Server** page. Be sure to add the `/v1` suffix, e.g., `http://localhost:1234/v1`.
+After completing the above LM Studio configuration, go to the **Settings** page of the NousAIPaw LM Studio provider and enter the LM Studio API address, which can be found on the **Developer -> Local Server** page. Be sure to add the `/v1` suffix, e.g., `http://localhost:1234/v1`.
 
 If you want to use QwenPaw-Flash with LM Studio, it is also recommended to choose a `Q8_0` or `Q4_K_M` quantized variant and import it with the following steps:
 
@@ -135,11 +135,11 @@ hf download agentscope-ai/QwenPaw-Flash-4B-Q4_K_M --local_dir ./dir
 lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-Flash
 ```
 
-3. Go back to the QwenPaw LM Studio provider page and click **Discover Models** to add the model to QwenPaw.
+3. Go back to the NousAIPaw LM Studio provider page and click **Discover Models** to add the model to NousAIPaw.
 
 The subsequent process is the same as for Ollama: click **Test Connection** to verify the connection, then go to the LM Studio model management page and click **Discover Models** to get the list of available models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
 
-> For users deploying QwenPaw in a Docker container, if LM Studio is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's LM Studio service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `http://host.docker.internal:1234/v1`.
+> For users deploying NousAIPaw in a Docker container, if LM Studio is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's LM Studio service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `http://host.docker.internal:1234/v1`.
 
 ## Cloud Provider Configuration
 
@@ -182,11 +182,11 @@ If the preset models do not meet your needs, you can also click **Add Model** on
 
 ## Custom Provider Configuration
 
-If the preset cloud and local providers do not meet your needs, QwenPaw also supports custom providers.
+If the preset cloud and local providers do not meet your needs, NousAIPaw also supports custom providers.
 
 ### Add Provider
 
-You can add a new provider by clicking **Add Provider** in the upper right corner of **Settings -> Models -> Providers**. When adding, you need to provide the **Provider ID** (for internal indexing in QwenPaw) and **Provider Name** (for display in the UI), and select the API compatibility mode (currently supports OpenAI `chat.completions` and Anthropic `messages`). After adding, you can add models under this provider just like with cloud providers, and select the provider's models in chat and other scenarios.
+You can add a new provider by clicking **Add Provider** in the upper right corner of **Settings -> Models -> Providers**. When adding, you need to provide the **Provider ID** (for internal indexing in NousAIPaw) and **Provider Name** (for display in the UI), and select the API compatibility mode (currently supports OpenAI `chat.completions` and Anthropic `messages`). After adding, you can add models under this provider just like with cloud providers, and select the provider's models in chat and other scenarios.
 
 ![Add Provider](https://img.alicdn.com/imgextra/i4/O1CN019j9pgB1dzCZmsnMlW_!!6000000003806-2-tps-3810-2064.png)
 
@@ -200,15 +200,15 @@ After adding a provider, go to its **Settings** page to configure the API access
 
 After configuring a custom provider, go to its **Models** page and click **Add Model**. When adding, you need to provide the **Model ID** (the identifier used by the API) and **Model Name** (for display in the UI). After adding, you can also use **Test Connection** to verify if the model is working properly.
 
-> For example, if you deploy vLLM at `http://localhost:8000` and have a model at `/path/to/Qwen3.5`, you can add a custom provider, set the API compatibility mode to OpenAI `chat.completions`, set the Base URL to `http://localhost:8000/v1`, then add a model under this provider with Model ID `/path/to/Qwen3.5` and Model Name `Qwen3.5`. After testing the connection, if everything is configured correctly, you can use this vLLM model in QwenPaw.
+> For example, if you deploy vLLM at `http://localhost:8000` and have a model at `/path/to/Qwen3.5`, you can add a custom provider, set the API compatibility mode to OpenAI `chat.completions`, set the Base URL to `http://localhost:8000/v1`, then add a model under this provider with Model ID `/path/to/Qwen3.5` and Model Name `Qwen3.5`. After testing the connection, if everything is configured correctly, you can use this vLLM model in NousAIPaw.
 
 ## Selecting a Model
 
-Configured model providers and models will appear in the **Settings -> Models -> Default LLM** list. You can select a model as the global default and click the **Save** button on the right. The model set on this page will be used as the global default by QwenPaw. If you do not specify a model in certain scenarios (such as chat), QwenPaw will use the default model set here.
+Configured model providers and models will appear in the **Settings -> Models -> Default LLM** list. You can select a model as the global default and click the **Save** button on the right. The model set on this page will be used as the global default by NousAIPaw. If you do not specify a model in certain scenarios (such as chat), NousAIPaw will use the default model set here.
 
 ![Default Model Settings](https://img.alicdn.com/imgextra/i1/O1CN01bLNFam20DKL1tYThY_!!6000000006815-2-tps-3810-2064.png)
 
-Since different tasks may require different model capabilities, QwenPaw also supports using different models in different chats. You can select the appropriate provider and model from the dropdown menu in the upper right corner of the **Chat** page. This setting only applies to the current agent and chat. If you do not configure a provider or model in the chat page, QwenPaw will use the global default model.
+Since different tasks may require different model capabilities, NousAIPaw also supports using different models in different chats. You can select the appropriate provider and model from the dropdown menu in the upper right corner of the **Chat** page. This setting only applies to the current agent and chat. If you do not configure a provider or model in the chat page, NousAIPaw will use the global default model.
 
 ![Chat Model Settings](https://img.alicdn.com/imgextra/i2/O1CN01Vq1yXW1Oy5NHgBLmR_!!6000000001773-2-tps-3810-2064.png)
 
@@ -216,19 +216,19 @@ Since different tasks may require different model capabilities, QwenPaw also sup
 
 ### Model Configuration Files
 
-All provider configurations in QwenPaw are saved in the `$QWENPAW_SECRET_DIR/providers` folder (default `~/.qwenpaw.secret/providers`). Built-in provider configurations are in the `builtin` directory, and user-added custom provider configurations are in the `custom` directory. Each provider has a corresponding JSON file named after its ID, e.g., the configuration file for a provider with ID `Qwen` is `Qwen.json`. The file contains the provider's API access information and model list. It is not recommended for regular users to modify these files directly to avoid unnecessary errors. Also, changes to the configuration files require restarting QwenPaw to take effect.
+All provider configurations in NousAIPaw are saved in the `$QWENPAW_SECRET_DIR/providers` folder (default `~/.qwenpaw.secret/providers`). Built-in provider configurations are in the `builtin` directory, and user-added custom provider configurations are in the `custom` directory. Each provider has a corresponding JSON file named after its ID, e.g., the configuration file for a provider with ID `Qwen` is `Qwen.json`. The file contains the provider's API access information and model list. It is not recommended for regular users to modify these files directly to avoid unnecessary errors. Also, changes to the configuration files require restarting NousAIPaw to take effect.
 
 ### Local Models
 
-If you use the QwenPaw Local (llama.cpp) provider, QwenPaw will save the llama.cpp runtime, downloaded models and logs in the `$QWENPAW_WORKING_DIR/local_models` folder (default `~/.qwenpaw/local_models`).
+If you use the NousAIPaw Local (llama.cpp) provider, NousAIPaw will save the llama.cpp runtime, downloaded models and logs in the `$QWENPAW_WORKING_DIR/local_models` folder (default `~/.qwenpaw/local_models`).
 
-- **Runtime**: The llama.cpp runtime is saved in the `$QWENPAW_WORKING_DIR/local_models/bin` directory. It includes the executable files and related dynamic libraries for llama.cpp. These files are automatically downloaded and configured by QwenPaw. If you have special requirements for llama.cpp (such as needing acceleration capabilities for specific hardware), you can compile your own version of llama.cpp and directly replace the files in this directory.
-- **Downloaded Models**: Downloaded models are saved in the `$QWENPAW_WORKING_DIR/local_models/models` directory. Each model corresponds to a folder named after its ID, for example, the model with ID `Qwen/Qwen3-0.6B-GGUF` will have a folder at `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`. Inside the model folder, you will find the GGUF file for the model and some metadata files. If you need to use GGUF model files from other sources, you can create a subfolder with the structure `organization/model_name` under the `models` directory, then save the GGUF file in that folder. After refreshing the QwenPaw Local model list, you will see the model in the list (for example, save the `Qwen3-0.6B.gguf` model file to `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`).
+- **Runtime**: The llama.cpp runtime is saved in the `$QWENPAW_WORKING_DIR/local_models/bin` directory. It includes the executable files and related dynamic libraries for llama.cpp. These files are automatically downloaded and configured by NousAIPaw. If you have special requirements for llama.cpp (such as needing acceleration capabilities for specific hardware), you can compile your own version of llama.cpp and directly replace the files in this directory.
+- **Downloaded Models**: Downloaded models are saved in the `$QWENPAW_WORKING_DIR/local_models/models` directory. Each model corresponds to a folder named after its ID, for example, the model with ID `Qwen/Qwen3-0.6B-GGUF` will have a folder at `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`. Inside the model folder, you will find the GGUF file for the model and some metadata files. If you need to use GGUF model files from other sources, you can create a subfolder with the structure `organization/model_name` under the `models` directory, then save the GGUF file in that folder. After refreshing the NousAIPaw Local model list, you will see the model in the list (for example, save the `Qwen3-0.6B.gguf` model file to `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`).
 - **Log Files**: Log files are saved in the `$QWENPAW_WORKING_DIR/local_models/logs` directory. After starting llama.cpp, the log file will be automatically saved as `llama-server.log` in that directory.
 
 ### Generation Parameters
 
-Since different models and tasks may require different generation parameters (such as `temperature`, `top_p`, `max_tokens`), QwenPaw supports configuring generation parameters in the provider settings. Go to the provider's **Settings** page, expand **Advanced Configuration**, and enter the parameter configuration in JSON format, for example:
+Since different models and tasks may require different generation parameters (such as `temperature`, `top_p`, `max_tokens`), NousAIPaw supports configuring generation parameters in the provider settings. Go to the provider's **Settings** page, expand **Advanced Configuration**, and enter the parameter configuration in JSON format, for example:
 
 ```json
 {
@@ -238,6 +238,6 @@ Since different models and tasks may require different generation parameters (su
 }
 ```
 
-After configuring, click **Save**. QwenPaw will automatically include these parameters when generating with models from this provider.
+After configuring, click **Save**. NousAIPaw will automatically include these parameters when generating with models from this provider.
 
 ![Generation Parameters](https://img.alicdn.com/imgextra/i1/O1CN0194Bihd239bxJwoVpi_!!6000000007213-2-tps-1180-1858.png)

@@ -1,18 +1,18 @@
 # 架构设计
 
-本页从宏观层面介绍 QwenPaw 的构成：它实现的**智能体操作系统（Agent OS）**，以及它依托的 **AgentScope** 基座。本页只讲设计中相对稳定的部分，不点名那些会随代码频繁变动的模块和类。还没做的部分会标注出来，并链接到[路线图](./roadmap)。
+本页从宏观层面介绍 NousAIPaw 的构成：它实现的**智能体操作系统（Agent OS）**，以及它依托的 **AgentScope** 基座。本页只讲设计中相对稳定的部分，不点名那些会随代码频繁变动的模块和类。还没做的部分会标注出来，并链接到[路线图](./roadmap)。
 
-如果你只是想*使用* QwenPaw，请从[项目介绍](./intro)和[快速开始](./quickstart)入手。本页写给贡献者，以及想搞清楚底层原理的人。
+如果你只是想*使用* NousAIPaw，请从[项目介绍](./intro)和[快速开始](./quickstart)入手。本页写给贡献者，以及想搞清楚底层原理的人。
 
 ---
 
 ## 一图看懂智能体操作系统
 
-QwenPaw 完全跑在你自己的环境里，是一个常驻服务。一次安装就能托管**多个互相独立的智能体**。每个智能体有一个隔离的**工作区**；每个请求都交给**运行时**来执行，运行时在治理和沙箱这一层之下，把智能体的模型、工具、记忆、Skills 和连接器串到一起。
+NousAIPaw 完全跑在你自己的环境里，是一个常驻服务。一次安装就能托管**多个互相独立的智能体**。每个智能体有一个隔离的**工作区**；每个请求都交给**运行时**来执行，运行时在治理和沙箱这一层之下，把智能体的模型、工具、记忆、Skills 和连接器串到一起。
 
-可以把 QwenPaw 看成一个面向智能体的小型操作系统。它的“内核”是 [AgentScope 2.0](https://github.com/agentscope-ai/agentscope)，在进程内提供智能体循环、会话存储、事件流和工具层。QwenPaw 是其上的操作系统层，管着智能体要用到的**资源维度**——工作区文件、记忆、Skills、驱动（连接器）和模型——以及管控这些资源访问的信任主干。
+可以把 NousAIPaw 看成一个面向智能体的小型操作系统。它的“内核”是 [AgentScope 2.0](https://github.com/agentscope-ai/agentscope)，在进程内提供智能体循环、会话存储、事件流和工具层。NousAIPaw 是其上的操作系统层，管着智能体要用到的**资源维度**——工作区文件、记忆、Skills、驱动（连接器）和模型——以及管控这些资源访问的信任主干。
 
-<svg viewBox="0 0 900 684" width="100%" role="img" aria-label="一图看懂 QwenPaw 智能体操作系统：上层是运行时调度层；下层是每个智能体专属的工作区，内含按颜色区分的资源泳道（记忆、Skills、工具、其他）、治理面板和沙箱执行底座，旁边是独立的驱动（连接器）栏；整体构建在 AgentScope 基座之上。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 900 684" width="100%" role="img" aria-label="一图看懂 NousAIPaw 智能体操作系统：上层是运行时调度层；下层是每个智能体专属的工作区，内含按颜色区分的资源泳道（记忆、Skills、工具、其他）、治理面板和沙箱执行底座，旁边是独立的驱动（连接器）栏；整体构建在 AgentScope 基座之上。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
     <marker id="qpMapArrow" markerWidth="9" markerHeight="9" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" fill-opacity="0.45"/>
@@ -121,15 +121,15 @@ QwenPaw 完全跑在你自己的环境里，是一个常驻服务。一次安装
 
 ## 基座：AgentScope
 
-QwenPaw 构建在 **AgentScope 2.0** 之上，把它当作一个库来用。AgentScope 的运行时跑在进程内，因此不用再单独起一个运行时服务。QwenPaw 复用了以下几样：
+NousAIPaw 构建在 **AgentScope 2.0** 之上，把它当作一个库来用。AgentScope 的运行时跑在进程内，因此不用再单独起一个运行时服务。NousAIPaw 复用了以下几样：
 
-- QwenPaw 在其之上构建的**推理-行动（ReAct）智能体循环**；
+- NousAIPaw 在其之上构建的**推理-行动（ReAct）智能体循环**；
 - 用于流式输出、以及保存和恢复会话的**消息与可序列化状态约定**；
-- 每个 QwenPaw 工具都接入的**工具调用层**；
-- QwenPaw 用自有工具扩展的**工作目录抽象**；
+- 每个 NousAIPaw 工具都接入的**工具调用层**；
+- NousAIPaw 用自有工具扩展的**工作目录抽象**；
 - 智能体一边思考、一边调用工具时发出的**流式事件模型**。
 
-本页其余部分（工作区边界、请求生命周期、资源维度、信任主干）都是 QwenPaw 在这些基础原语之上的自有设计。
+本页其余部分（工作区边界、请求生命周期、资源维度、信任主干）都是 NousAIPaw 在这些基础原语之上的自有设计。
 
 ---
 
@@ -184,7 +184,7 @@ QwenPaw 构建在 **AgentScope 2.0** 之上，把它当作一个库来用。Agen
   <text x="572" y="324" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">文件保持人类可读且可移植——整个工作区都可以备份与恢复。</text>
 </svg>
 
-磁盘上的布局是透明的：配置是纯 JSON，记忆是 Markdown，Skills 就是文件夹。哪怕 QwenPaw 没在运行，你也能读、能改其中任何一部分，还能纳入版本控制。[备份与恢复](./backup)可以把一个工作区打包成带签名的归档，方便在不同机器之间搬。
+磁盘上的布局是透明的：配置是纯 JSON，记忆是 Markdown，Skills 就是文件夹。哪怕 NousAIPaw 没在运行，你也能读、能改其中任何一部分，还能纳入版本控制。[备份与恢复](./backup)可以把一个工作区打包成带签名的归档，方便在不同机器之间搬。
 
 ---
 
@@ -263,20 +263,20 @@ QwenPaw 构建在 **AgentScope 2.0** 之上，把它当作一个库来用。Agen
 
 ## 智能体及其工具
 
-QwenPaw 的智能体跑的是一个 **ReAct（先推理后行动）循环**，迭代次数设了上限；它要用的依赖都由组装这一步现成给到。
+NousAIPaw 的智能体跑的是一个 **ReAct（先推理后行动）循环**，迭代次数设了上限；它要用的依赖都由组装这一步现成给到。
 
 工具自带**激活条件**——要哪些模式、Skills、功能或沙箱资源——所以每个请求只看得到自己能用的那些工具。内置工具包括文件读写、代码和文本搜索、Shell 执行、浏览器控制和截图、看图看视频，以及多智能体协作。
 
 多个智能体有两种协作方式（参见[多智能体](./multi-agent)）：
 
-- **对内**——同一套安装里，一个 QwenPaw 智能体可以给另一个发消息，或者新拉起一个智能体。
-- **对外**——通过 **ACP**（Agent Client Protocol），QwenPaw 可以拉起一个外部智能体进程，把它干的活当作工具结果流式发回，遇到权限请求还能交回宿主来审批。参见 [ACP 集成](./acp-integration)。
+- **对内**——同一套安装里，一个 NousAIPaw 智能体可以给另一个发消息，或者新拉起一个智能体。
+- **对外**——通过 **ACP**（Agent Client Protocol），NousAIPaw 可以拉起一个外部智能体进程，把它干的活当作工具结果流式发回，遇到权限请求还能交回宿主来审批。参见 [ACP 集成](./acp-integration)。
 
 ---
 
 ## 记忆与上下文
 
-QwenPaw 把两个容易混为一谈的概念分开：**记忆**（智能体跨对话记住的东西）和**上下文**（当下能塞进模型窗口的内容）。
+NousAIPaw 把两个容易混为一谈的概念分开：**记忆**（智能体跨对话记住的东西）和**上下文**（当下能塞进模型窗口的内容）。
 
 <svg viewBox="0 0 860 372" width="100%" role="img" aria-label="记忆是构建在透明 Markdown 文件之上的可插拔后端；上下文管理要么采用总结式压缩，要么采用配备持久化存储和 recall 工具的 Scroll 策略。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
@@ -316,15 +316,15 @@ QwenPaw 把两个容易混为一谈的概念分开：**记忆**（智能体跨�
 
 **记忆**是一个可插拔的后端。默认那套基于 [ReMe](https://github.com/agentscope-ai/ReMe) 记忆库，在工作区上用后台任务来做取回、写入和整合（“做梦”）；另一套更简单的则直接读写同一批文件。不管哪套，底层都是**人能读的 Markdown**——`MEMORY.md` 放长期笔记，再配上按日期分的每日文件——所以记忆你随时都能打开、查看、修改。参见[记忆](./memory)和[记忆演化与主动交互](./memory-evolving-and-proactive)。
 
-**上下文**管理同样可插拔。默认情况下，窗口一满，QwenPaw 就把较早的对话轮次总结掉。可选的 **Scroll 策略**换了个思路：它把每一轮都存进持久化存储，给已经滚出窗口的内容留一份精简索引，再给智能体一个工具，按需就能回放早先的任意一段对话——长对话因此能完整找回。参见[上下文](./context)。
+**上下文**管理同样可插拔。默认情况下，窗口一满，NousAIPaw 就把较早的对话轮次总结掉。可选的 **Scroll 策略**换了个思路：它把每一轮都存进持久化存储，给已经滚出窗口的内容留一份精简索引，再给智能体一个工具，按需就能回放早先的任意一段对话——长对话因此能完整找回。参见[上下文](./context)。
 
 ---
 
 ## 技能——能力层
 
-QwenPaw 靠 Skills 来长本事。一项**技能（Skill）就是一个文件夹**：放着说明和元数据，再带上一组可选的可执行脚本。内置 Skills 提供多语言变体。
+NousAIPaw 靠 Skills 来长本事。一项**技能（Skill）就是一个文件夹**：放着说明和元数据，再带上一组可选的可执行脚本。内置 Skills 提供多语言变体。
 
-QwenPaw 会按当前的工作区和频道，算出哪些 Skills 处于启用状态，来源是工作区自己的一份集合，加上一个共享池。每个启用的技能都会变成一个工具，供智能体调用（也可以用 `/skill-name` 命令调用）。Skills 可以从 GitHub、ModelScope 等外部来源安装，统一在[技能市场](./skills)里呈现。
+NousAIPaw 会按当前的工作区和频道，算出哪些 Skills 处于启用状态，来源是工作区自己的一份集合，加上一个共享池。每个启用的技能都会变成一个工具，供智能体调用（也可以用 `/skill-name` 命令调用）。Skills 可以从 GitHub、ModelScope 等外部来源安装，统一在[技能市场](./skills)里呈现。
 
 Skills 可能带可执行代码，所以安装时会先过一遍**技能扫描器**（见下文的信任主干），之后才能用。更多内容参见 [Skills](./skills)。
 
@@ -332,7 +332,7 @@ Skills 可能带可执行代码，所以安装时会先过一遍**技能扫描�
 
 ## 驱动与频道——和外部世界打交道
 
-QwenPaw 把**频道**（人怎么联系到智能体）和**驱动**（智能体怎么访问外部系统）分开。
+NousAIPaw 把**频道**（人怎么联系到智能体）和**驱动**（智能体怎么访问外部系统）分开。
 
 **频道**是各消息平台的入口。每个频道负责在所在平台的原生消息格式和一套统一的请求/响应格式之间来回转换，还自带访问控制、防抖和流式处理。内置频道有钉钉、飞书、企业微信、微信、Discord、Slack、Telegram、QQ 等，再加上 Web 控制台。参见[频道](./channels)。
 
@@ -409,9 +409,9 @@ QwenPaw 把**频道**（人怎么联系到智能体）和**驱动**（智能体�
 
 ## 入口与运维
 
-QwenPaw 是一个常驻服务，装在你自己的机器上、或你说了算的服务器上都行，并提供好几个入口通向同一个运行时。不管走哪个入口，底层的智能体、工作区、记忆和策略都是同一套。
+NousAIPaw 是一个常驻服务，装在你自己的机器上、或你说了算的服务器上都行，并提供好几个入口通向同一个运行时。不管走哪个入口，底层的智能体、工作区、记忆和策略都是同一套。
 
-<svg viewBox="0 0 860 290" width="100%" role="img" aria-label="同一个 QwenPaw 运行时由多个入口（控制台、桌面应用、终端 UI、CLI、聊天频道）接入，周围是各项运维能力（定时任务、收件箱、备份）。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 860 290" width="100%" role="img" aria-label="同一个 NousAIPaw 运行时由多个入口（控制台、桌面应用、终端 UI、CLI、聊天频道）接入，周围是各项运维能力（定时任务、收件箱、备份）。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
     <marker id="qpSurfArrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L6,3 L0,6 Z" fill="#ff9d4d"/>
@@ -430,7 +430,7 @@ QwenPaw 是一个常驻服务，装在你自己的机器上、或你说了算的
   <text x="302" y="142" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">访问</text>
   <!-- center -->
   <rect x="326" y="100" width="208" height="100" rx="10" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.55"/>
-  <text x="430" y="140" text-anchor="middle" font-size="13" font-weight="700" fill="currentColor">QwenPaw 服务</text>
+  <text x="430" y="140" text-anchor="middle" font-size="13" font-weight="700" fill="currentColor">NousAIPaw 服务</text>
   <text x="430" y="159" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.7">单一运行时 ·</text>
   <text x="430" y="173" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.7">智能体专属工作区</text>
   <line x1="538" y1="150" x2="578" y2="150" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpSurfArrow)"/>
@@ -454,7 +454,7 @@ QwenPaw 是一个常驻服务，装在你自己的机器上、或你说了算的
 
 ### 运维
 
-下面这些能力，让 QwenPaw 可以无人值守地长期跑下去：
+下面这些能力，让 NousAIPaw 可以无人值守地长期跑下去：
 
 - **定时任务与心跳**——按时间表跑智能体，把结果发到任意频道（比如一份晨间摘要、一次定期签到）。定时跑用的是隔离的记忆上下文，所以自动化不会弄乱你平时对话的历史。参见[定时任务](./cron)和[心跳](./heartbeat)。
 - **主动收件箱**——智能体可以主动找你（提醒、摘要、复盘），这些消息会汇到控制台的一个收件箱里，供你查看和转发。参见[记忆演化与主动交互](./memory-evolving-and-proactive)。
@@ -462,4 +462,4 @@ QwenPaw 是一个常驻服务，装在你自己的机器上、或你说了算的
 
 ---
 
-本页讲的是 QwenPaw 现在的样子。接下来要做什么，参见[路线图](./roadmap)。
+本页讲的是 NousAIPaw 现在的样子。接下来要做什么，参见[路线图](./roadmap)。

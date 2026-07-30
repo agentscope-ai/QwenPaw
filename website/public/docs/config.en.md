@@ -6,7 +6,7 @@ This page covers:
 - **Environment variables** — How to customize paths and behavior
 - **Configuration files** — Complete field description for `config.json` and `agent.json`
 
-From **v0.1.0**, QwenPaw supports **multi-agent**. Configuration is split into two layers:
+From **v0.1.0**, NousAIPaw supports **multi-agent**. Configuration is split into two layers:
 
 1. **Global config** (`config.json`) — Model providers, agent list, global settings
 2. **Agent config** (`agent.json`) — Independent config for each agent (channels, heartbeat, tools, etc.)
@@ -575,7 +575,7 @@ Auto-updated; no manual configuration needed.
 
 ## Model Providers
 
-QwenPaw needs an LLM provider to work. You can set it up in three ways:
+NousAIPaw needs an LLM provider to work. You can set it up in three ways:
 
 - **`qwenpaw init`** — interactive wizard, the easiest way
 - **Console UI** — in Settings → Models page
@@ -585,7 +585,7 @@ QwenPaw needs an LLM provider to work. You can set it up in three ways:
 
 | Provider                           | ID                       | Default Base URL                                    | API Key Prefix |
 | ---------------------------------- | ------------------------ | --------------------------------------------------- | -------------- |
-| QwenPaw Local                      | `qwenpaw-local`          | _(local)_                                           | _(none)_       |
+| NousAIPaw Local                      | `qwenpaw-local`          | _(local)_                                           | _(none)_       |
 | Ollama                             | `ollama`                 | `http://localhost:11434`                            | _(none)_       |
 | LM Studio                          | `lmstudio`               | `http://localhost:1234/v1`                          | _(none)_       |
 | OpenRouter                         | `openrouter`             | `https://openrouter.ai/api/v1`                      | `sk-or-v1-`    |
@@ -629,7 +629,7 @@ Then choose which provider + model to activate:
 > models for each provider so you can pick one directly.
 >
 > **Note:** You are responsible for ensuring the API key and base URL are valid.
-> QwenPaw does not verify whether the key is correct or has sufficient quota —
+> NousAIPaw does not verify whether the key is correct or has sufficient quota —
 > make sure the chosen provider and model are accessible.
 
 ---
@@ -647,7 +647,7 @@ Set variables are auto-loaded at app startup, so all tools and child processes
 can read them via `os.environ`.
 
 > **Note:** You are responsible for ensuring the values (e.g. third-party API
-> keys) are valid. QwenPaw only stores and injects them — it does not verify
+> keys) are valid. NousAIPaw only stores and injects them — it does not verify
 > correctness.
 
 ---
@@ -677,7 +677,7 @@ See [Skills](./skills) for detailed documentation.
 
 ## Memory
 
-QwenPaw has persistent cross-conversation memory: it automatically compresses context and saves key information to Markdown files for long-term retention.
+NousAIPaw has persistent cross-conversation memory: it automatically compresses context and saves key information to Markdown files for long-term retention.
 
 Memory files are stored in the agent workspace:
 

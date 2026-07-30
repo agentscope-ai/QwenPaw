@@ -1,18 +1,18 @@
 # Architecture
 
-This page gives a high-level view of how QwenPaw is built: the **Agent OS** it implements and the **AgentScope** foundation it runs on. It sticks to the parts of the design that stay stable and avoids naming individual modules and classes, which change often. Anything not yet built is called out and linked to the [Roadmap](./roadmap).
+This page gives a high-level view of how NousAIPaw is built: the **Agent OS** it implements and the **AgentScope** foundation it runs on. It sticks to the parts of the design that stay stable and avoids naming individual modules and classes, which change often. Anything not yet built is called out and linked to the [Roadmap](./roadmap).
 
-If you only want to _use_ QwenPaw, start with [Introduction](./intro) and [Quick start](./quickstart). This page is for contributors and anyone who wants to understand what runs under the hood.
+If you only want to _use_ NousAIPaw, start with [Introduction](./intro) and [Quick start](./quickstart). This page is for contributors and anyone who wants to understand what runs under the hood.
 
 ---
 
 ## The Agent OS in one picture
 
-QwenPaw runs entirely in your own environment as a long-lived service. One installation hosts **multiple independent agents**. Each agent owns an isolated **workspace**, and a **runtime** executes every request, wiring together the agent's model, tools, memory, skills, and connectors under a governance and sandbox layer.
+NousAIPaw runs entirely in your own environment as a long-lived service. One installation hosts **multiple independent agents**. Each agent owns an isolated **workspace**, and a **runtime** executes every request, wiring together the agent's model, tools, memory, skills, and connectors under a governance and sandbox layer.
 
-Think of QwenPaw as a small operating system for agents. The "kernel" is [AgentScope 2.0](https://github.com/agentscope-ai/agentscope), which provides the agent loop, session store, event stream, and tool layer in-process. QwenPaw is the OS layer on top. It owns the **resource axes** an agent works with — workspace files, memory, skills, drivers (connectors), and models — plus the trust spine that controls access to them.
+Think of NousAIPaw as a small operating system for agents. The "kernel" is [AgentScope 2.0](https://github.com/agentscope-ai/agentscope), which provides the agent loop, session store, event stream, and tool layer in-process. NousAIPaw is the OS layer on top. It owns the **resource axes** an agent works with — workspace files, memory, skills, drivers (connectors), and models — plus the trust spine that controls access to them.
 
-<svg viewBox="0 0 900 684" width="100%" role="img" aria-label="QwenPaw Agent OS at a glance: a runtime scheduling tier on top; below it a per-agent workspace holding colour-coded resource lanes (memory, skills, tools, others), a governance panel, and a sandbox execution base, next to a separate drivers (connectors) column; the whole thing sits on the AgentScope foundation." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 900 684" width="100%" role="img" aria-label="NousAIPaw Agent OS at a glance: a runtime scheduling tier on top; below it a per-agent workspace holding colour-coded resource lanes (memory, skills, tools, others), a governance panel, and a sandbox execution base, next to a separate drivers (connectors) column; the whole thing sits on the AgentScope foundation." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
     <marker id="qpMapArrow" markerWidth="9" markerHeight="9" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" fill-opacity="0.45"/>
@@ -121,15 +121,15 @@ Think of QwenPaw as a small operating system for agents. The "kernel" is [AgentS
 
 ## The foundation: AgentScope
 
-QwenPaw is built on **AgentScope 2.0** and uses it as a library. AgentScope provides its runtime in-process, so there is no separate runtime service. QwenPaw reuses:
+NousAIPaw is built on **AgentScope 2.0** and uses it as a library. AgentScope provides its runtime in-process, so there is no separate runtime service. NousAIPaw reuses:
 
-- the **reason-and-act (ReAct) agent loop** that QwenPaw builds on;
+- the **reason-and-act (ReAct) agent loop** that NousAIPaw builds on;
 - the **message and serializable-state contracts** used for streaming and for saving and restoring a session;
-- the **tool-calling layer** every QwenPaw tool plugs into;
-- a **working-directory abstraction** QwenPaw extends with its own tools;
+- the **tool-calling layer** every NousAIPaw tool plugs into;
+- a **working-directory abstraction** NousAIPaw extends with its own tools;
 - the **streaming event model** the agent emits as it thinks and calls tools.
 
-Everything else here — the workspace boundary, the request lifecycle, the resource axes, the trust spine — is QwenPaw's own design on top of these primitives.
+Everything else here — the workspace boundary, the request lifecycle, the resource axes, the trust spine — is NousAIPaw's own design on top of these primitives.
 
 ---
 
@@ -184,7 +184,7 @@ Each workspace bundles two things: the **services** an agent needs at runtime (s
   <text x="572" y="324" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">Files stay human-readable and portable — the whole workspace can be backed up and restored.</text>
 </svg>
 
-The on-disk layout is transparent: configuration is plain JSON, memory is Markdown, and skills are folders. You can read, edit, and version-control any of it without QwenPaw running. The [Backup &amp; Restore](./backup) feature packs a workspace into a signed archive you can move between machines.
+The on-disk layout is transparent: configuration is plain JSON, memory is Markdown, and skills are folders. You can read, edit, and version-control any of it without NousAIPaw running. The [Backup &amp; Restore](./backup) feature packs a workspace into a signed archive you can move between machines.
 
 ---
 
@@ -263,20 +263,20 @@ The runtime turns one incoming request into a stream of UI events. It runs as a 
 
 ## The agent and its tools
 
-QwenPaw's agent runs a **ReAct (reason-then-act) loop** bounded by a max-iterations limit, and receives all of its dependencies ready-made from the assembly step.
+NousAIPaw's agent runs a **ReAct (reason-then-act) loop** bounded by a max-iterations limit, and receives all of its dependencies ready-made from the assembly step.
 
 Tools carry **activation conditions** — which modes, skills, features, or sandbox resources they need — so each request sees only the tools it is allowed to use. Built-in tools cover file I/O, code and text search, shell execution, browser control and screenshots, media viewing, and multi-agent coordination.
 
 Multiple agents coordinate two ways (see [Multi-Agent](./multi-agent)):
 
-- **Internally** — one QwenPaw agent can message or spawn another in the same installation.
-- **Externally** — through **ACP** (Agent Client Protocol), QwenPaw can spawn an external agent process and stream its work back as tool results, including handing a permission request back to the host for approval. See [ACP Integration](./acp-integration).
+- **Internally** — one NousAIPaw agent can message or spawn another in the same installation.
+- **Externally** — through **ACP** (Agent Client Protocol), NousAIPaw can spawn an external agent process and stream its work back as tool results, including handing a permission request back to the host for approval. See [ACP Integration](./acp-integration).
 
 ---
 
 ## Memory and context
 
-QwenPaw separates two things that are easy to conflate: **memory** (what the agent remembers across conversations) and **context** (what fits in the model's window right now).
+NousAIPaw separates two things that are easy to conflate: **memory** (what the agent remembers across conversations) and **context** (what fits in the model's window right now).
 
 <svg viewBox="0 0 860 372" width="100%" role="img" aria-label="Memory is a pluggable backend over transparent Markdown files; context management is either summarizing compaction or the Scroll strategy with a durable store and a recall tool." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
@@ -316,15 +316,15 @@ QwenPaw separates two things that are easy to conflate: **memory** (what the age
 
 **Memory** is a pluggable backend. The default is built on the [ReMe](https://github.com/agentscope-ai/ReMe) memory library, which runs recall, write, and consolidation ("dream") as background work over the workspace; a simpler option reads and writes the same files directly. Either way the substrate is **human-readable Markdown** — `MEMORY.md` for durable notes and dated daily files — so memory is something you can open, audit, and edit. See [Memory](./memory) and [Memory-Evolving &amp; Proactive](./memory-evolving-and-proactive).
 
-**Context** management is pluggable too. By default QwenPaw summarizes older turns once the window fills. The opt-in **Scroll** strategy instead keeps every turn in a durable store, maintains a compact index of what has scrolled out, and gives the agent a tool to replay any earlier span on demand, so long conversations stay fully recallable. See [Context](./context).
+**Context** management is pluggable too. By default NousAIPaw summarizes older turns once the window fills. The opt-in **Scroll** strategy instead keeps every turn in a durable store, maintains a compact index of what has scrolled out, and gives the agent a tool to replay any earlier span on demand, so long conversations stay fully recallable. See [Context](./context).
 
 ---
 
 ## Skills — the capability layer
 
-Skills are how QwenPaw's abilities grow. A **skill is a folder**: instructions and metadata, plus an optional set of executable scripts. Built-in skills ship in language variants.
+Skills are how NousAIPaw's abilities grow. A **skill is a folder**: instructions and metadata, plus an optional set of executable scripts. Built-in skills ship in language variants.
 
-QwenPaw resolves which skills are active for a given workspace and channel, drawing from a per-workspace set and a shared pool. Each active skill becomes a tool the agent can invoke (or call as a `/skill-name` command). Skills install from external sources — GitHub, ModelScope, and others — through the [Skill Market](./skills).
+NousAIPaw resolves which skills are active for a given workspace and channel, drawing from a per-workspace set and a shared pool. Each active skill becomes a tool the agent can invoke (or call as a `/skill-name` command). Skills install from external sources — GitHub, ModelScope, and others — through the [Skill Market](./skills).
 
 Because skills can carry executable code, installation goes through the **skill scanner** (see the trust spine below) before a skill becomes usable. Read more in [Skills](./skills).
 
@@ -332,7 +332,7 @@ Because skills can carry executable code, installation goes through the **skill 
 
 ## Drivers and channels — reaching the outside world
 
-QwenPaw distinguishes **channels** (how _people_ reach the agent) from **drivers** (how the agent reaches _external systems_).
+NousAIPaw distinguishes **channels** (how _people_ reach the agent) from **drivers** (how the agent reaches _external systems_).
 
 **Channels** are the messaging surfaces. Each one converts its platform's native payloads to and from a common request/response shape, with access control, debouncing, and streaming. Built-in channels include DingTalk, Feishu, WeCom, WeChat, Discord, Slack, Telegram, QQ, and more, plus the web Console. See [Channels](./channels).
 
@@ -409,9 +409,9 @@ See [Security](./security) for the full policy model and configuration.
 
 ## Surfaces and operations
 
-QwenPaw runs as a **long-lived service**, on your own machine or a server you control, with several front doors into the same runtime. Whichever surface you use, the agents, workspaces, memory, and policy underneath are the same.
+NousAIPaw runs as a **long-lived service**, on your own machine or a server you control, with several front doors into the same runtime. Whichever surface you use, the agents, workspaces, memory, and policy underneath are the same.
 
-<svg viewBox="0 0 860 290" width="100%" role="img" aria-label="One QwenPaw runtime reached through several surfaces (Console, desktop app, terminal UI, CLI, chat channels) and surrounded by operational capabilities (scheduling, inbox, backup)." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 860 290" width="100%" role="img" aria-label="One NousAIPaw runtime reached through several surfaces (Console, desktop app, terminal UI, CLI, chat channels) and surrounded by operational capabilities (scheduling, inbox, backup)." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
     <marker id="qpSurfArrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L6,3 L0,6 Z" fill="#ff9d4d"/>
@@ -430,7 +430,7 @@ QwenPaw runs as a **long-lived service**, on your own machine or a server you co
   <text x="302" y="142" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">reach</text>
   <!-- center -->
   <rect x="326" y="100" width="208" height="100" rx="10" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.55"/>
-  <text x="430" y="140" text-anchor="middle" font-size="13" font-weight="700" fill="currentColor">QwenPaw service</text>
+  <text x="430" y="140" text-anchor="middle" font-size="13" font-weight="700" fill="currentColor">NousAIPaw service</text>
   <text x="430" y="159" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.7">one runtime ·</text>
   <text x="430" y="173" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.7">per-agent workspaces</text>
   <line x1="538" y1="150" x2="578" y2="150" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpSurfArrow)"/>
@@ -454,7 +454,7 @@ QwenPaw runs as a **long-lived service**, on your own machine or a server you co
 
 ### Operations
 
-These capabilities make it practical to leave QwenPaw running unattended:
+These capabilities make it practical to leave NousAIPaw running unattended:
 
 - **Scheduling and heartbeat** — run the agent on a timer and deliver the result to any channel (a morning digest, a periodic check-in). Scheduled runs use an isolated memory context, so automation never pollutes your interactive history. See [Cron Jobs](./cron) and [Heartbeat](./heartbeat).
 - **Proactive inbox** — the agent can reach out on its own (reminders, digests, reflections), and those messages collect in a Console inbox you can review and route. See [Memory-Evolving &amp; Proactive](./memory-evolving-and-proactive).
@@ -462,4 +462,4 @@ These capabilities make it practical to leave QwenPaw running unattended:
 
 ---
 
-This page covers QwenPaw as it works today. For what's planned next, see the [Roadmap](./roadmap).
+This page covers NousAIPaw as it works today. For what's planned next, see the [Roadmap](./roadmap).

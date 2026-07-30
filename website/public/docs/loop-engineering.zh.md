@@ -22,7 +22,7 @@ Loop Engineering 让 Agent **持续工作多个回合**，直到任务完成、�
 
 ## 普通模式下的 Loop 设置
 
-即使不使用 Goal 模式或 Mission 模式，QwenPaw 也有循环控制机制保护 Agent 的行为。你可以在 Console 中通过 **运行配置 → 智能体 Loop 设置** 来配置以下选项。
+即使不使用 Goal 模式或 Mission 模式，NousAIPaw 也有循环控制机制保护 Agent 的行为。你可以在 Console 中通过 **运行配置 → 智能体 Loop 设置** 来配置以下选项。
 
 ### Loop 模板
 
@@ -231,7 +231,7 @@ Mission Status — mission-20260415-123456
 
 > 以下内容面向插件开发者。如果你只是使用 Goal 模式 或 Mission 模式，前面的内容已经足够。
 
-QwenPaw 的循环系统是完全可插拔的。你可以通过插件 API 注册自定义的循环行为，实现自己的"何时停、何时继续"逻辑。
+NousAIPaw 的循环系统是完全可插拔的。你可以通过插件 API 注册自定义的循环行为，实现自己的"何时停、何时继续"逻辑。
 
 ### 基本思路
 
@@ -310,7 +310,7 @@ class MyLoopPlugin(PluginAPI):
         )
 ```
 
-注册后，你的 Gate 会在每轮 ReAct 迭代结束时被执行，与内置 Gate 并行评估。你开发的 Loop 插件可以发布到 QwenPaw 插件市场，其他用户一键安装即可获得新的循环能力——比如基于外部 API 状态控制循环、根据代码覆盖率决定是否继续、或者接入自定义的质量评估服务。
+注册后，你的 Gate 会在每轮 ReAct 迭代结束时被执行，与内置 Gate 并行评估。你开发的 Loop 插件可以发布到 NousAIPaw 插件市场，其他用户一键安装即可获得新的循环能力——比如基于外部 API 状态控制循环、根据代码覆盖率决定是否继续、或者接入自定义的质量评估服务。
 
 ### Scope 隔离
 
@@ -328,7 +328,7 @@ class MyLoopPlugin(PluginAPI):
 
 ### Gate 系统
 
-QwenPaw 用一套 **Gate（门控）系统** 来管理循环的终止逻辑。你可以把 Gate 想象成流水线上的质检站——Agent 每完成一轮工作，所有 Gate 都会被依次检查。
+NousAIPaw 用一套 **Gate（门控）系统** 来管理循环的终止逻辑。你可以把 Gate 想象成流水线上的质检站——Agent 每完成一轮工作，所有 Gate 都会被依次检查。
 
 ```
 Agent 完成一轮工作

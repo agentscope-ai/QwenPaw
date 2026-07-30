@@ -1,6 +1,6 @@
 # Agent Persona
 
-QwenPaw defines an agent's "persona" through a set of Markdown files that are loaded into the system prompt. These files determine the agent's behavioral style, working approach, and personality traits. By editing these files, you can shape the agent into your ideal assistant—whether that's a meticulous work aide, a warm life companion, or a technical expert.
+NousAIPaw defines an agent's "persona" through a set of Markdown files that are loaded into the system prompt. These files determine the agent's behavioral style, working approach, and personality traits. By editing these files, you can shape the agent into your ideal assistant—whether that's a meticulous work aide, a warm life companion, or a technical expert.
 
 ---
 
@@ -197,20 +197,20 @@ The system prompt also includes tool and Skill descriptions:
 
 ## Built-in QA Agent
 
-QwenPaw automatically creates a built-in agent named **"QA Agent"** (ID: `QwenPaw_QA_Agent_0.2`) when you first run `qwenpaw init`.
+NousAIPaw automatically creates a built-in agent named **"QA Agent"** (ID: `QwenPaw_QA_Agent_0.2`) when you first run `qwenpaw init`.
 
 ### QA Agent Features
 
 This is an agent **specifically designed to answer QwenPaw-related questions**:
 
 - **Dedicated persona**: Uses persona files optimized for Q&A (different from regular agents)
-- **Pre-installed skills**: Auto-enables `guidance` and `QA_source_index` skills for querying QwenPaw documentation and source code
+- **Pre-installed skills**: Auto-enables `guidance` and `QA_source_index` skills for querying NousAIPaw documentation and source code
 - **Tool configuration**: Only core tools enabled by default (execute_shell_command, read_file, write_file, edit_file, view_image); other built-in tools are disabled
 - **Auto-maintained**: Running `qwenpaw init` ensures this agent exists
 
 ### How to Use?
 
-You can select "QA Agent" in the agent switcher at the top-right of the Console, then ask it any questions about QwenPaw.
+You can select "QA Agent" in the agent switcher at the top-right of the Console, then ask it any questions about NousAIPaw.
 
 **Good questions:**
 

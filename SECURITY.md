@@ -1,12 +1,12 @@
 # Security Policy
 
-If you believe you've found a security issue in QwenPaw, please report it privately.
+If you believe you've found a security issue in NousAIPaw, please report it privately.
 
 ## Reporting
 
-Report vulnerabilities of the QwenPaw repository:
+Report vulnerabilities of the NousAIPaw repository:
 
-If you discover a security issue in QwenPaw, please report it to us through the [Alibaba Security Response Center (ASRC)](https://security.alibaba.com/).
+If you discover a security issue in NousAIPaw, please report it to us through the [Alibaba Security Response Center (ASRC)](https://security.alibaba.com/).
 
 ### Required in Reports
 
@@ -16,7 +16,7 @@ If you discover a security issue in QwenPaw, please report it to us through the 
 4. **Affected component** (e.g. channel adapter, skill, config loading)
 5. **Technical reproduction steps**
 6. **Demonstrated impact** (how it crosses a trust boundary, not just theoretical)
-7. **Environment** (Python version, OS, how QwenPaw is run)
+7. **Environment** (Python version, OS, how NousAIPaw is run)
 8. **Remediation advice** (if you have suggestions)
 
 Reports without reproduction steps, demonstrated impact, and remediation advice will be deprioritized. Given the volume of scanner or AI-generated findings, we need vetted reports from researchers who understand the issues.
@@ -26,9 +26,9 @@ Reports without reproduction steps, demonstrated impact, and remediation advice 
 For fastest triage, include all of the following:
 
 - Exact vulnerable path (file, function, and line range) on a current revision.
-- Tested version details (QwenPaw version and/or commit SHA).
+- Tested version details (NousAIPaw version and/or commit SHA).
 - Reproducible PoC against latest `main` or latest released version.
-- Demonstrated impact tied to QwenPaw's documented trust boundaries (see below).
+- Demonstrated impact tied to NousAIPaw's documented trust boundaries (see below).
 - For exposed-secret reports: proof the credential is QwenPaw-owned or grants access to QwenPaw-operated infrastructure/services.
 - Scope check explaining why the report is **not** covered by the Out of Scope section below.
 
@@ -40,7 +40,7 @@ Reports that miss these requirements may be closed as `invalid` or `no-action`.
 - Operator-intended local features (e.g. skills or commands the operator explicitly enabled) presented as remote injection.
 - Authorized user–triggered actions presented as privilege escalation (e.g. an allowed sender triggering a skill that writes to an allowed path). In this trust model, authorized user actions are trusted unless you demonstrate an auth/sandbox/boundary bypass.
 - Reports that only show a malicious skill executing privileged actions after a trusted operator installs/enables it.
-- Reports that assume per-user multi-tenant authorization on a shared QwenPaw instance/config.
+- Reports that assume per-user multi-tenant authorization on a shared NousAIPaw instance/config.
 - ReDoS/DoS claims that require trusted operator configuration input without a trust-boundary bypass.
 - Scanner-only claims against stale or nonexistent paths, or claims without a working repro.
 
@@ -56,27 +56,27 @@ The security model and recommended baseline in this document are **aligned with*
 
 ## Security & Trust
 
-Security handling is owned by the QwenPaw maintainers. For sensitive reports, use the private advisory or a private channel as above.
+Security handling is owned by the NousAIPaw maintainers. For sensitive reports, use the private advisory or a private channel as above.
 
 ## Bug Bounties
 
-QwenPaw is a community open-source project. There is no bug bounty program and no budget for paid reports. Please still disclose responsibly so we can fix issues quickly. The best way to help the project right now is by sending PRs or clear, reproducible reports.
+NousAIPaw is a community open-source project. There is no bug bounty program and no budget for paid reports. Please still disclose responsibly so we can fix issues quickly. The best way to help the project right now is by sending PRs or clear, reproducible reports.
 
 ## Operator Trust Model
 
-QwenPaw does **not** model one instance as a multi-tenant, adversarial user boundary.
+NousAIPaw does **not** model one instance as a multi-tenant, adversarial user boundary.
 
-- Authenticated callers to the same QwenPaw instance (same config, same channel workspace) are treated as **trusted operators** for that instance.
+- Authenticated callers to the same NousAIPaw instance (same config, same channel workspace) are treated as **trusted operators** for that instance.
 - Session identifiers and labels are routing/context controls, not per-user authorization boundaries.
 - If one operator can see or trigger what another operator can on the same instance, that is expected in this trust model.
-- **Recommended mode**: one user per machine/host (or per OS user), one QwenPaw config for that user, and one or more agents/skills inside that instance.
-- If multiple users need QwenPaw, use one host/OS user (or VPS) per user, or strict isolation; sharing one instance by mutually untrusted users is not the recommended default.
-- Skills run with the same privileges as the QwenPaw process; only install and enable skills you trust.
+- **Recommended mode**: one user per machine/host (or per OS user), one NousAIPaw config for that user, and one or more agents/skills inside that instance.
+- If multiple users need NousAIPaw, use one host/OS user (or VPS) per user, or strict isolation; sharing one instance by mutually untrusted users is not the recommended default.
+- Skills run with the same privileges as the NousAIPaw process; only install and enable skills you trust.
 
 
 ## Trusted Skills Concept
 
-Skills/extensions are part of QwenPaw's **trusted computing base** for an instance.
+Skills/extensions are part of NousAIPaw's **trusted computing base** for an instance.
 
 - Installing or enabling a skill grants it the same trust level as local code running for that instance.
 - Skill behavior such as reading env/files or running host commands is expected inside this trust boundary.
@@ -84,33 +84,33 @@ Skills/extensions are part of QwenPaw's **trusted computing base** for an instan
 
 ## Out of Scope
 
-- Public internet exposure of QwenPaw when the docs recommend against it.
-- Using QwenPaw in ways that the docs recommend not to.
-- Deployments where mutually untrusted/adversarial operators share one QwenPaw instance and config (e.g. reports expecting per-operator isolation for sessions, history, or similar).
+- Public internet exposure of NousAIPaw when the docs recommend against it.
+- Using NousAIPaw in ways that the docs recommend not to.
+- Deployments where mutually untrusted/adversarial operators share one NousAIPaw instance and config (e.g. reports expecting per-operator isolation for sessions, history, or similar).
 - **Prompt-injection-only** attacks (without a policy/auth/sandbox boundary bypass).
 - Reports that require write access to trusted local state (working directory, config, memory files) to achieve impact.
 - Reports where the only demonstrated impact is an already-authorized user intentionally invoking a skill or command that writes to an allowed path, without bypassing auth, sandbox, or another documented boundary.
 - Reports where the only claim is that a trusted-installed/enabled skill can execute with process/host privileges (documented trust model behavior).
 - Any report whose only claim is that an operator-enabled “dangerous” or break-glass option weakens defaults (these are explicit tradeoffs by design).
 - Reports that depend on trusted operator–supplied configuration to trigger availability impact (e.g. custom regex or patterns). These may still be fixed as defense-in-depth but are not security-boundary bypasses.
-- Exposed secrets that are third-party or user-controlled credentials (not QwenPaw-owned and not granting access to QwenPaw-operated infrastructure) without demonstrated QwenPaw impact.
+- Exposed secrets that are third-party or user-controlled credentials (not QwenPaw-owned and not granting access to QwenPaw-operated infrastructure) without demonstrated NousAIPaw impact.
 - Scanner-only claims against stale or nonexistent paths, or without a working repro.
 
 ## Deployment Assumptions
 
-QwenPaw security guidance assumes:
+NousAIPaw security guidance assumes:
 
-- The host where QwenPaw runs is within a trusted OS/admin boundary.
-- Anyone who can modify the QwenPaw working directory and config (including `config.json`) is effectively a trusted operator.
+- The host where NousAIPaw runs is within a trusted OS/admin boundary.
+- Anyone who can modify the NousAIPaw working directory and config (including `config.json`) is effectively a trusted operator.
 - A single instance shared by mutually untrusted people is **not** a recommended setup. Use separate configs and, at minimum, separate OS users or hosts per trust boundary.
 - Authenticated callers to the same instance are treated as trusted operators; session or context identifiers are routing controls, not per-user authorization boundaries.
 - Multiple instances can run on one machine, but the recommended model is clean per-user isolation (prefer one host/OS user per user).
 
 ## One-User Trust Model
 
-QwenPaw's security model is **“personal assistant”** (one trusted operator, potentially many agents/skills), not “shared multi-tenant bus.”
+NousAIPaw's security model is **“personal assistant”** (one trusted operator, potentially many agents/skills), not “shared multi-tenant bus.”
 
-- If multiple people can message the same tool-enabled QwenPaw instance (e.g. a shared channel workspace), they can all steer that agent within its granted permissions.
+- If multiple people can message the same tool-enabled NousAIPaw instance (e.g. a shared channel workspace), they can all steer that agent within its granted permissions.
 - Session or memory scoping reduces context bleed but does **not** create per-user host authorization boundaries.
 - For mixed-trust or adversarial users, isolate by OS user/host and use separate config and credentials per boundary.
 - A company-shared agent can be valid when users are in the same trust boundary and the agent is strictly business-only.
@@ -125,7 +125,7 @@ QwenPaw's security model is **“personal assistant”** (one trusted operator, 
 
 ## Working Directory and Config Trust Boundary
 
-The QwenPaw working directory is treated as **trusted local operator state**.
+The NousAIPaw working directory is treated as **trusted local operator state**.
 
 - If someone can edit working directory files or config, they have already crossed the trusted operator boundary.
 - Memory or context over those files is expected behavior, not a separate security boundary.
@@ -134,9 +134,9 @@ The QwenPaw working directory is treated as **trusted local operator state**.
 
 ## Skills Trust Boundary
 
-Skills are loaded and run **in-process** (or under the same trust boundary) as the QwenPaw runtime and are treated as trusted code.
+Skills are loaded and run **in-process** (or under the same trust boundary) as the NousAIPaw runtime and are treated as trusted code.
 
-- Skills can execute with the same OS privileges as the QwenPaw process.
+- Skills can execute with the same OS privileges as the NousAIPaw process.
 - Runtime helpers used by skills are convenience APIs, not a sandbox boundary.
 - Only install skills you trust, and restrict which skills are enabled in config where possible.
 
@@ -153,5 +153,5 @@ For more operational and hardening guidance, see the [documentation](https://qwe
 
 ## Runtime Requirements
 
-- **Python**: QwenPaw requires a supported Python version (see [README](README.md)). Use a version with current security updates.
+- **Python**: NousAIPaw requires a supported Python version (see [README](README.md)). Use a version with current security updates.
 - **Docker or restricted environments**: When running in containers, run as a non-root user when possible. Use read-only mounts where feasible and limit capabilities to what is needed.

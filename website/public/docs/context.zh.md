@@ -2,13 +2,13 @@
 
 ## 概述
 
-QwenPaw 当前默认的上下文策略是 **scroll**：旧轮次不会被总结后丢弃，而是先写入持久化 SQLite 历史库；当模型窗口接近上限时，再把中间历史从实时上下文中驱逐出去，并用一条紧凑的上下文内索引表示。之后 Agent 可以按需把原始历史读回来。
+NousAIPaw 当前默认的上下文策略是 **scroll**：旧轮次不会被总结后丢弃，而是先写入持久化 SQLite 历史库；当模型窗口接近上限时，再把中间历史从实时上下文中驱逐出去，并用一条紧凑的上下文内索引表示。之后 Agent 可以按需把原始历史读回来。
 
 Scroll 是面向用户的默认方案。已有的 `strategy: "native"` 配置仍会为向后兼容和安全降级而被接受，但控制台不再提供策略切换入口。
 
 ## 三种记忆系统
 
-QwenPaw 把记忆组织为三套互补的系统——工作记忆（Working）、情景记忆（Episodic）和语义记忆（Semantic）——大致对应人类记忆，每套由不同子系统负责：
+NousAIPaw 把记忆组织为三套互补的系统——工作记忆（Working）、情景记忆（Episodic）和语义记忆（Semantic）——大致对应人类记忆，每套由不同子系统负责：
 
 | 记忆系统     | 是什么                                                                                     | 文档                    |
 | ------------ | ------------------------------------------------------------------------------------------ | ----------------------- |
@@ -53,7 +53,7 @@ flowchart LR
 - **不依赖有损摘要**：被驱逐的原文仍以 `history.db` 和 `EvictionIndex` 为准。Continuation summary 只是紧凑的任务状态缓存；更新失败会保留上一份有效摘要，绝不阻塞驱逐。
 - **可回溯原文**：索引中的每一行都带 `seq` 区间。Agent 可以调用 `recall_history(op="expand", lo, hi)` 读取完整原始记录（或在 `recall_history_python` REPL 中用 `ms.expand(lo, hi)`）。
 - **跨会话历史**：历史行包含 `session_id` 和 `agent_id`，默认可检索当前 Agent 的所有历史会话；显式放宽时也能查询同一工作区内其他 Agent 的历史。
-- **安全降级**：如果 scroll 无法构建，或 recall 工具无法安全运行，QwenPaw 会退回 native 上下文管理，避免把历史驱逐到无法读取的位置。
+- **安全降级**：如果 scroll 无法构建，或 recall 工具无法安全运行，NousAIPaw 会退回 native 上下文管理，避免把历史驱逐到无法读取的位置。
 
 索引层级只会在达到 10 个 block 的容量时向上归并；压力不会提前压实索引。只有输入**严格超过**自动压缩触发线（默认 80%）时，Scroll 才会批量折叠所有超过 200 字符的已完成轮次工具结果；恰好位于或低于触发线时直接停止，不折叠工具结果，也不驱逐对话。预裁剪会完整保护活动轮次和全局最新 5 个工具结果。整批替换后只重新统计一次；如果已不高于触发线，则停止，否则继续正常驱逐。重建后，只有上下文仍高于 `max(trigger, reserve)` 时才启用已完成结果折叠作为最终泄压阀；如果输入仍高于有效硬上限，则批量折叠已确认读取的早期活动轮次结果并再统计一次。显式 `/compact` 会跳过预裁剪，执行用户要求的驱逐。
 
@@ -77,7 +77,7 @@ flowchart LR
 | `headline`                                      | 模型写入的可选任务状态里程碑，用作驱逐索引叶子。        |
 | `blocks`, `metadata`, `created_at`, `dedup_key` | 完整序列化块、元数据、时间戳和幂等键。                  |
 
-如果当前 SQLite 支持 FTS5，QwenPaw 会维护 `conversation_history_fts` 全文索引；否则 `ms.search` 会降级为较慢的 `LIKE` 扫描。
+如果当前 SQLite 支持 FTS5，NousAIPaw 会维护 `conversation_history_fts` 全文索引；否则 `ms.search` 会降级为较慢的 `LIKE` 扫描。
 
 ## 工作记忆（Working Memory）
 
@@ -184,7 +184,7 @@ Re-expand a span with the recall_history tool: recall_history(op="expand", lo, h
 
 ### Recall API
 
-Recall API 是情景记忆的接口：把工作记忆驱逐后留下的、持久且逐字的历史读回来。scroll 启用时，QwenPaw 会注入两个工具：
+Recall API 是情景记忆的接口：把工作记忆驱逐后留下的、持久且逐字的历史读回来。scroll 启用时，NousAIPaw 会注入两个工具：
 
 - **`recall_history`**——常规读取的结构化入口。每次调用都是参数绑定的只读查询，在进程内执行，因此在任何平台上都不需要沙箱、不需要审批：
 
@@ -224,7 +224,7 @@ print(ms.agents())
 
 搜索（`recall_history(op="search")` 与 `ms.search` 皆然）也不会把 Agent 自己的回声搜回来：recall 工具自身的源码/输出行不会出现在结果里，当前**活动轮次**（最新的用户请求和正在写的回复）同样被排除——否则多轮 recall 时，top-k 会命中上一轮引用过的内容而不是真正的历史。本会话更早的已驱逐轮次仍然可搜；`ms.expand` / `ms.recall_tool` 不做过滤（逐字回放正是它们的用途）。
 
-安全说明：`recall_history_python` 会运行模型生成的 Python。正常情况下，它需要治理层注入 sandbox 配置；如果没有 sandbox，它会默认拒绝执行。（`recall_history` 不受影响：它从不执行模型生成的代码，所以在没有可用沙箱后端或沙箱被禁用时仍能正常运行。QwenPaw 支持原生 Windows 沙箱后端，WSL2 本身不是启用沙箱的前提。）只有同时满足以下条件时才允许 REPL 非沙箱运行：
+安全说明：`recall_history_python` 会运行模型生成的 Python。正常情况下，它需要治理层注入 sandbox 配置；如果没有 sandbox，它会默认拒绝执行。（`recall_history` 不受影响：它从不执行模型生成的代码，所以在没有可用沙箱后端或沙箱被禁用时仍能正常运行。NousAIPaw 支持原生 Windows 沙箱后端，WSL2 本身不是启用沙箱的前提。）只有同时满足以下条件时才允许 REPL 非沙箱运行：
 
 - 环境变量 `QWENPAW_ALLOW_UNSANDBOXED_RECALL` 为 truthy
 - `running.light_context_config.scroll_config.allow_unsandboxed = true`
@@ -241,7 +241,7 @@ print(ms.agents())
 
 scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使用 `pruning_recent_msg_max_bytes`。达到自动压缩触发线时，Scroll 会把所有超过 200 字符且符合条件的已完成轮次结果批量替换为精确 `recall_history` 指针，同时保护完整活动轮次和最新 5 个结果，然后只重新统计一次；驱逐后，如果实时上下文仍高于压力目标，也会用同样的恢复指针继续折叠剩余的已完成结果。旧版分层裁剪设置会被 Scroll 忽略。
 
-启用统一 pruning 时，QwenPaw 会让 AgentScope 内置的 token 工具结果上限不再触发，避免已经按 bytes 裁剪的 preview 被二次截断并丢失按文本块隔离的恢复 metadata。关闭统一 pruning 时，AgentScope 的默认上限仍作为安全兜底保留。
+启用统一 pruning 时，NousAIPaw 会让 AgentScope 内置的 token 工具结果上限不再触发，避免已经按 bytes 裁剪的 preview 被二次截断并丢失按文本块隔离的恢复 metadata。关闭统一 pruning 时，AgentScope 的默认上限仍作为安全兜底保留。
 
 `scroll_config.tool_output_token_cap` 仅为保证旧配置文件仍能加载而保留。该字段会被忽略；如果显式配置，将输出迁移 warning。请改用 `tool_result_pruning_config.pruning_recent_msg_max_bytes`，注意单位已从模型估算 token 改为 bytes。关闭 `tool_result_pruning_config.enabled` 也会同时关闭 scroll 的执行期单条工具结果上限。
 
@@ -339,7 +339,7 @@ Visual Compact 会在请求发送给模型前，把符合条件的较早、较�
 
 它可与现有上下文策略和长期记忆配合使用，不会删除聊天历史、改写已经存储的对话，也不会把生成的图片保存到本地。
 
-QwenPaw 只会在上下文足够长，并且预计视觉替换确实能够节省 Token 时应用 Visual Compact。较短的请求或没有明显收益的请求会保持原样。
+NousAIPaw 只会在上下文足够长，并且预计视觉替换确实能够节省 Token 时应用 Visual Compact。较短的请求或没有明显收益的请求会保持原样。
 
 ### 模型要求
 
@@ -365,7 +365,7 @@ Visual Compact 必须使用**原生支持图片输入的多模态模型**（如 
 Visual Compact 更适合长时间持续的对话、频繁使用工具的任务，以及大量工具输出或较早上下文带来明显输入 Token 压力的会话。
 
 - **如何查看**
-  1. 将环境变量 `QWENPAW_LOG_LEVEL` 设为 `debug`，然后重启 QwenPaw。
+  1. 将环境变量 `QWENPAW_LOG_LEVEL` 设为 `debug`，然后重启 NousAIPaw。
   2. 完成一次较长的请求后，打开工作目录下的 `qwenpaw.log`（也可以使用 `/daemon logs`），搜索 `Visual Compact transform`。
   3. `applied=true` 表示本次请求实际应用了视觉压缩；`estimated_saved_tokens` 和 `estimated_savings_pct` 分别表示预计节省的 Token 数量和比例。
 - **需要注意**
@@ -376,7 +376,7 @@ Visual Compact 更适合长时间持续的对话、频繁使用工具的任务�
 
 - 模型可能误读小号文字、数字、标识符、格式或罕见字符，并给出看似合理但实际错误的答案。
 - 渲染视觉页面会占用本地 CPU 和内存，并可能增加等待时间，尤其是首次渲染较长上下文时。
-- QwenPaw 会在应用视觉压缩时提供精确原文恢复工具，但模型不一定总会主动调用，也可能搜索了错误的证据。
+- NousAIPaw 会在应用视觉压缩时提供精确原文恢复工具，但模型不一定总会主动调用，也可能搜索了错误的证据。
 
 对于依赖逐字准确内容的任务，例如核对 ID、哈希或版本号，建议使用**低**强度，或直接关闭 Visual Compact。
 

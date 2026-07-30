@@ -1,6 +1,6 @@
 # Multi-Agent
 
-QwenPaw supports **multi-agent**, allowing you to run multiple independent AI agents in a single QwenPaw instance.
+NousAIPaw supports **multi-agent**, allowing you to run multiple independent AI agents in a single NousAIPaw instance.
 
 > This feature was introduced in **v0.1.0**.
 
@@ -15,7 +15,7 @@ QwenPaw supports **multi-agent**, allowing you to run multiple independent AI ag
 
 ### What is Multi-Agent?
 
-Simply put, **multi-agent** lets you run multiple "personas" in one QwenPaw, where each persona:
+Simply put, **multi-agent** lets you run multiple "personas" in one NousAIPaw, where each persona:
 
 - Has its own **personality and specialization** (configured via different persona files)
 - Remembers **its own conversations** (no cross-talk)
@@ -40,7 +40,7 @@ Each agent focuses on its domain without interference.
 
 ### Use Case 2: Platform Separation
 
-You might use QwenPaw across multiple platforms:
+You might use NousAIPaw across multiple platforms:
 
 - **DingTalk** - work-related conversations
 - **Discord** - community discussions
@@ -65,7 +65,7 @@ You might need:
 
 #### 1. View and Switch Agents
 
-After starting QwenPaw, you'll see the **Agent Selector** in the **top-left corner** of the console:
+After starting NousAIPaw, you'll see the **Agent Selector** in the **top-left corner** of the console:
 
 ```
 ┌───────────────────────────────────┐
@@ -228,7 +228,7 @@ Not recommended. The `default` agent is the system's default fallback; deleting 
 
 ## Upgrading from Single-Agent
 
-If you previously used QwenPaw **v0.0.x**, upgrading to **v0.1.0** will **automatically migrate**:
+If you previously used NousAIPaw **v0.0.x**, upgrading to **v0.1.0** will **automatically migrate**:
 
 1. **Automatic Migration on First Start**
 
@@ -237,7 +237,7 @@ If you previously used QwenPaw **v0.0.x**, upgrading to **v0.1.0** will **automa
 
 2. **Verify Migration**
 
-   - After starting QwenPaw, check the agent list in console
+   - After starting NousAIPaw, check the agent list in console
    - You should see an agent named "Default Agent"
    - Your old conversations and configs should still be there
 
@@ -701,7 +701,7 @@ cp -r ~/.qwenpaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
 > Introduced in **v1.1.10**.
 
 Beyond collaborating with agents in **separate workspaces** (`chat_with_agent`),
-QwenPaw also supports spawning ephemeral sub-tasks **within the current project**.
+NousAIPaw also supports spawning ephemeral sub-tasks **within the current project**.
 
 ### Three Collaboration Modes Compared
 
@@ -822,7 +822,7 @@ specify files that should be copied into the worktree automatically:
 config/local.json
 ```
 
-QwenPaw copies these files into the worktree when it is created, so the
+NousAIPaw copies these files into the worktree when it is created, so the
 subagent can run without missing configuration.
 
 > Note: `.worktreeinclude` only applies when a git worktree is created.

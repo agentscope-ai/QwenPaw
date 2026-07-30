@@ -1,6 +1,6 @@
 # Long-term Memory
 
-**Long-term Memory** gives QwenPaw persistent memory across conversations. In the default backend, QwenPaw embeds the
+**Long-term Memory** gives NousAIPaw persistent memory across conversations. In the default backend, NousAIPaw embeds the
 ReMe application in-process and runs ReMe jobs to save conversation facts, build daily notes, extract digest memories,
 watch resource files, and search the memory vault.
 
@@ -32,13 +32,13 @@ Long-term memory management includes the following capabilities:
 
 | Capability             | Description                                                                                                      |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **Embedded ReMe app**  | QwenPaw starts ReMe in-process and injects the active QwenPaw model into ReMe's default LLM component            |
+| **Embedded ReMe app**  | NousAIPaw starts ReMe in-process and injects the active NousAIPaw model into ReMe's default LLM component            |
 | **Auto-Memory**        | After a configurable number of user turns, ReMe extracts useful conversation facts into daily Markdown notes     |
 | **Context compaction** | Before context compression, pending turns can be flushed into the same `auto_memory` pipeline                    |
 | **Auto-Dream**         | A cron job extracts higher-level digest units and proactive-interest topics from recent daily notes              |
 | **Hybrid Search**      | `memory_search` calls ReMe's `search` job, using BM25 plus optional vector search and reciprocal-rank fusion     |
 | **Resource Memory**    | Files under `resource/` are cataloged and can be interpreted into source-linked daily notes                      |
-| **Inbox Results**      | `auto_memory`, `auto_dream`, and `auto_resource` results are pushed to QwenPaw's inbox when they produce changes |
+| **Inbox Results**      | `auto_memory`, `auto_dream`, and `auto_resource` results are pushed to NousAIPaw's inbox when they produce changes |
 
 ---
 
@@ -201,7 +201,7 @@ graph LR
 
 ## Backup & Restore
 
-Backup & Restore is QwenPaw's backup and recovery capability, enabling safe saving and restoration of the entire agent environment for scenarios like version upgrades, cross-device migration, or undoing mistakes. Access: Console → Settings → Backup.
+Backup & Restore is NousAIPaw's backup and recovery capability, enabling safe saving and restoration of the entire agent environment for scenarios like version upgrades, cross-device migration, or undoing mistakes. Access: Console → Settings → Backup.
 
 ### Creating Backups
 
@@ -340,11 +340,11 @@ The embedded ReMe configuration uses a local file store with:
 
 ## Other Memory Backends
 
-QwenPaw's memory system uses a pluggable backend architecture. In addition to the default ReMeLight (local file storage), you can switch to other backends via `memory_manager_backend`.
+NousAIPaw's memory system uses a pluggable backend architecture. In addition to the default ReMeLight (local file storage), you can switch to other backends via `memory_manager_backend`.
 
 ### ADBPG (AnalyticDB for PostgreSQL)
 
-A long-term memory backend backed by a cloud vector database. It is suitable for scenarios that need cross-device sharing or large-scale semantic retrieval. QwenPaw connects through the ADBPG memory service REST API, so no additional database driver is required.
+A long-term memory backend backed by a cloud vector database. It is suitable for scenarios that need cross-device sharing or large-scale semantic retrieval. NousAIPaw connects through the ADBPG memory service REST API, so no additional database driver is required.
 
 **Key features:**
 
@@ -359,12 +359,12 @@ Open the agent's "Running Config" tab in the Console, locate the "Long-term Memo
 
 ![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
 
-> ⚠️ Switching the backend does not support hot reload. After saving, restart QwenPaw for the change to take effect (the page also shows a yellow banner reminder).
+> ⚠️ Switching the backend does not support hot reload. After saving, restart NousAIPaw for the change to take effect (the page also shows a yellow banner reminder).
 
 > Migration note: ADBPG direct SQL mode has been removed. Old fields such as
 > `api_mode: "sql"`, `host`, `port`, `user`, `password`, `dbname`, and LLM /
 > Embedding settings are ignored; configure `rest_base_url` and `rest_api_key`
-> instead, then restart QwenPaw.
+> instead, then restart NousAIPaw.
 
 | Field                       | Description                                                                              | Default                               |
 | --------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------- |

@@ -187,7 +187,7 @@ export function Hero() {
             >
               <img
                 src="https://img.alicdn.com/imgextra/i3/O1CN01C57zol1ud4um3nSMH_!!6000000006059-2-tps-1930-1202.png"
-                alt="QwenPaw console preview"
+                alt="NousAIPaw console preview"
                 className="block h-auto max-h-full w-full object-top md:h-full md:object-cover"
                 loading="lazy"
               />

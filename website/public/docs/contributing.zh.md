@@ -1,6 +1,6 @@
 # 开源与贡献
 
-QwenPaw 已开源，项目仓库托管于 GitHub：
+NousAIPaw 已开源，项目仓库托管于 GitHub：
 
 **https://github.com/agentscope-ai/QwenPaw**
 
@@ -8,7 +8,7 @@ QwenPaw 已开源，项目仓库托管于 GitHub：
 
 ## 🎯 如何参与贡献
 
-感谢你对 QwenPaw 的关注，我们热烈欢迎各种贡献！为了保持协作顺畅并维护质量，请遵循以下指南。
+感谢你对 NousAIPaw 的关注，我们热烈欢迎各种贡献！为了保持协作顺畅并维护质量，请遵循以下指南。
 
 ### 1. 查看现有计划和 Issues
 
@@ -101,4 +101,4 @@ docs(skills): 记录 Skills Hub 导入
 
 ---
 
-感谢你为 QwenPaw 做出贡献。你的工作帮助它成为每个人更好的助手。🐾
+感谢你为 NousAIPaw 做出贡献。你的工作帮助它成为每个人更好的助手。🐾

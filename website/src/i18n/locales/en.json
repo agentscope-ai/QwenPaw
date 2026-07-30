@@ -28,16 +28,16 @@
     "titleleft": "Your Personal",
     "titleright": "AI assistant",
     "slogan": "Works for you, grows with you",
-    "sub": "v2.0.0: QwenPaw custom Agent OS, Loop Engineering, Scroll Context, ReMe v0.4,",
+    "sub": "v2.0.0: NousAIPaw custom Agent OS, Loop Engineering, Scroll Context, ReMe v0.4,",
     "sub1": "and TUI — all upgraded, all yours.",
-    "releaseNote": "QwenPaw v2.0.0 is released",
+    "releaseNote": "NousAIPaw v2.0.0 is released",
     "cta": "Read the docs",
     "quickStart": "Quick Start",
     "quickTry": "Try Now"
   },
   "follow": {
     "title": "Follow us",
-    "sub": "Follow us for the latest QwenPaw updates",
+    "sub": "Follow us for the latest NousAIPaw updates",
     "xiaohongshu": "Rednote:",
     "x": "X:"
   },
@@ -55,9 +55,9 @@
   },
   "whyQwenpaw": {
     "headingPrefix": "Why",
-    "headingEmphasis": "QwenPaw?",
+    "headingEmphasis": "NousAIPaw?",
     "sub": "Easy to install, deploy on your own machine & on the cloud;\nsupports multiple IM Apps; with easily extensible capabilities.",
-    "heroLine": "QwenPaw stands for Qwen Personal Agent Workstation. It also carries a deeper meaning: the intelligence of Qwen, and the warmth of a paw.",
+    "heroLine": "NousAIPaw stands for Qwen Personal Agent Workstation. It also carries a deeper meaning: the intelligence of Qwen, and the warmth of a paw.",
     "secondPrefix": "We hope it will be more than just a tool — but a smart, warm little \"paw\" that’s always ready to help, and the most intuitive companion in your digital life."
   },
   "worksForYou": {
@@ -67,7 +67,7 @@
     "cards": {
       "agentOs": {
         "title": "Agent OS",
-        "desc": "QwenPaw 2.0 introduces Agent OS Foundation, an open intelligence layer powered by an OS-like Harness that connects models and applications. More QwenPaw-powered mini apps and lightweight applications are on the way."
+        "desc": "NousAIPaw 2.0 introduces Agent OS Foundation, an open intelligence layer powered by an OS-like Harness that connects models and applications. More QwenPaw-powered mini apps and lightweight applications are on the way."
       },
       "tui": {
         "title": "Terminal UI",
@@ -84,15 +84,15 @@
     }
   },
   "clientVoices": {
-    "title": "Listen to what the community says about QwenPaw",
-    "sub": "See real feedback from QwenPaw users",
+    "title": "Listen to what the community says about NousAIPaw",
+    "sub": "See real feedback from NousAIPaw users",
     "items": {
       "t1": {
-        "text": "QwenPaw is a truly out-of-the-box, general-purpose AI agent framework. As QwenPaw's underlying capabilities continue to iterate, our self-developed business agents can also achieve a leap in intelligence, significantly reducing long-term maintenance costs and technical liabilities.",
+        "text": "NousAIPaw is a truly out-of-the-box, general-purpose AI agent framework. As NousAIPaw's underlying capabilities continue to iterate, our self-developed business agents can also achieve a leap in intelligence, significantly reducing long-term maintenance costs and technical liabilities.",
         "role": "Alibaba Cloud Development Engineer"
       },
       "t2": {
-        "text": "Alibaba Tongyi’s move this time is very solid. QwenPaw strengthens the “local + cloud” dual-deployment model, which is highly practical in today’s environment where privacy sensitivity and computing demands coexist. The open-source strategy also reflects Alibaba’s openness in building its AI ecosystem.",
+        "text": "Alibaba Tongyi’s move this time is very solid. NousAIPaw strengthens the “local + cloud” dual-deployment model, which is highly practical in today’s environment where privacy sensitivity and computing demands coexist. The open-source strategy also reflects Alibaba’s openness in building its AI ecosystem.",
         "role": "Developer"
       },
       "t3": {
@@ -104,11 +104,11 @@
         "role": "Developer"
       },
       "t5": {
-        "text": "MCP hot-swapping without restarting is the standout feature for agent workflows. That means you can extend QwenPaw's toolset mid-session, no context break, no restart penalty. Skill Hub + Claw Hub integration means the ecosystem compounds fast.",
+        "text": "MCP hot-swapping without restarting is the standout feature for agent workflows. That means you can extend NousAIPaw's toolset mid-session, no context break, no restart penalty. Skill Hub + Claw Hub integration means the ecosystem compounds fast.",
         "role": "Developer"
       },
       "t6": {
-        "text": "The QwenPaw open-source project from Tongyi Lab is truly impressive! It’s great to see that people are not only enjoying successful experiences while using it, but also sharing amusing mishaps—like trying to tidy up the desktop and accidentally deleting files. Open-source AI agent frameworks are extremely important for advancing the entire industry, and I look forward to seeing more innovative applications built on QwenPaw.",
+        "text": "The NousAIPaw open-source project from Tongyi Lab is truly impressive! It’s great to see that people are not only enjoying successful experiences while using it, but also sharing amusing mishaps—like trying to tidy up the desktop and accidentally deleting files. Open-source AI agent frameworks are extremely important for advancing the entire industry, and I look forward to seeing more innovative applications built on NousAIPaw.",
         "role": "Developer"
       }
     }
@@ -136,24 +136,24 @@
     "3": "Teams who want full control love it."
   },
   "usecases": {
-    "title": "What you can do with QwenPaw",
+    "title": "What you can do with NousAIPaw",
     "sub": "Memory and personalization under your control.",
     "categories": {
       "social": {
         "title": "Social Media",
-        "description": "QwenPaw helps you stay on top of social content by summarizing trending posts, new videos, and account patterns based on your interests."
+        "description": "NousAIPaw helps you stay on top of social content by summarizing trending posts, new videos, and account patterns based on your interests."
       },
       "creative": {
         "title": "Creative & building",
-        "description": "QwenPaw can run overnight on your goals and support the entire content creation process from idea to draft."
+        "description": "NousAIPaw can run overnight on your goals and support the entire content creation process from idea to draft."
       },
       "productivity": {
         "title": "Productivity",
-        "description": "QwenPaw boosts productivity by summarizing updates, organizing contacts, and analyzing personal logs for useful patterns."
+        "description": "NousAIPaw boosts productivity by summarizing updates, organizing contacts, and analyzing personal logs for useful patterns."
       },
       "research": {
         "title": "Research & learning",
-        "description": "QwenPaw tracks important company updates and builds your personal knowledge base for easy retrieval and reuse."
+        "description": "NousAIPaw tracks important company updates and builds your personal knowledge base for easy retrieval and reuse."
       }
     }
   },
@@ -162,7 +162,7 @@
     "heroTitle": "Do it yourself, done easily.",
     "heroSub": "Your personal AI assistant in minutes. One command, or double-click the app",
     "serviceNotice": "Your personal AI assistant in minutes. One command, or double-click the app—do it yourself, done easily.",
-    "hintBefore": "Install → init → start. Configure channels to use QwenPaw on DingTalk, Feishu, QQ, etc. See ",
+    "hintBefore": "Install → init → start. Configure channels to use NousAIPaw on DingTalk, Feishu, QQ, etc. See ",
     "hintLink": "docs",
     "hintAfter": ".",
     "method": {
@@ -211,7 +211,7 @@
   "contributors": {
     "titlePrefix": "Thank you to every",
     "titleHighlight": "contributor",
-    "sub": "Every line of code and every pull request in QwenPaw embodies the hard work and passion of the community members.",
+    "sub": "Every line of code and every pull request in NousAIPaw embodies the hard work and passion of the community members.",
     "prev": "Previous contributors page",
     "next": "Next contributors page",
     "noteLine1Prefix": "The list of contributors is arranged alphabetically by their GitHub IDs. Please feel free to",
@@ -220,7 +220,7 @@
     "noteLine2Prefix": "The data comes from all pull requests from"
   },
   "footer": {
-    "text": "QwenPaw — Works for you, grows with you",
+    "text": "NousAIPaw — Works for you, grows with you",
     "sections": {
       "builtBy": "Built by",
       "resources": "Resources",
@@ -267,8 +267,8 @@
   "blog": {
     "breadcrumbHome": "Home",
     "breadcrumbCurrent": "Blog",
-    "title": "QwenPaw Team Blog",
-    "subtitle": "Latest news, deep dives, and stories from the QwenPaw team.",
+    "title": "NousAIPaw Team Blog",
+    "subtitle": "Latest news, deep dives, and stories from the NousAIPaw team.",
     "latestUpdate": "Last updated {{date}}",
     "totalPosts": "{{count}} posts",
     "readTime": "{{minutes}} min read",
@@ -329,8 +329,8 @@
     "demoTitle": "Feature Demos",
     "demoVideos": {
       "skill": "/skills: On-demand agent skill invocation",
-      "doctor": "QwenPaw Doctor: One-click comprehensive system diagnostics",
-      "missionMode": "QwenPaw Mission Mode: Autonomous execution for complex tasks",
+      "doctor": "NousAIPaw Doctor: One-click comprehensive system diagnostics",
+      "missionMode": "NousAIPaw Mission Mode: Autonomous execution for complex tasks",
       "autoContinue": "Auto-Continue for Text-Only Steps"
     },
     "textVersion": "View text documentation",
@@ -356,8 +356,8 @@
     },
     "quickStart": {
       "install": {
-        "q": "How to install QwenPaw",
-        "p1": "QwenPaw supports multiple installation methods, including:",
+        "q": "How to install NousAIPaw",
+        "p1": "NousAIPaw supports multiple installation methods, including:",
         "li1": "Desktop Application (Beta): download and run the desktop app with no command line required, suitable for users unfamiliar with terminals.",
         "li2": "Script install: run on your machine with no Python setup required.",
         "li3": "pip install: if you prefer managing Python yourself.",
@@ -369,22 +369,22 @@
         "ctaSuffix": "for details."
       },
       "update": {
-        "q": "How to update QwenPaw",
-        "p1": "To update QwenPaw, use the method matching your installation type:",
+        "q": "How to update NousAIPaw",
+        "p1": "To update NousAIPaw, use the method matching your installation type:",
         "li1": "If installed via one-line script, re-run the installer to upgrade.",
         "li2Prefix": "If installed via pip, run:",
         "li3": "If installed from source, pull the latest code and reinstall.",
         "li4": "If using Docker, pull the latest image and restart the container.",
         "li5Prefix": "If using the Windows Desktop App (exe), currently you need to uninstall and reinstall:",
-        "li5a": "Uninstall QwenPaw from your PC.",
+        "li5a": "Uninstall NousAIPaw from your PC.",
         "li5bPrefix": "Download the latest version from:",
         "li5bLink": "GitHub Releases",
         "li5bSuffix": ".",
         "li5c": "Reinstall.",
-        "p2": "If you previously used CoPaw, upgrading to QwenPaw only requires downloading the latest QwenPaw. No extra migration is needed; your configuration, memory, skills, and other data from the CoPaw era continue to work."
+        "p2": "If you previously used CoPaw, upgrading to NousAIPaw only requires downloading the latest NousAIPaw. No extra migration is needed; your configuration, memory, skills, and other data from the CoPaw era continue to work."
       },
       "initialize": {
-        "q": "How to initialize and start QwenPaw service",
+        "q": "How to initialize and start NousAIPaw service",
         "p1": "Recommended quick initialization:",
         "p2": "Start service:",
         "p3Prefix": "The default Console URL is",
@@ -392,7 +392,7 @@
       },
       "upgrade": {
         "q": "Where to check latest version upgrade details",
-        "p1": "You can check version changes in the Change Log section of Console, or on the QwenPaw",
+        "p1": "You can check version changes in the Change Log section of Console, or on the NousAIPaw",
         "link": "GitHub Releases",
         "p2": "page."
       }
@@ -400,7 +400,7 @@
     "features": {
       "jobs": {
         "q": "How to manage cron jobs",
-        "a": "The easiest way to create a cron job is to ask QwenPaw directly in your target channel. For example: Create a scheduled task that reminds me to drink water every five minutes.\" You can also create and manage cron jobs manually in Console → Control → Cron Jobs."
+        "a": "The easiest way to create a cron job is to ask NousAIPaw directly in your target channel. For example: Create a scheduled task that reminds me to drink water every five minutes.\" You can also create and manage cron jobs manually in Console → Control → Cron Jobs."
       },
       "models": {
         "q": "How to configure models",
@@ -450,26 +450,26 @@
       },
       "localModels": {
         "q": "Troubleshooting local models",
-        "p1": "In most cases, this is not a QwenPaw bug. The root cause is usually that the model's context length is configured too small.",
-        "p2": "When you deploy a local model with Ollama or LM Studio, if the model's context length is too low, QwenPaw may show problems such as:",
+        "p1": "In most cases, this is not a NousAIPaw bug. The root cause is usually that the model's context length is configured too small.",
+        "p2": "When you deploy a local model with Ollama or LM Studio, if the model's context length is too low, NousAIPaw may show problems such as:",
         "li1": "failing to sustain multi-turn conversations reliably",
         "li2": "losing context during complex tool calls",
         "li3": "forgetting instructions given in earlier turns",
         "li4": "drifting away from the task during long-running interactions",
         "fixTitle": "How to fix it:",
-        "fix1": "Before running QwenPaw, set the model's context length to at least 32K.",
+        "fix1": "Before running NousAIPaw, set the model's context length to at least 32K.",
         "fix2": "For more complex tasks, frequent tool calls, or longer conversations, you may need a value higher than 32K."
       },
       "cron": {
         "q": "Troubleshooting cron jobs",
         "p1": "If a scheduled task doesn't run as expected, try the following steps:",
-        "s1": "Confirm that the QwenPaw service is running.",
+        "s1": "Confirm that the NousAIPaw service is running.",
         "s2": "In Console, go to Control → Cron Jobs and ensure the task Status is set to Enabled.",
         "s3": "On the same page, confirm that Dispatch Channel is set to your intended channel (e.g., Console, DingTalk, Feishu, Discord, iMessage).",
         "s4": "Also confirm that Dispatch Target User ID and Dispatch Target Session ID are correctly configured.",
         "s5": "In Console, go to Control → Sessions and locate the session used when creating the task. The User ID and Session ID there must match the task's Dispatch Target User ID and Dispatch Target Session ID for replies to appear in that session.",
         "s6": "If the task runs at the wrong time, go back to Control → Cron Jobs and verify the Schedule (Cron) expression.",
-        "s7": "To manually test the task, click Execute Now on the Cron Jobs page. If successful, the reply will appear in the target channel. Alternatively, you can ask QwenPaw directly: \"Trigger the 'drink water reminder' task I just created.\""
+        "s7": "To manually test the task, click Execute Now on the Cron Jobs page. If successful, the reply will appear in the target channel. Alternatively, you can ask NousAIPaw directly: \"Trigger the 'drink water reminder' task I just created.\""
       },
       "help": {
         "q": "Here's the polished version",
@@ -480,15 +480,15 @@
         "dingtalk": "DingTalk",
         "discord": "Discord",
         "s2Prefix": "Open an issue on",
-        "githubIssues": "QwenPaw GitHub",
+        "githubIssues": "NousAIPaw GitHub",
         "s2Mid": "with the full error message, the error detail file (e.g.",
-        "s2Suffix": "), your model provider, model name, and QwenPaw version."
+        "s2Suffix": "), your model provider, model name, and NousAIPaw version."
       }
     }
   },
   "downloads": {
     "title": "Downloads",
-    "subtitle": "Get QwenPaw installers, tools, and resources",
+    "subtitle": "Get NousAIPaw installers, tools, and resources",
     "loading": "Loading...",
     "emptyTitle": "No downloads available yet",
     "emptyDesc": "Desktop builds are in progress. Please check back later.",
@@ -520,7 +520,7 @@
     "helpLink": "installation guide",
     "helpSuffix": "for detailed setup instructions.",
     "pluginsTitle": "Plugins",
-    "pluginsDesc": "Download published plugin zip packages from the QwenPaw repository and install them locally.",
+    "pluginsDesc": "Download published plugin zip packages from the NousAIPaw repository and install them locally.",
     "downloadZip": "Download .zip"
   },
   "releaseNotes": {

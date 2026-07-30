@@ -1,6 +1,6 @@
 # CLI
 
-`qwenpaw` is the command-line tool for QwenPaw. This page is organized from
+`qwenpaw` is the command-line tool for NousAIPaw. This page is organized from
 "get-up-and-running" to "advanced management" — read from top to bottom if
 you're new, or jump to the section you need.
 
@@ -33,7 +33,7 @@ qwenpaw init --force      # Overwrite existing config files
 
 ### qwenpaw app
 
-Start the QwenPaw server. Everything else — channels, cron jobs, the Console
+Start the NousAIPaw server. Everything else — channels, cron jobs, the Console
 UI — depends on this.
 
 ```bash
@@ -48,13 +48,13 @@ qwenpaw app --log-level debug           # Verbose logging
 | `--port`      | `8088`      | Bind port                                                     |
 | `--reload`    | off         | Auto-reload on file changes (dev only)                        |
 | `--log-level` | `info`      | `critical` / `error` / `warning` / `info` / `debug` / `trace` |
-| `--workers`   | —           | **[DEPRECATED]** Ignored. QwenPaw always uses 1 worker        |
+| `--workers`   | —           | **[DEPRECATED]** Ignored. NousAIPaw always uses 1 worker        |
 
-> **Note:** The `--workers` option is deprecated for stability reasons. QwenPaw is designed to run with a single worker process. Multi-worker mode can cause issues with in-memory state management and WebSocket connections. This option will be removed in a future version.
+> **Note:** The `--workers` option is deprecated for stability reasons. NousAIPaw is designed to run with a single worker process. Multi-worker mode can cause issues with in-memory state management and WebSocket connections. This option will be removed in a future version.
 
 ### qwenpaw tui
 
-Open the bundled terminal chat UI. It runs QwenPaw through the current Python
+Open the bundled terminal chat UI. It runs NousAIPaw through the current Python
 environment, so it is useful for development installs and shell-first
 workflows.
 
@@ -75,7 +75,7 @@ Once `qwenpaw app` is running, open `http://127.0.0.1:8088/` in your browser to
 access the **Console** — a web UI for chat, channels, cron, skills, models,
 and more. See [Console](./console) for a full walkthrough.
 
-If the frontend was not built, the root URL returns a JSON message like `{"message": "QwenPaw Web Console is not available."}` but the API still works.
+If the frontend was not built, the root URL returns a JSON message like `{"message": "NousAIPaw Web Console is not available."}` but the API still works.
 
 **To build the frontend:** in the project's `console/` directory run
 `npm ci && npm run build`, then copy the output to the package directory:
@@ -190,7 +190,7 @@ directory using the same relative paths.
 
 ## Models & environment variables
 
-Before using QwenPaw you need at least one LLM provider configured. Environment
+Before using NousAIPaw you need at least one LLM provider configured. Environment
 variables power many built-in tools (e.g. web search).
 
 ### qwenpaw models
@@ -218,7 +218,7 @@ qwenpaw models set-llm                 # Change active model only
 
 #### Local models
 
-QwenPaw can also run models locally via llama.cpp, Ollama, or LM Studio — no API key needed.
+NousAIPaw can also run models locally via llama.cpp, Ollama, or LM Studio — no API key needed.
 But you need to download the corresponding application first, such as [Ollama](https://ollama.com/download) or [LM Studio](https://lmstudio.ai/download).
 
 ```bash
@@ -243,7 +243,7 @@ qwenpaw models remove-local <model_id> --yes   # skip confirmation
 
 #### Ollama models
 
-QwenPaw integrates with Ollama to run models locally. Models are dynamically loaded from your Ollama daemon — install Ollama first from [ollama.com](https://ollama.com).
+NousAIPaw integrates with Ollama to run models locally. Models are dynamically loaded from your Ollama daemon — install Ollama first from [ollama.com](https://ollama.com).
 
 Install the Ollama SDK: `pip install 'qwenpaw[ollama]'` (or re-run the installer with `--extras ollama`)
 
@@ -265,11 +265,11 @@ qwenpaw models set-llm          # Switch to a different Ollama model
 
 **Key differences from local models:**
 
-- Models come from Ollama daemon (not downloaded by QwenPaw)
+- Models come from Ollama daemon (not downloaded by NousAIPaw)
 - Use `ollama` CLI to manage models (not `qwenpaw models download/remove-local`)
-- Model list updates dynamically when you add/remove via Ollama CLI or QwenPaw
+- Model list updates dynamically when you add/remove via Ollama CLI or NousAIPaw
 
-> **Note:** You are responsible for ensuring the API key is valid. QwenPaw does
+> **Note:** You are responsible for ensuring the API key is valid. NousAIPaw does
 > not verify key correctness. See [Config — LLM Providers](./config#llm-providers).
 
 ### qwenpaw env
@@ -289,7 +289,7 @@ qwenpaw env set GITHUB_TOKEN "ghp_xxxxxxxx"  # fine-grained PATs starting with g
 qwenpaw env delete TAVILY_API_KEY
 ```
 
-> **Note:** QwenPaw only stores and loads these values; you are responsible for
+> **Note:** NousAIPaw only stores and loads these values; you are responsible for
 > ensuring they are correct. See
 > [Config — Environment Variables](./config#environment-variables).
 
@@ -297,7 +297,7 @@ qwenpaw env delete TAVILY_API_KEY
 
 ## Channels
 
-Connect QwenPaw to messaging platforms.
+Connect NousAIPaw to messaging platforms.
 
 ### qwenpaw channels
 
@@ -503,7 +503,7 @@ When tasks are complex (e.g., data analysis, batch processing, report generation
 ## Cron (scheduled tasks)
 
 Create jobs that run on a timed schedule — "every day at 9am", "every 2 hours
-ask QwenPaw and send the reply". **Requires `qwenpaw app` to be running.**
+ask NousAIPaw and send the reply". **Requires `qwenpaw app` to be running.**
 
 ### qwenpaw cron
 
@@ -527,7 +527,7 @@ ask QwenPaw and send the reply". **Requires `qwenpaw app` to be running.**
 Two task types:
 
 - **text** — send a fixed message to a channel on schedule.
-- **agent** — ask QwenPaw a question on schedule and deliver the reply.
+- **agent** — ask NousAIPaw a question on schedule and deliver the reply.
 
 ```bash
 # Text: send "Good morning!" to DingTalk every day at 9:00 (default agent)
@@ -675,7 +675,7 @@ qwenpaw chats delete <chat_id>
 
 ## Skills
 
-Extend QwenPaw's capabilities with skills (PDF reading, web search, etc.).
+Extend NousAIPaw's capabilities with skills (PDF reading, web search, etc.).
 
 ### qwenpaw skills
 
@@ -800,7 +800,7 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 
 ## Related pages
 
-- [Introduction](./intro) — What QwenPaw can do
+- [Introduction](./intro) — What NousAIPaw can do
 - [Console](./console) — Web-based management UI
 - [Channels](./channels) — DingTalk, Feishu, iMessage, Discord, QQ setup
 - [Heartbeat](./heartbeat) — Scheduled check-in / digest

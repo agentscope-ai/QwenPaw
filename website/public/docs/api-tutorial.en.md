@@ -1,18 +1,18 @@
 # RESTful API
 
-This document will guide you through using the RESTful API to interact with QwenPaw Agents.
+This document will guide you through using the RESTful API to interact with NousAIPaw Agents.
 
-> **Protocol Details**: QwenPaw's API is based on an extension of the AgentScope Runtime protocol. For more details, see:
+> **Protocol Details**: NousAIPaw's API is based on an extension of the AgentScope Runtime protocol. For more details, see:
 > [AgentScope Runtime Protocol Documentation (English)](https://runtime.agentscope.io/en/protocol.html)
 
 > ⚠️ **Security Warning**:
-> If your QwenPaw instance is **exposed to the public internet**, strongly recommend enabling [Web Login Authentication](./security#web-authentication)!
+> If your NousAIPaw instance is **exposed to the public internet**, strongly recommend enabling [Web Login Authentication](./security#web-authentication)!
 > Public instances without authentication pose serious security risks, allowing anyone to access and control your Agents.
 > See the [Web Authentication Token](#web-authentication-token-optional) section at the end of this document.
 
 ## Overview
 
-QwenPaw provides a RESTful API interface that allows you to interact with Agents via HTTP requests. Through the API, you can:
+NousAIPaw provides a RESTful API interface that allows you to interact with Agents via HTTP requests. Through the API, you can:
 
 - Send messages to Agents and receive responses
 - Manage multiple Agent instances
@@ -175,7 +175,7 @@ data: {"sequence_number":0,"object":"response","status":"created",...}
 
 data: {"sequence_number":1,"object":"response","status":"in_progress",...}
 
-data: {"sequence_number":2,"object":"response","status":"in_progress","output":[{"role":"assistant","content":[{"type":"text","text":"Hello! I'm QwenPaw..."}]}],...}
+data: {"sequence_number":2,"object":"response","status":"in_progress","output":[{"role":"assistant","content":[{"type":"text","text":"Hello! I'm NousAIPaw..."}]}],...}
 
 data: {"sequence_number":3,"object":"response","status":"completed",...}
 ```
@@ -200,7 +200,7 @@ data: {"sequence_number":3,"object":"response","status":"completed",...}
 
 ## Multi-turn Conversation
 
-QwenPaw automatically manages conversation context through `session_id` and `user_id`. Simply use the same `session_id` across different requests, and the system will automatically save and load conversation history:
+NousAIPaw automatically manages conversation context through `session_id` and `user_id`. Simply use the same `session_id` across different requests, and the system will automatically save and load conversation history:
 
 **First turn**:
 
@@ -609,7 +609,7 @@ If [Web Login Authentication](./security#web-authentication) is enabled (`QWENPA
 
 #### Register Account
 
-**First-time setup requires registering an admin account** (QwenPaw uses single-user mode):
+**First-time setup requires registering an admin account** (NousAIPaw uses single-user mode):
 
 ```bash
 curl -X POST http://localhost:8088/api/auth/register \
@@ -666,7 +666,7 @@ rm ~/.qwenpaw.secret/auth.json
 # Or use QWENPAW_SECRET_DIR environment variable
 rm "${QWENPAW_SECRET_DIR}/auth.json"
 
-# Restart QwenPaw and re-register
+# Restart NousAIPaw and re-register
 qwenpaw app
 ```
 
@@ -682,7 +682,7 @@ docker exec -it <container_name> qwenpaw auth reset-password
 
 **Auto-Registration** (Optional):
 
-You can also auto-create an account via environment variables when starting QwenPaw:
+You can also auto-create an account via environment variables when starting NousAIPaw:
 
 ```bash
 export QWENPAW_AUTH_ENABLED=true
@@ -902,7 +902,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ### Cannot Connect to Server
 
-Verify QwenPaw service is running:
+Verify NousAIPaw service is running:
 
 ```bash
 # Check service status

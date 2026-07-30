@@ -1,8 +1,8 @@
 # `qwenpaw_pet_desktop` (package internals)
 
-Importable Python package embedded inside the **QwenPaw Pet plugin**.
+Importable Python package embedded inside the **NousAIPaw Pet plugin**.
 It ships the desktop runtime: a transparent always-on-top Qt pet
-window + a local FastAPI bridge on `127.0.0.1:8765` that QwenPaw (via
+window + a local FastAPI bridge on `127.0.0.1:8765` that NousAIPaw (via
 the plugin) and other clients drive over HTTP.
 
 Install / run / dependency notes live in the plugin's
@@ -10,7 +10,7 @@ Install / run / dependency notes live in the plugin's
 package itself, for people maintaining it.
 
 The plugin's `plugin.py` puts this folder's parent on `sys.path`, so
-the package is importable as `qwenpaw_pet_desktop` from QwenPaw's
+the package is importable as `qwenpaw_pet_desktop` from NousAIPaw's
 interpreter without any `pip install`.
 
 ## Module map
@@ -47,7 +47,7 @@ Pet **packages** live in a separate location resolved by
 
 1. `QWENPAW_WORKING_DIR`
 2. `COPAW_WORKING_DIR`
-3. `from qwenpaw.constant import WORKING_DIR` (if QwenPaw is installed)
+3. `from qwenpaw.constant import WORKING_DIR` (if NousAIPaw is installed)
 4. `~/.copaw` if it already exists
 5. `~/.qwenpaw`
 
@@ -70,7 +70,7 @@ Default bind: `127.0.0.1:8765`. All POSTs accept JSON.
 Token check is **on** by default — any process running as the same user
 can otherwise drive the floating pet on `127.0.0.1:8765`. Clients must
 send `X-QwenPaw-Pet-Token: <token from runtime/update-token>` on
-mutating endpoints (the bundled QwenPaw plugin reads the token file
+mutating endpoints (the bundled NousAIPaw plugin reads the token file
 automatically). To disable the check (e.g. for local development), set
 `QWENPAW_PET_REQUIRE_TOKEN=0`.
 

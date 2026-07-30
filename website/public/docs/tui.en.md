@@ -1,10 +1,10 @@
 # Terminal UI (TUI)
 
-The QwenPaw **TUI** is a full-screen chat interface that runs entirely in your terminal. It talks to the _same_ agent as the Console and the IM Channels — same memory, same skills, same MCP tools, same sessions — but without leaving the keyboard. If you live in a terminal, this is the fastest way to chat with your agent, drive a task, or pick up a session you started somewhere else.
+The NousAIPaw **TUI** is a full-screen chat interface that runs entirely in your terminal. It talks to the _same_ agent as the Console and the IM Channels — same memory, same skills, same MCP tools, same sessions — but without leaving the keyboard. If you live in a terminal, this is the fastest way to chat with your agent, drive a task, or pick up a session you started somewhere else.
 
 It is also the most natural surface for **Coding Mode**: launch it from inside a repo and the agent treats that directory as its workshop.
 
-![QwenPaw TUI](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
+![NousAIPaw TUI](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
 
 ---
 
@@ -50,7 +50,7 @@ This enables Coding-Mode prompt and tool behavior **for that TUI session only** 
 
 **Interrupt.** Press `esc` to cancel the in-flight turn (or clear the input if you haven't sent anything yet).
 
-**Sessions & resume.** Every chat is a session shared with the rest of QwenPaw. Use `/resume` to pick a recent session from the suggestions, or `/resume list` to browse all of them. You can also resume on launch with `qwenpaw tui --resume <id>`.
+**Sessions & resume.** Every chat is a session shared with the rest of NousAIPaw. Use `/resume` to pick a recent session from the suggestions, or `/resume list` to browse all of them. You can also resume on launch with `qwenpaw tui --resume <id>`.
 
 **Paste files & long text.** Paste an image or a file path and the TUI attaches it for the agent; paste a long block of text and it is stored as an attachment instead of flooding the prompt. Works with `data:` URLs too.
 
@@ -93,7 +93,7 @@ These control the terminal interface itself:
 
 ### Handled by the agent
 
-Everything else you type starting with `/` is forwarded to the QwenPaw agent — the **same magic commands** available in the Console and Channels, for example `/model`, `/clear`, `/compact`, `/skills`, and `/status`. The TUI advertises whatever commands the connected agent supports, so the suggestion list always matches your agent. See [Magic Commands](/docs/commands) for the full catalog.
+Everything else you type starting with `/` is forwarded to the NousAIPaw agent — the **same magic commands** available in the Console and Channels, for example `/model`, `/clear`, `/compact`, `/skills`, and `/status`. The TUI advertises whatever commands the connected agent supports, so the suggestion list always matches your agent. See [Magic Commands](/docs/commands) for the full catalog.
 
 ---
 
@@ -101,16 +101,16 @@ Everything else you type starting with `/` is forwarded to the QwenPaw agent —
 
 You don't need to know the internals to use the TUI, but a one-paragraph mental model helps explain why sessions, memory, and tools "just work" the same as everywhere else.
 
-The TUI is a thin **client**. It is a [Textual](https://textual.textualize.io/) terminal app that drives a local QwenPaw backend over **ACP** (the [Agent Client Protocol](/docs/acp-integration)). On launch it spawns `qwenpaw acp` as a subprocess and speaks ACP to it; all the real work — the model calls, memory, skills, MCP tools, session storage — happens in that backend, exactly the same backend the Console and Channels use.
+The TUI is a thin **client**. It is a [Textual](https://textual.textualize.io/) terminal app that drives a local NousAIPaw backend over **ACP** (the [Agent Client Protocol](/docs/acp-integration)). On launch it spawns `qwenpaw acp` as a subprocess and speaks ACP to it; all the real work — the model calls, memory, skills, MCP tools, session storage — happens in that backend, exactly the same backend the Console and Channels use.
 
-<svg viewBox="0 0 760 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The QwenPaw TUI is a thin Textual client that drives a local qwenpaw acp backend over ACP via a stdio subprocess." style="width:100%;height:auto;max-width:700px;display:block;margin:1.5rem auto;font-family:ui-sans-serif,system-ui,sans-serif;">
+<svg viewBox="0 0 760 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The NousAIPaw TUI is a thin Textual client that drives a local qwenpaw acp backend over ACP via a stdio subprocess." style="width:100%;height:auto;max-width:700px;display:block;margin:1.5rem auto;font-family:ui-sans-serif,system-ui,sans-serif;">
 <defs>
 <marker id="tui-arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
 <path d="M0,0 L7,3 L0,6 Z" fill="var(--color-primary, #ff9d4d)"></path>
 </marker>
 </defs>
 <rect x="24" y="62" width="244" height="96" rx="12" fill="var(--color-primary, #ff9d4d)" fill-opacity="0.08" stroke="var(--color-primary, #ff9d4d)" stroke-width="1.5"></rect>
-<text x="146" y="98" text-anchor="middle" font-size="17" font-weight="700" fill="currentColor">QwenPaw TUI</text>
+<text x="146" y="98" text-anchor="middle" font-size="17" font-weight="700" fill="currentColor">NousAIPaw TUI</text>
 <text x="146" y="122" text-anchor="middle" font-size="13" fill="currentColor" opacity="0.7">Textual terminal app</text>
 <text x="146" y="141" text-anchor="middle" font-size="13" fill="currentColor" opacity="0.7">renders · forwards input</text>
 <rect x="492" y="52" width="244" height="116" rx="12" fill="currentColor" fill-opacity="0.04" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.5"></rect>

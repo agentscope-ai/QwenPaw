@@ -1,6 +1,6 @@
 # Backup & Restore
 
-**Backup & Restore** lets you create snapshots of your QwenPaw instance: visually create, export, import, and restore your entire agent environment. It is designed for scenarios such as **rolling back before a version upgrade, migrating between machines, or keeping a safety net before risky changes**.
+**Backup & Restore** lets you create snapshots of your NousAIPaw instance: visually create, export, import, and restore your entire agent environment. It is designed for scenarios such as **rolling back before a version upgrade, migrating between machines, or keeping a safety net before risky changes**.
 
 > Sidebar: **Settings → Backup**
 
@@ -82,7 +82,7 @@ A partial backup is best for migrating only specific modules or syncing only a f
 
 ![Create a pre-restore backup](https://img.alicdn.com/imgextra/i3/O1CN01MwWjoy24qx3N2wfoR_!!6000000007443-2-tps-861-314.png)
 
-When you click the **Restore** button on any backup row, QwenPaw first opens the **Pre-restore backup** dialog:
+When you click the **Restore** button on any backup row, NousAIPaw first opens the **Pre-restore backup** dialog:
 
 - We strongly recommend ticking **"Create a pre-restore backup first"** to take a one-click snapshot of the current state.
 - If anything goes wrong, you can immediately roll back to the state right before the restore using that snapshot.
@@ -185,7 +185,7 @@ docker run -p 127.0.0.1:8088:8088 \
 A: No. Models are too large; backups only cover small assets such as configuration, skills, and memory. Re-download the models you need after migrating to a new machine.
 
 **Q: I see "Backup already exists" when importing — what should I do?**
-A: QwenPaw shows an overwrite confirmation; confirm it to continue importing and overwrite the existing backup.
+A: NousAIPaw shows an overwrite confirmation; confirm it to continue importing and overwrite the existing backup.
 
 **Q: What's the real difference between Full restore and Custom restore?**
 A: Full restore restores the whole instance as it was at backup time — think of it as "delete the old instance → create a new one". Custom restore restores only the parts you select (e.g. some agents); anything outside the restore scope is kept as it is.

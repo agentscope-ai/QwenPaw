@@ -1,4 +1,4 @@
-# QwenPaw Desktop 桌面应用版使用指南
+# NousAIPaw Desktop 桌面应用版使用指南
 
 > ⚠️ **Beta 版本说明**
 >
@@ -14,7 +14,7 @@
 
 **下载地址**：[GitHub Releases][releases]
 
-本文档说明如何在 Windows 和 macOS 系统上安装和使用 QwenPaw Desktop 桌面应用。
+本文档说明如何在 Windows 和 macOS 系统上安装和使用 NousAIPaw Desktop 桌面应用。
 
 [releases]: https://qwenpaw.agentscope.io/downloads
 
@@ -119,7 +119,7 @@ A: 应用未经过 **Microsoft 代码签名**（成本 $200-800/年），Windows
 
 #### 为什么需要手动信任？
 
-QwenPaw 应用**未经过 Apple 开发者签名和公证（Notarization）**，macOS Gatekeeper 会默认阻止运行。
+NousAIPaw 应用**未经过 Apple 开发者签名和公证（Notarization）**，macOS Gatekeeper 会默认阻止运行。
 
 **为什么没有签名？**
 
@@ -146,7 +146,7 @@ QwenPaw 应用**未经过 Apple 开发者签名和公证（Notarization）**，m
 
 1. 打开 **系统设置 → 隐私与安全性**
 2. 向下滚动，找到类似以下提示：
-   _"已阻止使用 'QwenPaw'，因为无法验证开发者"_
+   _"已阻止使用 'NousAIPaw'，因为无法验证开发者"_
 3. 点击 **"仍要打开"** 或 **"允许"** 按钮
 4. 输入管理员密码确认
 

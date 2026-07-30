@@ -12,7 +12,7 @@
     "withGlobalTauri": false,
     "windows": [
       {
-        "title": "QwenPaw Desktop",
+        "title": "NousAIPaw Desktop",
         "width": 1280,
         "height": 800,
         "minWidth": 960,

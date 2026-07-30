@@ -1,12 +1,12 @@
 # 配置与工作目录
 
-QwenPaw 的所有配置和数据都存储在**工作目录**中。本页说明：
+NousAIPaw 的所有配置和数据都存储在**工作目录**中。本页说明：
 
 - **目录结构** — 文件都在哪里，各目录的作用
 - **环境变量** — 如何用环境变量自定义路径和行为
 - **配置文件** — `config.json` 和 `agent.json` 的完整字段说明
 
-从 **v0.1.0** 开始，QwenPaw 支持**多智能体**，配置分为两层：
+从 **v0.1.0** 开始，NousAIPaw 支持**多智能体**，配置分为两层：
 
 1. **全局配置**（`config.json`）— 模型提供商、智能体列表、全局设置
 2. **智能体配置**（`agent.json`）— 每个智能体的独立配置（频道、心跳、工具等）
@@ -509,7 +509,7 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 ## 模型提供商
 
-QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/providers.json`（默认 `~/.qwenpaw.secret/providers.json`）。
+NousAIPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/providers.json`（默认 `~/.qwenpaw.secret/providers.json`）。
 
 有三种设置方式：
 
@@ -521,7 +521,7 @@ QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/
 
 | 提供商                                  | ID                       | 说明                          |
 | --------------------------------------- | ------------------------ | ----------------------------- |
-| QwenPaw Local                           | `qwenpaw-local`          | 本地 llama.cpp 后端           |
+| NousAIPaw Local                           | `qwenpaw-local`          | 本地 llama.cpp 后端           |
 | Ollama                                  | `ollama`                 | 本地 Ollama 服务              |
 | LM Studio                               | `lmstudio`               | 本地 LM Studio 服务           |
 | OpenRouter                              | `openrouter`             | OpenRouter 模型聚合平台       |
@@ -563,7 +563,7 @@ QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/
 
 设置好的变量会在应用启动时自动加载，所有工具和子进程都可以通过 `os.environ` 读取。
 
-> **注意：** 环境变量的值（如第三方 API Key）的有效性需要用户自行保证。QwenPaw 只负责存储和注入，不会校验其正确性。
+> **注意：** 环境变量的值（如第三方 API Key）的有效性需要用户自行保证。NousAIPaw 只负责存储和注入，不会校验其正确性。
 
 ---
 

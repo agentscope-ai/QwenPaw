@@ -1,6 +1,6 @@
 <div align="center">
 
-# QwenPaw
+# NousAIPaw
 
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Repo-black.svg?logo=github)](https://github.com/agentscope-ai/QwenPaw)
 [![PyPI](https://img.shields.io/pypi/v/qwenpaw?color=3775A9&label=PyPI&logo=pypi)](https://pypi.org/project/qwenpaw/)
@@ -22,7 +22,7 @@
 [[Tài liệu](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[中文](README_zh.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
 <p align="center">
-  <img src="https://gw.alicdn.com/imgextra/i1/O1CN01sens5C1TuwioeGexL_!!6000000002443-55-tps-771-132.svg" alt="QwenPaw Logo" width="120">
+  <img src="https://gw.alicdn.com/imgextra/i1/O1CN01sens5C1TuwioeGexL_!!6000000002443-55-tps-771-132.svg" alt="NousAIPaw Logo" width="120">
 </p>
 
 <p align="center"><b>Phục vụ bạn, đồng hành cùng bạn.</b></p>
@@ -34,7 +34,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Không bao giờ quên**                       | Bộ nhớ ba lớp — ngữ cảnh làm việc trực tiếp, lịch sử nguyên văn đầy đủ và tri thức đã chưng cất. Các lượt cũ bị loại khỏi cửa sổ nhưng vẫn truy xuất theo yêu cầu; không bị tóm tắt hay mất mát.     |
-| **Cục bộ hoặc đám mây, chạy tự do**          | Mô hình QwenPaw-Flash (2B / 4B / 9B) huấn luyện cho tác vụ tác nhân. Runtime QwenPaw Local tích hợp sẵn — không cần API key, không phụ thuộc đám mây. Cũng hỗ trợ Ollama, LM Studio hoặc 14+ nhà cung cấp đám mây.   |
+| **Cục bộ hoặc đám mây, chạy tự do**          | Mô hình QwenPaw-Flash (2B / 4B / 9B) huấn luyện cho tác vụ tác nhân. Runtime NousAIPaw Local tích hợp sẵn — không cần API key, không phụ thuộc đám mây. Cũng hỗ trợ Ollama, LM Studio hoặc 14+ nhà cung cấp đám mây.   |
 | **Bảo mật tích hợp sẵn**                     | Sandbox cấp kernel, Tool Guard, File Guard và Skill Scanner. Lệnh nguy hiểm bị chặn trước khi chạy.                                            |
 | **Đa tác nhân & song song**                  | Tạo tác nhân độc lập với bộ nhớ và Skills riêng. Tác nhân con lúc chạy. Agent Communication Protocol (ACP) để điều phối liên hệ thống.                               |
 | **Coding Mode**                              | Web IDE ba khung với cây tệp, xem trước diff và chat. Nhảy tới định nghĩa, tìm tham chiếu và tìm kiếm mã cấu trúc tích hợp sẵn.                                              |
@@ -43,7 +43,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 | **Của bạn, không phải của chúng tôi**        | Triển khai cục bộ — dữ liệu ở lại máy bạn. Không qua bên thứ ba lưu trữ, không tải dữ liệu lên.                                                                         |
 
 > <details>
-> <summary><b>Bạn có thể làm gì với QwenPaw</b></summary>
+> <summary><b>Bạn có thể làm gì với NousAIPaw</b></summary>
 >
 > <br>
 >
@@ -62,7 +62,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 - [2026-07-24] **v2.0.1** | Nền tảng mini-app PawApp, Agent Mode do người dùng chỉnh sửa, Oh-My-Paw plugins, nâng cấp bộ nhớ ReMe, cải thiện UX desktop v.v. [Ghi chú phát hành v2.0.1 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory và TUI tích hợp.
+- [2026-07-10] **v2.0.0 — NousAIPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory và TUI tích hợp.
 
   | Nổi bật | Nội dung mới |
   |-----------|------------|
@@ -73,11 +73,11 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
   | **ReMe v0.4.0 Long-term Memory** | Theo dõi tự động theo lượt, tìm kiếm nhận biết mức sử dụng, embedding riêng backend. |
   | **Terminal UI (TUI)** | Chat terminal toàn màn hình — cùng agent, bộ nhớ và phiên với Console và kênh. |
 
-  Dựa trên Agent OS, chúng tôi sẽ ra mắt các ứng dụng QwenPaw sẵn sàng sử dụng — như **QwenPaw Creator** và **QwenPaw Insight** — hãy theo dõi. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+  Dựa trên Agent OS, chúng tôi sẽ ra mắt các ứng dụng NousAIPaw sẵn sàng sử dụng — như **NousAIPaw Creator** và **NousAIPaw Insight** — hãy theo dõi. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — Trang Mô Hình Đổi Mới & Chế Độ Đơn Giản** | Trang mô hình thiết kế lại với tổng hợp nhà cung cấp; Chế độ Đơn giản mới. [Ghi chú phát hành v1.1.12 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 
-- [2026-06-11] **AgentScope Platform ra mắt** — Triển khai QwenPaw miễn phí, chia sẻ plugin và Chợ Skills. [Dùng thử ngay →](https://platform.agentscope.io/)
+- [2026-06-11] **AgentScope Platform ra mắt** — Triển khai NousAIPaw miễn phí, chia sẻ plugin và Chợ Skills. [Dùng thử ngay →](https://platform.agentscope.io/)
 
 - [2026-06-10] **v1.1.11** — OAuth Mô hình Miễn phí, Chợ Plugin, Danh sách trắng MCP. [Ghi chú phát hành v1.1.11 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
@@ -97,7 +97,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 - [Lộ Trình Phát Triển](#lộ-trình-phát-triển)
 - [Đóng Góp](#đóng-góp)
 - [Cài Đặt Từ Mã Nguồn](#cài-đặt-từ-mã-nguồn)
-- [Tại Sao Là QwenPaw?](#tại-sao-là-qwenpaw)
+- [Tại Sao Là NousAIPaw?](#tại-sao-là-qwenpaw)
 - [Được Xây Dựng Bởi](#được-xây-dựng-bởi)
 - [Giấy Phép](#giấy-phép)
 
@@ -123,7 +123,7 @@ Sau đó mở Console trong trình duyệt tại **http://127.0.0.1:8088/** đ�
 
 ### Tùy Chọn 2: Cài Đặt Bằng Script
 
-Không cần thiết lập Python thủ công, một lệnh duy nhất cài đặt mọi thứ. Script sẽ tự động tải xuống uv (trình quản lý gói Python), tạo môi trường ảo, và cài đặt QwenPaw với tất cả phụ thuộc (bao gồm Node.js và tài nguyên frontend). Lưu ý: Có thể không hoạt động trong môi trường mạng bị hạn chế hoặc tường lửa doanh nghiệp.
+Không cần thiết lập Python thủ công, một lệnh duy nhất cài đặt mọi thứ. Script sẽ tự động tải xuống uv (trình quản lý gói Python), tạo môi trường ảo, và cài đặt NousAIPaw với tất cả phụ thuộc (bao gồm Node.js và tài nguyên frontend). Lưu ý: Có thể không hoạt động trong môi trường mạng bị hạn chế hoặc tường lửa doanh nghiệp.
 
 **macOS / Linux:**
 
@@ -152,9 +152,9 @@ irm https://qwenpaw.agentscope.io/install.ps1 | iex
 >
 >    Script đã hoàn tất cài đặt tệp. Do **Chế độ Ngôn ngữ Hạn chế**, nó không thể tự động cập nhật biến môi trường. Hãy cấu hình thủ công như sau:
 >    - **Xác định thư mục cài đặt**:
->      - Kiểm tra `uv` có sẵn không: Nhập `uv --version` trong CMD. Nếu có số phiên bản, **chỉ cần cấu hình đường dẫn QwenPaw**. Nếu nhận được thông báo `'uv' không được nhận dạng là lệnh nội bộ hay bên ngoài, chương trình có thể thực thi hay tệp lệnh,` hãy cấu hình cả hai đường dẫn.
+>      - Kiểm tra `uv` có sẵn không: Nhập `uv --version` trong CMD. Nếu có số phiên bản, **chỉ cần cấu hình đường dẫn NousAIPaw**. Nếu nhận được thông báo `'uv' không được nhận dạng là lệnh nội bộ hay bên ngoài, chương trình có thể thực thi hay tệp lệnh,` hãy cấu hình cả hai đường dẫn.
 >      - Đường dẫn uv (chọn một tùy vị trí cài đặt; dùng khi `uv` không khả dụng): Thường là `%USERPROFILE%\.local\bin`, `%USERPROFILE%\AppData\Local\uv`, hoặc thư mục `Scripts` trong thư mục cài đặt Python
->      - Đường dẫn QwenPaw: Thường nằm tại `%USERPROFILE%\.qwenpaw\bin`.
+>      - Đường dẫn NousAIPaw: Thường nằm tại `%USERPROFILE%\.qwenpaw\bin`.
 >    - **Thêm thủ công vào biến môi trường Path của hệ thống**:
 >      - Nhấn `Win + R`, gõ `sysdm.cpl` và nhấn Enter để mở System Properties.
 >      - Nhấp "Advanced" -> "Environment Variables".
@@ -165,8 +165,8 @@ irm https://qwenpaw.agentscope.io/install.ps1 | iex
 >   Do **Chế độ Ngôn ngữ Hạn chế**, script có thể không tự động tải xuống được `uv`.
 >   - **Cài đặt uv thủ công**: Tham khảo [GitHub Release](https://github.com/astral-sh/uv/releases) để tải `uv.exe` và đặt vào `%USERPROFILE%\.local\bin` hoặc `%USERPROFILE%\AppData\Local\uv`; hoặc đảm bảo Python đã được cài đặt và chạy `python -m pip install -U uv`.
 >   - **Cấu hình biến môi trường `uv`**: Thêm thư mục chứa `uv` và `%USERPROFILE%\.qwenpaw\bin` vào biến `Path` của hệ thống.
->   - **Chạy lại trình cài đặt**: Mở terminal mới và thực thi lại script cài đặt để hoàn tất cài đặt `QwenPaw`.
->   - **Cấu hình biến môi trường `QwenPaw`**: Thêm `%USERPROFILE%\.qwenpaw\bin` vào biến `Path` của hệ thống.
+>   - **Chạy lại trình cài đặt**: Mở terminal mới và thực thi lại script cài đặt để hoàn tất cài đặt `NousAIPaw`.
+>   - **Cấu hình biến môi trường `NousAIPaw`**: Thêm `%USERPROFILE%\.qwenpaw\bin` vào biến `Path` của hệ thống.
 
 Sau khi cài đặt, mở terminal mới và chạy:
 
@@ -236,7 +236,7 @@ Sau đó mở **http://127.0.0.1:8088/** để truy cập Console. Cấu hình, 
 
 > **Kết nối với Ollama hoặc các dịch vụ khác trên máy chủ**
 >
-> Bên trong container Docker, `localhost` trỏ đến chính container, không phải máy chủ của bạn. Nếu bạn chạy Ollama (hoặc các dịch vụ mô hình khác) trên máy chủ và muốn QwenPaw trong Docker truy cập được, hãy sử dụng một trong các cách sau:
+> Bên trong container Docker, `localhost` trỏ đến chính container, không phải máy chủ của bạn. Nếu bạn chạy Ollama (hoặc các dịch vụ mô hình khác) trên máy chủ và muốn NousAIPaw trong Docker truy cập được, hãy sử dụng một trong các cách sau:
 >
 > **Cách A** — Gắn kết máy chủ rõ ràng (mọi nền tảng):
 > ```bash
@@ -247,7 +247,7 @@ Sau đó mở **http://127.0.0.1:8088/** để truy cập Console. Cấu hình, 
 >   -v qwenpaw-backups:/app/working.backups \
 >   agentscope/qwenpaw:latest
 > ```
-> Sau đó trong QwenPaw **Settings → Models**, thay đổi Base URL thành `http://host.docker.internal:<port>` — ví dụ: `http://host.docker.internal:11434` cho Ollama, hoặc `http://host.docker.internal:1234/v1` cho LM Studio.
+> Sau đó trong NousAIPaw **Settings → Models**, thay đổi Base URL thành `http://host.docker.internal:<port>` — ví dụ: `http://host.docker.internal:11434` cho Ollama, hoặc `http://host.docker.internal:1234/v1` cho LM Studio.
 >
 > **Cách B** — Mạng máy chủ (chỉ Linux):
 > ```bash
@@ -266,19 +266,19 @@ Image được xây dựng từ đầu. Để tự xây dựng image, vui lòng 
 
 ### Tùy Chọn 4: Triển Khai Trên Alibaba Cloud ECS
 
-Để chạy QwenPaw trên Alibaba Cloud (ECS), sử dụng triển khai một chạm: mở [đường dẫn triển khai QwenPaw trên Alibaba Cloud (ECS)](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884) và làm theo hướng dẫn. Để biết hướng dẫn từng bước, xem [Alibaba Cloud Developer: Triển khai trợ lý AI trong 3 phút](https://developer.aliyun.com/article/1713682).
+Để chạy NousAIPaw trên Alibaba Cloud (ECS), sử dụng triển khai một chạm: mở [đường dẫn triển khai NousAIPaw trên Alibaba Cloud (ECS)](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884) và làm theo hướng dẫn. Để biết hướng dẫn từng bước, xem [Alibaba Cloud Developer: Triển khai trợ lý AI trong 3 phút](https://developer.aliyun.com/article/1713682).
 
 ---
 
 ### Tùy Chọn 5: AgentScope Platform
 
-[AgentScope Platform](https://platform.agentscope.io/) cung cấp triển khai QwenPaw trên đám mây một chạm, chia sẻ plugin và Chợ Skills. Miễn phí, trực tuyến 7/24.
+[AgentScope Platform](https://platform.agentscope.io/) cung cấp triển khai NousAIPaw trên đám mây một chạm, chia sẻ plugin và Chợ Skills. Miễn phí, trực tuyến 7/24.
 
 ---
 
 ### Tùy Chọn 6: Sử Dụng ModelScope
 
-[ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) cũng hỗ trợ triển khai QwenPaw trên đám mây. Lưu ý: đặt Studio của bạn ở chế độ **không công khai** để người khác không thể điều khiển QwenPaw của bạn.
+[ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) cũng hỗ trợ triển khai NousAIPaw trên đám mây. Lưu ý: đặt Studio của bạn ở chế độ **không công khai** để người khác không thể điều khiển NousAIPaw của bạn.
 
 ---
 
@@ -289,7 +289,7 @@ Image được xây dựng từ đầu. Để tự xây dựng image, vui lòng 
 > - **Có thể có vấn đề về hiệu suất**: Thời gian khởi động, sử dụng bộ nhớ và các khía cạnh hiệu suất khác có thể cần tối ưu thêm
 > - **Tính năng đang phát triển**: Một số tính năng có thể không ổn định hoặc bị thiếu
 
-Nếu bạn không quen với công cụ dòng lệnh, bạn có thể tải xuống và sử dụng ứng dụng desktop của QwenPaw mà không cần cấu hình môi trường Python thủ công hay chạy lệnh.
+Nếu bạn không quen với công cụ dòng lệnh, bạn có thể tải xuống và sử dụng ứng dụng desktop của NousAIPaw mà không cần cấu hình môi trường Python thủ công hay chạy lệnh.
 
 #### Tải Xuống
 
@@ -310,13 +310,13 @@ Tải ứng dụng desktop (bản Tauri) từ [trang tải xuống chính thức
 
 #### macOS: Vượt Qua Rào Cản Bảo Mật Hệ Thống
 
-Khi bạn tải ứng dụng macOS QwenPaw từ Releases, macOS có thể hiển thị: *"Apple không thể xác minh rằng 'QwenPaw' không chứa phần mềm độc hại"*. Điều này xảy ra vì ứng dụng chưa được notarization. Bạn vẫn có thể mở nó như sau:
+Khi bạn tải ứng dụng macOS NousAIPaw từ Releases, macOS có thể hiển thị: *"Apple không thể xác minh rằng 'NousAIPaw' không chứa phần mềm độc hại"*. Điều này xảy ra vì ứng dụng chưa được notarization. Bạn vẫn có thể mở nó như sau:
 
 - **Nhấp chuột phải để mở (khuyên dùng)**
-  Nhấp chuột phải (hoặc Control+click) vào ứng dụng QwenPaw → **Open** → trong hộp thoại, nhấp **Open** lần nữa. Thao tác này báo cho Gatekeeper rằng bạn tin tưởng ứng dụng; sau đó bạn có thể nhấp đúp để khởi chạy như bình thường.
+  Nhấp chuột phải (hoặc Control+click) vào ứng dụng NousAIPaw → **Open** → trong hộp thoại, nhấp **Open** lần nữa. Thao tác này báo cho Gatekeeper rằng bạn tin tưởng ứng dụng; sau đó bạn có thể nhấp đúp để khởi chạy như bình thường.
 
 - **Cho phép trong System Settings**
-  Nếu vẫn bị chặn, vào **System Settings → Privacy & Security**, cuộn đến thông báo như *"QwenPaw was blocked because it is from an unidentified developer"*, và nhấp **Open Anyway** hoặc **Allow**.
+  Nếu vẫn bị chặn, vào **System Settings → Privacy & Security**, cuộn đến thông báo như *"NousAIPaw was blocked because it is from an unidentified developer"*, và nhấp **Open Anyway** hoặc **Allow**.
 
 - **Xóa thuộc tính cách ly (không khuyên dùng cho hầu hết người dùng)**
   Trong Terminal chạy:
@@ -351,13 +351,13 @@ qwenpaw .                   # bắt đầu trong repo hiện tại (Coding Mode)
 
 Hỗ trợ phản hồi streaming, lệnh slash (`/help`, `/resume`, `/theme`, cùng các lệnh riêng của tác nhân như `/model`, `/clear`, …), dán tệp/văn bản dài làm đính kèm, và nhắc quyền công cụ nội tuyến. Xem [hướng dẫn Terminal UI](https://qwenpaw.agentscope.io/docs/tui) để biết chi tiết.
 
-![QwenPaw TUI](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
+![NousAIPaw TUI](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
 
 ---
 
 ## API Key
 
-Nếu bạn sử dụng **API LLM đám mây** (ví dụ: DashScope / Qwen, OpenAI, Anthropic, Google Gemini, DeepSeek, Kimi, OpenRouter, v.v.), bạn phải cấu hình API key trước khi chat. QwenPaw sẽ không hoạt động cho đến khi có key hợp lệ. Xem [tài liệu chính thức](https://qwenpaw.agentscope.io/docs/models) để biết chi tiết.
+Nếu bạn sử dụng **API LLM đám mây** (ví dụ: DashScope / Qwen, OpenAI, Anthropic, Google Gemini, DeepSeek, Kimi, OpenRouter, v.v.), bạn phải cấu hình API key trước khi chat. NousAIPaw sẽ không hoạt động cho đến khi có key hợp lệ. Xem [tài liệu chính thức](https://qwenpaw.agentscope.io/docs/models) để biết chi tiết.
 
 **Cách cấu hình:**
 
@@ -367,17 +367,17 @@ Nếu bạn sử dụng **API LLM đám mây** (ví dụ: DashScope / Qwen, Open
 
 Các công cụ cần key bổ sung (ví dụ: `TAVILY_API_KEY` cho tìm kiếm web) có thể được đặt trong Console **Settings → Environment variables**, xem [Config](https://qwenpaw.agentscope.io/docs/config) để biết chi tiết.
 
-> **Chỉ dùng mô hình địa phương?** Nếu bạn sử dụng [Mô Hình Địa Phương](#mô-hình-địa-phương) (QwenPaw Local (llama.cpp) / Ollama / LM Studio), bạn **không** cần bất kỳ API key nào.
+> **Chỉ dùng mô hình địa phương?** Nếu bạn sử dụng [Mô Hình Địa Phương](#mô-hình-địa-phương) (NousAIPaw Local (llama.cpp) / Ollama / LM Studio), bạn **không** cần bất kỳ API key nào.
 
 ## Mô Hình Địa Phương
 
-QwenPaw có thể chạy LLM hoàn toàn trên máy của bạn — không cần API key hoặc dịch vụ đám mây. Xem [tài liệu chính thức](https://qwenpaw.agentscope.io/docs/models) để biết chi tiết.
+NousAIPaw có thể chạy LLM hoàn toàn trên máy của bạn — không cần API key hoặc dịch vụ đám mây. Xem [tài liệu chính thức](https://qwenpaw.agentscope.io/docs/models) để biết chi tiết.
 
-QwenPaw cũng cung cấp dòng **QwenPaw-Flash** — mô hình 2B / 4B / 9B huấn luyện chuyên biệt cho kịch bản tác nhân, với lượng tử hóa Q4 và Q8. Có sẵn trên [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) và [Hugging Face](https://huggingface.co/agentscope-ai/models).
+NousAIPaw cũng cung cấp dòng **QwenPaw-Flash** — mô hình 2B / 4B / 9B huấn luyện chuyên biệt cho kịch bản tác nhân, với lượng tử hóa Q4 và Q8. Có sẵn trên [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) và [Hugging Face](https://huggingface.co/agentscope-ai/models).
 
 | Backend              | Phù hợp nhất cho                                 | Cài đặt                                                              |
 | -------------------- | ---------------------------------------------- | -------------------------------------------------------------------- |
-| **QwenPaw Local** (llama.cpp) | Đa nền tảng (macOS / Linux / Windows)          | Tích hợp sẵn; nhấp "Download" trong giao diện web. Hỗ trợ QwenPaw-Flash với gợi ý theo phần cứng. |
+| **NousAIPaw Local** (llama.cpp) | Đa nền tảng (macOS / Linux / Windows)          | Tích hợp sẵn; nhấp "Download" trong giao diện web. Hỗ trợ QwenPaw-Flash với gợi ý theo phần cứng. |
 | **Ollama**           | Đa nền tảng (cần dịch vụ Ollama)               | Cài đặt và khởi động Ollama; đặt độ dài ngữ cảnh ≥ 32k. |
 | **LM Studio**        | Đa nền tảng (cần dịch vụ LM Studio)            | Cài đặt và khởi động LM Studio; bật Local Server. |
 
@@ -385,7 +385,7 @@ QwenPaw cũng cung cấp dòng **QwenPaw-Flash** — mô hình 2B / 4B / 9B hu�
 
 ## Tính Năng Bảo Mật
 
-QwenPaw bao gồm bốn lớp bảo mật cốt lõi:
+NousAIPaw bao gồm bốn lớp bảo mật cốt lõi:
 
 - **Sandbox** — Cách ly thực thi cấp kernel bằng Seatbelt (macOS), Bubblewrap / Landlock (Linux) và AppContainer (Windows). Lệnh shell chạy trong phạm vi hệ thống tệp bị hạn chế.
 - **Tool Guard** — Công cụ quy tắc YAML với `ShellEvasionGuardian` kiểm tra mọi lệnh gọi công cụ trước khi thực thi, phát hiện command injection, path traversal, reverse shell và tấn công che giấu. Mức phê duyệt cấu hình được: STRICT / SMART / AUTO / OFF.
@@ -399,7 +399,7 @@ Xem [Bảo mật](https://qwenpaw.agentscope.io/docs/security) để biết chi 
 
 | Chủ đề                                                                 | Mô tả                                               |
 | --------------------------------------------------------------------- | --------------------------------------------------- |
-| [Giới thiệu](https://qwenpaw.agentscope.io/docs/intro)                | QwenPaw là gì và cách sử dụng                         |
+| [Giới thiệu](https://qwenpaw.agentscope.io/docs/intro)                | NousAIPaw là gì và cách sử dụng                         |
 | [Bắt đầu nhanh](https://qwenpaw.agentscope.io/docs/quickstart)        | Cài đặt và chạy (cục bộ hoặc ModelScope Studio)      |
 | [Console](https://qwenpaw.agentscope.io/docs/console)                 | Giao diện Web: chat và cấu hình tác nhân              |
 | [Terminal UI (TUI)](https://qwenpaw.agentscope.io/docs/tui)             | Chat terminal toàn màn hình, cùng tác nhân với Console |
@@ -446,8 +446,8 @@ Tài liệu đầy đủ: [qwenpaw.agentscope.io/docs](https://qwenpaw.agentscop
 | **Mô hình**                | Chuyển đổi đa mô hình                                                                       | Đang thực hiện      |
 | **Browser-use**            | Hỗ trợ tiện ích mở rộng Chrome                                                              | Đang thực hiện      |
 | **Bộ nhớ dài hạn**        | Cơ sở tri thức cá nhân                                                                      | Đang thực hiện      |
-| **Ứng dụng QwenPaw**      | QwenPaw Creator                                                                             | Đang thực hiện      |
-|                            | QwenPaw Insight                                                                             | Đang thực hiện      |
+| **Ứng dụng NousAIPaw**      | NousAIPaw Creator                                                                             | Đang thực hiện      |
+|                            | NousAIPaw Insight                                                                             | Đang thực hiện      |
 | **Đa tác nhân**            | Tương thích với các tác nhân hiện có (ví dụ: Claude Code)                                  | Đã lên kế hoạch     |
 |                            | Chat nhóm                                                                                   | Đã lên kế hoạch     |
 |                            | Trực quan hóa tác nhân con                                                                  | Đã lên kế hoạch     |
@@ -458,7 +458,7 @@ _Trạng thái:_ **Đang thực hiện** — đang tích cực phát triển; **
 
 ## Đóng Góp
 
-QwenPaw phát triển thông qua hợp tác mở, và chúng tôi hoan nghênh mọi hình thức đóng góp! Xem [Lộ Trình Phát Triển](#lộ-trình-phát-triển) ở trên (đặc biệt là các mục được đánh dấu **Đang kêu gọi đóng góp**) để tìm lĩnh vực bạn quan tâm, và đọc [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING.md) để bắt đầu. Chúng tôi đặc biệt hoan nghênh:
+NousAIPaw phát triển thông qua hợp tác mở, và chúng tôi hoan nghênh mọi hình thức đóng góp! Xem [Lộ Trình Phát Triển](#lộ-trình-phát-triển) ở trên (đặc biệt là các mục được đánh dấu **Đang kêu gọi đóng góp**) để tìm lĩnh vực bạn quan tâm, và đọc [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING.md) để bắt đầu. Chúng tôi đặc biệt hoan nghênh:
 
 - **Mở rộng ngang** — kênh mới, nhà cung cấp mô hình, Skills, MCP.
 - **Mở rộng & hoàn thiện tính năng hiện có** — cải thiện hiển thị và tương tác, gợi ý tải xuống, tương thích đường dẫn Windows, v.v.
@@ -470,8 +470,8 @@ Tham gia [GitHub Discussions](https://github.com/agentscope-ai/QwenPaw/discussio
 ## Cài Đặt Từ Mã Nguồn
 
 ```bash
-git clone https://github.com/agentscope-ai/QwenPaw.git
-cd QwenPaw
+git clone https://github.com/uaixo/awesome-NousAI-PAW.git
+cd awesome-NousAI-PAW
 
 # Xây dựng frontend console trước (cần cho giao diện web)
 cd console && npm ci && npm run build
@@ -492,9 +492,9 @@ pip install -e .
 
 ---
 
-## Tại Sao Là QwenPaw?
+## Tại Sao Là NousAIPaw?
 
-QwenPaw là viết tắt của Qwen Personal Agent Workstation, đồng thời thể hiện trí tuệ của Qwen và hơi ấm của một Paw (bàn chân).
+NousAIPaw là viết tắt của Qwen Personal Agent Workstation, đồng thời thể hiện trí tuệ của Qwen và hơi ấm của một Paw (bàn chân).
 Chúng tôi hy vọng nó không phải là một công cụ lạnh lẽo, mà là một "bàn chân nhỏ" thông minh và ấm áp luôn sẵn sàng giúp đỡ — người bạn đồng hành trực quan nhất trong cuộc sống số của bạn.
 
 ---
@@ -516,20 +516,20 @@ Chúng tôi hy vọng nó không phải là một công cụ lạnh lẽo, mà l
 ## Theo Dõi Cập Nhật
 
 <a href="https://github.com/agentscope-ai/QwenPaw">
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" width="600" alt="Star QwenPaw" />
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" width="600" alt="Star NousAIPaw" />
 </a>
 
-Star QwenPaw trên GitHub để nhận thông báo ngay lập tức về các bản phát hành mới.
+Star NousAIPaw trên GitHub để nhận thông báo ngay lập tức về các bản phát hành mới.
 
 ---
 
 ## Telemetry
 
-QwenPaw thu thập dữ liệu sử dụng **ẩn danh** trong quá trình `qwenpaw init` để giúp chúng tôi hiểu cơ sở người dùng và ưu tiên cải tiến. Dữ liệu được gửi **mỗi phiên bản một lần** — khi bạn nâng cấp QwenPaw, telemetry được thu thập lại để chúng tôi có thể theo dõi mức độ áp dụng phiên bản.
+NousAIPaw thu thập dữ liệu sử dụng **ẩn danh** trong quá trình `qwenpaw init` để giúp chúng tôi hiểu cơ sở người dùng và ưu tiên cải tiến. Dữ liệu được gửi **mỗi phiên bản một lần** — khi bạn nâng cấp NousAIPaw, telemetry được thu thập lại để chúng tôi có thể theo dõi mức độ áp dụng phiên bản.
 
 **Những gì chúng tôi thu thập:**
 
-- Phiên bản QwenPaw (ví dụ: 1.1.12)
+- Phiên bản NousAIPaw (ví dụ: 1.1.12)
 - Phương pháp cài đặt (pip, Docker, hoặc ứng dụng desktop)
 - Hệ điều hành và phiên bản (ví dụ: macOS 14.0, Ubuntu 22.04)
 - Phiên bản Python (ví dụ: 3.13)
@@ -538,13 +538,13 @@ QwenPaw thu thập dữ liệu sử dụng **ẩn danh** trong quá trình `qwen
 
 **Những gì chúng tôi KHÔNG thu thập:** Không có dữ liệu cá nhân, không có tệp, không có thông tin đăng nhập, không có địa chỉ IP, không có thông tin nhận dạng.
 
-Khi chạy `qwenpaw init` ở chế độ tương tác, bạn sẽ được hỏi có đồng ý tham gia hay không. Nếu bạn chọn `--defaults`, telemetry sẽ tự động được chấp nhận. Lời nhắc xuất hiện một lần mỗi phiên bản và không bao giờ ảnh hưởng đến chức năng của QwenPaw.
+Khi chạy `qwenpaw init` ở chế độ tương tác, bạn sẽ được hỏi có đồng ý tham gia hay không. Nếu bạn chọn `--defaults`, telemetry sẽ tự động được chấp nhận. Lời nhắc xuất hiện một lần mỗi phiên bản và không bao giờ ảnh hưởng đến chức năng của NousAIPaw.
 
 ---
 
 ## Giấy Phép
 
-QwenPaw được phát hành theo [Giấy phép Apache 2.0](LICENSE).
+NousAIPaw được phát hành theo [Giấy phép Apache 2.0](LICENSE).
 
 ---
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# QwenPaw Installer
+# NousAIPaw Installer
 # Usage: curl -fsSL <url>/install.sh | bash
 #    or: bash install.sh [--version X.Y.Z] [--from-source]
 #
-# Installs QwenPaw into ~/.qwenpaw with a uv-managed Python environment.
+# Installs NousAIPaw into ~/.qwenpaw with a uv-managed Python environment.
 # Users do NOT need Python pre-installed — uv handles everything.
 set -euo pipefail
 
@@ -28,7 +28,7 @@ QWENPAW_HOME="${QWENPAW_HOME:-$HOME/.qwenpaw}"
 QWENPAW_VENV="$QWENPAW_HOME/venv"
 QWENPAW_BIN="$QWENPAW_HOME/bin"
 PYTHON_VERSION="3.12"
-QWENPAW_REPO="https://github.com/agentscope-ai/QwenPaw.git"
+QWENPAW_REPO="https://github.com/uaixo/awesome-NousAI-PAW.git"
 
 # New: Intelligent selection of PyPI source (automatically using Alibaba Cloud mirror for domestic users, and official source for overseas users)
 choose_pypi_mirror() {
@@ -74,7 +74,7 @@ while [[ $# -gt 0 ]]; do
             PRERELEASE=true; shift ;;
         -h|--help)
             cat <<EOF
-QwenPaw Installer
+NousAIPaw Installer
 
 Usage: bash install.sh [OPTIONS]
 
@@ -103,7 +103,7 @@ case "$OS" in
     *) die "Unsupported OS: $OS. This installer supports Linux and macOS only." ;;
 esac
 
-printf "${GREEN}[qwenpaw]${RESET} Installing QwenPaw into ${BOLD}%s${RESET}\n" "$QWENPAW_HOME"
+printf "${GREEN}[qwenpaw]${RESET} Installing NousAIPaw into ${BOLD}%s${RESET}\n" "$QWENPAW_HOME"
 
 # ── Step 1: Ensure uv is available ───────────────────────────────────────────
 ensure_uv() {
@@ -150,7 +150,7 @@ uv venv "$QWENPAW_VENV" --python "$PYTHON_VERSION" --quiet
 [ -x "$QWENPAW_VENV/bin/python" ] || die "Failed to create virtual environment"
 info "Python environment ready ($("$QWENPAW_VENV/bin/python" --version))"
 
-# ── Step 3: Install QwenPaw ────────────────────────────────────────────────────
+# ── Step 3: Install NousAIPaw ────────────────────────────────────────────────────
 # Build extras suffix: "" or "[dev,whisper]"
 EXTRAS_SUFFIX=""
 if [ -n "$EXTRAS" ]; then
@@ -244,7 +244,7 @@ cleanup_docs() {
 
 if [ "$FROM_SOURCE" = true ]; then
     if [ -n "$SOURCE_DIR" ]; then
-        info "Installing QwenPaw from local source: $SOURCE_DIR"
+        info "Installing NousAIPaw from local source: $SOURCE_DIR"
         prepare_console "$SOURCE_DIR"
         prepare_docs "$SOURCE_DIR"
         info "Installing package from source..."
@@ -252,7 +252,7 @@ if [ "$FROM_SOURCE" = true ]; then
         cleanup_console "$SOURCE_DIR"
         cleanup_docs "$SOURCE_DIR"
     else
-        info "Installing QwenPaw from source (GitHub)..."
+        info "Installing NousAIPaw from source (GitHub)..."
         CLONE_DIR="$(mktemp -d)"
         trap 'rm -rf "$CLONE_DIR"' EXIT
         git clone --depth 1 "$QWENPAW_REPO" "$CLONE_DIR"
@@ -279,7 +279,7 @@ fi
 
 # Verify the CLI entry point exists
 [ -x "$QWENPAW_VENV/bin/qwenpaw" ] || die "Installation failed: qwenpaw CLI not found in venv"
-info "QwenPaw installed successfully"
+info "NousAIPaw installed successfully"
 
 # Check console availability (for PyPI installs, check the installed package)
 if [ "$_CONSOLE_AVAILABLE" = 0 ]; then
@@ -295,14 +295,14 @@ mkdir -p "$QWENPAW_BIN"
 
 cat > "$QWENPAW_BIN/qwenpaw" << 'WRAPPER'
 #!/usr/bin/env bash
-# QwenPaw CLI wrapper — delegates to the uv-managed environment.
+# NousAIPaw CLI wrapper — delegates to the uv-managed environment.
 set -euo pipefail
 
 QWENPAW_HOME="${QWENPAW_HOME:-$HOME/.qwenpaw}"
 REAL_BIN="$QWENPAW_HOME/venv/bin/qwenpaw"
 
 if [ ! -x "$REAL_BIN" ]; then
-    echo "Error: QwenPaw environment not found at $QWENPAW_HOME/venv" >&2
+    echo "Error: NousAIPaw environment not found at $QWENPAW_HOME/venv" >&2
     echo "Please reinstall: curl -fsSL <install-url> | bash" >&2
     exit 1
 fi
@@ -322,7 +322,7 @@ add_to_profile() {
         return 0  # already present
     fi
     if [ -f "$profile" ] || [ "$2" = "create" ]; then
-        printf '\n# QwenPaw\n%s\n' "$PATH_ENTRY" >> "$profile"
+        printf '\n# NousAIPaw\n%s\n' "$PATH_ENTRY" >> "$profile"
         info "Updated $profile"
         return 0
     fi
@@ -346,7 +346,7 @@ esac
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
-printf "${GREEN}${BOLD}QwenPaw installed successfully!${RESET}\n"
+printf "${GREEN}${BOLD}NousAIPaw installed successfully!${RESET}\n"
 echo ""
 
 # Install summary
@@ -370,7 +370,7 @@ fi
 echo "Then run:"
 echo ""
 printf "  ${BOLD}qwenpaw init${RESET}       # first-time setup\n"
-printf "  ${BOLD}qwenpaw app${RESET}        # start QwenPaw\n"
+printf "  ${BOLD}qwenpaw app${RESET}        # start NousAIPaw\n"
 echo ""
 printf "To upgrade later, re-run this installer.\n"
 printf "To uninstall, run: ${BOLD}qwenpaw uninstall${RESET}\n"

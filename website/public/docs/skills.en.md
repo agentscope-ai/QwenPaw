@@ -19,7 +19,7 @@ copies. The structure and creation paths are described below.
 
 ## Skill Structure
 
-QwenPaw skills are organized in two layers:
+NousAIPaw skills are organized in two layers:
 
 - **Skill Pool:** Shared local repository at `$QWENPAW_WORKING_DIR/skill_pool/`
   (default `~/.qwenpaw/skill_pool/`).
@@ -67,7 +67,7 @@ Pool-side operations:
   customize a builtin, save it under a new name and keep the builtin slot
   untouched.
 - **Conflict handling:** If save, import, upload, or broadcast would land on a
-  name that already exists, QwenPaw returns a conflict instead of silently
+  name that already exists, NousAIPaw returns a conflict instead of silently
   overwriting. The UI/API includes a suggested renamed target so you can retry
   with that name.
 - **Auto sync:** Once enabled for a skill, any change to its pool content is
@@ -83,12 +83,12 @@ Adding skills to the pool:
    | **browser_cdp**               | Connect to or launch Chrome with CDP / remote-debugging enabled. Use only when the user explicitly wants CDP mode.              | Built-in                                                       |
    | **browser_visible**           | Launch a real, visible (headed) browser window for demos, debugging, or scenarios requiring human interaction.                  | Built-in                                                       |
    | **channel_message**           | Proactively send a one-way message to a session or channel after first locating the target session.                             | Built-in                                                       |
-   | **QA_source_index**           | Internal QwenPaw source/doc index skill for quickly mapping keywords to source paths and local docs.                            | Built-in                                                       |
+   | **QA_source_index**           | Internal NousAIPaw source/doc index skill for quickly mapping keywords to source paths and local docs.                            | Built-in                                                       |
    | **cron**                      | Scheduled jobs. Create, list, pause, resume, or delete jobs via `qwenpaw cron` or Console **Control → Cron Jobs**.              | Built-in                                                       |
    | **dingtalk_channel**          | Helps with DingTalk channel onboarding through a visible browser flow and required manual steps.                                | Built-in                                                       |
    | **docx**                      | Create, read, and edit Word documents (.docx), including TOC, headers/footers, tables, images, track changes, comments.         | https://github.com/anthropics/skills/tree/main/skills/docx     |
    | **file_reader**               | Read and summarize text-based files (.txt, .md, .json, .csv, .log, .py, etc.). PDF and Office are handled by dedicated skills.  | Built-in                                                       |
-   | **guidance**                  | Answer QwenPaw installation and configuration questions by consulting local docs first.                                         | Built-in                                                       |
+   | **guidance**                  | Answer NousAIPaw installation and configuration questions by consulting local docs first.                                         | Built-in                                                       |
    | **himalaya**                  | Manage emails via CLI (IMAP/SMTP). Use `himalaya` to list, read, search, and organize emails from the terminal.                 | https://github.com/openclaw/openclaw/tree/main/skills/himalaya |
    | **multi_agent_collaboration** | Coordinate with another agent when the user explicitly asks for it or another agent's context is needed.                        | Built-in                                                       |
    | **news**                      | Fetch and summarize latest news from configured sites; categories include politics, finance, society, world, tech, sports, etc. | Built-in                                                       |
@@ -132,7 +132,7 @@ Adding skills to the pool:
 
 By default the skill pool has a single root: the primary pool at
 `$QWENPAW_WORKING_DIR/skill_pool/`. You can also register one or more **external skill
-roots** in the config so QwenPaw reads the skills they contain into the **same skill pool
+roots** in the config so NousAIPaw reads the skills they contain into the **same skill pool
 view**. This is useful for reusing skill collections already on your machine (a git repo,
 a shared team folder) without copying them into the primary pool.
 
@@ -290,7 +290,7 @@ qwenpaw skills uninstall <skill_name> --agent-id <agent_id>
 ### Create manually in the workspace
 
 You can also create a workspace skill directly by writing files under
-`$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`, including using QwenPaw itself to help
+`$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`, including using NousAIPaw itself to help
 generate those files.
 
 This is flexible, but the write location and resulting skill quality are not
@@ -301,7 +301,7 @@ content before relying on it.
 Create a directory under `$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`, add a
 `SKILL.md`, and make sure it includes YAML front matter with `name` and
 `description`. If the skill depends on external binaries or environment
-variables, declare them in `metadata.requires`; QwenPaw exposes them as
+variables, declare them in `metadata.requires`; NousAIPaw exposes them as
 `require_bins` and `require_envs` metadata, but does not disable the skill
 automatically.
 
@@ -390,7 +390,7 @@ search-driven alternative to the per-URL **Import from URL** flow above.
 
 Four providers ship out of the box:
 
-- **QwenPaw** — public, always enabled.
+- **NousAIPaw** — public, always enabled.
 - **ClawHub** — public, always enabled.
 - **ModelScope** — public, always enabled.
 - **Aliyun** — requires `ALIBABA_CLOUD_ACCESS_KEY_ID` /
@@ -436,7 +436,7 @@ not need to appear on Discord.
 
 Each skill can have a `config` object stored in its manifest entry. This config
 is not just stored metadata. When a skill is effective for the current
-workspace and channel, QwenPaw injects that config into the runtime environment
+workspace and channel, NousAIPaw injects that config into the runtime environment
 for that agent turn, then restores the environment after the turn completes.
 
 You can set config per skill in the Console (**Workspace → Skills** → click the

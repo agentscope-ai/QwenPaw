@@ -7,7 +7,7 @@ const defaultConfig = {
     prefix: "qwenpaw",
     leftHeader: {
       logo: "",
-      title: "Work with QwenPaw",
+      title: "Work with NousAIPaw",
     },
     bubbleList: {
       userMessageAnchors: {

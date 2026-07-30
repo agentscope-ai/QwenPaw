@@ -278,8 +278,8 @@ export default function Header() {
     fetch(url, { cache: "no-cache" })
       .then((res) => (res.ok ? res.text() : Promise.reject()))
       .then((text) => {
-        const zhPattern = /###\s*QwenPaw如何更新[\s\S]*?(?=\n###|$)/;
-        const enPattern = /###\s*How to update QwenPaw[\s\S]*?(?=\n###|$)/;
+        const zhPattern = /###\s*NousAIPaw如何更新[\s\S]*?(?=\n###|$)/;
+        const enPattern = /###\s*How to update NousAIPaw[\s\S]*?(?=\n###|$)/;
         const match = text.match(faqLang === "zh" ? zhPattern : enPattern);
         setUpdateMarkdown(
           match && lang !== "ru"
@@ -347,7 +347,7 @@ export default function Header() {
           <Slot name="header.logo" kind="replace">
             <img
               src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
-              alt="QwenPaw"
+              alt="NousAIPaw"
               className={styles.logoImg}
             />
           </Slot>

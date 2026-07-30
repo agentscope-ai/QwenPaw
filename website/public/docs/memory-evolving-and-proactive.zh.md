@@ -1,8 +1,8 @@
 # 智能体记忆进化与主动交互（Beta）
 
-> **Beta 功能**：QwenPaw 的 ReMeLight memory manager 会把 [ReMe](https://github.com/agentscope-ai/ReMe) 作为进程内应用嵌入。Auto Memory、Auto Resource、Auto Dream、搜索，以及 ReMe 底层的 proactive topic 读取能力都是 ReMe job。QwenPaw 的 `/proactive` 命令是另一条运行时逻辑，它读取近期 chat session 和可选屏幕上下文。
+> **Beta 功能**：NousAIPaw 的 ReMeLight memory manager 会把 [ReMe](https://github.com/agentscope-ai/ReMe) 作为进程内应用嵌入。Auto Memory、Auto Resource、Auto Dream、搜索，以及 ReMe 底层的 proactive topic 读取能力都是 ReMe job。NousAIPaw 的 `/proactive` 命令是另一条运行时逻辑，它读取近期 chat session 和可选屏幕上下文。
 
-QwenPaw 将记忆保存为 agent workspace 下的文件。对话先保存为 JSONL 来源日志，有价值的对话事实写入 daily Markdown note，资源可以转换成 daily note，Auto Dream 再定期把可复用抽象整合进 digest 记忆。
+NousAIPaw 将记忆保存为 agent workspace 下的文件。对话先保存为 JSONL 来源日志，有价值的对话事实写入 daily Markdown note，资源可以转换成 daily note，Auto Dream 再定期把可复用抽象整合进 digest 记忆。
 
 ---
 
@@ -28,9 +28,9 @@ graph LR
 | Auto Resource        | ReMe `resource_watch_loop` -> `auto_resource`                | 嵌入式 ReMe 后台 watcher 监听 `resource_dir`                            | `memory/<date>/<resource_note>.md`                                                     |
 | Auto Dream           | `ReMeLightMemoryManager.dream()` -> ReMe `auto_dream`        | `/dream` 命令或 `dream_cron` 调度                                       | `digest/*/*.md`、`memory/<date>/interests.yaml`                                        |
 | ReMe proactive job   | ReMe `proactive`                                             | 仅在直接调用 ReMe job 时运行                                            | `memory/<date>/interests.yaml` 的 metadata/content                                     |
-| QwenPaw `/proactive` | `src/qwenpaw/agents/memory/proactive`                        | `/proactive [minutes                                                    | on                                                                                     | off]` 空闲循环 | 通过 `/api/console/chat` 发送的主动 chat request |
+| NousAIPaw `/proactive` | `src/qwenpaw/agents/memory/proactive`                        | `/proactive [minutes                                                    | on                                                                                     | off]` 空闲循环 | 通过 `/api/console/chat` 发送的主动 chat request |
 
-关键边界：`memory/<date>/interests.yaml` 由 Auto Dream 生成，也可以被 ReMe 的 `proactive` job 读取；但 QwenPaw 当前 `/proactive` 实现不会调用这个 job，也不会直接消费 `interests.yaml`。
+关键边界：`memory/<date>/interests.yaml` 由 Auto Dream 生成，也可以被 ReMe 的 `proactive` job 读取；但 NousAIPaw 当前 `/proactive` 实现不会调用这个 job，也不会直接消费 `interests.yaml`。
 
 ---
 
@@ -75,7 +75,7 @@ Auto Memory 由 `MemoryMiddleware` 调用，不是每次 model call 都直接运
 
 `auto_memory_interval` 默认是 `5`。`None`、`0` 或负数会禁用周期性 Auto Memory。
 
-Flush 时，QwenPaw 调用 ReMe 的 `auto_memory` job，并传入：
+Flush 时，NousAIPaw 调用 ReMe 的 `auto_memory` job，并传入：
 
 | 字段          | 来源                              |
 | ------------- | --------------------------------- |
@@ -96,13 +96,13 @@ ReMe 的 `AutoMemoryStep` 随后会：
 9. 刷新 `memory/<date>.md` day index；
 10. 返回 `date`、`path`、`created`、`modified`、`n_messages`、`source_conversation`、`index` 等 metadata。
 
-如果 job 成功但没有实际修改 note，QwenPaw 不会为 `auto_memory` 推送 inbox event。否则会推送标题为 `Auto-memory result` 的 inbox event。
+如果 job 成功但没有实际修改 note，NousAIPaw 不会为 `auto_memory` 推送 inbox event。否则会推送标题为 `Auto-memory result` 的 inbox event。
 
 ---
 
 ## Auto Resource
 
-QwenPaw 配置了名为 `resource_watch_loop` 的 ReMe 后台 job。它监听 `resource_dir`，并把变更批次派发给 `auto_resource`。
+NousAIPaw 配置了名为 `resource_watch_loop` 的 ReMe 后台 job。它监听 `resource_dir`，并把变更批次派发给 `auto_resource`。
 
 监听的后缀是：
 
@@ -110,25 +110,25 @@ QwenPaw 配置了名为 `resource_watch_loop` 的 ReMe 后台 job。它监听 `r
 md, txt, json, jsonl, csv, yaml, html
 ```
 
-文件可以直接放在 `resource_dir` 根目录，此时使用 QwenPaw 配置的时区确定当天；也可放在
+文件可以直接放在 `resource_dir` 根目录，此时使用 NousAIPaw 配置的时区确定当天；也可放在
 `resource_dir/YYYY-MM-DD/` 下，此时使用路径中的日期。日期目录之后可以继续嵌套子目录。新增或修改资源时，
 ReMe 按 UTF-8 文本读取内容，由 memory agent 生成或更新 daily note；删除资源时也会删除对应的来源链接 note。
 
 PDF、Word、Excel、图片等二进制文件不会被自动解析。`yml` 后缀也不在默认白名单中；需要先转换为受支持的文本格式。
 
-每个 change item 可以包含 `path` 或 `file_path`，以及类似 `added`、`modified`、`deleted` 的 `change` 值。ReMe step 会将变化的资源文件解读成 daily note。只有当 job 报告确实发生修改时，QwenPaw 才会推送 `Auto-resource result` inbox event。
+每个 change item 可以包含 `path` 或 `file_path`，以及类似 `added`、`modified`、`deleted` 的 `change` 值。ReMe step 会将变化的资源文件解读成 daily note。只有当 job 报告确实发生修改时，NousAIPaw 才会推送 `Auto-resource result` inbox event。
 
 ---
 
 ## Auto Dream
 
-QwenPaw 通过以下入口暴露 Auto Dream：
+NousAIPaw 通过以下入口暴露 Auto Dream：
 
 - `/dream [hint]`，由 `CommandHandler._process_dream()` 处理；
 - `dream_cron_enabled` 为 true 时按 `dream_cron` 配置调度，默认 `0 23 * * *`；定时触发后会随机延迟 0–60 秒启动，以避免集中调用；
 - `ReMeLightMemoryManager.dream(date="", hint="")`。
 
-QwenPaw 运行名为 `auto_dream` 的 ReMe job，并设置 `needs_llm=True`，因此嵌入式 ReMe 会在 job 运行前用 QwenPaw 当前 active model 刷新自己的 LLM component。
+NousAIPaw 运行名为 `auto_dream` 的 ReMe job，并设置 `needs_llm=True`，因此嵌入式 ReMe 会在 job 运行前用 NousAIPaw 当前 active model 刷新自己的 LLM component。
 
 嵌入式 job 配置使用这些默认值：
 
@@ -162,7 +162,7 @@ Digest node 按 bucket 存储：
 
 Integration action 包括 `CREATE`、`CORROBORATE`、`REFINE`、`CORRECT`。整合 prompt 要求使用 workspace-relative wikilink，例如 `derived_from:: [[memory/<date>/<note>.md]]`，让 digest 记忆可以追溯到 daily material。
 
-Auto Dream 完成后，QwenPaw 会推送标题为 `Auto-dream result` 的 inbox event。
+Auto Dream 完成后，NousAIPaw 会推送标题为 `Auto-dream result` 的 inbox event。
 
 ---
 
@@ -194,9 +194,9 @@ ReMe 还定义了一个由 `proactive_step` 实现的 `proactive` job。这个 j
 
 ---
 
-## QwenPaw `/proactive`
+## NousAIPaw `/proactive`
 
-QwenPaw 当前 `/proactive` 命令实现位于 `src/qwenpaw/agents/memory/proactive`，它和 ReMe 的 `proactive` job 是两套逻辑。
+NousAIPaw 当前 `/proactive` 命令实现位于 `src/qwenpaw/agents/memory/proactive`，它和 ReMe 的 `proactive` job 是两套逻辑。
 
 命令行为：
 
@@ -207,7 +207,7 @@ QwenPaw 当前 `/proactive` 命令实现位于 `src/qwenpaw/agents/memory/proact
 /proactive off       # 取消后台 monitoring task
 ```
 
-启用后，QwenPaw 会为 session 保存一个内存态 `ProactiveConfig`，并启动后台循环。该循环会：
+启用后，NousAIPaw 会为 session 保存一个内存态 `ProactiveConfig`，并启动后台循环。该循环会：
 
 - 每 30 秒 wake 一次；
 - agent 有 active tasks 时跳过；
@@ -247,7 +247,7 @@ text starts with "[Agent proactive_helper requesting]"
 | ------------------------- | ---- |
 | `daily_dir`、`digest_dir` | `md` |
 
-QwenPaw 的 `memory_search` tool 会运行 ReMe 的 `search` job，参数是 `query`、`limit`、`min_score`。该 job 配置为 hybrid workspace search，包含向量召回、BM25 keyword 召回、RRF 融合和 wikilink expansion。QwenPaw 嵌入式 ReMe 配置里的存储后端是 local。
+NousAIPaw 的 `memory_search` tool 会运行 ReMe 的 `search` job，参数是 `query`、`limit`、`min_score`。该 job 配置为 hybrid workspace search，包含向量召回、BM25 keyword 召回、RRF 融合和 wikilink expansion。NousAIPaw 嵌入式 ReMe 配置里的存储后端是 local。
 
 ---
 
@@ -259,7 +259,7 @@ QwenPaw 的 `memory_search` tool 会运行 ReMe 的 `search` job，参数是 `qu
 - Auto Memory 基于用户轮次数触发，默认每 5 个用户轮次一次；
 - Auto Dream 通过 `/dream` 或 `dream_cron` 运行；
 - ReMe 会写入 `interests.yaml`，也有读取它的底层 job；
-- QwenPaw `/proactive` 当前使用近期 chat/session/screen context，而不是 ReMe interest topics；
+- NousAIPaw `/proactive` 当前使用近期 chat/session/screen context，而不是 ReMe interest topics；
 - Auto Memory、Auto Resource、Auto Dream 产生可报告输出时，可能投递到 inbox。
 
 该能力仍处于 Beta 阶段，但以上行为与当前代码实现一致。

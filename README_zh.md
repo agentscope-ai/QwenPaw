@@ -1,6 +1,6 @@
 <div align="center">
 
-# QwenPaw
+# NousAIPaw
 
 [![GitHub 仓库](https://img.shields.io/badge/GitHub-仓库-black.svg?logo=github)](https://github.com/agentscope-ai/QwenPaw)
 [![PyPI](https://img.shields.io/pypi/v/qwenpaw?color=3775A9&label=PyPI&logo=pypi)](https://pypi.org/project/qwenpaw/)
@@ -22,7 +22,7 @@
 [[文档](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
 <p align="center">
-  <img src="https://gw.alicdn.com/imgextra/i1/O1CN01sens5C1TuwioeGexL_!!6000000002443-55-tps-771-132.svg" alt="QwenPaw Logo" width="120">
+  <img src="https://gw.alicdn.com/imgextra/i1/O1CN01sens5C1TuwioeGexL_!!6000000002443-55-tps-771-132.svg" alt="NousAIPaw Logo" width="120">
 </p>
 
 <p align="center"><b>懂你所需，伴你左右。</b></p>
@@ -34,7 +34,7 @@
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **不遗忘对话**                         | 三层记忆 — 实时工作上下文、完整逐字历史、蒸馏知识。较早轮次会被逐出但可随时召回，不摘要压缩、不丢失信息。                                                                           |
-| **本地云端，自由运行**                    | QwenPaw-Flash 模型（2B / 4B / 9B）面向 Agent 场景专项训练。内置 QwenPaw Local 运行时，无需 API Key、不依赖云端。同时支持 Ollama、LM Studio 及 14+ 云端模型供应商。                  |
+| **本地云端，自由运行**                    | QwenPaw-Flash 模型（2B / 4B / 9B）面向 Agent 场景专项训练。内置 NousAIPaw Local 运行时，无需 API Key、不依赖云端。同时支持 Ollama、LM Studio 及 14+ 云端模型供应商。                  |
 | **安全机制**                         | 内核级 Sandbox、Tool Guard、File Guard 与 Skill Scanner。危险命令在执行前即被拦截。                                        |
 | **多智能体与并行**                        | 创建拥有独立记忆与技能的 Agent；运行时生成子 Agent；通过 Agent Communication Protocol（ACP）实现跨系统编排。                                                                         |
 | **代码模式**                        | 三面板 Web IDE，含文件树、Diff 预览与对话区。内置跳转定义、查找引用与结构化代码搜索。                                                                                                 |
@@ -43,7 +43,7 @@
 | **你的，不是我们的**                      | 本地部署，数据留在你的机器，无第三方托管，无数据上传。                                                                                                         |
 
 <details>
-<summary><b>你可以用 QwenPaw 做什么</b></summary>
+<summary><b>你可以用 NousAIPaw 做什么</b></summary>
 
 <br>
 
@@ -62,7 +62,7 @@
 
 - [2026-07-24] **v2.0.1** | PawApp 小程序平台、用户可编辑 Agent Mode、Oh-My-Paw plugins、ReMe 记忆增强、桌面端用户体验增强等。[v2.0.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式发布** 🎉 | 基于 AgentScope 2.0 全面重构，Agent OS 架构、Loop Engineering、Scroll 上下文、ReMe v0.4.0 长期记忆与内置终端界面。
+- [2026-07-10] **v2.0.0 — NousAIPaw 2.0 正式发布** 🎉 | 基于 AgentScope 2.0 全面重构，Agent OS 架构、Loop Engineering、Scroll 上下文、ReMe v0.4.0 长期记忆与内置终端界面。
 
   | 亮点 | 更新内容 |
   |------|----------|
@@ -73,11 +73,11 @@
   | **ReMe v0.4.0 长期记忆** | 按轮自动追踪、使用感知搜索、后端特定嵌入。 |
   | **终端界面（TUI）** | 全屏终端对话——与控制台和频道共享同一智能体、记忆与会话。 |
 
-  基于 Agent OS，我们将陆续推出开箱即用的 QwenPaw 应用小程序——如 **QwenPaw Creator**、**QwenPaw Insight** 等，敬请期待。 [v2.0.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+  基于 Agent OS，我们将陆续推出开箱即用的 NousAIPaw 应用小程序——如 **NousAIPaw Creator**、**NousAIPaw Insight** 等，敬请期待。 [v2.0.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — 模型页面大改版 & 简洁模式** | 全新模型页面 Provider 聚合设计；新增简洁模式，扁平化导航。[v1.1.12 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 
-- [2026-06-11] **AgentScope 体验平台上线** — 支持免费部署 QwenPaw、插件分享与 Skill 市场。[立即体验 →](https://platform.agentscope.io/)
+- [2026-06-11] **AgentScope 体验平台上线** — 支持免费部署 NousAIPaw、插件分享与 Skill 市场。[立即体验 →](https://platform.agentscope.io/)
 
 - [2026-06-10] **v1.1.11** — 免费模型 OAuth、插件市场、MCP 工具白名单。[v1.1.11 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
@@ -97,7 +97,7 @@
 - [路线图](#路线图)
 - [参与贡献](#参与贡献)
 - [从源码安装](#从源码安装)
-- [为什么叫 QwenPaw？](#为什么叫-qwenpaw)
+- [为什么叫 NousAIPaw？](#为什么叫-qwenpaw)
 - [由谁构建](#由谁构建)
 - [许可证](#许可证)
 
@@ -123,7 +123,7 @@ qwenpaw app
 
 ### 方式二：脚本安装
 
-无需手动配置 Python，一行命令自动完成安装。脚本会自动下载 uv（Python 包管理器）、创建虚拟环境、安装 QwenPaw 及其依赖（含 Node.js 和前端资源）。注意：部分网络环境或企业权限管控下可能无法使用。
+无需手动配置 Python，一行命令自动完成安装。脚本会自动下载 uv（Python 包管理器）、创建虚拟环境、安装 NousAIPaw 及其依赖（含 Node.js 和前端资源）。注意：部分网络环境或企业权限管控下可能无法使用。
 
 **macOS / Linux：**
 
@@ -152,9 +152,9 @@ irm https://qwenpaw.agentscope.io/install.ps1 | iex
 >
 >    脚本已完成文件安装，由于 **受限语言模式**，脚本无法自动更新环境变量，此时只需手动配置：
 >    - **找到安装目录**：
->      - 检查 `uv` 是否可用：在 CMD 中输入 `uv --version`，如果显示版本号，则**只需配置 QwenPaw 路径**；如果提示 `'uv' is not recognized as an internal or external command, operable program or batch file,`，则需同时配置两者。
+>      - 检查 `uv` 是否可用：在 CMD 中输入 `uv --version`，如果显示版本号，则**只需配置 NousAIPaw 路径**；如果提示 `'uv' is not recognized as an internal or external command, operable program or batch file,`，则需同时配置两者。
 >      - uv 路径（任选其一，取决于安装位置，若 `uv` 不可用则填）：通常在 `%USERPROFILE%\.local\bin`、`%USERPROFILE%\AppData\Local\uv` 或 Python 安装目录下的 `Scripts` 文件夹
->      - QwenPaw 路径：通常在 `%USERPROFILE%\.qwenpaw\bin`。
+>      - NousAIPaw 路径：通常在 `%USERPROFILE%\.qwenpaw\bin`。
 >    - **手动添加到系统的 Path 环境变量**：
 >      - 按 `Win + R`，输入 `sysdm.cpl` 并回车，打开「系统属性」。
 >      - 点击「高级」→「环境变量」。
@@ -165,8 +165,8 @@ irm https://qwenpaw.agentscope.io/install.ps1 | iex
 >   由于 **受限语言模式**，脚本可能无法自动下载 `uv`。
 >   - **手动安装 uv**：参考 [GitHub Release](https://github.com/astral-sh/uv/releases) 下载并将 `uv.exe` 放至 `%USERPROFILE%\.local\bin` 或 `%USERPROFILE%\AppData\Local\uv`；或者确保已安装 Python，然后运行 `python -m pip install -U uv`。
 >   - **配置 `uv` 环境变量**：将 `uv` 所在目录和 `%USERPROFILE%\.qwenpaw\bin` 添加到系统的 `Path` 变量中。
->   - **重新运行**：打开新终端，再次执行安装脚本以完成 `QwenPaw` 安装。
->   - **配置 `QwenPaw` 环境变量**：将 `%USERPROFILE%\.qwenpaw\bin` 添加到系统的 `Path` 变量中。
+>   - **重新运行**：打开新终端，再次执行安装脚本以完成 `NousAIPaw` 安装。
+>   - **配置 `NousAIPaw` 环境变量**：将 `%USERPROFILE%\.qwenpaw\bin` 添加到系统的 `Path` 变量中。
 
 安装完成后，请打开新终端并运行：
 
@@ -236,7 +236,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 > **从容器内连接宿主机上的 Ollama 或其他模型服务**
 >
-> Docker 容器内的 `localhost` 指向容器自身，而非宿主机。如果 Ollama（或其他模型服务）运行在宿主机上，可通过以下方式让容器内的 QwenPaw 访问：
+> Docker 容器内的 `localhost` 指向容器自身，而非宿主机。如果 Ollama（或其他模型服务）运行在宿主机上，可通过以下方式让容器内的 NousAIPaw 访问：
 >
 > **方式 A** — 显式绑定宿主机地址（全平台通用）：
 > ```bash
@@ -247,7 +247,7 @@ docker run -p 127.0.0.1:8088:8088 \
 >   -v qwenpaw-backups:/app/working.backups \
 >   agentscope/qwenpaw:latest
 > ```
-> 然后在 QwenPaw **设置 → 模型** 中，将 Base URL 改为 `http://host.docker.internal:<端口>` — 例如 Ollama 填 `http://host.docker.internal:11434`，LM Studio 填 `http://host.docker.internal:1234/v1`。
+> 然后在 NousAIPaw **设置 → 模型** 中，将 Base URL 改为 `http://host.docker.internal:<端口>` — 例如 Ollama 填 `http://host.docker.internal:11434`，LM Studio 填 `http://host.docker.internal:1234/v1`。
 >
 > **方式 B** — 使用宿主机网络（仅限 Linux）：
 > ```bash
@@ -266,19 +266,19 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ### 方式四：部署到阿里云 ECS
 
-若希望将 QwenPaw 部署在阿里云上，可使用阿里云 ECS 一键部署：打开 [QwenPaw 阿里云 ECS 部署链接](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884) 按页面提示操作即可。详细步骤见 [阿里云开发者社区：3 分钟部署你的 AI 助理](https://developer.aliyun.com/article/1713682)。
+若希望将 NousAIPaw 部署在阿里云上，可使用阿里云 ECS 一键部署：打开 [NousAIPaw 阿里云 ECS 部署链接](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884) 按页面提示操作即可。详细步骤见 [阿里云开发者社区：3 分钟部署你的 AI 助理](https://developer.aliyun.com/article/1713682)。
 
 ---
 
 ### 方式五：AgentScope Platform 部署
 
-[AgentScope Platform](https://platform.agentscope.io/) 提供一键云端 QwenPaw 部署、插件分享与 Skill 市场。完全免费，7/24 在线。
+[AgentScope Platform](https://platform.agentscope.io/) 提供一键云端 NousAIPaw 部署、插件分享与 Skill 市场。完全免费，7/24 在线。
 
 ---
 
 ### 方式六：使用魔搭创空间
 
-使用 [魔搭创空间](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) 也可进行云端 QwenPaw 部署。注意：请将创空间设为 **非公开**，否则他人可能操纵你的 QwenPaw。
+使用 [魔搭创空间](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) 也可进行云端 NousAIPaw 部署。注意：请将创空间设为 **非公开**，否则他人可能操纵你的 NousAIPaw。
 
 ---
 
@@ -289,7 +289,7 @@ docker run -p 127.0.0.1:8088:8088 \
 > - **性能可能存在缺陷**：启动速度、内存占用等方面可能需要进一步优化
 > - **功能持续完善中**：部分功能可能不稳定或缺失
 
-如果你不习惯使用命令行，可以下载并使用 QwenPaw 的桌面应用版本，无需手动配置 Python 环境或执行命令。
+如果你不习惯使用命令行，可以下载并使用 NousAIPaw 的桌面应用版本，无需手动配置 Python 环境或执行命令。
 
 #### 下载
 
@@ -310,13 +310,13 @@ docker run -p 127.0.0.1:8088:8088 \
 
 #### macOS：绕过系统安全限制
 
-当你从 Releases 下载 QwenPaw macOS 应用时，macOS 可能显示：*"Apple 无法验证 'QwenPaw' 不包含恶意软件"*。这是因为应用未经过公证。你仍然可以通过以下方式打开：
+当你从 Releases 下载 NousAIPaw macOS 应用时，macOS 可能显示：*"Apple 无法验证 'NousAIPaw' 不包含恶意软件"*。这是因为应用未经过公证。你仍然可以通过以下方式打开：
 
 - **右键打开（推荐）**
-  右键点击（或 Control + 点击）QwenPaw 应用 → **「打开」** → 在对话框中再次点击 **「打开」**。这会告诉 Gatekeeper 你信任该应用；之后可以像往常一样双击启动。
+  右键点击（或 Control + 点击）NousAIPaw 应用 → **「打开」** → 在对话框中再次点击 **「打开」**。这会告诉 Gatekeeper 你信任该应用；之后可以像往常一样双击启动。
 
 - **在系统设置中允许**
-  如果仍被阻止，进入 **系统设置 → 隐私与安全性**，向下滚动找到类似 *「已阻止 'QwenPaw'，因为无法验证开发者」* 的提示，点击 **「仍要打开」** 或 **「允许」**。
+  如果仍被阻止，进入 **系统设置 → 隐私与安全性**，向下滚动找到类似 *「已阻止 'NousAIPaw'，因为无法验证开发者」* 的提示，点击 **「仍要打开」** 或 **「允许」**。
 
 - **移除隔离属性（不推荐大多数用户）**
   在终端运行：
@@ -351,13 +351,13 @@ qwenpaw .                   # 在当前代码仓库中启动（Coding 模式）
 
 支持流式回复、斜杠命令（`/help`、`/resume`、`/theme`，以及智能体自身的 `/model`、`/clear` 等）、把文件 / 长文本作为附件粘贴，以及行内工具授权提示。详见 [终端界面指南](https://qwenpaw.agentscope.io/docs/tui)。
 
-![QwenPaw 终端界面](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
+![NousAIPaw 终端界面](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
 
 ---
 
 ## API Key
 
-若使用**云端大模型 API**（如 DashScope / 通义千问、OpenAI、Anthropic、Google Gemini、DeepSeek、Kimi、OpenRouter 等），在开始对话前必须配置 API Key。未配置有效 Key 前，QwenPaw 无法正常工作。详情请参考 [官方文档](https://qwenpaw.agentscope.io/docs/models)。
+若使用**云端大模型 API**（如 DashScope / 通义千问、OpenAI、Anthropic、Google Gemini、DeepSeek、Kimi、OpenRouter 等），在开始对话前必须配置 API Key。未配置有效 Key 前，NousAIPaw 无法正常工作。详情请参考 [官方文档](https://qwenpaw.agentscope.io/docs/models)。
 
 **配置方式：**
 
@@ -367,17 +367,17 @@ qwenpaw .                   # 在当前代码仓库中启动（Coding 模式）
 
 其他工具所需密钥（如网页搜索的 `TAVILY_API_KEY`）可在控制台 **设置 → 环境变量** 中配置，详见 [配置](https://qwenpaw.agentscope.io/docs/config)。
 
-> **仅用本地模型？** 若使用 [本地模型](#本地模型)（QwenPaw Local / Ollama / LM Studio），则**无需**任何 API Key。
+> **仅用本地模型？** 若使用 [本地模型](#本地模型)（NousAIPaw Local / Ollama / LM Studio），则**无需**任何 API Key。
 
 ## 本地模型
 
-QwenPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务。详情请见 [官方文档](https://qwenpaw.agentscope.io/docs/models)。
+NousAIPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务。详情请见 [官方文档](https://qwenpaw.agentscope.io/docs/models)。
 
-QwenPaw 还提供 **QwenPaw-Flash** 系列 — 面向 Agent 场景专项训练的 2B / 4B / 9B 模型，提供 Q4 与 Q8 量化版本。可在 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 与 [Hugging Face](https://huggingface.co/agentscope-ai/models) 获取。
+NousAIPaw 还提供 **QwenPaw-Flash** 系列 — 面向 Agent 场景专项训练的 2B / 4B / 9B 模型，提供 Q4 与 Q8 量化版本。可在 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 与 [Hugging Face](https://huggingface.co/agentscope-ai/models) 获取。
 
 | 后端                              | 适用场景                                 | 安装                                                                 |
 | --------------------------------- | ---------------------------------------- | -------------------------------------------------------------------- |
-| **QwenPaw Local**（llama.cpp）    | 跨平台（macOS / Linux / Windows）        | 内置；在 Web 界面点击「Download」即可。支持 QwenPaw-Flash，并提供硬件感知推荐。 |
+| **NousAIPaw Local**（llama.cpp）    | 跨平台（macOS / Linux / Windows）        | 内置；在 Web 界面点击「Download」即可。支持 QwenPaw-Flash，并提供硬件感知推荐。 |
 | **Ollama**                        | 跨平台（需要 Ollama 服务运行）           | 安装并启动 Ollama；将上下文长度设为 ≥ 32k。                          |
 | **LM Studio**                     | 跨平台（需要 LM Studio 服务运行）        | 安装并启动 LM Studio；启用 Local Server。                            |
 
@@ -385,7 +385,7 @@ QwenPaw 还提供 **QwenPaw-Flash** 系列 — 面向 Agent 场景专项训练�
 
 ## 安全特性
 
-QwenPaw 内置四层核心安全防护：
+NousAIPaw 内置四层核心安全防护：
 
 - **Sandbox** — 内核级执行隔离，macOS 使用 Seatbelt，Linux 使用 Bubblewrap / Landlock，Windows 使用 AppContainer。Shell 命令在受限文件系统视图中运行。
 - **Tool Guard** — 带 `ShellEvasionGuardian` 的 YAML 规则引擎，在每次工具调用执行前进行检查，检测命令注入、路径遍历、反向 Shell 与混淆攻击。可配置审批级别：STRICT / SMART / AUTO / OFF。
@@ -401,7 +401,7 @@ QwenPaw 内置四层核心安全防护：
 
 | 主题                                                                 | 说明                                             |
 | -------------------------------------------------------------------- | ------------------------------------------------ |
-| [项目介绍](https://qwenpaw.agentscope.io/docs/intro)                 | QwenPaw 是什么、怎么用                           |
+| [项目介绍](https://qwenpaw.agentscope.io/docs/intro)                 | NousAIPaw 是什么、怎么用                           |
 | [快速开始](https://qwenpaw.agentscope.io/docs/quickstart)            | 安装与运行（本地或魔搭创空间）                   |
 | [控制台](https://qwenpaw.agentscope.io/docs/console)                 | Web 界面：对话与智能体配置                       |
 | [终端界面（TUI）](https://qwenpaw.agentscope.io/docs/tui)            | 终端全屏对话，与控制台共用同一智能体             |
@@ -448,8 +448,8 @@ QwenPaw 内置四层核心安全防护：
 | **模型**                 | 多模型切换                                                                                   | 进行中 |
 | **Browser-use**          | 支持 Chrome 扩展                                                                             | 进行中 |
 | **长期记忆**             | 个人知识库                                                                                   | 进行中 |
-| **QwenPaw 应用**         | QwenPaw Creator                                                                              | 进行中 |
-|                          | QwenPaw Insight                                                                              | 进行中 |
+| **NousAIPaw 应用**         | NousAIPaw Creator                                                                              | 进行中 |
+|                          | NousAIPaw Insight                                                                              | 进行中 |
 | **多智能体**             | 兼容 Claude Code 等既有 Agent                                                                | 计划中 |
 |                          | 群聊                                                                                         | 计划中 |
 |                          | Subagent 可视化                                                                              | 计划中 |
@@ -460,7 +460,7 @@ _状态说明：**进行中** — 正在积极开发；**计划中** — 已排�
 
 ## 参与贡献
 
-QwenPaw 在开放协作中持续演进，欢迎各种形式的参与！请参考上方 [路线图](#路线图)（尤其是标记为 **征集中** 的项）选择你感兴趣的方向，并阅读 [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING_zh.md) 了解如何开始。我们特别欢迎：
+NousAIPaw 在开放协作中持续演进，欢迎各种形式的参与！请参考上方 [路线图](#路线图)（尤其是标记为 **征集中** 的项）选择你感兴趣的方向，并阅读 [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING_zh.md) 了解如何开始。我们特别欢迎：
 
 - **横向拓展** — 新频道、模型提供商、Skills、MCP。
 - **已有功能扩展与完善** — 展示与交互优化、下载提示、Windows 路径兼容等。
@@ -472,8 +472,8 @@ QwenPaw 在开放协作中持续演进，欢迎各种形式的参与！请参考
 ## 从源码安装
 
 ```bash
-git clone https://github.com/agentscope-ai/QwenPaw.git
-cd QwenPaw
+git clone https://github.com/uaixo/awesome-NousAI-PAW.git
+cd awesome-NousAI-PAW
 
 # 先构建前端控制台（Web 界面必需）
 cd console && npm ci && npm run build
@@ -494,9 +494,9 @@ pip install -e .
 
 ---
 
-## 为什么叫 QwenPaw？
+## 为什么叫 NousAIPaw？
 
-QwenPaw 既是 Qwen Personal Agent Workstation（千问个人智能体工作台），也寓意 Qwen 的智识与 Paw 的温度。我们希望它不是冰冷的工具，而是一只随时准备帮忙的智慧、温暖「小爪子」，是你数字生活中最默契的伙伴。
+NousAIPaw 既是 Qwen Personal Agent Workstation（千问个人智能体工作台），也寓意 Qwen 的智识与 Paw 的温度。我们希望它不是冰冷的工具，而是一只随时准备帮忙的智慧、温暖「小爪子」，是你数字生活中最默契的伙伴。
 
 ---
 
@@ -517,20 +517,20 @@ QwenPaw 既是 Qwen Personal Agent Workstation（千问个人智能体工作台�
 ## 掌握最新动态
 
 <a href="https://github.com/agentscope-ai/QwenPaw">
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" width="600" alt="Star QwenPaw" />
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" width="600" alt="Star NousAIPaw" />
 </a>
 
-在 GitHub 上 Star QwenPaw，第一时间收到新版本发布通知。
+在 GitHub 上 Star NousAIPaw，第一时间收到新版本发布通知。
 
 ---
 
 ## 遥测数据
 
-QwenPaw 在执行 `qwenpaw init` 时会收集**匿名**使用数据，帮助我们了解用户环境并优化产品。数据**每个版本收集一次** — 当你升级 QwenPaw 后，会重新收集以便我们了解版本分布。
+NousAIPaw 在执行 `qwenpaw init` 时会收集**匿名**使用数据，帮助我们了解用户环境并优化产品。数据**每个版本收集一次** — 当你升级 NousAIPaw 后，会重新收集以便我们了解版本分布。
 
 **收集的信息：**
 
-- QwenPaw 版本（如 1.1.12）
+- NousAIPaw 版本（如 1.1.12）
 - 安装方式（pip、Docker 或桌面应用）
 - 操作系统及版本（如 macOS 14.0、Ubuntu 22.04）
 - Python 版本（如 3.13）
@@ -539,19 +539,19 @@ QwenPaw 在执行 `qwenpaw init` 时会收集**匿名**使用数据，帮助我�
 
 **不收集：** 不涉及任何个人数据、文件、密钥、IP 地址或可识别信息。
 
-交互式运行 `qwenpaw init` 时，会询问你是否同意。使用 `--defaults` 模式则自动同意。提示每个版本仅出现一次，且不影响 QwenPaw 的任何功能。
+交互式运行 `qwenpaw init` 时，会询问你是否同意。使用 `--defaults` 模式则自动同意。提示每个版本仅出现一次，且不影响 NousAIPaw 的任何功能。
 
 ---
 
 ## 许可证
 
-QwenPaw 采用 [Apache License 2.0](LICENSE) 开源协议。
+NousAIPaw 采用 [Apache License 2.0](LICENSE) 开源协议。
 
 ---
 
 ## 贡献者
 
-感谢所有为 QwenPaw 做出贡献的朋友们：
+感谢所有为 NousAIPaw 做出贡献的朋友们：
 
 <a href="https://github.com/agentscope-ai/QwenPaw/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=agentscope-ai/QwenPaw" alt="贡献者" />

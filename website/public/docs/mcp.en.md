@@ -1,14 +1,14 @@
 # MCP & Built-in Tools
 
-QwenPaw uses **MCP (Model Context Protocol)** to connect to external services and provides a suite of **built-in tools** that enable agents to access filesystems, execute commands, browse the web, and more.
+NousAIPaw uses **MCP (Model Context Protocol)** to connect to external services and provides a suite of **built-in tools** that enable agents to access filesystems, execute commands, browse the web, and more.
 
 ---
 
 ## Concepts
 
-QwenPaw provides two types of tools for agents:
+NousAIPaw provides two types of tools for agents:
 
-1. **Built-in Tools**: Ready-to-use tools provided by QwenPaw core, such as file operations, command execution, and browser automation
+1. **Built-in Tools**: Ready-to-use tools provided by NousAIPaw core, such as file operations, command execution, and browser automation
 
    - Managed on the **Agent → Tools** page
    - Can be individually enabled/disabled
@@ -23,7 +23,7 @@ Both types can be used simultaneously without conflict.
 
 ## MCP
 
-**MCP (Model Context Protocol)** allows QwenPaw to connect to external MCP servers, extending the agent's ability to access filesystems, databases, APIs, and other external resources.
+**MCP (Model Context Protocol)** allows NousAIPaw to connect to external MCP servers, extending the agent's ability to access filesystems, databases, APIs, and other external resources.
 
 ### Prerequisites
 
@@ -52,7 +52,7 @@ node --version  # Check version
 
 ### Configuration Formats
 
-QwenPaw supports three JSON formats—choose one:
+NousAIPaw supports three JSON formats—choose one:
 
 #### Format 1: Standard mcpServers Format (**Recommended**)
 
@@ -190,7 +190,7 @@ MCP supports three transport protocols, usually auto-detected:
 
 ## Built-in Tools
 
-QwenPaw provides a set of ready-to-use built-in tools that agents can directly call to perform various tasks.
+NousAIPaw provides a set of ready-to-use built-in tools that agents can directly call to perform various tasks.
 
 ---
 
@@ -282,7 +282,7 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
 - Then describe your intent directly in chat, for example:
   - “Please use the external agent claude code to analyze the structure of the working directory”
   - “Please talk to the external agent claude code and ask it to write a self-introduction into a markdown file”
-- QwenPaw will call `delegate_external_agent` when appropriate, establish a continuous conversation with the external agent, and stream progress and results back into the current chat
+- NousAIPaw will call `delegate_external_agent` when appropriate, establish a continuous conversation with the external agent, and stream progress and results back into the current chat
 - After the connection is established, you can continue multi-turn conversations with that external agent through `delegate_external_agent`
 - Each runner currently supports only one active session per chat; to start a new conversation, close the current session first
 

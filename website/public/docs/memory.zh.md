@@ -1,6 +1,6 @@
 # 长期记忆
 
-**长期记忆** 让 QwenPaw 拥有跨对话的持久记忆能力。默认后端会在 QwenPaw 进程内嵌入 ReMe 应用，并通过 ReMe jobs
+**长期记忆** 让 NousAIPaw 拥有跨对话的持久记忆能力。默认后端会在 NousAIPaw 进程内嵌入 ReMe 应用，并通过 ReMe jobs
 完成对话事实保存、每日记忆、梦境摘要、资源文件监听和记忆检索。
 
 > 长期记忆机制设计受 [OpenClaw](https://github.com/openclaw/openclaw)
@@ -33,13 +33,13 @@ graph TB
 
 | 能力               | 说明                                                                                    |
 | ------------------ | --------------------------------------------------------------------------------------- |
-| **嵌入式 ReMe**    | QwenPaw 在进程内启动 ReMe，并将当前 Agent 使用的 QwenPaw 模型注入到 ReMe 默认 LLM 组件  |
+| **嵌入式 ReMe**    | NousAIPaw 在进程内启动 ReMe，并将当前 Agent 使用的 NousAIPaw 模型注入到 ReMe 默认 LLM 组件  |
 | **Auto-Memory**    | 每隔可配置数量的用户回合，将对话中值得保留的事实抽取为每日 Markdown 记忆                |
 | **上下文压缩保存** | 上下文压缩前，可把尚未写入的回合先提交给同一套 `auto_memory` 流程                       |
 | **Auto-Dream**     | 定时从近期每日记忆中提取更高层的 digest 单元和主动交互兴趣主题                          |
 | **混合检索**       | `memory_search` 调用 ReMe `search` job，通过 BM25 + 可选向量检索，并使用 RRF 融合排序   |
 | **资源记忆**       | `resource/` 下的外部文件会被编目，变更后可通过 `auto_resource` 转成带来源链接的每日记忆 |
-| **Inbox 通知**     | `auto_memory`、`auto_dream`、`auto_resource` 产生结果时，会推送到 QwenPaw inbox         |
+| **Inbox 通知**     | `auto_memory`、`auto_dream`、`auto_resource` 产生结果时，会推送到 NousAIPaw inbox         |
 
 ---
 
@@ -286,11 +286,11 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 
 ## 其他 Memory Backend
 
-QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeLight（本地文件存储）外，还支持通过 `memory_manager_backend` 切换到其他后端。
+NousAIPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeLight（本地文件存储）外，还支持通过 `memory_manager_backend` 切换到其他后端。
 
 ### ADBPG（AnalyticDB for PostgreSQL）
 
-基于云端向量数据库的长期记忆后端，适合需要跨设备共享、大规模语义检索的场景。QwenPaw 通过 ADBPG 记忆服务的 REST API 接入，无需安装额外数据库驱动。
+基于云端向量数据库的长期记忆后端，适合需要跨设备共享、大规模语义检索的场景。NousAIPaw 通过 ADBPG 记忆服务的 REST API 接入，无需安装额外数据库驱动。
 
 **核心特点：**
 
@@ -305,12 +305,12 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 
 ![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
 
-> ⚠️ 切换后端不支持热更新，保存后需要重启 QwenPaw 才能生效（页面也会以黄色横幅提醒）。
+> ⚠️ 切换后端不支持热更新，保存后需要重启 NousAIPaw 才能生效（页面也会以黄色横幅提醒）。
 
 > 迁移提示：ADBPG SQL 直连模式已移除。旧配置中的 `api_mode: "sql"`、
 > `host`、`port`、`user`、`password`、`dbname`、LLM 和 Embedding 相关字段
 > 会被忽略；请改为配置 `rest_base_url` 和 `rest_api_key`，保存后重启
-> QwenPaw。
+> NousAIPaw。
 
 | 配置项                      | 说明                                                                    | 默认值                                |
 | --------------------------- | ----------------------------------------------------------------------- | ------------------------------------- |

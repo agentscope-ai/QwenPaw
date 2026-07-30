@@ -1,6 +1,6 @@
 <div align="center">
 
-# QwenPaw
+# NousAIPaw
 
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Repo-black.svg?logo=github)](https://github.com/agentscope-ai/QwenPaw)
 [![PyPI](https://img.shields.io/pypi/v/qwenpaw?color=3775A9&label=PyPI&logo=pypi)](https://pypi.org/project/qwenpaw/)
@@ -22,7 +22,7 @@
 [[Documentation](https://qwenpaw.agentscope.io/)] [[中文](README_zh.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
 <p align="center">
-  <img src="https://gw.alicdn.com/imgextra/i1/O1CN01sens5C1TuwioeGexL_!!6000000002443-55-tps-771-132.svg" alt="QwenPaw Logo" width="120">
+  <img src="https://gw.alicdn.com/imgextra/i1/O1CN01sens5C1TuwioeGexL_!!6000000002443-55-tps-771-132.svg" alt="NousAIPaw Logo" width="120">
 </p>
 
 <p align="center"><b>Works for you, grows with you.</b></p>
@@ -34,7 +34,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Never forgets**                       | Three-layer memory — live working context, full verbatim history, and distilled knowledge. Older turns evict but stay recallable on demand; nothing is summarized away or lost.     |
-| **Local or cloud, runs free**           | QwenPaw-Flash models (2B / 4B / 9B) trained for agent tasks. Built-in QwenPaw Local runtime — no API key, no cloud dependency. Also works with Ollama, LM Studio, or 14+ cloud providers.   |
+| **Local or cloud, runs free**           | QwenPaw-Flash models (2B / 4B / 9B) trained for agent tasks. Built-in NousAIPaw Local runtime — no API key, no cloud dependency. Also works with Ollama, LM Studio, or 14+ cloud providers.   |
 | **Security built in**                   | Kernel-level Sandbox, Tool Guard, File Guard, Skill Scanner, and Access Policy. Dangerous commands are blocked before they run.                                                                   |
 | **Multi-agent & parallel**              | Spawn independent agents with their own memory and skills. Sub-agents at runtime. Agent Communication Protocol (ACP) for cross-system orchestration.                               |
 | **Coding Mode**                         | Three-panel Web IDE with file tree, diff preview, and chat. Jump-to-definition, find-references, and structural code search built in.                                              |
@@ -43,7 +43,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 | **Yours, not ours**                     | Deploy locally — data stays on your machine. No third-party hosting, no data upload.                                                                                               |
 
 <details>
-<summary><b>What you can do with QwenPaw</b></summary>
+<summary><b>What you can do with NousAIPaw</b></summary>
 
 <br>
 
@@ -62,7 +62,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 
 - [2026-07-24] **v2.0.1** | PawApp mini-app platform, user-editable Agent Modes, Oh-My-Paw plugins, ReMe memory enhancements, desktop UX improvements, and more. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | An AgentScope 2.0 based ground-up rewrite delivering the Agent OS architecture, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory, and a bundled Terminal UI.
+- [2026-07-10] **v2.0.0 — NousAIPaw 2.0 Official Release** 🎉 | An AgentScope 2.0 based ground-up rewrite delivering the Agent OS architecture, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory, and a bundled Terminal UI.
 
   | Highlight | What's new |
   |-----------|------------|
@@ -73,11 +73,11 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
   | **ReMe v0.4.0 Long-term Memory** | Turn-based auto tracking, usage-aware search, and backend-specific embeddings. |
   | **Terminal UI (TUI)** | Full-screen terminal chat — same agent, memory, and sessions as Console and channels. |
 
-  Built on Agent OS, we will be launching out-of-box QwenPaw applications — such as **QwenPaw Creator** and **QwenPaw Insight** — stay tuned. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+  Built on Agent OS, we will be launching out-of-box NousAIPaw applications — such as **NousAIPaw Creator** and **NousAIPaw Insight** — stay tuned. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — Models Page Overhaul & Simple Mode** | Redesigned Models page with provider aggregation; new Simple Mode for streamlined navigation. [v1.1.12 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 
-- [2026-06-11] **AgentScope Platform is live** — Free QwenPaw deployment, plugin sharing, and Skill marketplace. [Try it now →](https://platform.agentscope.io/)
+- [2026-06-11] **AgentScope Platform is live** — Free NousAIPaw deployment, plugin sharing, and Skill marketplace. [Try it now →](https://platform.agentscope.io/)
 
 - [2026-06-10] **v1.1.11** — Free Model OAuth, Plugin Market, MCP Tool Whitelisting. [v1.1.11 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
@@ -97,7 +97,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [Install From Source](#install-from-source)
-- [Why QwenPaw?](#why-qwenpaw)
+- [Why NousAIPaw?](#why-qwenpaw)
 - [Built By](#built-by)
 - [License](#license)
 
@@ -123,7 +123,7 @@ Then open the Console in your browser at **http://127.0.0.1:8088/** to configure
 
 ### Option 2: Script Install
 
-No Python setup required, one command installs everything. The script will automatically download uv (Python package manager), create a virtual environment, and install QwenPaw with all dependencies (including Node.js and frontend assets). Note: May not work in restricted network environments or corporate firewalls.
+No Python setup required, one command installs everything. The script will automatically download uv (Python package manager), create a virtual environment, and install NousAIPaw with all dependencies (including Node.js and frontend assets). Note: May not work in restricted network environments or corporate firewalls.
 
 **macOS / Linux:**
 
@@ -152,9 +152,9 @@ irm https://qwenpaw.agentscope.io/install.ps1 | iex
 >
 >    The script completes file installation. Due to **Constrained Language Mode**, it cannot automatically update environment variables. Manually configure as follows:
 >    - **Locate the installation directory**:
->      - Check if `uv` is available: Enter `uv --version` in CMD. If a version number appears, **only configure the QwenPaw path**. If you receive the prompt `'uv' is not recognized as an internal or external command, operable program or batch file,` configure both paths.
+>      - Check if `uv` is available: Enter `uv --version` in CMD. If a version number appears, **only configure the NousAIPaw path**. If you receive the prompt `'uv' is not recognized as an internal or external command, operable program or batch file,` configure both paths.
 >      - uv path (choose one based on installation location; use if `uv` fails): Typically `%USERPROFILE%\.local\bin`, `%USERPROFILE%\AppData\Local\uv`, or the `Scripts` folder within your Python installation directory
->      - QwenPaw path: Typically located at `%USERPROFILE%\.qwenpaw\bin`.
+>      - NousAIPaw path: Typically located at `%USERPROFILE%\.qwenpaw\bin`.
 >    - **Manually add to the system's Path environment variable**:
 >      - Press `Win + R`, type `sysdm.cpl` and press Enter to open System Properties.
 >      - Click “Advanced” -> “Environment Variables”.
@@ -165,8 +165,8 @@ irm https://qwenpaw.agentscope.io/install.ps1 | iex
 >   Due to **Constrained Language Mode**, the script may fail to automatically download `uv`.
 >   - **Manually install uv**: Refer to the [GitHub Release](https://github.com/astral-sh/uv/releases) to download `uv.exe` and place it in `%USERPROFILE%\.local\bin` or `%USERPROFILE%\AppData\Local\uv`; or ensure Python is installed and run `python -m pip install -U uv`.
 >   - **Configure `uv` environment variables**: Add the `uv` directory and `%USERPROFILE%\.qwenpaw\bin` to your system's `Path` variable.
->   - **Re-run the installation**: Open a new terminal and execute the installation script again to complete the `QwenPaw` installation.
->   - **Configure the `QwenPaw` environment variable**: Add `%USERPROFILE%\.qwenpaw\bin` to your system's `Path` variable.
+>   - **Re-run the installation**: Open a new terminal and execute the installation script again to complete the `NousAIPaw` installation.
+>   - **Configure the `NousAIPaw` environment variable**: Add `%USERPROFILE%\.qwenpaw\bin` to your system's `Path` variable.
 
 Once installed, open a new terminal and run:
 
@@ -236,7 +236,7 @@ Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills
 
 > **Connecting to Ollama or other services on the host machine**
 >
-> Inside a Docker container, `localhost` refers to the container itself, not your host machine. If you run Ollama (or other model services) on the host and want QwenPaw in Docker to reach them, use one of these approaches:
+> Inside a Docker container, `localhost` refers to the container itself, not your host machine. If you run Ollama (or other model services) on the host and want NousAIPaw in Docker to reach them, use one of these approaches:
 >
 > **Option A** — Explicit host binding (all platforms):
 > ```bash
@@ -247,7 +247,7 @@ Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills
 >   -v qwenpaw-backups:/app/working.backups \
 >   agentscope/qwenpaw:latest
 > ```
-> Then in QwenPaw **Settings → Models**, change the Base URL to `http://host.docker.internal:<port>` — for example, `http://host.docker.internal:11434` for Ollama, or `http://host.docker.internal:1234/v1` for LM Studio.
+> Then in NousAIPaw **Settings → Models**, change the Base URL to `http://host.docker.internal:<port>` — for example, `http://host.docker.internal:11434` for Ollama, or `http://host.docker.internal:1234/v1` for LM Studio.
 >
 > **Option B** — Host networking (Linux only):
 > ```bash
@@ -266,19 +266,19 @@ The image is built from scratch. To build the image yourself, please refer to th
 
 ### Option 4: Deploy on Alibaba Cloud ECS
 
-To run QwenPaw on Alibaba Cloud (ECS), use the one-click deployment: open the [QwenPaw on Alibaba Cloud (ECS) deployment link](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884) and follow the prompts. For step-by-step instructions, see [Alibaba Cloud Developer: Deploy your AI assistant in 3 minutes](https://developer.aliyun.com/article/1713682).
+To run NousAIPaw on Alibaba Cloud (ECS), use the one-click deployment: open the [NousAIPaw on Alibaba Cloud (ECS) deployment link](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884) and follow the prompts. For step-by-step instructions, see [Alibaba Cloud Developer: Deploy your AI assistant in 3 minutes](https://developer.aliyun.com/article/1713682).
 
 ---
 
 ### Option 5: AgentScope Platform
 
-[AgentScope Platform](https://platform.agentscope.io/) provides one-click cloud QwenPaw deployment, plugin sharing, and a Skill marketplace. Free, 7/24 online.
+[AgentScope Platform](https://platform.agentscope.io/) provides one-click cloud NousAIPaw deployment, plugin sharing, and a Skill marketplace. Free, 7/24 online.
 
 ---
 
 ### Option 6: Using ModelScope
 
-[ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) also supports cloud QwenPaw deployment. Note: set your Studio to **non-public** so others cannot control your QwenPaw.
+[ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) also supports cloud NousAIPaw deployment. Note: set your Studio to **non-public** so others cannot control your NousAIPaw.
 
 ---
 
@@ -289,7 +289,7 @@ To run QwenPaw on Alibaba Cloud (ECS), use the one-click deployment: open the [Q
 > - **Potential performance issues**: Startup time, memory usage, and other performance aspects may need further optimization
 > - **Features under development**: Some features may be unstable or missing
 
-If you're not comfortable with command-line tools, you can download and use QwenPaw's desktop application without manually configuring Python environments or running commands.
+If you're not comfortable with command-line tools, you can download and use NousAIPaw's desktop application without manually configuring Python environments or running commands.
 
 #### Download
 
@@ -310,13 +310,13 @@ Download the desktop app (Tauri build) from [the official download page](https:/
 
 #### macOS: Bypass System Security Restrictions
 
-When you download the QwenPaw macOS app from Releases, macOS may show: *"Apple cannot verify that 'QwenPaw' contains no malicious software"*. This happens because the app is not notarized. You can still open it as follows:
+When you download the NousAIPaw macOS app from Releases, macOS may show: *"Apple cannot verify that 'NousAIPaw' contains no malicious software"*. This happens because the app is not notarized. You can still open it as follows:
 
 - **Right-click to open (recommended)**
-  Right-click (or Control+click) the QwenPaw app → **Open** → in the dialog click **Open** again. This tells Gatekeeper you trust the app; after that you can double-click to launch as usual.
+  Right-click (or Control+click) the NousAIPaw app → **Open** → in the dialog click **Open** again. This tells Gatekeeper you trust the app; after that you can double-click to launch as usual.
 
 - **Allow in System Settings**
-  If it is still blocked, go to **System Settings → Privacy & Security**, scroll to the message like *"QwenPaw was blocked because it is from an unidentified developer"*, and click **Open Anyway** or **Allow**.
+  If it is still blocked, go to **System Settings → Privacy & Security**, scroll to the message like *"NousAIPaw was blocked because it is from an unidentified developer"*, and click **Open Anyway** or **Allow**.
 
 - **Remove quarantine attribute (not recommended for most users)**
   In Terminal run:
@@ -351,13 +351,13 @@ qwenpaw .                   # start in the current repo (Coding Mode)
 
 It supports streaming replies, slash commands (`/help`, `/resume`, `/theme`, plus the agent's own `/model`, `/clear`, …), pasting files/long text as attachments, and inline tool-permission prompts. See the [Terminal UI guide](https://qwenpaw.agentscope.io/docs/tui) for details.
 
-![QwenPaw TUI](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
+![NousAIPaw TUI](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
 
 ---
 
 ## API Key
 
-If you use a **cloud LLM API** (e.g., DashScope / Qwen, OpenAI, Anthropic, Google Gemini, DeepSeek, Kimi, OpenRouter, and more), you must configure an API key before chatting. QwenPaw will not work until a valid key is set. See the [official docs](https://qwenpaw.agentscope.io/docs/models) for details.
+If you use a **cloud LLM API** (e.g., DashScope / Qwen, OpenAI, Anthropic, Google Gemini, DeepSeek, Kimi, OpenRouter, and more), you must configure an API key before chatting. NousAIPaw will not work until a valid key is set. See the [official docs](https://qwenpaw.agentscope.io/docs/models) for details.
 
 **How to configure:**
 
@@ -367,17 +367,17 @@ If you use a **cloud LLM API** (e.g., DashScope / Qwen, OpenAI, Anthropic, Googl
 
 Tools that need extra keys (e.g. `TAVILY_API_KEY` for web search) can be set in Console **Settings → Environment variables**, see [Config](https://qwenpaw.agentscope.io/docs/config) for details.
 
-> **Using local models only?** If you use [Local Models](#local-models) (QwenPaw Local / Ollama / LM Studio), you do **not** need any API key.
+> **Using local models only?** If you use [Local Models](#local-models) (NousAIPaw Local / Ollama / LM Studio), you do **not** need any API key.
 
 ## Local Models
 
-QwenPaw can run LLMs entirely on your machine — no API keys or cloud services required. See the [official docs](https://qwenpaw.agentscope.io/docs/models) for details.
+NousAIPaw can run LLMs entirely on your machine — no API keys or cloud services required. See the [official docs](https://qwenpaw.agentscope.io/docs/models) for details.
 
-QwenPaw also provides the **QwenPaw-Flash** series — purpose-trained 2B / 4B / 9B models for agent scenarios, with Q4 and Q8 quantizations. Available on [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) and [Hugging Face](https://huggingface.co/agentscope-ai/models).
+NousAIPaw also provides the **QwenPaw-Flash** series — purpose-trained 2B / 4B / 9B models for agent scenarios, with Q4 and Q8 quantizations. Available on [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) and [Hugging Face](https://huggingface.co/agentscope-ai/models).
 
 | Backend              | Best for                                 | Install                                                              |
 | -------------------- | ---------------------------------------- | -------------------------------------------------------------------- |
-| **QwenPaw Local** (llama.cpp) | Cross-platform (macOS / Linux / Windows) | Built-in; click "Download" in the web UI. Supports QwenPaw-Flash with hardware-aware recommendations. |
+| **NousAIPaw Local** (llama.cpp) | Cross-platform (macOS / Linux / Windows) | Built-in; click "Download" in the web UI. Supports QwenPaw-Flash with hardware-aware recommendations. |
 | **Ollama**           | Cross-platform (requires Ollama service) | Install and start Ollama; set context length ≥ 32k. |
 | **LM Studio**        | Cross-platform (requires LM Studio)      | Install and start LM Studio; enable Local Server. |
 
@@ -385,7 +385,7 @@ QwenPaw also provides the **QwenPaw-Flash** series — purpose-trained 2B / 4B /
 
 ## Security Features
 
-QwenPaw includes four core security layers:
+NousAIPaw includes four core security layers:
 
 - **Sandbox** — Kernel-level execution isolation using Seatbelt (macOS), Bubblewrap / Landlock (Linux), and AppContainer (Windows). Shell commands run inside a restricted filesystem view.
 - **Tool Guard** — YAML rule engine with `ShellEvasionGuardian` inspects every tool call before execution, detecting command injection, path traversal, reverse shells, and obfuscated attacks. Configurable approval levels: STRICT / SMART / AUTO / OFF.
@@ -400,7 +400,7 @@ See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
 
 | Topic                                                                 | Description                                      |
 | --------------------------------------------------------------------- | ------------------------------------------------ |
-| [Introduction](https://qwenpaw.agentscope.io/docs/intro)                | What QwenPaw is and how to use it                  |
+| [Introduction](https://qwenpaw.agentscope.io/docs/intro)                | What NousAIPaw is and how to use it                  |
 | [Quick start](https://qwenpaw.agentscope.io/docs/quickstart)            | Install and run (local or ModelScope Studio)    |
 | [Console](https://qwenpaw.agentscope.io/docs/console)                   | Web UI: chat and agent configuration            |
 | [Terminal UI (TUI)](https://qwenpaw.agentscope.io/docs/tui)             | Full-screen terminal chat, same agent as Console |
@@ -447,8 +447,8 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 | **Models**               | Multi-model switching                                                                         | In Progress          |
 | **Browser-use**   | Support Chrome extension                                                             | In Progress          |
 | **Long-term Memory**   | Personal knowledge base                                                             | In Progress          |
-| **QwenPaw Application**   | QwenPaw Creator                                                             | In Progress          |
-|                          | QwenPaw Insight                                           | In Progress              |
+| **NousAIPaw Application**   | NousAIPaw Creator                                                             | In Progress          |
+|                          | NousAIPaw Insight                                           | In Progress              |
 | **Multi-agent**               | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
 |          | Group chat                                                                                   | Planned              |
 |                          | Subagent visualization                                                                                 | Planned              |
@@ -459,7 +459,7 @@ _Status:_ **In Progress** — actively being worked on; **Planned** — queued o
 
 ## Contributing
 
-QwenPaw evolves through open collaboration, and we welcome all forms of contribution! Check the [Roadmap](#roadmap) above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
+NousAIPaw evolves through open collaboration, and we welcome all forms of contribution! Check the [Roadmap](#roadmap) above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
 
 - **Horizontal expansion** — new channels, model providers, skills, MCPs.
 - **Existing feature extension & refinement** — display and interaction improvements, download hints, Windows path compatibility, etc.
@@ -471,8 +471,8 @@ Join [GitHub Discussions](https://github.com/agentscope-ai/QwenPaw/discussions) 
 ## Install From Source
 
 ```bash
-git clone https://github.com/agentscope-ai/QwenPaw.git
-cd QwenPaw
+git clone https://github.com/uaixo/awesome-NousAI-PAW.git
+cd awesome-NousAI-PAW
 
 # Build console frontend first (required for web UI)
 cd console && npm ci && npm run build
@@ -493,9 +493,9 @@ pip install -e .
 
 ---
 
-## Why QwenPaw?
+## Why NousAIPaw?
 
-QwenPaw stands for Qwen Personal Agent Workstation, and also embodies the wisdom of Qwen and the warmth of a Paw.
+NousAIPaw stands for Qwen Personal Agent Workstation, and also embodies the wisdom of Qwen and the warmth of a Paw.
 We hope it is not a cold tool, but an intelligent and warm "little paw" always ready to help—a most intuitive partner in your digital life.
 
 ---
@@ -517,20 +517,20 @@ We hope it is not a cold tool, but an intelligent and warm "little paw" always r
 ## Staying Ahead
 
 <a href="https://github.com/agentscope-ai/QwenPaw">
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" width="600" alt="Star QwenPaw" />
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" width="600" alt="Star NousAIPaw" />
 </a>
 
-Star QwenPaw on GitHub and be instantly notified of new releases.
+Star NousAIPaw on GitHub and be instantly notified of new releases.
 
 ---
 
 ## Telemetry
 
-QwenPaw collects **anonymous** usage data during `qwenpaw init` to help us understand our user base and prioritize improvements. Data is sent **once per version** — when you upgrade QwenPaw, telemetry is re-collected so we can track version adoption.
+NousAIPaw collects **anonymous** usage data during `qwenpaw init` to help us understand our user base and prioritize improvements. Data is sent **once per version** — when you upgrade NousAIPaw, telemetry is re-collected so we can track version adoption.
 
 **What we collect:**
 
-- QwenPaw version (e.g., 1.1.12)
+- NousAIPaw version (e.g., 1.1.12)
 - Install method (pip, Docker, or desktop app)
 - OS and version (e.g., macOS 14.0, Ubuntu 22.04)
 - Python version (e.g., 3.13)
@@ -539,13 +539,13 @@ QwenPaw collects **anonymous** usage data during `qwenpaw init` to help us under
 
 **What we do NOT collect:** No personal data, no files, no credentials, no IP addresses, no identifiable information.
 
-When running `qwenpaw init` interactively, you will be asked whether to opt in. If you choose `--defaults`, telemetry is accepted automatically. The prompt appears once per version and never affects QwenPaw's functionality.
+When running `qwenpaw init` interactively, you will be asked whether to opt in. If you choose `--defaults`, telemetry is accepted automatically. The prompt appears once per version and never affects NousAIPaw's functionality.
 
 ---
 
 ## License
 
-QwenPaw is released under the [Apache License 2.0](LICENSE).
+NousAIPaw is released under the [Apache License 2.0](LICENSE).
 
 ---
 

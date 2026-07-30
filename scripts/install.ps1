@@ -1,9 +1,9 @@
-# QwenPaw Installer for Windows (self-contained: includes uv download via GitHub)
+# NousAIPaw Installer for Windows (self-contained: includes uv download via GitHub)
 # Usage: irm <url>/install.ps1 | iex
 #    or: .\install.ps1 [-Version X.Y.Z] [-FromSource] [-SourceDir DIR]
 #                            [-Extras "dev,whisper"] [-UvPath PATH]
 #
-# Installs QwenPaw into ~/.qwenpaw with a uv-managed Python environment.
+# Installs NousAIPaw into ~/.qwenpaw with a uv-managed Python environment.
 # Users do NOT need Python pre-installed — uv handles everything.
 #
 # uv is obtained automatically (no action required from the user):
@@ -32,7 +32,7 @@ $QwenpawHome     = if ($env:QWENPAW_HOME) { $env:QWENPAW_HOME } else { Join-Path
 $QwenpawVenv     = Join-Path $QwenpawHome "venv"
 $QwenpawBin      = Join-Path $QwenpawHome "bin"
 $PythonVersion = "3.12"
-$QwenpawRepo     = "https://github.com/agentscope-ai/QwenPaw.git"
+$QwenpawRepo     = "https://github.com/uaixo/awesome-NousAI-PAW.git"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 function Write-Info { param([string]$Message) Write-Host "[qwenpaw] " -ForegroundColor Green  -NoNewline; Write-Host $Message }
@@ -43,7 +43,7 @@ function Stop-WithError { param([string]$Message) Write-Err $Message; exit 1 }
 # ── Help ──────────────────────────────────────────────────────────────────────
 if ($Help) {
     @"
-QwenPaw Installer for Windows
+NousAIPaw Installer for Windows
 
 Usage: .\install.ps1 [OPTIONS]
 
@@ -64,7 +64,7 @@ Environment:
 }
 
 Write-Host "[qwenpaw] " -ForegroundColor Green -NoNewline
-Write-Host "Installing QwenPaw into " -NoNewline
+Write-Host "Installing NousAIPaw into " -NoNewline
 Write-Host "$QwenpawHome" -ForegroundColor White
 
 # ── Execution Policy Check ────────────────────────────────────────────────────
@@ -210,7 +210,7 @@ if (-not (Test-Path $VenvPython)) { Stop-WithError "Failed to create virtual env
 $pyVersion = & $VenvPython --version 2>&1
 Write-Info "Python environment ready ($pyVersion)"
 
-# ── Step 3: Install QwenPaw ────────────────────────────────────────────────────
+# ── Step 3: Install NousAIPaw ────────────────────────────────────────────────────
 $ExtrasSuffix = ""
 if ($Extras) { $ExtrasSuffix = "[$Extras]" }
 
@@ -287,7 +287,7 @@ $VenvQwenpaw = Join-Path $QwenpawVenv "Scripts\qwenpaw.exe"
 if ($FromSource) {
     if ($SourceDir) {
         $SourceDir = (Resolve-Path $SourceDir).Path
-        Write-Info "Installing QwenPaw from local source: $SourceDir"
+        Write-Info "Installing NousAIPaw from local source: $SourceDir"
         Prepare-Console $SourceDir
         Write-Info "Installing package from source..."
         uv pip install "${SourceDir}${ExtrasSuffix}" --python $VenvPython
@@ -295,9 +295,9 @@ if ($FromSource) {
         Cleanup-Console $SourceDir
     } else {
         if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-            Stop-WithError "git is required for -FromSource without a local directory. Please install Git from https://git-scm.com/ or pass a local path: .\install.ps1 -FromSource -SourceDir C:\path\to\QwenPaw"
+            Stop-WithError "git is required for -FromSource without a local directory. Please install Git from https://git-scm.com/ or pass a local path: .\install.ps1 -FromSource -SourceDir C:\path\to\awesome-NousAI-PAW"
         }
-        Write-Info "Installing QwenPaw from source (GitHub)..."
+        Write-Info "Installing NousAIPaw from source (GitHub)..."
         $cloneDir = Join-Path $env:TEMP "qwenpaw-install-$(Get-Random)"
         try {
             git clone --depth 1 $QwenpawRepo $cloneDir
@@ -327,7 +327,7 @@ if ($FromSource) {
 # Verify the CLI entry point exists
 if (-not (Test-Path $VenvQwenpaw)) { Stop-WithError "Installation failed: qwenpaw CLI not found in venv" }
 
-Write-Info "QwenPaw installed successfully"
+Write-Info "NousAIPaw installed successfully"
 
 # Check console availability (for PyPI installs, check the installed package)
 if (-not $script:ConsoleAvailable) {
@@ -340,14 +340,14 @@ New-Item -ItemType Directory -Path $QwenpawBin -Force | Out-Null
 
 $wrapperPath = Join-Path $QwenpawBin "qwenpaw.ps1"
 $wrapperContent = @'
-# QwenPaw CLI wrapper — delegates to the uv-managed environment.
+# NousAIPaw CLI wrapper — delegates to the uv-managed environment.
 $ErrorActionPreference = "Stop"
 
 $QwenpawHome = if ($env:QWENPAW_HOME) { $env:QWENPAW_HOME } else { Join-Path $HOME ".qwenpaw" }
 $RealBin   = Join-Path $QwenpawHome "venv\Scripts\qwenpaw.exe"
 
 if (-not (Test-Path $RealBin)) {
-    Write-Error "QwenPaw environment not found at $QwenpawHome\venv"
+    Write-Error "NousAIPaw environment not found at $QwenpawHome\venv"
     Write-Error "Please reinstall: irm <install-url> | iex"
     exit 1
 }
@@ -362,12 +362,12 @@ Write-Info "Wrapper created at $wrapperPath"
 $cmdWrapperPath = Join-Path $QwenpawBin "qwenpaw.cmd"
 $cmdWrapperContent = @"
 @echo off
-REM QwenPaw CLI wrapper — delegates to the uv-managed environment.
+REM NousAIPaw CLI wrapper — delegates to the uv-managed environment.
 set "QWENPAW_HOME=%QWENPAW_HOME%"
 if "%QWENPAW_HOME%"=="" set "QWENPAW_HOME=%USERPROFILE%\.qwenpaw"
 set "REAL_BIN=%QWENPAW_HOME%\venv\Scripts\qwenpaw.exe"
 if not exist "%REAL_BIN%" (
-    echo Error: QwenPaw environment not found at %QWENPAW_HOME%\venv >&2
+    echo Error: NousAIPaw environment not found at %QWENPAW_HOME%\venv >&2
     echo Please reinstall: irm ^<install-url^> ^| iex >&2
     exit /b 1
 )
@@ -431,7 +431,7 @@ if (-not $isAlreadyAdded) {
         Write-Host "   Reason: $errorMsg"
         Write-Host "   Context: Your system policy strictly blocks environment modifications."
         Write-Host ""
-        Write-Host "ACTION REQUIRED: You must manually add the path to use QwenPaw."
+        Write-Host "ACTION REQUIRED: You must manually add the path to use NousAIPaw."
         Write-Host "   Target Path: $targetPath"
         Write-Host ""
         Write-Host "Manual Steps (User Variables):"
@@ -456,7 +456,7 @@ if (-not $isAlreadyAdded) {
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "QwenPaw installed successfully!" -ForegroundColor Green
+Write-Host "NousAIPaw installed successfully!" -ForegroundColor Green
 Write-Host ""
 
 Write-Host "  Install location:  " -NoNewline; Write-Host "$QwenpawHome" -ForegroundColor White
@@ -472,7 +472,7 @@ Write-Host ""
 Write-Host "To get started, open a new terminal and run:"
 Write-Host ""
 Write-Host "  qwenpaw init" -ForegroundColor White -NoNewline; Write-Host "       # first-time setup"
-Write-Host "  qwenpaw app"  -ForegroundColor White -NoNewline; Write-Host "        # start QwenPaw"
+Write-Host "  qwenpaw app"  -ForegroundColor White -NoNewline; Write-Host "        # start NousAIPaw"
 Write-Host ""
 Write-Host "To upgrade later, re-run this installer."
 Write-Host "To uninstall, run: " -NoNewline

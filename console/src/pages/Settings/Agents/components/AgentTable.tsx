@@ -157,7 +157,7 @@ export function AgentTable({
           >
             {thirdParty
               ? `${name} · ${t("agent.backend.thirdPartyBadge")}`
-              : `QwenPaw · ${t("agent.backend.nativeBadge")}`}
+              : `NousAIPaw · ${t("agent.backend.nativeBadge")}`}
           </Tag>
         );
       },

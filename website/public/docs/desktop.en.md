@@ -1,4 +1,4 @@
-# QwenPaw Desktop Application Guide
+# NousAIPaw Desktop Application Guide
 
 > ⚠️ **Beta Version Notice**
 >
@@ -14,7 +14,7 @@
 
 **Download**: [GitHub Releases][releases]
 
-This guide explains how to install and use the QwenPaw Desktop application on Windows and macOS.
+This guide explains how to install and use the NousAIPaw Desktop application on Windows and macOS.
 
 [releases]: https://qwenpaw.agentscope.io/downloads
 
@@ -119,7 +119,7 @@ The code is completely open source, and the build process is transparently verif
 
 #### Why manual trust is needed?
 
-QwenPaw is **not Apple Developer-signed or notarized**, so macOS Gatekeeper will block it by default.
+NousAIPaw is **not Apple Developer-signed or notarized**, so macOS Gatekeeper will block it by default.
 
 **Why no signature?**
 
@@ -146,7 +146,7 @@ If still blocked:
 
 1. Open **System Settings → Privacy & Security**
 2. Scroll down to find a message like:
-   _"'QwenPaw' was blocked from use because it cannot verify the developer"_
+   _"'NousAIPaw' was blocked from use because it cannot verify the developer"_
 3. Click the **"Open Anyway"** or **"Allow"** button
 4. Enter your administrator password to confirm
 

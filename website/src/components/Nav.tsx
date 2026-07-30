@@ -271,7 +271,7 @@ export function Nav() {
                     target="_blank"
                     rel="noopener noreferrer"
                     className={exploreMenuItemClass}
-                    title="QwenPaw on GitHub"
+                    title="NousAIPaw on GitHub"
                     onClick={() => setExploreOpen(false)}
                   >
                     <GitHubIcon />
@@ -352,7 +352,7 @@ export function Nav() {
           rel="noopener noreferrer"
           className={navLinkOrangeClass}
           onClick={() => setOpen(false)}
-          title="QwenPaw on GitHub"
+          title="NousAIPaw on GitHub"
         >
           <GitHubIcon /> {t("nav.github")}
         </a>

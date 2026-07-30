@@ -1,10 +1,10 @@
 # 终端界面（TUI）
 
-QwenPaw **终端界面（TUI）** 是一个完全运行在终端里的全屏聊天界面。它连接的是与控制台、IM 频道**完全相同**的智能体——同一份记忆、同一套技能、同样的 MCP 工具、同样的会话——但你无需离开键盘。如果你习惯待在终端里，这是与智能体对话、推进任务，或接续在别处开启的会话的最快方式。
+NousAIPaw **终端界面（TUI）** 是一个完全运行在终端里的全屏聊天界面。它连接的是与控制台、IM 频道**完全相同**的智能体——同一份记忆、同一套技能、同样的 MCP 工具、同样的会话——但你无需离开键盘。如果你习惯待在终端里，这是与智能体对话、推进任务，或接续在别处开启的会话的最快方式。
 
 它也是 **Coding 模式** 最自然的入口：在某个代码仓库目录中启动，智能体就会把该目录当作它的工作场所。
 
-![QwenPaw 终端界面](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
+![NousAIPaw 终端界面](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
 
 ---
 
@@ -50,7 +50,7 @@ qwenpaw tui /path/to/repo     # 指定一个明确的目录
 
 **中断。** 按 `esc` 取消正在进行的回合（如果你还没发送，则会清空输入框）。
 
-**会话与恢复。** 每段对话都是一个会话，并与 QwenPaw 的其余部分共享。用 `/resume` 从建议列表中挑选最近的会话，或用 `/resume list` 浏览全部会话。你也可以在启动时用 `qwenpaw tui --resume <id>` 直接恢复。
+**会话与恢复。** 每段对话都是一个会话，并与 NousAIPaw 的其余部分共享。用 `/resume` 从建议列表中挑选最近的会话，或用 `/resume list` 浏览全部会话。你也可以在启动时用 `qwenpaw tui --resume <id>` 直接恢复。
 
 **粘贴文件与长文本。** 粘贴一张图片或一个文件路径，终端界面会将其作为附件交给智能体；粘贴一大段文本时，它会被存为附件，而不会塞满输入框。`data:` URL 同样适用。
 
@@ -93,7 +93,7 @@ qwenpaw tui /path/to/repo     # 指定一个明确的目录
 
 ### 由智能体处理
 
-其余所有以 `/` 开头的输入都会转发给 QwenPaw 智能体——也就是控制台和频道中**同样的魔法命令**，例如 `/model`、`/clear`、`/compact`、`/skills`、`/status`。终端界面会展示所连接智能体支持的全部命令，因此建议列表始终与你的智能体保持一致。完整清单见 [魔法命令](/docs/commands)。
+其余所有以 `/` 开头的输入都会转发给 NousAIPaw 智能体——也就是控制台和频道中**同样的魔法命令**，例如 `/model`、`/clear`、`/compact`、`/skills`、`/status`。终端界面会展示所连接智能体支持的全部命令，因此建议列表始终与你的智能体保持一致。完整清单见 [魔法命令](/docs/commands)。
 
 ---
 
@@ -101,16 +101,16 @@ qwenpaw tui /path/to/repo     # 指定一个明确的目录
 
 使用终端界面无需了解其内部机制，但一段简短的心智模型有助于理解为什么会话、记忆和工具能像在其他地方一样“开箱即用”。
 
-终端界面是一个轻量**客户端**。它是一个基于 [Textual](https://textual.textualize.io/) 的终端应用，通过 **ACP**（[Agent Client Protocol](/docs/acp-integration)）驱动本地的 QwenPaw 后端。启动时它会以子进程方式拉起 `qwenpaw acp` 并与之进行 ACP 通信；所有真正的工作——模型调用、记忆、技能、MCP 工具、会话存储——都发生在那个后端里，正是控制台和频道所使用的同一个后端。
+终端界面是一个轻量**客户端**。它是一个基于 [Textual](https://textual.textualize.io/) 的终端应用，通过 **ACP**（[Agent Client Protocol](/docs/acp-integration)）驱动本地的 NousAIPaw 后端。启动时它会以子进程方式拉起 `qwenpaw acp` 并与之进行 ACP 通信；所有真正的工作——模型调用、记忆、技能、MCP 工具、会话存储——都发生在那个后端里，正是控制台和频道所使用的同一个后端。
 
-<svg viewBox="0 0 760 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="QwenPaw 终端界面是一个轻量的 Textual 客户端，通过 ACP 以 stdio 子进程方式驱动本地的 qwenpaw acp 后端。" style="width:100%;height:auto;max-width:700px;display:block;margin:1.5rem auto;font-family:ui-sans-serif,system-ui,sans-serif;">
+<svg viewBox="0 0 760 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="NousAIPaw 终端界面是一个轻量的 Textual 客户端，通过 ACP 以 stdio 子进程方式驱动本地的 qwenpaw acp 后端。" style="width:100%;height:auto;max-width:700px;display:block;margin:1.5rem auto;font-family:ui-sans-serif,system-ui,sans-serif;">
 <defs>
 <marker id="tui-arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
 <path d="M0,0 L7,3 L0,6 Z" fill="var(--color-primary, #ff9d4d)"></path>
 </marker>
 </defs>
 <rect x="24" y="62" width="244" height="96" rx="12" fill="var(--color-primary, #ff9d4d)" fill-opacity="0.08" stroke="var(--color-primary, #ff9d4d)" stroke-width="1.5"></rect>
-<text x="146" y="98" text-anchor="middle" font-size="17" font-weight="700" fill="currentColor">QwenPaw TUI</text>
+<text x="146" y="98" text-anchor="middle" font-size="17" font-weight="700" fill="currentColor">NousAIPaw TUI</text>
 <text x="146" y="122" text-anchor="middle" font-size="13" fill="currentColor" opacity="0.7">Textual 终端应用</text>
 <text x="146" y="141" text-anchor="middle" font-size="13" fill="currentColor" opacity="0.7">渲染 · 转发输入</text>
 <rect x="492" y="52" width="244" height="116" rx="12" fill="currentColor" fill-opacity="0.04" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.5"></rect>

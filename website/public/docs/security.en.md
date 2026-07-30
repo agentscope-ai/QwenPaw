@@ -1,10 +1,10 @@
 # Security
 
-QwenPaw includes built-in security features to protect your agent from malicious inputs and unsafe skills. These are configured in the Console under **Settings → Security**, or via `config.json`.
+NousAIPaw includes built-in security features to protect your agent from malicious inputs and unsafe skills. These are configured in the Console under **Settings → Security**, or via `config.json`.
 
 ## Overview
 
-QwenPaw's security system consists of five core security layers:
+NousAIPaw's security system consists of five core security layers:
 
 ```
 Security Architecture:
@@ -371,7 +371,7 @@ Even if a command passes Tool Guard and File Guard checks, the sandbox ensures i
 
 ### Supported platforms
 
-QwenPaw automatically detects the best available sandbox backend on startup:
+NousAIPaw automatically detects the best available sandbox backend on startup:
 
 | Platform | Backend                                      | Mechanism                                              | Detection                                            |
 | -------- | -------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------- |
@@ -434,7 +434,7 @@ Sandbox configuration is compiled automatically by the governance policy engine.
 
 ### Violation detection
 
-When a sandboxed command attempts to access a path outside its allowed view, the OS kernel blocks the operation. QwenPaw detects these violations by matching stderr patterns:
+When a sandboxed command attempts to access a path outside its allowed view, the OS kernel blocks the operation. NousAIPaw detects these violations by matching stderr patterns:
 
 | Platform         | Detection patterns                                                                       |
 | ---------------- | ---------------------------------------------------------------------------------------- |
@@ -483,27 +483,27 @@ cat /proc/sys/kernel/unprivileged_userns_clone
 bwrap --ro-bind / / --dev /dev --unshare-user --unshare-pid --proc /proc -- /bin/echo OK
 ```
 
-If user namespaces are disabled (Docker containers, some hardened kernels), QwenPaw automatically falls back to Landlock.
+If user namespaces are disabled (Docker containers, some hardened kernels), NousAIPaw automatically falls back to Landlock.
 
 **Windows: AppContainer ACL setup failed**
 
 AppContainer (`allow_read_all=False`) requires administrator privileges for `icacls` ACL operations. If you see warnings about failed ACL setup:
 
-1. Run QwenPaw as administrator (right-click → Run as administrator)
+1. Run NousAIPaw as administrator (right-click → Run as administrator)
 2. Verify `icacls.exe` is on your PATH (ships with all Windows editions)
 3. Use `scripts/cleanup_windows_sandbox.py` to remove stale AppContainer profiles and ACLs
 
 **Windows: Restricted_token user provisioning failed**
 
-Restricted_token (`allow_read_all=True`) uses dedicated local user accounts and WFP firewall rules for full isolation, which requires administrator privileges. Without administrator privileges, QwenPaw automatically falls back to the unelevated sandbox mode with limited isolation. If you see errors about user creation or firewall setup:
+Restricted_token (`allow_read_all=True`) uses dedicated local user accounts and WFP firewall rules for full isolation, which requires administrator privileges. Without administrator privileges, NousAIPaw automatically falls back to the unelevated sandbox mode with limited isolation. If you see errors about user creation or firewall setup:
 
 1. The unelevated sandbox is still active and provides basic write restrictions
-2. For full sandbox protection, run QwenPaw as administrator (right-click → Run as administrator)
+2. For full sandbox protection, run NousAIPaw as administrator (right-click → Run as administrator)
 3. Use `scripts/cleanup_windows_sandbox.py` to remove stale sandbox users and firewall rules
 
 **Windows: Minimum version not met**
 
-Both Windows sandbox backends require Windows 10 (build 10240) or later. If you see `"AppContainer requires Windows 10+"` in the probe output, you are running an unsupported Windows version. Upgrade to Windows 10 or later to use sandbox isolation. On older systems, QwenPaw falls back to `mode=none` (no kernel isolation).
+Both Windows sandbox backends require Windows 10 (build 10240) or later. If you see `"AppContainer requires Windows 10+"` in the probe output, you are running an unsupported Windows version. Upgrade to Windows 10 or later to use sandbox isolation. On older systems, NousAIPaw falls back to `mode=none` (no kernel isolation).
 
 **Windows: ACL grant fails on system directories (e.g. Program Files)**
 
@@ -913,13 +913,13 @@ Here's a complete `config.json` with all security features configured:
 
 ## Web Authentication
 
-QwenPaw supports optional web login authentication to protect the Console from unauthorized access. Authentication is **disabled by default** and must be explicitly enabled via the `QWENPAW_AUTH_ENABLED` environment variable.
+NousAIPaw supports optional web login authentication to protect the Console from unauthorized access. Authentication is **disabled by default** and must be explicitly enabled via the `QWENPAW_AUTH_ENABLED` environment variable.
 
 ![login](https://img.alicdn.com/imgextra/i1/O1CN01wh3Sv01SxPEXpb6Wj_!!6000000002313-2-tps-3822-2070.png)
 
 ### How it works
 
-1. **Enable authentication** — Set `QWENPAW_AUTH_ENABLED=true` and start QwenPaw
+1. **Enable authentication** — Set `QWENPAW_AUTH_ENABLED=true` and start NousAIPaw
 2. **Registration flow**:
    - On first visit, the Console shows a **registration page**
    - Create the single admin account (username + password)
@@ -930,7 +930,7 @@ QwenPaw supports optional web login authentication to protect the Console from u
    - Token is stored in browser localStorage and automatically attached to all API requests
 4. **Auto-registration** (optional):
    - Set `QWENPAW_AUTH_USERNAME` and `QWENPAW_AUTH_PASSWORD` environment variables
-   - QwenPaw automatically creates the admin account on startup, skipping web registration
+   - NousAIPaw automatically creates the admin account on startup, skipping web registration
    - Useful for Docker, Kubernetes, server management panels, and other automated deployments
 5. **Localhost bypass** — Requests from localhost (`127.0.0.1` / `::1`) automatically skip authentication; CLI commands (`qwenpaw app`, `qwenpaw chat`, etc.) work without a token
 
@@ -1068,7 +1068,7 @@ Then pass it to Docker with `--env-file .env`, or source it in your shell before
 
 ### Disable authentication
 
-Remove or unset the environment variable and restart QwenPaw:
+Remove or unset the environment variable and restart NousAIPaw:
 
 ```bash
 # Linux / macOS
@@ -1106,7 +1106,7 @@ To completely reset the authentication system:
 ```bash
 # Delete the auth file
 rm ~/.qwenpaw.secret/auth.json  # or $WORKING_DIR.secret/auth.json
-# Restart QwenPaw; re-register on next visit
+# Restart NousAIPaw; re-register on next visit
 qwenpaw app
 ```
 

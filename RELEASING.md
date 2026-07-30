@@ -1,8 +1,8 @@
-# Releasing QwenPaw
+# Releasing NousAIPaw
 
 _中文版：[RELEASING_zh.md](RELEASING_zh.md)_
 
-QwenPaw ships four artifacts from a single version — the **PyPI** wheel, the
+NousAIPaw ships four artifacts from a single version — the **PyPI** wheel, the
 **Docker** image, the **desktop** apps (Tauri, Windows + macOS) and the
 **plugins** bundle. They are published together by one orchestrated workflow so
 that a failure in any one of them blocks the whole release: you can never end up

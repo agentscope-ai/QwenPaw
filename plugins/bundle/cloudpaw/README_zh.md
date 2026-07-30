@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>QwenPaw 的云能力增强插件</strong>
+  <strong>NousAIPaw 的云能力增强插件</strong>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 
 ---
 
-CloudPaw 是 QwenPaw 的云能力增强插件，融合 **QwenPaw + Aliyun CLI** 两大核心组件，并深度集成 **IaC** 能力——它不是简单的聊天机器人，而是一个具备云原生执行引擎的智能助手。
+CloudPaw 是 NousAIPaw 的云能力增强插件，融合 **NousAIPaw + Aliyun CLI** 两大核心组件，并深度集成 **IaC** 能力——它不是简单的聊天机器人，而是一个具备云原生执行引擎的智能助手。
 
 只需用自然语言描述你的需求，CloudPaw 就能自动完成从资源创建到应用部署的全流程。例如：
 
@@ -34,19 +34,19 @@ CloudPaw 完全部署在您自己的环境中，数据安全可控。
 
 | 项目 | 要求 |
 |------|------|
-| **QwenPaw 版本** | **≥ v1.1.7** |
+| **NousAIPaw 版本** | **≥ v1.1.7** |
 | **Python** | 3.10 ~ 3.13 |
 | **阿里云账号** | 需要 Access Key（用于操作云资源） |
 
-> QwenPaw 的安装方式请参阅 [QwenPaw 快速开始文档](https://qwenpaw.agentscope.io/docs/quickstart)。如果已有 QwenPaw 但版本低于 v1.1.7，请先升级：`pip install --upgrade qwenpaw>=1.1.7`。
+> NousAIPaw 的安装方式请参阅 [NousAIPaw 快速开始文档](https://qwenpaw.agentscope.io/docs/quickstart)。如果已有 NousAIPaw 但版本低于 v1.1.7，请先升级：`pip install --upgrade qwenpaw>=1.1.7`。
 
 ### 1. 安装 CloudPaw 插件
 
 **通过控制台安装（推荐）：**
 
-1. 启动 QwenPaw（`qwenpaw app`），打开浏览器访问 http://127.0.0.1:8088/
+1. 启动 NousAIPaw（`qwenpaw app`），打开浏览器访问 http://127.0.0.1:8088/
 2. 点击左侧导航栏的 「插件管理」（设置分组下），然后点击 「安装插件」
-3. 将 `cloudpaw/` 文件夹拖拽到安装对话框中，或选择 ZIP 文件（CloudPaw 已预置在 QwenPaw v1.1.7+ 仓库的 `plugins/bundle/cloudpaw/` 目录中）
+3. 将 `cloudpaw/` 文件夹拖拽到安装对话框中，或选择 ZIP 文件（CloudPaw 已预置在 NousAIPaw v1.1.7+ 仓库的 `plugins/bundle/cloudpaw/` 目录中）
 4. 等待安装完成
 
 **通过命令行安装：**
@@ -61,9 +61,9 @@ qwenpaw plugin install /path/to/cloudpaw
 
 安装 CloudPaw 后，需要完成以下配置才能正常使用：
 
-#### ① QwenPaw 模型
+#### ① NousAIPaw 模型
 
-在控制台 「设置」 → 「模型」 中配置 LLM 提供商和 API Key，详见 [QwenPaw 模型配置文档](https://qwenpaw.agentscope.io/docs/models)。
+在控制台 「设置」 → 「模型」 中配置 LLM 提供商和 API Key，详见 [NousAIPaw 模型配置文档](https://qwenpaw.agentscope.io/docs/models)。
 
 #### ② 阿里云凭证
 
@@ -79,11 +79,11 @@ Access Key 的获取方式请参考[阿里云官方文档](https://help.aliyun.c
 
 #### ③ iac-code 模型配置
 
-CloudPaw 依赖 [iac-code](https://github.com/aliyun/iac-code)（≥ 0.1.2）生成 IaC 模板。**无需手动配置模型** — CloudPaw 会自动将 QwenPaw 的活跃模型同步给 iac-code。
+CloudPaw 依赖 [iac-code](https://github.com/aliyun/iac-code)（≥ 0.1.2）生成 IaC 模板。**无需手动配置模型** — CloudPaw 会自动将 NousAIPaw 的活跃模型同步给 iac-code。
 
-CloudPaw 插件启动时，会自动在 `~/.iac-code/settings.yml` 中写入 `llm_source: qwenpaw`，iac-code 将直接从 QwenPaw 的活跃模型配置中读取提供商、API Key、模型名称等信息。只要您在 QwenPaw 中已配置好可用的模型（步骤 ①），iac-code 就会自动使用相同的模型，无需额外配置。
+CloudPaw 插件启动时，会自动在 `~/.iac-code/settings.yml` 中写入 `llm_source: qwenpaw`，iac-code 将直接从 NousAIPaw 的活跃模型配置中读取提供商、API Key、模型名称等信息。只要您在 NousAIPaw 中已配置好可用的模型（步骤 ①），iac-code 就会自动使用相同的模型，无需额外配置。
 
-**手动覆盖：** 如果需要让 iac-code 使用与 QwenPaw 不同的模型，可设置 `IAC_CODE_PROVIDER` 环境变量（通过 QwenPaw 的「环境变量」页面或系统环境变量）。当该变量存在时，CloudPaw 将跳过自动注入，iac-code 使用您的手动配置。详细配置方式请参阅 [iac-code LLM 配置文档](https://aliyun.github.io/iac-code/docs/configuration/llm-providers)。
+**手动覆盖：** 如果需要让 iac-code 使用与 NousAIPaw 不同的模型，可设置 `IAC_CODE_PROVIDER` 环境变量（通过 NousAIPaw 的「环境变量」页面或系统环境变量）。当该变量存在时，CloudPaw 将跳过自动注入，iac-code 使用您的手动配置。详细配置方式请参阅 [iac-code LLM 配置文档](https://aliyun.github.io/iac-code/docs/configuration/llm-providers)。
 
 ### 3. 开始使用
 
@@ -98,10 +98,10 @@ CloudPaw 插件启动时，会自动在 `~/.iac-code/settings.yml` 中写入 `ll
 
 ## 架构
 
-CloudPaw 通过 QwenPaw 原生插件系统接入。
+CloudPaw 通过 NousAIPaw 原生插件系统接入。
 
 ```
-QwenPaw/
+NousAIPaw/
 └── plugins/
     └── bundle/
         └── cloudpaw/           # CloudPaw 插件（前后端）
@@ -120,8 +120,8 @@ QwenPaw/
 
 - **IaC 部署编排**：通过 [iac-code](https://github.com/aliyun/iac-code) 引擎自动生成 ROS/Terraform 模板，实现阿里云资源自动化部署
 - **资源方案选择**：交互式多方案对比和选择，提供专属前端渲染（`proposal_choice` 工具）
-- **PRD 管理前端增强**：为 QwenPaw Mission Mode 的 PRD 管理提供自定义前端渲染组件（`manage_prd` 工具）
-- **多 Agent 协作**：基于 QwenPaw Mission Mode 编排多个 Agent 协同完成复杂部署任务
+- **PRD 管理前端增强**：为 NousAIPaw Mission Mode 的 PRD 管理提供自定义前端渲染组件（`manage_prd` 工具）
+- **多 Agent 协作**：基于 NousAIPaw Mission Mode 编排多个 Agent 协同完成复杂部署任务
 - **阿里云 Skills 远程托管能力接入**：通过 A2A 协议连接阿里云 Skills 门户的远程托管 Agent，支持流式实时显示响应进度
 - **自动依赖安装**：插件启动时自动安装 `iac-code` 和阿里云 CLI
 
@@ -173,7 +173,7 @@ CloudPaw 提供 **两种** 方式调用远程 A2A Agent，两种方式均通过�
 
 ## 多 Agent 协作架构
 
-CloudPaw 基于 QwenPaw 的 **Mission Mode** 实现多 Agent 协作。用户只需与主控 Agent 对话，系统会自动将需求拆解为 PRD（产品需求文档），再按 Story 粒度委派给各专业子 Agent 执行。
+CloudPaw 基于 NousAIPaw 的 **Mission Mode** 实现多 Agent 协作。用户只需与主控 Agent 对话，系统会自动将需求拆解为 PRD（产品需求文档），再按 Story 粒度委派给各专业子 Agent 执行。
 
 | Agent | 职责 |
 |---|---|

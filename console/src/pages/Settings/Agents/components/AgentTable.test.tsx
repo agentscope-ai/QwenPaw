@@ -86,7 +86,7 @@ describe("AgentTable", () => {
       />,
     );
 
-    const nativeTag = screen.getByText(/QwenPaw/).closest(".ant-tag");
+    const nativeTag = screen.getByText(/NousAIPaw/).closest(".ant-tag");
     const codexTag = screen.getByText(/Codex/).closest(".ant-tag");
     const qoderTag = screen.getByText(/Qoder/).closest(".ant-tag");
     expect(nativeTag).toBeInTheDocument();
