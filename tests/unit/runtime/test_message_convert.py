@@ -7,7 +7,7 @@ from qwenpaw.constant import (
     QWENPAW_MESSAGE_TAG_KEY,
 )
 from qwenpaw.runtime.message_convert import _request_input_to_msgs
-from qwenpaw.schemas import Message, Role, TextContent
+from qwenpaw.schemas import AudioContent, Message, Role, TextContent
 
 
 def test_only_external_user_input_gets_query_tag():
@@ -46,3 +46,24 @@ def test_user_message_client_id_survives_conversion():
     assert messages[0].metadata[QWENPAW_MESSAGE_TAG_KEY] == (
         EXTERNAL_USER_QUERY_MESSAGE_TAG
     )
+
+
+def test_audio_content_data_becomes_audio_data_block(tmp_path):
+    audio_path = tmp_path / "voice.opus"
+
+    messages = _request_input_to_msgs(
+        [
+            Message(
+                role=Role.USER,
+                content=[AudioContent(data=str(audio_path))],
+            ),
+        ],
+    )
+
+    assert len(messages) == 1
+    assert len(messages[0].content) == 1
+    block = messages[0].content[0]
+    assert block.type == "data"
+    assert block.source.type == "url"
+    assert str(block.source.url) == audio_path.resolve().as_uri()
+    assert block.source.media_type.startswith("audio/")

@@ -125,6 +125,7 @@ def _request_input_to_msgs(
                     getattr(c, "image_url", None)
                     or getattr(c, "audio_url", None)
                     or getattr(c, "video_url", None)
+                    or (getattr(c, "data", None) if ctype == "audio" else None)
                     or getattr(c, "url", None)
                 )
                 if url:
