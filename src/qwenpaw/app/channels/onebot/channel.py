@@ -140,7 +140,7 @@ def _local_media_base64_ref(
     """Convert a local OneBot media file to base64 when safe."""
     try:
         size = path.stat().st_size
-        if media_base64_max_bytes and size > media_base64_max_bytes:
+        if size > media_base64_max_bytes:
             logger.warning(
                 "onebot: local media file %s is %s bytes, exceeds "
                 "media_base64_max_bytes=%s; sending path instead",
@@ -226,7 +226,11 @@ class OneBotChannel(BaseChannel):
         self._access_token = access_token
         self._share_session_in_group = share_session_in_group
         self._media_base64 = media_base64
-        self._media_base64_max_bytes = media_base64_max_bytes
+        self._media_base64_max_bytes = (
+            media_base64_max_bytes
+            if media_base64_max_bytes > 0
+            else _DEFAULT_MEDIA_BASE64_MAX_BYTES
+        )
 
         # WebSocket server state
         self._app: Optional[web.Application] = None

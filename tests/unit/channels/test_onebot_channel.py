@@ -6,6 +6,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+import pytest
+from pydantic import ValidationError
 from qwenpaw.config.config import OneBotConfig
 from qwenpaw.schemas import (
     ContentType,
@@ -57,6 +59,17 @@ def test_from_config_sets_media_base64_options():
 
     assert ch._media_base64 is True
     assert ch._media_base64_max_bytes == 123
+
+
+def test_media_base64_max_bytes_must_be_positive():
+    with pytest.raises(ValidationError):
+        OneBotConfig(media_base64_max_bytes=0)
+
+
+def test_channel_falls_back_for_non_positive_media_base64_limit():
+    ch = _make_channel(media_base64_max_bytes=0)
+
+    assert ch._media_base64_max_bytes == 10 * 1024 * 1024
 
 
 def _make_message_event(
