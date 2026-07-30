@@ -12,6 +12,9 @@ jobs:
   # Maintainer must approve before AI review runs
   review-gate:
     name: AI Review Approval
+    # Fork: AI review requires the REVIEW_DASHSCOPE_API_KEY secret. Opt in by
+    # setting repository variable ENABLE_AI_REVIEW=true after adding the secret.
+    if: ${{ vars.ENABLE_AI_REVIEW == 'true' }}
     runs-on: ubuntu-latest
     environment: ai-review-approved
     steps:
