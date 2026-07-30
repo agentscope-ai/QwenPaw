@@ -57,6 +57,7 @@ def _reset_host_runtime(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 def test_host_runtime_requests_a_capability_only_when_needed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(runtime_module.sys, "platform", "darwin")
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(("127.0.0.1", 0))
     listener.listen(1)

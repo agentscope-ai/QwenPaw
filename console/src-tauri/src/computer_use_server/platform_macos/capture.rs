@@ -26,7 +26,13 @@ pub(crate) fn observe_window(
     state: &mut ServerState,
     window: &WindowInfo,
 ) -> Result<Value, (&'static str, String)> {
-    if !ScreenCaptureAccess::default().preflight() {
+    let screen_capture_access = ScreenCaptureAccess::default();
+    if !screen_capture_access.preflight() {
+        // `preflight` only reports the current TCC decision. Request access
+        // here so the native helper that performs capture is the process macOS
+        // presents to the user, rather than asking them to grant its parent
+        // desktop shell by hand.
+        screen_capture_access.request();
         return Err(screen_recording_permission_error());
     }
 
@@ -242,7 +248,7 @@ fn bounded_capture_dimensions(width: i32, height: i32) -> (usize, usize) {
 fn screen_recording_permission_error() -> (&'static str, String) {
     (
         "screen_recording_permission_required",
-        "Screen Recording permission is required for Computer Use. Enable QwenPaw Desktop in System Settings, then restart it.".to_string(),
+        "Screen Recording permission is required for Computer Use. Approve the macOS prompt for the Computer Use helper, then restart QwenPaw Desktop.".to_string(),
     )
 }
 

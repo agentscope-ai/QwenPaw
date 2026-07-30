@@ -24,10 +24,12 @@ from computer_use_tool.router import (
     build_router,
 )
 from qwenpaw.app.computer_use import HostRuntimeProvider
+from qwenpaw.app.computer_use import runtime as runtime_module
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
 
 def test_status_route_does_not_acquire_native_runtime(monkeypatch) -> None:
+    monkeypatch.setattr(runtime_module.sys, "platform", "darwin")
     monkeypatch.setenv("QWENPAW_COMPUTER_USE_CONTROL_HOST", "127.0.0.1")
     monkeypatch.setenv("QWENPAW_COMPUTER_USE_CONTROL_PORT", "8080")
     monkeypatch.setenv("QWENPAW_COMPUTER_USE_CONTROL_TOKEN", "test-token")
