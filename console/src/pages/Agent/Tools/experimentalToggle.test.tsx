@@ -90,14 +90,19 @@ vi.mock("@agentscope-ai/design", () => ({
     footer?: React.ReactNode;
   }) =>
     open ? (
-      <div role="dialog" aria-label={typeof title === "string" ? title : "drawer"}>
+      <div
+        role="dialog"
+        aria-label={typeof title === "string" ? title : "drawer"}
+      >
         {title}
         {children}
         {footer}
       </div>
     ) : null,
   Table: () => <table />,
-  Tag: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
+  Tag: ({ children }: { children?: React.ReactNode }) => (
+    <span>{children}</span>
+  ),
 }));
 
 vi.mock("@/components/PageHeader", () => ({
