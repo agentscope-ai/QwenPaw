@@ -165,7 +165,11 @@ def make_recall_history_python(
             )
         cell = _build_cell(source)
         _bundled = os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME", "").strip()
-        python = _bundled if _bundled and os.path.isfile(_bundled) else sys.executable
+        python = (
+            _bundled
+            if _bundled and os.path.isfile(_bundled)
+            else sys.executable
+        )
         argv = [python, str(cell)]
         try:
             if sandbox_config is not None:
