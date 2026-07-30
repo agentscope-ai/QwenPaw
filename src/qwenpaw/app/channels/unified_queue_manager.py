@@ -195,7 +195,10 @@ class UnifiedQueueManager:
                     priority_level,
                     state,
                 ),
-                name=(f"consumer_{channel_id}_" f"{session_id[:20]}_{priority_level}"),
+                name=(
+                    f"consumer_{channel_id}_"
+                    f"{session_id[:20]}_{priority_level}"
+                ),
             )
 
             state.consumer_task = consumer_task
@@ -374,7 +377,8 @@ class UnifiedQueueManager:
 
             if pending:
                 logger.warning(
-                    f"stop_all: {len(pending)} consumer(s) " f"still pending after 5s",
+                    f"stop_all: {len(pending)} consumer(s) "
+                    f"still pending after 5s",
                 )
 
         # Clear queues dict
