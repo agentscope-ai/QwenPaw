@@ -2365,8 +2365,7 @@ def _move_to_failed_cleanup_unelevated(
     logger.info("Cleanup failed, metadata preserved: %s", dest.name)
 
 
-def shutdown_cleanup(  # pylint: disable=R0912
-) -> None:
+def shutdown_cleanup() -> None:  # pylint: disable=R0912
     """Best-effort cleanup of unelevated sandbox ACLs on process exit.
 
     Removes ACEs for orphaned sandboxes whose owner process is dead.

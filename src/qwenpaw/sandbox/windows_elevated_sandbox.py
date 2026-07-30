@@ -1160,7 +1160,8 @@ def _remove_traverse_ace(  # pylint: disable=R0911,R0912,R0915
                         continue
                     sid_ptr = ctypes.c_void_p(ace_ptr.value + 8)
                     if advapi32.IsValidSid(sid_ptr) and advapi32.EqualSid(
-                        sid_ptr, psid_target
+                        sid_ptr,
+                        psid_target,
                     ):
                         to_delete.append(i)
 
