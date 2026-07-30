@@ -78,6 +78,26 @@ vi.mock("@agentscope-ai/design", () => ({
   Input: Object.assign(() => <input />, { Password: () => <input /> }),
   InputNumber: () => <input />,
   Select: Object.assign(() => <select />, { Option: () => <option /> }),
+  Drawer: ({
+    children,
+    open,
+    title,
+    footer,
+  }: {
+    children?: React.ReactNode;
+    open?: boolean;
+    title?: React.ReactNode;
+    footer?: React.ReactNode;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label={typeof title === "string" ? title : "drawer"}>
+        {title}
+        {children}
+        {footer}
+      </div>
+    ) : null,
+  Table: () => <table />,
+  Tag: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
 }));
 
 vi.mock("@/components/PageHeader", () => ({
