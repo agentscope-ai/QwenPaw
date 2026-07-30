@@ -7,6 +7,16 @@ license = "Apache-2.0"
 repository = "https://github.com/agentscope-ai/QwenPaw"
 edition = "2021"
 rust-version = "1.77.2"
+default-run = "qwenpaw-desktop"
+autobins = false
+
+[[bin]]
+name = "qwenpaw-desktop"
+path = "src/main.rs"
+
+[[bin]]
+name = "qwenpaw-computer-use-helper"
+path = "src/bin/qwenpaw-computer-use-helper.rs"
 
 [lib]
 name = "app_lib"
@@ -28,6 +38,7 @@ semver = "1"
 base64 = "0.22"
 minisign-verify = "0.2"
 sha2 = "0.10"
+rand = "0.9"
 tauri = { version = "2.10.3", features = ["tray-icon", "devtools"] }
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
@@ -36,3 +47,54 @@ tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["fs", "io-util", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
 dirs = "5"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61.3", features = [
+    "Foundation",
+    "Foundation_Collections",
+    "Graphics",
+    "Graphics_Capture",
+    "Graphics_DirectX",
+    "Graphics_DirectX_Direct3D11",
+    "Graphics_Imaging",
+    "Storage_Streams",
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_System_WinRT",
+    "Win32_System_WinRT_Direct3D11",
+    "Win32_System_WinRT_Graphics_Capture",
+    "Win32_System_Pipes",
+    "Win32_System_IO",
+    "Win32_System_Com",
+    "Win32_System_SystemInformation",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_Threading",
+    "Win32_System_JobObjects",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Accessibility",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = { version = "0.10", features = ["link"] }
+# `highsierra` gates the non-variadic scroll-event constructor, which is the
+# only way to synthesise a scroll without hand-writing variadic FFI. It gates
+# nothing else.
+core-graphics = { version = "0.24", features = ["link", "highsierra"] }
+accessibility = "0.2"
+accessibility-sys = "0.2"
+jpeg-encoder = "0.6"
+libc = "0.2"
+block2 = "0.6"
+objc2 = "0.6"
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["CGImage"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSError"] }
+objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["SCShareableContent", "SCScreenshotManager", "SCStream", "block2", "objc2-core-graphics"] }

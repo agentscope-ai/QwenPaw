@@ -17,9 +17,23 @@ export interface OssConfig {
   policy_api_key: string;
 }
 
+export interface GroundingConfig extends ModelConfigItem {
+  reuse_llm: boolean;
+  validation_source: "llm" | "vlm" | "custom";
+  tavily_api_key: string;
+  native_search_enabled: boolean;
+  search_provider: "dashscope_qwen";
+  search_reuse_llm: boolean;
+  search_model_name: string;
+  search_api_key: string;
+  search_base_url: string;
+  search_protocol: string;
+}
+
 export interface ModelConfigData {
   llm: ModelConfigItem & { multimodal: boolean };
   vlm: ModelConfigItem & { use_llm: boolean; multimodal: boolean };
+  grounding: GroundingConfig;
   asr: ModelConfigItem & {
     provider: "whisper" | "fun-asr";
     language: string;

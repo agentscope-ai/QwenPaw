@@ -521,7 +521,7 @@ NousAIPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DI
 
 | 提供商                                  | ID                       | 说明                          |
 | --------------------------------------- | ------------------------ | ----------------------------- |
-| NousAIPaw Local                           | `qwenpaw-local`          | 本地 llama.cpp 后端           |
+| NousAIPaw Local                         | `qwenpaw-local`          | 本地 llama.cpp 后端           |
 | Ollama                                  | `ollama`                 | 本地 Ollama 服务              |
 | LM Studio                               | `lmstudio`               | 本地 LM Studio 服务           |
 | OpenRouter                              | `openrouter`             | OpenRouter 模型聚合平台       |

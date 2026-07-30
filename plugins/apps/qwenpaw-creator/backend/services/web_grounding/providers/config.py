@@ -4,28 +4,28 @@
 from __future__ import annotations
 
 import os
-import re
+from urllib.parse import urlparse
 
 import httpx
 
 from models import config as model_config
 
 DEFAULT_VISUAL_SEARCH_PROVIDERS = ("tavily", "dashscope_web_search_image")
+DEFAULT_VISUAL_SEARCH_MIN_RESULTS_FOR_FALLBACK = 2
 
 
 def tavily_api_key() -> str:
-    return (
-        os.environ.get("TAVILY_API_KEY")
-        or os.environ.get("WEB_GROUNDING_TAVILY_API_KEY")
-        or ""
-    )
+    return model_config.get_web_grounding_tavily_api_key()
 
 
 def dashscope_api_key() -> str:
     try:
-        return model_config.get_text_api_key() or os.environ.get(
-            "DASHSCOPE_API_KEY",
-            "",
+        return (
+            model_config.get_web_grounding_search_api_key()
+            or os.environ.get(
+                "DASHSCOPE_API_KEY",
+                "",
+            )
         )
     except Exception:
         return os.environ.get("DASHSCOPE_API_KEY", "")
@@ -33,14 +33,17 @@ def dashscope_api_key() -> str:
 
 def dashscope_base_url() -> str:
     try:
-        return model_config.get_text_base_url()
+        return model_config.get_web_grounding_search_base_url()
     except Exception:
         return "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 
 def dashscope_model() -> str:
     try:
-        return model_config.get_text_model_name() or "qwen3.7-plus"
+        return (
+            model_config.get_web_grounding_search_model_name()
+            or "qwen3.7-plus"
+        )
     except Exception:
         return "qwen3.7-plus"
 
@@ -60,6 +63,40 @@ def dashscope_web_search_model() -> str:
     return dashscope_model()
 
 
+def dashscope_native_search_unavailable_reason(
+    *,
+    api_key_override: str | None = None,
+) -> str:
+    """Explain why the DashScope/Qwen native-search adapter cannot run."""
+
+    try:
+        if not model_config.get_web_grounding_native_search_enabled():
+            return "native_search_disabled"
+        provider = model_config.get_web_grounding_search_provider()
+        if provider != "dashscope_qwen":
+            return f"native_search_provider_unsupported:{provider}"
+        api_key = (
+            api_key_override
+            if api_key_override is not None
+            else dashscope_api_key()
+        )
+        base_url = dashscope_base_url()
+        model = dashscope_model()
+        if not api_key or not base_url or not model:
+            return "native_search_config_incomplete"
+        protocol = model_config.get_web_grounding_search_protocol()
+        hostname = urlparse(base_url).hostname or ""
+        if (
+            "dashscope" not in protocol.casefold()
+            and "百炼" not in protocol
+            and "dashscope" not in hostname.casefold()
+        ):
+            return "native_search_provider_incompatible"
+        return ""
+    except Exception:
+        return "native_search_config_unavailable"
+
+
 def responses_url_from_base(base_url: str) -> str:
     base = str(base_url or "").strip().rstrip("/")
     if not base:
@@ -71,44 +108,24 @@ def responses_url_from_base(base_url: str) -> str:
     return f"{base}/responses"
 
 
-def normalize_visual_provider_name(value: str) -> str:
-    provider = value.strip().lower().replace("-", "_")
-    return {
-        "qwen": "dashscope_web_search_image",
-        "dashscope": "dashscope_web_search_image",
-        "dashscope_image": "dashscope_web_search_image",
-        "web_search_image": "dashscope_web_search_image",
-        "qwen_web_search_image": "dashscope_web_search_image",
-    }.get(provider, provider)
-
-
 def visual_search_provider_order() -> tuple[str, ...]:
-    raw = os.environ.get("WEB_GROUNDING_IMAGE_PROVIDERS") or os.environ.get(
-        "WEB_GROUNDING_VISUAL_PROVIDERS",
-    )
-    if not raw:
-        providers: list[str] = []
-        if tavily_api_key():
-            providers.append("tavily")
-        if dashscope_api_key():
-            providers.append("dashscope_web_search_image")
-        return tuple(providers or DEFAULT_VISUAL_SEARCH_PROVIDERS)
+    """Return the fixed product provider chain, filtered by availability."""
 
-    providers = []
-    for item in re.split(r"[,，;；\s]+", raw):
-        provider = normalize_visual_provider_name(item)
-        if provider and provider not in providers:
-            providers.append(provider)
-    return tuple(providers or DEFAULT_VISUAL_SEARCH_PROVIDERS)
+    native_search_ok = not dashscope_native_search_unavailable_reason()
+    available = {
+        "tavily": bool(tavily_api_key()),
+        "dashscope_web_search_image": native_search_ok,
+    }
+    providers = tuple(
+        provider
+        for provider in DEFAULT_VISUAL_SEARCH_PROVIDERS
+        if available[provider]
+    )
+    return providers
 
 
 def visual_search_min_results_for_fallback() -> int:
-    raw = os.environ.get("WEB_GROUNDING_IMAGE_MIN_RESULTS_FOR_FALLBACK", "1")
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        return 1
-    return max(1, value)
+    return DEFAULT_VISUAL_SEARCH_MIN_RESULTS_FOR_FALLBACK
 
 
 def is_retryable_visual_search_error(exc: BaseException) -> bool:

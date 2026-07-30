@@ -48,7 +48,7 @@ qwenpaw app --log-level debug           # Verbose logging
 | `--port`      | `8088`      | Bind port                                                     |
 | `--reload`    | off         | Auto-reload on file changes (dev only)                        |
 | `--log-level` | `info`      | `critical` / `error` / `warning` / `info` / `debug` / `trace` |
-| `--workers`   | —           | **[DEPRECATED]** Ignored. NousAIPaw always uses 1 worker        |
+| `--workers`   | —           | **[DEPRECATED]** Ignored. NousAIPaw always uses 1 worker      |
 
 > **Note:** The `--workers` option is deprecated for stability reasons. NousAIPaw is designed to run with a single worker process. Multi-worker mode can cause issues with in-memory state management and WebSocket connections. This option will be removed in a future version.
 

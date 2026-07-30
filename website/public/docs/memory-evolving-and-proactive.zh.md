@@ -22,12 +22,12 @@ graph LR
     U --> W[memory/<date>/interests.yaml]
 ```
 
-| 能力                 | 代码路径                                                     | 触发方式                                                                | 主要产物                                                                               |
-| -------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------ |
-| Auto Memory          | `ReMeLightMemoryManager.auto_memory()` -> ReMe `auto_memory` | `MemoryMiddleware` 按配置的用户轮次数触发；启用时也会在上下文压缩前触发 | `mem_session/dialog/<session_id>.jsonl`、`memory/<date>/<note>.md`、`memory/<date>.md` |
-| Auto Resource        | ReMe `resource_watch_loop` -> `auto_resource`                | 嵌入式 ReMe 后台 watcher 监听 `resource_dir`                            | `memory/<date>/<resource_note>.md`                                                     |
-| Auto Dream           | `ReMeLightMemoryManager.dream()` -> ReMe `auto_dream`        | `/dream` 命令或 `dream_cron` 调度                                       | `digest/*/*.md`、`memory/<date>/interests.yaml`                                        |
-| ReMe proactive job   | ReMe `proactive`                                             | 仅在直接调用 ReMe job 时运行                                            | `memory/<date>/interests.yaml` 的 metadata/content                                     |
+| 能力                   | 代码路径                                                     | 触发方式                                                                | 主要产物                                                                               |
+| ---------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------ |
+| Auto Memory            | `ReMeLightMemoryManager.auto_memory()` -> ReMe `auto_memory` | `MemoryMiddleware` 按配置的用户轮次数触发；启用时也会在上下文压缩前触发 | `mem_session/dialog/<session_id>.jsonl`、`memory/<date>/<note>.md`、`memory/<date>.md` |
+| Auto Resource          | ReMe `resource_watch_loop` -> `auto_resource`                | 嵌入式 ReMe 后台 watcher 监听 `resource_dir`                            | `memory/<date>/<resource_note>.md`                                                     |
+| Auto Dream             | `ReMeLightMemoryManager.dream()` -> ReMe `auto_dream`        | `/dream` 命令或 `dream_cron` 调度                                       | `digest/*/*.md`、`memory/<date>/interests.yaml`                                        |
+| ReMe proactive job     | ReMe `proactive`                                             | 仅在直接调用 ReMe job 时运行                                            | `memory/<date>/interests.yaml` 的 metadata/content                                     |
 | NousAIPaw `/proactive` | `src/qwenpaw/agents/memory/proactive`                        | `/proactive [minutes                                                    | on                                                                                     | off]` 空闲循环 | 通过 `/api/console/chat` 发送的主动 chat request |
 
 关键边界：`memory/<date>/interests.yaml` 由 Auto Dream 生成，也可以被 ReMe 的 `proactive` job 读取；但 NousAIPaw 当前 `/proactive` 实现不会调用这个 job，也不会直接消费 `interests.yaml`。

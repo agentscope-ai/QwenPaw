@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import threading
 from pathlib import Path
@@ -155,10 +156,21 @@ def test_shadow_git_preserves_crlf_despite_user_git_rules(
 def test_config_fields_are_validated_lazily(tmp_path: Path) -> None:
     engine = CheckpointService(tmp_path)
     config = engine.repository.config_file
+    previous_mtime_ns = config.stat().st_mtime_ns
     text = config.read_text(encoding="utf-8")
     config.write_text(
         text.replace("gc_keep_count = 20", 'gc_keep_count = "invalid"'),
         encoding="utf-8",
+    )
+    # Advance by one second so coarse timestamp resolution cannot hide the
+    # change from the lazy mtime-based reload.
+    stat = config.stat()
+    os.utime(
+        config,
+        ns=(
+            stat.st_atime_ns,
+            max(stat.st_mtime_ns, previous_mtime_ns + 1_000_000_000),
+        ),
     )
 
     assert engine.auto_enabled is False
@@ -337,10 +349,7 @@ async def test_restore_command_validates_and_preserves_file_selection(
 ) -> None:
     confirmation = await _run(
         workspace,
-        (
-            "restore abcdef1 --include-files "
-            '--files "docs/a b.md" src/app.py'
-        ),
+        ('restore abcdef1 --include-files --files "docs/a b.md" src/app.py'),
     )
     assert "**Confirmation required**" in confirmation
     assert '--files "docs/a b.md"' in confirmation

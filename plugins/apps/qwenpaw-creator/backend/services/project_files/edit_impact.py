@@ -244,6 +244,7 @@ def _rebind_motion_copy(
     old_text: str,
     new_text: str,
 ) -> str | None:
+    # pylint: disable=too-many-branches,too-many-statements
     """Replace only visible copy while preserving the motion document.
 
     Generated caption cards may split one sentence over ``<br>`` or several
@@ -341,7 +342,7 @@ def _rebind_motion_copy(
     )
 
 
-def _apply_element_path(
+def _apply_element_path(  # pylint: disable=too-many-branches
     document: dict[str, Any],
     tokens: tuple[str, ...],
     impact: EditImpact,

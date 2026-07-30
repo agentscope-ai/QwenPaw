@@ -1072,16 +1072,16 @@ After configuration, simply call your Twilio phone number to have a voice conver
 
 **Voice channel-specific fields:**
 
-| Field                | Type   | Default                                      | Description                                  |
-| -------------------- | ------ | -------------------------------------------- | -------------------------------------------- |
-| `twilio_account_sid` | string | `""` (required)                              | Twilio Account SID                           |
-| `twilio_auth_token`  | string | `""` (required)                              | Twilio Auth Token                            |
-| `phone_number`       | string | `""` (required)                              | Purchased phone number (e.g., `+1234567890`) |
-| `phone_number_sid`   | string | `""` (required)                              | Phone number SID                             |
-| `tts_provider`       | string | `"google"`                                   | Text-to-speech provider                      |
-| `tts_voice`          | string | `"en-US-Journey-D"`                          | TTS voice model                              |
-| `stt_provider`       | string | `"deepgram"`                                 | Speech-to-text provider                      |
-| `language`           | string | `"en-US"`                                    | Language code                                |
+| Field                | Type   | Default                                        | Description                                  |
+| -------------------- | ------ | ---------------------------------------------- | -------------------------------------------- |
+| `twilio_account_sid` | string | `""` (required)                                | Twilio Account SID                           |
+| `twilio_auth_token`  | string | `""` (required)                                | Twilio Auth Token                            |
+| `phone_number`       | string | `""` (required)                                | Purchased phone number (e.g., `+1234567890`) |
+| `phone_number_sid`   | string | `""` (required)                                | Phone number SID                             |
+| `tts_provider`       | string | `"google"`                                     | Text-to-speech provider                      |
+| `tts_voice`          | string | `"en-US-Journey-D"`                            | TTS voice model                              |
+| `stt_provider`       | string | `"deepgram"`                                   | Speech-to-text provider                      |
+| `language`           | string | `"en-US"`                                      | Language code                                |
 | `welcome_greeting`   | string | `"Hi! This is NousAIPaw. How can I help you?"` | Welcome message when call connects           |
 
 > **Note**: The Voice channel requires a continuous network connection and a running tunnel solution. For production use, consider stable tunneling options (like Cloudflare Tunnel, ngrok paid plans, etc.).
@@ -1293,26 +1293,26 @@ After configuration, start a call from your SIP phone or browser:
 
 ### SIP channel fields
 
-| Field                | Type   | Default                                      | Description                                                             |
-| -------------------- | ------ | -------------------------------------------- | ----------------------------------------------------------------------- |
-| `sip_mode`           | string | `"dev"`                                      | Backend mode: `"dev"` (pyVoIP) or `"livekit"`                           |
-| `sip_server`         | string | `""`                                         | SIP registrar address. Leave empty to use built-in registrar (dev mode) |
-| `sip_username`       | string | `""`                                         | SIP account username (default: `agent` with built-in registrar)         |
-| `sip_password`       | string | `""`                                         | SIP account password                                                    |
-| `sip_host`           | string | `"0.0.0.0"`                                  | Local bind address                                                      |
-| `sip_port`           | int    | `5061`                                       | Local SIP port (agent side)                                             |
-| `sip_transport`      | string | `"UDP"`                                      | SIP transport: `UDP`, `TCP`, or `TLS`                                   |
-| `rtp_port_low`       | int    | `10000`                                      | RTP port range start (dev mode only)                                    |
-| `rtp_port_high`      | int    | `20000`                                      | RTP port range end (dev mode only)                                      |
-| `livekit_url`        | string | `""`                                         | LiveKit Server WebSocket URL (production mode)                          |
-| `livekit_api_key`    | string | `""`                                         | LiveKit API key (production mode)                                       |
-| `livekit_api_secret` | string | `""`                                         | LiveKit API secret (production mode)                                    |
-| `tts_provider`       | string | `"aliyun"`                                   | TTS provider (currently supports `aliyun`)                              |
-| `tts_voice`          | string | `"longxiaochun"`                             | TTS voice model                                                         |
-| `stt_provider`       | string | `"aliyun"`                                   | STT provider (currently supports `aliyun`)                              |
-| `language`           | string | `"zh-CN"`                                    | Language code                                                           |
+| Field                | Type   | Default                                        | Description                                                             |
+| -------------------- | ------ | ---------------------------------------------- | ----------------------------------------------------------------------- |
+| `sip_mode`           | string | `"dev"`                                        | Backend mode: `"dev"` (pyVoIP) or `"livekit"`                           |
+| `sip_server`         | string | `""`                                           | SIP registrar address. Leave empty to use built-in registrar (dev mode) |
+| `sip_username`       | string | `""`                                           | SIP account username (default: `agent` with built-in registrar)         |
+| `sip_password`       | string | `""`                                           | SIP account password                                                    |
+| `sip_host`           | string | `"0.0.0.0"`                                    | Local bind address                                                      |
+| `sip_port`           | int    | `5061`                                         | Local SIP port (agent side)                                             |
+| `sip_transport`      | string | `"UDP"`                                        | SIP transport: `UDP`, `TCP`, or `TLS`                                   |
+| `rtp_port_low`       | int    | `10000`                                        | RTP port range start (dev mode only)                                    |
+| `rtp_port_high`      | int    | `20000`                                        | RTP port range end (dev mode only)                                      |
+| `livekit_url`        | string | `""`                                           | LiveKit Server WebSocket URL (production mode)                          |
+| `livekit_api_key`    | string | `""`                                           | LiveKit API key (production mode)                                       |
+| `livekit_api_secret` | string | `""`                                           | LiveKit API secret (production mode)                                    |
+| `tts_provider`       | string | `"aliyun"`                                     | TTS provider (currently supports `aliyun`)                              |
+| `tts_voice`          | string | `"longxiaochun"`                               | TTS voice model                                                         |
+| `stt_provider`       | string | `"aliyun"`                                     | STT provider (currently supports `aliyun`)                              |
+| `language`           | string | `"zh-CN"`                                      | Language code                                                           |
 | `welcome_greeting`   | string | `"Hi! This is NousAIPaw. How can I help you?"` | Welcome message when call connects                                      |
-| `call_timeout`       | float  | `30.0`                                       | Outbound call timeout in seconds                                        |
+| `call_timeout`       | float  | `30.0`                                         | Outbound call timeout in seconds                                        |
 
 ---
 

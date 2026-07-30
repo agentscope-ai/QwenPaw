@@ -843,6 +843,8 @@ def _build_spawn_request_context(current_agent_id: str) -> dict[str, Any]:
     safe_meta = _json_safe_channel_meta(inherited.get("channel_meta") or {})
     if isinstance(safe_meta, dict) and safe_meta:
         context["channel_meta"] = safe_meta
+    if inherited.get("approval_level"):
+        context["approval_level"] = inherited["approval_level"]
     return context
 
 

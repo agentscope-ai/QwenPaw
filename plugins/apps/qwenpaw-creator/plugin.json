@@ -1,14 +1,14 @@
 {
   "id": "qwenpaw-creator",
-  "name": "QwenPaw Creator",
-  "version": "1.0.0",
+  "name": "NousAIPaw Creator",
+  "version": "1.0.1",
   "type": "app",
-  "description": "QwenPaw plugin that brings the QwenPaw-Creator script-to-assets-to-video workflow into QwenPaw.",
+  "description": "NousAIPaw plugin that brings the NousAIPaw-Creator script-to-assets-to-video workflow into NousAIPaw.",
   "description_i18n": {
-    "zh-CN": "将 QwenPaw-Creator 的剧本、资产、分镜与视频工作流作为插件接入 QwenPaw。",
-    "en-US": "QwenPaw plugin that brings the QwenPaw-Creator script, asset, storyboard, and video workflow into QwenPaw."
+    "zh-CN": "将 NousAIPaw-Creator 的剧本、资产、分镜与视频工作流作为插件接入 NousAIPaw。",
+    "en-US": "NousAIPaw plugin that brings the NousAIPaw-Creator script, asset, storyboard, and video workflow into NousAIPaw."
   },
-  "author": "QwenPaw Creator Team",
+  "author": "NousAIPaw Creator Team",
   "entry": {
     "backend": "backend/main.py",
     "frontend": "ui/dist/index.js"
@@ -19,12 +19,12 @@
   ],
   "qwenpaw_version": {
     "min": "2.0.1",
-    "max": "2.1.0"
+    "max": "3.1.0"
   },
   "meta": {
     "pawapp": {
       "icon": "🎬",
-      "category": "video-creation",
+      "icon_url": "/api/frontend_plugin/qwenpaw-creator/files/ui/dist/app/logo-mark.png",
       "entry_page": "/apps/qwenpaw-creator",
       "launch_scope": "page"
     },
@@ -62,7 +62,7 @@
     "tools": [
       {
         "name": "creator_text_model",
-        "description": "QwenPaw Creator text model configuration for script, storyboard, and prompt planning",
+        "description": "NousAIPaw Creator text model configuration for script, storyboard, and prompt planning",
         "icon": "📝",
         "requires_config": true,
         "config_fields": [
@@ -93,7 +93,7 @@
       },
       {
         "name": "creator_vlm_model",
-        "description": "QwenPaw Creator native multimodal understanding configuration",
+        "description": "NousAIPaw Creator native multimodal understanding configuration",
         "icon": "👁️",
         "requires_config": false,
         "config_fields": [
@@ -123,8 +123,109 @@
         ]
       },
       {
+        "name": "creator_web_grounding",
+        "description": "NousAIPaw Creator web and image grounding configuration",
+        "icon": "🌐",
+        "requires_config": false,
+        "config_fields": [
+          {
+            "name": "enabled",
+            "label": "Grounding Enabled",
+            "type": "select",
+            "required": false,
+            "default": "true",
+            "options": ["true", "false"]
+          },
+          {
+            "name": "tavily_api_key",
+            "label": "Tavily API Key",
+            "type": "password",
+            "required": false,
+            "placeholder": "tvly-...",
+            "help": "Optional primary text and image retrieval provider."
+          },
+          {
+            "name": "native_search_enabled",
+            "label": "Qwen Native Search Fallback",
+            "type": "select",
+            "required": false,
+            "default": "true",
+            "options": ["true", "false"],
+            "help": "Uses DashScope Responses web_search/web_search_image only when the selected search adapter is compatible."
+          },
+          {
+            "name": "search_reuse_llm",
+            "label": "Reuse Creator LLM for Search",
+            "type": "select",
+            "required": false,
+            "default": "true",
+            "options": ["true", "false"]
+          },
+          {
+            "name": "search_api_key",
+            "label": "Qwen Search API Key",
+            "type": "password",
+            "required": false,
+            "help": "Used only when search_reuse_llm is false."
+          },
+          {
+            "name": "search_model",
+            "label": "Qwen Search Model",
+            "type": "text",
+            "required": false,
+            "help": "Used only when search_reuse_llm is false."
+          },
+          {
+            "name": "search_base_url",
+            "label": "Qwen Search Base URL",
+            "type": "text",
+            "required": false,
+            "help": "Used only when search_reuse_llm is false."
+          },
+          {
+            "name": "validation_source",
+            "label": "Validation Model Source",
+            "type": "select",
+            "required": false,
+            "default": "llm",
+            "options": ["llm", "vlm", "custom"],
+            "help": "Which model verifies grounded images: the Creator LLM, the Creator VLM, or the custom model below. Overrides the legacy reuse_llm switch."
+          },
+          {
+            "name": "reuse_llm",
+            "label": "Reuse Creator LLM for Validation",
+            "type": "select",
+            "required": false,
+            "default": "true",
+            "options": ["true", "false"],
+            "help": "Legacy switch; ignored when validation_source is set."
+          },
+          {
+            "name": "api_key",
+            "label": "Grounding LLM API Key",
+            "type": "password",
+            "required": false,
+            "help": "Used only when reuse_llm is false. Must support image input for visual verification."
+          },
+          {
+            "name": "model",
+            "label": "Grounding LLM Model",
+            "type": "text",
+            "required": false,
+            "help": "Used only when reuse_llm is false."
+          },
+          {
+            "name": "base_url",
+            "label": "Grounding LLM Base URL",
+            "type": "text",
+            "required": false,
+            "help": "Used only when reuse_llm is false."
+          }
+        ]
+      },
+      {
         "name": "creator_image_model",
-        "description": "QwenPaw Creator image generation/editing configuration",
+        "description": "NousAIPaw Creator image generation/editing configuration",
         "icon": "🎨",
         "requires_config": true,
         "config_fields": [
@@ -173,7 +274,7 @@
       },
       {
         "name": "creator_asr_model",
-        "description": "QwenPaw Creator speech-to-text configuration for source understanding",
+        "description": "NousAIPaw Creator speech-to-text configuration for source understanding",
         "icon": "🎙️",
         "requires_config": false,
         "config_fields": [
@@ -186,7 +287,7 @@
       },
       {
         "name": "creator_video_model",
-        "description": "QwenPaw Creator reference-to-video configuration",
+        "description": "NousAIPaw Creator reference-to-video configuration",
         "icon": "🎬",
         "requires_config": true,
         "config_fields": [
@@ -237,7 +338,7 @@
       },
       {
         "name": "creator_media_oss",
-        "description": "QwenPaw Creator OSS and provider-bound media upload configuration",
+        "description": "NousAIPaw Creator OSS and provider-bound media upload configuration",
         "icon": "🪣",
         "requires_config": false,
         "config_fields": [

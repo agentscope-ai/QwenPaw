@@ -306,6 +306,96 @@ def test_agentscope_client_streams_native_blocks_and_raw_argument_deltas() -> (
     ]
 
 
+def test_agentscope_client_repairs_truncated_native_tool_argument_json() -> (
+    None
+):
+    class MalformedToolArgumentsModel:
+        model = "qwen3.7-plus"
+
+        async def __call__(self, messages, *, tools=None):
+            del messages
+            assert tools
+            return ChatResponse(
+                id="response-repaired-tool",
+                content=[
+                    ToolCallBlock(
+                        id="call-read-repaired",
+                        name="read_project",
+                        input='{"projectId":"project-1","baseEtag":"etag-truncated',
+                    ),
+                ],
+                is_last=True,
+            )
+
+    async def scenario() -> AgentModelTurn:
+        client = AgentScopeAgentChatClient(
+            MalformedToolArgumentsModel(),  # type: ignore[arg-type]
+        )
+        return await client.complete(
+            messages=[{"role": "user", "content": "读取项目"}],
+            tools=_tools(),
+        )
+
+    turn = asyncio.run(scenario())
+
+    assert turn.tool_calls == (
+        AgentToolCall(
+            call_id="call-read-repaired",
+            name="read_project",
+            arguments={
+                "projectId": "project-1",
+                "baseEtag": "etag-truncated",
+            },
+        ),
+    )
+    repaired_call = turn.tool_calls[0]
+    assert repaired_call.arguments_repaired is True
+    assert repaired_call.raw_arguments_bytes == len(
+        '{"projectId":"project-1","baseEtag":"etag-truncated'.encode(
+            "utf-8",
+        ),
+    )
+    assert repaired_call.strict_json_error is not None
+
+
+def test_agentscope_client_degrades_repaired_non_object_tool_arguments() -> (
+    None
+):
+    class NonObjectToolArgumentsModel:
+        model = "qwen3.7-plus"
+
+        async def __call__(self, messages, *, tools=None):
+            del messages
+            assert tools
+            return ChatResponse(
+                id="response-non-object-tool",
+                content=[
+                    ToolCallBlock(
+                        id="call-read-non-object",
+                        name="read_project",
+                        input='["project-1",]',
+                    ),
+                ],
+                is_last=True,
+            )
+
+    async def scenario() -> AgentModelTurn:
+        client = AgentScopeAgentChatClient(
+            NonObjectToolArgumentsModel(),  # type: ignore[arg-type]
+        )
+        return await client.complete(
+            messages=[{"role": "user", "content": "读取项目"}],
+            tools=_tools(),
+        )
+
+    turn = asyncio.run(scenario())
+
+    call = turn.tool_calls[0]
+    assert call.arguments == {}
+    assert call.parse_error is not None
+    assert "无法自动修复" in call.parse_error
+
+
 def _final_tool_call_model(raw_input: str):
     class FinalToolCallModel:
         model = "qwen3.7-plus"

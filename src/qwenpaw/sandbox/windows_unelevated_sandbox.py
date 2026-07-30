@@ -2023,6 +2023,14 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         self._config_fingerprint = fingerprint
         self._sandbox_name = sandbox_name
 
+        if self._config.deny_paths:
+            logger.warning(
+                "WindowsUnelevatedSandbox does not enforce deny_paths. "
+                "Sensitive paths are NOT protected from read access: %s. "
+                "Run as administrator to enable full deny_paths enforcement.",
+                ", ".join(self._config.deny_paths),
+            )
+
         # File lock ensures only one thread/process at a time can
         # check-then-create for the same sandbox_name.  This prevents
         # concurrent callers from generating different capability SIDs
@@ -2147,6 +2155,8 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         assert self._cap_psid is not None
         ws_abs = os.path.abspath(workspace)
         for mount in self._config.mounts:
+            if not mount.writable:
+                continue
             if not os.path.exists(mount.path):
                 continue
             mount_path = os.path.abspath(mount.path)
@@ -2322,7 +2332,40 @@ def _migrate_legacy_state_file() -> None:
         logger.warning("Failed to migrate legacy state file: %s", e)
 
 
-def shutdown_cleanup() -> None:
+def _move_to_failed_cleanup_unelevated(
+    meta: dict,
+    meta_file: Path,
+    reason: str,
+) -> None:
+    """Moves metadata to failed_cleanup/ when cleanup fails."""
+    import datetime
+
+    failed_dir = _qwenpaw_state_dir / "failed_cleanup"
+    failed_dir.mkdir(parents=True, exist_ok=True)
+    dest = failed_dir / meta_file.name
+    counter = 1
+    while dest.exists():
+        dest = failed_dir / f"{meta_file.stem}_{counter}.json"
+        counter += 1
+    meta["_cleanup_error"] = {
+        "reason": reason,
+        "timestamp": datetime.datetime.now().isoformat(),
+    }
+    try:
+        dest.write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError:
+        return
+    try:
+        meta_file.unlink()
+    except OSError:
+        pass
+    logger.info("Cleanup failed, metadata preserved: %s", dest.name)
+
+
+def shutdown_cleanup() -> None:  # pylint: disable=R0912
     """Best-effort cleanup of unelevated sandbox ACLs on process exit.
 
     Removes ACEs for orphaned sandboxes whose owner process is dead.
@@ -2389,10 +2432,17 @@ def shutdown_cleanup() -> None:
             len(failed_paths),
         )
 
-        try:
-            meta_file.unlink()
-        except OSError:
-            pass
+        if failed_paths:
+            _move_to_failed_cleanup_unelevated(
+                meta,
+                meta_file,
+                f"ACL removal failed for {len(failed_paths)} path(s)",
+            )
+        else:
+            try:
+                meta_file.unlink()
+            except OSError:
+                pass
 
         sandboxes_processed += 1
 

@@ -891,11 +891,48 @@ _state_dir = (
 )
 
 
-def _cleanup_single_container(meta: dict, meta_file: Path) -> None:
+def _move_to_failed_cleanup(
+    meta: dict,
+    meta_file: Path,
+    reason: str,
+) -> None:
+    """Moves metadata to failed_cleanup/ when cleanup fails."""
+    import datetime
+
+    failed_dir = _state_dir / "failed_cleanup"
+    failed_dir.mkdir(parents=True, exist_ok=True)
+    dest = failed_dir / meta_file.name
+    counter = 1
+    while dest.exists():
+        dest = failed_dir / f"{meta_file.stem}_{counter}.json"
+        counter += 1
+    meta["_cleanup_error"] = {
+        "reason": reason,
+        "timestamp": datetime.datetime.now().isoformat(),
+    }
+    try:
+        dest.write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError:
+        return
+    try:
+        meta_file.unlink()
+    except OSError:
+        pass
+    logger.info("Cleanup failed, metadata preserved: %s", dest.name)
+
+
+def _cleanup_single_container(  # pylint: disable=R0912
+    meta: dict,
+    meta_file: Path,
+) -> None:
     """Cleans up a single AppContainer sandbox from its metadata.
 
     Removes ACLs, deletes the AppContainer profile, and removes the
-    metadata file.
+    metadata file.  If ACL removal fails, metadata is preserved in
+    ``failed_cleanup/`` for later retry.
 
     Args:
         meta: Container metadata dict.
@@ -906,6 +943,7 @@ def _cleanup_single_container(meta: dict, meta_file: Path) -> None:
     workspace_dir = meta.get("workspace_dir", "")
     acl_manifest = meta.get("acl_manifest")
 
+    acl_failed = 0
     if sid:
         if acl_manifest:
             all_paths = (
@@ -915,11 +953,14 @@ def _cleanup_single_container(meta: dict, meta_file: Path) -> None:
             )
             for path in all_paths:
                 if path:
-                    _remove_acl_with_verify_sync(path, sid)
+                    if not _remove_acl_with_verify_sync(path, sid):
+                        acl_failed += 1
             if workspace_dir:
-                _remove_acl_with_verify_sync(workspace_dir, sid)
+                if not _remove_acl_with_verify_sync(workspace_dir, sid):
+                    acl_failed += 1
         elif workspace_dir:
-            _remove_acl_with_verify_sync(workspace_dir, sid)
+            if not _remove_acl_with_verify_sync(workspace_dir, sid):
+                acl_failed += 1
 
     if container_name:
         try:
@@ -930,10 +971,17 @@ def _cleanup_single_container(meta: dict, meta_file: Path) -> None:
         except OSError:
             pass
 
-    try:
-        meta_file.unlink()
-    except OSError:
-        pass
+    if acl_failed > 0:
+        _move_to_failed_cleanup(
+            meta,
+            meta_file,
+            f"ACL removal failed for {acl_failed} path(s)",
+        )
+    else:
+        try:
+            meta_file.unlink()
+        except OSError:
+            pass
 
 
 def shutdown_cleanup() -> None:

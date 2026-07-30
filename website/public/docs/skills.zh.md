@@ -74,15 +74,14 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
 
    | Skill ID                      | 说明                                                                                               | 来源                                                           |
    | ----------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-   | **browser_cdp**               | 连接到已运行的 Chrome 或以开启 CDP / 远程调试的方式启动浏览器。仅在用户明确要求 CDP 时使用。       | 自建                                                           |
-   | **browser_visible**           | 以可见模式（headed）启动真实浏览器窗口，适用于演示、调试或需要人工参与的场景。                     | 自建                                                           |
+   | **browser**                   | 通过 Unified Browser SDK 执行异步 Python，并遵循“感知 → 操作 → 验证”工作流。                       | 内置                                                           |
    | **channel_message**           | 在先定位目标 session / channel 后，主动向会话或频道发送单向消息。                                  | 自建                                                           |
-   | **QA_source_index**           | NousAIPaw 自身源码与文档的快速索引技能，用于把关键词映射到本地源码路径和文档。                       | 自建                                                           |
+   | **QA_source_index**           | NousAIPaw 自身源码与文档的快速索引技能，用于把关键词映射到本地源码路径和文档。                     | 自建                                                           |
    | **cron**                      | 定时任务管理。通过 `qwenpaw cron` 或控制台定时任务创建、查询、暂停、恢复、删除定时任务。           | 自建                                                           |
    | **dingtalk_channel**          | 通过可视浏览器辅助完成钉钉频道接入流程，并提示用户完成必要手动步骤。                               | 自建                                                           |
    | **docx**                      | Word 文档（.docx）的创建、阅读、编辑，含目录、页眉页脚、表格、图片、修订与批注等。                 | https://github.com/anthropics/skills/tree/main/skills/docx     |
    | **file_reader**               | 读取与摘要文本类文件（如 .txt、.md、.json、.csv、.log、.py 等）。PDF 与 Office 由专用 Skill 处理。 | 自建                                                           |
-   | **guidance**                  | 回答 NousAIPaw 安装与配置问题，优先查本地文档。                                                      | 自建                                                           |
+   | **guidance**                  | 回答 NousAIPaw 安装与配置问题，优先查本地文档。                                                    | 自建                                                           |
    | **himalaya**                  | 通过 CLI 管理邮件（IMAP/SMTP）。使用 `himalaya` 列出、阅读、搜索、整理邮件。                       | https://github.com/openclaw/openclaw/tree/main/skills/himalaya |
    | **multi_agent_collaboration** | 当用户明确要求其他 agent 参与，或需要其他 agent 的上下文与能力时，用于协作与双向沟通。             | 自建                                                           |
    | **news**                      | 从指定新闻站点查询最新新闻，支持政治、财经、社会、国际、科技、体育、娱乐等分类，并做摘要。         | 自建                                                           |

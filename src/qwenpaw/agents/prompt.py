@@ -533,16 +533,19 @@ def build_driver_policy_recheck_hint() -> str:
 
 def format_multimodal_hint(model_info, _model_name: str) -> str:
     """Format the multimodal hint string for the system prompt."""
+    if model_info.supports_image or model_info.supports_video:
+        return ""
     if (
-        model_info.supports_image
-        or model_info.supports_video
-        or model_info.supports_multimodal is None
+        model_info.supports_image is None
+        and model_info.supports_multimodal is not False
     ):
         return ""
     return (
-        "It appears that you can only understand text content. "
-        " Please honestly inform the user about this when "
-        " their input includes multimodal information."
+        "You can only understand text content, so reading an image will not "
+        "provide information. Use snapshot() to read page text and "
+        "bounding_box() to obtain coordinates instead of relying on "
+        "screenshot(). Honestly tell the user when their input includes "
+        "multimodal information."
     )
 
 

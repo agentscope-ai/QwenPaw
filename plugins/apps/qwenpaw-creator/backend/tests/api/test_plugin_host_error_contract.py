@@ -122,6 +122,7 @@ def test_plugin_manifest_declares_every_creator_config_tool(
     assert set(tools) == {
         "creator_text_model",
         "creator_vlm_model",
+        "creator_web_grounding",
         "creator_asr_model",
         "creator_image_model",
         "creator_video_model",
@@ -140,6 +141,25 @@ def test_plugin_manifest_declares_every_creator_config_tool(
         "public_base_url",
     } == set(oss_fields)
     assert oss_fields["access_key_secret"]["type"] == "password"
+    grounding_fields = {
+        item["name"]: item
+        for item in tools["creator_web_grounding"]["config_fields"]
+    }
+    assert set(grounding_fields) == {
+        "enabled",
+        "tavily_api_key",
+        "native_search_enabled",
+        "search_reuse_llm",
+        "search_api_key",
+        "search_model",
+        "search_base_url",
+        "validation_source",
+        "reuse_llm",
+        "api_key",
+        "model",
+        "base_url",
+    }
+    assert grounding_fields["tavily_api_key"]["type"] == "password"
 
     module = _load_plugin_entrypoint(monkeypatch)
     assert not hasattr(module, "_ensure_config_tools_registered")

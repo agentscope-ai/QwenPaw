@@ -1,39 +1,39 @@
 # -*- coding: utf-8 -*-
-"""Cleanup script: removes all QwenPaw sandbox profiles, ACLs, users, and state.
+"""Cleanup script: removes all QwenPaw sandbox ACLs, profiles, users, and state.
 
 Run on Windows:
     python scripts/cleanup_windows_sandbox.py
 
-Administrator privileges are required for AppContainer and elevated sandbox
-cleanup. Unelevated sandbox cleanup works without admin.
+Administrator privileges are required for elevated sandbox cleanup (user
+accounts, firewall rules, profile directories).  Unelevated and AppContainer
+sandbox cleanup works without admin.
 
 This script performs cleanup for all three sandbox backends:
 
-  A. AppContainer sandboxes (allow_read_all=False, requires admin):
-     For each container metadata file in ~/.qwenpaw/containers/*.json:
-        1. Removes ACLs (icacls /remove) from known paths
-        2. Removes the associated NTFS junction
-        3. Deletes the AppContainer profile via userenv.dll
-        4. Deletes the metadata JSON file
+  A. AppContainer sandboxes (no admin required):
+     For each metadata file in ~/.qwenpaw/containers/*.json:
+        1. Removes ACLs (Win32 API) from paths in acl_manifest
+        2. Deletes the AppContainer profile via userenv.dll
+        3. Deletes the metadata JSON file
 
-  B. Restricted-token sandboxes (allow_read_all=True, requires admin):
-     For each sandbox metadata file in ~/.qwenpaw/sandboxes/*.json:
-        1. Removes ACLs for capability SID and user SID from recorded paths
-        2. Verifies ACL removal succeeded (re-checks each path)
-        3. Removes Windows Firewall block rules for the sandbox user
-        4. Deletes the local user account
-        5. Removes the user's profile directory
-        6. Deletes the metadata JSON file
+  B. Elevated sandboxes (requires admin):
+     For each metadata file in ~/.qwenpaw/sandboxes/*.json:
+        1. Removes ACLs for cap_sid and user_sid from acl_entries
+           - Regular ACEs via Win32 SetNamedSecurityInfoW
+           - Traverse ACEs via NtSetSecurityObject (O(1))
+        2. Removes Windows Firewall block rules (netsh)
+        3. Deletes the local user account (net user /delete)
+        4. Removes the user profile directory (reg unload + rd /s /q)
+        5. Deletes the metadata JSON file
 
   C. Unelevated sandboxes (no admin required):
      For each metadata file in ~/.qwenpaw/unelevated_sandboxes/*.json:
-        1. Removes ACLs for capability SID with verification
+        1. Removes ACLs for cap_sid via Win32 API
         2. Deletes the metadata JSON file
      Also migrates the legacy single state file if present.
 
   After all entries are processed:
-     - Removes any remaining NTFS junctions in ~/.qwenpaw/junctions/
-     - Removes the QwenpawUsers local group (if empty)
+     - Removes the QwenpawUsers local group (if admin, and if empty)
      - Removes empty state directories
 
 This per-file approach allows the script to be interrupted and resumed
@@ -43,19 +43,29 @@ Safe to run multiple times (idempotent).
 """
 
 import ctypes
+import ctypes.wintypes
 import json
 import os
-import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Win32 API ACL removal (matches sandbox code's _remove_ace_by_sid_api)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Constants
+SE_FILE_OBJECT = 1
+DACL_SECURITY_INFORMATION = 0x00000004
+ERROR_SUCCESS = 0
 
 
 def _is_admin() -> bool:
     """Check if the current process has administrator privileges."""
     try:
-        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0  # type: ignore[attr-defined]
     except (AttributeError, OSError):
         return False
 
@@ -66,6 +76,321 @@ def _get_state_dir() -> Path:
         Path(os.environ.get("USERPROFILE", os.path.expanduser("~")))
         / ".qwenpaw"
     )
+
+
+def _remove_ace_by_sid_api(  # pylint: disable=R0911,R0912
+    path: str,
+    sid_string: str,
+) -> bool:
+    """Removes all ACEs matching a SID from a path's DACL using Win32 API.
+
+    This matches the sandbox code's direct DACL manipulation approach:
+    GetNamedSecurityInfoW -> enumerate ACEs -> DeleteAce -> SetNamedSecurityInfoW.
+
+    Returns True if no matching ACEs remain (success or already clean).
+    Returns False on API failure.
+    """
+    try:
+        advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+    except OSError:
+        return False
+
+    # Convert string SID to binary SID
+    target_psid = ctypes.c_void_p()
+    if not advapi32.ConvertStringSidToSidW(
+        ctypes.c_wchar_p(sid_string),
+        ctypes.byref(target_psid),
+    ):
+        return False
+
+    try:
+        # Get current DACL
+        p_dacl = ctypes.c_void_p()
+        p_sd = ctypes.c_void_p()
+        err = advapi32.GetNamedSecurityInfoW(
+            ctypes.c_wchar_p(path),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            ctypes.byref(p_dacl),
+            None,
+            ctypes.byref(p_sd),
+        )
+        if err != ERROR_SUCCESS:
+            return False
+
+        try:
+            if not p_dacl.value:
+                # NULL DACL means full access — no ACEs to remove
+                return True
+
+            # Get ACE count
+            class ACL_SIZE_INFORMATION(ctypes.Structure):
+                _fields_ = [
+                    ("AceCount", ctypes.wintypes.DWORD),
+                    ("AclBytesInUse", ctypes.wintypes.DWORD),
+                    ("AclBytesFree", ctypes.wintypes.DWORD),
+                ]
+
+            acl_info = ACL_SIZE_INFORMATION()
+            AclSizeInformation = 2
+            if not advapi32.GetAclInformation(
+                p_dacl,
+                ctypes.byref(acl_info),
+                ctypes.sizeof(acl_info),
+                AclSizeInformation,
+            ):
+                return False
+
+            # Find and collect indices of matching ACEs (reverse order)
+            indices_to_delete: List[int] = []
+            for i in range(acl_info.AceCount):
+                ace_ptr = ctypes.c_void_p()
+                if not advapi32.GetAce(p_dacl, i, ctypes.byref(ace_ptr)):
+                    continue
+                if ace_ptr.value is None:
+                    continue
+
+                # ACE header is 4 bytes (type, flags, size)
+                # SID starts at offset 8 for ACCESS_ALLOWED_ACE / ACCESS_DENIED_ACE
+                ace_sid_ptr = ctypes.c_void_p(ace_ptr.value + 8)
+                if advapi32.EqualSid(ace_sid_ptr, target_psid):
+                    indices_to_delete.append(i)
+
+            if not indices_to_delete:
+                # No matching ACEs — already clean
+                return True
+
+            # Delete ACEs in reverse order to preserve indices
+            for idx in reversed(indices_to_delete):
+                advapi32.DeleteAce(p_dacl, idx)
+
+            # Write back modified DACL
+            err = advapi32.SetNamedSecurityInfoW(
+                ctypes.c_wchar_p(path),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                None,
+                None,
+                p_dacl,
+                None,
+            )
+            return err == ERROR_SUCCESS
+        finally:
+            ctypes.windll.kernel32.LocalFree(p_sd)  # type: ignore[attr-defined]
+    finally:
+        ctypes.windll.kernel32.LocalFree(target_psid)  # type: ignore[attr-defined]
+
+
+def _remove_acl_with_retry(path: str, sid: str, max_attempts: int = 3) -> bool:
+    """Removes ACEs for a SID with retry logic.
+
+    Returns True if the SID was successfully removed or path doesn't exist.
+    """
+    if not os.path.exists(path):
+        return True
+
+    for attempt in range(1, max_attempts + 1):
+        if _remove_ace_by_sid_api(path, sid):
+            return True
+        if attempt < max_attempts:
+            time.sleep(0.5)
+
+    return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# NtSetSecurityObject-based traverse ACE removal (elevated sandbox)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# CreateFile constants
+READ_CONTROL = 0x00020000
+WRITE_DAC = 0x00040000
+FILE_SHARE_ALL = 0x07
+OPEN_EXISTING = 3
+FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+# NtSetSecurityObject constant
+DACL_SECURITY_INFORMATION_NT = 4
+
+
+def _remove_traverse_ace(  # pylint: disable=R0911,R0912
+    path: str,
+    sid_string: str,
+) -> bool:
+    """Removes traverse ACEs for a SID using NtSetSecurityObject.
+
+    This avoids the expensive inheritance propagation that
+    SetNamedSecurityInfoW would trigger on directories with many children.
+
+    Returns True if no matching ACEs remain.
+    """
+    try:
+        advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+        ntdll = ctypes.WinDLL("ntdll.dll", use_last_error=True)
+    except OSError:
+        return False
+
+    # Convert SID string to binary
+    target_psid = ctypes.c_void_p()
+    if not advapi32.ConvertStringSidToSidW(
+        ctypes.c_wchar_p(sid_string),
+        ctypes.byref(target_psid),
+    ):
+        return False
+
+    try:
+        # Open directory handle with WRITE_DAC | READ_CONTROL
+        handle = kernel32.CreateFileW(
+            ctypes.c_wchar_p(path),
+            READ_CONTROL | WRITE_DAC,
+            FILE_SHARE_ALL,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            None,
+        )
+        if handle == INVALID_HANDLE_VALUE or handle is None:
+            # Cannot open — try fallback via SetNamedSecurityInfoW
+            return _remove_ace_by_sid_api(path, sid_string)
+
+        try:
+            # Get security info from handle
+            p_dacl = ctypes.c_void_p()
+            p_sd = ctypes.c_void_p()
+            err = advapi32.GetSecurityInfo(
+                handle,
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                None,
+                None,
+                ctypes.byref(p_dacl),
+                None,
+                ctypes.byref(p_sd),
+            )
+            if err != ERROR_SUCCESS:
+                return False
+
+            try:
+                if not p_dacl.value:
+                    return True
+
+                # Get ACE count
+                class ACL_SIZE_INFORMATION(ctypes.Structure):
+                    _fields_ = [
+                        ("AceCount", ctypes.wintypes.DWORD),
+                        ("AclBytesInUse", ctypes.wintypes.DWORD),
+                        ("AclBytesFree", ctypes.wintypes.DWORD),
+                    ]
+
+                acl_info = ACL_SIZE_INFORMATION()
+                if not advapi32.GetAclInformation(
+                    p_dacl,
+                    ctypes.byref(acl_info),
+                    ctypes.sizeof(acl_info),
+                    2,  # AclSizeInformation
+                ):
+                    return False
+
+                # Find matching ACEs
+                indices_to_delete: List[int] = []
+                for i in range(acl_info.AceCount):
+                    ace_ptr = ctypes.c_void_p()
+                    if not advapi32.GetAce(p_dacl, i, ctypes.byref(ace_ptr)):
+                        continue
+                    if ace_ptr.value is None:
+                        continue
+                    ace_sid_ptr = ctypes.c_void_p(ace_ptr.value + 8)
+                    if advapi32.EqualSid(ace_sid_ptr, target_psid):
+                        indices_to_delete.append(i)
+
+                if not indices_to_delete:
+                    return True
+
+                # Delete in reverse order
+                for idx in reversed(indices_to_delete):
+                    advapi32.DeleteAce(p_dacl, idx)
+
+                # Build a self-relative security descriptor with the
+                # modified DACL and write via NtSetSecurityObject to
+                # avoid inheritance propagation.
+                sd_buf = (ctypes.c_byte * 256)()
+                sd_ptr = ctypes.cast(sd_buf, ctypes.c_void_p)
+                advapi32.InitializeSecurityDescriptor(
+                    sd_ptr,
+                    1,  # SECURITY_DESCRIPTOR_REVISION
+                )
+                advapi32.SetSecurityDescriptorDacl(
+                    sd_ptr,
+                    True,
+                    p_dacl,
+                    False,
+                )
+
+                # Make self-relative
+                sr_size = ctypes.wintypes.DWORD(0)
+                advapi32.MakeSelfRelativeSD(
+                    sd_ptr,
+                    None,
+                    ctypes.byref(sr_size),
+                )
+                sr_buf = (ctypes.c_byte * sr_size.value)()
+                sr_ptr = ctypes.cast(sr_buf, ctypes.c_void_p)
+                if not advapi32.MakeSelfRelativeSD(
+                    sd_ptr,
+                    sr_ptr,
+                    ctypes.byref(sr_size),
+                ):
+                    # Fallback to SetNamedSecurityInfoW
+                    err = advapi32.SetNamedSecurityInfoW(
+                        ctypes.c_wchar_p(path),
+                        SE_FILE_OBJECT,
+                        DACL_SECURITY_INFORMATION,
+                        None,
+                        None,
+                        p_dacl,
+                        None,
+                    )
+                    return err == ERROR_SUCCESS
+
+                # NtSetSecurityObject(Handle, SecurityInformation, SD)
+                ntstatus = ntdll.NtSetSecurityObject(
+                    handle,
+                    DACL_SECURITY_INFORMATION_NT,
+                    sr_ptr,
+                )
+                return ntstatus == 0  # STATUS_SUCCESS
+
+            finally:
+                ctypes.windll.kernel32.LocalFree(p_sd)  # type: ignore[attr-defined]
+        finally:
+            kernel32.CloseHandle(handle)
+    finally:
+        ctypes.windll.kernel32.LocalFree(target_psid)  # type: ignore[attr-defined]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# System command helpers
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _run_cmd(
+    args: List[str],
+    timeout: int = 60,
+) -> Optional[subprocess.CompletedProcess]:
+    """Runs a command synchronously. Returns result or None on failure."""
+    try:
+        return subprocess.run(
+            args,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
 
 
 def _delete_appcontainer_profile(container_name: str) -> bool:
@@ -80,265 +405,96 @@ def _delete_appcontainer_profile(container_name: str) -> bool:
         return False
 
 
-def _get_appcontainer_sid(container_name: str) -> Optional[str]:
-    """Derives the SID for a container name (returns None if not found)."""
-    try:
-        userenv = ctypes.WinDLL("userenv.dll", use_last_error=True)
-        advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
-        psid = ctypes.c_void_p()
-        hr = userenv.DeriveAppContainerSidFromAppContainerName(
-            ctypes.c_wchar_p(container_name),
-            ctypes.byref(psid),
+def _remove_firewall_rules(username: str) -> bool:
+    """Removes inbound/outbound firewall block rules for a sandbox user."""
+    rule_name_out = f"QwenPaw_Block_{username}_Out"
+    rule_name_in = f"QwenPaw_Block_{username}_In"
+    ok = True
+    for rule_name in (rule_name_out, rule_name_in):
+        result = _run_cmd(
+            [
+                "netsh",
+                "advfirewall",
+                "firewall",
+                "delete",
+                "rule",
+                f"name={rule_name}",
+            ],
+            timeout=15,
         )
-        if hr != 0:
-            return None
-        string_sid = ctypes.c_wchar_p()
-        advapi32.ConvertSidToStringSidW(psid, ctypes.byref(string_sid))
-        sid_str = string_sid.value
-        ctypes.windll.kernel32.LocalFree(string_sid)
-        ctypes.windll.ole32.CoTaskMemFree(psid)
-        return sid_str
-    except OSError:
-        return None
+        if result is None:
+            ok = False
+    return ok
 
 
-def _run_icacls(args: List[str]) -> bool:
-    """Runs icacls synchronously, returns True on success."""
-    try:
-        result = subprocess.run(
-            ["icacls"] + args,
-            capture_output=True,
-            timeout=180,
-            check=False,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
-        return False
+def _delete_local_user(username: str) -> bool:
+    """Deletes a local Windows user account."""
+    result = _run_cmd(["net", "user", username, "/delete"], timeout=30)
+    return result is not None and result.returncode == 0
 
 
-def _run_icacls_output(args: List[str]) -> Optional[str]:
-    """Runs icacls and returns stdout as string, or None on failure."""
-    try:
-        result = subprocess.run(
-            ["icacls"] + args,
-            capture_output=True,
-            timeout=180,
-            check=False,
-        )
-        if result.returncode == 0:
-            return result.stdout.decode("utf-8", errors="replace")
-        return result.stdout.decode("utf-8", errors="replace")
-    except (subprocess.TimeoutExpired, OSError):
-        return None
+def _delete_local_group(group_name: str) -> bool:
+    """Deletes a local Windows group."""
+    result = _run_cmd(
+        ["net", "localgroup", group_name, "/delete"],
+        timeout=30,
+    )
+    return result is not None and result.returncode == 0
 
 
-def _verify_acl_removed(path: str, sid: str) -> bool:
-    """Verifies that a SID no longer appears in the DACL of a path.
+def _remove_profile_dir(username: str, user_sid: str = "") -> bool:
+    """Removes the sandbox user's profile directory.
 
-    Runs ``icacls <path>`` and checks that the SID string does not appear
-    in the output. Checks both the raw SID and common display variants.
-
-    Returns True if the SID is confirmed absent from the path's ACL.
+    Uses reg unload (to release NTUSER.DAT lock) + rd /s /q (fast
+    kernel-mode delete). Falls back to takeown + retry on failure.
     """
-    if not os.path.exists(path):
+    sys_drive = os.environ.get("SystemDrive", "C:")
+    profile_dir = os.path.join(sys_drive + os.sep, "Users", username)
+    if not os.path.exists(profile_dir):
         return True
-    output = _run_icacls_output([path])
-    if output is None:
-        # Cannot read ACL — treat as unverified (not confirmed removed)
-        return False
-    # icacls may display the SID in several forms:
-    #   - Raw:  S-1-5-21-1234-5678-9012-3456
-    #   - Star: *S-1-5-21-1234-5678-9012-3456
-    # Check for the SID substring anywhere in the output.
-    if sid in output:
-        return False
-    # Also check case-insensitively (some locales may uppercase)
-    if sid.upper() in output.upper():
+
+    # Unload the user's registry hive to release NTUSER.DAT lock
+    if user_sid:
+        _run_cmd(["reg", "unload", f"HKU\\{user_sid}"], timeout=15)
+
+    # Fast kernel-mode recursive delete
+    _run_cmd(["cmd", "/c", "rd", "/s", "/q", profile_dir], timeout=60)
+
+    if not os.path.exists(profile_dir):
+        return True
+
+    # Fallback: take ownership recursively then retry
+    _run_cmd(
+        ["takeown", "/F", profile_dir, "/R", "/A", "/D", "Y"],
+        timeout=120,
+    )
+    _run_cmd(["cmd", "/c", "rd", "/s", "/q", profile_dir], timeout=60)
+
+    if os.path.exists(profile_dir):
+        print(
+            f"    WARNING: Profile dir {profile_dir} could not be fully "
+            f"removed. Manual intervention may be required.",
+        )
         return False
     return True
 
 
-def _remove_acl_from_path(path: str, sid: str) -> None:
-    """Removes all ACEs for a SID from a path (best-effort, non-recursive)."""
-    if not os.path.exists(path):
-        return
-    _run_icacls([path, "/remove", f"*{sid}"])
+# ═══════════════════════════════════════════════════════════════════════════
+# AppContainer sandbox cleanup
+# ═══════════════════════════════════════════════════════════════════════════
 
 
-def _remove_acl_recursive(path: str, sid: str) -> None:
-    """Removes all ACEs for a SID from a path recursively."""
-    if not os.path.exists(path):
-        return
-    _run_icacls([path, "/remove", f"*{sid}", "/T", "/C"])
-
-
-_ACL_MAX_RETRIES = 5
-_ACL_RETRY_DELAY_SECONDS = 1
-
-
-def _remove_acl_with_verify(path: str, sid: str, label: str) -> bool:
-    """Removes ACEs for a SID from a path and verifies removal.
-
-    Uses a multi-strategy retry loop to ensure the ACL is truly gone:
-      1. Basic ``/remove`` on the path itself.
-      2. Recursive ``/remove /T /C`` to catch inherited ACEs on children.
-      3. Explicit ``/remove:g`` (grant) and ``/remove:d`` (deny) variants
-         which target specific ACE types that ``/remove`` alone may miss.
-      4. ``/inheritance:e`` to re-enable inheritance, then remove again
-         (handles cases where a broken inheritance prevents ACE removal).
-      5. ``/inheritance:d`` to break inheritance (copy), then remove.
-      6. Non-recursive ``/reset`` on target path only, then remove
-         (last resort — resets only the target directory's DACL to
-         inherited defaults, does not affect child objects).
-
-    Each strategy is followed by a verification check. If verification
-    passes at any point the function returns True immediately.
-
-    A short delay is inserted between retries to allow the filesystem
-    metadata to settle (relevant on ReFS and remote/redirected volumes).
-
-    Returns True if the ACL was confirmed removed (or path doesn't exist).
-    Returns False only after all retries are exhausted AND the SID is still
-    present in the DACL output.
-    """
-    import time
-
-    if not os.path.exists(path):
-        return True
-
-    # Strategy sequence — each is progressively more aggressive
-    strategies = [
-        # Strategy 1: simple remove
-        lambda: _run_icacls([path, "/remove", f"*{sid}"]),
-        # Strategy 2: recursive remove
-        lambda: _run_icacls([path, "/remove", f"*{sid}", "/T", "/C"]),
-        # Strategy 3: explicit grant + deny removal
-        lambda: (
-            _run_icacls([path, "/remove:g", f"*{sid}", "/T", "/C"]),
-            _run_icacls([path, "/remove:d", f"*{sid}", "/T", "/C"]),
-        ),
-        # Strategy 4: re-enable inheritance then remove again
-        lambda: (
-            _run_icacls([path, "/inheritance:e"]),
-            _run_icacls([path, "/remove", f"*{sid}", "/T", "/C"]),
-        ),
-        # Strategy 5: break inheritance (copy), then remove
-        lambda: (
-            _run_icacls([path, "/inheritance:d"]),
-            _run_icacls([path, "/remove", f"*{sid}", "/T", "/C"]),
-        ),
-        # Strategy 6: non-recursive reset on target path only, then remove
-        # (resets only the target directory's DACL to inherited defaults,
-        # does NOT affect child objects — safe for workspace directories)
-        lambda: (
-            _run_icacls([path, "/reset"]),
-            _run_icacls([path, "/remove", f"*{sid}", "/T", "/C"]),
-        ),
-    ]
-
-    for attempt, strategy in enumerate(strategies, 1):
-        strategy()
-
-        # Brief delay to let filesystem metadata flush
-        if attempt > 1:
-            time.sleep(_ACL_RETRY_DELAY_SECONDS)
-
-        if _verify_acl_removed(path, sid):
-            if attempt > 1:
-                print(f"      ACL removed on retry #{attempt} for: {path}")
-            return True
-
-    # All strategies exhausted — final report
-    print(
-        f"    ERROR: ACL for {label} SID ({sid}) could NOT be removed "
-        f"from: {path} after {len(strategies)} attempts.",
-    )
-    return False
-
-
-def _remove_junction(junction_path: str) -> bool:
-    """Removes an NTFS junction (rmdir only removes the link, not target)."""
-    try:
-        if os.path.isdir(junction_path):
-            os.rmdir(junction_path)
-            return True
-    except OSError:
-        pass
-    return False
-
-
-def _remove_container_acl_entries(
-    sid: str,
-    acl_manifest: Optional[dict],
-    workspace_dir: str,
-    state_dir: Path,
-    fallback_global_paths: List[str],
-) -> None:
-    """Remove ACL entries for a container SID."""
-    if acl_manifest:
-        # Use the precise ACL manifest recorded at creation time
-        grant_paths = acl_manifest.get("grant_paths", [])
-        inheritance_broken_paths = acl_manifest.get(
-            "inheritance_broken_paths",
-            [],
-        )
-
-        # Remove ACEs from grant paths
-        for path in grant_paths:
-            if path and os.path.exists(path):
-                print(f"    Removing ACL from: {path}")
-                _remove_acl_from_path(path, sid)
-
-        # Recursively remove ACEs from workspace (set with (OI)(CI))
-        if workspace_dir and os.path.exists(workspace_dir):
-            print(
-                f"    Removing ACLs from workspace (recursive): {workspace_dir}",
-            )
-            _remove_acl_recursive(workspace_dir, sid)
-
-        # Remove ACEs and restore inheritance on broken paths
-        for path in inheritance_broken_paths:
-            if path and os.path.exists(path):
-                print(f"    Removing ACL + restoring inheritance: {path}")
-                _remove_acl_from_path(path, sid)
-                _run_icacls([path, "/inheritance:e"])
-    else:
-        # Legacy metadata without manifest — use best-effort fallback
-        print("    (legacy metadata, using fallback path list)")
-        for path in fallback_global_paths:
-            if path and os.path.exists(path):
-                _remove_acl_from_path(path, sid)
-
-        if workspace_dir and os.path.exists(workspace_dir):
-            print(f"    Removing ACLs from workspace: {workspace_dir}")
-            _remove_acl_recursive(workspace_dir, sid)
-
-        junctions_dir_str = str(state_dir / "junctions")
-        if os.path.exists(junctions_dir_str):
-            _remove_acl_recursive(junctions_dir_str, sid)
-
-        if workspace_dir and os.path.exists(workspace_dir):
-            _run_icacls([workspace_dir, "/inheritance:e"])
-
-
-def _cleanup_single_container(
+def _cleanup_single_container(  # pylint: disable=R0912
     meta_file: Path,
-    state_dir: Path,
-    fallback_global_paths: List[str],
 ) -> None:
-    """Clean up a single container: ACLs -> junction -> profile -> JSON file.
+    """Clean up a single AppContainer sandbox.
 
-    Each container is fully cleaned before its metadata file is removed,
-    allowing the script to be interrupted and resumed without leaving
-    partially-cleaned state.
+    Steps: Remove ACLs -> Delete profile -> Delete metadata.
     """
-    # Load metadata
     try:
-        with open(meta_file, "r", encoding="utf-8") as fp:
-            meta = json.load(fp)
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
         print(f"\n  WARNING: Cannot read {meta_file.name}: {e}")
-        print("    Removing invalid metadata file.")
         try:
             meta_file.unlink()
         except OSError:
@@ -348,216 +504,82 @@ def _cleanup_single_container(
     container_name = meta.get("container_name", "")
     sid = meta.get("sid", "")
     workspace_dir = meta.get("workspace_dir", "")
-    junction_path = meta.get("junction_path", "")
     acl_manifest = meta.get("acl_manifest")
 
     print(f"\n  Container: {container_name}")
     print(f"    SID: {sid}")
 
-    # Step 1: Resolve SID if missing
-    if not sid:
-        sid = _get_appcontainer_sid(container_name) or ""
-        if sid:
-            print(f"    Derived SID: {sid}")
-        else:
-            print("    WARNING: Cannot determine SID, skipping ACL removal.")
-
-    # Step 2: Remove ACL entries
+    # Step 1: Remove ACL entries
+    acl_removed = 0
+    acl_failed = 0
     if sid:
-        _remove_container_acl_entries(
-            sid,
-            acl_manifest,
-            workspace_dir,
-            state_dir,
-            fallback_global_paths,
-        )
+        if acl_manifest:
+            all_paths = (
+                acl_manifest.get("grant_paths", [])
+                + acl_manifest.get("deny_paths", [])
+                + acl_manifest.get("inheritance_broken_paths", [])
+            )
+            for path in all_paths:
+                if path and os.path.exists(path):
+                    if _remove_acl_with_retry(path, sid):
+                        acl_removed += 1
+                    else:
+                        acl_failed += 1
+                        print(f"    FAILED to remove ACL from: {path}")
 
-    # Step 3: Remove the associated junction
-    if junction_path and os.path.exists(junction_path):
-        print(f"    Removing junction: {junction_path}")
-        if _remove_junction(junction_path):
-            print("    Junction removed.")
-        else:
-            print("    WARNING: Failed to remove junction.")
+        if workspace_dir and os.path.exists(workspace_dir):
+            if _remove_acl_with_retry(workspace_dir, sid):
+                acl_removed += 1
+            else:
+                acl_failed += 1
+                print(
+                    f"    FAILED to remove ACL from workspace: {workspace_dir}",
+                )
 
-    # Step 4: Delete the AppContainer profile
+    if acl_removed or acl_failed:
+        print(f"    ACLs: {acl_removed} removed, {acl_failed} failed")
+
+    # Step 2: Delete the AppContainer profile
     if container_name:
         ok = _delete_appcontainer_profile(container_name)
-        print(
-            f"    Delete profile: {'OK' if ok else 'FAILED (may not exist)'}",
+        print(f"    Profile: {'deleted' if ok else 'not found or failed'}")
+
+    # Step 3: Handle metadata file
+    if acl_failed > 0:
+        _move_to_failed(
+            meta_file,
+            _get_state_dir(),
+            f"ACL removal failed for {acl_failed} path(s)",
         )
-
-    # Step 5: Delete the metadata JSON file (marks this container as done)
-    try:
-        meta_file.unlink()
-        print(f"    Deleted metadata: {meta_file.name}")
-    except OSError as e:
-        print(f"    WARNING: Failed to delete {meta_file.name}: {e}")
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Restricted-token sandbox cleanup
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-def _remove_firewall_rules(username: str) -> bool:
-    """Removes the firewall block rules installed for a restricted sandbox user.
-
-    Returns True if removal succeeded (or rules did not exist).
-    """
-    rule_name_out = f"QwenPaw_Block_{username}_Out"
-    rule_name_in = f"QwenPaw_Block_{username}_In"
-
-    ps_script = (
-        f"Remove-NetFirewallRule -DisplayName '{rule_name_out}' "
-        f"-ErrorAction SilentlyContinue; "
-        f"Remove-NetFirewallRule -DisplayName '{rule_name_in}' "
-        f"-ErrorAction SilentlyContinue"
-    )
-
-    try:
-        result = subprocess.run(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                ps_script,
-            ],
-            capture_output=True,
-            timeout=30,
-            check=False,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
-        return False
-
-
-def _delete_local_user(username: str) -> bool:
-    """Deletes a local Windows user account via 'net user /delete'."""
-    try:
-        result = subprocess.run(
-            ["net", "user", username, "/delete"],
-            capture_output=True,
-            timeout=30,
-            check=False,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
-        return False
-
-
-def _delete_local_group(group_name: str) -> bool:
-    """Deletes a local Windows group via 'net localgroup /delete'."""
-    try:
-        result = subprocess.run(
-            ["net", "localgroup", group_name, "/delete"],
-            capture_output=True,
-            timeout=30,
-            check=False,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
-        return False
-
-
-def _remove_user_profile_dir(username: str) -> bool:
-    """Removes the user profile directory (C:\\Users\\<username>).
-
-    Windows profile directories created via CreateProfile contain subdirectories
-    owned by TrustedInstaller (e.g. AppData\\Local\\Microsoft\\Windows\\WinX)
-    which cannot be deleted even by Administrators without first taking ownership.
-
-    This function performs:
-      1. takeown /F ... /R /A  — transfers ownership to Administrators group
-      2. icacls ... /grant Administrators:(OI)(CI)F /T /C  — grants full control
-      3. shutil.rmtree with an onerror handler for residual read-only files
-    """
-    sys_drive = os.environ.get("SystemDrive", "C:")
-    profile_dir = os.path.join(sys_drive + os.sep, "Users", username)
-    if not os.path.exists(profile_dir):
-        return True
-
-    # Step 1: Take ownership of the entire tree (handles TrustedInstaller-owned dirs)
-    try:
-        subprocess.run(
-            ["takeown", "/F", profile_dir, "/R", "/A", "/D", "Y"],
-            capture_output=True,
-            timeout=300,
-            check=False,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        pass
-
-    # Step 2: Grant Administrators full control recursively
-    try:
-        subprocess.run(
-            [
-                "icacls",
-                profile_dir,
-                "/grant",
-                "Administrators:(OI)(CI)F",
-                "/T",
-                "/C",
-            ],
-            capture_output=True,
-            timeout=300,
-            check=False,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        pass
-
-    # Step 3: Remove the directory tree with a fallback error handler
-    def _on_rm_error(func, path, _exc_info):  # type: ignore[no-untyped-def]
-        """Handle removal errors by clearing read-only attr."""
-        import stat
-
+    else:
         try:
-            os.chmod(path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
-            func(path)
-        except OSError:
-            pass
-
-    try:
-        # pylint: disable=deprecated-argument
-        shutil.rmtree(profile_dir, onerror=_on_rm_error)
-    except OSError:
-        pass
-
-    # Verify removal
-    if os.path.exists(profile_dir):
-        print(
-            f"    WARNING: Profile dir {profile_dir} could not be fully removed. "
-            f"Run 'rmdir /S /Q \"{profile_dir}\"' manually from an elevated prompt.",
-        )
-        return False
-    return True
+            meta_file.unlink()
+            print("    Metadata: deleted")
+        except OSError as e:
+            print(f"    WARNING: Failed to delete {meta_file.name}: {e}")
 
 
-def _cleanup_single_restricted_sandbox(  # pylint: disable=too-many-branches,too-many-statements
+# ═══════════════════════════════════════════════════════════════════════════
+# Elevated sandbox cleanup
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _cleanup_single_elevated_sandbox(  # pylint: disable=R0912,R0915
     meta_file: Path,
 ) -> None:
-    """Clean up a single restricted-token sandbox.
+    """Clean up a single elevated sandbox.
 
     Steps:
-        1. Remove ACLs for capability SID and user SID (with verification)
-        2. Remove firewall block rules
-        3. Delete the local user account
-        4. Remove the user profile directory
-        5. Delete the metadata JSON file
-
-    Each sandbox is fully cleaned before its metadata file is removed,
-    allowing the script to be interrupted and resumed safely.
+        1. Remove ACLs (Win32 API for regular, NtSetSecurityObject for traverse)
+        2. Remove firewall rules
+        3. Delete local user account
+        4. Remove user profile directory
+        5. Delete metadata
     """
-    # Load metadata
     try:
-        with open(meta_file, "r", encoding="utf-8") as fp:
-            meta = json.load(fp)
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
         print(f"\n  WARNING: Cannot read {meta_file.name}: {e}")
-        print("    Removing invalid metadata file.")
         try:
             meta_file.unlink()
         except OSError:
@@ -571,171 +593,104 @@ def _cleanup_single_restricted_sandbox(  # pylint: disable=too-many-branches,too
     network_blocked = meta.get("network_blocked", False)
     acl_entries = meta.get("acl_entries", [])
 
-    print(f"\n  Restricted Sandbox: {sandbox_id}")
+    print(f"\n  Elevated Sandbox: {sandbox_id}")
     print(f"    Username: {username}")
     print(f"    User SID: {user_sid}")
     print(f"    Cap SID:  {cap_sid}")
 
-    # Step 1: Remove ACL entries with verification and retry
-    verify_failures = 0
-    verify_successes = 0
-    total_processed = 0
+    # Step 1: Remove ACL entries
+    acl_removed = 0
+    acl_failed = 0
     if acl_entries:
-        print(f"    Removing {len(acl_entries)} ACL entries...")
+        print(f"    Processing {len(acl_entries)} ACL entries...")
         for entry in acl_entries:
             entry_path = entry.get("path", "")
             sid_type = entry.get("sid_type", "")
+            access_mode = entry.get("access_mode", "")
 
-            if not entry_path:
+            if not entry_path or not os.path.exists(entry_path):
                 continue
 
-            # Determine which SID was used for this ACE
+            # Determine which SID was used
             if sid_type == "cap":
                 sid = cap_sid
-                sid_label = "capability"
             elif sid_type == "user":
                 sid = user_sid
-                sid_label = "user"
+            elif sid_type == "group":
+                # QwenpawUsers group ACEs are persistent — skip
+                continue
             else:
-                # Unknown type — try both
-                sid = cap_sid or user_sid
-                sid_label = "unknown"
+                continue
 
             if not sid:
-                print(
-                    f"    WARNING: No SID available for {sid_label} entry on {entry_path}",
-                )
                 continue
 
-            if not os.path.exists(entry_path):
-                continue
-
-            total_processed += 1
-            print(f"    Removing {sid_label} ACL from: {entry_path}")
-            ok = _remove_acl_with_verify(entry_path, sid, sid_label)
-            if ok:
-                verify_successes += 1
+            # Use appropriate removal method
+            if access_mode == "traverse":
+                ok = _remove_traverse_ace(entry_path, sid)
             else:
-                verify_failures += 1
-    else:
-        # No acl_entries recorded — try removing both SIDs from common paths
-        print("    (no ACL entries recorded, skipping ACL removal)")
+                ok = _remove_acl_with_retry(entry_path, sid)
 
-    # Also clean up profile directory ACLs if they exist
-    if username:
-        sys_drive = os.environ.get("SystemDrive", "C:")
-        profile_dir = os.path.join(sys_drive + os.sep, "Users", username)
-        if os.path.exists(profile_dir):
-            if cap_sid:
-                print(
-                    f"    Removing capability ACL from profile: {profile_dir}",
-                )
-                ok = _remove_acl_with_verify(
-                    profile_dir,
-                    cap_sid,
-                    "capability",
-                )
-                total_processed += 1
-                if ok:
-                    verify_successes += 1
-                else:
-                    verify_failures += 1
-            if user_sid:
-                print(f"    Removing user ACL from profile: {profile_dir}")
-                ok = _remove_acl_with_verify(profile_dir, user_sid, "user")
-                total_processed += 1
-                if ok:
-                    verify_successes += 1
-                else:
-                    verify_failures += 1
+            if ok:
+                acl_removed += 1
+            else:
+                acl_failed += 1
+                print(f"    FAILED: {entry_path} ({sid_type}, {access_mode})")
 
-    if total_processed > 0:
-        print(
-            f"    ACL cleanup summary: {verify_successes}/{total_processed} "
-            f"confirmed removed"
-            + (f", {verify_failures} FAILED" if verify_failures > 0 else ""),
-        )
-    if verify_failures > 0:
-        print(
-            f"    ERROR: {verify_failures} ACL(s) could NOT be removed after "
-            f"all retries. Manual intervention may be required.",
-        )
-        print(
-            "    Hint: Run 'icacls <path> /remove *<SID> /T /C' manually, "
-            "or take ownership with 'takeown /F <path> /R' first.",
-        )
+    if acl_removed or acl_failed:
+        print(f"    ACLs: {acl_removed} removed, {acl_failed} failed")
 
     # Step 2: Remove firewall rules
+    firewall_failed = False
     if network_blocked and username:
-        print(f"    Removing firewall rules for: {username}")
         ok = _remove_firewall_rules(username)
+        if not ok:
+            firewall_failed = True
         print(
-            f"    Firewall rules: {'removed' if ok else 'removal failed (may not exist)'}",
+            f"    Firewall: {'removed' if ok else 'removal failed (may not exist)'}",
         )
 
     # Step 3: Delete the local user account
+    user_failed = False
     if username:
-        print(f"    Deleting user account: {username}")
         ok = _delete_local_user(username)
+        if not ok:
+            user_failed = True
         print(
             f"    User account: {'deleted' if ok else 'deletion failed (may not exist)'}",
         )
 
     # Step 4: Remove user profile directory
+    profile_failed = False
     if username:
-        sys_drive = os.environ.get("SystemDrive", "C:")
-        profile_dir = os.path.join(sys_drive + os.sep, "Users", username)
-        if os.path.exists(profile_dir):
-            print(f"    Removing profile directory: {profile_dir}")
-            ok = _remove_user_profile_dir(username)
-            print(
-                f"    Profile directory: {'removed' if ok else 'removal failed'}",
-            )
+        ok = _remove_profile_dir(username, user_sid)
+        if not ok:
+            profile_failed = True
+        print(f"    Profile dir: {'removed' if ok else 'removal failed'}")
 
-    # Step 5: Delete the metadata JSON file (marks this sandbox as done)
-    try:
-        meta_file.unlink()
-        print(f"    Deleted metadata: {meta_file.name}")
-    except OSError as e:
-        print(f"    WARNING: Failed to delete {meta_file.name}: {e}")
+    # Step 5: Handle metadata file
+    failures: List[str] = []
+    if acl_failed > 0:
+        failures.append(f"ACL removal failed for {acl_failed} path(s)")
+    if firewall_failed:
+        failures.append("firewall rule removal failed")
+    if user_failed:
+        failures.append("user account deletion failed")
+    if profile_failed:
+        failures.append("profile directory removal failed")
 
-
-def _remove_python_dir_acl_marker() -> None:
-    """Removes the .qwenpaw_acl_granted marker from the Python install directory.
-
-    This marker is written by _ensure_python_dir_group_acl() after granting
-    RX to QwenpawUsers on the Python dir. When cleanup removes the group
-    (and its ACL is gone), the marker must also be removed so that the next
-    sandbox creation will re-grant the ACL properly.
-    """
-    python_dir = os.path.dirname(os.path.abspath(sys.executable))
-    if os.path.basename(python_dir).lower() == "scripts":
-        python_dir = os.path.dirname(python_dir)
-
-    marker = os.path.join(python_dir, ".qwenpaw_acl_granted")
-    if os.path.exists(marker):
+    if failures:
+        _move_to_failed(
+            meta_file,
+            _get_state_dir(),
+            "; ".join(failures),
+        )
+    else:
         try:
-            os.remove(marker)
-            print(f"    Removed ACL marker: {marker}")
+            meta_file.unlink()
+            print("    Metadata: deleted")
         except OSError as e:
-            print(f"    WARNING: Failed to remove ACL marker {marker}: {e}")
-    else:
-        print("    ACL marker not present (already clean).")
-
-
-def _cleanup_sandbox_group() -> None:
-    """Removes the QwenpawUsers local group if it exists."""
-    print("\n  Removing QwenpawUsers group...")
-    ok = _delete_local_group("QwenpawUsers")
-    if ok:
-        print("    Group deleted.")
-    else:
-        print("    Group deletion failed (may not exist or not empty).")
-
-    # Remove the .qwenpaw_acl_granted marker from Python directory.
-    # Without this, the next sandbox creation would see the stale marker
-    # and skip re-granting the ACL to the (re-created) QwenpawUsers group.
-    _remove_python_dir_acl_marker()
+            print(f"    WARNING: Failed to delete {meta_file.name}: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -744,18 +699,14 @@ def _cleanup_sandbox_group() -> None:
 
 
 def _cleanup_single_unelevated_sandbox(meta_file: Path) -> None:
-    """Clean up a single unelevated sandbox (no admin required).
+    """Clean up a single unelevated sandbox.
 
-    Steps:
-        1. Remove ACLs for capability SID (with verification)
-        2. Delete the metadata JSON file
+    Steps: Remove ACLs -> Delete metadata.
     """
     try:
-        with open(meta_file, "r", encoding="utf-8") as fp:
-            meta = json.load(fp)
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
         print(f"\n  WARNING: Cannot read {meta_file.name}: {e}")
-        print("    Removing invalid metadata file.")
         try:
             meta_file.unlink()
         except OSError:
@@ -767,44 +718,48 @@ def _cleanup_single_unelevated_sandbox(meta_file: Path) -> None:
     acl_entries = meta.get("acl_entries", [])
 
     print(f"\n  Unelevated Sandbox: {sandbox_id}")
-    print(f"    Cap SID:  {cap_sid}")
+    print(f"    Cap SID: {cap_sid}")
 
-    # Step 1: Remove ACL entries with verification
-    verify_failures = 0
-    verify_successes = 0
+    # Step 1: Remove ACL entries
+    acl_removed = 0
+    acl_failed = 0
     if acl_entries and cap_sid:
-        print(f"    Removing {len(acl_entries)} ACL entries...")
         for entry in acl_entries:
             entry_path = entry.get("path", "")
             if not entry_path or not os.path.exists(entry_path):
                 continue
-            ok = _remove_acl_with_verify(entry_path, cap_sid, "capability")
-            if ok:
-                verify_successes += 1
+            if _remove_acl_with_retry(entry_path, cap_sid):
+                acl_removed += 1
             else:
-                verify_failures += 1
-        print(
-            f"    ACL cleanup: {verify_successes} succeeded, "
-            f"{verify_failures} failed",
+                acl_failed += 1
+                print(f"    FAILED to remove ACL from: {entry_path}")
+
+    if acl_removed or acl_failed:
+        print(f"    ACLs: {acl_removed} removed, {acl_failed} failed")
+
+    # Step 2: Handle metadata file
+    if acl_failed > 0:
+        _move_to_failed(
+            meta_file,
+            _get_state_dir(),
+            f"ACL removal failed for {acl_failed} path(s)",
         )
+    else:
+        try:
+            meta_file.unlink()
+            print("    Metadata: deleted")
+        except OSError as e:
+            print(f"    WARNING: Failed to delete {meta_file.name}: {e}")
 
-    # Step 2: Delete the metadata JSON file
-    try:
-        meta_file.unlink()
-        print(f"    Deleted metadata: {meta_file.name}")
-    except OSError as e:
-        print(f"    WARNING: Failed to delete {meta_file.name}: {e}")
 
-
-def _cleanup_legacy_unelevated_state(state_dir: Path) -> None:
+def _migrate_legacy_state_file(state_dir: Path) -> None:
     """Removes the legacy single unelevated sandbox state file."""
     legacy_file = state_dir / "unelevated_sandbox_state.json"
     if not legacy_file.exists():
         return
-    print("    Migrating legacy unelevated sandbox state file...")
+    print("  Migrating legacy unelevated state file...")
     try:
-        with open(legacy_file, "r", encoding="utf-8") as fp:
-            state = json.load(fp)
+        state = json.loads(legacy_file.read_text(encoding="utf-8"))
         cap_sid = state.get("cap_sid", "")
         if cap_sid:
             all_paths = state.get("acl_paths", []) + state.get(
@@ -813,75 +768,107 @@ def _cleanup_legacy_unelevated_state(state_dir: Path) -> None:
             )
             for path in all_paths:
                 if os.path.exists(path):
-                    _remove_acl_with_verify(path, cap_sid, "capability")
+                    _remove_acl_with_retry(path, cap_sid)
         legacy_file.unlink(missing_ok=True)
-        print("    Legacy state file migrated and removed.")
+        print("  Legacy state file removed.")
     except (json.JSONDecodeError, OSError) as e:
-        print(f"    WARNING: Failed to migrate legacy state: {e}")
+        print(f"  WARNING: Failed to migrate legacy state: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Common cleanup helpers
+# QwenpawUsers group cleanup (elevated only)
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _cleanup_remaining_junctions(state_dir: Path) -> None:
-    """Remove any remaining NTFS junctions not tied to a metadata file."""
-    junctions_dir = state_dir / "junctions"
-    print(f"\n[4] Removing remaining NTFS junctions from: {junctions_dir}")
-    if junctions_dir.is_dir():
-        count = 0
-        for entry in junctions_dir.iterdir():
-            if entry.is_dir():
-                if _remove_junction(str(entry)):
-                    count += 1
-                else:
-                    print(f"    WARNING: Failed to remove junction: {entry}")
-        print(f"    Removed {count} junction(s).")
+def _cleanup_sandbox_group() -> None:
+    """Removes the QwenpawUsers local group and associated markers."""
+    print("\n  Removing QwenpawUsers group...")
+    ok = _delete_local_group("QwenpawUsers")
+    if ok:
+        print("    Group deleted.")
     else:
-        print("    No junctions directory found.")
+        print("    Group deletion failed (may not exist or not empty).")
+
+    # Remove the .qwenpaw_acl_granted marker from the Python directory.
+    # Without this, next sandbox creation would see the stale marker and
+    # skip re-granting the ACL to the (re-created) group.
+    python_dir = os.path.dirname(os.path.abspath(sys.executable))
+    if os.path.basename(python_dir).lower() == "scripts":
+        python_dir = os.path.dirname(python_dir)
+
+    marker = os.path.join(python_dir, ".qwenpaw_acl_granted")
+    if os.path.exists(marker):
+        try:
+            os.remove(marker)
+            print(f"    Removed ACL marker: {marker}")
+        except OSError as e:
+            print(f"    WARNING: Failed to remove marker: {e}")
 
 
-def _cleanup_state_dirs(state_dir: Path) -> None:
-    """Remove state directories and clean up."""
-    print("\n[5] Removing state directories...")
-    junctions_dir = state_dir / "junctions"
-    containers_dir = state_dir / "containers"
-    sandboxes_dir = state_dir / "sandboxes"
-    unelevated_dir = state_dir / "unelevated_sandboxes"
-    for d in [containers_dir, sandboxes_dir, unelevated_dir, junctions_dir]:
-        if d.is_dir():
-            try:
-                shutil.rmtree(str(d))
-                print(f"    Removed: {d}")
-            except OSError as e:
-                print(f"    WARNING: Failed to remove {d}: {e}")
-        elif d.exists():
-            # Handle case where path exists but isn't a directory
-            try:
-                d.unlink()
-                print(f"    Removed file: {d}")
-            except OSError as e:
-                print(f"    WARNING: Failed to remove {d}: {e}")
-
-    # Remove any remaining files in .qwenpaw (stray files, logs, etc.)
-    if state_dir.is_dir():
-        remaining = list(state_dir.iterdir())
-        if not remaining:
-            try:
-                state_dir.rmdir()
-                print(f"    Removed empty state dir: {state_dir}")
-            except OSError:
-                pass
-        else:
-            print(
-                f"    State dir not empty, remaining items: "
-                f"{[e.name for e in remaining]}",
-            )
+# ═══════════════════════════════════════════════════════════════════════════
+# Failed cleanup metadata preservation
+# ═══════════════════════════════════════════════════════════════════════════
 
 
-def _count_metadata_files(directory: Path) -> int:
-    """Count *.json files in a directory (0 if directory doesn't exist)."""
+def _move_to_failed(
+    meta_file: Path,
+    state_dir: Path,
+    reason: str,
+) -> None:
+    """Moves a metadata file to failed_cleanup/ for later retry.
+
+    Appends a ``_cleanup_error`` field with failure reason and timestamp
+    so the user knows what went wrong.
+    """
+    import datetime
+
+    failed_dir = state_dir / "failed_cleanup"
+    failed_dir.mkdir(parents=True, exist_ok=True)
+
+    dest = failed_dir / meta_file.name
+    # If a file with the same name already exists, append a counter
+    counter = 1
+    while dest.exists():
+        stem = meta_file.stem
+        dest = failed_dir / f"{stem}_{counter}.json"
+        counter += 1
+
+    # Read, annotate, and write to new location
+    try:
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        meta = {}
+
+    meta["_cleanup_error"] = {
+        "reason": reason,
+        "timestamp": datetime.datetime.now().isoformat(),
+    }
+
+    try:
+        dest.write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError as e:
+        print(f"    ERROR: Cannot save failed metadata to {dest}: {e}")
+        return
+
+    # Remove the original
+    try:
+        meta_file.unlink()
+    except OSError:
+        pass
+
+    print(f"    Metadata preserved in: {dest.name} (for retry)")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Orchestration
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _count_json(directory: Path) -> int:
+    """Count *.json files in a directory (0 if doesn't exist)."""
     if directory.is_dir():
         return len(list(directory.glob("*.json")))
     return 0
@@ -890,98 +877,94 @@ def _count_metadata_files(directory: Path) -> int:
 def _confirm_cleanup(
     is_admin: bool,
     appcontainer_count: int,
-    restricted_count: int,
+    elevated_count: int,
     unelevated_count: int,
 ) -> None:
-    """Print summary and prompt user for confirmation. Exits on decline."""
+    """Print summary and prompt user for confirmation."""
     print("=" * 60)
     print("WARNING: This will clean up ALL QwenPaw sandboxes,")
     print("including any that are currently RUNNING.")
     print()
-    print(f"  AppContainer sandboxes found:       {appcontainer_count}")
-    print(f"  Restricted-token sandboxes found:   {restricted_count}")
-    print(f"  Unelevated sandboxes found:         {unelevated_count}")
-    if not is_admin and (appcontainer_count or restricted_count):
+    print(f"  AppContainer sandboxes:    {appcontainer_count}")
+    print(f"  Elevated sandboxes:        {elevated_count}")
+    print(f"  Unelevated sandboxes:      {unelevated_count}")
+    if not is_admin and elevated_count:
         print()
         print(
-            "  NOTE: Not running as administrator. AppContainer and",
+            "  NOTE: Not running as administrator. Elevated sandbox",
         )
         print(
-            "  restricted-token sandbox cleanup will be SKIPPED.",
+            "  cleanup will be SKIPPED (user accounts, firewall, profiles).",
         )
     print()
     print("The following actions will be performed:")
-    print("  - Remove filesystem ACLs set by sandboxes")
+    print("  - Remove filesystem ACLs set by sandboxes (Win32 API)")
     if is_admin:
         print("  - Delete AppContainer profiles")
         print("  - Delete local sandbox user accounts (qwenpaw_*)")
         print("  - Remove firewall block rules")
         print("  - Remove user profile directories")
+        print("  - Remove QwenpawUsers group (if empty)")
+    else:
+        print("  - Delete AppContainer profiles")
     print("  - Delete sandbox metadata files")
     print()
-    print("Please make sure no sandbox is currently in use before proceeding.")
+    print("Please make sure no sandbox is currently in use.")
     print("=" * 60)
     print()
-    choice = input("Do you want to continue? (Y/N): ").strip().upper()
+    choice = input("Continue? (Y/N): ").strip().upper()
     if choice != "Y":
-        print("Aborted by user.")
+        print("Aborted.")
         sys.exit(0)
     print()
 
 
-def _run_appcontainer_cleanup(
-    containers_dir: Path,
-    state_dir: Path,
-    fallback_global_paths: List[str],
-) -> None:
-    """Step 1: Process AppContainer sandboxes."""
-    if containers_dir.is_dir():
-        json_files = sorted(containers_dir.glob("*.json"))
-        print(f"[1] Found {len(json_files)} AppContainer metadata file(s).")
-        for meta_file in json_files:
-            _cleanup_single_container(
-                meta_file,
-                state_dir,
-                fallback_global_paths,
+def _cleanup_state_dirs(state_dir: Path, *, is_admin: bool) -> None:
+    """Remove empty state directories after cleanup."""
+    unelevated_dir = state_dir / "unelevated_sandboxes"
+    containers_dir = state_dir / "containers"
+    sandboxes_dir = state_dir / "sandboxes"
+    failed_dir = state_dir / "failed_cleanup"
+
+    dirs_to_check = [unelevated_dir, containers_dir]
+    if is_admin:
+        dirs_to_check.append(sandboxes_dir)
+
+    for d in dirs_to_check:
+        if d.is_dir() and not list(d.iterdir()):
+            try:
+                d.rmdir()
+                print(f"  Removed empty dir: {d.name}/")
+            except OSError:
+                pass
+
+    # Report failed_cleanup contents (never auto-delete)
+    if failed_dir.is_dir():
+        failed_files = list(failed_dir.iterdir())
+        if failed_files:
+            print(
+                f"  WARNING: {len(failed_files)} metadata file(s) in "
+                f"failed_cleanup/ — re-run script to retry or "
+                f"delete manually.",
             )
-    else:
-        print("[1] No AppContainer metadata directory found.")
+
+    # Remove root state dir if completely empty
+    if state_dir.is_dir():
+        remaining = list(state_dir.iterdir())
+        if not remaining:
+            try:
+                state_dir.rmdir()
+                print(f"  Removed empty state dir: {state_dir}")
+            except OSError:
+                pass
+        else:
+            print(
+                f"  State dir not empty, remaining: "
+                f"{[e.name for e in remaining]}",
+            )
 
 
-def _run_restricted_cleanup(sandboxes_dir: Path) -> None:
-    """Step 2: Process restricted-token sandboxes."""
-    if sandboxes_dir.is_dir():
-        json_files = sorted(sandboxes_dir.glob("*.json"))
-        print(
-            f"\n[2] Found {len(json_files)} "
-            f"restricted-token sandbox metadata file(s).",
-        )
-        for meta_file in json_files:
-            _cleanup_single_restricted_sandbox(meta_file)
-        _cleanup_sandbox_group()
-    else:
-        print("\n[2] No restricted-token sandbox metadata directory found.")
-
-
-def _run_unelevated_cleanup(
-    unelevated_dir: Path,
-    state_dir: Path,
-) -> None:
-    """Step 3: Process unelevated sandboxes (no admin required)."""
-    _cleanup_legacy_unelevated_state(state_dir)
-    if unelevated_dir.is_dir():
-        json_files = sorted(unelevated_dir.glob("*.json"))
-        print(
-            f"\n[3] Found {len(json_files)} "
-            f"unelevated sandbox metadata file(s).",
-        )
-        for meta_file in json_files:
-            _cleanup_single_unelevated_sandbox(meta_file)
-    else:
-        print("\n[3] No unelevated sandbox metadata directory found.")
-
-
-def main() -> None:
+def main() -> None:  # pylint: disable=R0912,R0915
     if sys.platform != "win32":
         print("ERROR: This script must run on Windows.")
         sys.exit(1)
@@ -993,14 +976,21 @@ def main() -> None:
     sandboxes_dir = state_dir / "sandboxes"
     unelevated_dir = state_dir / "unelevated_sandboxes"
 
-    appcontainer_count = _count_metadata_files(containers_dir)
-    restricted_count = _count_metadata_files(sandboxes_dir)
-    unelevated_count = _count_metadata_files(unelevated_dir)
+    appcontainer_count = _count_json(containers_dir)
+    elevated_count = _count_json(sandboxes_dir)
+    unelevated_count = _count_json(unelevated_dir)
+
+    if not appcontainer_count and not elevated_count and not unelevated_count:
+        # Check for legacy state file
+        legacy = state_dir / "unelevated_sandbox_state.json"
+        if not legacy.exists():
+            print("No QwenPaw sandbox metadata found. Nothing to clean up.")
+            sys.exit(0)
 
     _confirm_cleanup(
         is_admin,
         appcontainer_count,
-        restricted_count,
+        elevated_count,
         unelevated_count,
     )
 
@@ -1009,31 +999,46 @@ def main() -> None:
     print("=" * 60)
     print(f"  State directory: {state_dir}")
     if not is_admin:
-        print("  Running without admin — only unelevated cleanup available")
+        print("  Running without admin — elevated sandbox cleanup skipped")
     print()
 
-    sys_drive = os.environ.get("SystemDrive", "C:")
-    fallback_global_paths = [
-        sys_drive + "\\",
-        sys_drive + "\\Users",
-        os.environ.get("USERPROFILE", ""),
-        os.path.dirname(sys.executable),
-    ]
+    # Step 1: AppContainer sandboxes (no admin required)
+    print(f"[1] AppContainer sandboxes ({appcontainer_count} found)")
+    if containers_dir.is_dir():
+        for meta_file in sorted(containers_dir.glob("*.json")):
+            _cleanup_single_container(meta_file)
+    if not appcontainer_count:
+        print("    Nothing to clean.")
 
+    # Step 2: Elevated sandboxes (admin required)
+    print(f"\n[2] Elevated sandboxes ({elevated_count} found)")
     if is_admin:
-        _run_appcontainer_cleanup(
-            containers_dir,
-            state_dir,
-            fallback_global_paths,
-        )
-        _run_restricted_cleanup(sandboxes_dir)
+        if sandboxes_dir.is_dir():
+            for meta_file in sorted(sandboxes_dir.glob("*.json")):
+                _cleanup_single_elevated_sandbox(meta_file)
+        if not elevated_count:
+            print("    Nothing to clean.")
+        # Clean up QwenpawUsers group after all elevated sandboxes are removed
+        if elevated_count > 0:
+            _cleanup_sandbox_group()
     else:
-        print("[1] Skipped AppContainer cleanup (requires admin).")
-        print("\n[2] Skipped restricted-token cleanup (requires admin).")
+        if elevated_count:
+            print("    SKIPPED (requires administrator privileges)")
+        else:
+            print("    Nothing to clean.")
 
-    _run_unelevated_cleanup(unelevated_dir, state_dir)
-    _cleanup_remaining_junctions(state_dir)
-    _cleanup_state_dirs(state_dir)
+    # Step 3: Unelevated sandboxes (no admin required)
+    print(f"\n[3] Unelevated sandboxes ({unelevated_count} found)")
+    _migrate_legacy_state_file(state_dir)
+    if unelevated_dir.is_dir():
+        for meta_file in sorted(unelevated_dir.glob("*.json")):
+            _cleanup_single_unelevated_sandbox(meta_file)
+    if not unelevated_count:
+        print("    Nothing to clean.")
+
+    # Step 4: Clean up empty directories
+    print("\n[4] Cleaning up state directories...")
+    _cleanup_state_dirs(state_dir, is_admin=is_admin)
 
     print("\n" + "=" * 60)
     print("Cleanup complete.")

@@ -206,13 +206,13 @@ The ACP agent resolves its configuration in the following order:
 
 ## ACP Server vs ACP Tool
 
-| Aspect               | NousAIPaw as an ACP Server                      | NousAIPaw using ACP as a Tool                            |
-| -------------------- | --------------------------------------------- | ------------------------------------------------------ |
-| NousAIPaw's role       | Server / target agent                         | Client / orchestrator                                  |
-| Connection direction | External client connects to NousAIPaw           | NousAIPaw connects to an external runner                 |
-| Main purpose         | Let editors or external clients drive NousAIPaw | Let NousAIPaw delegate work to another agent             |
-| Typical entry point  | `qwenpaw acp`                                 | Delegation tool + ACP runner configuration             |
-| Best for             | Editor integration, programmatic control      | Multi-agent collaboration, external specialist runners |
+| Aspect               | NousAIPaw as an ACP Server                      | NousAIPaw using ACP as a Tool                          |
+| -------------------- | ----------------------------------------------- | ------------------------------------------------------ |
+| NousAIPaw's role     | Server / target agent                           | Client / orchestrator                                  |
+| Connection direction | External client connects to NousAIPaw           | NousAIPaw connects to an external runner               |
+| Main purpose         | Let editors or external clients drive NousAIPaw | Let NousAIPaw delegate work to another agent           |
+| Typical entry point  | `qwenpaw acp`                                   | Delegation tool + ACP runner configuration             |
+| Best for             | Editor integration, programmatic control        | Multi-agent collaboration, external specialist runners |
 
 ---
 

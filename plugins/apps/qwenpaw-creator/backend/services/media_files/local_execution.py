@@ -83,6 +83,7 @@ from services.media_files.element_adapter import (
     find_timeline_element,
     selected_element_output,
 )
+from services.media_files.review_admission import assert_media_review_admission
 from services.project_files.remote_cache import (
     public_source_url,
     resolve_remote_cache,
@@ -1242,7 +1243,7 @@ def _edit_overlay(
         return None
     if len(overlays) > 1:
         raise ValidationError(
-            f"本地 runner 暂不支持在 Edit Element {element.element_id} 上叠加多个 Overlay Element",
+            f"本地 runner 暂不支持在 Element {element.element_id} 上叠加多个 Overlay Element",
         )
     overlay = overlays[0]
     intersection_start = max(element.span.start_tick, overlay.span.start_tick)
@@ -1526,16 +1527,8 @@ def _timeline_execution(
                     if element.location is not None
                     else None
                 ),
-                overlay=(
-                    _edit_overlay(timeline, element)
-                    if isinstance(element.creation, EditCreation)
-                    else None
-                ),
-                motions=(
-                    _edit_motion_overlays(timeline, element)
-                    if isinstance(element.creation, EditCreation)
-                    else ()
-                ),
+                overlay=_edit_overlay(timeline, element),
+                motions=_edit_motion_overlays(timeline, element),
             ),
         )
         read_set.append(
@@ -1839,6 +1832,18 @@ class FileLocalMediaExecutionService:
             command=command_value,
             target_ref=target_ref,
             arguments=dict(arguments),
+        )
+        reviews = await asyncio.to_thread(
+            self.services.reviews.all_pending,
+            project_id,
+        )
+        assert_media_review_admission(
+            reviews=reviews,
+            command_type=resolved.command.value,
+            target_ref=resolved.target_ref,
+            reference_version_ids=tuple(
+                item.version_id for item in resolved.inputs
+            ),
         )
         request_fingerprint = _resolved_fingerprint(resolved)
         reuse = await asyncio.to_thread(
@@ -2451,6 +2456,7 @@ class FileLocalMediaExecutionService:
             "taskId": task.task_id,
             "runId": task.run_id,
             "commandType": resolved.command.value,
+            "targetRef": resolved.target_ref,
             "sourceSelections": list(resolved.source_selections),
             "runner": _json_mapping(runner_output.get("metadata")),
         }
