@@ -544,12 +544,19 @@ def _cleanup_single_container(  # pylint: disable=R0912
         ok = _delete_appcontainer_profile(container_name)
         print(f"    Profile: {'deleted' if ok else 'not found or failed'}")
 
-    # Step 3: Delete the metadata JSON file
-    try:
-        meta_file.unlink()
-        print("    Metadata: deleted")
-    except OSError as e:
-        print(f"    WARNING: Failed to delete {meta_file.name}: {e}")
+    # Step 3: Handle metadata file
+    if acl_failed > 0:
+        _move_to_failed(
+            meta_file,
+            _get_state_dir(),
+            f"ACL removal failed for {acl_failed} path(s)",
+        )
+    else:
+        try:
+            meta_file.unlink()
+            print("    Metadata: deleted")
+        except OSError as e:
+            print(f"    WARNING: Failed to delete {meta_file.name}: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -634,30 +641,56 @@ def _cleanup_single_elevated_sandbox(  # pylint: disable=R0912,R0915
         print(f"    ACLs: {acl_removed} removed, {acl_failed} failed")
 
     # Step 2: Remove firewall rules
+    firewall_failed = False
     if network_blocked and username:
         ok = _remove_firewall_rules(username)
+        if not ok:
+            firewall_failed = True
         print(
             f"    Firewall: {'removed' if ok else 'removal failed (may not exist)'}",
         )
 
     # Step 3: Delete the local user account
+    user_failed = False
     if username:
         ok = _delete_local_user(username)
+        if not ok:
+            user_failed = True
         print(
             f"    User account: {'deleted' if ok else 'deletion failed (may not exist)'}",
         )
 
     # Step 4: Remove user profile directory
+    profile_failed = False
     if username:
         ok = _remove_profile_dir(username, user_sid)
+        if not ok:
+            profile_failed = True
         print(f"    Profile dir: {'removed' if ok else 'removal failed'}")
 
-    # Step 5: Delete the metadata JSON file
-    try:
-        meta_file.unlink()
-        print("    Metadata: deleted")
-    except OSError as e:
-        print(f"    WARNING: Failed to delete {meta_file.name}: {e}")
+    # Step 5: Handle metadata file
+    failures: List[str] = []
+    if acl_failed > 0:
+        failures.append(f"ACL removal failed for {acl_failed} path(s)")
+    if firewall_failed:
+        failures.append("firewall rule removal failed")
+    if user_failed:
+        failures.append("user account deletion failed")
+    if profile_failed:
+        failures.append("profile directory removal failed")
+
+    if failures:
+        _move_to_failed(
+            meta_file,
+            _get_state_dir(),
+            "; ".join(failures),
+        )
+    else:
+        try:
+            meta_file.unlink()
+            print("    Metadata: deleted")
+        except OSError as e:
+            print(f"    WARNING: Failed to delete {meta_file.name}: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -704,12 +737,19 @@ def _cleanup_single_unelevated_sandbox(meta_file: Path) -> None:
     if acl_removed or acl_failed:
         print(f"    ACLs: {acl_removed} removed, {acl_failed} failed")
 
-    # Step 2: Delete the metadata JSON file
-    try:
-        meta_file.unlink()
-        print("    Metadata: deleted")
-    except OSError as e:
-        print(f"    WARNING: Failed to delete {meta_file.name}: {e}")
+    # Step 2: Handle metadata file
+    if acl_failed > 0:
+        _move_to_failed(
+            meta_file,
+            _get_state_dir(),
+            f"ACL removal failed for {acl_failed} path(s)",
+        )
+    else:
+        try:
+            meta_file.unlink()
+            print("    Metadata: deleted")
+        except OSError as e:
+            print(f"    WARNING: Failed to delete {meta_file.name}: {e}")
 
 
 def _migrate_legacy_state_file(state_dir: Path) -> None:
@@ -763,6 +803,63 @@ def _cleanup_sandbox_group() -> None:
             print(f"    Removed ACL marker: {marker}")
         except OSError as e:
             print(f"    WARNING: Failed to remove marker: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Failed cleanup metadata preservation
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _move_to_failed(
+    meta_file: Path,
+    state_dir: Path,
+    reason: str,
+) -> None:
+    """Moves a metadata file to failed_cleanup/ for later retry.
+
+    Appends a ``_cleanup_error`` field with failure reason and timestamp
+    so the user knows what went wrong.
+    """
+    import datetime
+
+    failed_dir = state_dir / "failed_cleanup"
+    failed_dir.mkdir(parents=True, exist_ok=True)
+
+    dest = failed_dir / meta_file.name
+    # If a file with the same name already exists, append a counter
+    counter = 1
+    while dest.exists():
+        stem = meta_file.stem
+        dest = failed_dir / f"{stem}_{counter}.json"
+        counter += 1
+
+    # Read, annotate, and write to new location
+    try:
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        meta = {}
+
+    meta["_cleanup_error"] = {
+        "reason": reason,
+        "timestamp": datetime.datetime.now().isoformat(),
+    }
+
+    try:
+        dest.write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError as e:
+        print(f"    ERROR: Cannot save failed metadata to {dest}: {e}")
+        return
+
+    # Remove the original
+    try:
+        meta_file.unlink()
+    except OSError:
+        pass
+
+    print(f"    Metadata preserved in: {dest.name} (for retry)")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -827,6 +924,7 @@ def _cleanup_state_dirs(state_dir: Path, *, is_admin: bool) -> None:
     unelevated_dir = state_dir / "unelevated_sandboxes"
     containers_dir = state_dir / "containers"
     sandboxes_dir = state_dir / "sandboxes"
+    failed_dir = state_dir / "failed_cleanup"
 
     dirs_to_check = [unelevated_dir, containers_dir]
     if is_admin:
@@ -839,6 +937,16 @@ def _cleanup_state_dirs(state_dir: Path, *, is_admin: bool) -> None:
                 print(f"  Removed empty dir: {d.name}/")
             except OSError:
                 pass
+
+    # Report failed_cleanup contents (never auto-delete)
+    if failed_dir.is_dir():
+        failed_files = list(failed_dir.iterdir())
+        if failed_files:
+            print(
+                f"  WARNING: {len(failed_files)} metadata file(s) in "
+                f"failed_cleanup/ — re-run script to retry or "
+                f"delete manually.",
+            )
 
     # Remove root state dir if completely empty
     if state_dir.is_dir():

@@ -2818,7 +2818,10 @@ def _move_to_failed_cleanup_elevated(
     logger.info("Cleanup failed, metadata preserved: %s", dest.name)
 
 
-def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:  # pylint: disable=R0912
+def _cleanup_from_metadata(  # pylint: disable=R0912
+    meta: dict,
+    meta_file: Path,
+) -> None:
     username = meta.get("username", "")
     user_sid = meta.get("user_sid", "")
     cap_sid = meta.get("cap_sid", "")

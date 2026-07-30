@@ -924,7 +924,10 @@ def _move_to_failed_cleanup(
     logger.info("Cleanup failed, metadata preserved: %s", dest.name)
 
 
-def _cleanup_single_container(meta: dict, meta_file: Path) -> None:  # pylint: disable=R0912
+def _cleanup_single_container(  # pylint: disable=R0912
+    meta: dict,
+    meta_file: Path,
+) -> None:
     """Cleans up a single AppContainer sandbox from its metadata.
 
     Removes ACLs, deletes the AppContainer profile, and removes the
