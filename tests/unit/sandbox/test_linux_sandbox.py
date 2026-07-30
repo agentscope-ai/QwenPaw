@@ -64,9 +64,8 @@ class TestProbeSandboxSupport:
         assert "4.0" in result.reason
 
     @patch("sys.platform", "win32")
-    @patch("qwenpaw.sandbox.config._probe_windows_appcontainer")
-    def test_windows_calls_appcontainer_probe(self, mock_probe):
-        # Windows sandbox should delegate to _probe_windows_appcontainer.
+    @patch("qwenpaw.sandbox.config._probe_windows")
+    def test_windows_calls_windows_probe(self, mock_probe):
         mock_probe.return_value = SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,

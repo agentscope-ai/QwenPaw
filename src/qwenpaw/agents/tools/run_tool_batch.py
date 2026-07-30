@@ -164,8 +164,8 @@ def _response_payload(response: ToolChunk) -> dict[str, Any]:
 
     The ``ok`` field is inferred from:
     - The response ``state`` (ERROR / DENIED → not ok).
-    - JSON responses with an explicit ``ok`` field (``browser_use``,
-      ``desktop_screenshot``).
+    - JSON responses with an explicit ``ok`` field (``browser``,
+      ``web_fetch``, ``desktop_screenshot``).
     - Plain-text error prefixes (``Error:``, ``Command failed``).
     - Exceptions caught in ``_call_tool`` (already ``ok: False``).
 

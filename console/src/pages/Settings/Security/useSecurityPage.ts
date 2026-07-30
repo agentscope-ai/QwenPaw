@@ -8,7 +8,10 @@ import { useToolGuard, type MergedRule } from "./useToolGuard";
 const BUILTIN_TOOLS = [
   "execute_shell_command",
   "execute_python_code",
-  "browser_use",
+  "browser",
+  // ── DEPRECATED BROWSER (remove together with backend deprecated_browser/) ──
+  "browser",
+  // ── END DEPRECATED BROWSER ──
   "desktop_screenshot",
   "view_image",
   "read_file",

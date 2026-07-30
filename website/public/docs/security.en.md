@@ -373,14 +373,14 @@ Even if a command passes Tool Guard and File Guard checks, the sandbox ensures i
 
 QwenPaw automatically detects the best available sandbox backend on startup:
 
-| Platform | Backend                                      | Mechanism                                              | Detection                                        |
-| -------- | -------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------ |
-| macOS    | **Seatbelt**                                 | `sandbox-exec` with S-expression profiles              | `sandbox-exec` binary on PATH                    |
-| Linux    | **Bubblewrap** (preferred)                   | Mount namespaces + user namespaces + PID namespace     | `bwrap` binary + user namespace support          |
-| Linux    | **Landlock** (fallback)                      | Landlock LSM kernel module (5.13+)                     | Kernel version + LSM probe + ABI syscall         |
-| Windows  | **AppContainer** (`allow_read_all=False`)    | AppContainer profile + `icacls` ACL enforcement        | Windows 10+ (build 10240) + `icacls.exe` on PATH |
-| Windows  | **Restricted_token** (`allow_read_all=True`) | Dedicated user + restricted token + WFP firewall rules | Windows 10+ (build 10240) + administrator        |
-| Any      | **None**                                     | No isolation (passthrough)                             | Used when no backend is available                |
+| Platform | Backend                                      | Mechanism                                              | Detection                                            |
+| -------- | -------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------- |
+| macOS    | **Seatbelt**                                 | `sandbox-exec` with S-expression profiles              | `sandbox-exec` binary on PATH                        |
+| Linux    | **Bubblewrap** (preferred)                   | Mount namespaces + user namespaces + PID namespace     | `bwrap` binary + user namespace support              |
+| Linux    | **Landlock** (fallback)                      | Landlock LSM kernel module (5.13+)                     | Kernel version + LSM probe + ABI syscall             |
+| Windows  | **AppContainer** (`allow_read_all=False`)    | AppContainer profile + `icacls` ACL enforcement        | Windows 10+ (build 10240) + `icacls.exe` on PATH     |
+| Windows  | **Restricted_token** (`allow_read_all=True`) | Dedicated user + restricted token + WFP firewall rules | Windows 10+ (build 10240); administrator recommended |
+| Any      | **None**                                     | No isolation (passthrough)                             | Used when no backend is available                    |
 
 **Probe priority on Linux**: bubblewrap > Landlock > None. If `bwrap` is installed and user namespaces work, bubblewrap is chosen. Otherwise falls back to Landlock if the kernel supports it.
 
@@ -456,7 +456,7 @@ When a violation is detected:
 - **Resource limits**: `max_processes` and `max_memory_mb` fields exist in the config but are not enforced by any current backend.
 - **Windows AppContainer** (`allow_read_all=False`): Requires administrator privileges for initial ACL setup. The AppContainer profile is preserved for reuse across invocations with the same configuration.
 - **Windows AppContainer file deletion limitation** (`allow_read_all=False`): Sandboxed processes in AppContainer mode may be unable to delete files within the workspace. This does not affect `allow_read_all=True` (Restricted_token) mode. A solution is under investigation.
-- **Windows Restricted_token** (`allow_read_all=True`): Requires administrator privileges for local user creation and WFP firewall rule management. Uses dedicated local user accounts with `CreateRestrictedToken` in Restricted_token mode. The dedicated user and firewall rules are preserved for reuse.
+- **Windows Restricted_token** (`allow_read_all=True`): Full isolation (dedicated local user, WFP firewall rules) requires administrator privileges. When running without administrator privileges, an unelevated sandbox mode is used instead — it provides write restrictions via `CreateRestrictedToken` but with limited isolation compared to the full sandbox. For maximum security, running as administrator is recommended.
 - **Windows minimum version**: Both Windows backends require **Windows 10 version 1507 (build 10240)** or later. Earlier Windows versions (Windows 7, 8, 8.1) do not support the isolation mechanisms and will fall back to `mode=none` (no isolation).
 - **Windows system directory ACL restrictions** (AppContainer only): The `icacls` ACL setup cannot modify permissions on certain protected system directories such as `C:\Program Files`, `C:\Program Files (x86)`, `C:\Windows`, and `C:\Windows\System32`. These directories are protected by Windows Resource Protection (WRP) and TrustedInstaller ownership.
 - **deny_paths for files (Bubblewrap)**: Individual files in `deny_paths` appear as empty (bound to `/dev/null`) rather than non-existent. Directory-level deny uses `--tmpfs` and is truly invisible.
@@ -495,10 +495,11 @@ AppContainer (`allow_read_all=False`) requires administrator privileges for `ica
 
 **Windows: Restricted_token user provisioning failed**
 
-Restricted_token (`allow_read_all=True`) requires administrator privileges for creating the dedicated local user account and managing WFP firewall rules. If you see errors about user creation or firewall setup:
+Restricted_token (`allow_read_all=True`) uses dedicated local user accounts and WFP firewall rules for full isolation, which requires administrator privileges. Without administrator privileges, QwenPaw automatically falls back to the unelevated sandbox mode with limited isolation. If you see errors about user creation or firewall setup:
 
-1. Run QwenPaw as administrator (right-click → Run as administrator)
-2. Use `scripts/cleanup_windows_sandbox.py` to remove stale sandbox users and firewall rules
+1. The unelevated sandbox is still active and provides basic write restrictions
+2. For full sandbox protection, run QwenPaw as administrator (right-click → Run as administrator)
+3. Use `scripts/cleanup_windows_sandbox.py` to remove stale sandbox users and firewall rules
 
 **Windows: Minimum version not met**
 
