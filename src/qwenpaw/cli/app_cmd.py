@@ -8,6 +8,7 @@ import click
 import uvicorn
 
 from ..app.auth import is_auth_enabled
+from ..browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
 from ..config.utils import write_last_api
 from ..constant import LOG_LEVEL_ENV
 from ..utils.http import is_loopback_host
@@ -126,13 +127,8 @@ def app_cmd(
     else:
         write_last_api(host, port)
     os.environ[LOG_LEVEL_ENV] = log_level
-
-    # Signal reload mode to browser_control.py for Windows
-    # compatibility: use sync Playwright + ThreadPool only when reload=True
     if reload:
         os.environ["QWENPAW_RELOAD_MODE"] = "1"
-    else:
-        os.environ.pop("QWENPAW_RELOAD_MODE", None)
 
     setup_logger(log_level)
     if log_level in ("debug", "trace"):
@@ -159,4 +155,7 @@ def app_cmd(
         reload=reload,
         workers=1,
         log_level=log_level,
+        # Chrome Native Messaging inbound limit; this server-wide value is a
+        # protocol fact rather than a user-configurable WebSocket capacity.
+        ws_max_size=NM_MAX_INBOUND_BYTES,
     )

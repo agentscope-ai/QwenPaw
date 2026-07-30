@@ -95,10 +95,12 @@ include-package-data = true
     "agents/context/visual_compression/assets/JETBRAINS_MONO_LICENSE.txt",
     "agents/context/visual_compression/assets/UNIFONT_LICENSE.txt",
     "agents/context/visual_compression/assets/SPLEEN_LICENSE.txt",
+    "agents/tools/deprecated_browser/skills/**",
     "tokenizer/**",
     "security/tool_guard/rules/**",
     "security/skill_scanner/rules/**",
     "security/skill_scanner/data/**",
+    "browser/control_link/injected/*.js",
     "docs/*.md",
     "app/channels/yuanbao/proto/**",
 ]

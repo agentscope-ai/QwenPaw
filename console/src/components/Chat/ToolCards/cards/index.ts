@@ -23,10 +23,10 @@ export { default as ViewImageCard } from "./ViewImageCard";
 export { default as ViewVideoCard } from "./ViewVideoCard";
 export { default as DesktopScreenshotCard } from "./DesktopScreenshotCard";
 export { default as SendFileCard } from "./SendFileCard";
-export {
-  default as BrowserUseCard,
-  BROWSER_TOOL_NAMES,
-} from "./BrowserUseCard";
+export { default as BrowserCard } from "./BrowserCard";
+// ── DEPRECATED BROWSER (remove together with backend deprecated_browser/) ──
+export { default as BrowserUseCard } from "./deprecated/BrowserUseCard";
+// ── END DEPRECATED BROWSER ──
 export { default as GetCurrentTimeCard } from "./GetCurrentTimeCard";
 export { default as SetTimezoneCard } from "./SetTimezoneCard";
 export { default as TokenUsageCard } from "./TokenUsageCard";
@@ -52,7 +52,10 @@ import ViewImageCard from "./ViewImageCard";
 import ViewVideoCard from "./ViewVideoCard";
 import DesktopScreenshotCard from "./DesktopScreenshotCard";
 import SendFileCard from "./SendFileCard";
-import BrowserUseCard from "./BrowserUseCard";
+import BrowserCard from "./BrowserCard";
+// ── DEPRECATED BROWSER (remove together with backend deprecated_browser/) ──
+import BrowserUseCard from "./deprecated/BrowserUseCard";
+// ── END DEPRECATED BROWSER ──
 import GetCurrentTimeCard from "./GetCurrentTimeCard";
 import SetTimezoneCard from "./SetTimezoneCard";
 import TokenUsageCard from "./TokenUsageCard";
@@ -94,18 +97,12 @@ export const BUILTIN_CARD_REGISTRY: Record<string, BuiltinCardComponent> = {
   desktop_screenshot: DesktopScreenshotCard,
   send_file_to_user: SendFileCard,
 
-  // Browser
+  // Unified Browser SDK
+  browser: BrowserCard,
+
+  // ── DEPRECATED BROWSER (remove together with backend deprecated_browser/) ──
   browser_use: BrowserUseCard,
-  browser_navigate: BrowserUseCard,
-  navigate: BrowserUseCard,
-  browser_click: BrowserUseCard,
-  click: BrowserUseCard,
-  browser_type: BrowserUseCard,
-  type: BrowserUseCard,
-  browser_snapshot: BrowserUseCard,
-  snapshot: BrowserUseCard,
-  browser_scroll: BrowserUseCard,
-  scroll: BrowserUseCard,
+  // ── END DEPRECATED BROWSER ──
 
   // Time
   get_current_time: GetCurrentTimeCard,
