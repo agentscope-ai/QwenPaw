@@ -91,6 +91,7 @@ export default function AppCenterPage() {
           description: app.description,
           category: app.category ?? "",
           icon: app.icon ?? "",
+          icon_url: app.icon_url ?? "",
           entry_page: app.entry_page ?? "",
           launch_scope: app.launch_scope ?? "page",
           status: app.status,

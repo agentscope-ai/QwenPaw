@@ -11,7 +11,6 @@ import {
   Loader2,
   PanelRightClose,
   PanelRightOpen,
-  Sparkles,
   Square,
   XCircle,
 } from "lucide-react";
@@ -27,6 +26,8 @@ import type {
   RefSearchItem,
 } from "@/contracts/creator";
 import { useParams } from "@/routing/navigation";
+import logoGlyphOrange from "@/assets/design/logo-glyph-orange.png";
+import logoGlyphWhite from "@/assets/design/logo-mark-plain.png";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import {
@@ -2046,9 +2047,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           onClick={() => setOpen(true)}
           data-agent-dock-handle
           data-state={liveStatus.state}
-          className={`fixed right-0 top-1/2 z-40 flex ${
+          className={`fixed right-0 top-15 z-40 flex ${
             decisionCount > 0 ? "h-[96px]" : "h-[76px]"
-          } w-7 -translate-y-1/2 flex-col items-center justify-center rounded-l-xl border border-r-0 border-[var(--color-border)] bg-[var(--color-bg-card)]/92 text-[var(--color-text-tertiary)] shadow-lg backdrop-blur-xl transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]`}
+          } w-7 flex-col items-center justify-center rounded-l-xl border border-r-0 border-[var(--color-border)] bg-[var(--color-bg-card)]/92 text-[var(--color-text-tertiary)] shadow-lg backdrop-blur-xl transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]`}
           aria-label="打开 Agent"
           title={
             decisionCount > 0
@@ -2133,7 +2134,17 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
 
           <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-[18px]">
             <div className="flex min-w-0 items-center gap-2">
-              <Sparkles className="h-4 w-4 shrink-0 text-[var(--color-accent)]" />
+              {/* Transparent brand glyph, swapped per theme. */}
+              <img
+                src={logoGlyphOrange}
+                alt=""
+                className="h-5 w-5 shrink-0 object-contain dark:hidden"
+              />
+              <img
+                src={logoGlyphWhite}
+                alt=""
+                className="hidden h-5 w-5 shrink-0 object-contain dark:block"
+              />
               <div className="min-w-0">
                 <b className="block truncate text-sm font-medium text-[var(--color-text-primary)]">
                   创作助手

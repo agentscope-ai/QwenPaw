@@ -65,6 +65,7 @@ export const DOC_GROUPS: DocGroup[] = [
     titleKey: "docs.groupPractice",
     children: [
       { slug: "practice-agent-team", titleKey: "docs.practiceAgentTeam" },
+      { slug: "creator", titleKey: "docs.creator" },
     ],
   },
   {
@@ -106,8 +107,13 @@ const DOC_TITLE_BANNERS = [
   "https://img.alicdn.com/imgextra/i1/O1CN0125urEE1XvBO2jAQnn_!!6000000002985-2-tps-1708-954.png",
 ] as const;
 
+export const CREATOR_BANNER_BY_LANG = {
+  zh: "https://img.alicdn.com/imgextra/i1/O1CN01fqzbpn1uZs98aHllk_!!6000000006052-2-tps-1600-600.png",
+  en: "https://img.alicdn.com/imgextra/i4/O1CN01k0Q45RQSEyL3FPZ2_!!6000000000720-2-tps-1600-600.png",
+} as const;
+
 export const DOC_BANNER_BY_SLUG = (() => {
-  const map = new Map<string, (typeof DOC_TITLE_BANNERS)[number]>();
+  const map = new Map<string, string>();
   const allDocs = DOC_GROUPS.flatMap((group) => group.children);
   let bannerIndex = 0;
   for (const entry of allDocs) {
@@ -115,6 +121,7 @@ export const DOC_BANNER_BY_SLUG = (() => {
     bannerIndex += 1;
     if (bannerIndex >= DOC_TITLE_BANNERS.length) bannerIndex = 0;
   }
+  map.set("creator", CREATOR_BANNER_BY_LANG.en);
   return map;
 })();
 

@@ -3,7 +3,44 @@ import type {
   ModelConnectionTestRequest,
   ConnectionTestResponse,
 } from "@/contracts/creator";
-import { creatorRequest, jsonBody, newClientId } from "./client";
+import { creatorRequest, hostToken, jsonBody, newClientId } from "./client";
+
+export interface HostModelInfo {
+  id: string;
+  name: string;
+}
+
+export interface HostProviderInfo {
+  id: string;
+  name: string;
+  base_url: string;
+  freeze_url: boolean;
+  models: HostModelInfo[];
+  extra_models: HostModelInfo[];
+  meta?: {
+    base_url_options?: { label: string; value: string }[];
+  };
+}
+
+let hostProvidersPromise: Promise<HostProviderInfo[]> | null = null;
+
+export function getHostProviders(): Promise<HostProviderInfo[]> {
+  if (hostProvidersPromise) return hostProvidersPromise;
+  const headers: HeadersInit = { "Content-Type": "application/json" };
+  const token = hostToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  hostProvidersPromise = fetch("/api/models", { headers })
+    .then((r) => (r.ok ? r.json() : []))
+    // The host may answer with an error envelope instead of a provider
+    // array; anything non-array must degrade to "no presets" rather than
+    // crash the modal on hostProviders.find.
+    .then((data) => (Array.isArray(data) ? (data as HostProviderInfo[]) : []))
+    .catch(() => [])
+    .finally(() => {
+      hostProvidersPromise = null;
+    });
+  return hostProvidersPromise;
+}
 
 export function getModelConfig(): Promise<ModelConfigData> {
   return creatorRequest("/models/config");
@@ -63,4 +100,14 @@ export function patchExecutionAuthorization(
     headers: { "Idempotency-Key": id },
     body: jsonBody({ mode }),
   });
+}
+
+export function getRealApiKey(section: string): Promise<{ api_key: string }> {
+  return creatorRequest(`/models/real-api-key/${section}`);
+}
+
+export function getHostProviderApiKey(
+  providerId: string,
+): Promise<{ api_key: string | null }> {
+  return creatorRequest(`/models/host-provider/${providerId}/api-key`);
 }

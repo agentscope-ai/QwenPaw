@@ -477,11 +477,20 @@ async def post_message(
             )
     except BaseException as error:
         _translate_runtime_error(error)
-    if admitted.review_boundary is not None:
+    # Only a boundary that actually captured a running mainline may
+    # supersede it. An idle-goal boundary interrupts nothing — firing the
+    # supersede anyway can cancel the run the dispatcher already started
+    # for this very message, whose cleanup then consumes the message and
+    # leaves the Session in RESUMING with no pending input to recover it.
+    if (
+        admitted.review_boundary is not None
+        and admitted.review_boundary.interrupted_run_id is not None
+    ):
         await interrupt_creator_agent_runtime(
             project_id,
             superseded=True,
             reason="agentdock_interrupt",
+            expected_run_id=admitted.review_boundary.interrupted_run_id,
         )
     notify_creator_agent_runtime(project_id)
     response.headers["X-Idempotent-Replay"] = (
