@@ -746,9 +746,7 @@ async def execute_shell_command(
     """
 
     shell_executable = (
-        get_current_shell_command_executable()
-        or os.environ.get("SHELL")
-        or None
+        get_current_shell_command_executable() or os.environ.get("SHELL") or None
     )
     cmd = _collapse_embedded_newlines(
         (command or "").strip(),
@@ -798,6 +796,12 @@ async def execute_shell_command(
         env["PATH"] = python_bin_dir + os.pathsep + existing_path
     else:
         env["PATH"] = python_bin_dir
+
+    _bundled_py = os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME", "").strip()
+    if _bundled_py and os.path.isfile(_bundled_py):
+        _bundled_dir = str(Path(_bundled_py).parent)
+        if _bundled_dir != python_bin_dir:
+            env["PATH"] = _bundled_dir + os.pathsep + env["PATH"]
 
     if sandbox_config is not None:
         # Create a copy with resolved shell and timeout to avoid mutating

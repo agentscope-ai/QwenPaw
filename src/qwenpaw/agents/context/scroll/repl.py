@@ -14,6 +14,7 @@ Python variables do not persist across calls; derived tables do, because the
 """
 
 import asyncio
+import os
 import shlex
 import sys
 import uuid
@@ -163,7 +164,9 @@ def make_recall_history_python(
                 state=ToolResultState.DENIED,
             )
         cell = _build_cell(source)
-        argv = [sys.executable, str(cell)]
+        _bundled = os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME", "").strip()
+        python = _bundled if _bundled and os.path.isfile(_bundled) else sys.executable
+        argv = [python, str(cell)]
         try:
             if sandbox_config is not None:
                 # The sandbox runs a shell command string; quote each argv
