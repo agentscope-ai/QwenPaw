@@ -160,6 +160,9 @@ def test_config_fields_are_validated_lazily(tmp_path: Path) -> None:
         text.replace("gc_keep_count = 20", 'gc_keep_count = "invalid"'),
         encoding="utf-8",
     )
+    # Force re-read so the corrupted file is picked up even when the
+    # filesystem mtime granularity is too coarse (e.g. Windows NTFS CI).
+    engine.policy.reload(force=True)
 
     assert engine.auto_enabled is False
     with pytest.raises(CheckpointError, match="gc.gc_keep_count"):
@@ -337,10 +340,7 @@ async def test_restore_command_validates_and_preserves_file_selection(
 ) -> None:
     confirmation = await _run(
         workspace,
-        (
-            "restore abcdef1 --include-files "
-            '--files "docs/a b.md" src/app.py'
-        ),
+        ('restore abcdef1 --include-files --files "docs/a b.md" src/app.py'),
     )
     assert "**Confirmation required**" in confirmation
     assert '--files "docs/a b.md"' in confirmation
