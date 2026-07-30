@@ -4,6 +4,8 @@
 Semantics: left-closed, right-open interval  ``>=min, <max``.
 When ``max`` is not specified, no upper bound is enforced — the plugin
 is considered compatible with any QwenPaw version that satisfies ``>=min``.
+This follows the universal convention (pip, npm, cargo) where an
+unspecified upper bound means no upper bound.
 """
 
 from __future__ import annotations
@@ -23,6 +25,11 @@ def _derive_exclusive_max(min_str: str) -> Version:
     """Derive exclusive upper bound from a min version string.
 
     '1.1.6' -> Version('1.2.0')
+
+    .. deprecated::
+        This function is retained for backward compatibility but no longer
+        called by :func:`check_plugin_version_compat`.  An unspecified ``max``
+        now means *no upper bound* instead of a derived exclusive bound.
     """
     parts = min_str.split(".")
     major = int(parts[0])
