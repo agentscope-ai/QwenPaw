@@ -7,6 +7,8 @@ ARG UV_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/uv:la
 # -----------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS console-builder
 WORKDIR /app
+# Default 2GB Node heap OOMs during the console build (exit 134).
+ENV NODE_OPTIONS=--max-old-space-size=4096
 COPY console /app/console
 RUN cd /app/console && npm ci --include=dev && npm run build
 
