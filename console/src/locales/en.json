@@ -523,6 +523,20 @@
     "id": "ID",
     "description": "Description",
     "workspace": "Workspace Path",
+    "agentType": "Agent Type",
+    "agentTypeRequired": "Please select an agent type",
+    "agentTypePlaceholder": "Select agent type",
+    "agentTypeReadonlyHelp": "Agent type is set at creation and cannot be changed.",
+    "types": {
+      "default": {
+        "name": "Default",
+        "description": "General-purpose personal assistant agent."
+      },
+      "business_analysis": {
+        "name": "Business Analysis",
+        "description": "Analyzes unstructured business documents and consolidates insights into the knowledge base."
+      }
+    },
     "create": "Create Agent",
     "createTitle": "Create New Agent",
     "createSuccess": "Agent created successfully",

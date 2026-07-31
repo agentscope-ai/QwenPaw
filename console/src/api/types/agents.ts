@@ -19,6 +19,7 @@ export interface AgentSummary {
   pinned?: boolean;
   startup_status?: AgentStartupStatus;
   backend: AgentBackend;
+  agent_type?: AgentType;
   backend_capabilities?: Partial<HarnessCapabilities>;
   backend_model?: string | null;
   backend_reasoning_effort?: string | null;
@@ -26,6 +27,19 @@ export interface AgentSummary {
 }
 
 export type AgentBackend = string;
+
+/** Extensible agent kind (default, business_analysis, …). */
+export type AgentType = string;
+
+export interface AgentTypeDefinition {
+  id: AgentType;
+  name: string;
+  description?: string;
+}
+
+export interface AgentTypeListResponse {
+  types: AgentTypeDefinition[];
+}
 
 export interface AgentListResponse {
   agents: AgentSummary[];
@@ -42,6 +56,7 @@ export interface AgentProfileConfig {
   description?: string;
   workspace_dir?: string;
   backend?: AgentBackend;
+  agent_type?: AgentType;
   backend_settings?: {
     binary?: string;
     model?: string;
@@ -69,6 +84,7 @@ export interface CreateAgentRequest {
   skill_names?: string[];
   active_model?: ModelSlotConfig | null;
   backend?: AgentBackend;
+  agent_type?: AgentType;
   backend_settings?: {
     binary?: string;
     model?: string;

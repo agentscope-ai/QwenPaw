@@ -1112,7 +1112,7 @@ class IterationGateConfig(BaseModel):
     max_iterations: Optional[int] = Field(
         default=None,
         ge=1,
-        le=500,
+        le=1000,
         description=(
             "Maximum loop turns before stopping. "
             "Falls back to AgentsRunningConfig.max_iters "
@@ -1236,14 +1236,14 @@ def normalize_custom_loop_mode_name(name: str) -> str:
 class GoalLoopModeConfig(BaseModel):
     """Editable values for the fixed built-in Goal pipeline."""
 
-    max_iterations: int = Field(default=20, ge=1, le=500)
+    max_iterations: int = Field(default=20, ge=1, le=1000)
     max_tokens: int = Field(default=300_000, ge=1)
 
 
 class MissionLoopModeConfig(BaseModel):
     """Editable values for the fixed built-in Mission pipeline."""
 
-    max_iterations: int = Field(default=20, ge=1, le=100)
+    max_iterations: int = Field(default=20, ge=1, le=1000)
     max_retries_per_story: int = Field(default=3, ge=0, le=10)
     default_verification_instructions: str = Field(
         default="",
@@ -1417,7 +1417,7 @@ class AgentsRunningConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     max_iters: int = Field(
-        default=100,
+        default=1000,
         ge=1,
         description=(
             "Maximum number of reasoning-acting iterations for ReAct agent"
@@ -1692,6 +1692,14 @@ class AgentProfileConfig(BaseModel):
     template_id: Optional[str] = Field(
         default=None,
         description="Builtin template used when this agent was created",
+    )
+    agent_type: str = Field(
+        default="default",
+        description=(
+            "Extensible agent kind identity "
+            "(e.g. default, business_analysis). "
+            "Distinct from backend runtime and create-time template_id."
+        ),
     )
 
     # Agent-specific configurations

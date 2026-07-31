@@ -25,7 +25,7 @@ class _Params(BaseModel):
 class IterationParams(_Params):
     """Iteration gate parameters."""
 
-    max_iterations: int = Field(default=40, ge=1, le=500)
+    max_iterations: int = Field(default=40, ge=1, le=1000)
 
 
 class DoomLoopParams(_Params):

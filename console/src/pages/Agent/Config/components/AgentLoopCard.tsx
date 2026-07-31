@@ -83,7 +83,7 @@ function IterationSection() {
             "Maximum number of loop turns before stopping",
           )}
         >
-          <InputNumber min={1} max={500} style={{ width: 200 }} />
+          <InputNumber min={1} max={1000} style={{ width: 200 }} />
         </Form.Item>
       )}
     </div>
@@ -455,7 +455,7 @@ function GoalModeTab() {
           name={["loop", "goal", "max_iterations"]}
           label={t("agentConfig.loopMode.maxGoalTurns", "Maximum goal turns")}
         >
-          <InputNumber min={1} max={500} style={{ width: 220 }} />
+          <InputNumber min={1} max={1000} style={{ width: 220 }} />
         </Form.Item>
       </LockedGateCard>
       <LockedGateCard
@@ -548,7 +548,7 @@ function MissionModeTab() {
             "Used when /mission does not specify --max-iterations.",
           )}
         >
-          <InputNumber min={1} max={100} style={{ width: 220 }} />
+          <InputNumber min={1} max={1000} style={{ width: 220 }} />
         </Form.Item>
       </LockedGateCard>
       <LockedGateCard
@@ -842,7 +842,7 @@ function GateParamsEditor({
         name={[...base, "max_iterations"]}
         label={t("agentConfig.loopMode.maxIterations", "Maximum iterations")}
       >
-        <InputNumber min={1} max={500} style={{ width: "100%" }} />
+        <InputNumber min={1} max={1000} style={{ width: "100%" }} />
       </Form.Item>
     );
   }

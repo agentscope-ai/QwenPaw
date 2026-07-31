@@ -44,6 +44,7 @@ export default function AgentsPage() {
       active_model_provider: undefined,
       active_model_model: undefined,
       backend: "qwenpaw",
+      agent_type: "default",
     });
     setSelectedSkills([]);
     installedSkillsRef.current = [];

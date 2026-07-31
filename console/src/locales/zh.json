@@ -306,6 +306,20 @@
     "id": "ID",
     "description": "描述",
     "workspace": "工作区路径",
+    "agentType": "智能体类型",
+    "agentTypeRequired": "请选择智能体类型",
+    "agentTypePlaceholder": "选择智能体类型",
+    "agentTypeReadonlyHelp": "智能体类型在创建时确定，之后不可修改。",
+    "types": {
+      "default": {
+        "name": "默认",
+        "description": "通用个人助手智能体。"
+      },
+      "business_analysis": {
+        "name": "业务分析",
+        "description": "分析非结构化业务文档，梳理沉淀到知识库。"
+      }
+    },
     "create": "创建智能体",
     "createTitle": "创建新智能体",
     "createSuccess": "智能体创建成功",
