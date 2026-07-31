@@ -1,0 +1,258 @@
+# Standalone release pipeline for the QwenPaw Creator plugin.
+#
+# Unlike plugins-release.yml (which publishes ALL plugins on every main
+# QwenPaw GitHub Release), this workflow is driven by the Creator plugin's
+# own version: it fires when plugins/apps/qwenpaw-creator/plugin.json
+# changes, and only uploads to OSS when that version is not yet on the CDN.
+# Can also be run manually via the Actions tab (with an optional force flag).
+
+name: QwenPaw Creator Plugin Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/apps/qwenpaw-creator/plugin.json"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Re-upload even if this version already exists on OSS"
+        required: false
+        type: boolean
+        default: false
+
+# Least-privilege token: this workflow only reads the repo; all uploads
+# go through ossutil with OSS secrets.
+permissions:
+  contents: read
+
+concurrency:
+  # Shared with plugins-release.yml so index merges never run concurrently.
+  group: plugins-release
+  cancel-in-progress: false
+
+env:
+  PLUGIN_DIR: plugins/apps/qwenpaw-creator
+  PLUGIN_ID: qwenpaw-creator
+  CDN_BASE: https://download.qwenpaw.agentscope.io
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should_publish: ${{ steps.decide.outputs.should_publish }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read Creator plugin version
+        id: version
+        run: |
+          version=$(jq -r '.version' "${PLUGIN_DIR}/plugin.json")
+          if [[ -z "$version" || "$version" == "null" ]]; then
+            echo "ERROR: no version in ${PLUGIN_DIR}/plugin.json" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Creator plugin version: $version"
+
+      - name: Decide whether to publish
+        id: decide
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          # Publish only when this exact version is missing from the CDN
+          # index (or when forced via workflow_dispatch). Keeps re-runs and
+          # non-version edits to plugin.json idempotent.
+          #
+          # Fail closed: only an explicit HTTP 404 counts as "not published
+          # yet". Network, auth or JSON failures abort the run instead of
+          # being misread as a green light to overwrite published objects.
+          file_id="${PLUGIN_ID}-${VERSION}"
+          if [[ "$FORCE" == "true" ]]; then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "Force publish requested for ${file_id}."
+            exit 0
+          fi
+          http_code=$(curl -sSL --retry 3 -o plugins-index.json \
+            -w '%{http_code}' "${CDN_BASE}/metadata/plugins/index.json") || {
+            echo "ERROR: could not reach the CDN plugins index." >&2
+            exit 1
+          }
+          if [[ "$http_code" == "404" ]]; then
+            published="false"
+          elif [[ "$http_code" == "200" ]]; then
+            published=$(jq -r --arg id "$file_id" '.files | has($id)' \
+              plugins-index.json) || {
+              echo "ERROR: CDN plugins index is not valid JSON." >&2
+              exit 1
+            }
+          else
+            echo "ERROR: unexpected HTTP ${http_code} reading the plugins index." >&2
+            exit 1
+          fi
+          if [[ "$published" == "true" ]]; then
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "${file_id} already on CDN; skipping upload."
+          else
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "${file_id} not on CDN yet; will publish."
+          fi
+
+  upload-oss:
+    runs-on: ubuntu-latest
+    needs: check-version
+    if: needs.check-version.outputs.should_publish == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build Creator plugin frontend
+        run: |
+          npm --prefix "${PLUGIN_DIR}/ui" ci
+          npm --prefix "${PLUGIN_DIR}/ui" run build
+
+      - name: Pack Creator plugin and build index
+        run: |
+          python scripts/pack/generate_plugin_metadata.py \
+            --plugins-root plugins \
+            --dist dist/plugins \
+            --metadata-out dist/plugins/index.json \
+            --cdn-prefix /files/plugins \
+            --only "${PLUGIN_ID}"
+
+      - name: Install ossutil
+        run: |
+          wget -q https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil-v1.7.18-linux-amd64.zip
+          unzip -q ossutil-v1.7.18-linux-amd64.zip
+          chmod +x ossutil-v1.7.18-linux-amd64/ossutil64
+          sudo mv ossutil-v1.7.18-linux-amd64/ossutil64 /usr/local/bin/ossutil
+          ossutil --version
+
+      - name: Configure ossutil
+        run: |
+          ossutil config -e ${{ secrets.OSS_ENDPOINT }} \
+            -i ${{ secrets.OSS_ACCESS_KEY_ID }} \
+            -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
+            -L CH
+
+      - name: Sync Creator plugin zip to OSS (long-cache, immutable)
+        env:
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          shopt -s nullglob
+          while IFS= read -r -d '' f; do
+            rel="${f#dist/plugins/}"
+            # Versioned zips are advertised as immutable; never overwrite
+            # an existing object except on an explicit manual force run.
+            # A stat failure other than NoSuchKey aborts instead of
+            # risking an overwrite.
+            if [[ "$FORCE" != "true" ]]; then
+              if stat_out=$(ossutil stat \
+                "oss://qwenpaw-download/files/plugins/${rel}" 2>&1); then
+                echo "Skipping ${rel}: already published and immutable."
+                continue
+              elif ! grep -qiE 'NoSuchKey|StatusCode=404' <<< "$stat_out"; then
+                echo "ERROR: could not stat files/plugins/${rel} on OSS:" >&2
+                echo "$stat_out" >&2
+                exit 1
+              fi
+            fi
+            echo "Uploading $f -> files/plugins/${rel}"
+            ossutil cp "$f" \
+              "oss://qwenpaw-download/files/plugins/${rel}" \
+              --acl public-read \
+              --force \
+              --meta "Cache-Control:public, max-age=31536000, immutable"
+          done < <(find "dist/plugins/apps/${PLUGIN_ID}" -type f -name '*.zip' -print0 2>/dev/null || true)
+
+      - name: Merge historical versions into index
+        run: |
+          # Fail closed: a fetch error must never masquerade as "no index
+          # yet" and shrink the authoritative file list to this plugin.
+          # Only a confirmed NoSuchKey/404 may bootstrap an empty index.
+          if stat_out=$(ossutil stat \
+            "oss://qwenpaw-download/metadata/plugins/index.json" 2>&1); then
+            ossutil cp "oss://qwenpaw-download/metadata/plugins/index.json" \
+              existing-index.json
+            python3 -c 'import json; json.load(open("existing-index.json"))' || {
+              echo "ERROR: existing plugins index is not valid JSON." >&2
+              exit 1
+            }
+          elif grep -qiE 'NoSuchKey|StatusCode=404' <<< "$stat_out"; then
+            echo "No plugins index on OSS yet; bootstrapping an empty one."
+            echo '{}' > existing-index.json
+          else
+            echo "ERROR: could not stat the plugins index on OSS:" >&2
+            echo "$stat_out" >&2
+            exit 1
+          fi
+
+          python3 scripts/pack/merge_plugin_index.py \
+            --new dist/plugins/index.json \
+            --old existing-index.json \
+            --out dist/plugins/index.json
+
+      - name: Upload plugins index (short-cache)
+        run: |
+          ossutil cp dist/plugins/index.json \
+            "oss://qwenpaw-download/metadata/plugins/index.json" \
+            --acl public-read \
+            --force \
+            --meta "Cache-Control:public, max-age=60, must-revalidate"
+
+      - name: Patch main metadata index to advertise plugins product
+        run: |
+          # Same fail-closed rule for the top-level product index: only a
+          # confirmed NoSuchKey/404 may bootstrap a fresh skeleton.
+          if stat_out=$(ossutil stat \
+            "oss://qwenpaw-download/metadata/index.json" 2>&1); then
+            ossutil cp "oss://qwenpaw-download/metadata/index.json" \
+              main-index.json
+            python3 -c 'import json; json.load(open("main-index.json"))' || {
+              echo "ERROR: existing main index is not valid JSON." >&2
+              exit 1
+            }
+          elif grep -qiE 'NoSuchKey|StatusCode=404' <<< "$stat_out"; then
+            echo "No main index on OSS yet; bootstrapping a skeleton."
+            cat > main-index.json << 'EOF'
+          {
+            "version": "1.0",
+            "updated_at": "",
+            "products": {}
+          }
+          EOF
+          else
+            echo "ERROR: could not stat the main index on OSS:" >&2
+            echo "$stat_out" >&2
+            exit 1
+          fi
+
+          python3 scripts/pack/patch_main_index.py \
+            --index main-index.json \
+            --out   main-index.json
+
+          ossutil cp main-index.json \
+            "oss://qwenpaw-download/metadata/index.json" \
+            --acl public-read \
+            --force \
+            --meta "Cache-Control:public, max-age=60, must-revalidate"
+
+      - name: Summary
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          echo "Creator plugin ${VERSION} published. Index:"
+          cat dist/plugins/index.json | python3 -m json.tool | head -40 || true

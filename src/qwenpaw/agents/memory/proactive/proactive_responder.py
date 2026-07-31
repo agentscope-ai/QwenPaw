@@ -15,7 +15,7 @@ from agentscope.tool import FunctionTool, Toolkit
 
 from ....config.config import load_agent_config
 from ...tools import (
-    browser_use,
+    browser,
     execute_shell_command,
     read_file,
     desktop_screenshot,
@@ -115,9 +115,9 @@ async def _initialize_single_proactive_agent(
     model, formatter = create_model_and_formatter(agent_id=agent_config.id)
 
     tools = [
-        FunctionTool(browser_use),
         FunctionTool(read_file),
         FunctionTool(execute_shell_command),
+        FunctionTool(browser),
     ]
 
     from ...prompt import get_active_model_supports_multimodal
@@ -139,7 +139,10 @@ async def _initialize_single_proactive_agent(
     agent = Agent(
         name="ProactiveAssistant",
         model=model,
-        system_prompt="You are a helpful assistant.",
+        system_prompt=(
+            "You are a helpful assistant. Use `browser` as the primary "
+            "tool for live web queries."
+        ),
         toolkit=toolkit,
         react_config=ReActConfig(max_iters=_PROACTIVE_MAX_ITERS),
     )
@@ -196,8 +199,7 @@ async def _execute_query(
     """Execute a query using available tools."""
     prompt = (
         f"Task: Answer: {query} using tools -- "
-        "`browser_use` primary, `execute_shell_command`/`read_file` "
-        "only if essential.\n"
+        "`execute_shell_command`/`read_file` only if essential.\n"
         "Self-check: Did you retrieve new, query-relevant data or "
         "complete given task?\n"
         "Output: Query answer and end strictly with `[SUCCESS]` "

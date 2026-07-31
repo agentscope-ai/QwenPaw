@@ -112,15 +112,24 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         content_parts = (
             list(request_data.input[0].content) if request_data.input else []
         )
+        message_metadata = (
+            request_data.input[0].metadata if request_data.input else None
+        )
     else:
         channel_id = request_data.get("channel", "console")
         sender_id = request_data.get("user_id", "default")
         session_id = request_data.get("session_id", "default")
         input_data = request_data.get("input", [])
         content_parts = []
+        message_metadata = None
         for content_part in input_data:
             if hasattr(content_part, "content"):
                 content_parts.extend(list(content_part.content or []))
+                message_metadata = getattr(
+                    content_part,
+                    "metadata",
+                    message_metadata,
+                )
             elif isinstance(content_part, dict) and "content" in content_part:
                 # Coerce raw dicts to typed Content models so downstream
                 # getattr checks (e.g. _content_has_text) see real attrs.
@@ -128,6 +137,8 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
                     _coerce_content_item(c)
                     for c in (content_part["content"] or [])
                 )
+                if isinstance(content_part.get("metadata"), dict):
+                    message_metadata = content_part["metadata"]
 
     meta: dict = {
         "session_id": session_id,
@@ -146,6 +157,7 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         "channel_id": channel_id,
         "sender_id": sender_id,
         "content_parts": content_parts,
+        "message_metadata": message_metadata,
         "meta": meta,
     }
 
@@ -157,6 +169,37 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         native_payload["model_slot_override"] = mso
 
     return native_payload
+
+
+def _is_reconnect_request(request_data: Union[AgentRequest, dict]) -> bool:
+    """Return whether the chat request asks to attach to a running stream.
+
+    ``AgentRequest`` uses ``extra="allow"`` and has no required fields,
+    so FastAPI parses ``{"reconnect": true, ...}`` bodies into an
+    ``AgentRequest`` instance — a dict-only check silently classified
+    every reconnect as a fresh send and restarted a run with an empty
+    input. Check both shapes.
+    """
+    if isinstance(request_data, dict):
+        return request_data.get("reconnect") is True
+    return getattr(request_data, "reconnect", None) is True
+
+
+def _empty_sse_response() -> StreamingResponse:
+    """An SSE response that terminates immediately."""
+
+    async def _empty() -> AsyncGenerator[str, None]:
+        return
+        yield  # pragma: no cover — makes this an async generator
+
+    return StreamingResponse(
+        _empty(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 def _tail_text_file(
@@ -239,19 +282,22 @@ async def post_console_chat(
             ),
         )
 
-    is_reconnect = False
-    if isinstance(request_data, dict):
-        is_reconnect = request_data.get("reconnect") is True
+    is_reconnect = _is_reconnect_request(request_data)
 
     if is_reconnect:
         queue = await tracker.attach(chat.id)
         if queue is None:
-            return
+            # The run finished (or never existed): reply with an
+            # immediately-terminated SSE stream so the client's reader
+            # completes normally and falls back to the persisted
+            # history. Returning a JSON null here left the chat blank.
+            return _empty_sse_response()
     else:
         queue, _ = await tracker.attach_or_start(
             chat.id,
             native_payload,
             console_channel.stream_one,
+            owner=workspace,
         )
 
     async def event_generator() -> AsyncGenerator[str, None]:

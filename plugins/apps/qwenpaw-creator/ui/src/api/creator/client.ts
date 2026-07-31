@@ -52,7 +52,7 @@ export function newClientId(prefix = "client"): string {
   return `${prefix}-${id}`;
 }
 
-function hostToken(): string | null {
+export function hostToken(): string | null {
   try {
     const current = window as HostWindow;
     const parent = window.parent as HostWindow;

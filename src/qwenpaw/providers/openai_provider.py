@@ -20,6 +20,7 @@ from pydantic import Field
 from qwenpaw.providers.provider import ModelInfo, Provider
 
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES, _CappingOpenAIFormatter
+from .multimodal_prober import evaluate_video_probe_answer
 
 if TYPE_CHECKING:
     from qwenpaw.providers.multimodal_prober import ProbeResult
@@ -795,70 +796,22 @@ class OpenAIProvider(Provider):
     ) -> tuple[bool, str]:
         """Evaluate video probe response.
 
-        Detection criteria:
-            The probe video is a solid-blue 64×64 H.264 MP4.  We ask
-            "What is the single dominant color?" and check for "blue"
-            or "蓝" in the reply or reasoning_content.
-
-            Special case for HTTP URL probes: if the model returns any
-            non-empty answer (even without "blue"), we accept it as
-            supported.  The HTTP URL points to an external video whose
-            content we do not control (not the blue probe video), so
-            colour-matching is impossible.  This relaxed check is safe
-            because ``probe_model_multimodal`` only reaches the video
-            probe after the image probe has already passed, which
-            filters out text-only models that silently accept media
-            payloads (e.g. qwen3-max).
+        Delegates to the shared
+        ``evaluate_video_probe_answer`` in
+        ``multimodal_prober`` so all providers use the same
+        colour-keyword list and logging.
         """
-        answer = (res.choices[0].message.content or "").lower().strip()
-        # Primary check: answer contains a blue-family color keyword.
-        # Models may describe the solid-blue video as "blue", "navy",
-        # "azure", "cobalt", "cyan", "indigo", "蓝" etc.
-        _BLUE_KW = ("blue", "navy", "azure", "cobalt", "cyan", "indigo", "蓝")
-        if any(kw in answer for kw in _BLUE_KW):
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Video probe done: model=%s result=True %.2fs",
-                model_id,
-                elapsed,
-            )
-            return True, f"Video supported (answer={answer!r})"
-        # Fallback: reasoning models may put analysis in reasoning_content.
+        answer = res.choices[0].message.content or ""
         reasoning = ""
         msg = res.choices[0].message
         if hasattr(msg, "reasoning_content") and msg.reasoning_content:
-            reasoning = msg.reasoning_content.lower()
-        if reasoning and any(kw in reasoning for kw in _BLUE_KW):
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Video probe done: model=%s result=True %.2fs",
-                model_id,
-                elapsed,
-            )
-            return (
-                True,
-                f"Video supported (reasoning, answer={answer!r})",
-            )
-        # HTTP URL fallback: accept any non-empty response as evidence
-        # of video support (see docstring for safety rationale).
-        if is_http and answer:
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Video probe done: model=%s result=True (http) %.2fs",
-                model_id,
-                elapsed,
-            )
-            return True, f"Video supported (http, answer={answer!r})"
-        elapsed = time.monotonic() - start_time
-        logger.info(
-            "Video probe done: model=%s result=False answer=%r %.2fs",
-            model_id,
+            reasoning = msg.reasoning_content
+        return evaluate_video_probe_answer(
             answer,
-            elapsed,
-        )
-        return (
-            False,
-            f"Model did not recognise video (answer={answer!r})",
+            model_id,
+            start_time,
+            reasoning=reasoning,
+            is_http=is_http,
         )
 
 

@@ -10,7 +10,7 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
-from ...config import load_config
+from ...config import load_config, save_config
 from ..utils import schedule_agent_reload
 
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -85,6 +85,16 @@ class ToolConfigUpdate(BaseModel):
     )
 
 
+def _persist_browser_experimental(config: dict[str, Any]) -> None:
+    """Persist Browser-card gating before the next process registration."""
+    experimental = config.get("experimental")
+    if not isinstance(experimental, bool):
+        return
+    application_config = load_config()
+    application_config.browser.experimental = experimental
+    save_config(application_config)
+
+
 def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
     """Build a complete ToolInfo from a tool config, including plugin metadata.
 
@@ -146,6 +156,18 @@ def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
                         masked_config[field["name"]] = "***"
             tool_info.config_values = masked_config
 
+    if tool_name == "browser":
+        config_values: dict[str, Any] = {
+            "experimental": load_config().browser.experimental,
+        }
+        try:
+            from ...agents.tools import browser_track_effective
+
+            config_values["experimental_effective"] = browser_track_effective()
+        except Exception:
+            pass
+        tool_info.config_values = config_values
+
     return tool_info
 
 
@@ -160,7 +182,6 @@ async def list_tools(
     """
     from ..agent_context import get_agent_for_request
     from ...config.config import load_agent_config
-    from ...plugins.registry import PluginRegistry
 
     workspace = await get_agent_for_request(request)
     agent_config = load_agent_config(workspace.agent_id)
@@ -176,92 +197,10 @@ async def list_tools(
     else:
         builtin_tools = agent_config.tools.builtin_tools
 
-    # Get plugin registry for config metadata
-    registry = PluginRegistry()
-
-    # Optimize: Preload all manifests to avoid N+1 queries
-    all_manifests = registry.get_all_plugin_manifests()
-
-    # Build tool_name -> manifest mapping
-    tool_to_manifest = {}
-    for manifest in all_manifests.values():
-        meta = manifest.get("meta", {})
-        # Support old format: meta.tool_name
-        tool_name = meta.get("tool_name")
-        if tool_name:
-            tool_to_manifest[tool_name] = manifest
-        # Support new format: meta.tools array
-        tools = meta.get("tools", [])
-        if isinstance(tools, list):
-            for tool in tools:
-                if isinstance(tool, dict) and "name" in tool:
-                    tool_to_manifest[tool["name"]] = manifest
-
-    # Optimize: Load agent_config once instead of per-tool
-    # (reuse the already-loaded agent_config from above)
-    # No need to reload it since we have builtin_tools from it
-
-    tools_list = []
-    for tool_config in builtin_tools.values():
-        tool_info = ToolInfo(
-            name=tool_config.name,
-            enabled=tool_config.enabled,
-            description=tool_config.description,
-            async_execution=tool_config.async_execution,
-            icon=tool_config.icon or "",
-        )
-
-        # Add config metadata from plugin manifest (using cached mapping)
-        manifest = tool_to_manifest.get(tool_config.name)
-        if manifest and "meta" in manifest:
-            meta = manifest["meta"]
-
-            # Try to get tool-specific config first (from meta.tools array)
-            config_fields_data = None
-            requires_config = False
-
-            tools = meta.get("tools", [])
-            if isinstance(tools, list):
-                for tool in tools:
-                    if (
-                        isinstance(tool, dict)
-                        and tool.get("name") == tool_config.name
-                    ):
-                        # Found tool-specific config
-                        requires_config = tool.get("requires_config", False)
-                        config_fields_data = tool.get("config_fields", [])
-                        break
-
-            # Fallback to global config if tool-specific not found
-            if config_fields_data is None:
-                requires_config = meta.get("requires_config", False)
-                config_fields_data = meta.get("config_fields", [])
-
-            tool_info.requires_config = requires_config
-
-            # Convert config_fields to Pydantic models
-            if config_fields_data:
-                tool_info.config_fields = [
-                    ToolConfigField(**field) for field in config_fields_data
-                ]
-
-            # Get current config values directly from tool_config
-            # (no need to reload agent_config)
-            if tool_config.config:
-                masked_config = dict(tool_config.config)
-                # Mask password fields
-                for field in config_fields_data:
-                    if (
-                        field.get("type") == "password"
-                        and field["name"] in masked_config
-                    ):
-                        if masked_config[field["name"]]:
-                            masked_config[field["name"]] = "***"
-                tool_info.config_values = masked_config
-
-        tools_list.append(tool_info)
-
-    return tools_list
+    return [
+        _build_tool_info(tool_config, tool_config.name)
+        for tool_config in builtin_tools.values()
+    ]
 
 
 @router.patch("/{tool_name}/toggle", response_model=ToolInfo)
@@ -489,6 +428,9 @@ async def update_tool_config(
     # Save tool config for this agent
     try:
         registry.set_tool_config(tool_name, workspace.agent_id, config_to_save)
+
+        if tool_name == "browser":
+            _persist_browser_experimental(config_to_save)
 
         # Hot reload config to apply changes without full restart
         schedule_agent_reload(request, workspace.agent_id)

@@ -1774,7 +1774,8 @@ class ProjectRuntimeSessionStore:
             CreatorGoalStatus.WAITING_REVIEW,
         }:
             raise RequestAdmissionConflict(
-                f"Active Goal is terminal: {goal.status.value}",
+                f"Active Goal is terminal: {goal.status.value}; the runtime "
+                "reclaims the orphaned run automatically — retry shortly",
             )
 
     def _ensure_review_boundary_unlocked(

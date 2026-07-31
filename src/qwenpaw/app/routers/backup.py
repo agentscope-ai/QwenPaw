@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Backup API – create, list, restore, delete, export, import."""
+
 from __future__ import annotations
 
 import json
@@ -33,6 +34,7 @@ from ...backup.models import (
     RestoreBackupRequest,
 )
 from ...constant import BACKUP_DIR
+from ...agents.tools import shutdown_browsers_for_workspace_dirs
 from ._backup_helpers import (
     backup_contains_global_config,
     parse_pending_token,
@@ -265,16 +267,13 @@ async def restore_backup(
     request: Request,
 ):
     manager = getattr(request.app.state, "multi_agent_manager", None)
-    from ...agents.tools.browser_control import (
-        stop_browsers_for_workspace_dirs,
-    )
-
     try:
         meta = await execute_restore(
             backup_id,
             req,
             stop_agent_fn=manager.stop_agent if manager else None,
-            stop_browsers_fn=stop_browsers_for_workspace_dirs,
+            # Contractual order: stop agent, browsers, then replace files.
+            stop_browsers_fn=shutdown_browsers_for_workspace_dirs,
             preload_agent_fn=manager.preload_agent if manager else None,
             list_running_agent_ids_fn=(
                 manager.list_loaded_agents if manager else None

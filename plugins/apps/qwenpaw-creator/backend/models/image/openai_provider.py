@@ -51,8 +51,20 @@ async def build_reference_image_files(
 ) -> list[tuple[str, tuple[str, bytes, str]]]:
     files: list[tuple[str, tuple[str, bytes, str]]] = []
     total_bytes = 0
+    unique_urls = [
+        url
+        for url in dict.fromkeys(
+            raw.strip() for raw in reference_image_urls[:16]
+        )
+        if url
+    ]
+    # The Images edits API takes one part named ``image``; multiple
+    # references must be sent as ``image[]``. Some gateway deployments used
+    # to tolerate a repeated ``image`` field, but enforcement now rejects
+    # it with 400 "Duplicate parameter: 'image'".
+    field_name = "image" if len(unique_urls) <= 1 else "image[]"
     for index, raw_url in enumerate(
-        dict.fromkeys(reference_image_urls[:16]),
+        unique_urls,
         start=1,
     ):
         url = raw_url.strip()
@@ -71,7 +83,7 @@ async def build_reference_image_files(
             suffix = Path(urlparse(url).path).suffix.lower()
         mime_type = mimetypes.types_map.get(suffix, "image/png")
         safe_filename = filename or f"reference_{index}{suffix or '.png'}"
-        files.append(("image", (safe_filename, content, mime_type)))
+        files.append((field_name, (safe_filename, content, mime_type)))
     return files
 
 

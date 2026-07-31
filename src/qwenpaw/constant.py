@@ -128,6 +128,7 @@ PROJECT_NAME = "QwenPaw"
 
 # Message metadata tags shared across agent middleware and memory managers.
 QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
+QWENPAW_CLIENT_MESSAGE_ID_KEY = "qwenpaw_client_message_id"
 SCROLL_MEMORY_MESSAGE_TAG = "scroll_memory"
 AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY = "auto_memory_search_block_ids"
 EXTERNAL_USER_QUERY_MESSAGE_TAG = "external_user_query"

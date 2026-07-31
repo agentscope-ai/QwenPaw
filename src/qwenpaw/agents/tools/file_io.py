@@ -103,10 +103,12 @@ def _get_encoding_for_file(file_path: str) -> str:
     ui_description="Read file contents",
     ui_icon="📄",
 )
+# Keep numeric strings in the public type: AgentScope validates the generated
+# schema before entering this function, where they are normalized to integers.
 async def read_file(  # pylint: disable=too-many-return-statements
     file_path: str,
-    start_line: Optional[int] = None,
-    end_line: Optional[int] = None,
+    start_line: Optional[int | str] = None,
+    end_line: Optional[int | str] = None,
 ) -> ToolChunk:
     """Read a file. Relative paths resolve from WORKING_DIR.
 
@@ -116,10 +118,12 @@ async def read_file(  # pylint: disable=too-many-return-statements
     Args:
         file_path (`str`):
             Path to the file.
-        start_line (`int`, optional):
-            First line to read (1-based, inclusive).
-        end_line (`int`, optional):
-            Last line to read (1-based, inclusive).
+        start_line (`int | str`, optional):
+            First line to read (1-based, inclusive). Decimal strings are
+            accepted for tool-call compatibility.
+        end_line (`int | str`, optional):
+            Last line to read (1-based, inclusive). Decimal strings are
+            accepted for tool-call compatibility.
     """
 
     # Convert start_line/end_line to int if they are strings

@@ -53,6 +53,22 @@ _ROLE_PROMPT_IDS = {
     SpecialistRole.AI_EDITING_DIRECTOR: "ai_editing_director.system",
 }
 
+# Visual entity ids are keyed char:/scene:/prop:<x> in project.json and the
+# UI displays them as visual-entity:<id>, so models keep deriving targetRefs
+# in those spellings. They map onto exactly one canonical asset ref.
+_VISUAL_ENTITY_ALIAS_KINDS = frozenset({"char", "scene", "prop"})
+
+
+def _normalize_asset_target_ref(target_ref: str) -> str:
+    kind, separator, identifier = target_ref.partition(":")
+    if not separator or not identifier:
+        return target_ref
+    if kind == "visual-entity":
+        return f"asset:{identifier}"
+    if kind in _VISUAL_ENTITY_ALIAS_KINDS:
+        return f"asset:{target_ref}"
+    return target_ref
+
 
 class DelegateToAgentInput(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -75,6 +91,16 @@ class DelegateToAgentInput(BaseModel):
                 f"specialist role is not delegatable: {self.role.value}",
             )
         allowed_kinds, allowed_project_targets = _ROLE_TARGETS[self.role]
+        if "asset" in allowed_kinds:
+            # Accept-and-map the unambiguous visual-entity spellings instead
+            # of failing the delegation for a guessable reason; anything
+            # still unknown falls through to the strict check below.
+            self.target_refs = list(
+                dict.fromkeys(
+                    _normalize_asset_target_ref(target_ref)
+                    for target_ref in self.target_refs
+                ),
+            )
         for target_ref in self.target_refs:
             kind, separator, identifier = target_ref.partition(":")
             if not separator or not identifier or kind not in allowed_kinds:

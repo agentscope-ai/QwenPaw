@@ -259,6 +259,7 @@ def make_lsp_tool(  # noqa: C901  pylint: disable=too-many-statements
             result = await cancellable_wait(
                 asyncio.to_thread(_run),
                 fallback_secs=_REQUEST_TIMEOUT,
+                as_kill_deadline=True,
             )
         except (asyncio.TimeoutError, asyncio.CancelledError):
             return _make_response(

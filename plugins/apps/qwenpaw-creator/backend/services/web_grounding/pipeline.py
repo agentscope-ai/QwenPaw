@@ -68,7 +68,8 @@ _dedupe_visual_sources_with_query_coverage = (
 )
 
 DEFAULT_MAX_SOURCES = 6
-DEFAULT_TIMEOUT = 8.0
+DEFAULT_TIMEOUT = 60.0
+DEFAULT_IMAGE_DOWNLOAD_TIMEOUT = 30.0
 DEFAULT_VISUAL_RESULTS_PER_JOB = 3
 logger = setup_logger("services.web_grounding.pipeline")
 
@@ -76,7 +77,7 @@ logger = setup_logger("services.web_grounding.pipeline")
 async def stage_visual_grounding_sources(
     visual_sources: list[dict[str, Any]],
     *,
-    timeout: float = DEFAULT_TIMEOUT,
+    timeout: float = DEFAULT_IMAGE_DOWNLOAD_TIMEOUT,
     max_bytes: int | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Download and content-address candidates through the staging boundary."""
@@ -98,6 +99,9 @@ async def ground_prompt_context(
     detector: str | None = None,
     max_sources: int = DEFAULT_MAX_SOURCES,
     timeout: float = DEFAULT_TIMEOUT,
+    visual_search_timeout: float | None = None,
+    image_download_timeout: float | None = None,
+    verification_timeout: float | None = None,
     include_visuals: bool | None = None,
     verify_visuals: bool = True,
 ) -> dict[str, Any]:
@@ -106,6 +110,55 @@ async def ground_prompt_context(
     context = context if isinstance(context, dict) else {}
     requested_queries = [_clean_query(q) for q in _as_list(queries)]
     requested_queries = [q for q in requested_queries if q]
+    if not model_config.get_web_grounding_enabled():
+        return {
+            "ok": True,
+            "status": "skipped",
+            "needs_grounding": False,
+            "need_websearch": False,
+            "confidence": 1.0,
+            "reasons": ["grounding is disabled in Creator settings"],
+            "queries": requested_queries,
+            "entities": [],
+            "detector": "disabled",
+            "detector_issues": [],
+            "domain": "",
+            "include_visuals": False,
+            "facts": [],
+            "sources": [],
+            "visual_sources": [],
+            "visual_download": {
+                "status": "skipped",
+                "detail": "grounding disabled",
+                "downloaded_count": 0,
+                "failed_count": 0,
+            },
+            "visual_verification": {
+                "status": "skipped",
+                "detail": "grounding disabled",
+            },
+            "grounded_context": "",
+            "issues": ["grounding_disabled"],
+            "triage": {},
+            "next_action_hints": [
+                "Proceed without web grounding; it is disabled in settings.",
+            ],
+        }
+    effective_visual_search_timeout = float(
+        visual_search_timeout
+        if visual_search_timeout is not None
+        else model_config.get_web_grounding_visual_search_timeout_seconds(),
+    )
+    effective_image_download_timeout = float(
+        image_download_timeout
+        if image_download_timeout is not None
+        else model_config.get_web_grounding_image_download_timeout_seconds(),
+    )
+    effective_verification_timeout = float(
+        verification_timeout
+        if verification_timeout is not None
+        else model_config.get_web_grounding_verification_timeout_seconds(),
+    )
     logger.info(
         "Ground prompt context started prompt_len=%d requested_queries=%d force=%s detect_only=%s include_visuals=%s detector=%s",
         len(prompt),
@@ -283,7 +336,7 @@ async def ground_prompt_context(
             result = await search_visual_refs(
                 query,
                 max_sources=min(DEFAULT_VISUAL_RESULTS_PER_JOB, max_sources),
-                timeout=timeout,
+                timeout=effective_visual_search_timeout,
             )
             result["visual_job"] = job
             return result
@@ -385,7 +438,7 @@ async def ground_prompt_context(
     if effective_include_visuals and visual_sources:
         visual_sources, visual_download = await stage_visual_grounding_sources(
             visual_sources,
-            timeout=timeout,
+            timeout=effective_image_download_timeout,
         )
         issues.extend(visual_download.get("issues") or [])
     else:
@@ -406,7 +459,7 @@ async def ground_prompt_context(
             visual_sources,
             planned_visual_jobs,
             context=context,
-            timeout=min(timeout * 2, model_config.get_vlm_timeout_seconds()),
+            timeout=effective_verification_timeout,
         )
         missing_strict_jobs = _strict_identity_jobs_without_accepted_refs(
             planned_visual_jobs,
@@ -512,7 +565,7 @@ async def ground_prompt_context(
                     retry_download,
                 ) = await stage_visual_grounding_sources(
                     retry_visual_sources,
-                    timeout=timeout,
+                    timeout=effective_image_download_timeout,
                 )
                 issues.extend(retry_download.get("issues") or [])
                 (
@@ -523,10 +576,7 @@ async def ground_prompt_context(
                     retry_visual_sources,
                     missing_strict_jobs,
                     context=context,
-                    timeout=min(
-                        timeout * 2,
-                        model_config.get_vlm_timeout_seconds(),
-                    ),
+                    timeout=effective_verification_timeout,
                 )
                 visual_sources.extend(retry_visual_sources)
                 visual_sources.sort(

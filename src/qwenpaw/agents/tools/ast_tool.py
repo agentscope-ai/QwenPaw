@@ -300,6 +300,7 @@ async def ast_search(  # pylint: disable=too-many-return-statements
         returncode, stdout, stderr = await cancellable_wait(
             asyncio.to_thread(_run_ast_grep_sync, args, root),
             fallback_secs=_AST_GREP_TIMEOUT + 5,
+            as_kill_deadline=True,
         )
     except (asyncio.TimeoutError, asyncio.CancelledError):
         return _make_response(
