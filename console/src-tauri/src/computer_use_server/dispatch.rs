@@ -15,9 +15,9 @@ use super::app_identity::{launch_at, resolve_launch_target};
 use super::approval::request_approval;
 use super::state::{Observation, ServerState};
 use super::{
-    click, close_window, desktop_locked, drag, invoke_element, last_input_age_ms, list_apps,
-    list_windows, observe_window, press_key, resolve_window, scroll, set_value, type_text,
-    PROTOCOL_VERSION,
+    click, close_window, desktop_locked, drag, ensure_permissions, invoke_element,
+    last_input_age_ms, list_apps, list_windows, observe_window, press_key, resolve_window, scroll,
+    set_value, type_text, PROTOCOL_VERSION,
 };
 
 /// How recently a person must have used the keyboard or mouse for an action to
@@ -195,6 +195,7 @@ pub(super) fn dispatch_request(
     };
     let window = target;
     request_approval(connection, &window, &meta)?;
+    ensure_permissions(method)?;
     // One session at a time may disturb the desktop, and it holds that right
     // from the guard through to the end of the action. There is one keyboard,
     // one pointer and one foreground window, so two sessions interleaving here

@@ -23,6 +23,12 @@ approved application at a time and never accepts a free-form screen target.
    access to the application. If access is denied, stop and report the
    blocker.
 
+On macOS, `screen_recording_permission_required` and
+`accessibility_permission_required` mean the native helper needs a system
+permission. Stop immediately and ask the user to grant that permission to
+QwenPaw Computer Use. Do not retry the action, open System Settings, or operate
+the permission prompt yourself.
+
 To start an application, call `launch_app` with the App ID returned by
 `list_apps`. Do not use a display name, Start menu, or search UI as an
 application identifier. After launch, call `list_windows` again and choose the

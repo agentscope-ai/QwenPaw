@@ -24,7 +24,7 @@ use serde_json::{Map, Value};
 mod accessibility_tree;
 mod capture;
 mod input;
-mod screen_recording;
+mod permissions;
 mod window;
 
 pub(super) use accessibility_tree::{invoke_element, set_value, AxElement};
@@ -32,7 +32,7 @@ pub(super) use capture::observe_window;
 pub(super) use input::{
     click, desktop_locked, drag, last_input_age_ms, press_key, scroll, type_text,
 };
-pub(super) use screen_recording::{request_screen_recording_access, screen_recording_authorized};
+pub(super) use permissions::ensure_for as ensure_permissions;
 pub(super) use window::{
     app_id_from_bundle_path, close_window, is_forbidden, list_apps, list_windows, resolve_window,
 };
