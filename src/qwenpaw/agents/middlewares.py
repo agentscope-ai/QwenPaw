@@ -16,7 +16,9 @@ Currently provided:
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Set
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Iterator, Set
 
 from agentscope.middleware import MiddlewareBase
 from agentscope.message import Msg
@@ -38,6 +40,20 @@ logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
 _AUTOMATION_MEMORY_SKIP_SOURCES = frozenset({"cron", "heartbeat"})
 _TOOL_RESULT_METADATA_KEY = "qwenpaw_tool_result_metadata"
+_MANUAL_COMPACT_MEMORY_BY_HANDLER: ContextVar[bool] = ContextVar(
+    "manual_compact_memory_by_handler",
+    default=False,
+)
+
+
+@contextmanager
+def manual_compact_memory_by_handler() -> Iterator[None]:
+    """Let the command handler exclusively schedule manual compact memory."""
+    token = _MANUAL_COMPACT_MEMORY_BY_HANDLER.set(True)
+    try:
+        yield
+    finally:
+        _MANUAL_COMPACT_MEMORY_BY_HANDLER.reset(token)
 
 
 class MemoryMiddleware(MiddlewareBase):
@@ -149,18 +165,28 @@ class MemoryMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],
         next_handler: Callable[..., Any],
     ) -> None:
+        if _MANUAL_COMPACT_MEMORY_BY_HANDLER.get():
+            await next_handler(**input_kwargs)
+            return
+
         if self._is_automation_request(agent):
             await next_handler(**input_kwargs)
             return
 
-        cfg = self._memory_config()
-        pending_markers = self._auto_memory_turn_state(agent)["pending"]
-        if (
-            getattr(cfg, "summarize_when_compact", False)
-            and pending_markers
-            and await self._will_compress_context(agent, input_kwargs)
-        ):
-            await self._flush_auto_memory(agent)
+        try:
+            cfg = self._memory_config()
+            pending_markers = self._auto_memory_turn_state(agent)["pending"]
+            if (
+                getattr(cfg, "summarize_when_compact", False)
+                and pending_markers
+                and await self._will_compress_context(agent, input_kwargs)
+            ):
+                await self._flush_auto_memory(agent)
+        except Exception:
+            logger.exception(
+                "MemoryMiddleware pre-compression auto-memory flush failed; "
+                "continuing context compression",
+            )
 
         await next_handler(**input_kwargs)
 

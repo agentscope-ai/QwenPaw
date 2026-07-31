@@ -175,11 +175,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
         context_config: Any = None,
         instructions: HintBlock | None = None,
     ) -> None:
-        """Delegate to the context manager, else native compression.
+        """Run context compression through AgentScope's middleware chain.
 
-        With a ``context_manager`` injected (e.g. the scroll strategy), it owns
-        compression. Otherwise fall back to AgentScope's native path, gated on
-        ``context_compact_config.enabled``.
+        The actual Scroll/native dispatch lives in
+        :meth:`_compress_context_impl`, which is AgentScope's extension point
+        beneath ``on_compress_context`` middlewares. Keeping the public entry
+        point on the base path ensures memory and plugin middlewares observe
+        both strategies consistently.
         """
         # ── Always sanitize tool messages before any model call ──
         # Orphan tool_result messages (whose tool_call was evicted by a
@@ -200,6 +202,24 @@ class QwenPawAgent(CodingModeMixin, Agent):
         except Exception:
             pass
 
+        if self._context_manager is None:
+            try:
+                lcc = self._agent_config.running.light_context_config
+                if not lcc.context_compact_config.enabled:
+                    return
+            except Exception:
+                pass
+        await super().compress_context(
+            context_config,
+            instructions=instructions,
+        )
+
+    async def _compress_context_impl(
+        self,
+        context_config: Any = None,
+        instructions: HintBlock | None = None,
+    ) -> None:
+        """Dispatch the middleware-wrapped compression implementation."""
         if self._context_manager is not None:
             if instructions is None:
                 # Preserve compatibility with third-party managers that
@@ -212,13 +232,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     instructions=instructions,
                 )
             return
-        try:
-            lcc = self._agent_config.running.light_context_config
-            if not lcc.context_compact_config.enabled:
-                return
-        except Exception:
-            pass
-        await super().compress_context(
+
+        await super()._compress_context_impl(
             context_config,
             instructions=instructions,
         )

@@ -417,6 +417,71 @@ class TestOnCompressContextAutomationSkip:
             mock_wc.assert_awaited_once()
             next_handler.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failing_step",
+        [
+            "memory_config",
+            "turn_state",
+            "will_compress",
+            "flush",
+        ],
+    )
+    async def test_memory_failure_does_not_block_compression(
+        self,
+        failing_step,
+    ):
+        """Memory failures must not disable the context safety valve."""
+        mm = _make_memory_manager()
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        next_handler = AsyncMock()
+
+        if failing_step == "memory_config":
+            mm.get_memory_config.side_effect = RuntimeError(
+                "memory config unavailable",
+            )
+        else:
+            _auto_memory_turn_state(mm)["pending"] = ["m1"]
+
+        if failing_step == "turn_state":
+            mm.get_auto_memory_turn_state.side_effect = RuntimeError(
+                "memory state unavailable",
+            )
+
+        will_compress = AsyncMock(return_value=True)
+        flush = AsyncMock()
+        if failing_step == "will_compress":
+            will_compress.side_effect = RuntimeError("token count failed")
+        if failing_step == "flush":
+            flush.side_effect = RuntimeError("memory flush failed")
+
+        with patch.object(
+            MemoryMiddleware,
+            "_will_compress_context",
+            will_compress,
+        ), patch.object(
+            MemoryMiddleware,
+            "_flush_auto_memory",
+            flush,
+        ):
+            await mw.on_compress_context(agent, {}, next_handler)
+
+        next_handler.assert_awaited_once_with()
+
+    @pytest.mark.asyncio
+    async def test_compression_failure_is_not_swallowed(self):
+        """Only memory failures are fail-open; compression still fails loud."""
+        mm = _make_memory_manager()
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        next_handler = AsyncMock(
+            side_effect=RuntimeError("scroll compression failed"),
+        )
+
+        with pytest.raises(RuntimeError, match="scroll compression failed"):
+            await mw.on_compress_context(agent, {}, next_handler)
+
 
 class TestWillCompressContextBoundary:
     @staticmethod

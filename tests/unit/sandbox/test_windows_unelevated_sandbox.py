@@ -62,7 +62,12 @@ if sys.platform != "win32":
         sys.modules["msvcrt"] = _msvcrt
 # -- End stubs ---------------------------------------------------------------
 
-from qwenpaw.sandbox import MountSpec, SandboxConfig, SandboxMode
+from qwenpaw.sandbox import (
+    MountSpec,
+    SandboxConfig,
+    SandboxMode,
+    create_sandbox,
+)
 from qwenpaw.sandbox.windows_unelevated_sandbox import (
     _WC,
     WindowsUnelevatedSandbox,
@@ -80,6 +85,7 @@ from qwenpaw.sandbox.windows_unelevated_sandbox import (
 class TestFactoryRouting:
     """Test that create_sandbox routes allow_read_all=True non-admin here."""
 
+    @patch("qwenpaw.sandbox.config.sys")
     @patch(
         "qwenpaw.sandbox.windows_unelevated_sandbox._is_admin",
         return_value=False,
@@ -87,10 +93,10 @@ class TestFactoryRouting:
     def test_allow_read_all_non_admin_routes_to_unelevated(
         self,
         mock_admin,
+        mock_sys,
     ):
         """allow_read_all=True + non-admin → WindowsUnelevatedSandbox."""
-        from qwenpaw.sandbox import create_sandbox
-
+        mock_sys.platform = "win32"
         config = SandboxConfig(
             mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\Users\foo\project",
@@ -99,9 +105,10 @@ class TestFactoryRouting:
         sandbox = create_sandbox(config)
         assert isinstance(sandbox, WindowsUnelevatedSandbox)
 
-    def test_allow_read_all_false_does_not_route_here(self):
+    @patch("qwenpaw.sandbox.config.sys")
+    def test_allow_read_all_false_does_not_route_here(self, mock_sys):
         """allow_read_all=False routes to AppContainerSandbox."""
-        from qwenpaw.sandbox import create_sandbox
+        mock_sys.platform = "win32"
         from qwenpaw.sandbox.windows_appcontainer_sandbox import (
             WindowsAppContainerSandbox,
         )
@@ -625,3 +632,30 @@ class TestWindowsUnelevatedSandboxStop:
 
         mock_kernel32.LocalFree.assert_called()
         assert sandbox._cap_psid is None
+
+
+# ============================================================================
+# Platform compatibility guard — cross-platform downgrade
+# ============================================================================
+
+
+class TestCreateSandboxWindowsDowngrade:
+    """Test that WINDOWS mode downgrades on non-win32 platforms."""
+
+    @patch("qwenpaw.sandbox.config.sys")
+    @patch(
+        "qwenpaw.sandbox.config.detect_platform_mode",
+        return_value=SandboxMode.NONE,
+    )
+    def test_windows_mode_on_linux_downgrades(self, mock_detect, mock_sys):
+        """WINDOWS on Linux downgrades to platform default."""
+        from qwenpaw.sandbox.local_sandbox import NoneSandbox
+
+        mock_sys.platform = "linux"
+        config = SandboxConfig(
+            mode=SandboxMode.WINDOWS,
+            workspace_dir="/tmp/ws",
+        )
+        sb = create_sandbox(config)
+        assert isinstance(sb, NoneSandbox)
+        mock_detect.assert_called_once()
