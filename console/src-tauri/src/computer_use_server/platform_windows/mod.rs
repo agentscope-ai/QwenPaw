@@ -18,3 +18,7 @@ pub(super) use input::{
 };
 pub(super) use uia::{invoke_element, set_value};
 pub(super) use window::{close_window, is_forbidden, list_apps, list_windows, resolve_window};
+
+pub(super) fn ensure_permissions(_method: &str) -> Result<(), (&'static str, String)> {
+    Ok(())
+}

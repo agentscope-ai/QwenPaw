@@ -5,7 +5,6 @@
 
 use base64::Engine;
 use block2::RcBlock;
-use core_graphics::access::ScreenCaptureAccess;
 use core_graphics::image::CGImageRef;
 use jpeg_encoder::{ColorType, Encoder};
 use objc2::AnyThread;
@@ -26,16 +25,6 @@ pub(crate) fn observe_window(
     state: &mut ServerState,
     window: &WindowInfo,
 ) -> Result<Value, (&'static str, String)> {
-    let screen_capture_access = ScreenCaptureAccess::default();
-    if !screen_capture_access.preflight() {
-        // `preflight` only reports the current TCC decision. Request access
-        // here so the native helper that performs capture is the process macOS
-        // presents to the user, rather than asking them to grant its parent
-        // desktop shell by hand.
-        screen_capture_access.request();
-        return Err(screen_recording_permission_error());
-    }
-
     let window_id = u32::try_from(window.hwnd).map_err(|_| {
         (
             "window_not_capturable",
@@ -245,13 +234,6 @@ fn bounded_capture_dimensions(width: i32, height: i32) -> (usize, usize) {
     )
 }
 
-fn screen_recording_permission_error() -> (&'static str, String) {
-    (
-        "screen_recording_permission_required",
-        "Screen Recording permission is required for Computer Use. Approve the macOS prompt for the Computer Use helper, then restart QwenPaw Desktop.".to_string(),
-    )
-}
-
 fn downscale_bgra_to_rgb(
     raw: &[u8],
     width: usize,
@@ -308,14 +290,6 @@ mod tests {
             .expect_err("incomplete source pixels must fail");
 
         assert_eq!(error.0, "capture_failed");
-    }
-
-    #[test]
-    fn permission_error_is_actionable() {
-        let error = screen_recording_permission_error();
-
-        assert_eq!(error.0, "screen_recording_permission_required");
-        assert!(error.1.contains("restart"));
     }
 
     #[test]

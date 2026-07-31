@@ -43,8 +43,42 @@ fn main() {
         );
         std::process::exit(2);
     }
+    #[cfg(target_os = "macos")]
+    if let Err(error) = run_macos_app(args) {
+        eprintln!("Computer Use helper failed: {error}");
+        std::process::exit(2);
+    }
+    #[cfg(windows)]
     if let Err(error) = computer_use_server::run(&args[1..]) {
         eprintln!("Computer Use helper failed: {error}");
         std::process::exit(2);
     }
+}
+
+/// Make the macOS helper a real AppKit application even though it has no
+/// windows or Dock icon. TCC associates Screen Recording with this application
+/// identity, and AppKit keeps a main run loop available for permission prompts.
+#[cfg(target_os = "macos")]
+fn run_macos_app(args: Vec<String>) -> Result<(), String> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+
+    let marker = MainThreadMarker::new()
+        .ok_or_else(|| "Computer Use helper must start on the main thread".to_string())?;
+    let app = NSApplication::sharedApplication(marker);
+    app.finishLaunching();
+
+    let server_args = args[1..].to_vec();
+    std::thread::Builder::new()
+        .name("computer-use-server".to_string())
+        .spawn(move || {
+            if let Err(error) = computer_use_server::run(&server_args) {
+                eprintln!("Computer Use helper failed: {error}");
+                std::process::exit(2);
+            }
+        })
+        .map_err(|error| format!("failed to start Computer Use server: {error}"))?;
+
+    app.run();
+    Ok(())
 }

@@ -2,6 +2,8 @@
 
 mod backend;
 mod backend_download;
+#[cfg(all(target_os = "macos", not(debug_assertions)))]
+mod computer_use_helper;
 mod computer_use_protocol;
 mod computer_use_runtime;
 mod external_link;
