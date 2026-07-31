@@ -915,11 +915,13 @@ class ScrollContextConfig(BaseModel):
     offload_dialog: bool = Field(
         default=False,
         description=(
-            "Also archive evicted turns to legacy ``dialog/{date}.jsonl`` "
-            "files. Off by default: under scroll the durable ``history.db`` "
-            "is already the full record, so dialog files are a redundant "
+            "Also archive turns to legacy ``dialog/{date}.jsonl`` files. "
+            "Off by default: under scroll the durable ``history.db`` is "
+            "already the full record, so dialog files are a redundant "
             "opt-in for external consumers (analytics, backup). When on, "
-            "dialog is written on every eviction AND on /clear, /new, "
+            "dialog is flushed (with ``os.fsync``) **after every reply "
+            "turn** so sudden crashes can't drop the last turns, and "
+            "additionally on every eviction AND on /clear, /new, "
             "/compact; when off, scroll never writes dialog anywhere."
         ),
     )

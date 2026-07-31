@@ -1129,12 +1129,27 @@ class AgentBuilder:
         """Build middleware list.
 
         Order (onion model, outermost first):
-        1. ToolResultPruningMiddleware — tiered tool result pruning
-        2. ToolCoordinatorMiddleware — tool call lifecycle management
-        3. Plugin-registered middlewares (sorted by priority)
-        4. VisualCompressionMiddleware — innermost pre-provider transform
+        1. DialogFlushMiddleware — per-turn JSONL durability (issue #6542)
+        2. ToolResultPruningMiddleware — tiered tool result pruning
+        3. ToolCoordinatorMiddleware — tool call lifecycle management
+        4. Plugin-registered middlewares (sorted by priority)
+        5. VisualCompressionMiddleware — innermost pre-provider transform
         """
         mws: list[Any] = []
+
+        # Per-turn dialog durability (issue #6542).  Always register the
+        # middleware so operators don't need to re-configure for it, but
+        # the middleware is a no-op when ``offloader`` is None /
+        # ``offload_dialog`` is off.
+        try:
+            from ..agents.middlewares import DialogFlushMiddleware
+
+            mws.append(DialogFlushMiddleware())
+        except Exception:
+            _logger.debug(
+                "DialogFlushMiddleware not created",
+                exc_info=True,
+            )
 
         pruning_middleware = None
         try:

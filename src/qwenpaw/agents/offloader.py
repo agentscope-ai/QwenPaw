@@ -93,6 +93,17 @@ class QwenPawOffloader:
                     await f.write(
                         json.dumps(msg.to_dict(), ensure_ascii=False) + "\n",
                     )
+                # Force the data all the way down to disk so sudden process
+                # crashes (issue #6542) can't drop the last several turns
+                # that were still sitting in the kernel's page cache.
+                await f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except OSError as e:
+                    # Some environments (pipes, fake filesystems, certain
+                    # network mounts) don't support fsync; degrade gracefully
+                    # instead of aborting the whole offload.
+                    logger.debug("os.fsync(%s) skipped: %s", filepath, e)
             last_path = filepath
             logger.info(
                 "Offloaded %d messages to %s",
@@ -134,6 +145,11 @@ class QwenPawOffloader:
 
         async with aiofiles.open(filepath, mode="w", encoding="utf-8") as f:
             await f.write(content)
+            await f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError as e:
+                logger.debug("os.fsync(%s) skipped: %s", filepath, e)
 
         logger.info("Offloaded tool result to %s", filepath)
         return filepath

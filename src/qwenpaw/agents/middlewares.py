@@ -619,3 +619,68 @@ class LangfuseToolSpanMiddleware(MiddlewareBase):
                         ],
                     },
                 )
+
+
+class DialogFlushMiddleware(MiddlewareBase):
+    """Persist any new context messages to JSONL *after every reply turn*.
+
+    Issue #6542: QwenPaw's default offloader previously wrote
+    ``dialog/YYYY-MM-DD.jsonl`` only on scroll eviction, ``/clear``,
+    ``/new`` or ``/compact``.  A sudden process crash would silently
+    drop the last N turns still sitting in ``agent.state.context`` and
+    the kernel page cache, even though the user had visibly completed
+    them in the UI.
+
+    This middleware is intentionally minimal:
+
+    * Stores an opaque "how many messages were already persisted"
+      counter on ``agent.state`` so repeated reply turns only append
+      the **new tail** (one user query + one assistant reply + any
+      tool results) rather than re-writing the entire history.
+    * Calls ``await agent.offloader.offload_context(session_id, tail)``
+      which already groups by date and writes one JSONL file per day.
+    * Does **nothing** when the agent has no offloader (no workspace,
+      ``offload_dialog`` disabled by operator, or built in tests that
+      intentionally skip disk persistence).
+
+    The offloader itself is also responsible for ``flush()`` +
+    ``os.fsync()`` now (see :mod:`qwenpaw.agents.offloader`) so even a
+    hard ``SIGKILL`` / power loss after the middleware returns won't
+    lose the turn that was just written.
+    """
+
+    _STATE_KEY = "_dialog_flush_persisted_count"
+
+    async def on_reply(
+        self,
+        agent: "Agent",
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., AsyncGenerator[Any, None]],
+    ) -> AsyncGenerator[Any, None]:
+        async for item in next_handler(**input_kwargs):
+            yield item
+
+        offloader = getattr(agent, "offloader", None)
+        if offloader is None or not callable(
+            getattr(offloader, "offload_context", None),
+        ):
+            return
+
+        context = getattr(getattr(agent, "state", None), "context", None)
+        if context is None:
+            return
+        total_len = len(context)
+        already = int(getattr(agent.state, self._STATE_KEY, 0) or 0)
+        if already >= total_len:
+            return
+        tail = list(context[already:])
+        session_id = getattr(agent.state, "session_id", "") or ""
+        try:
+            await offloader.offload_context(session_id, tail)
+        except Exception:
+            logger.exception(
+                "DialogFlushMiddleware offload failed (n=%d)",
+                len(tail),
+            )
+            return
+        setattr(agent.state, self._STATE_KEY, total_len)
