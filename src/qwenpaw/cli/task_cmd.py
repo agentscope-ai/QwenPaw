@@ -95,7 +95,7 @@ async def _run_task(
 ) -> dict:
     from types import SimpleNamespace
 
-    from agentscope.message import Msg
+    from agentscope.message import UserMsg
 
     from ..runtime.builder import AgentBuilder
     from ..schemas import AgentRequest
@@ -137,7 +137,7 @@ async def _run_task(
         try:
             response = await asyncio.wait_for(
                 agent.reply(
-                    [Msg(name="user", role="user", content=instruction)],
+                    [UserMsg(name="user", content=instruction)],
                 ),
                 timeout=timeout,
             )
