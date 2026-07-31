@@ -2419,7 +2419,8 @@
     "faq": "Perguntas Frequentes",
     "github": "GitHub",
     "resources": "Documentação",
-    "updateAvailable": "Atualização Disponível"
+    "updateAvailable": "Atualização Disponível",
+    "preferences": "Preferências"
   },
   "theme": {
     "dark": "Dark",

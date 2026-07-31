@@ -400,7 +400,7 @@ class VoiceChannelConfig(BaseChannelConfig):
     tts_voice: str = "en-US-Journey-D"
     stt_provider: str = "deepgram"
     language: str = "en-US"
-    welcome_greeting: str = "Hi! This is QwenPaw. How can I help you?"
+    welcome_greeting: str = "Hi! This is NousAIPaw. How can I help you?"
 
 
 class SIPChannelConfig(BaseChannelConfig):
@@ -420,7 +420,7 @@ class SIPChannelConfig(BaseChannelConfig):
     tts_voice: str = ""
     stt_provider: str = "aliyun"
     language: str = "zh-CN"
-    welcome_greeting: str = "你好，我是QwenPaw"
+    welcome_greeting: str = "你好，我是NousAIPaw"
     call_timeout: float = 120.0
     livekit_url: str = ""
     livekit_api_key: str = ""

@@ -2635,7 +2635,8 @@
     "faq": "FAQ",
     "github": "GitHub",
     "resources": "Documentation",
-    "updateAvailable": "Update Available"
+    "updateAvailable": "Update Available",
+    "preferences": "Preferences"
   },
   "theme": {
     "dark": "Dark",

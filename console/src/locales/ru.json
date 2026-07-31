@@ -2191,7 +2191,8 @@
     "faq": "FAQ",
     "github": "GitHub",
     "resources": "Документация",
-    "updateAvailable": "Доступно обновление"
+    "updateAvailable": "Доступно обновление",
+    "preferences": "Настройки"
   },
   "theme": {
     "dark": "Тёмная",
