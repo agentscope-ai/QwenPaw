@@ -8,6 +8,7 @@ from agentscope.message import HintBlock, Msg, TextBlock
 
 from qwenpaw.agents.command_handler import CommandHandler
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
+from qwenpaw.constant import MEMORY_MIDDLE_CONTEXT_KEY
 
 
 def _make_agent():
@@ -27,6 +28,29 @@ def _msg(role: str, text: str, *, name: str | None = None, msg_id: str = ""):
     if msg_id:
         msg.id = msg_id
     return msg
+
+
+def test_submitted_memory_turns_clear_persisted_retry_batches() -> None:
+    agent = _make_agent()
+    agent.state.middle_context = {
+        MEMORY_MIDDLE_CONTEXT_KEY: {
+            "pending": ["turn-1", "turn-2"],
+            "seen": {},
+            "pending_messages": {
+                "turn-1": [{"role": "user"}],
+                "turn-2": [{"role": "user"}],
+            },
+        },
+    }
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+
+    handler._discard_submitted_pending_markers(
+        [_msg("user", "first", msg_id="turn-1")],
+    )
+
+    state = agent.state.middle_context[MEMORY_MIDDLE_CONTEXT_KEY]
+    assert state["pending"] == ["turn-2"]
+    assert set(state["pending_messages"]) == {"turn-2"}
 
 
 @pytest.mark.asyncio

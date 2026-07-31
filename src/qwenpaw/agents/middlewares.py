@@ -16,6 +16,7 @@ Currently provided:
 
 import asyncio
 import logging
+from copy import deepcopy
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Iterator
@@ -151,7 +152,10 @@ class MemoryMiddleware(MiddlewareBase):
 
         interval = self._auto_memory_interval()
         if interval <= 0:
-            pending_markers.clear()
+            self._discard_pending_turns(
+                turn_state,
+                list(pending_markers),
+            )
             return
         if len(pending_markers) < interval:
             return
@@ -176,12 +180,28 @@ class MemoryMiddleware(MiddlewareBase):
             return
 
         # AgentScope's middleware hook is invoked before the concrete
-        # compressor has evaluated its threshold. Keep a snapshot so an
-        # actually-evicted turn remains available to long-term memory, run
-        # Scroll once, then react to its real outcome. Predicting the outcome
-        # here would duplicate _prepare_model_input/count_tokens and can drift
-        # from Scroll's pressure policy.
-        context_before = list(agent.state.context)
+        # compressor has evaluated its threshold. Snapshot only pending turns
+        # so an actually-evicted turn remains available to long-term memory,
+        # then react to Scroll's real outcome. The copy must be deep because
+        # Scroll can fold tool-result blocks in place. Restricting it to
+        # pending turns avoids copying the full context on every reasoning
+        # step that ultimately needs no compression.
+        context_before: list[Msg] = []
+        try:
+            turn_state = self._auto_memory_turn_state(agent)
+            pending_before = list(turn_state["pending"])
+            if pending_before:
+                context_before = deepcopy(
+                    self._messages_for_pending_turns(
+                        list(agent.state.context),
+                        turn_markers=pending_before,
+                        cached=turn_state["pending_messages"],
+                    ),
+                )
+        except Exception:
+            logger.exception(
+                "MemoryMiddleware could not snapshot pending turns",
+            )
         await next_handler(**input_kwargs)
 
         try:
@@ -215,10 +235,15 @@ class MemoryMiddleware(MiddlewareBase):
                 agent.name,
             )
             # Defensive: clear in case on_reply guard was bypassed
-            self._auto_memory_turn_state(agent)["pending"].clear()
+            turn_state = self._auto_memory_turn_state(agent)
+            self._discard_pending_turns(
+                turn_state,
+                list(turn_state["pending"]),
+            )
             return
 
-        pending_markers = self._auto_memory_turn_state(agent)["pending"]
+        turn_state = self._auto_memory_turn_state(agent)
+        pending_markers = turn_state["pending"]
         if not pending_markers:
             return
 
@@ -226,16 +251,18 @@ class MemoryMiddleware(MiddlewareBase):
             pending_markers if count is None else pending_markers[:count],
         )
 
-        messages = self._messages_for_user_turns(
-            (
-                source_context
-                if source_context is not None
-                else list(agent.state.context)
-            ),
+        available_context = (
+            source_context
+            if source_context is not None
+            else list(agent.state.context)
+        )
+        messages = self._messages_for_pending_turns(
+            available_context,
             turn_markers=turn_markers,
+            cached=turn_state["pending_messages"],
         )
         if not messages:
-            self._discard_pending_markers(pending_markers, turn_markers)
+            self._discard_pending_turns(turn_state, turn_markers)
             return
 
         try:
@@ -244,19 +271,91 @@ class MemoryMiddleware(MiddlewareBase):
                 session_id=self._agent_session_id(agent),
             )
         except Exception:
+            self._cache_pending_messages(
+                turn_state,
+                available_context,
+                turn_markers,
+            )
             logger.exception("MemoryMiddleware auto_memory failed")
         else:
-            self._discard_pending_markers(pending_markers, turn_markers)
+            self._discard_pending_turns(turn_state, turn_markers)
 
     @staticmethod
-    def _discard_pending_markers(
-        pending_markers: list[str],
+    def _discard_pending_turns(
+        turn_state: dict[str, Any],
         submitted: list[str],
     ) -> None:
         submitted_set = set(submitted)
-        pending_markers[:] = [
-            marker for marker in pending_markers if marker not in submitted_set
+        turn_state["pending"][:] = [
+            marker
+            for marker in turn_state["pending"]
+            if marker not in submitted_set
         ]
+        cached = turn_state["pending_messages"]
+        for marker in submitted_set:
+            cached.pop(marker, None)
+
+    @classmethod
+    def _cache_pending_messages(
+        cls,
+        turn_state: dict[str, Any],
+        messages: list["Msg"],
+        turn_markers: list[str],
+    ) -> None:
+        """Persist failed batches so eviction cannot make retries empty."""
+        cached = turn_state["pending_messages"]
+        for marker in turn_markers:
+            batch = cls._messages_for_user_turns(
+                messages,
+                turn_markers=[marker],
+            )
+            if batch:
+                try:
+                    cached[marker] = [
+                        msg.model_dump(mode="json") for msg in batch
+                    ]
+                except Exception:
+                    logger.warning(
+                        "Could not cache auto-memory retry batch for %s",
+                        marker,
+                        exc_info=True,
+                    )
+
+    @classmethod
+    def _messages_for_pending_turns(
+        cls,
+        messages: list["Msg"],
+        *,
+        turn_markers: list[str],
+        cached: dict[str, Any],
+    ) -> list["Msg"]:
+        """Resolve pending turns from live context or persisted retry data."""
+        resolved: list[Msg] = []
+        for marker in turn_markers:
+            batch = cls._messages_for_user_turns(
+                messages,
+                turn_markers=[marker],
+            )
+            if batch:
+                resolved.extend(batch)
+                continue
+            raw_batch = cached.get(marker)
+            if not isinstance(raw_batch, list):
+                continue
+            for raw in raw_batch:
+                try:
+                    resolved.append(
+                        raw
+                        if isinstance(raw, Msg)
+                        else Msg.model_validate(raw),
+                    )
+                except Exception:
+                    logger.warning(
+                        "Ignoring invalid cached auto-memory message for %s",
+                        marker,
+                        exc_info=True,
+                    )
+        return resolved
 
     @staticmethod
     def _agent_session_id(agent: "Agent") -> str:
@@ -316,13 +415,20 @@ class MemoryMiddleware(MiddlewareBase):
 
     def _auto_memory_turn_state(self, agent: "Agent") -> dict[str, Any]:
         """Return lifecycle state in AgentScope's persisted middleware slot."""
-        return agent.state.middle_context.setdefault(
+        state = agent.state.middle_context.setdefault(
             MEMORY_MIDDLE_CONTEXT_KEY,
             {
                 "pending": [],
                 "seen": {},
+                "pending_messages": {},
             },
         )
+        # Additive normalization keeps checkpoints produced by earlier
+        # versions valid while making failed batches durable across rebuilds.
+        state.setdefault("pending", [])
+        state.setdefault("seen", {})
+        state.setdefault("pending_messages", {})
+        return state
 
     @staticmethod
     def _message_tag(msg: "Msg") -> str:

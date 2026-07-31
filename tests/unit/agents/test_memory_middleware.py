@@ -74,7 +74,7 @@ def _make_memory_manager(*, interval: int = 1):
 def _auto_memory_turn_state(agent):
     return agent.state.middle_context.setdefault(
         MEMORY_MIDDLE_CONTEXT_KEY,
-        {"pending": [], "seen": {}},
+        {"pending": [], "seen": {}, "pending_messages": {}},
     )
 
 
@@ -460,6 +460,78 @@ class TestOnCompressContextAutomationSkip:
             mm.auto_memory.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_compression_flush_uses_deep_snapshot(self):
+        """In-place Scroll folding must not alter auto-memory evidence."""
+        mm = _make_memory_manager()
+        mm.get_memory_config.return_value = SimpleNamespace(
+            summarize_when_compact=True,
+        )
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        user = _user_msg(msg_id="turn-1")
+        reply = Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(text="original tool evidence")],
+        )
+        agent.state.context = [user, reply]
+        _auto_memory_turn_state(agent)["pending"] = ["turn-1"]
+        agent._scroll_context = SimpleNamespace(
+            last_compress={"evicted": 0, "folded": 0},
+        )
+
+        async def next_handler(**_kwargs):
+            reply.content[0].text = "[scroll folded]"
+            agent._scroll_context.last_compress["folded"] = 1
+
+        await mw.on_compress_context(agent, {}, next_handler)
+
+        submitted = mm.auto_memory.await_args.args[0]
+        assert submitted[1].get_text_content() == "original tool evidence"
+
+    @pytest.mark.asyncio
+    async def test_failed_post_compression_flush_survives_eviction(self):
+        """A failed write can retry after Scroll removes the live turn."""
+        mm = _make_memory_manager()
+        mm.get_memory_config.return_value = SimpleNamespace(
+            summarize_when_compact=True,
+        )
+        mm.auto_memory.side_effect = [RuntimeError("backend down"), None]
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        user = _user_msg(msg_id="turn-1")
+        reply = Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(text="answer to remember")],
+        )
+        agent.state.context = [user, reply]
+        state = _auto_memory_turn_state(agent)
+        state["pending"] = ["turn-1"]
+        agent._scroll_context = SimpleNamespace(
+            last_compress={"evicted": 0, "folded": 0},
+        )
+
+        async def next_handler(**_kwargs):
+            agent.state.context = []
+            agent._scroll_context.last_compress["evicted"] = 2
+
+        await mw.on_compress_context(agent, {}, next_handler)
+        assert state["pending"] == ["turn-1"]
+        assert "turn-1" in state["pending_messages"]
+
+        await mw._flush_auto_memory(agent)
+
+        assert mm.auto_memory.await_count == 2
+        retried = mm.auto_memory.await_args.args[0]
+        assert [msg.get_text_content() for msg in retried] == [
+            "hello",
+            "answer to remember",
+        ]
+        assert not state["pending"]
+        assert not state["pending_messages"]
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "failing_step",
         [
@@ -554,11 +626,14 @@ class TestFlushAutoMemoryDefensiveGuard:
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
         agent = _make_agent(source="cron")
-        _auto_memory_turn_state(agent)["pending"] = ["m1", "m2"]
+        state = _auto_memory_turn_state(agent)
+        state["pending"] = ["m1", "m2"]
+        state["pending_messages"] = {"m1": [{"role": "user"}]}
 
         await mw._flush_auto_memory(agent)
 
-        assert not _auto_memory_turn_state(agent)["pending"]
+        assert not state["pending"]
+        assert not state["pending_messages"]
         mm.auto_memory.assert_not_awaited()
 
     @pytest.mark.asyncio

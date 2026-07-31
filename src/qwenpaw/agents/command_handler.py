@@ -483,6 +483,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
             return
         submitted = {msg.id for msg in messages if msg.id}
         pending[:] = [marker for marker in pending if marker not in submitted]
+        cached = state.get("pending_messages")
+        if isinstance(cached, dict):
+            for marker in submitted:
+                cached.pop(marker, None)
 
     @staticmethod
     def _scroll_index_text(agent: "Agent") -> str:
