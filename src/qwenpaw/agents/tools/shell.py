@@ -777,12 +777,12 @@ async def execute_shell_command(
         except (ValueError, TypeError):
             timeout = 60.0
 
-    # Apply agent-configured default when the caller used the hardcoded
-    # default (60.0).  An explicit LLM-provided value != 60.0 is kept.
-    if timeout == 60.0:
-        configured = get_current_shell_command_timeout()
-        if configured is not None:
-            timeout = configured
+    configured = get_current_shell_command_timeout()
+    if timeout == 60.0 and configured is not None:
+        timeout = configured
+
+    max_t = configured if configured is not None else 600.0
+    timeout = min(timeout, max_t)
 
     # Use current workspace_dir from context, fallback to WORKING_DIR
     if cwd is not None:
@@ -936,6 +936,19 @@ async def execute_shell_command(
                     proc,
                     stderr_suffix,
                 )
+
+        def _limit_lines(text: str, mx: int = 500) -> str:
+            if not text:
+                return text
+            lines = text.splitlines(keepends=True)
+            if len(lines) > mx:
+                return f"... [{len(lines) - mx} lines truncated]\n" + "".join(
+                    lines[-mx:],
+                )
+            return text
+
+        stdout_str = _limit_lines(stdout_str)
+        stderr_str = _limit_lines(stderr_str)
 
         if returncode == 0:
             if stdout_str:
