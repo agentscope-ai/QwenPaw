@@ -149,8 +149,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 exclusive with ``agent``.
             agent_id: Agent ID for config loading (standalone mode).
             workspace_dir: Workspace directory (standalone mode) — needed to
-                open the scroll ``history.db`` when ``/compact`` runs under the
-                scroll strategy.
+                open Scroll's ``history.db`` when ``/compact`` runs.
             scroll_state: The session's persisted scroll checkpoint block, used
                 to seed a standalone ``/compact`` so its eviction index stays
                 continuous with prior compactions.
@@ -180,8 +179,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def updated_scroll_state(self) -> dict | None:
         """The scroll checkpoint a standalone ``/compact`` produced, if any.
 
-        ``None`` means no scroll compaction ran (native strategy, agent-backed
-        mode, or a non-compacting command); the caller should then leave the
+        ``None`` means no standalone scroll compaction ran (agent-backed mode
+        or a non-compacting command); the caller should then leave the
         session's existing scroll block untouched.
         """
         return self._updated_scroll_state
@@ -326,12 +325,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         messages: list[Msg],
         args: str = "",
     ) -> Msg:
-        """Process /compact command.
-
-        Delegates to agentscope's native ``Agent.compress_context()``.
-        In standalone mode (no agent instance), a temporary lightweight
-        Agent is built to perform the compression.
-        """
+        """Process /compact through the AgentScope hook or Scroll directly."""
         if not messages:
             return await self._make_system_msg(
                 "📭 **No messages to compact.**\n\n"
@@ -366,24 +360,24 @@ class CommandHandler(ConversationCommandHandlerMixin):
         forced_cfg = self._forced_context_config(agent)
         instructions = self._compact_instructions(args)
         before = len(self._state.context)
-        # Scroll keeps its compaction map in the eviction index
-        # (``state.summary`` stays empty); native fills ``state.summary``.
-        # Capture whichever applies.
+        # Scroll keeps its compaction map in the eviction index.
         index_text = ""
         continuation_text = ""
         compress_stats: dict = {}
         try:
-            # Agent-backed mode: ``QwenPawAgent.compress_context`` already
-            # routes to scroll or native by itself. Standalone mode builds a
-            # bare AgentScope ``Agent`` whose ``compress_context`` is always
-            # native, so under the scroll strategy we drive the scroll manager
-            # directly here. Native sessions fall through untouched.
+            # Agent-backed mode reaches Scroll through QwenPawAgent's
+            # AgentScope hook override. Standalone mode uses a bare Agent only
+            # as the model/state carrier and drives Scroll directly.
             scroll_mgr = (
                 self._build_standalone_scroll_manager()
                 if self._agent is None
                 else None
             )
-            if scroll_mgr is not None:
+            if self._agent is None:
+                if scroll_mgr is None:
+                    raise RuntimeError(
+                        "standalone Scroll compaction requires a workspace",
+                    )
                 try:
                     scroll_mgr.load_state(self._scroll_state or {})
                     await scroll_mgr.compress(
@@ -405,7 +399,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                     )
                 index_text = self._scroll_index_text(agent)
                 continuation_text = self._scroll_summary_text(agent)
-                cm = getattr(agent, "_context_manager", None)
+                cm = getattr(agent, "_scroll_context", None)
                 compress_stats = dict(
                     getattr(cm, "last_compress", None) or {},
                 )
@@ -493,8 +487,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     @staticmethod
     def _scroll_index_text(agent: "Agent") -> str:
-        """Scroll eviction-index map for a live agent, or '' under native."""
-        cm = getattr(agent, "_context_manager", None)
+        """Scroll eviction-index map for a live agent."""
+        cm = getattr(agent, "_scroll_context", None)
         if cm is not None and hasattr(cm, "describe_index"):
             value = cm.describe_index()
             return value if isinstance(value, str) else ""
@@ -503,7 +497,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
     @staticmethod
     def _scroll_summary_text(agent: "Agent") -> str:
         """Scroll continuation state for a live agent, else an empty string."""
-        cm = getattr(agent, "_context_manager", None)
+        cm = getattr(agent, "_scroll_context", None)
         if cm is not None and hasattr(cm, "describe_summary"):
             value = cm.describe_summary()
             return value if isinstance(value, str) else ""
@@ -521,16 +515,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
             return ""
         summary = ContinuationSummary.from_dict(raw_summary)
         return summary.render() if summary is not None else ""
-
-    def _uses_scroll_context(self) -> bool:
-        """Return whether the active light-context strategy is Scroll."""
-        try:
-            light_context = (
-                self._get_agent_config().running.light_context_config
-            )
-        except Exception:
-            return False
-        return getattr(light_context, "strategy", "native") == "scroll"
 
     @staticmethod
     def _build_manual_context_config(agent_config: Any) -> Any:
@@ -578,20 +562,15 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def _build_standalone_scroll_manager(self):
         """Build a ScrollContextManager for a standalone ``/compact``.
 
-        Returns ``None`` unless the strategy is ``scroll`` and a workspace is
-        known — in which case the caller stays on native compression. The
-        manager opens the workspace ``history.db``; the caller must
-        ``close()`` it. No model is needed at construction (compaction reads it
-        from the agent passed to ``compress``).
+        The manager opens the workspace ``history.db``; the caller must close
+        it. No model is needed at construction because compaction reads it
+        from the AgentScope agent passed to ``compress``.
         """
         try:
             lcc = self._get_agent_config().running.light_context_config
         except Exception:
             return None
-        if (
-            getattr(lcc, "strategy", "native") != "scroll"
-            or not self._workspace_dir
-        ):
+        if not self._workspace_dir:
             return None
         try:
             from .context.scroll.history import HistoryStore
@@ -689,30 +668,17 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _messages: list[Msg],
         _args: str = "",
     ) -> Msg:
-        """Process /compact_str command to show compressed summary."""
-        if self._uses_scroll_context():
-            summary = self._stored_scroll_summary_text()
-            if not summary:
-                return await self._make_system_msg(
-                    "**No Continuation Summary**\n\n"
-                    "- Scroll has not generated a continuation summary yet\n"
-                    "- Use `/compact` or wait for auto-compaction\n"
-                    "- Archived turns remain recoverable through Scroll "
-                    "history",
-                )
-            return await self._make_system_msg(
-                f"**Continuation Summary**\n\n{summary}",
-            )
-
-        summary = self._get_summary()
+        """Process /compact_str command to show Scroll's continuation state."""
+        summary = self._stored_scroll_summary_text()
         if not summary:
             return await self._make_system_msg(
-                "**No Compressed Summary**\n\n"
-                "- No summary has been generated yet\n"
-                "- Use /compact or wait for auto-compaction",
+                "**No Continuation Summary**\n\n"
+                "- Scroll has not generated a continuation summary yet\n"
+                "- Use `/compact` or wait for auto-compaction\n"
+                "- Archived turns remain recoverable through Scroll history",
             )
         return await self._make_system_msg(
-            f"**Compressed Summary**\n\n{summary}",
+            f"**Continuation Summary**\n\n{summary}",
         )
 
     async def _process_history(

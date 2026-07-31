@@ -855,11 +855,10 @@ class ToolResultPruningConfig(BaseModel):
 
 
 class ScrollContextConfig(BaseModel):
-    """Scroll (retrieval-driven) context manager configuration.
+    """Retrieval-driven context manager configuration.
 
-    Only consulted when ``LightContextConfig.strategy == "scroll"``. The
-    durable history lives at ``{working_dir}/{db_filename}``; evicted turns
-    fold into an in-context eviction index recallable from the sandboxed
+    The durable history lives at ``{working_dir}/{db_filename}``; evicted
+    turns fold into an in-context eviction index recallable from the sandboxed
     ``recall_history_python`` REPL.
     """
 
@@ -947,15 +946,6 @@ class LightContextConfig(BaseModel):
     """Light context manager configuration."""
 
     model_config = ConfigDict(extra="ignore")
-
-    strategy: Literal["native", "scroll"] = Field(
-        default="scroll",
-        description=(
-            "Context management strategy. 'native' = AgentScope compression; "
-            "'scroll' = retrieval-driven history.db + eviction index with a "
-            "sandboxed recall_history_python recall REPL (the default)."
-        ),
-    )
 
     dialog_path: str = Field(
         default="dialog",

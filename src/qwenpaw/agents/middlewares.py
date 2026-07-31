@@ -173,28 +173,38 @@ class MemoryMiddleware(MiddlewareBase):
             await next_handler(**input_kwargs)
             return
 
+        # AgentScope's middleware hook is invoked before the concrete
+        # compressor has evaluated its threshold. Keep a snapshot so an
+        # actually-evicted turn remains available to long-term memory, run
+        # Scroll once, then react to its real outcome. Predicting the outcome
+        # here would duplicate _prepare_model_input/count_tokens and can drift
+        # from Scroll's pressure policy.
+        context_before = list(agent.state.context)
+        await next_handler(**input_kwargs)
+
         try:
             cfg = self._memory_config()
             pending_markers = self._auto_memory_turn_state(agent)["pending"]
             if (
                 getattr(cfg, "summarize_when_compact", False)
                 and pending_markers
-                and await self._will_compress_context(agent, input_kwargs)
+                and self._did_compress_context(agent)
             ):
-                await self._flush_auto_memory(agent)
+                await self._flush_auto_memory(
+                    agent,
+                    source_context=context_before,
+                )
         except Exception:
             logger.exception(
-                "MemoryMiddleware pre-compression auto-memory flush failed; "
-                "continuing context compression",
+                "MemoryMiddleware post-compression auto-memory flush failed",
             )
-
-        await next_handler(**input_kwargs)
 
     async def _flush_auto_memory(
         self,
         agent: "Agent",
         *,
         count: int | None = None,
+        source_context: list["Msg"] | None = None,
     ) -> None:
         if self._is_automation_request(agent):
             logger.debug(
@@ -218,7 +228,11 @@ class MemoryMiddleware(MiddlewareBase):
             del pending_markers[:count]
 
         messages = self._messages_for_user_turns(
-            list(agent.state.context),
+            (
+                source_context
+                if source_context is not None
+                else list(agent.state.context)
+            ),
             turn_markers=turn_markers,
         )
         if not messages:
@@ -252,22 +266,12 @@ class MemoryMiddleware(MiddlewareBase):
         return source in _AUTOMATION_MEMORY_SKIP_SOURCES
 
     @staticmethod
-    async def _will_compress_context(
-        agent: "Agent",
-        input_kwargs: dict[str, Any],
-    ) -> bool:
-        cfg = input_kwargs.get("context_config") or agent.context_config
-        # pylint: disable=protected-access
-        kwargs = await agent._prepare_model_input()
-        estimated_tokens = await agent.model.count_tokens(**kwargs)
-        threshold = cfg.trigger_ratio * agent.model.context_size
-        context_manager = getattr(agent, "_context_manager", None)
-        predicate = getattr(context_manager, "should_compress", None)
-        if callable(predicate):
-            return bool(predicate(estimated_tokens, threshold))
-        # Native AgentScope compacts at the exact threshold. Custom context
-        # managers can expose ``should_compress`` when their boundary differs.
-        return estimated_tokens >= threshold
+    def _did_compress_context(agent: "Agent") -> bool:
+        scroll = getattr(agent, "_scroll_context", None)
+        stats = getattr(scroll, "last_compress", None)
+        if not isinstance(stats, dict):
+            return False
+        return bool(stats.get("evicted") or stats.get("folded"))
 
     @staticmethod
     def _extract_memory_messages(

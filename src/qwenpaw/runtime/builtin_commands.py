@@ -438,10 +438,9 @@ def _make_conversation_adapter(
 
                 cfg = load_agent_config(agent_id)
                 lcc = cfg.running.light_context_config
-                # Under scroll, dialog archiving is opt-in (history.db is the
-                # source of truth); only wire an offloader for the commands
-                # when ``offload_dialog`` is on. Native keeps it always.
-                want_dialog = lcc.strategy != "scroll" or getattr(
+                # history.db is the source of truth; dialog archiving is
+                # independently opt-in.
+                want_dialog = getattr(
                     lcc.scroll_config,
                     "offload_dialog",
                     False,

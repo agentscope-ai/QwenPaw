@@ -28,7 +28,6 @@ from agentscope.model import FinishedReason
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
-from .context.base import ContextManager
 from .skill_system import get_workspace_skills_dir
 from ..modes.coding import CodingModeMixin
 from ..utils.io_utils import run_sync_io
@@ -44,6 +43,7 @@ from ..providers.model_capability_cache import get_capability_cache
 
 if TYPE_CHECKING:
     from ..agents.memory import BaseMemoryManager
+    from .context.scroll.manager import ScrollContextManager
     from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         memory_manager: "BaseMemoryManager | None" = None,
         offloader: Any = None,
         context_config: Any = None,
-        context_manager: ContextManager | None = None,
+        scroll_context: "ScrollContextManager",
         effective_skills: Optional[list[str]] = None,
         governor: Any = None,
     ):
@@ -97,10 +97,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._request_context = dict(request_context or {})
         self._workspace_dir = workspace_dir
         self._language = agent_config.language
-        # Optional context-management strategy. When None, the agent keeps its
-        # native AgentScope compression (see compress_context /
-        # _save_to_context).
-        self._context_manager = context_manager
+        # Scroll owns context state while this Agent subclass adapts it to
+        # AgentScope's protected extension hooks.
+        self._scroll_context = scroll_context
 
         # Register skills metadata on toolkit
         self._register_skills(toolkit, effective_skills=effective_skills or [])
@@ -177,11 +176,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
     ) -> None:
         """Run context compression through AgentScope's middleware chain.
 
-        The actual Scroll/native dispatch lives in
-        :meth:`_compress_context_impl`, which is AgentScope's extension point
-        beneath ``on_compress_context`` middlewares. Keeping the public entry
-        point on the base path ensures memory and plugin middlewares observe
-        both strategies consistently.
+        ``_compress_context_impl`` is AgentScope's extension point beneath
+        ``on_compress_context`` middlewares. Keeping the public entry point on
+        the base path ensures memory and plugin middlewares observe Scroll.
         """
         # ── Always sanitize tool messages before any model call ──
         # Orphan tool_result messages (whose tool_call was evicted by a
@@ -202,13 +199,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
         except Exception:
             pass
 
-        if self._context_manager is None:
-            try:
-                lcc = self._agent_config.running.light_context_config
-                if not lcc.context_compact_config.enabled:
-                    return
-            except Exception:
-                pass
+        try:
+            lcc = self._agent_config.running.light_context_config
+            if not lcc.context_compact_config.enabled:
+                return
+        except Exception:
+            pass
         await super().compress_context(
             context_config,
             instructions=instructions,
@@ -219,30 +215,17 @@ class QwenPawAgent(CodingModeMixin, Agent):
         context_config: Any = None,
         instructions: HintBlock | None = None,
     ) -> None:
-        """Dispatch the middleware-wrapped compression implementation."""
-        if self._context_manager is not None:
-            if instructions is None:
-                # Preserve compatibility with third-party managers that
-                # implemented the original two-argument protocol.
-                await self._context_manager.compress(self, context_config)
-            else:
-                await self._context_manager.compress(
-                    self,
-                    context_config,
-                    instructions=instructions,
-                )
-            return
-
-        await super()._compress_context_impl(
+        """Implement AgentScope's compression hook with Scroll."""
+        await self._scroll_context.compress(
+            self,
             context_config,
             instructions=instructions,
         )
 
     def _save_to_context(self, blocks: Any, usage: Any = None) -> None:
-        """Append blocks, then let the context manager write them through."""
+        """Append blocks, then write them through to Scroll history."""
         super()._save_to_context(blocks, usage)
-        if self._context_manager is not None:
-            self._context_manager.on_save(self, blocks)
+        self._scroll_context.on_save(self, blocks)
 
     # Session persistence calls state_dict/load_state_dict on the agent;
     # these round-trip through self.state (AgentState pydantic model).
@@ -254,9 +237,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         out = {"state": state.model_dump(mode="json")}
         # Persist the scroll manager's dedup bookkeeping + eviction index so a
         # resumed session doesn't re-append its restored window to history.db.
-        cm = getattr(self, "_context_manager", None)
-        if cm is not None and hasattr(cm, "to_dict"):
-            out["scroll"] = cm.to_dict()
+        out["scroll"] = self._scroll_context.to_dict()
         return out
 
     def load_state_dict(self, state_dict: dict, strict: bool = True) -> None:
@@ -288,16 +269,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
             self._sanitize_loaded_context()
             # Rehydrate the scroll manager's bookkeeping so the restored window
             # is recognized as already durable (no re-append on resume).
-            cm = getattr(self, "_context_manager", None)
             scroll = state_dict.get("scroll")
-            if (
-                cm is not None
-                and scroll is not None
-                and hasattr(cm, "load_state")
-            ):
-                cm.load_state(scroll)
-                if hasattr(cm, "reconcile_loaded_context"):
-                    cm.reconcile_loaded_context(self)
+            if scroll is not None:
+                self._scroll_context.load_state(scroll)
+                self._scroll_context.reconcile_loaded_context(self)
             return
 
         # --- 1.x legacy format: migrate ``memory`` → ``state`` ---
@@ -356,28 +331,18 @@ class QwenPawAgent(CodingModeMixin, Agent):
         # Scroll history: apply the retention window (if any) while the
         # connection is still open, then release it (db + -wal + -shm fds —
         # otherwise they accumulate across requests on a long-lived server).
-        cm = getattr(self, "_context_manager", None)
-        if cm is not None:
-            if hasattr(cm, "purge_old"):
-                try:
-                    lcc = self._agent_config.running.light_context_config
-                    await run_sync_io(
-                        cm.purge_old,
-                        lcc.scroll_config.history_retention_days,
-                    )
-                except Exception:
-                    logger.debug(
-                        "history retention purge failed",
-                        exc_info=True,
-                    )
-            if hasattr(cm, "close"):
-                try:
-                    await run_sync_io(cm.close)
-                except Exception:
-                    logger.debug(
-                        "context manager close failed",
-                        exc_info=True,
-                    )
+        try:
+            lcc = self._agent_config.running.light_context_config
+            await run_sync_io(
+                self._scroll_context.purge_old,
+                lcc.scroll_config.history_retention_days,
+            )
+        except Exception:
+            logger.debug("history retention purge failed", exc_info=True)
+        try:
+            await run_sync_io(self._scroll_context.close)
+        except Exception:
+            logger.debug("scroll context close failed", exc_info=True)
 
         offloader = getattr(self, "offloader", None)
         if offloader is not None and hasattr(
@@ -536,11 +501,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 tool_choice=tool_choice,
             )
         except Exception as exc:
-            context_manager = getattr(self, "_context_manager", None)
-            if not isinstance(
-                context_manager,
-                ContextManager,
-            ) or not self._is_context_overflow_error(exc):
+            if not self._is_context_overflow_error(exc):
                 raise
 
             before = len(getattr(self.state, "context", []) or [])
@@ -549,7 +510,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 "one context recovery.",
             )
             input_changed = (
-                await context_manager.recover_from_context_overflow(self)
+                await self._scroll_context.recover_from_context_overflow(self)
             )
             if not input_changed:
                 logger.warning(
@@ -639,28 +600,17 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         # ── Model call with passive retry on media error ──
         final_msg: Msg | None = None
-        context_manager = self._context_manager
-        pending_seen_ids: set[str] = set()
-        if context_manager is not None and hasattr(
-            context_manager,
-            "model_input_tool_result_ids",
-        ):
-            pending_seen_ids = context_manager.model_input_tool_result_ids(
-                self,
-            )
+        pending_seen_ids = self._scroll_context.model_input_tool_result_ids(
+            self,
+        )
 
         def acknowledge_seen_results(evt: Any) -> None:
             """Acknowledge inputs only after a completed model request."""
             if (
                 isinstance(evt, ModelCallEndEvent)
                 and evt.finished_reason != FinishedReason.INTERRUPTED
-                and context_manager is not None
-                and hasattr(
-                    context_manager,
-                    "acknowledge_model_input_tool_results",
-                )
             ):
-                context_manager.acknowledge_model_input_tool_results(
+                self._scroll_context.acknowledge_model_input_tool_results(
                     pending_seen_ids,
                 )
 

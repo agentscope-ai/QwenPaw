@@ -375,8 +375,8 @@ class TestOnCompressContextAutomationSkip:
         mm.auto_memory.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_heartbeat_does_not_call_will_compress(self):
-        """_will_compress_context must NOT be called for automation."""
+    async def test_heartbeat_does_not_inspect_scroll_result(self):
+        """Automation does not inspect Scroll's compression result."""
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
         agent = _make_agent(source="heartbeat")
@@ -384,10 +384,10 @@ class TestOnCompressContextAutomationSkip:
 
         with patch.object(
             MemoryMiddleware,
-            "_will_compress_context",
-        ) as mock_wc:
+            "_did_compress_context",
+        ) as mock_did_compress:
             await mw.on_compress_context(agent, {}, next_handler)
-            mock_wc.assert_not_called()
+            mock_did_compress.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_normal_request_may_flush_on_compress(self):
@@ -396,26 +396,27 @@ class TestOnCompressContextAutomationSkip:
         mw = MemoryMiddleware(memory_manager=mm)
         agent = _make_agent(source="user")
         _auto_memory_turn_state(mm)["pending"] = ["m1"]
-        next_handler = AsyncMock()
+        agent._scroll_context = SimpleNamespace(
+            last_compress={"evicted": 1, "folded": 0},
+        )
+
+        async def next_handler(**_kwargs):
+            return None
 
         with patch.object(
             MemoryMiddleware,
             "_memory_config",
-        ) as mock_cfg, patch.object(
-            MemoryMiddleware,
-            "_will_compress_context",
-            return_value=True,
-        ) as mock_wc:
+        ) as mock_cfg:
             cfg = MagicMock()
             cfg.summarize_when_compact = True
             mock_cfg.return_value = cfg
 
-            agent.state.context = [_user_msg()]
+            user = _user_msg(msg_id="m1")
+            agent.state.context = [user]
 
             await mw.on_compress_context(agent, {}, next_handler)
 
-            mock_wc.assert_awaited_once()
-            next_handler.assert_awaited_once()
+            mm.auto_memory.assert_awaited_once()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -423,7 +424,7 @@ class TestOnCompressContextAutomationSkip:
         [
             "memory_config",
             "turn_state",
-            "will_compress",
+            "did_compress",
             "flush",
         ],
     )
@@ -449,17 +450,20 @@ class TestOnCompressContextAutomationSkip:
                 "memory state unavailable",
             )
 
-        will_compress = AsyncMock(return_value=True)
+        agent._scroll_context = SimpleNamespace(
+            last_compress={"evicted": 1, "folded": 0},
+        )
+        did_compress = MagicMock(return_value=True)
         flush = AsyncMock()
-        if failing_step == "will_compress":
-            will_compress.side_effect = RuntimeError("token count failed")
+        if failing_step == "did_compress":
+            did_compress.side_effect = RuntimeError("result unavailable")
         if failing_step == "flush":
             flush.side_effect = RuntimeError("memory flush failed")
 
         with patch.object(
             MemoryMiddleware,
-            "_will_compress_context",
-            will_compress,
+            "_did_compress_context",
+            did_compress,
         ), patch.object(
             MemoryMiddleware,
             "_flush_auto_memory",
@@ -483,43 +487,20 @@ class TestOnCompressContextAutomationSkip:
             await mw.on_compress_context(agent, {}, next_handler)
 
 
-class TestWillCompressContextBoundary:
-    @staticmethod
-    def _agent_at(tokens: int):
+class TestDidCompressContext:
+    def test_reports_scroll_change(self):
         agent = _make_agent(source="user")
-        agent.context_config = SimpleNamespace(trigger_ratio=0.8)
-        agent.model = SimpleNamespace(
-            context_size=1000,
-            count_tokens=AsyncMock(return_value=tokens),
+        agent._scroll_context = SimpleNamespace(
+            last_compress={"evicted": 1, "folded": 0},
         )
-        agent._prepare_model_input = AsyncMock(return_value={})
-        return agent
+        assert MemoryMiddleware._did_compress_context(agent) is True
 
-    @pytest.mark.asyncio
-    async def test_native_compacts_at_exact_trigger(self):
-        agent = self._agent_at(800)
-
-        assert await MemoryMiddleware._will_compress_context(agent, {}) is True
-
-    @pytest.mark.asyncio
-    async def test_scroll_does_not_compact_at_exact_trigger(self):
-        agent = self._agent_at(800)
-        agent._context_manager = SimpleNamespace(
-            should_compress=lambda tokens, trigger: tokens > trigger,
+    def test_reports_scroll_noop(self):
+        agent = _make_agent(source="user")
+        agent._scroll_context = SimpleNamespace(
+            last_compress={"evicted": 0, "folded": 0},
         )
-
-        assert (
-            await MemoryMiddleware._will_compress_context(agent, {}) is False
-        )
-
-    @pytest.mark.asyncio
-    async def test_scroll_compacts_above_trigger(self):
-        agent = self._agent_at(801)
-        agent._context_manager = SimpleNamespace(
-            should_compress=lambda tokens, trigger: tokens > trigger,
-        )
-
-        assert await MemoryMiddleware._will_compress_context(agent, {}) is True
+        assert MemoryMiddleware._did_compress_context(agent) is False
 
 
 # ---------------------------------------------------------------------------

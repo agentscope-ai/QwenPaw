@@ -2,9 +2,9 @@
 
 ## Overview
 
-QwenPaw's default context strategy is **scroll**: older turns are not summarized and discarded. They are written to a durable SQLite history store, evicted from the live model window when needed, and represented by a compact in-context index that can be expanded on demand.
+QwenPaw uses **Scroll** for context management: older turns are not summarized and discarded. They are written to a durable SQLite history store, evicted from the live model window when needed, and represented by a compact in-context index that can be expanded on demand.
 
-Scroll is the user-facing default. Existing `strategy: "native"` configurations remain accepted for backward compatibility and fallback, but strategy switching is not exposed in the Console.
+Scroll is the only context protocol; there is no Native/Scroll strategy switch.
 
 ## The Three Memory Systems
 
@@ -250,7 +250,7 @@ When unified pruning is enabled, QwenPaw makes AgentScope's built-in token-based
 
 Conversations that predate scroll — or any chats already stored as `sessions/*.json` in the workspace — are backfilled into `history.db` automatically, so older history stays recallable through the episodic-memory tools.
 
-- **When**: on app startup, for every agent whose `strategy` is `"scroll"`.
+- **When**: on app startup, for every agent.
 - **Source**: `{working_dir}/sessions/*.json` (including channel subdirectories). The original session files are never modified or deleted.
 - **One-time per file**: a `sessions/.synced.json` manifest records what was imported, so later startups skip unchanged files. Re-imports are no-ops — a `UNIQUE` index deduplicates rows.
 - **Retention-aware**: messages older than `scroll_config.history_retention_days` (default `30`) are skipped during import, matching the same-boot purge that trims `history.db` to the retention window. Set `history_retention_days` to `0` to keep — and import — everything.
@@ -262,13 +262,12 @@ Conversations that predate scroll — or any chats already stored as `sessions/*
 
 Relevant configuration is under `running.light_context_config`:
 
-The Console's **Workspace → Running Config → ReAct Agent** section exposes only the long-term memory backend; it does not show context-manager-backend or context-strategy selectors. Existing Native configurations remain loadable for backward compatibility and fallback, but Native is not presented as a user-selectable option. The Console's **Context Management** tab shows Scroll's detailed settings.
+The Console's **Context Management** tab exposes Scroll's settings. There is no context-strategy selector.
 
 ```json
 {
   "running": {
     "light_context_config": {
-      "strategy": "scroll",
       "dialog_path": "dialog",
       "context_compact_config": {
         "enabled": true,
@@ -299,7 +298,6 @@ Important fields:
 
 | Field                                            | Default        | Meaning                                                                                                           |
 | ------------------------------------------------ | -------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `strategy`                                       | `"scroll"`     | Selects Scroll's durable-history protocol. Legacy Native values are accepted only for compatibility and fallback. |
 | `context_compact_config.compact_threshold_ratio` | `0.8`          | Trigger when model input reaches this fraction of context size.                                                   |
 | `context_compact_config.reserve_threshold_ratio` | `0.1`          | Recent tail budget kept after eviction.                                                                           |
 | `scroll_config.db_filename`                      | `"history.db"` | SQLite filename relative to the workspace.                                                                        |

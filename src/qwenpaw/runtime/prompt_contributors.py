@@ -313,7 +313,7 @@ class CodingModeContributor(SyncPromptContributor):
 
 
 class ScrollContextContributor(SyncPromptContributor):
-    """Inject memory/recall guidance when the scroll context strategy is on."""
+    """Inject Scroll memory/recall guidance."""
 
     name = "scroll_context"
     priority = 86
@@ -322,12 +322,6 @@ class ScrollContextContributor(SyncPromptContributor):
         extras = getattr(ctx, "extras", {}) or {}
         agent_config = extras.get("agent_config")
         if agent_config is None:
-            return None
-        try:
-            strategy = agent_config.running.light_context_config.strategy
-        except Exception:
-            return None
-        if strategy != "scroll":
             return None
         from ..agents.context.scroll.prompt import build_scroll_system_prompt
 

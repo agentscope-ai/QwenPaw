@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
-"""System-prompt block taught to the agent under the scroll strategy.
+"""System-prompt block teaching the agent to use Scroll context.
 
-Injected only when ``strategy == "scroll"`` (see
-:class:`qwenpaw.runtime.prompt_contributors.ScrollContextContributor`). It
-teaches what the model must know for the eviction index to be useful: how to
+It teaches what the model must know for the eviction index to be useful: how to
 write useful milestone headlines, read the ``[context compressed]`` map,
 recall via the structured ``recall_history`` tool, and stop or abstain.
 

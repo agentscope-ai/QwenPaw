@@ -67,6 +67,7 @@ class _ScrollManager:
     def __init__(self, events: list[str]) -> None:
         self._events = events
         self.instructions: HintBlock | None = None
+        self.last_compress = {"evicted": 0, "folded": 0}
 
     async def compress(
         self,
@@ -76,6 +77,7 @@ class _ScrollManager:
     ) -> None:
         self.instructions = instructions
         self._events.append("scroll")
+        self.last_compress["evicted"] = 1
 
 
 def _scroll_agent(
@@ -102,7 +104,7 @@ def _scroll_agent(
         "source": "user",
         "session_id": "session-1",
     }
-    agent._context_manager = scroll_manager
+    agent._scroll_context = scroll_manager
     agent.state.session_id = "session-1"
     user = Msg(
         name="user",
@@ -118,7 +120,7 @@ def _scroll_agent(
 
 
 @pytest.mark.asyncio
-async def test_scroll_runs_auto_memory_middleware_before_eviction() -> None:
+async def test_scroll_runs_before_post_compression_auto_memory() -> None:
     """Scroll must not bypass AgentScope's compression middleware chain."""
     events: list[str] = []
     memory_manager = _MemoryManager(events)
@@ -128,7 +130,7 @@ async def test_scroll_runs_auto_memory_middleware_before_eviction() -> None:
     instructions = HintBlock(hint="preserve decisions", source="user")
     await agent.compress_context(instructions=instructions)
 
-    assert events == ["auto_memory", "scroll"]
+    assert events == ["scroll", "auto_memory"]
     assert scroll_manager.instructions is instructions
     assert not memory_manager.pending
 
@@ -155,7 +157,6 @@ async def test_manual_compact_submits_auto_memory_once() -> None:
     handler._get_agent_config = lambda: SimpleNamespace(
         running=SimpleNamespace(
             light_context_config=SimpleNamespace(
-                strategy="scroll",
                 context_compact_config=SimpleNamespace(enabled=True),
             ),
             reme_light_memory_config=SimpleNamespace(

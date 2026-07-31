@@ -2569,10 +2569,6 @@
     "recursiveFileWatcherTooltip": "Pantau direktori memori secara rekursif untuk menyertakan file di subdirektori.",
     "contextManagerBackend": "Backend Manajer Konteks",
     "contextManagerBackendTooltip": "Jenis backend untuk manajer konteks. Saat ini hanya Light yang didukung.",
-    "contextStrategy": "Strategi Konteks",
-    "contextStrategyTooltip": "Cara agen mengelola konteks panjang. Scroll (disarankan) menyimpan giliran yang dievakuasi ke penyimpanan riwayat permanen dan memanggilnya kembali sesuai kebutuhan; Native menggunakan kompresi di tempat. Mulai ulang QwenPaw agar perubahan diterapkan.",
-    "contextStrategyScroll": "Scroll",
-    "contextStrategyNative": "Native",
     "backendRestartWarning": "Mengalihkan backend tidak mendukung hot reload. Simpan dan restart QwenPaw agar perubahan berlaku.",
     "adbpgMemoryTitle": "Memori Jangka Panjang ADBPG",
     "adbpgConfig": {

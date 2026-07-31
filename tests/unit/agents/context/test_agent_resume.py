@@ -10,7 +10,7 @@ re-appended to ``history.db``. The manager-level guarantee is covered in
 bookkeeping through the agent's own (de)serialization.
 
 The agent is exercised through a thin shim exposing only the two attributes
-the methods under test touch (``state`` + ``_context_manager``), so we avoid
+the methods under test touch (``state`` + ``_scroll_context``), so we avoid
 constructing the full agent (model / toolkit / governor) while still running
 the production ``state_dict`` / ``load_state_dict`` code paths.
 """
@@ -34,13 +34,13 @@ class AgentShim:
     """Minimal stand-in for QwenPawAgent's state (de)serialization.
 
     ``state_dict`` / ``load_state_dict`` only read ``self.state`` and
-    ``self._context_manager``; the manager's write-through only reads
+    ``self._scroll_context``; the manager's write-through only reads
     ``agent.state.context``. So this shim is enough to run all three against
     the real code.
     """
 
-    def __init__(self, context_manager, state=None):
-        self._context_manager = context_manager
+    def __init__(self, scroll_context, state=None):
+        self._scroll_context = scroll_context
         self.state = state if state is not None else AgentState()
 
     def _sanitize_loaded_context(self) -> None:

@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-few-public-methods,protected-access
-"""The scroll first-run notice.
+"""The Scroll first-run notice.
 
-Scroll became the DEFAULT context strategy, so agents that never set
-``strategy`` are switched to it silently and get a durable ``history.db`` in
-their workspace. ``build_scroll_components`` must log a one-time notice the
+Agents get a durable ``history.db`` in their workspace.
+``build_scroll_components`` must log a one-time notice the
 first time it wires scroll in a workspace (the db file's absence is the
 signal), and must stay silent on every later run.
 """
@@ -21,12 +20,8 @@ from qwenpaw.agents.context import build_scroll_components
 from qwenpaw.config.config import LightContextConfig
 
 
-class _DummyModel:
-    """A stand-in model; scroll only stores it, never calls it at wiring."""
-
-
-def _agent_config(strategy: str = "scroll") -> SimpleNamespace:
-    lcc = LightContextConfig(strategy=strategy)
+def _agent_config() -> SimpleNamespace:
+    lcc = LightContextConfig()
     return SimpleNamespace(running=SimpleNamespace(light_context_config=lcc))
 
 
@@ -34,7 +29,6 @@ def _build(workspace: Path):
     return build_scroll_components(
         agent_config=_agent_config(),
         workspace_dir=str(workspace),
-        model=_DummyModel(),
         session_id="s1",
         agent_id="ag1",
     )
@@ -44,13 +38,12 @@ def _notice_records(caplog) -> list[logging.LogRecord]:
     return [
         r
         for r in caplog.records
-        if r.levelno == logging.WARNING and "DEFAULT context strategy" in r.msg
+        if r.levelno == logging.WARNING and "Scroll history store" in r.msg
     ]
 
 
 def test_removed_eviction_headline_settings_are_ignored():
     config = LightContextConfig(
-        strategy="scroll",
         scroll_config={
             "summarize_unheadlined_evictions": True,
             "summarize_eviction_timeout_seconds": 45,
@@ -66,6 +59,13 @@ def test_removed_eviction_headline_settings_are_ignored():
     )
 
 
+def test_removed_context_strategy_is_ignored_and_not_saved():
+    config = LightContextConfig.model_validate({"strategy": "native"})
+
+    assert not hasattr(config, "strategy")
+    assert "strategy" not in config.model_dump()
+
+
 @pytest.mark.usefixtures("capture_qwenpaw_logs")
 def test_first_run_logs_notice_once(tmp_path: Path, caplog):
     db = tmp_path / "history.db"
@@ -76,12 +76,11 @@ def test_first_run_logs_notice_once(tmp_path: Path, caplog):
     # Scroll actually wired and created the durable store.
     assert components is not None
     assert db.exists()
-    # Exactly one notice, and it points at the rollback path.
+    # Exactly one notice, and it points at the new durable store.
     records = _notice_records(caplog)
     assert len(records) == 1
     msg = records[0].getMessage()
     assert str(db) in msg
-    assert "native" in msg
 
 
 def test_notice_does_not_repeat_when_db_exists(tmp_path: Path, caplog):
@@ -132,21 +131,6 @@ def test_large_existing_db_warns_about_retention(tmp_path: Path, caplog):
         context_mod._DB_SIZE_WARNED.discard(str(db))
 
 
-def test_no_notice_when_strategy_is_native(tmp_path: Path, caplog):
-    with caplog.at_level(logging.WARNING, logger="qwenpaw.agents.context"):
-        components = build_scroll_components(
-            agent_config=_agent_config("native"),
-            workspace_dir=str(tmp_path),
-            model=_DummyModel(),
-            session_id="s1",
-            agent_id="ag1",
-        )
-    # Native is unaffected: nothing wired, no db, no notice.
-    assert components is None
-    assert not (tmp_path / "history.db").exists()
-    assert _notice_records(caplog) == []
-
-
 def test_wiring_failure_closes_history_store(tmp_path: Path, monkeypatch):
     histories = []
 
@@ -160,6 +144,7 @@ def test_wiring_failure_closes_history_store(tmp_path: Path, monkeypatch):
         fail_manager,
     )
 
-    assert _build(tmp_path) is None
+    with pytest.raises(RuntimeError, match="initialize scroll"):
+        _build(tmp_path)
     assert len(histories) == 1
     assert histories[0].closed is True

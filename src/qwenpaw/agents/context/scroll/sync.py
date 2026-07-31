@@ -2,12 +2,12 @@
 """Import raw ``sessions/*.json`` conversation history into ``history.db``.
 
 Conversations are saved one-file-per-session under ``{workspace}/sessions/``.
-Under the ``scroll`` strategy, durable recall lives in ``history.db``,
-populated live by :class:`ScrollContextManager`. Messages from before scroll
-was enabled (or that never write-through'd) exist *only* in the session file,
-invisible to recall.
+Durable recall lives in ``history.db``, populated live by
+:class:`ScrollContextManager`. Messages from before Scroll was introduced (or
+that never write-through'd) exist *only* in the session file, invisible to
+recall.
 
-On startup we scan every scroll-enabled agent's ``sessions/`` directory and
+On startup we scan every agent's ``sessions/`` directory and
 import each session's saved messages into its ``history.db``. The import is:
 
 * **Non-destructive** — session files are read-only; we only write
@@ -478,12 +478,10 @@ def _purge_old_history(
 
 
 def sync_all_scroll_agents() -> None:
-    """Sync every scroll-enabled agent's ``sessions/*.json`` into its history.
+    """Sync every agent's ``sessions/*.json`` into Scroll history.
 
     Called once at server startup. Fully guarded: any failure is logged and
-    isolated so it can never block boot. Native-strategy agents are skipped —
-    their ``history.db`` is never read, so populating it would just orphan a
-    file.
+    isolated so it can never block boot.
     """
     try:
         _sync_all_scroll_agents()
@@ -515,10 +513,7 @@ def _sync_all_scroll_agents() -> None:
 
         try:
             lcc = agent_config.running.light_context_config
-            strategy = getattr(lcc, "strategy", "native")
         except Exception:  # noqa: BLE001
-            continue
-        if strategy != "scroll":
             continue
 
         # Use the profile ref's path (each id -> its own dir), NOT

@@ -2,9 +2,9 @@
 
 ## 概述
 
-QwenPaw 当前默认的上下文策略是 **scroll**：旧轮次不会被总结后丢弃，而是先写入持久化 SQLite 历史库；当模型窗口接近上限时，再把中间历史从实时上下文中驱逐出去，并用一条紧凑的上下文内索引表示。之后 Agent 可以按需把原始历史读回来。
+QwenPaw 使用 **Scroll** 管理上下文：旧轮次不会被总结后丢弃，而是先写入持久化 SQLite 历史库；当模型窗口接近上限时，再把中间历史从实时上下文中驱逐出去，并用一条紧凑的上下文内索引表示。之后 Agent 可以按需把原始历史读回来。
 
-Scroll 是面向用户的默认方案。已有的 `strategy: "native"` 配置仍会为向后兼容和安全降级而被接受，但控制台不再提供策略切换入口。
+Scroll 是唯一的上下文协议，不再有 Native/Scroll 策略开关。
 
 ## 三种记忆系统
 
@@ -249,7 +249,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 早于 scroll 的对话——或工作区里已有的任何 `sessions/*.json` 会话——会被自动回填进 `history.db`，这样旧历史依然能被情景记忆工具取回。
 
-- **时机**：应用启动时，对每个 `strategy` 为 `"scroll"` 的 Agent 执行。
+- **时机**：应用启动时，对每个 Agent 执行。
 - **来源**：`{working_dir}/sessions/*.json`（含渠道子目录）。原始会话文件不会被修改或删除。
 - **逐文件一次性**：`sessions/.synced.json` 清单记录已导入的内容，之后的启动会跳过未变更的文件。重复导入是空操作——`UNIQUE` 索引会去重。
 - **遵循保留期**：导入时会跳过早于 `scroll_config.history_retention_days`（默认 `30`）的消息，与同次启动把 `history.db` 裁剪到保留期的清理保持一致。把 `history_retention_days` 设为 `0` 可保留并导入全部历史。
@@ -261,13 +261,12 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 相关配置位于 `running.light_context_config`：
 
-控制台“工作区 → 运行配置 → ReAct 智能体”只显示长期记忆管理后端，不显示上下文管理后端或上下文策略选择器。已有 Native 配置仍可为向后兼容和安全降级而加载，但 Native 不再作为用户可选项展示。控制台中的“上下文管理”页签展示 Scroll 的详细参数。
+控制台中的“上下文管理”页签展示 Scroll 的详细参数，不再提供上下文策略选择器。
 
 ```json
 {
   "running": {
     "light_context_config": {
-      "strategy": "scroll",
       "dialog_path": "dialog",
       "context_compact_config": {
         "enabled": true,
@@ -298,7 +297,6 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 | 字段                                             | 默认值         | 含义                                                                              |
 | ------------------------------------------------ | -------------- | --------------------------------------------------------------------------------- |
-| `strategy`                                       | `"scroll"`     | 选择 Scroll 的持久历史协议；旧版 Native 值仅为兼容和安全降级而保留。              |
 | `context_compact_config.compact_threshold_ratio` | `0.8`          | 模型输入达到上下文窗口该比例时触发。                                              |
 | `context_compact_config.reserve_threshold_ratio` | `0.1`          | 驱逐后保留最近尾部的预算。                                                        |
 | `scroll_config.db_filename`                      | `"history.db"` | 相对工作区的 SQLite 文件名。                                                      |

@@ -4,15 +4,11 @@ import {
   Switch,
   Input,
   Collapse,
-  Select,
   InputNumber,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { SliderWithValue } from "./SliderWithValue";
-import {
-  calculateReserveThreshold,
-  usesTieredToolResultSettings,
-} from "./toolResultSettings";
+import { calculateReserveThreshold } from "./toolResultSettings";
 import { VisualCompactSettings } from "./VisualCompactSettings";
 import styles from "../index.module.less";
 
@@ -37,13 +33,6 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
     "context_compact_config",
     "reserve_threshold_ratio",
   ]);
-  const contextStrategy =
-    Form.useWatch(["light_context_config", "strategy"]) ?? "scroll";
-  const showTieredToolResultSettings =
-    usesTieredToolResultSettings(contextStrategy);
-
-  // history_retention_days only applies to the scroll strategy.
-  const isScrollStrategy = contextStrategy === "scroll";
   const historyRetentionDays = Form.useWatch([
     "light_context_config",
     "scroll_config",
@@ -51,11 +40,7 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
   ]);
   // Warn (never block): 0 keeps history forever, a very large window eats disk.
   let historyRetentionWarning: string | null = null;
-  if (
-    isScrollStrategy &&
-    historyRetentionDays !== undefined &&
-    historyRetentionDays !== null
-  ) {
+  if (historyRetentionDays !== undefined && historyRetentionDays !== null) {
     if (historyRetentionDays <= 0) {
       historyRetentionWarning = t(
         "agentConfig.historyRetentionDaysForeverWarning",
@@ -73,7 +58,6 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
   const reserveThreshold = calculateReserveThreshold(
     maxInputLength ?? 0,
     reserveThresholdRatio ?? 0.1,
-    contextStrategy,
   );
 
   return (
@@ -212,37 +196,35 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                   />
                 </Form.Item>
 
-                {isScrollStrategy && (
-                  <Form.Item
-                    label={t("agentConfig.historyRetentionDays")}
-                    name={[
-                      "light_context_config",
-                      "scroll_config",
-                      "history_retention_days",
-                    ]}
-                    rules={[
-                      {
-                        required: true,
-                        message: t("agentConfig.historyRetentionDaysRequired"),
-                      },
-                    ]}
-                    tooltip={t("agentConfig.historyRetentionDaysTooltip")}
-                    extra={
-                      historyRetentionWarning ? (
-                        <span style={{ color: "#faad14" }}>
-                          {historyRetentionWarning}
-                        </span>
-                      ) : undefined
-                    }
-                  >
-                    <InputNumber
-                      min={0}
-                      step={1}
-                      precision={0}
-                      style={{ width: "100%" }}
-                    />
-                  </Form.Item>
-                )}
+                <Form.Item
+                  label={t("agentConfig.historyRetentionDays")}
+                  name={[
+                    "light_context_config",
+                    "scroll_config",
+                    "history_retention_days",
+                  ]}
+                  rules={[
+                    {
+                      required: true,
+                      message: t("agentConfig.historyRetentionDaysRequired"),
+                    },
+                  ]}
+                  tooltip={t("agentConfig.historyRetentionDaysTooltip")}
+                  extra={
+                    historyRetentionWarning ? (
+                      <span style={{ color: "#faad14" }}>
+                        {historyRetentionWarning}
+                      </span>
+                    ) : undefined
+                  }
+                >
+                  <InputNumber
+                    min={0}
+                    step={1}
+                    precision={0}
+                    style={{ width: "100%" }}
+                  />
+                </Form.Item>
               </>
             ),
           },
@@ -263,61 +245,6 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                 >
                   <Switch />
                 </Form.Item>
-
-                {showTieredToolResultSettings && (
-                  <>
-                    <Form.Item
-                      label={t("agentConfig.toolResultCompactRecentN")}
-                      name={[
-                        "light_context_config",
-                        "tool_result_pruning_config",
-                        "pruning_recent_n",
-                      ]}
-                      rules={[
-                        {
-                          required: true,
-                          message: t(
-                            "agentConfig.toolResultCompactRecentNRequired",
-                          ),
-                        },
-                      ]}
-                      tooltip={t("agentConfig.toolResultCompactRecentNTooltip")}
-                    >
-                      <SliderWithValue
-                        min={1}
-                        max={10}
-                        step={1}
-                        marks={{ 1: "1", 5: "5", 10: "10" }}
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.toolResultCompactOldThreshold")}
-                      name={[
-                        "light_context_config",
-                        "tool_result_pruning_config",
-                        "pruning_old_msg_max_bytes",
-                      ]}
-                      rules={[
-                        {
-                          required: true,
-                          message: t(
-                            "agentConfig.toolResultCompactOldThresholdRequired",
-                          ),
-                        },
-                      ]}
-                      tooltip={t(
-                        "agentConfig.toolResultCompactOldThresholdTooltip",
-                      )}
-                    >
-                      <Input
-                        placeholder={t(
-                          "agentConfig.toolResultCompactOldThresholdPlaceholder",
-                        )}
-                      />
-                    </Form.Item>
-                  </>
-                )}
 
                 <Form.Item
                   label={t("agentConfig.toolResultCompactRecentThreshold")}
@@ -371,48 +298,6 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                     marks={{ 1: "1", 30: "30", 365: "365" }}
                   />
                 </Form.Item>
-
-                {showTieredToolResultSettings && (
-                  <>
-                    <Form.Item
-                      label={t("agentConfig.exemptFileExtensions")}
-                      name={[
-                        "light_context_config",
-                        "tool_result_pruning_config",
-                        "exempt_file_extensions",
-                      ]}
-                      tooltip={t("agentConfig.exemptFileExtensionsTooltip")}
-                    >
-                      <Select
-                        mode="tags"
-                        placeholder={t(
-                          "agentConfig.exemptFileExtensionsPlaceholder",
-                        )}
-                        tokenSeparators={[",", " "]}
-                        style={{ width: "100%" }}
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.exemptToolNames")}
-                      name={[
-                        "light_context_config",
-                        "tool_result_pruning_config",
-                        "exempt_tool_names",
-                      ]}
-                      tooltip={t("agentConfig.exemptToolNamesTooltip")}
-                    >
-                      <Select
-                        mode="tags"
-                        placeholder={t(
-                          "agentConfig.exemptToolNamesPlaceholder",
-                        )}
-                        tokenSeparators={[",", " "]}
-                        style={{ width: "100%" }}
-                      />
-                    </Form.Item>
-                  </>
-                )}
               </>
             ),
           },

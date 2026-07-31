@@ -2426,10 +2426,6 @@
     "autoMemoryIntervalMin": "自动记忆间隔必须大于等于 0",
     "contextManagerBackend": "上下文管理后端",
     "contextManagerBackendTooltip": "上下文管理器的后端类型，目前仅支持 Light",
-    "contextStrategy": "上下文策略",
-    "contextStrategyTooltip": "智能体如何管理长上下文。Scroll（推荐）将驱逐的对话轮次持久化到历史库并按需召回；Native 使用就地压缩。更改后需重启 QwenPaw 生效。",
-    "contextStrategyScroll": "Scroll",
-    "contextStrategyNative": "Native",
     "backendRestartWarning": "切换后端不支持热更新，保存后需要重启 QwenPaw 才能生效",
     "adbpgMemoryTitle": "ADBPG 长期记忆",
     "adbpgConfig": {

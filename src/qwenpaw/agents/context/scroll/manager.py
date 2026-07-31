@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """ScrollContextManager — write-through + eviction-index context management.
 
-The strategy form of the design in ``CONTEXT_MANAGEMENT.html``: instead of
-subclassing the agent, it is injected into :class:`QwenPawAgent` and drives the
-two delegated hooks.
+``QwenPawAgent`` adapts this stateful component to AgentScope's two context
+extension hooks.
 
 * :meth:`on_save` — every live turn is persisted to the durable
   ``conversation_history`` as it enters the window (write-through).
@@ -76,7 +75,7 @@ class _SummaryInputBudgetError(ValueError):
 
 
 class ScrollContextManager:
-    """Context management as an injectable strategy (not an agent subclass).
+    """Per-agent state behind QwenPaw's AgentScope context-hook overrides.
 
     Holds the per-session bookkeeping that links live ``Msg`` ids to their
     durable ``seq`` rows and to their eviction-index leaves. One instance per
@@ -157,9 +156,7 @@ class ScrollContextManager:
     def should_compress(tokens: float, trigger: float) -> bool:
         """Return Scroll's pressure-boundary decision.
 
-        Usage exactly at the trigger remains live. Memory middleware calls the
-        same predicate so long-term-memory work cannot be predicted when
-        Scroll itself will perform no compaction.
+        Usage exactly at the trigger remains live.
         """
         return tokens > trigger
 
