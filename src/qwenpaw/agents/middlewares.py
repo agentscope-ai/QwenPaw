@@ -173,14 +173,20 @@ class MemoryMiddleware(MiddlewareBase):
             await next_handler(**input_kwargs)
             return
 
-        cfg = self._memory_config()
-        pending_markers = self._auto_memory_turn_state(agent)["pending"]
-        if (
-            getattr(cfg, "summarize_when_compact", False)
-            and pending_markers
-            and await self._will_compress_context(agent, input_kwargs)
-        ):
-            await self._flush_auto_memory(agent)
+        try:
+            cfg = self._memory_config()
+            pending_markers = self._auto_memory_turn_state(agent)["pending"]
+            if (
+                getattr(cfg, "summarize_when_compact", False)
+                and pending_markers
+                and await self._will_compress_context(agent, input_kwargs)
+            ):
+                await self._flush_auto_memory(agent)
+        except Exception:
+            logger.exception(
+                "MemoryMiddleware pre-compression auto-memory flush failed; "
+                "continuing context compression",
+            )
 
         await next_handler(**input_kwargs)
 
