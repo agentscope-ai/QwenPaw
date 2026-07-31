@@ -43,7 +43,8 @@ from __future__ import annotations
 import functools
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+import sys
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -346,8 +347,6 @@ def _probe_windows() -> SandboxCapability:
     Returns:
         Probe result with ``mode=WINDOWS`` on success.
     """
-    import sys
-
     if sys.platform != "win32":
         return SandboxCapability(
             supported=False,
@@ -490,8 +489,6 @@ def probe_sandbox_support() -> SandboxCapability:
     Returns:
         ``SandboxCapability`` describing available isolation.
     """
-    import sys
-
     if sys.platform == "darwin":
         return _probe_macos_seatbelt()
     elif sys.platform == "linux":
@@ -533,6 +530,11 @@ def create_sandbox(  # pylint: disable=too-many-return-statements
     For Windows mode, further dispatches on ``allow_read_all`` and
     admin privilege.
 
+    Platform compatibility guard: if the requested mode is incompatible
+    with the current platform (e.g. WINDOWS on Linux, SEATBELT on
+    Windows), the mode is automatically downgraded to the platform
+    default detected by ``detect_platform_mode()``.
+
     Args:
         config: Sandbox configuration.
 
@@ -542,6 +544,19 @@ def create_sandbox(  # pylint: disable=too-many-return-statements
     Raises:
         ValueError: If ``config.mode`` is unknown.
     """
+    # Platform compatibility guard: downgrade incompatible modes to the
+    # platform default to prevent crashes from missing OS-specific APIs.
+    _PLATFORM_MODE_REQUIREMENTS = {
+        SandboxMode.SEATBELT: "darwin",
+        SandboxMode.BUBBLEWRAP: "linux",
+        SandboxMode.LANDLOCK: "linux",
+        SandboxMode.WINDOWS: "win32",
+    }
+    required_platform = _PLATFORM_MODE_REQUIREMENTS.get(config.mode)
+    if required_platform is not None and sys.platform != required_platform:
+        fallback_mode = detect_platform_mode()
+        config = replace(config, mode=fallback_mode)
+
     if config.mode == SandboxMode.SEATBELT:
         from .macos_sandbox import MacOSSandbox
 

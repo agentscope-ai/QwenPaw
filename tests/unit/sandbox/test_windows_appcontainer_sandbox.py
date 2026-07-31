@@ -582,8 +582,10 @@ class TestSandboxReuse:
 class TestFactoryAppContainer:
     """Test that create_sandbox routes to the right sandbox backend."""
 
-    def test_create_sandbox_appcontainer_allow_read_all_false(self):
+    @patch("qwenpaw.sandbox.config.sys")
+    def test_create_sandbox_appcontainer_allow_read_all_false(self, mock_sys):
         """allow_read_all=False routes to WindowsAppContainerSandbox."""
+        mock_sys.platform = "win32"
         from qwenpaw.sandbox import create_sandbox
 
         config = SandboxConfig(
@@ -594,12 +596,18 @@ class TestFactoryAppContainer:
         sandbox = create_sandbox(config)
         assert isinstance(sandbox, WindowsAppContainerSandbox)
 
+    @patch("qwenpaw.sandbox.config.sys")
     @patch(
         "qwenpaw.sandbox.windows_unelevated_sandbox._is_admin",
         return_value=True,
     )
-    def test_create_sandbox_appcontainer_allow_read_all_true(self, mock_admin):
+    def test_create_sandbox_appcontainer_allow_read_all_true(
+        self,
+        mock_admin,
+        mock_sys,
+    ):
         """allow_read_all=True + admin routes to WindowsElevatedSandbox."""
+        mock_sys.platform = "win32"
         from qwenpaw.sandbox import create_sandbox
         from qwenpaw.sandbox.windows_elevated_sandbox import (
             WindowsElevatedSandbox,
