@@ -62,6 +62,10 @@ export const DOC_GROUPS: DocGroup[] = [
     ],
   },
   {
+    titleKey: "docs.groupPlugins",
+    children: [{ slug: "computer-use", titleKey: "docs.computerUse" }],
+  },
+  {
     titleKey: "docs.groupPractice",
     children: [
       { slug: "practice-agent-team", titleKey: "docs.practiceAgentTeam" },
