@@ -111,9 +111,14 @@ Auto Memory 由 `MemoryMiddleware` 调用，不是每次 model call 都直接运
 - 当 `auto_memory_search_config.enabled` 为 true 时，在模型调用前注入自动记忆搜索上下文；
 - 在回复后收集 user-turn marker；
 - 累计到 `auto_memory_interval` 个用户轮次后 flush；
-- 当 `summarize_when_compact` 为 true 且即将压缩上下文时，也会先 flush pending turns。
+- 当 `summarize_when_compact` 为 true 时，会在压缩前快照 pending turns，并且仅在 Scroll 报告实际发生驱逐或折叠后 flush。
 
 `auto_memory_interval` 默认是 `5`。`None`、`0` 或负数会禁用周期性 Auto Memory。
+
+压缩前快照使用深拷贝，因此 Scroll 原地折叠工具结果时不会把长期记忆所需的原始证据
+替换成 recall stub。如果 `auto_memory` job 失败，pending marker 和序列化消息会继续保存在
+`AgentState.middle_context` 中；即使实时回合已被驱逐，middleware 重建或 session 恢复后仍可重试。
+只有提交成功或生命周期显式清理时才会删除这些重试数据。
 
 Flush 时，QwenPaw 调用 ReMe 的 `auto_memory` job，并传入：
 

@@ -111,9 +111,16 @@ Auto Memory is invoked by `MemoryMiddleware`, not directly on every model call. 
 - optionally injects auto memory search context before model calls when `auto_memory_search_config.enabled` is true;
 - collects user-turn markers after replies;
 - flushes pending turns after `auto_memory_interval` user turns;
-- also flushes before context compression when `summarize_when_compact` is true and compression is about to happen.
+- snapshots pending turns before context compression and flushes them only after Scroll reports that it actually evicted or folded content, when `summarize_when_compact` is true.
 
 `auto_memory_interval` defaults to `5`. `None`, `0`, or a negative value disables periodic auto-memory.
+
+The pre-compaction snapshot is deep-copied so in-place Scroll tool-result
+folding cannot replace memory evidence with recall stubs. If the `auto_memory`
+job fails, the pending markers and serialized messages remain in
+`AgentState.middle_context`; rebuilding the middleware or restoring the
+session can retry them even after the live turns have been evicted. They are
+deleted only after successful submission or an explicit lifecycle cleanup.
 
 When flushed, QwenPaw calls ReMe's `auto_memory` job with:
 

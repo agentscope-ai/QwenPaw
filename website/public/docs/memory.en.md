@@ -41,15 +41,15 @@ graph TB
 
 Long-term memory management includes the following capabilities:
 
-| Capability             | Description                                                                                                      |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **Embedded ReMe app**  | QwenPaw starts ReMe in-process and injects the active QwenPaw model into ReMe's default LLM component            |
-| **Auto-Memory**        | After a configurable number of user turns, ReMe extracts useful conversation facts into daily Markdown notes     |
-| **Context compaction** | Before context compression, pending turns can be flushed into the same `auto_memory` pipeline                    |
-| **Auto-Dream**         | A cron job extracts higher-level digest units and proactive-interest topics from recent daily notes              |
-| **Hybrid Search**      | `memory_search` calls ReMe's `search` job, using BM25 plus optional vector search and reciprocal-rank fusion     |
-| **Resource Memory**    | Files under `resource/` are cataloged and can be interpreted into source-linked daily notes                      |
-| **Inbox Results**      | `auto_memory`, `auto_dream`, and `auto_resource` results are pushed to QwenPaw's inbox when they produce changes |
+| Capability             | Description                                                                                                                |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Embedded ReMe app**  | QwenPaw starts ReMe in-process and injects the active QwenPaw model into ReMe's default LLM component                      |
+| **Auto-Memory**        | After a configurable number of user turns, ReMe extracts useful conversation facts into daily Markdown notes               |
+| **Context compaction** | After Scroll actually evicts or folds content, pending turns are flushed from a pre-compaction snapshot into `auto_memory` |
+| **Auto-Dream**         | A cron job extracts higher-level digest units and proactive-interest topics from recent daily notes                        |
+| **Hybrid Search**      | `memory_search` calls ReMe's `search` job, using BM25 plus optional vector search and reciprocal-rank fusion               |
+| **Resource Memory**    | Files under `resource/` are cataloged and can be interpreted into source-linked daily notes                                |
+| **Inbox Results**      | `auto_memory`, `auto_dream`, and `auto_resource` results are pushed to QwenPaw's inbox when they produce changes           |
 
 ---
 
@@ -364,11 +364,18 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 | `resource_dir`           | Directory watched by `auto_resource`                                                                                            | `"resource"`     |
 | `daily_dir`              | Directory for daily memory notes                                                                                                | `"memory"`       |
 | `digest_dir`             | Directory for dream/digest memory                                                                                               | `"digest"`       |
-| `summarize_when_compact` | Whether pending turns are flushed to Auto-Memory before context compression                                                     | `true`           |
+| `summarize_when_compact` | Whether pending turns are flushed to Auto-Memory after Scroll actually evicts or folds content                                  | `true`           |
 | `inbox_push_enabled`     | Whether `auto_memory`, `auto_dream`, and `auto_resource` job results are pushed to the QwenPaw inbox                            | `true`           |
 | `auto_memory_interval`   | Auto-Memory every N user turns. `None` or `<= 0` disables periodic Auto-Memory                                                  | `5`              |
 | `dream_cron_enabled`     | Whether the scheduled Auto-Dream job is enabled                                                                                 | `true`           |
 | `dream_cron`             | Valid 5-field cron expression for Auto-Dream (required when enabled); scheduled runs start after a random delay of 0–60 seconds | `"0 23 * * *"`   |
+
+When a compaction-triggered Auto-Memory submission fails, QwenPaw keeps both
+the pending turn markers and a serialized copy of their pre-compaction
+messages in `AgentState.middle_context`. A later turn can therefore retry the
+same batch even if Scroll has already evicted the original live messages. The
+retry data is removed after a successful submission, when Auto-Memory is
+disabled, or when a manual compact submits those turns itself.
 
 ### Rebuilding the Memory Search Index
 

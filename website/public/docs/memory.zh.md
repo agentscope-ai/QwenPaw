@@ -46,7 +46,7 @@ graph TB
 | ------------------ | --------------------------------------------------------------------------------------- |
 | **嵌入式 ReMe**    | QwenPaw 在进程内启动 ReMe，并将当前 Agent 使用的 QwenPaw 模型注入到 ReMe 默认 LLM 组件  |
 | **Auto-Memory**    | 每隔可配置数量的用户回合，将对话中值得保留的事实抽取为每日 Markdown 记忆                |
-| **上下文压缩保存** | 上下文压缩前，可把尚未写入的回合先提交给同一套 `auto_memory` 流程                       |
+| **上下文压缩保存** | Scroll 实际驱逐或折叠内容后，从压缩前快照把待保存回合提交给同一套 `auto_memory` 流程    |
 | **Auto-Dream**     | 定时从近期每日记忆中提取更高层的 digest 单元和主动交互兴趣主题                          |
 | **混合检索**       | `memory_search` 调用 ReMe `search` job，通过 BM25 + 可选向量检索，并使用 RRF 融合排序   |
 | **资源记忆**       | `resource/` 下的外部文件会被编目，变更后可通过 `auto_resource` 转成带来源链接的每日记忆 |
@@ -311,11 +311,16 @@ score、vector、keyword 字段，不要总结或改写。
 | `resource_dir`           | `auto_resource` 监听的资源目录                                                      | `"resource"`     |
 | `daily_dir`              | 每日记忆目录                                                                        | `"memory"`       |
 | `digest_dir`             | dream/digest 记忆目录                                                               | `"digest"`       |
-| `summarize_when_compact` | 是否在上下文压缩前将待保存回合提交给 Auto-Memory                                    | `true`           |
+| `summarize_when_compact` | 是否在 Scroll 实际驱逐或折叠内容后将待保存回合提交给 Auto-Memory                    | `true`           |
 | `inbox_push_enabled`     | 是否将 `auto_memory`、`auto_dream`、`auto_resource` 的 job 结果推送到 QwenPaw inbox | `true`           |
 | `auto_memory_interval`   | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆            | `5`              |
 | `dream_cron_enabled`     | 是否启用按 Cron 定时执行的 Auto-Dream 任务                                          | `true`           |
 | `dream_cron`             | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动    | `"0 23 * * *"`   |
+
+如果压缩触发的 Auto-Memory 提交失败，QwenPaw 会在
+`AgentState.middle_context` 中同时保留 pending turn marker 和对应的压缩前消息副本。
+因此，即使 Scroll 已经从实时上下文驱逐原消息，后续回合仍能重试同一批内容。提交成功、
+禁用 Auto-Memory，或手动 compact 已自行提交这些回合后，重试数据会被清理。
 
 ### 重建记忆搜索索引
 
