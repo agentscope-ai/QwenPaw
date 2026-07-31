@@ -4,8 +4,19 @@
 完成对话事实保存、每日记忆、梦境摘要、资源文件监听和记忆检索。
 
 > 长期记忆机制设计受 [OpenClaw](https://github.com/openclaw/openclaw)
-> 启发，由 [ReMe](https://github.com/agentscope-ai/ReMe) 的 **ReMeLight** 实现——以文件系统为存储后端，记忆即 Markdown
+> 启发，由 [ReMe](https://github.com/agentscope-ai/ReMe) 的 **ReMeLight** 实现——以文件系统为存储后端，工作记忆与长期记忆节点均为 Markdown
 > 文件，可直接读取、编辑与迁移。
+
+ReMe 的核心目标，是基于 _Memory as File, File as Memory_ 原则长出一个**自进化的个人知识库**。每个工作记忆或长期记忆节点都是一份普通 Markdown 文件——可读、可编辑、可追溯、可迁移、由你与 agent 协作维护——同时又可被索引和链接；原始来源与派生系统状态则使用适合各自职责的格式。workspace 把记忆组织为四层：
+
+| 分层     | QwenPaw 目录                | 职责                                                |
+| -------- | --------------------------- | --------------------------------------------------- |
+| 原始输入 | `mem_session/`、`resource/` | 作为证据保留的原始对话与外部资料                    |
+| 工作记忆 | `memory/`                   | daily note：事实、决策、资源解读                    |
+| 长期记忆 | `digest/`                   | 可复用知识节点（`personal` / `procedure` / `wiki`） |
+| 系统状态 | `mem_metadata/`             | 索引、wikilink 图、catalog——不手工编辑              |
+
+记忆通过 **capture → index → consolidate → recall** 闭环进化：Auto-Memory / Auto-Resource 捕获 daily note，索引让其可检索，Auto-Dream 把它们整合成带链接的 digest 节点，search / proactive 再召回。完整叙述——包括 Auto-Dream 如何对 digest 节点 corroborate、refine、correct 并织成 wikilink 图——见[智能体记忆进化与主动交互](./memory-evolving-and-proactive)。以下章节聚焦技术实现与配置。
 
 ---
 
@@ -61,8 +72,29 @@ graph TB
 │
 ├── digest/                         ← Auto-Dream 产出的 digest 记忆和兴趣主题
 ├── resource/                       ← auto_resource 监听的外部资源
-└── mem_metadata/                   ← ReMe 持久化索引和 catalog
+└── mem_metadata/                   ← ReMe 持久化索引、图、catalog 和缓存
+    ├── file_store/
+    │   └── file_chunks_default_v1.jsonl.zst
+    ├── file_graph/
+    │   └── default.jsonl.zst
+    ├── file_catalog/
+    │   ├── default.jsonl.zst
+    │   ├── resource.jsonl.zst
+    │   ├── digest.jsonl.zst
+    │   └── dream.jsonl.zst
+    ├── embedding_store/
+    │   └── default_v1.npz
+    └── keyword_index/
+        └── bm25_default_<tokenizer>_<fingerprint>_v1.pkl
 ```
+
+默认工作区下的完整路径是
+`~/.qwenpaw/workspaces/{agent_id}/mem_metadata/`。其中
+`file_store/file_chunks_default_v1.jsonl.zst` 是权威 chunk 存储，向量以 float16
+编码在压缩 JSONL 记录的 `_embedding_f16_b64` 字段中，并不会生成单独的向量数据库目录。
+`embedding_store/default_v1.npz` 是启用 `enable_cache` 后使用的本地 embedding
+缓存，不是权威索引；它可能要到缓存持久化后才出现。实际 BM25 文件名中的 tokenizer
+名称和 fingerprint 会随配置变化。
 
 ### memory/YYYY-MM-DD/\*.md（每日记忆）
 
@@ -85,10 +117,15 @@ note，而不是无限创建重复文件。
 
 ### digest/（梦境记忆）
 
-Auto-Dream 会读取近期每日记忆，提取可合并的 digest 单元，更新 dream catalog，并写入主动交互使用的兴趣主题。
+`digest/` 是长期知识层，也是知识库真正进化的部分。Auto-Dream 读取近期每日记忆，提取可复用的 memory unit，把每个 unit
+整合进一个 digest 节点，更新 dream catalog，并写入主动交互使用的兴趣主题。
 
 - **位置**：`{working_dir}/digest/`
-- **用途**：跨会话的高层记忆和主动交互兴趣主题
+- **Bucket**：`personal/`（用户、团队、项目身份、偏好与约定）、`procedure/`（how-to 工作流、runbook、可复用方法）、
+  `wiki/`（定义、原则、观察、作为先例的决策）
+- **进化而非追加**：每个 unit 以 `CREATE`、`CORROBORATE`、`REFINE`、`CORRECT` 之一整合，重复事实会被合并强化而非制造副本
+- **Wikilink 图**：节点带有来源边（`derived_from:: [[memory/<date>/<note>.md]]`）与关系边
+  （`relates_to:: [[digest/...]]`），让 digest 记忆保持可追溯、可连通；`memory_search` 会沿这些链接展开
 - **更新**：ReMe `auto_dream`，通常由 `dream_cron` 定时触发
 
 ### resource/（资源记忆）
@@ -187,6 +224,77 @@ graph LR
 
 > **总结**：单独使用任何一种检索方式都存在盲区。混合检索让两种信号互补，无论是「自然语言提问」还是「精确查找」，都能获得可靠的召回结果。
 
+### 验证向量检索是否生效
+
+可以让 Agent 调用 `memory_search` 并原样返回工具结果。把 `xxx` 替换成要测试的查询：
+
+```text
+请调用 memory_search 工具搜索 "xxx"。请原样返回工具结果，包括所有分隔线以及
+score、vector、keyword 字段，不要总结或改写。
+```
+
+若要验证语义召回而不是关键词匹配，可以先保存一条记忆，例如
+“我首选的通勤工具是一辆轻便自行车。”，再搜索“用户平时怎样去上班？”。两句话没有明显的关键词重合，
+但语义相近，因此更容易观察向量检索是否命中。
+
+下面的分数仅用于说明输出格式：
+
+**仅向量分支命中：**
+
+```text
+========== memory/2026-07-23/commute.md:1-6 [score=0.8237] ==========
+我首选的通勤工具是一辆轻便自行车。
+```
+
+此时 `score` 是原始余弦相似度。
+
+**仅 BM25 分支命中：**
+
+```text
+========== memory/2026-07-23/commute.md:1-6 [score=3.1842] ==========
+我首选的通勤工具是一辆轻便自行车。
+```
+
+此时 `score` 是原始 BM25 分数。只有 `[score=...]` 时，单看数值不能严格判断是哪一路；
+应结合查询是否存在精确关键词，或者查看下面的检索日志。
+
+**两路均有候选的混合检索：**
+
+```text
+========== memory/2026-07-23/commute.md:1-6 [score=0.0164 vector=0.8237 keyword=3.1842] ==========
+我首选的通勤工具是一辆轻便自行车。
+
+========== memory/2026-07-20/purchase.md:3-7 [score=0.0113 vector=0.7915 keyword=-] ==========
+用户买了一辆轻便的两轮交通工具。
+
+========== memory/2026-07-18/maintenance.md:2-5 [score=0.0048 vector=- keyword=2.5176] ==========
+周末安排了自行车维护。
+```
+
+- `score`：RRF 融合分数
+- `vector`：原始向量余弦相似度；出现数值可直接确认向量分支返回了该结果
+- `keyword`：原始 BM25 分数
+- `-`：该结果没有被对应分支召回
+
+日志中的 `vector_hits=N keyword_hits=M` 可以确认每一路返回的候选数量。Embedding
+健康检查还会发送一次 `"ping"` 测试请求，并校验返回向量维度：
+
+```text
+[EMBEDDING HEALTH CHECK] name=default workspace_dir=<workspace> -> OK
+```
+
+`-> OK` 表示 embedding 服务可访问且返回维度与配置一致。失败时日志会包含原因，例如：
+
+```text
+[EMBEDDING HEALTH CHECK] name=default workspace_dir=<workspace> -> FAIL timeout(5.0s)
+[EMBEDDING HEALTH CHECK] name=default workspace_dir=<workspace> -> FAIL RuntimeError: embedding dimension mismatch: <actual> != <configured>
+[EMBEDDING HEALTH CHECK] name=default workspace_dir=<workspace> -> FAIL <ExceptionType>: <message>
+```
+
+健康检查会在加载持久化 chunk、发现缺失向量并需要 backfill 时运行；如果已有 chunk
+都包含有效向量，它不一定在每次启动时出现。此时搜索结果中的数值 `vector=...`
+仍是向量分支实际命中的直接证据。
+
 ---
 
 ## 记忆配置
@@ -195,18 +303,19 @@ graph LR
 
 记忆配置位于 `agent.json` 的 `running.reme_light_memory_config` 中：
 
-| 配置项                   | 说明                                                                             | 默认值           |
-| ------------------------ | -------------------------------------------------------------------------------- | ---------------- |
-| `metadata_dir`           | ReMe 持久状态目录，用于保存索引、catalog、graph 和缓存                           | `"mem_metadata"` |
-| `session_dir`            | 来源对话保存目录                                                                 | `"mem_session"`  |
-| `mem_session_dir`        | ReMe 内部 memory-agent 会话目录                                                  | `"mem_agent"`    |
-| `resource_dir`           | `auto_resource` 监听的资源目录                                                   | `"resource"`     |
-| `daily_dir`              | 每日记忆目录                                                                     | `"memory"`       |
-| `digest_dir`             | dream/digest 记忆目录                                                            | `"digest"`       |
-| `summarize_when_compact` | 是否在上下文压缩前将待保存回合提交给 Auto-Memory                                 | `true`           |
-| `auto_memory_interval`   | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆         | `5`              |
-| `dream_cron_enabled`     | 是否启用按 Cron 定时执行的 Auto-Dream 任务                                       | `true`           |
-| `dream_cron`             | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动 | `"0 23 * * *"`   |
+| 配置项                   | 说明                                                                                | 默认值           |
+| ------------------------ | ----------------------------------------------------------------------------------- | ---------------- |
+| `metadata_dir`           | ReMe 持久状态目录，用于保存索引、catalog、graph 和缓存                              | `"mem_metadata"` |
+| `session_dir`            | 来源对话保存目录                                                                    | `"mem_session"`  |
+| `mem_session_dir`        | ReMe 内部 memory-agent 会话目录                                                     | `"mem_agent"`    |
+| `resource_dir`           | `auto_resource` 监听的资源目录                                                      | `"resource"`     |
+| `daily_dir`              | 每日记忆目录                                                                        | `"memory"`       |
+| `digest_dir`             | dream/digest 记忆目录                                                               | `"digest"`       |
+| `summarize_when_compact` | 是否在上下文压缩前将待保存回合提交给 Auto-Memory                                    | `true`           |
+| `inbox_push_enabled`     | 是否将 `auto_memory`、`auto_dream`、`auto_resource` 的 job 结果推送到 QwenPaw inbox | `true`           |
+| `auto_memory_interval`   | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆            | `5`              |
+| `dream_cron_enabled`     | 是否启用按 Cron 定时执行的 Auto-Dream 任务                                          | `true`           |
+| `dream_cron`             | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动    | `"0 23 * * *"`   |
 
 ### 重建记忆搜索索引
 

@@ -91,12 +91,18 @@ from qwenpaw.sandbox.windows_unelevated_sandbox import _WC
 class TestFactoryRouting:
     """Test that create_sandbox routes allow_read_all=True to this backend."""
 
+    @patch("qwenpaw.sandbox.config.sys")
     @patch(
         "qwenpaw.sandbox.windows_unelevated_sandbox._is_admin",
         return_value=True,
     )
-    def test_allow_read_all_true_routes_to_restricted(self, mock_admin):
+    def test_allow_read_all_true_routes_to_restricted(
+        self,
+        mock_admin,
+        mock_sys,
+    ):
         """allow_read_all=True + admin → WindowsElevatedSandbox."""
+        mock_sys.platform = "win32"
         from qwenpaw.sandbox import create_sandbox
 
         config = SandboxConfig(
@@ -107,8 +113,10 @@ class TestFactoryRouting:
         sandbox = create_sandbox(config)
         assert isinstance(sandbox, WindowsElevatedSandbox)
 
-    def test_allow_read_all_false_does_not_route_here(self):
+    @patch("qwenpaw.sandbox.config.sys")
+    def test_allow_read_all_false_does_not_route_here(self, mock_sys):
         """allow_read_all=False routes to AppContainerSandbox."""
+        mock_sys.platform = "win32"
         from qwenpaw.sandbox import create_sandbox
         from qwenpaw.sandbox.windows_appcontainer_sandbox import (
             WindowsAppContainerSandbox,

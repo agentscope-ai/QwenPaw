@@ -15,6 +15,7 @@ from qwenpaw.app.chats.title_generator import _clean_title
 from qwenpaw.constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SCROLL_MEMORY_MESSAGE_TAG,
+    SYNTHETIC_USER_MESSAGE_TAGS,
 )
 
 
@@ -214,6 +215,65 @@ def test_msg_to_message_preserves_ordinary_memory_named_message():
     [message] = agentscope_msg_to_message(user_msg)
     rendered = "".join(c.text for c in message.content)
     assert rendered == "remember this preference"
+
+
+def test_msg_to_message_omits_synthetic_user_stubs():
+    """Runtime-injected user-role stubs (auto-continue, loop continuation,
+    rubric evaluation) are model-only context. Rendering them as user cards
+    made the original instruction appear rewritten after a session switch."""
+    for tag in SYNTHETIC_USER_MESSAGE_TAGS:
+        stub = Msg(
+            name="user",
+            role="user",
+            content=[
+                {"type": "text", "text": "Continue working on the task."},
+            ],
+            metadata={QWENPAW_MESSAGE_TAG_KEY: tag},
+        )
+        assert not agentscope_msg_to_message(stub), tag
+
+
+def test_msg_to_message_omits_visual_compression_placeholders():
+    """Visual-compression collapse rewrites history into user-role
+    ``visual_history`` / ``visual_context`` messages. They are model-only
+    reconstructions, never the user's transcript."""
+    for name in ("visual_history", "visual_context"):
+        collapsed = Msg(
+            name=name,
+            role="user",
+            content=[
+                {"type": "text", "text": "[pages 1-3 of prior history]"},
+            ],
+        )
+        assert not agentscope_msg_to_message(collapsed), name
+
+
+def test_msg_to_message_keeps_user_message_with_unknown_tag():
+    user_msg = Msg(
+        name="user",
+        role="user",
+        content=[{"type": "text", "text": "real question"}],
+        metadata={QWENPAW_MESSAGE_TAG_KEY: "some_future_tag"},
+    )
+
+    [message] = agentscope_msg_to_message(user_msg)
+    rendered = "".join(c.text for c in message.content)
+    assert rendered == "real question"
+
+
+def test_msg_to_message_keeps_assistant_message_with_synthetic_tag():
+    """The synthetic-tag filter is scoped to user-role stubs only."""
+    tag = next(iter(SYNTHETIC_USER_MESSAGE_TAGS))
+    assistant_msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": "still working"}],
+        metadata={QWENPAW_MESSAGE_TAG_KEY: tag},
+    )
+
+    [message] = agentscope_msg_to_message(assistant_msg)
+    rendered = "".join(c.text for c in message.content)
+    assert rendered == "still working"
 
 
 def test_history_batch_hides_scroll_internals_but_keeps_transcript():

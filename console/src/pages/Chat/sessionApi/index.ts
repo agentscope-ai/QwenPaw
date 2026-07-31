@@ -16,6 +16,7 @@ import {
   extractLatestSnapshotFromCards,
 } from "../turnUsage";
 import { useTurnUsageStore } from "../turnUsageStore";
+import { QWENPAW_CLIENT_MESSAGE_ID_KEY } from "../../../utils/clientMessageId";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -163,6 +164,18 @@ const extractTextFromContent = (content: unknown): string => {
     .join("\n");
 };
 
+const extractClientMessageId = (metadata: unknown): string | undefined => {
+  if (!metadata || typeof metadata !== "object") return undefined;
+  const nestedMetadata = (metadata as Record<string, unknown>).metadata;
+  if (!nestedMetadata || typeof nestedMetadata !== "object") {
+    return undefined;
+  }
+  const candidate = (nestedMetadata as Record<string, unknown>)[
+    QWENPAW_CLIENT_MESSAGE_ID_KEY
+  ];
+  return typeof candidate === "string" ? candidate : undefined;
+};
+
 function resolveContentItemUrl(c: ContentItem): ContentItem {
   if (c.type === "image" && c.image_url) {
     return { ...c, image_url: toDisplayUrl(c.image_url as string) };
@@ -246,6 +259,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
               role: "user",
               type: "message",
               content: contentParts,
+              metadata: msg.metadata ?? null,
             },
           ],
         },
@@ -420,6 +434,7 @@ const STORAGE_PREFIX = "qwenpaw_pending_user_msg_";
 /** Shape stored in sessionStorage. Backward compat: old format was plain text. */
 interface PendingUserMsg {
   text: string;
+  clientMessageId?: string;
   /** Full content array (stored-name format) for rebuilding the user card
    *  with attachments. When absent, only text is displayed. */
   content?: Array<{ type: string; [key: string]: unknown }>;
@@ -791,15 +806,33 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     sessionId: string,
     text: string,
     content?: Array<{ type: string; [key: string]: unknown }>,
+    clientMessageId?: string,
   ): void {
     if (!sessionId || !text) return;
     // Invalidate LRU cache so switching back fetches fresh messages
     this.invalidateConvertedCache(sessionId);
     if (content && content.length > 0) {
-      savePendingUserMessage(sessionId, { text, content });
+      savePendingUserMessage(sessionId, { text, content, clientMessageId });
+    } else if (clientMessageId) {
+      savePendingUserMessage(sessionId, { text, clientMessageId });
     } else {
       savePendingUserMessage(sessionId, text);
     }
+  }
+
+  /** Remove a pending message only when it still belongs to this request. */
+  discardLastUserMessage(sessionId: string, clientMessageId?: string): void {
+    if (!sessionId) return;
+    const cached = loadPendingUserMessage(sessionId);
+    if (!cached) return;
+    if (
+      clientMessageId &&
+      cached.clientMessageId &&
+      cached.clientMessageId !== clientMessageId
+    ) {
+      return;
+    }
+    clearPendingUserMessage(sessionId);
   }
 
   /**
@@ -869,20 +902,48 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * completes). If generating, look up the cached data from sessionStorage
    * and patch it into the message list (including any attachments).
    *
-   * When not generating the conversation is done — clear the cached entry.
+   * When not generating the conversation is done — clear the cached entry
+   * once the fetched history contains the pending text.
+   *
+   * Returns true when an unconfirmed pending message was patched in (the
+   * history is incomplete and must not be treated as canonical).
    */
   private patchLastUserMessage(
     messages: IAgentScopeRuntimeWebUIMessage[],
     generating: boolean,
     backendSessionId: string,
-  ): void {
-    if (!generating) {
-      clearPendingUserMessage(backendSessionId);
-      return;
+  ): boolean {
+    const cached = loadPendingUserMessage(backendSessionId);
+    if (!cached || !cached.text) {
+      if (!generating) clearPendingUserMessage(backendSessionId);
+      return false;
     }
 
-    const cached = loadPendingUserMessage(backendSessionId);
-    if (!cached || !cached.text) return;
+    // When the chat is idle, clear the cache only after the fetched
+    // history actually contains the pending text. Clearing
+    // unconditionally lost the last message in two windows: POST sent
+    // but the run not registered yet (status still "idle"), and
+    // generation completed but the memory flush not finished.
+    if (!generating) {
+      let lastUserText = "";
+      let lastUserClientMessageId: string | undefined;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role !== ROLE_USER) continue;
+        const input = messages[i]?.cards?.[0]?.data?.input?.[0];
+        lastUserText = extractTextFromContent(input?.content);
+        lastUserClientMessageId = extractClientMessageId(input?.metadata);
+        break;
+      }
+      const persistenceConfirmed = cached.clientMessageId
+        ? lastUserClientMessageId === cached.clientMessageId
+        : lastUserText.trim() === cached.text.trim();
+      if (persistenceConfirmed) {
+        clearPendingUserMessage(backendSessionId);
+        return false;
+      }
+      // History is missing the turn — fall through and patch it in,
+      // keeping the cache until a later fetch confirms persistence.
+    }
 
     // Use the full content array (with images/files) when available;
     // fall back to text-only for legacy entries.
@@ -909,6 +970,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         } as Message),
       );
     }
+    return true;
   }
 
   private createEmptySession(
@@ -1310,7 +1372,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
-    this.patchLastUserMessage(messages, generating, backendId);
+    const patchedPending = this.patchLastUserMessage(
+      messages,
+      generating,
+      backendId,
+    );
 
     const session: ExtendedSession = {
       id: displayId,
@@ -1326,7 +1392,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     // Cache non-generating sessions — only within the epoch that fetched
     // them, so a stale load cannot write into the new agent's cache.
-    if (!generating && this.isActiveOwner(owner)) {
+    // A history patched with an unconfirmed pending message is NOT
+    // canonical (the agent reply may still be missing): caching it would
+    // keep serving the incomplete turn for the whole cache TTL.
+    if (!generating && !patchedPending && this.isActiveOwner(owner)) {
       this.setCachedConvertedSession(
         backendId,
         session,

@@ -4,7 +4,18 @@
 ReMe application in-process and runs ReMe jobs to save conversation facts, build daily notes, extract digest memories,
 watch resource files, and search the memory vault.
 
-> The long-term memory mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented via **ReMeLight** from [ReMe](https://github.com/agentscope-ai/ReMe) — a file-based memory backend where memories are plain Markdown files that can be read, edited, and migrated directly.
+> The long-term memory mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented via **ReMeLight** from [ReMe](https://github.com/agentscope-ai/ReMe) — a file-based memory backend where working and long-term memory nodes are plain Markdown files that can be read, edited, and migrated directly.
+
+ReMe's core goal is to grow a **self-evolving personal knowledge base** on the principle of _Memory as File, File as Memory_. Every working or long-term memory node is a plain Markdown file — readable, editable, traceable, portable, and maintained collaboratively by you and the agent — and at the same time indexable and linkable. Raw sources and derived system state use formats suited to their roles. The workspace organizes memory into four layers:
+
+| Layer            | QwenPaw directory           | Role                                                          |
+| ---------------- | --------------------------- | ------------------------------------------------------------- |
+| Raw input        | `mem_session/`, `resource/` | Original conversations and external material kept as evidence |
+| Working memory   | `memory/`                   | Daily notes: facts, decisions, and resource readings          |
+| Long-term memory | `digest/`                   | Reusable knowledge nodes (`personal` / `procedure` / `wiki`)  |
+| System state     | `mem_metadata/`             | Indexes, wikilink graph, catalogs — not hand-edited           |
+
+Memory evolves through a **capture → index → consolidate → recall** loop: Auto-Memory / Auto-Resource capture daily notes, indexing keeps them searchable, Auto-Dream consolidates them into linked digest nodes, and search / proactive recall them. For the full narrative — including how Auto-Dream corroborates, refines, and corrects digest nodes and weaves the wikilink graph — see [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive). The sections below cover the technical implementation and configuration.
 
 ---
 
@@ -60,8 +71,29 @@ while `mem_metadata/` stores search indexes, catalogs, graphs, and embedding cac
 │
 ├── digest/                         ← Auto-Dream digest memory and interest topics
 ├── resource/                       ← External assets watched by auto_resource
-└── mem_metadata/                   ← ReMe persistent indexes and catalogs
+└── mem_metadata/                   ← ReMe persistent indexes, graph, catalogs, and caches
+    ├── file_store/
+    │   └── file_chunks_default_v1.jsonl.zst
+    ├── file_graph/
+    │   └── default.jsonl.zst
+    ├── file_catalog/
+    │   ├── default.jsonl.zst
+    │   ├── resource.jsonl.zst
+    │   ├── digest.jsonl.zst
+    │   └── dream.jsonl.zst
+    ├── embedding_store/
+    │   └── default_v1.npz
+    └── keyword_index/
+        └── bm25_default_<tokenizer>_<fingerprint>_v1.pkl
 ```
+
+Under the default workspace layout, the full path is
+`~/.qwenpaw/workspaces/{agent_id}/mem_metadata/`.
+`file_store/file_chunks_default_v1.jsonl.zst` is the authoritative chunk store. Vectors are encoded as float16 in
+the `_embedding_f16_b64` field of its compressed JSONL records, rather than in a separate vector-database directory.
+`embedding_store/default_v1.npz` is the local embedding cache used when `enable_cache` is enabled; it is not the
+authoritative index and may not appear until the cache is persisted. The tokenizer name and fingerprint in the actual
+BM25 filename vary with configuration.
 
 ### memory/YYYY-MM-DD/\*.md (Daily Notes)
 
@@ -86,11 +118,17 @@ are stripped so recalled memory or large media cannot be mistaken for user-provi
 
 ### digest/ (Dream Memory)
 
-Auto-Dream reads recent daily notes, extracts merged digest units, updates the dream catalog, and writes user-interest
-topics for proactive use.
+`digest/` is the long-term knowledge layer — the part of the knowledge base that actually evolves. Auto-Dream reads recent
+daily notes, extracts reusable memory units, integrates each into a digest node, updates the dream catalog, and writes
+user-interest topics for proactive use.
 
 - **Location**: `{working_dir}/digest/`
-- **Purpose**: Higher-level, cross-session memory and proactive-interest topics
+- **Buckets**: `personal/` (user, team, and project identity, preferences, and conventions), `procedure/` (how-to
+  workflows, runbooks, and reusable methods), and `wiki/` (definitions, principles, observations, and decision precedents)
+- **Evolution, not append**: each unit is integrated with a `CREATE`, `CORROBORATE`, `REFINE`, or `CORRECT` action, so
+  repeated facts are merged and strengthened rather than duplicated
+- **Wikilink graph**: nodes carry source edges (`derived_from:: [[memory/<date>/<note>.md]]`) and relationship edges
+  (`relates_to:: [[digest/...]]`) so digest memory stays traceable and connected; `memory_search` expands along these links
 - **Updates**: ReMe `auto_dream`, usually triggered by `dream_cron`
 
 ### resource/ (Resource Memory)
@@ -197,6 +235,79 @@ graph LR
 > **Summary**: Using any single search method alone has blind spots. Hybrid search lets the two signals complement each
 > other, delivering reliable recall whether you're asking in natural language or searching for exact terms.
 
+### Verifying That Vector Search Is Working
+
+Ask the Agent to call `memory_search` and return its tool result verbatim. Replace `xxx` with the query to test:
+
+```text
+Please call the memory_search tool and search for "xxx". Return the raw tool result exactly as-is,
+including every separator line and all score, vector, and keyword fields. Do not summarize or rewrite the result.
+```
+
+To test semantic recall rather than keyword matching, first save a memory such as "My preferred commute is a
+lightweight bicycle.", then search for "How does the user usually travel to work?". The sentences have no obvious
+keyword overlap but are semantically related, making a vector hit easier to identify.
+
+The scores below are illustrative:
+
+**Only the vector branch has a hit:**
+
+```text
+========== memory/2026-07-23/commute.md:1-6 [score=0.8237] ==========
+My preferred commute is a lightweight bicycle.
+```
+
+Here, `score` is the raw cosine-similarity score.
+
+**Only the BM25 branch has a hit:**
+
+```text
+========== memory/2026-07-23/commute.md:1-6 [score=3.1842] ==========
+My preferred commute is a lightweight bicycle.
+```
+
+Here, `score` is the raw BM25 score. When the output contains only `[score=...]`, the number alone does not strictly
+identify which branch produced it; consider whether the query contains an exact keyword match or inspect the search
+log described below.
+
+**Hybrid retrieval, with candidates from both branches:**
+
+```text
+========== memory/2026-07-23/commute.md:1-6 [score=0.0164 vector=0.8237 keyword=3.1842] ==========
+My preferred commute is a lightweight bicycle.
+
+========== memory/2026-07-20/purchase.md:3-7 [score=0.0113 vector=0.7915 keyword=-] ==========
+The user bought a lightweight two-wheeled vehicle.
+
+========== memory/2026-07-18/maintenance.md:2-5 [score=0.0048 vector=- keyword=2.5176] ==========
+Bicycle maintenance is scheduled for the weekend.
+```
+
+- `score`: the RRF-fused score
+- `vector`: the raw vector cosine similarity; a numeric value directly confirms that the vector branch returned this result
+- `keyword`: the raw BM25 score
+- `-`: the corresponding branch did not retrieve this result
+
+The search log contains `vector_hits=N keyword_hits=M`, which confirms how many candidates each branch returned.
+The embedding health check also sends a `"ping"` test request and validates the returned vector dimension:
+
+```text
+[EMBEDDING HEALTH CHECK] name=default workspace_dir=<workspace> -> OK
+```
+
+`-> OK` means that the embedding provider is reachable and its output dimension matches the configuration. Failures
+include the reason, for example:
+
+```text
+[EMBEDDING HEALTH CHECK] name=default workspace_dir=<workspace> -> FAIL timeout(5.0s)
+[EMBEDDING HEALTH CHECK] name=default workspace_dir=<workspace> -> FAIL RuntimeError: embedding dimension mismatch: <actual> != <configured>
+[EMBEDDING HEALTH CHECK] name=default workspace_dir=<workspace> -> FAIL <ExceptionType>: <message>
+```
+
+The health check runs while loading persisted chunks when vectors are missing and need to be backfilled. It may
+therefore not be emitted on every startup when all stored chunks already contain valid vectors. In that case, a
+numeric `vector=...` field in a search result remains direct evidence that the vector branch returned a hit.
+
 ---
 
 ## Backup & Restore
@@ -254,6 +365,7 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 | `daily_dir`              | Directory for daily memory notes                                                                                                | `"memory"`       |
 | `digest_dir`             | Directory for dream/digest memory                                                                                               | `"digest"`       |
 | `summarize_when_compact` | Whether pending turns are flushed to Auto-Memory before context compression                                                     | `true`           |
+| `inbox_push_enabled`     | Whether `auto_memory`, `auto_dream`, and `auto_resource` job results are pushed to the QwenPaw inbox                            | `true`           |
 | `auto_memory_interval`   | Auto-Memory every N user turns. `None` or `<= 0` disables periodic Auto-Memory                                                  | `5`              |
 | `dream_cron_enabled`     | Whether the scheduled Auto-Dream job is enabled                                                                                 | `true`           |
 | `dream_cron`             | Valid 5-field cron expression for Auto-Dream (required when enabled); scheduled runs start after a random delay of 0–60 seconds | `"0 23 * * *"`   |

@@ -48,6 +48,7 @@ from acp.schema import (
     Implementation,
     ListSessionsResponse,
     McpServerStdio,
+    ModelInfo as ACPModelInfo,
     PermissionOption,
     ResourceContentBlock,
     ResumeSessionResponse,
@@ -57,6 +58,7 @@ from acp.schema import (
     SessionConfigSelectOption,
     SessionInfo,
     SessionListCapabilities,
+    SessionModelState,
     SessionResumeCapabilities,
     SetSessionConfigOptionResponse,
     SseMcpServer,
@@ -73,7 +75,7 @@ from qwenpaw.schemas import (
 
 from ...__version__ import __version__
 from ...constant import WORKING_DIR
-from ...config.config import ModelSlotConfig
+from ...config.config import ModelSlotConfig, load_agent_config
 from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
 from .meta import (
@@ -465,6 +467,7 @@ class QwenPawACPAgent(Agent):
         return NewSessionResponse(
             session_id=session_id,
             config_options=self._build_config_options(session_id),
+            models=await self._build_model_state(),
             field_meta=self._session_meta(),
         )
 
@@ -1079,6 +1082,49 @@ class QwenPawACPAgent(Agent):
             return None
         return {ACP_AGENT_META_KEY: agent_id} if agent_id else None
 
+    async def _build_model_state(self) -> SessionModelState | None:
+        """Build the ACP ``SessionModelState`` from the provider manager.
+
+        Collects all available models across all providers and determines
+        the current active model so ACP clients can present a model
+        selector to users.
+        """
+        try:
+            manager = ProviderManager.get_instance()
+            provider_infos = await manager.list_provider_info()
+
+            available_models: list[ACPModelInfo] = []
+            for pinfo in provider_infos:
+                for model in pinfo.models + pinfo.extra_models:
+                    available_models.append(
+                        ACPModelInfo(
+                            model_id=f"{pinfo.id}:{model.id}",
+                            name=model.name,
+                        ),
+                    )
+
+            agent_id = self._resolve_agent_id()
+            agent_config = load_agent_config(agent_id)
+            active = agent_config.active_model
+            if active and active.provider_id and active.model:
+                current_model_id = f"{active.provider_id}:{active.model}"
+            else:
+                current_model_id = ""
+                logger.warning(
+                    "ACP: no active model configured for agent %s",
+                    agent_id,
+                )
+
+            return SessionModelState(
+                available_models=available_models,
+                current_model_id=current_model_id,
+            )
+        except Exception:
+            logger.exception(
+                "ACP: failed to build model state",
+            )
+            return None
+
     def _build_available_commands(
         self,
     ) -> list[AvailableCommand]:
@@ -1259,7 +1305,6 @@ class QwenPawACPAgent(Agent):
                 )
 
         from ...config.config import (
-            load_agent_config,
             save_agent_config,
         )
 
