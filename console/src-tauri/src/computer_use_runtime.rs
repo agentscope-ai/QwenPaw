@@ -5,7 +5,6 @@
 //! spawn flag remain Windows specific (macOS relies on the helper's own
 //! parent-death watch for reaping).
 
-#[cfg(not(windows))]
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
