@@ -24,6 +24,7 @@ from qwenpaw.agents.context.scroll.sync import (
     sync_all_scroll_agents,
     sync_sessions_to_history,
 )
+from qwenpaw.agents.context.types import LogEntry
 
 
 def _sample_msgs() -> list[Msg]:
@@ -140,6 +141,51 @@ def test_sync_is_idempotent_via_manifest(store, tmp_path: Path):
     assert store.count("sid") == total
 
 
+def test_v1_manifest_is_invalidated_for_session_retention_backfill(
+    store,
+    tmp_path: Path,
+):
+    sessions = tmp_path / "sessions"
+    path = _write_session_2x(
+        sessions,
+        "conv.json",
+        "sid",
+        _sample_msgs(),
+    )
+    store.append(
+        session_id="sid",
+        dedup_key="existing",
+        entry=LogEntry(kind="model_turn", content="existing"),
+    )
+    manifest_path = sessions / MANIFEST_NAME
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "files": {
+                    "conv.json": {
+                        "sha256": sync_mod._sha256(path),
+                        "session_id": "sid",
+                        "rows_processed": 1,
+                        "rows_inserted": 1,
+                    },
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    report = sync_sessions_to_history(
+        history=store,
+        sessions_dir=sessions,
+    )
+
+    assert report.rows_inserted > 0
+    assert not any(f.skipped for f in report.files)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["version"] == 2
+
+
 def test_manifest_skip_self_heals_when_db_was_reset(tmp_path: Path):
     """A surviving manifest must NOT skip a session missing from a fresh DB.
 
@@ -169,6 +215,45 @@ def test_manifest_skip_self_heals_when_db_was_reset(tmp_path: Path):
         assert h2.count("sid") == 0
         report = sync_sessions_to_history(history=h2, sessions_dir=sessions)
         # Verified skip detected the empty session and re-synced it.
+        assert report.rows_inserted > 0
+        assert h2.count("sid") > 0
+    finally:
+        h2.close()
+
+
+def test_zero_insert_manifest_self_heals_when_db_was_reset(tmp_path: Path):
+    """A v2 re-scan may insert nothing, but still represents expected rows."""
+    sessions = tmp_path / "sessions"
+    _write_session_2x(sessions, "conv.json", "sid", _sample_msgs())
+
+    db_path = tmp_path / "history.db"
+    h1 = HistoryStore(db_path)
+    try:
+        first = sync_sessions_to_history(
+            history=h1,
+            sessions_dir=sessions,
+            use_manifest=False,
+        )
+        assert first.rows_inserted > 0
+        rescan = sync_sessions_to_history(
+            history=h1,
+            sessions_dir=sessions,
+        )
+        assert rescan.rows_inserted == 0
+    finally:
+        h1.close()
+
+    for suffix in ("", "-wal", "-shm"):
+        path = Path(str(db_path) + suffix)
+        if path.exists():
+            path.unlink()
+
+    h2 = HistoryStore(db_path)
+    try:
+        report = sync_sessions_to_history(
+            history=h2,
+            sessions_dir=sessions,
+        )
         assert report.rows_inserted > 0
         assert h2.count("sid") > 0
     finally:
@@ -308,7 +393,7 @@ def _write_session_dated(
     return path
 
 
-def test_retention_skips_messages_older_than_window(store, tmp_path: Path):
+def test_retention_keeps_old_messages_in_active_session(store, tmp_path: Path):
     sessions = tmp_path / "sessions"
     now = datetime.now(timezone.utc)
     old = (now - timedelta(days=40)).isoformat()
@@ -325,14 +410,14 @@ def test_retention_skips_messages_older_than_window(store, tmp_path: Path):
         sessions_dir=sessions,
         retention_days=30,
     )
-    assert report.aged_out == 1  # the 40-day-old user turn was skipped
-    assert store.count("sid") > 0  # the recent assistant turn landed
-    # The aged-out message's content must NOT be in the DB.
+    assert report.aged_out == 0
+    assert store.count("sid") > 0
+    # A recent message keeps the complete session, including its older turn.
     rows = store._conn.execute(
         "SELECT 1 FROM conversation_history "
         "WHERE content LIKE '%please do X%'",
     ).fetchall()
-    assert rows == []
+    assert len(rows) == 1
 
 
 def test_retention_zero_keeps_everything(store, tmp_path: Path):

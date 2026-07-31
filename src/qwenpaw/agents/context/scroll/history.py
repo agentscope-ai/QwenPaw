@@ -529,14 +529,54 @@ class HistoryStore:
         tool output (the bulk of the bloat) while keeping the conversation
         turns. The FTS index is kept in sync (each purged row is removed from
         it first). Rows with a NULL/empty ``created_at`` are never matched, so
-        they are retained. This is the retention/clear path — driven on
-        startup and teardown by ``history_retention_days`` (default 30; set 0
-        to keep history forever, which calls nothing here).
+        they are retained. Automatic retention uses
+        :meth:`purge_inactive_sessions`; this row-scoped method remains
+        available for targeted/manual cleanup.
 
         Note: this DELETEs but does not ``VACUUM``, so freed pages are reused
         but the file does not shrink on disk until a separate vacuum.
         """
         where, params = self._purge_where(before, kinds)
+        return self._purge_matching(
+            where=where,
+            params=params,
+            dry_run=dry_run,
+        )
+
+    def purge_inactive_sessions(
+        self,
+        *,
+        before: str,
+        dry_run: bool = False,
+    ) -> int:
+        """Delete whole sessions whose latest row predates ``before``.
+
+        A session's latest ``created_at`` is its durable last-activity time.
+        Keeping every row of an active session prevents retention from
+        silently truncating long-running conversations. Sessions containing
+        only unstamped rows are retained conservatively.
+        """
+        where = (
+            "session_id IN ("
+            "SELECT session_id FROM conversation_history "
+            "GROUP BY session_id "
+            "HAVING MAX(created_at) IS NOT NULL AND MAX(created_at) < ?"
+            ")"
+        )
+        return self._purge_matching(
+            where=where,
+            params=[before],
+            dry_run=dry_run,
+        )
+
+    def _purge_matching(
+        self,
+        *,
+        where: str,
+        params: list,
+        dry_run: bool,
+    ) -> int:
+        """Delete rows matching a trusted SQL predicate, keeping FTS synced."""
         with self._lock, self._conn:
             doomed = self._conn.execute(
                 "SELECT seq, content FROM conversation_history WHERE " + where,

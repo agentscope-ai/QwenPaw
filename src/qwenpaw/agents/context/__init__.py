@@ -54,10 +54,11 @@ def scroll_unsandboxed_allowed(scroll_config: Any) -> bool:
     return bool(getattr(scroll_config, "allow_unsandboxed", False))
 
 
-# history.db auto-purges past history_retention_days (default 30), but an
-# operator can disable that (set 0) or a very chatty agent can outpace it, so
-# the store may still grow large. Warn when it crosses this size. Process-level
-# dedupe keeps a long-lived server from re-warning on every agent build.
+# history.db auto-purges sessions inactive past history_retention_days
+# (default 30), but an operator can disable that (set 0) or active agents can
+# outpace it, so the store may still grow large. Warn when it crosses this
+# size. Process-level dedupe keeps a long-lived server from re-warning on every
+# agent build.
 _DB_SIZE_WARN_BYTES = 1 * 1024**3  # 1 GiB
 _DB_SIZE_WARNED: set[str] = set()
 
@@ -110,11 +111,11 @@ def _warn_db_size(db_path: Path) -> None:
         return
     _DB_SIZE_WARNED.add(key)
     logger.warning(
-        "scroll history at %s is %.1f GiB. Rows older than "
-        "history_retention_days (default 30) auto-purge on startup and on "
+        "scroll history at %s is %.1f GiB. Sessions inactive longer than "
+        "history_retention_days (default 30) auto-purge on startup and "
         "teardown; if you set history_retention_days=0 the store keeps "
-        "everything and grows without bound. Lower the retention window to "
-        "trim it.",
+        "everything and grows without bound. Lower the inactivity window "
+        "to trim it.",
         db_path,
         total / 1024**3,
     )

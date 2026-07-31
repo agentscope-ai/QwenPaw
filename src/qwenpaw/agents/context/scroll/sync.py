@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MANIFEST_NAME = ".synced.json"
-_MANIFEST_VERSION = 1
+_MANIFEST_VERSION = 2
 _SESSION_PREFIX = "sync:"
 
 
@@ -57,7 +57,7 @@ class FileResult:
     session_id: str = ""
     messages: int = 0  # messages read from the session state
     unparseable: int = 0  # messages that were not a decodable Msg
-    aged_out: int = 0  # messages skipped as older than the retention window
+    aged_out: int = 0  # messages skipped with an inactive session
     rows_processed: int = 0  # LogEntry rows attempted
     rows_inserted: int = 0  # rows actually new (delta of history.count)
     skipped: bool = False  # short-circuited via manifest (already synced)
@@ -122,7 +122,7 @@ class SyncReport:
             parts.append(f"{self.skipped_files} unchanged")
         if self.aged_out:
             parts.append(
-                f"{self.aged_out} message(s) older than retention",
+                f"{self.aged_out} message(s) from inactive sessions",
             )
         if self.unparseable:
             parts.append(f"{self.unparseable} message(s) unparseable")
@@ -234,10 +234,10 @@ def _sync_file(
     keys on its ``msg.id``; a tool result keys on its ``tool_call_id``, or — if
     it has none — on its position within the owning Msg.
 
-    With a ``cutoff`` (ISO-8601 instant), messages older than it are skipped:
-    they fall outside the retention window, so importing them would only
-    resurrect rows the same-boot purge deletes. Messages with no ``created_at``
-    are kept (purge skips NULL timestamps too, so the two stay consistent).
+    With a ``cutoff`` (ISO-8601 instant), a session is skipped only when its
+    latest stamped message predates the cutoff. Active sessions are imported
+    whole, matching the session-level retention purge. Sessions with no
+    stamped messages are kept conservatively.
     """
     res = FileResult(filename=rel_name)
     try:
@@ -264,15 +264,17 @@ def _sync_file(
     res.messages = len(messages)
     res.unparseable = unparseable
 
+    stamped_times = [
+        created_at
+        for msg in messages
+        if (created_at := getattr(msg, "created_at", None))
+    ]
+    if cutoff and stamped_times and max(stamped_times) < cutoff:
+        res.aged_out = len(messages)
+        return res
+
     pending_entries = []
     for row_index, msg in enumerate(messages):
-        # Skip messages older than the retention window so we don't import rows
-        # the same-boot purge would immediately delete. NULL timestamps are
-        # kept (purge skips them too).
-        created_at = getattr(msg, "created_at", None)
-        if cutoff and created_at and created_at < cutoff:
-            res.aged_out += 1
-            continue
         # Fallback id from row position: a re-run derives the same key (unlike
         # id(msg)), keeping dedup stable.
         mid = getattr(msg, "id", None) or f"{session_id}#row{row_index}"
@@ -319,7 +321,10 @@ def _skip_is_safe(history: "HistoryStore", prior: dict) -> bool:
     in *this* DB. A manifest with no rows is trivially safe; an empty session
     that should have rows means the DB was reset — re-sync (the UNIQUE index
     dedups, so a healthy DB only pays a re-read)."""
-    if int(prior.get("rows_inserted", 0)) <= 0:
+    expected_rows = int(
+        prior.get("rows_processed", prior.get("rows_inserted", 0)),
+    )
+    if expected_rows <= 0:
         return True
     session_id = prior.get("session_id") or ""
     if not session_id:
@@ -358,9 +363,10 @@ def sync_sessions_to_history(
     skipped via the manifest and the DB's UNIQUE index makes re-appends no-ops.
     Never deletes or rewrites the source session files.
 
-    ``retention_days`` (0 = keep forever) skips messages older than the window,
-    so we don't import rows the same-boot purge would delete. A fully aged-out
-    session imports 0 rows, and its manifest entry lets later boots skip it.
+    ``retention_days`` (0 = keep forever) skips a session only when its latest
+    message is older than the window, so active sessions remain complete. A
+    fully aged-out session imports 0 rows, and its manifest entry lets later
+    boots skip it.
     """
     sessions_path = Path(sessions_dir).expanduser()
     report = SyncReport()
@@ -448,7 +454,7 @@ def _purge_old_history(
     retention_days: int,
     agent_id: str | None = None,
 ) -> None:
-    """Drop history rows older than ``retention_days`` (0 = keep forever).
+    """Drop sessions inactive for ``retention_days`` (0 = keep forever).
 
     Runs on every startup so the store still shrinks even if the agent was
     killed before its teardown purge could run. Best-effort: a failure is
@@ -460,7 +466,7 @@ def _purge_old_history(
         datetime.now(timezone.utc) - timedelta(days=retention_days)
     ).isoformat()
     try:
-        removed = history.purge(before=cutoff)
+        removed = history.purge_inactive_sessions(before=cutoff)
     except Exception as exc:  # noqa: BLE001 - retention must never break boot
         logger.warning(
             "session-sync[%s]: retention purge failed: %s",
@@ -470,7 +476,8 @@ def _purge_old_history(
         return
     if removed:
         logger.info(
-            "session-sync[%s]: purged %d row(s) older than %dd",
+            "session-sync[%s]: purged %d row(s) from sessions inactive for "
+            "more than %dd",
             agent_id,
             removed,
             retention_days,

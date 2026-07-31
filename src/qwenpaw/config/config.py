@@ -893,10 +893,10 @@ class ScrollContextConfig(BaseModel):
         default=30,
         ge=0,
         description=(
-            "Days of durable history to keep; rows older than this are "
-            "purged automatically on startup and on agent teardown. Default "
-            "30 keeps roughly the last month. Set 0 to keep history forever "
-            "(unbounded growth — only the capacity warning fires)."
+            "Days an inactive session's durable history is kept. A session "
+            "whose latest row is older than this is purged as a whole on "
+            "startup and agent teardown. Default 30; set 0 to keep history "
+            "forever (unbounded growth — only the capacity warning fires)."
         ),
     )
 

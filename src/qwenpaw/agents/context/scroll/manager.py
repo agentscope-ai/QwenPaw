@@ -1989,12 +1989,16 @@ class ScrollContextManager:
         )
 
     def purge_old(self, retention_days: int, *, dry_run: bool = False) -> int:
-        """Drop durable history older than ``retention_days`` (0 = keep
-        forever). Returns the number of rows removed (or, with ``dry_run``,
-        that would be removed — nothing is deleted)."""
+        """Drop sessions inactive for ``retention_days`` (0 = keep forever).
+
+        Activity is the newest durable row in each session. Active sessions
+        are kept whole instead of losing their oldest rows incrementally.
+        Returns the number of rows removed (or, with ``dry_run``, that would
+        be removed — nothing is deleted).
+        """
         if retention_days <= 0:
             return 0
-        return self._history.purge(
+        return self._history.purge_inactive_sessions(
             before=self._cutoff(retention_days),
             dry_run=dry_run,
         )
