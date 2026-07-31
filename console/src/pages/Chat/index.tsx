@@ -385,7 +385,10 @@ async function startBackgroundQueue(
           }),
         });
 
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          sessionApi.discardLastUserMessage(chatIdForStatus, clientMessageId);
+          throw new Error(`HTTP ${res.status}`);
+        }
         fetchStarted = true;
 
         // Drain the stream; reaching `done` means the backend persisted the
@@ -2545,6 +2548,10 @@ export default function ChatPage() {
         body: JSON.stringify(requestBody),
         signal: data.signal,
       });
+
+      if (!response.ok && backendChatId) {
+        sessionApi.discardLastUserMessage(backendChatId, clientMessageId);
+      }
 
       const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
       if (response.ok && localIdToResolve) {

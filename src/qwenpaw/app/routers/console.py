@@ -297,6 +297,7 @@ async def post_console_chat(
             chat.id,
             native_payload,
             console_channel.stream_one,
+            owner=workspace,
         )
 
     async def event_generator() -> AsyncGenerator[str, None]:

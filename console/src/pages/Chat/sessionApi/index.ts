@@ -820,6 +820,21 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     }
   }
 
+  /** Remove a pending message only when it still belongs to this request. */
+  discardLastUserMessage(sessionId: string, clientMessageId?: string): void {
+    if (!sessionId) return;
+    const cached = loadPendingUserMessage(sessionId);
+    if (!cached) return;
+    if (
+      clientMessageId &&
+      cached.clientMessageId &&
+      cached.clientMessageId !== clientMessageId
+    ) {
+      return;
+    }
+    clearPendingUserMessage(sessionId);
+  }
+
   /**
    * Deduplicates concurrent getSessionList calls so that two parallel
    * invocations share one network request and write sessionList only once,

@@ -233,6 +233,7 @@ class MultiAgentManager:
         self,
         old_instance: Workspace,
         agent_id: str,
+        active_tasks: dict[str, asyncio.Future] | None = None,
     ) -> None:
         """Gracefully stop old instance after checking for active tasks.
 
@@ -243,35 +244,40 @@ class MultiAgentManager:
             old_instance: The old workspace instance to stop
             agent_id: Agent ID for logging
         """
-        has_active = await old_instance.task_tracker.has_active_tasks()
+        if active_tasks is None:
+            active_tasks = (
+                await old_instance.task_tracker.snapshot_active_tasks(
+                    owner=old_instance,
+                )
+            )
 
-        if has_active:
+        if active_tasks:
             # Active tasks - schedule delayed cleanup in background
-            active_tasks = await old_instance.task_tracker.list_active_tasks()
             logger.info(
                 f"Old workspace instance has {len(active_tasks)} active "
-                f"task(s): {active_tasks}. Scheduling delayed cleanup for "
+                f"task(s): {list(active_tasks)}. "
+                f"Scheduling delayed cleanup for "
                 f"{agent_id}.",
             )
 
             async def delayed_cleanup():
                 """Wait for tasks to complete, then stop old instance."""
                 try:
-                    # Wait up to 1 minutes for tasks to complete
-                    completed = await old_instance.task_tracker.wait_all_done(
-                        timeout=60.0,
-                    )
-                    if completed:
-                        logger.info(
-                            f"All tasks completed for old instance "
-                            f"{agent_id}. Stopping now.",
+                    while not (
+                        await old_instance.task_tracker.wait_tasks_done(
+                            list(active_tasks.values()),
+                            timeout=60.0,
                         )
-                    else:
+                    ):
                         logger.warning(
-                            f"Timeout waiting for tasks to complete for "
-                            f"{agent_id}. Forcing stop after 5 minutes.",
+                            f"Tasks are still active for old instance "
+                            f"{agent_id}. Keeping it alive until they finish.",
                         )
 
+                    logger.info(
+                        f"All tasks completed for old instance "
+                        f"{agent_id}. Stopping now.",
+                    )
                     await old_instance.stop(final=False)
                     logger.info(
                         f"Old workspace instance stopped: {agent_id}. "
@@ -427,6 +433,11 @@ class MultiAgentManager:
             old_instance = self.agents.get(agent_id)
 
         if old_instance:
+            # TaskTracker is agent-scoped rather than workspace-scoped. Reuse
+            # it before startup so reconnect/status/stop requests arriving
+            # after the atomic swap can still reach in-flight runs.
+            new_instance.set_task_tracker(old_instance.task_tracker)
+
             # Get all reusable services from old instance's ServiceManager
             # pylint: disable=protected-access
             reusable = old_instance._service_manager.get_reusable_services()
@@ -472,9 +483,21 @@ class MultiAgentManager:
             self.agents[agent_id] = new_instance
             logger.info(f"Workspace instance replaced: {agent_id}")
 
+        # Snapshot only runs owned by the old workspace. Runs started through
+        # the new workspace after the swap must not delay old resource cleanup.
+        old_active_tasks = (
+            await old_instance.task_tracker.snapshot_active_tasks(
+                owner=old_instance,
+            )
+        )
+
         # Step 5: Gracefully stop old instance (outside lock)
         # Delegates to helper method to avoid too-many-statements
-        await self._graceful_stop_old_instance(old_instance, agent_id)
+        await self._graceful_stop_old_instance(
+            old_instance,
+            agent_id,
+            active_tasks=old_active_tasks,
+        )
 
         return True
 

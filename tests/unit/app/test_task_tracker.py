@@ -344,6 +344,81 @@ async def test_wait_all_done_times_out_when_task_runs():
             pass
 
 
+@pytest.mark.asyncio
+async def test_snapshot_active_tasks_filters_by_owner():
+    tracker = TaskTracker()
+    owner_a = object()
+    owner_b = object()
+    release = asyncio.Event()
+
+    async def producer(_payload):
+        await release.wait()
+        yield "data: done\n\n"
+
+    queue_a, _ = await tracker.attach_or_start(
+        "run-owner-a",
+        None,
+        producer,
+        owner=owner_a,
+    )
+    queue_b, _ = await tracker.attach_or_start(
+        "run-owner-b",
+        None,
+        producer,
+        owner=owner_b,
+    )
+
+    try:
+        snapshot = await tracker.snapshot_active_tasks(owner=owner_a)
+        assert list(snapshot) == ["run-owner-a"]
+    finally:
+        release.set()
+        async for _ in tracker.stream_from_queue(queue_a, "run-owner-a"):
+            pass
+        async for _ in tracker.stream_from_queue(queue_b, "run-owner-b"):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_wait_tasks_done_ignores_runs_started_after_snapshot():
+    tracker = TaskTracker()
+    release_old = asyncio.Event()
+    release_new = asyncio.Event()
+
+    async def old_producer(_payload):
+        await release_old.wait()
+        yield "data: old\n\n"
+
+    async def new_producer(_payload):
+        await release_new.wait()
+        yield "data: new\n\n"
+
+    old_queue, _ = await tracker.attach_or_start(
+        "run-old",
+        None,
+        old_producer,
+    )
+    snapshot = await tracker.snapshot_active_tasks()
+    new_queue, _ = await tracker.attach_or_start(
+        "run-new",
+        None,
+        new_producer,
+    )
+
+    release_old.set()
+    assert await tracker.wait_tasks_done(
+        list(snapshot.values()),
+        timeout=1,
+    )
+    assert await tracker.get_status("run-new") == "running"
+
+    release_new.set()
+    async for _ in tracker.stream_from_queue(old_queue, "run-old"):
+        pass
+    async for _ in tracker.stream_from_queue(new_queue, "run-new"):
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Concurrent attach / start safety
 # ---------------------------------------------------------------------------

@@ -174,6 +174,23 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     });
   });
 
+  it("discards only the pending message owned by the failed request", () => {
+    sessionApi.setLastUserMessage(
+      "chat-failed",
+      "newer request",
+      undefined,
+      "client-new",
+    );
+
+    sessionApi.discardLastUserMessage("chat-failed", "client-old");
+    expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-failed`)).not.toBe(
+      null,
+    );
+
+    sessionApi.discardLastUserMessage("chat-failed", "client-new");
+    expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-failed`)).toBe(null);
+  });
+
   it("clears the cache on idle when history already contains the text", async () => {
     seedSessionList("chat-done");
     sessionApi.setLastUserMessage("chat-done", "persisted question");
