@@ -15,7 +15,10 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import time
+from collections.abc import Sequence
 
 try:  # ``fcntl`` is Unix-only; without it the repo lock is a no-op.
     import fcntl
@@ -39,6 +42,44 @@ CHAT_ENDPOINT = f"{QWENPAW_URL}/api/console/chat"
 MAX_RETRIES = 5
 TIMEOUT_SECONDS = 300
 
+# ---- global time budget ----
+# The workflow job is capped at 20 min (pr-ai-review.yml `timeout-minutes`).
+# Worst-case setup before this script runs (checkout, pip install, qwenpaw
+# init, waiting up to 90s for the server) plus posting the comment and
+# tearing down afterwards costs roughly 7.5 min of that, so the runner has
+# to finish within ~11 min. Every timeout below is clamped to whatever is
+# left of this budget, which is what keeps the *worst* path -- 5 model
+# retries, a cold clone, a very wide diff -- from being killed by Actions
+# before it can publish a result or fall back.
+REVIEW_BUDGET_SECONDS = float(
+    os.environ.get("REVIEW_BUDGET_SECONDS", "660"),
+)
+# A fresh model attempt with less than this left cannot plausibly finish,
+# so retrying would only burn the time needed to publish the fallback.
+MODEL_MIN_ATTEMPT_SECONDS = float(
+    os.environ.get("MODEL_MIN_ATTEMPT_SECONDS", "120"),
+)
+RETRY_SLEEP_SECONDS = 5.0
+
+_RUN_DEADLINE = time.monotonic() + REVIEW_BUDGET_SECONDS
+
+
+def _time_left() -> float:
+    """Seconds left in the global budget; never negative.
+
+    Every blocking operation clamps its own timeout to this, so the
+    process cannot outlive the budget no matter which path it takes. A
+    clamped timeout of 0 makes the operation fail immediately, which the
+    callers already treat as "degrade gracefully".
+    """
+    return max(0.0, _RUN_DEADLINE - time.monotonic())
+
+
+def _budgeted_sleep(seconds: float = RETRY_SLEEP_SECONDS) -> None:
+    """Back off between retries without sleeping past the budget."""
+    time.sleep(min(seconds, _time_left()))
+
+
 # ---- change-map (per-file diff) configuration ----
 # The runner pre-computes a compact per-file diff ("change map") from an
 # internal blobless clone and embeds it in the prompt. The clone is an
@@ -53,6 +94,10 @@ QWENPAW_ENH_WORK_DIR = os.environ.get(
 MAP_CONTEXT = int(os.environ.get("MAP_CONTEXT", "20"))
 # Max lines kept per file in the change map.
 MAP_PER_FILE_LINES = int(os.environ.get("MAP_PER_FILE_LINES", "500"))
+# Max characters kept per *line*. A minified or single-line generated file
+# puts its whole diff on one line, where a line budget alone caps nothing,
+# so the streaming reader needs a width cap as well as a height cap.
+MAP_MAX_LINE_CHARS = int(os.environ.get("MAP_MAX_LINE_CHARS", "2000"))
 # Overall cap on the whole change map (safety valve for huge PRs).
 MAP_MAX_LINES = int(os.environ.get("MAP_MAX_LINES", "6000"))
 # Context ladder tried (ascending) when a file fits at MAP_CONTEXT and
@@ -118,7 +163,7 @@ def fetch_base_branch(pr_number: int, repo: str) -> str:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=60,
+            timeout=min(60, _time_left()),
             check=True,
         )
         return result.stdout.strip()
@@ -150,6 +195,10 @@ def _git(
     ``errors`` defaults to ``"replace"``, which is right for diff *text*.
     Callers reading **paths** must pass ``"surrogateescape"`` instead, so
     the value round-trips back into a later argv unchanged.
+
+    Only for commands with small, bounded output (rev-parse, merge-base,
+    fetch). Diffs must go through :func:`_git_bounded`, which caps how
+    much is read into memory.
     """
     result = subprocess.run(
         ["git", "-C", repo_dir, *args],
@@ -157,10 +206,97 @@ def _git(
         text=True,
         encoding="utf-8",
         errors=errors,
-        timeout=timeout,
+        timeout=min(timeout, _time_left()),
         check=True,
     )
     return result.stdout.strip()
+
+
+def _git_bounded(
+    repo_dir: str,
+    args: Sequence[str],
+    *,
+    max_chars: int,
+    timeout: float,
+    errors: str = "replace",
+) -> tuple[str, bool]:
+    """Run git and read at most ``max_chars`` of stdout, then stop it.
+
+    Returns ``(text, truncated)``. Unlike :func:`_git`, peak memory is
+    bounded by ``max_chars`` no matter how large the real output is: the
+    cap is applied *while* reading rather than to an already-buffered
+    string. That distinction is the whole point here -- a diff taken at
+    near-whole-file context can be tens of megabytes, and decoding it in
+    full just to throw most of it away is what spiked memory before.
+
+    stderr is spooled to a temp file rather than a second pipe, because
+    draining only stdout would deadlock as soon as stderr filled its own
+    64 KiB buffer.
+    """
+    argv = ["git", "-C", repo_dir, *args]
+    budget = min(timeout, _time_left())
+    expired = threading.Event()
+
+    with tempfile.TemporaryFile("w+b") as err_file:
+        watchdog: threading.Timer | None = None
+        try:
+            with subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=err_file,
+                text=True,
+                encoding="utf-8",
+                errors=errors,
+            ) as proc:
+
+                def _expire() -> None:
+                    # git can also stall while producing *nothing* -- a
+                    # blobless clone fetching this file's blob over the
+                    # network -- where the read below blocks
+                    # indefinitely. Killing the child is what makes the
+                    # timeout real.
+                    expired.set()
+                    proc.kill()
+
+                watchdog = threading.Timer(budget, _expire)
+                watchdog.start()
+                # A single bounded read: ``TextIOWrapper.read(n)`` returns
+                # exactly n characters or everything up to EOF, so this is
+                # already the streaming cap -- no chunk loop needed. The
+                # one extra character is how we tell "output happens to
+                # end exactly at the cap" from "there is more to come".
+                text = proc.stdout.read(max_chars + 1)
+
+                truncated = len(text) > max_chars
+                if truncated:
+                    text = text[:max_chars]
+                    # Kill before the context manager waits: git is
+                    # blocked writing into a pipe nobody will drain.
+                    proc.kill()
+            # The timer stays armed across ``Popen.__exit__``, whose
+            # ``wait()`` takes no timeout of its own.
+        finally:
+            if watchdog is not None:
+                watchdog.cancel()
+
+        if proc.returncode == 0 or truncated:
+            # Either a clean read, or we stopped git ourselves -- a
+            # non-zero code from our own kill is not a failure. Checked
+            # before ``expired`` so a watchdog that fires in the moment
+            # between a completed read and ``cancel()`` cannot discard
+            # output we already hold.
+            return text, truncated
+
+        err_file.seek(0)
+        stderr_text = err_file.read().decode("utf-8", "replace").strip()
+
+    if expired.is_set():
+        raise subprocess.TimeoutExpired(argv, budget, stderr=stderr_text)
+    raise subprocess.CalledProcessError(
+        proc.returncode,
+        argv,
+        stderr=stderr_text,
+    )
 
 
 @contextlib.contextmanager
@@ -170,12 +306,27 @@ def _repo_lock(lock_path: str):
     Degrades to a no-op where ``fcntl`` is unavailable (Windows), which
     assumes a single process — acceptable because the shared clone only
     exists to help concurrent CI workers.
+
+    Acquisition polls instead of blocking: a plain ``LOCK_EX`` waits
+    without a deadline, and since a peer can hold this lock for a whole
+    clone it is the one place that could still spend the entire budget
+    doing nothing. Giving up raises, which
+    :func:`resolve_change_map` turns into the self-fetch fallback.
     """
     if fcntl is None:
         yield
         return
     with open(lock_path, "w", encoding="utf-8") as lock_file:
-        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        while True:
+            try:
+                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as e:
+                if _time_left() <= 0:
+                    raise TimeoutError(
+                        "timed out waiting for the repo lock",
+                    ) from e
+                time.sleep(min(0.5, _time_left()))
         try:
             yield
         finally:
@@ -239,7 +390,7 @@ def prepare_repo(
                     text=True,
                     encoding="utf-8",
                     errors="replace",
-                    timeout=GIT_TIMEOUT,
+                    timeout=min(GIT_TIMEOUT, _time_left()),
                     check=True,
                 )
                 # Safe under the lock: we know there is no .git here.
@@ -336,19 +487,41 @@ def _file_diff(
     to_sha: str,
     pathspecs: list[str],
     context: int,
-) -> list[str]:
-    """Return the diff lines for one file at a given context width."""
-    diff = _git(
+    max_lines: int = MAP_PER_FILE_LINES,
+) -> tuple[list[str], bool]:
+    """Return ``(diff_lines, overflowed)`` for one file at a context width.
+
+    ``overflowed`` means git had more to give than the budget allowed --
+    more than ``max_lines`` lines, or more characters than the streaming
+    cap. Callers treat the two identically: the file does not fit at this
+    context width.
+
+    Because the read itself is capped, ``-U{MAP_FULL_CONTEXT}`` is now
+    safe to probe: git is stopped as soon as it exceeds the budget
+    instead of being allowed to hand us a whole large file first.
+    """
+    text, char_truncated = _git_bounded(
         repo_dir,
-        "diff",
-        f"-U{context}",
-        from_sha,
-        to_sha,
-        "--",
-        *pathspecs,
+        [
+            "diff",
+            f"-U{context}",
+            from_sha,
+            to_sha,
+            "--",
+            *pathspecs,
+        ],
+        max_chars=max_lines * MAP_MAX_LINE_CHARS,
         timeout=DIFF_TIMEOUT,
     )
-    return diff.splitlines()
+    lines = text.splitlines()
+    overflowed = char_truncated or len(lines) > max_lines
+    # Every line is capped to the same width, so a line the character cap
+    # happened to slice is no more misleading than a legitimately long one
+    # -- and keeping it preserves the start of the change. The caller
+    # appends a truncation marker whenever ``overflowed`` is set, so a
+    # partial tail is never presented as the whole story.
+    kept = [line[:MAP_MAX_LINE_CHARS] for line in lines[:max_lines]]
+    return kept, overflowed
 
 
 def _diff_with_adaptive_context(
@@ -367,29 +540,39 @@ def _diff_with_adaptive_context(
 
     Returns ``(diff_lines, truncated)``. When truncated, the caller
     appends a marker pointing at the full-file fetch instruction.
-    """
-    floor = _file_diff(repo_dir, from_sha, to_sha, pathspecs, MAP_CONTEXT)
 
-    # Case 1: even minimum context overflows -> truncate the floor diff.
-    if len(floor) > MAP_PER_FILE_LINES:
-        total = len(floor)
-        kept = floor[:MAP_PER_FILE_LINES]
-        kept.append(
-            f"... (diff truncated: {total} lines at {MAP_CONTEXT}-line "
-            f"context, showing the first {MAP_PER_FILE_LINES} — read the "
-            f'complete file with the "Full-file fetch" command in Step 2) ...',
+    Each probe below re-clamps its timeout to the remaining global budget
+    (via :func:`_file_diff` -> :func:`_git_bounded`), so a file needing
+    several widening probes cannot overrun the budget between the
+    per-file deadline checks in :func:`build_change_map`.
+    """
+    floor, overflowed = _file_diff(
+        repo_dir,
+        from_sha,
+        to_sha,
+        pathspecs,
+        MAP_CONTEXT,
+    )
+
+    # Case 1: even minimum context overflows -> keep the truncated floor.
+    if overflowed:
+        floor.append(
+            f"... (diff truncated: showing the first {MAP_PER_FILE_LINES} "
+            f"lines at {MAP_CONTEXT}-line context; more changes follow — "
+            f'read the complete file with the "Full-file fetch" command '
+            f"in Step 2) ...",
         )
-        return kept, True
+        return floor, True
 
     # Case 2: room to spare -> prefer whole-file context if it fits.
-    full = _file_diff(
+    full, full_overflowed = _file_diff(
         repo_dir,
         from_sha,
         to_sha,
         pathspecs,
         MAP_FULL_CONTEXT,
     )
-    if len(full) <= MAP_PER_FILE_LINES:
+    if not full_overflowed:
         return full, False
 
     # Case 3: whole file too big -> climb the ladder, keep the widest fit.
@@ -397,11 +580,16 @@ def _diff_with_adaptive_context(
     for ctx in MAP_CONTEXT_LADDER:
         if ctx <= MAP_CONTEXT:
             continue
-        widened = _file_diff(repo_dir, from_sha, to_sha, pathspecs, ctx)
-        if len(widened) <= MAP_PER_FILE_LINES:
-            best = widened
-        else:
+        widened, widened_overflowed = _file_diff(
+            repo_dir,
+            from_sha,
+            to_sha,
+            pathspecs,
+            ctx,
+        )
+        if widened_overflowed:
             break  # context is monotonic; nothing larger will fit
+        best = widened
     return best, False
 
 
@@ -460,7 +648,10 @@ def build_change_map(repo_dir: str, from_sha: str, to_sha: str) -> str:
     truncated_files: list[str] = []
     skipped_files: list[str] = []
     deadline_hit = False
-    deadline = time.monotonic() + MAP_BUILD_DEADLINE
+    # Never spend more than MAP_BUILD_DEADLINE on the map, and never more
+    # than the run has left -- whichever is smaller. Leaving the model no
+    # time at all is worse than shipping a partial map.
+    deadline = time.monotonic() + min(MAP_BUILD_DEADLINE, _time_left())
 
     for entry in entries:
         display = entry[0]
@@ -532,11 +723,21 @@ def _extract_stream_text(evt: dict) -> str:
     return fallback if isinstance(fallback, str) else ""
 
 
-def _collect_sse(resp) -> tuple[dict | None, list]:
-    """Read an SSE stream, returning ``(final_event, stream_errors)``."""
+def _collect_sse(resp, deadline: float) -> tuple[dict | None, list, bool]:
+    """Read an SSE stream, bounded by a wall-clock ``deadline``.
+
+    Returns ``(final_event, stream_errors, timed_out)``.
+
+    The deadline is not redundant with the client timeout: httpx applies
+    its read timeout per read, not to the stream as a whole, so a stream
+    that keeps trickling events stays under that timeout forever. Only a
+    wall-clock stop bounds the attempt.
+    """
     final_event = None
     stream_errors: list = []
     for line in resp.iter_lines():
+        if time.monotonic() > deadline:
+            return final_event, stream_errors, True
         if not line or not line.startswith("data: "):
             continue
         if line[6:] == "[DONE]":
@@ -550,7 +751,7 @@ def _collect_sse(resp) -> tuple[dict | None, list]:
         if parsed.get("type") == "turn_usage":
             continue
         final_event = parsed
-    return final_event, stream_errors
+    return final_event, stream_errors, False
 
 
 def call_qwenpaw(prompt: str, session_id: str) -> str:
@@ -560,6 +761,15 @@ def call_qwenpaw(prompt: str, session_id: str) -> str:
     iteration-limit stub / too-short output). Each attempt uses a FRESH session --
     resuming a session that already hit its iteration cap would just continue the
     stuck run instead of starting over.
+
+    Retries are bounded by the global budget, not just by ``MAX_RETRIES``:
+    each attempt gets whatever is left (capped at ``TIMEOUT_SECONDS``) and
+    the loop stops once there is too little left for another attempt to
+    finish. ``MAX_RETRIES`` * ``TIMEOUT_SECONDS`` on its own exceeds the
+    job timeout, which would let Actions kill the job before it could
+    publish either a review or the fallback comment. Attempts that fail
+    fast (HTTP error, empty reply) cost seconds, so in practice this only
+    bites when the model genuinely hangs -- exactly when it should.
     """
     base_payload = {
         "channel": "console",
@@ -568,13 +778,28 @@ def call_qwenpaw(prompt: str, session_id: str) -> str:
     }
 
     for attempt in range(1, MAX_RETRIES + 1):
+        left = _time_left()
+        if left < MODEL_MIN_ATTEMPT_SECONDS:
+            print(
+                f"  Time budget nearly exhausted ({left:.0f}s left, an "
+                f"attempt needs {MODEL_MIN_ATTEMPT_SECONDS:.0f}s); "
+                f"giving up after {attempt - 1} attempt(s)",
+            )
+            break
+
+        attempt_timeout = min(TIMEOUT_SECONDS, left)
         payload = {**base_payload, "session_id": f"{session_id}-try{attempt}"}
         try:
-            print(f"[attempt {attempt}/{MAX_RETRIES}] Calling QwenPaw...")
+            print(
+                f"[attempt {attempt}/{MAX_RETRIES}] Calling QwenPaw "
+                f"(timeout {attempt_timeout:.0f}s, "
+                f"budget {left:.0f}s left)...",
+            )
             final_event = None
             stream_errors = []
+            timed_out = False
 
-            with httpx.Client(timeout=TIMEOUT_SECONDS) as client:
+            with httpx.Client(timeout=attempt_timeout) as client:
                 with client.stream(
                     "POST",
                     CHAT_ENDPOINT,
@@ -582,13 +807,21 @@ def call_qwenpaw(prompt: str, session_id: str) -> str:
                 ) as resp:
                     if resp.status_code != 200:
                         print(f"  HTTP {resp.status_code}, retrying...")
-                        time.sleep(5)
+                        _budgeted_sleep()
                         continue
 
-                    final_event, stream_errors = _collect_sse(resp)
+                    final_event, stream_errors, timed_out = _collect_sse(
+                        resp,
+                        time.monotonic() + attempt_timeout,
+                    )
 
             if stream_errors:
                 print(f"  Stream errors: {'; '.join(stream_errors)}")
+            if timed_out:
+                print(
+                    f"  Attempt exceeded its {attempt_timeout:.0f}s slice "
+                    f"of the budget",
+                )
 
             response = _extract_stream_text(final_event or {})
             if response.strip() and not _is_degenerate_review(response):
@@ -601,11 +834,11 @@ def call_qwenpaw(prompt: str, session_id: str) -> str:
                     "  Degenerate response (iteration-limit stub / too short), "
                     "retrying with a fresh session...",
                 )
-            time.sleep(5)
+            _budgeted_sleep()
 
         except (httpx.TimeoutException, httpx.ConnectError) as e:
             print(f"  Error: {e}, retrying...")
-            time.sleep(5)
+            _budgeted_sleep()
 
     return ""
 
@@ -911,6 +1144,7 @@ def main():
 
     pr_number = int(pr_number)
     print(f"\nTarget: {repo} PR #{pr_number}")
+    print(f"Time budget: {REVIEW_BUDGET_SECONDS:.0f}s")
 
     change_map, head_sha = resolve_change_map(pr_number, repo)
 
@@ -925,6 +1159,12 @@ def main():
 
     if not response.strip():
         print("\n❌ ERROR: Got empty response from QwenPaw")
+        if _time_left() < MODEL_MIN_ATTEMPT_SECONDS:
+            print(
+                f"  Cause: the {REVIEW_BUDGET_SECONDS:.0f}s time budget ran "
+                f"out. Raise REVIEW_BUDGET_SECONDS (and the job's "
+                f"timeout-minutes with it) if this recurs.",
+            )
         sys.exit(1)
 
     warnings = validate_response(response, pr_number)
@@ -942,7 +1182,10 @@ def main():
     print(f"Response length: {len(response)} chars")
 
     write_outputs(verdict_info, response)
-    print("\n✅ Done! Results written to /tmp/review_result.md")
+    print(
+        f"\n✅ Done! Results written to /tmp/review_result.md "
+        f"({_time_left():.0f}s of budget unused)",
+    )
 
 
 if __name__ == "__main__":
