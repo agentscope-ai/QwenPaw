@@ -131,7 +131,10 @@ jobs:
         shell: bash
         env:
           QWENPAW_INTEGRATION_HTTP_TIMEOUT: ${{ matrix.os == 'windows-latest' && '120' || '' }}
+          # cap workers to reduce xdist-induced flakiness
+          QWENPAW_XDIST_WORKERS: ${{ matrix.os == 'windows-latest' && '2' || '3' }}
         run: |
+          WORKERS="${QWENPAW_XDIST_WORKERS:-2}"
           pytest tests/integration -v \
-            -n auto --dist=loadscope --timeout=300 \
+            -n "$WORKERS" --dist=loadscope --timeout=300 \
             -m "integration and p0"

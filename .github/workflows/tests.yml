@@ -322,12 +322,15 @@ jobs:
           # the default 15s HTTP timeout is too tight and intermittently
           # surfaces as ``httpx.ReadTimeout``. Lift the floor here.
           QWENPAW_INTEGRATION_HTTP_TIMEOUT: ${{ matrix.os == 'windows-latest' && '120' || '' }}
+          # cap workers to reduce xdist-induced flakiness
+          QWENPAW_XDIST_WORKERS: ${{ matrix.os == 'windows-latest' && '2' || '3' }}
         run: |
+          WORKERS="${QWENPAW_XDIST_WORKERS:-2}"
           if [ -n "$QWENPAW_INTEGRATION_COVERAGE" ]; then
             # Subprocess coverage entry. Parent process must not carry
             # --cov, hence --no-cov here.
             pytest tests/integration -v --no-cov \
-              -n auto --dist=loadscope --timeout=300 \
+              -n "$WORKERS" --dist=loadscope --timeout=300 \
               -m "${{ steps.marker.outputs.expr }}"
             cp .integration_coverage/integration_subproc \
               .coverage.integration
@@ -337,7 +340,7 @@ jobs:
               -o coverage.integration.xml || [ "$?" -eq 2 ]
           else
             pytest tests/integration -v \
-              -n auto --dist=loadscope --timeout=300 \
+              -n "$WORKERS" --dist=loadscope --timeout=300 \
               -m "${{ steps.marker.outputs.expr }}"
           fi
 
