@@ -576,7 +576,7 @@ def configure_voice(
     welcome_greeting = click.prompt(
         "Welcome greeting",
         default=current_config.welcome_greeting
-        or "Hi! This is QwenPaw. How can I help you?",
+        or "Hi! This is NousAIPaw. How can I help you?",
         type=str,
     )
     current_config.welcome_greeting = welcome_greeting

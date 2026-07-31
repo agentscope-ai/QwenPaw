@@ -99,7 +99,8 @@
     "faq": "FAQ",
     "github": "GitHub",
     "resources": "Dokumentasi",
-    "updateAvailable": "Pembaruan Tersedia"
+    "updateAvailable": "Pembaruan Tersedia",
+    "preferences": "Preferensi"
   },
   "theme": {
     "dark": "Gelap",

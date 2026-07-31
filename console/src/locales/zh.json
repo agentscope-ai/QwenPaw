@@ -2494,7 +2494,8 @@
     "faq": "常见问题",
     "github": "GitHub",
     "resources": "文档资料",
-    "updateAvailable": "有可用更新"
+    "updateAvailable": "有可用更新",
+    "preferences": "偏好设置"
   },
   "theme": {
     "dark": "深色",

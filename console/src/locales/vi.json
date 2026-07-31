@@ -101,7 +101,8 @@
     "faq": "FAQ",
     "github": "GitHub",
     "resources": "Tài liệu",
-    "updateAvailable": "Có bản cập nhật"
+    "updateAvailable": "Có bản cập nhật",
+    "preferences": "Tùy chọn"
   },
   "sidebar": {
     "newVersion": "Phiên bản mới: v{{version}}, nhấn để cập nhật",
