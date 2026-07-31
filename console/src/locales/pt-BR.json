@@ -3202,6 +3202,8 @@
     "loading": "Carregando...",
     "inputProgress": "{{count}} caracteres recebidos",
     "rawInputPreview": "Entrada bruta em tempo real (últimos 4.096 caracteres)",
+    "largeOutputOmitted": "{{count}} linhas omitidas — use o botão de copiar para obter a saída completa",
+    "largeOutputTruncated": "Saída truncada para exibição — use o botão de copiar para obter a saída completa",
     "browserAction": {
       "startHeaded": "Iniciar navegador (com interface)",
       "start": "Iniciar navegador",

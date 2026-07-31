@@ -1738,7 +1738,9 @@
     "updateMemory": "Cập nhật bộ nhớ",
     "deleteMemory": "Xóa bộ nhớ",
     "inputProgress": "Đã nhận {{count}} ký tự",
-    "rawInputPreview": "Đầu vào thô trực tiếp (4.096 ký tự cuối)"
+    "rawInputPreview": "Đầu vào thô trực tiếp (4.096 ký tự cuối)",
+    "largeOutputOmitted": "Đã lược bỏ {{count}} dòng — dùng nút sao chép để lấy toàn bộ đầu ra",
+    "largeOutputTruncated": "Đầu ra được rút gọn khi hiển thị — dùng nút sao chép để lấy toàn bộ đầu ra"
   },
   "sessions": {
     "title": "Phiên làm việc",

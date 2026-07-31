@@ -1740,6 +1740,8 @@
     "loading": "Memuat...",
     "inputProgress": "{{count}} karakter diterima",
     "rawInputPreview": "Input mentah langsung (4.096 karakter terakhir)",
+    "largeOutputOmitted": "{{count}} baris dihilangkan — gunakan tombol salin untuk mendapatkan keluaran lengkap",
+    "largeOutputTruncated": "Keluaran dipangkas untuk tampilan — gunakan tombol salin untuk mendapatkan keluaran lengkap",
     "browserAction": {
       "startHeaded": "Mulai browser (dengan tampilan)",
       "start": "Mulai browser",

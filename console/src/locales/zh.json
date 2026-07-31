@@ -3335,6 +3335,8 @@
     "loading": "处理中...",
     "inputProgress": "已接收 {{count}} 个字符",
     "rawInputPreview": "实时原始参数（最后 4096 个字符）",
+    "largeOutputOmitted": "已省略 {{count}} 行 — 使用复制按钮获取完整输出",
+    "largeOutputTruncated": "输出过长已截断显示 — 使用复制按钮获取完整输出",
     "browserAction": {
       "startHeaded": "启动浏览器(有界面)",
       "start": "启动浏览器",

@@ -29,6 +29,13 @@ vi.mock("@/utils/clipboard", () => ({
   copyText: copyTextMock,
 }));
 
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: { count?: number }) =>
+      opts?.count !== undefined ? `${key}:${opts.count}` : key,
+  }),
+}));
+
 import DefaultBlock from "./DefaultBlock";
 import * as clipboard from "@/utils/clipboard";
 
@@ -57,5 +64,52 @@ describe("DefaultBlock copy", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("check")).toBeInTheDocument();
     });
+  });
+});
+
+describe("DefaultBlock large output", () => {
+  beforeEach(() => {
+    copyTextMock.mockReset();
+    copyTextMock.mockResolvedValue(undefined);
+  });
+
+  const makeLines = (count: number) =>
+    Array.from({ length: count }, (_, i) => `line-${i + 1}`).join("\n");
+
+  it("keeps syntax highlighting for small content", () => {
+    render(<DefaultBlock title="Output" content={makeLines(10)} />);
+    expect(screen.getByTestId("syntax")).toBeInTheDocument();
+  });
+
+  it("renders many-line output as plain text with head and tail", () => {
+    const content = makeLines(2001);
+    render(<DefaultBlock title="Output" content={content} />);
+
+    // No syntax highlighter for large content
+    expect(screen.queryByTestId("syntax")).not.toBeInTheDocument();
+    // Head and tail lines are present
+    expect(screen.getByText(/line-1\b/)).toBeInTheDocument();
+    expect(screen.getByText(/line-2001/)).toBeInTheDocument();
+    // Omitted notice with the omitted line count (2001 - 200 - 300)
+    expect(
+      screen.getByText(/tool\.largeOutputOmitted:1501/),
+    ).toBeInTheDocument();
+  });
+
+  it("renders one giant line as plain text without highlighting", () => {
+    const content = "x".repeat(150_000);
+    render(<DefaultBlock title="Output" content={content} />);
+    expect(screen.queryByTestId("syntax")).not.toBeInTheDocument();
+  });
+
+  it("copy still copies the full content in large mode", async () => {
+    const content = makeLines(2001);
+    render(<DefaultBlock title="Output" content={content} />);
+    fireEvent.click(screen.getByRole("button"));
+
+    await waitFor(() => {
+      expect(copyTextMock).toHaveBeenCalledTimes(1);
+    });
+    expect(copyTextMock).toHaveBeenCalledWith(content);
   });
 });
