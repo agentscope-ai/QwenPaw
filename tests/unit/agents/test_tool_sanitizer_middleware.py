@@ -10,7 +10,6 @@ between compression and the model call by another middleware.
 
 from __future__ import annotations
 
-import asyncio
 import sys
 import types
 from typing import Any

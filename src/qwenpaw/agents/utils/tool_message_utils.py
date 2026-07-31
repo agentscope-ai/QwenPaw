@@ -58,6 +58,45 @@ def _mark_tool_call_as_failed(block: Any) -> None:
     block.state = ToolCallState.FINISHED
 
 
+def _parse_raw_input(raw_input: Any) -> dict | None:
+    """Parse tool_use ``raw_input`` into a non-empty dict if possible.
+
+    Returns ``None`` when the value cannot be decoded or resolves to an
+    empty dict so the caller can short-circuit without deep nesting.
+    """
+    raw_str = raw_input if isinstance(raw_input, str) else str(raw_input)
+    try:
+        parsed = json.loads(raw_str)
+    except json.JSONDecodeError:
+        match = json.decoder.WHITESPACE.match(raw_str, 0)
+        start = match.end() if match else 0
+        parsed, _ = _json_decoder.raw_decode(raw_str, start)
+    if isinstance(parsed, dict) and parsed:
+        return parsed
+    return None
+
+
+def _apply_tool_input_repair(block: Any, parsed: dict) -> None:
+    """Persist repaired tool-call ``input`` back onto the block.
+
+    All AgentScope 2.0 formatters expect ``ToolCallBlock.input`` to be a
+    JSON *string* (Anthropic/Gemini run ``json.loads`` internally on the
+    client side).  We write a JSON string back for both dict-block and
+    Pydantic-block variants so downstream serialization is consistent.
+    """
+    input_str = json.dumps(parsed, ensure_ascii=False)
+    if isinstance(block, dict):
+        block["input"] = input_str
+    else:
+        block.input = input_str
+    logger.info(
+        "Repaired tool input from raw_input: id=%s, name=%s, keys=%s",
+        _block_attr(block, "id"),
+        _block_attr(block, "name"),
+        list(parsed.keys()),
+    )
+
+
 def _tool_call_json_error_result(block: Any) -> Any | None:
     """Build a synthetic error result for an invalid tool-call input."""
     call_id = _block_attr(block, "id")
@@ -344,6 +383,34 @@ def _remove_invalid_tool_blocks(msgs: list) -> list:
     return result if changed else msgs
 
 
+def _try_repair_tool_block(block: Any) -> bool:
+    """Repair a single tool-call block's empty input in-place.
+
+    Separated from :func:`_repair_empty_tool_inputs` to keep the outer
+    function under the ``too-many-nested-blocks`` lint limit.  Returns
+    ``True`` iff the block was mutated.
+    """
+    input_field = _block_attr(block, "input", {})
+    raw_input = _block_attr(block, "raw_input", "")
+    if input_field or not raw_input or raw_input == "{}":
+        return False
+    try:
+        parsed = _parse_raw_input(raw_input)
+        if parsed is None:
+            return False
+        _apply_tool_input_repair(block, parsed)
+        return True
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.warning(
+            "Failed to repair tool input from raw_input: "
+            "id=%s, name=%s, error=%s",
+            _block_attr(block, "id"),
+            _block_attr(block, "name"),
+            e,
+        )
+        return False
+
+
 def _repair_empty_tool_inputs(
     msgs: list,
 ) -> list:
@@ -359,7 +426,6 @@ def _repair_empty_tool_inputs(
     Returns:
         List of Msg objects with repaired tool_use blocks.
     """
-    # pylint: disable=too-many-nested-blocks
     changed = False
     result: list = []
 
@@ -372,56 +438,8 @@ def _repair_empty_tool_inputs(
         repaired = False
 
         for block in msg.content:
-            if _is_tool_call(block):
-                input_field = _block_attr(block, "input", {})
-                raw_input = _block_attr(block, "raw_input", "")
-
-                if not input_field and raw_input and raw_input != "{}":
-                    try:
-                        raw_str = (
-                            raw_input
-                            if isinstance(raw_input, str)
-                            else str(raw_input)
-                        )
-                        try:
-                            parsed = json.loads(raw_str)
-                        except json.JSONDecodeError:
-                            start = json.decoder.WHITESPACE.match(
-                                raw_str,
-                                0,
-                            ).end()
-                            parsed, _ = _json_decoder.raw_decode(
-                                raw_str,
-                                start,
-                            )
-                        if isinstance(parsed, dict) and parsed:
-                            # All agentscope 2.0 formatters expect
-                            # ToolCallBlock.input to be a JSON string
-                            # (Anthropic/Gemini do json.loads on their side).
-                            # Use json.dumps for both dict and Pydantic blocks
-                            # so the downstream pipeline is consistent.
-                            input_str = json.dumps(parsed, ensure_ascii=False)
-                            if isinstance(block, dict):
-                                block["input"] = input_str
-                            else:
-                                block.input = input_str
-                            repaired = True
-                            logger.info(
-                                "Repaired tool input from raw_input: "
-                                "id=%s, name=%s, keys=%s",
-                                _block_attr(block, "id"),
-                                _block_attr(block, "name"),
-                                list(parsed.keys()),
-                            )
-                    except (json.JSONDecodeError, TypeError) as e:
-                        logger.warning(
-                            "Failed to repair tool input from raw_input: "
-                            "id=%s, name=%s, error=%s",
-                            _block_attr(block, "id"),
-                            _block_attr(block, "name"),
-                            e,
-                        )
-
+            if _is_tool_call(block) and _try_repair_tool_block(block):
+                repaired = True
             new_blocks.append(block)
 
         if repaired:
@@ -431,6 +449,34 @@ def _repair_empty_tool_inputs(
         result.append(msg)
 
     return result if changed else msgs
+
+
+def _tag_orphan_tool_result_blocks(content: list, all_call_ids: set) -> bool:
+    """Attach ``__qp_orphan__`` sentinel to tool-result blocks with no call.
+
+    Used by :func:`_repair_role_block_mismatch` to isolate the inner
+    loop/exception handling so the outer function stays under the
+    ``too-many-nested-blocks`` limit.  Returns ``True`` iff at least one
+    block was tagged.
+    """
+    result_ids = {
+        _block_attr(b, "id")
+        for b in content
+        if _is_tool_result(b) and _block_attr(b, "id")
+    }
+    if not result_ids or not result_ids.isdisjoint(all_call_ids):
+        return False
+    for block in content:
+        if not _is_tool_result(block):
+            continue
+        try:
+            if isinstance(block, dict):
+                block["__qp_orphan__"] = True
+            else:
+                object.__setattr__(block, "__qp_orphan__", True)
+        except Exception:
+            pass
+    return True
 
 
 def _repair_role_block_mismatch(msgs: list) -> list:
@@ -483,35 +529,11 @@ def _repair_role_block_mismatch(msgs: list) -> list:
         has_calls = any(_is_tool_call(b) for b in content)
         has_results = any(_is_tool_result(b) for b in content)
 
-        # Fast path: no tool blocks at all, or a well-formed mixed message
-        # (calls + results in the same turn → self-paired AgentScope 2.0).
         if not has_results or has_calls:
             repaired.append(msg)
             continue
 
-        # Pure tool-result message. If NONE of its result IDs have a
-        # matching call_id in the entire list, tag every block with a
-        # private "orphan" attribute that _dedup_tool_blocks can see so
-        # we drop it in the next pipeline stage.
-        result_ids = {
-            _block_attr(b, "id")
-            for b in content
-            if _is_tool_result(b) and _block_attr(b, "id")
-        }
-        if result_ids and result_ids.isdisjoint(all_call_ids):
-            for block in content:
-                if _is_tool_result(block):
-                    try:
-                        if isinstance(block, dict):
-                            block["__qp_orphan__"] = True
-                        else:
-                            # Pydantic model — setattr is fine on Extra.allow
-                            # models; otherwise this is best-effort and the
-                            # orphan will still be dropped later by
-                            # _remove_unpaired_tool_messages.
-                            object.__setattr__(block, "__qp_orphan__", True)
-                    except Exception:
-                        pass
+        if _tag_orphan_tool_result_blocks(content, all_call_ids):
             changed = True
         repaired.append(msg)
     return repaired if changed else msgs
