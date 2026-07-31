@@ -378,7 +378,7 @@ QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 | Linux   | **Bubblewrap**（首选）                        | Mount namespace + User namespace + PID namespace | `bwrap` 二进制 + user namespace 支持                 |
 | Linux   | **Landlock**（回退）                          | Landlock LSM 内核模块 (5.13+)                    | 内核版本 + LSM 探测 + ABI 系统调用                   |
 | Windows | **AppContainer**（`allow_read_all=False`）    | AppContainer profile + `icacls` ACL 强制访问控制 | Windows 10+（build 10240）+ PATH 上存在 `icacls.exe` |
-| Windows | **Restricted_token**（`allow_read_all=True`） | 专用本地用户 + 受限令牌 + WFP 防火墙规则         | Windows 10+（build 10240）+ 管理员权限               |
+| Windows | **Restricted_token**（`allow_read_all=True`） | 专用本地用户 + 受限令牌 + WFP 防火墙规则         | Windows 10+（build 10240）；建议管理员权限           |
 | 所有    | **None**                                      | 无隔离（直接执行）                               | 无可用后端时使用                                     |
 
 **Linux 探测优先级**：bubblewrap > Landlock > None。如果 `bwrap` 已安装且 user namespace 可用，则选择 bubblewrap。否则回退到 Landlock（如果内核支持）。
@@ -455,7 +455,7 @@ QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 - **资源限制**：`max_processes` 和 `max_memory_mb` 字段存在于配置中，但当前无后端强制执行。
 - **Windows AppContainer**（`allow_read_all=False`）：首次 ACL 设置需要管理员权限。AppContainer profile 会被保留以供相同配置的后续调用复用。
 - **Windows AppContainer 文件删除受限**（`allow_read_all=False`）：在 AppContainer 模式下，沙箱内的进程可能无法删除工作区中的文件。此问题不影响 `allow_read_all=True`（Restricted_token）模式。我们正在研究解决方案。
-- **Windows Restricted_token**（`allow_read_all=True`）：创建专用本地用户和管理 WFP 防火墙规则需要管理员权限。使用 `CreateRestrictedToken` 的 Restricted_token 模式创建受限令牌。专用用户和防火墙规则会被保留以供复用。
+- **Windows Restricted_token**（`allow_read_all=True`）：完整隔离（专用本地用户、WFP 防火墙规则）需要管理员权限。在非管理员模式下运行时，将使用非提权沙箱模式——通过 `CreateRestrictedToken` 提供写入限制，但隔离能力弱于完整沙箱。为获得最大安全性，建议以管理员身份运行。
 - **Windows 最低版本要求**：两种 Windows 后端均需要 **Windows 10 版本 1507（build 10240）** 或更高版本。更早的 Windows 版本（Windows 7、8、8.1）不支持这些隔离机制，将回退到 `mode=none`（无隔离）。
 - **Windows 系统目录 ACL 限制**（仅 AppContainer）：`icacls` ACL 设置无法修改某些受保护系统目录的权限，例如 `C:\Program Files`、`C:\Program Files (x86)`、`C:\Windows` 和 `C:\Windows\System32`。这些目录受 Windows 资源保护（WRP）和 TrustedInstaller 所有权保护。
 - **deny_paths 文件级别 (Bubblewrap)**：`deny_paths` 中的单个文件会显示为空（绑定到 `/dev/null`）而非不存在。目录级别的 deny 使用 `--tmpfs` 真正不可见。
@@ -494,10 +494,11 @@ AppContainer（`allow_read_all=False`）的 `icacls` ACL 操作需要管理员�
 
 **Windows: Restricted_token 用户创建失败**
 
-Restricted_token（`allow_read_all=True`）创建专用本地用户和管理 WFP 防火墙规则需要管理员权限。如果看到用户创建或防火墙设置相关错误：
+Restricted_token（`allow_read_all=True`）使用专用本地用户和 WFP 防火墙规则实现完整隔离，需要管理员权限。在非管理员模式下，QwenPaw 会自动回退到非提权沙箱模式，提供有限的隔离保护。如果看到用户创建或防火墙设置相关错误：
 
-1. 以管理员身份运行 QwenPaw（右键 → 以管理员身份运行）
-2. 使用 `scripts/cleanup_windows_sandbox.py` 清理旧的沙箱用户和防火墙规则
+1. 非提权沙箱仍然处于活动状态，提供基本的写入限制
+2. 如需完整沙箱保护，以管理员身份运行 QwenPaw（右键 → 以管理员身份运行）
+3. 使用 `scripts/cleanup_windows_sandbox.py` 清理旧的沙箱用户和防火墙规则
 
 **Windows: 不满足最低版本要求**
 

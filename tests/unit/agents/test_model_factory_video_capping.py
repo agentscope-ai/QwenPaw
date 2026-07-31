@@ -16,6 +16,7 @@ from qwenpaw.agents.model_factory import (
     MAX_INLINE_MEDIA_BYTES,
     _format_anthropic_video_data_block,
     _format_openai_video_block,
+    _replace_video_placeholders,
 )
 
 
@@ -142,3 +143,164 @@ def test_anthropic_missing_file_returns_none(tmp_path) -> None:
         ),
     )
     assert _format_anthropic_video_data_block(block) is None
+
+
+# --------------------------------- OpenAI Responses API (input_video)
+
+
+def test_openai_response_api_emits_input_video() -> None:
+    import base64
+
+    data = base64.b64encode(b"\x00" * 16).decode()
+    block = {
+        "source": {
+            "type": "base64",
+            "media_type": "video/mp4",
+            "data": data,
+        },
+    }
+    out = _format_openai_video_block(block, response_api=True)
+    assert out["type"] == "input_video"
+    assert out["video_url"].startswith("data:video/mp4;base64,")
+
+
+def test_openai_response_api_remote_url() -> None:
+    block = {
+        "source": {
+            "type": "url",
+            "url": "https://example.com/v.mp4",
+        },
+    }
+    out = _format_openai_video_block(block, response_api=True)
+    assert out["type"] == "input_video"
+    assert out["video_url"] == "https://example.com/v.mp4"
+
+
+def test_openai_response_api_local_file(tmp_path) -> None:
+    url = _write_video(tmp_path, "small.mp4", 64)
+    block = {"source": {"type": "url", "url": url}}
+    out = _format_openai_video_block(block, response_api=True)
+    assert out["type"] == "input_video"
+    assert out["video_url"].startswith("data:video/mp4;base64,")
+
+
+def test_openai_response_api_oversize_is_placeholder() -> None:
+    import base64
+
+    data = base64.b64encode(
+        b"\x00" * (MAX_INLINE_MEDIA_BYTES + 1),
+    ).decode()
+    block = {
+        "source": {
+            "type": "base64",
+            "media_type": "video/mp4",
+            "data": data,
+        },
+    }
+    out = _format_openai_video_block(block, response_api=True)
+    assert out["type"] == "input_text"
+    assert "video omitted" in out["text"]
+
+
+# ------------------------------------------- _replace_video_placeholders
+
+
+def _make_video_sub():
+    import base64
+
+    data = base64.b64encode(b"\x00" * 16).decode()
+    key = "__QWENPAW_VID_test__"
+    block = {
+        "source": {
+            "type": "base64",
+            "media_type": "video/mp4",
+            "data": data,
+        },
+    }
+    return key, block
+
+
+def _first_content_item(msgs: list[dict]) -> dict:
+    """Return the first content item of the first message."""
+    content = msgs[0]["content"]
+    assert isinstance(content, list)
+    return content[0]
+
+
+def test_replace_placeholders_text_type() -> None:
+    key, block = _make_video_sub()
+    msgs: list[dict] = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": key},
+            ],
+        },
+    ]
+    _replace_video_placeholders(msgs, {key: block})
+    assert _first_content_item(msgs)["type"] == "video_url"
+
+
+def test_replace_placeholders_input_text_type() -> None:
+    key, block = _make_video_sub()
+    msgs: list[dict] = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": key},
+            ],
+        },
+    ]
+    _replace_video_placeholders(msgs, {key: block})
+    assert _first_content_item(msgs)["type"] == "video_url"
+
+
+def test_replace_placeholders_skips_assistant_messages() -> None:
+    key, block = _make_video_sub()
+    msgs: list[dict] = [
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "output_text", "text": key},
+            ],
+        },
+    ]
+    _replace_video_placeholders(msgs, {key: block})
+    item = _first_content_item(msgs)
+    assert item["type"] == "output_text"
+    assert item["text"] == key
+
+
+def test_replace_placeholders_response_api() -> None:
+    key, block = _make_video_sub()
+    msgs: list[dict] = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": key},
+            ],
+        },
+    ]
+    _replace_video_placeholders(
+        msgs,
+        {key: block},
+        response_api=True,
+    )
+    item = _first_content_item(msgs)
+    assert item["type"] == "input_video"
+
+
+def test_replace_placeholders_non_match_untouched() -> None:
+    key, block = _make_video_sub()
+    msgs: list[dict] = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "hello"},
+            ],
+        },
+    ]
+    _replace_video_placeholders(msgs, {key: block})
+    item = _first_content_item(msgs)
+    assert item["type"] == "input_text"
+    assert item["text"] == "hello"

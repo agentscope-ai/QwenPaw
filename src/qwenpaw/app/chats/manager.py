@@ -17,6 +17,7 @@ from .models import (
 )
 from .repo import BaseChatRepository
 from ..channels.schema import DEFAULT_CHANNEL
+from ...utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class ChatManager:
         self,
         *,
         repo: BaseChatRepository,
+        on_session_closed: Callable[[str], Awaitable[None]] | None = None,
     ):
         """Initialize chat manager.
 
@@ -43,10 +45,18 @@ class ChatManager:
             repo: Chat spec repository for persistence
         """
         self._repo = repo
+        self._on_session_closed = on_session_closed
         self._lock = asyncio.Lock()
         logger.debug(
             f"ChatManager created with repo path: {repo.path}",
         )
+
+    def set_on_session_closed(
+        self,
+        callback: Callable[[str], Awaitable[None]] | None,
+    ) -> None:
+        """Update the browser lifecycle callback when a service is reused."""
+        self._on_session_closed = callback
 
     # ----- Read Operations -----
 
@@ -237,13 +247,21 @@ class ChatManager:
         Returns:
             True if deleted, False if not found
         """
+        session_ids: set[str] = set()
         async with self._lock:
+            for chat_id in chat_ids:
+                chat = await self._repo.get_chat(chat_id)
+                if chat is not None:
+                    session_ids.add(chat.session_id)
             deleted = await self._repo.delete_chats(chat_ids)
 
             if deleted:
                 logger.debug(f"Deleted chats: {chat_ids}")
 
-            return deleted
+        if deleted:
+            for session_id in session_ids:
+                await self._close_browser_session(session_id)
+        return deleted
 
     # ----- Archive Operations -----
 
@@ -266,6 +284,7 @@ class ChatManager:
         Raises:
             ValueError: If the chat is currently running (in_progress)
         """
+        archived: ChatSpec | None
         async with self._lock:
             existing = await self._repo.get_chat(chat_id)
             if existing is None:
@@ -273,13 +292,29 @@ class ChatManager:
             if check_status == "running":
                 raise ValueError("in_progress")
             if existing.archived:
-                return existing
-            merged = existing.model_copy(
-                update={"archived_at": datetime.now(timezone.utc)},
+                archived = existing
+            else:
+                archived = existing.model_copy(
+                    update={"archived_at": datetime.now(timezone.utc)},
+                )
+                assert archived is not None
+                await self._repo.upsert_chat(archived)
+                logger.debug("Archived chat: %s", sanitize_log_value(chat_id))
+        await self._close_browser_session(archived.session_id)
+        return archived
+
+    async def _close_browser_session(self, session_id: str) -> None:
+        """Ask the optional lifecycle owner to close one chat's browser."""
+        if self._on_session_closed is None:
+            return
+        try:
+            await self._on_session_closed(session_id)
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "chat browser cleanup failed for session=%s",
+                session_id[:30],
+                exc_info=True,
             )
-            await self._repo.upsert_chat(merged)
-            logger.debug(f"Archived chat: {chat_id}")
-            return merged
 
     async def unarchive_chat(self, chat_id: str) -> Optional[ChatSpec]:
         """Unarchive a single chat. Idempotent: active chats unchanged.
@@ -318,6 +353,7 @@ class ChatManager:
             BatchArchiveResult with succeeded and failed lists
         """
         result = BatchArchiveResult()
+        session_ids: set[str] = set()
         async with self._lock:
             for chat_id in chat_ids:
                 existing = await self._repo.get_chat(chat_id)
@@ -347,6 +383,9 @@ class ChatManager:
                     )
                     await self._repo.upsert_chat(merged)
                 result.succeeded.append(chat_id)
+                session_ids.add(existing.session_id)
+        for session_id in session_ids:
+            await self._close_browser_session(session_id)
         logger.debug(
             f"batch_archive: {len(result.succeeded)} succeeded, "
             f"{len(result.failed)} failed",

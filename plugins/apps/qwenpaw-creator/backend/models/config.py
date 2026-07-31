@@ -20,15 +20,19 @@ CREATOR_TEXT_CONFIG_TOOL = "creator_text_model"
 CREATOR_IMAGE_CONFIG_TOOL = "creator_image_model"
 CREATOR_VIDEO_CONFIG_TOOL = "creator_video_model"
 CREATOR_VLM_CONFIG_TOOL = "creator_vlm_model"
+CREATOR_GROUNDING_CONFIG_TOOL = "creator_web_grounding"
 CREATOR_ASR_CONFIG_TOOL = "creator_asr_model"
 CREATOR_OSS_CONFIG_TOOL = "creator_media_oss"
 EXECUTION_AUTHORIZATION_REQUIRED = "required"
 EXECUTION_AUTHORIZATION_ALLOW_ALL = "allow_all"
+CREATION_CHECKPOINT_REQUIRED = "required"
+CREATION_CHECKPOINT_SKIP = "skip"
 CREATOR_CONFIG_TOOLS = (
     CREATOR_TEXT_CONFIG_TOOL,
     CREATOR_IMAGE_CONFIG_TOOL,
     CREATOR_VIDEO_CONFIG_TOOL,
     CREATOR_VLM_CONFIG_TOOL,
+    CREATOR_GROUNDING_CONFIG_TOOL,
     CREATOR_ASR_CONFIG_TOOL,
     CREATOR_OSS_CONFIG_TOOL,
 )
@@ -250,10 +254,21 @@ def get_execution_authorization_mode() -> str:
     return EXECUTION_AUTHORIZATION_REQUIRED
 
 
+def get_creation_checkpoint_mode() -> str:
+    """Return the persisted mode for the creation pit-stop checkpoints."""
+
+    section = _get_user_config().get("creation_checkpoints")
+    value = section.get("mode") if isinstance(section, dict) else None
+    if value == CREATION_CHECKPOINT_SKIP:
+        return CREATION_CHECKPOINT_SKIP
+    return CREATION_CHECKPOINT_REQUIRED
+
+
 def _map_tool_to_section(tool_name: str) -> str:
     return {
         CREATOR_TEXT_CONFIG_TOOL: "llm",
         CREATOR_VLM_CONFIG_TOOL: "vlm",
+        CREATOR_GROUNDING_CONFIG_TOOL: "grounding",
         CREATOR_ASR_CONFIG_TOOL: "asr",
         CREATOR_IMAGE_CONFIG_TOOL: "image",
         CREATOR_VIDEO_CONFIG_TOOL: "video",
@@ -309,16 +324,20 @@ VLM_MAX_INLINE_BYTES = _positive_int_env(
 )
 
 # ── Web grounding ────────────────────────────────────────────────────────────
-WEB_GROUNDING_TIMEOUT_SECONDS = _positive_int_env(
-    "WEB_GROUNDING_TIMEOUT_SECONDS",
-    8,
-)
-WEB_GROUNDING_MAX_SOURCES = _positive_int_env("WEB_GROUNDING_MAX_SOURCES", 6)
-WEB_GROUNDING_MAX_ENTITIES = _positive_int_env("WEB_GROUNDING_MAX_ENTITIES", 3)
-WEB_GROUNDING_ENTITY_TIMEOUT_SECONDS = _positive_int_env(
-    "WEB_GROUNDING_ENTITY_TIMEOUT_SECONDS",
-    20,
-)
+# These are Creator product policy, not deployment configuration. Keep them
+# fixed until there is a demonstrated need to expose a supported tuning
+# surface through model_config.json / the Portal.
+WEB_GROUNDING_TIMEOUT_SECONDS = 60
+WEB_GROUNDING_MAX_SOURCES = 6
+WEB_GROUNDING_MAX_ENTITIES = 3
+WEB_GROUNDING_ENTITY_TIMEOUT_SECONDS = 20
+WEB_GROUNDING_VISUAL_SEARCH_TIMEOUT_SECONDS = 120
+WEB_GROUNDING_IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 30
+WEB_GROUNDING_VERIFICATION_TIMEOUT_SECONDS = 120
+WEB_GROUNDING_VERIFICATION_MAX_ATTEMPTS = 3
+WEB_GROUNDING_VERIFICATION_TOTAL_BUDGET_SECONDS = 300
+WEB_GROUNDING_RETRY_BASE_SECONDS = 1
+WEB_GROUNDING_RETRY_MAX_SECONDS = 8
 
 # ── ASR Model (OpenAI Whisper / DashScope Fun-ASR) ───────────────────────────
 ASR_BASE_URL = os.environ.get(
@@ -444,40 +463,259 @@ def get_vlm_max_inline_bytes() -> int:
     )
 
 
+def _grounding_value(
+    fields: str | tuple[str, ...],
+    env_name: str,
+    default: str = "",
+) -> str:
+    """Read grounding config while preserving an explicit disabled section."""
+
+    field_names = (fields,) if isinstance(fields, str) else fields
+    tool_config = get_request_tool_config(CREATOR_GROUNDING_CONFIG_TOOL)
+    for field in field_names:
+        value = tool_config.get(field)
+        if value not in (None, ""):
+            return str(value)
+    section = _get_user_config().get("grounding")
+    if isinstance(section, dict):
+        for field in field_names:
+            value = section.get(_map_user_field(field))
+            if value not in (None, ""):
+                return str(value)
+    return os.environ.get(env_name, default)
+
+
+def _grounding_explicit(
+    fields: str | tuple[str, ...],
+    env_names: tuple[str, ...],
+) -> str:
+    for env_name in env_names:
+        value = _grounding_value(fields, env_name)
+        if value:
+            return value
+    return ""
+
+
 def get_web_grounding_enabled() -> bool:
-    return os.environ.get("WEB_GROUNDING_ENABLED", "1").lower() not in {
-        "0",
-        "false",
-        "no",
-    }
+    raw = _grounding_value(
+        "enabled",
+        "WEB_GROUNDING_ENABLED",
+        "1",
+    )
+    return str(raw).strip().casefold() not in {"0", "false", "no", "off"}
 
 
 def get_web_grounding_timeout_seconds() -> int:
-    return _positive_int_env(
-        "WEB_GROUNDING_TIMEOUT_SECONDS",
-        WEB_GROUNDING_TIMEOUT_SECONDS,
-    )
+    return WEB_GROUNDING_TIMEOUT_SECONDS
 
 
 def get_web_grounding_max_sources() -> int:
-    return _positive_int_env(
-        "WEB_GROUNDING_MAX_SOURCES",
-        WEB_GROUNDING_MAX_SOURCES,
-    )
+    return WEB_GROUNDING_MAX_SOURCES
 
 
 def get_web_grounding_max_entities() -> int:
-    return _positive_int_env(
-        "WEB_GROUNDING_MAX_ENTITIES",
-        WEB_GROUNDING_MAX_ENTITIES,
-    )
+    return WEB_GROUNDING_MAX_ENTITIES
 
 
 def get_web_grounding_entity_timeout_seconds() -> int:
-    return _positive_int_env(
-        "WEB_GROUNDING_ENTITY_TIMEOUT_SECONDS",
-        WEB_GROUNDING_ENTITY_TIMEOUT_SECONDS,
+    return WEB_GROUNDING_ENTITY_TIMEOUT_SECONDS
+
+
+def get_web_grounding_visual_search_timeout_seconds() -> int:
+    return WEB_GROUNDING_VISUAL_SEARCH_TIMEOUT_SECONDS
+
+
+def get_web_grounding_image_download_timeout_seconds() -> int:
+    return WEB_GROUNDING_IMAGE_DOWNLOAD_TIMEOUT_SECONDS
+
+
+def get_web_grounding_verification_timeout_seconds() -> int:
+    return WEB_GROUNDING_VERIFICATION_TIMEOUT_SECONDS
+
+
+def get_web_grounding_verification_max_attempts() -> int:
+    return WEB_GROUNDING_VERIFICATION_MAX_ATTEMPTS
+
+
+def get_web_grounding_verification_total_budget_seconds() -> int:
+    return WEB_GROUNDING_VERIFICATION_TOTAL_BUDGET_SECONDS
+
+
+def get_web_grounding_retry_base_seconds() -> int:
+    return WEB_GROUNDING_RETRY_BASE_SECONDS
+
+
+def get_web_grounding_retry_max_seconds() -> int:
+    return WEB_GROUNDING_RETRY_MAX_SECONDS
+
+
+def get_web_grounding_tavily_api_key() -> str:
+    return _grounding_explicit(
+        "tavily_api_key",
+        ("TAVILY_API_KEY", "WEB_GROUNDING_TAVILY_API_KEY"),
     )
+
+
+def _grounding_bool(
+    field: str,
+    env_name: str,
+    *,
+    default: bool,
+) -> bool:
+    raw = _grounding_value(field, env_name, "1" if default else "0")
+    return str(raw).strip().casefold() not in {"0", "false", "no", "off"}
+
+
+def get_web_grounding_validation_source() -> str:
+    source = (
+        _grounding_value(
+            "validation_source",
+            "WEB_GROUNDING_VALIDATION_SOURCE",
+        )
+        .strip()
+        .casefold()
+    )
+    if source in {"llm", "vlm", "custom"}:
+        return source
+    env_name = (
+        "WEB_GROUNDING_REUSE_LLM"
+        if "WEB_GROUNDING_REUSE_LLM" in os.environ
+        else "WEB_GROUNDING_REUSE_VLM"
+    )
+    return (
+        "llm"
+        if _grounding_bool("reuse_llm", env_name, default=True)
+        else "custom"
+    )
+
+
+def get_web_grounding_reuse_llm() -> bool:
+    return get_web_grounding_validation_source() == "llm"
+
+
+def get_web_grounding_model_api_key() -> str:
+    source = get_web_grounding_validation_source()
+    if source == "llm":
+        return get_text_api_key()
+    if source == "vlm":
+        return get_vlm_api_key()
+    return _grounding_explicit(
+        "api_key",
+        ("WEB_GROUNDING_LLM_API_KEY", "WEB_GROUNDING_VLM_API_KEY"),
+    )
+
+
+def get_web_grounding_model_base_url() -> str:
+    source = get_web_grounding_validation_source()
+    if source == "llm":
+        return get_text_base_url()
+    if source == "vlm":
+        return get_vlm_base_url()
+    return _grounding_explicit(
+        ("base_url", "endpoint"),
+        ("WEB_GROUNDING_LLM_BASE_URL", "WEB_GROUNDING_VLM_BASE_URL"),
+    )
+
+
+def get_web_grounding_model_name() -> str:
+    source = get_web_grounding_validation_source()
+    if source == "llm":
+        return get_text_model_name()
+    if source == "vlm":
+        return get_vlm_model_name()
+    return _grounding_explicit(
+        "model",
+        ("WEB_GROUNDING_LLM_MODEL_NAME", "WEB_GROUNDING_VLM_MODEL_NAME"),
+    )
+
+
+def get_web_grounding_native_search_enabled() -> bool:
+    return _grounding_bool(
+        "native_search_enabled",
+        "WEB_GROUNDING_NATIVE_SEARCH_ENABLED",
+        default=True,
+    )
+
+
+def get_web_grounding_search_provider() -> str:
+    provider = (
+        _grounding_value(
+            "search_provider",
+            "WEB_GROUNDING_SEARCH_PROVIDER",
+            "dashscope_qwen",
+        )
+        .strip()
+        .casefold()
+    )
+    return provider or "dashscope_qwen"
+
+
+def get_web_grounding_search_reuse_llm() -> bool:
+    raw = _grounding_value(
+        "search_reuse_llm",
+        "WEB_GROUNDING_SEARCH_REUSE_LLM",
+    )
+    if raw:
+        return str(raw).strip().casefold() not in {"0", "false", "no", "off"}
+    # Legacy grounding used one model for both retrieval and verification.
+    env_name = (
+        "WEB_GROUNDING_REUSE_LLM"
+        if "WEB_GROUNDING_REUSE_LLM" in os.environ
+        else "WEB_GROUNDING_REUSE_VLM"
+    )
+    return _grounding_bool("reuse_llm", env_name, default=True)
+
+
+def get_web_grounding_search_api_key() -> str:
+    if get_web_grounding_search_reuse_llm():
+        return get_text_api_key()
+    return _grounding_explicit(
+        "search_api_key",
+        ("WEB_GROUNDING_SEARCH_API_KEY",),
+    ) or _grounding_explicit(
+        "api_key",
+        ("WEB_GROUNDING_LLM_API_KEY", "WEB_GROUNDING_VLM_API_KEY"),
+    )
+
+
+def get_web_grounding_search_base_url() -> str:
+    if get_web_grounding_search_reuse_llm():
+        return get_text_base_url()
+    return _grounding_explicit(
+        "search_base_url",
+        ("WEB_GROUNDING_SEARCH_BASE_URL",),
+    ) or _grounding_explicit(
+        ("base_url", "endpoint"),
+        ("WEB_GROUNDING_LLM_BASE_URL", "WEB_GROUNDING_VLM_BASE_URL"),
+    )
+
+
+def get_web_grounding_search_model_name() -> str:
+    if get_web_grounding_search_reuse_llm():
+        return get_text_model_name()
+    return _grounding_explicit(
+        ("search_model", "search_model_name"),
+        ("WEB_GROUNDING_SEARCH_MODEL_NAME",),
+    ) or _grounding_explicit(
+        "model",
+        ("WEB_GROUNDING_LLM_MODEL_NAME", "WEB_GROUNDING_VLM_MODEL_NAME"),
+    )
+
+
+def get_web_grounding_search_protocol() -> str:
+    if get_web_grounding_search_reuse_llm():
+        text_tool_config = get_request_tool_config(CREATOR_TEXT_CONFIG_TOOL)
+        if text_tool_config:
+            return str(text_tool_config.get("protocol") or "").strip()
+        llm_section = _get_user_config().get("llm")
+        if isinstance(llm_section, dict) and llm_section.get("protocol"):
+            return str(llm_section["protocol"]).strip()
+        if os.environ.get("TEXT_PROTOCOL"):
+            return os.environ["TEXT_PROTOCOL"].strip()
+    return _grounding_value(
+        "search_protocol",
+        "WEB_GROUNDING_SEARCH_PROTOCOL",
+    ).strip()
 
 
 def get_asr_api_key() -> str:

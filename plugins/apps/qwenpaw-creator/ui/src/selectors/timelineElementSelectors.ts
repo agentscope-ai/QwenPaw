@@ -210,7 +210,18 @@ export function resolveElementVisualMeta(element: TimelineElementDocument): {
 } {
   const trackType = classifyElementTrack(element);
   if (trackType) return TRACK_TYPE_META[trackType];
-  return ELEMENT_TYPE_META[element.creation.type];
+  if (element.creation.type === "overlay") {
+    const kind = element.creation.overlay_kind;
+    if (kind === "pet_os" || kind === "interview_summary") {
+      return TRACK_TYPE_META.subtitle;
+    }
+    if (kind === "motion" || kind === "media") {
+      return TRACK_TYPE_META.motion;
+    }
+  }
+  return ELEMENT_TYPE_META[
+    element.creation.type as Exclude<ElementCreationDocument["type"], "overlay">
+  ];
 }
 
 export function groupElementsByTracks(
@@ -340,7 +351,7 @@ export function elementCreationSummary(
 }
 
 export const ELEMENT_TYPE_META: Record<
-  ElementCreationDocument["type"],
+  Exclude<ElementCreationDocument["type"], "overlay">,
   {
     label: string;
     color: string;
@@ -349,11 +360,6 @@ export const ELEMENT_TYPE_META: Record<
 > = {
   r2v: { label: "AI 生成画面", color: "#ff7f16", soft: "rgba(255,127,22,.12)" },
   edit: { label: "素材剪辑", color: "#3b82f6", soft: "rgba(59,130,246,.12)" },
-  overlay: {
-    label: "字幕与动效",
-    color: "#8b5cf6",
-    soft: "rgba(139,92,246,.12)",
-  },
   transition: {
     label: "转场",
     color: "#0d9488",

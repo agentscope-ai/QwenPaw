@@ -22,6 +22,11 @@ plugin version in ``plugin.json`` when you need a distinct release artifact.
 
 A plugin can opt out of publishing by setting ``"publish": false`` in its
 ``plugin.json``.
+
+Pass ``--only <plugin_id>`` (repeatable) to pack a subset of plugins, e.g.
+for a standalone release of a single plugin driven by its own version bump.
+Conversely, ``--exclude <plugin_id>`` (repeatable) skips plugins that are
+released through their own dedicated pipeline.
 """
 
 from __future__ import annotations
@@ -223,10 +228,35 @@ def _build_metadata(
     return metadata
 
 
+def _matches_only(
+    only: list[str] | None,
+    plugin_id: str,
+    dir_name: str,
+) -> bool:
+    """True when *only* is unset or matches the plugin id / directory name."""
+    if not only:
+        return True
+    return plugin_id in only or dir_name in only
+
+
+def _selected(
+    only: list[str] | None,
+    exclude: list[str] | None,
+    plugin_id: str,
+    dir_name: str,
+) -> bool:
+    """Apply ``--only`` / ``--exclude`` selection to a plugin."""
+    if exclude and (plugin_id in exclude or dir_name in exclude):
+        return False
+    return _matches_only(only, plugin_id, dir_name)
+
+
 def discover_and_pack(
     plugins_root: Path,
     dist_root: Path,
     cdn_prefix: str,
+    only: list[str] | None = None,
+    exclude: list[str] | None = None,
 ) -> dict[str, Any]:
     """Scan, zip, and assemble the plugins index. Always full-rebuild."""
     index: dict[str, Any] = {
@@ -256,6 +286,8 @@ def discover_and_pack(
                 continue
 
             plugin_id = str(manifest.get("id") or plugin_dir.name)
+            if not _selected(only, exclude, plugin_id, plugin_dir.name):
+                continue
             version = str(manifest.get("version") or "0.0.0")
             zip_name = f"{plugin_id}-{version}.zip"
             zip_path = dist_root / kind / plugin_id / zip_name
@@ -287,6 +319,36 @@ def discover_and_pack(
     return index
 
 
+def _dry_run_scan(
+    plugins_root: Path,
+    only: list[str] | None,
+    exclude: list[str] | None,
+) -> None:
+    """List what would be packed without writing anything."""
+    for kind in KIND_DIRS:
+        kind_dir = plugins_root / kind
+        if not kind_dir.is_dir():
+            continue
+        for plugin_dir in sorted(
+            p for p in kind_dir.iterdir() if p.is_dir()
+        ):
+            manifest = _read_manifest(plugin_dir)
+            if manifest is None:
+                continue
+            if manifest.get("publish") is False:
+                print(f"  - skip {plugin_dir.name} (publish=false)")
+                continue
+            plugin_id = str(manifest.get("id") or plugin_dir.name)
+            if not _selected(only, exclude, plugin_id, plugin_dir.name):
+                continue
+            print(
+                f"  ~ would pack {kind}/{plugin_dir.name} "
+                f"(id={manifest.get('id')}, "
+                f"version={manifest.get('version')})"
+            )
+    print("Dry run complete.")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -313,6 +375,27 @@ def main() -> int:
         help="OSS path prefix used in metadata URLs (default: /files/plugins)",
     )
     parser.add_argument(
+        "--only",
+        action="append",
+        default=None,
+        metavar="PLUGIN_ID",
+        help=(
+            "Pack only the plugin(s) whose manifest id or directory name "
+            "matches. Repeatable. Default: pack all plugins."
+        ),
+    )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=None,
+        metavar="PLUGIN_ID",
+        help=(
+            "Skip the plugin(s) whose manifest id or directory name "
+            "matches (e.g. plugins with a dedicated release pipeline). "
+            "Repeatable."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Scan + plan only; do not write zips or index.",
@@ -329,26 +412,7 @@ def main() -> int:
 
     print(f"Scanning plugins under: {plugins_root}")
     if args.dry_run:
-        # Dry-run: list what would be packed without writing anything.
-        for kind in KIND_DIRS:
-            kind_dir = plugins_root / kind
-            if not kind_dir.is_dir():
-                continue
-            for plugin_dir in sorted(
-                p for p in kind_dir.iterdir() if p.is_dir()
-            ):
-                manifest = _read_manifest(plugin_dir)
-                if manifest is None:
-                    continue
-                if manifest.get("publish") is False:
-                    print(f"  - skip {plugin_dir.name} (publish=false)")
-                    continue
-                print(
-                    f"  ~ would pack {kind}/{plugin_dir.name} "
-                    f"(id={manifest.get('id')}, "
-                    f"version={manifest.get('version')})"
-                )
-        print("Dry run complete.")
+        _dry_run_scan(plugins_root, args.only, args.exclude)
         return 0
 
     if dist_root.exists():
@@ -364,7 +428,13 @@ def main() -> int:
                     shutil.rmtree(child)
     dist_root.mkdir(parents=True, exist_ok=True)
 
-    index = discover_and_pack(plugins_root, dist_root, args.cdn_prefix)
+    index = discover_and_pack(
+        plugins_root,
+        dist_root,
+        args.cdn_prefix,
+        only=args.only,
+        exclude=args.exclude,
+    )
 
     metadata_out.parent.mkdir(parents=True, exist_ok=True)
     with metadata_out.open("w", encoding="utf-8") as f:

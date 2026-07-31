@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { message, Modal } from "antd";
-import { Download, Loader2, RefreshCw } from "lucide-react";
+import { Dropdown, message, Modal } from "antd";
+import {
+  ChevronDown,
+  Download,
+  FileOutput,
+  Loader2,
+  RefreshCw,
+} from "lucide-react";
 import { navigate, useParams, useSearchParams } from "@/routing/navigation";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
@@ -20,6 +26,11 @@ import ElementList from "@/components/timeline/ElementList";
 import ElementDetail from "@/components/timeline/ElementDetail";
 import PageSkeleton from "@/components/PageSkeleton";
 import PageLoadError from "@/components/PageLoadError";
+import {
+  ExportProgressCard,
+  saveExportFile,
+  type ExportProgressState,
+} from "@/components/creator/ProjectImportExport";
 import type { TimelineElementDocument } from "@/contracts/creator";
 
 function sec(tick: number, ticksPerSecond: number): string {
@@ -61,6 +72,8 @@ export default function PlanPage() {
   const [playheadTick, setPlayheadTick] = useState(0);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [composing, setComposing] = useState(false);
+  const [exportProgress, setExportProgress] =
+    useState<ExportProgressState | null>(null);
   const [requestedComposeTaskId, setRequestedComposeTaskId] = useState<
     string | null
   >(null);
@@ -200,6 +213,9 @@ export default function PlanPage() {
     renderOutput?.selected && !renderOutput.selected.stale
       ? renderOutput.selected
       : null;
+  const renderIsCurrent =
+    freshRender !== null &&
+    (generation === null || freshRender.based_on_generation >= generation);
   const allReady = readiness.total > 0 && readiness.notReady === 0;
   const timelineTargetRef = timeline
     ? `timeline:${timeline.timeline_id}`
@@ -372,11 +388,12 @@ export default function PlanPage() {
     message.error(`成片合成失败：${detail}`);
   }, [id, pollOnce, requestedComposeTask]);
 
-  // Auto-compose once all main-track elements are ready and there is no fresh
-  // final cut; only one attempt per generation (no auto-retry on failure — a
-  // manual retry entry remains); a short debounce absorbs successive edits.
+  // Auto-compose once all main-track elements are ready and there is no
+  // up-to-date final cut; only one attempt per generation (no auto-retry on
+  // failure — a manual retry entry remains); a short debounce absorbs
+  // successive edits.
   useEffect(() => {
-    if (!allReady || freshRender || isComposing) return;
+    if (!allReady || renderIsCurrent || isComposing) return;
     if (
       generation !== null &&
       composeAttemptedGeneration.current === generation
@@ -387,7 +404,7 @@ export default function PlanPage() {
       void composeNow();
     }, 1500);
     return () => window.clearTimeout(timer);
-  }, [allReady, freshRender, isComposing, generation, composeNow]);
+  }, [allReady, renderIsCurrent, isComposing, generation, composeNow]);
 
   const downloadRender = useCallback(async () => {
     if (!freshRender) return;
@@ -414,6 +431,34 @@ export default function PlanPage() {
       link.remove();
     }
   }, [freshRender, project?.name]);
+
+  const exporting = exportProgress?.status === "running";
+  const exportProject = useCallback(async () => {
+    if (exporting) return;
+    setExportProgress({
+      receivedBytes: 0,
+      totalBytes: null,
+      status: "running",
+    });
+    try {
+      await saveExportFile(id, (receivedBytes, totalBytes) =>
+        setExportProgress({ receivedBytes, totalBytes, status: "running" }),
+      );
+      setExportProgress((state) =>
+        state ? { ...state, status: "done" } : state,
+      );
+    } catch (error) {
+      setExportProgress(null);
+      message.error(`导出项目失败：${(error as Error).message}`);
+    }
+  }, [exporting, id]);
+
+  // The finished card lingers briefly, then clears itself.
+  useEffect(() => {
+    if (exportProgress?.status !== "done") return;
+    const timer = window.setTimeout(() => setExportProgress(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [exportProgress]);
 
   if (!project) {
     if (syncStatus === "invalid" || syncStatus === "not_found") {
@@ -522,56 +567,78 @@ export default function PlanPage() {
               重试合成
             </button>
           )}
-          <button
-            type="button"
-            data-download-render
-            disabled={!freshRender}
-            title={
-              freshRender
-                ? "下载成片视频文件"
-                : isComposing
-                ? composeElementProgress
-                  ? `正在合成成片，已完成 ${composeElementProgress.completed}/${composeElementProgress.total} 个 Element`
-                  : "正在准备成片合成，完成后可下载"
-                : readiness.total === 0
-                ? "时间轴还没有可合成的画面内容"
-                : readiness.notReady > 0
-                ? `还有 ${readiness.notReady} 项内容生成中，全部就绪后自动合成`
-                : "等待成片合成"
-            }
-            className="relative inline-flex items-center gap-1.5 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-primary)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-secondary)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-[var(--color-border)] disabled:hover:bg-[var(--color-bg-primary)]"
-            onClick={downloadRender}
+          {/* Download-final-cut and export-project share one split entry. */}
+          <Dropdown
+            trigger={["click"]}
+            menu={{
+              items: [
+                {
+                  key: "download",
+                  label: "下载成片",
+                  icon: <Download className="h-3.5 w-3.5" />,
+                  disabled: !freshRender,
+                  onClick: () => void downloadRender(),
+                },
+                {
+                  key: "export",
+                  label: exporting ? "导出中…" : "导出项目",
+                  icon: <FileOutput className="h-3.5 w-3.5" />,
+                  disabled: exporting,
+                  onClick: () => void exportProject(),
+                },
+              ],
+            }}
           >
-            {isComposing && (
-              <span
-                aria-hidden="true"
-                className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-[var(--color-border)]"
-              >
-                {composeElementProgress ? (
-                  <span
-                    data-compose-progress
-                    className="block h-full bg-[var(--color-accent)] transition-[width] duration-300 ease-out"
-                    style={{
-                      width: `${composeElementProgress.fraction * 100}%`,
-                    }}
-                  />
-                ) : (
-                  <span
-                    data-compose-activity
-                    className="block h-full w-full animate-pulse bg-[var(--color-accent)]"
-                  />
-                )}
-              </span>
-            )}
-            <span className="relative z-[1] inline-flex items-center gap-1.5">
-              {isComposing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Download className="h-3.5 w-3.5" />
+            <button
+              type="button"
+              data-download-render
+              title={
+                freshRender
+                  ? "下载成片视频文件或导出项目"
+                  : isComposing
+                  ? composeElementProgress
+                    ? `正在合成成片，已完成 ${composeElementProgress.completed}/${composeElementProgress.total} 个 Element`
+                    : "正在准备成片合成，完成后可下载"
+                  : readiness.total === 0
+                  ? "时间轴还没有可合成的画面内容"
+                  : readiness.notReady > 0
+                  ? `还有 ${readiness.notReady} 项内容生成中，全部就绪后自动合成`
+                  : "等待成片合成"
+              }
+              className="relative inline-flex cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-primary)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-secondary)]"
+            >
+              {isComposing && (
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-[var(--color-border)]"
+                >
+                  {composeElementProgress ? (
+                    <span
+                      data-compose-progress
+                      className="block h-full bg-[var(--color-accent)] transition-[width] duration-300 ease-out"
+                      style={{
+                        width: `${composeElementProgress.fraction * 100}%`,
+                      }}
+                    />
+                  ) : (
+                    <span
+                      data-compose-activity
+                      className="block h-full w-full animate-pulse bg-[var(--color-accent)]"
+                    />
+                  )}
+                </span>
               )}
-              {isComposing ? composeLabel : "下载成片"}
-            </span>
-          </button>
+              <span className="relative z-[1] inline-flex items-center gap-1.5">
+                {isComposing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
+                {isComposing ? composeLabel : "下载 / 导出"}
+                <ChevronDown className="h-3.5 w-3.5" />
+              </span>
+            </button>
+          </Dropdown>
         </div>
       </header>
 
@@ -634,6 +701,14 @@ export default function PlanPage() {
           onOpenWorkbench={openElementWorkbench}
         />
       </main>
+
+      {exportProgress && (
+        <ExportProgressCard
+          projectName={project.name}
+          progress={exportProgress}
+          onDismiss={() => setExportProgress(null)}
+        />
+      )}
     </div>
   );
 }

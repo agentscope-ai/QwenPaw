@@ -110,6 +110,27 @@ def test_creator_owns_timeline_element_planning() -> None:
     assert "x=0.5, y=0.5" in prompt
 
 
+def test_visual_prompt_reuses_an_existing_variant_sheet_by_default() -> None:
+    prompt = load_file_agent_prompt("visual_development_agent.system")
+    assert "一图一 Variant（硬性规则）" in prompt
+    assert "生成前去重（硬性规则）" in prompt
+    assert "generated_artifact_version_ids" in prompt
+    assert "重复委派、继续执行或重新进入同一目标不等于用户要求重做" in prompt
+
+
+def test_r2v_prompt_requires_text_free_storyboards_without_blind_retry() -> (
+    None
+):
+    prompt = load_file_agent_prompt("r2v_generation_director.system")
+    assert "分镜图画面纯净性（硬性规则）" in prompt
+    assert (
+        "Absolutely no text, no captions, no labels, no lettering, "
+        "no watermarks in the image."
+    ) in prompt
+    assert "不要在未看到图片内容时臆测检查结果" in prompt
+    assert "不要因此自动重复调用 `image_generation`" in prompt
+
+
 def test_source_prompt_requires_outer_vlm_timeline_and_controlled_commit() -> (
     None
 ):

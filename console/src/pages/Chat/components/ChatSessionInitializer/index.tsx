@@ -209,6 +209,17 @@ const ChatSessionInitializer: React.FC = () => {
     }
 
     return () => {
+      // Abort any in-flight embedded switch so a late preload result cannot
+      // navigate after this initializer (and its chat view) is gone. The
+      // aborted promise's finally skips finishSessionSwitch, and the ref
+      // always points at the newest switch started by this instance, so
+      // releasing the lock here cannot unlock someone else's switch.
+      const controller = switchControllerRef.current;
+      if (controller && !controller.signal.aborted) {
+        controller.abort();
+        sessionApi.finishSessionSwitch();
+      }
+      switchControllerRef.current = null;
       window.removeEventListener(
         "qwenpaw:sidebar-select-session",
         handleSelectSession,
