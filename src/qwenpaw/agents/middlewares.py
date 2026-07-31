@@ -30,6 +30,7 @@ from .tools.utils import (
 )
 from ..constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
+    MEMORY_MIDDLE_CONTEXT_KEY,
     QWENPAW_MESSAGE_TAG_KEY,
 )
 
@@ -113,12 +114,13 @@ class MemoryMiddleware(MiddlewareBase):
                 messages = list(input_kwargs.get("messages") or [])
                 memory_msgs = self._extract_memory_messages(
                     result,
-                    context_len=len(agent.state.context),
+                    existing_ids={
+                        msg.id for msg in agent.state.context if msg.id
+                    },
                 )
                 if memory_msgs:
                     messages.extend(memory_msgs)
                     input_kwargs["messages"] = messages
-                    agent.state.context.extend(memory_msgs)
         return await next_handler(**input_kwargs)
 
     # pylint: disable=stop-iteration-return
@@ -220,12 +222,9 @@ class MemoryMiddleware(MiddlewareBase):
         if not pending_markers:
             return
 
-        if count is None:
-            turn_markers = list(pending_markers)
-            pending_markers.clear()
-        else:
-            turn_markers = pending_markers[:count]
-            del pending_markers[:count]
+        turn_markers = list(
+            pending_markers if count is None else pending_markers[:count],
+        )
 
         messages = self._messages_for_user_turns(
             (
@@ -236,6 +235,7 @@ class MemoryMiddleware(MiddlewareBase):
             turn_markers=turn_markers,
         )
         if not messages:
+            self._discard_pending_markers(pending_markers, turn_markers)
             return
 
         try:
@@ -245,6 +245,18 @@ class MemoryMiddleware(MiddlewareBase):
             )
         except Exception:
             logger.exception("MemoryMiddleware auto_memory failed")
+        else:
+            self._discard_pending_markers(pending_markers, turn_markers)
+
+    @staticmethod
+    def _discard_pending_markers(
+        pending_markers: list[str],
+        submitted: list[str],
+    ) -> None:
+        submitted_set = set(submitted)
+        pending_markers[:] = [
+            marker for marker in pending_markers if marker not in submitted_set
+        ]
 
     @staticmethod
     def _agent_session_id(agent: "Agent") -> str:
@@ -277,7 +289,7 @@ class MemoryMiddleware(MiddlewareBase):
     def _extract_memory_messages(
         result: Any,
         *,
-        context_len: int,
+        existing_ids: set[str],
     ) -> list["Msg"]:
         if not isinstance(result, dict):
             return []
@@ -285,11 +297,11 @@ class MemoryMiddleware(MiddlewareBase):
         if not isinstance(msgs, list):
             return []
 
-        injected = msgs[context_len:] if len(msgs) > context_len else msgs
         return [
             msg
-            for msg in injected
+            for msg in msgs
             if hasattr(msg, "has_content_blocks")
+            and getattr(msg, "id", None) not in existing_ids
             and (
                 msg.has_content_blocks("tool_call")
                 or msg.has_content_blocks("tool_result")
@@ -303,8 +315,13 @@ class MemoryMiddleware(MiddlewareBase):
         return self._memory_manager.get_memory_config()
 
     def _auto_memory_turn_state(self, agent: "Agent") -> dict[str, Any]:
-        return self._memory_manager.get_auto_memory_turn_state(
-            self._agent_session_id(agent),
+        """Return lifecycle state in AgentScope's persisted middleware slot."""
+        return agent.state.middle_context.setdefault(
+            MEMORY_MIDDLE_CONTEXT_KEY,
+            {
+                "pending": [],
+                "seen": {},
+            },
         )
 
     @staticmethod

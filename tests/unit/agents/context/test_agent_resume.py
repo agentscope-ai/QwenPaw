@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 from agentscope.message import Msg, TextBlock
+from agentscope.permission import PermissionMode
 from agentscope.state import AgentState
 
 from qwenpaw.agents.context.scroll.continuation_summary import (
@@ -28,6 +29,7 @@ from qwenpaw.agents.context.scroll.continuation_summary import (
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
 from qwenpaw.agents.react_agent import QwenPawAgent
+from qwenpaw.constant import SCROLL_MIDDLE_CONTEXT_KEY
 
 
 class AgentShim:
@@ -46,6 +48,9 @@ class AgentShim:
     def _sanitize_loaded_context(self) -> None:
         """Delegate to the production loaded-context sanitizer."""
         QwenPawAgent._sanitize_loaded_context(self)
+
+    def _restore_agent_state(self, state: AgentState) -> None:
+        QwenPawAgent._restore_agent_state(self, state)
 
 
 def _user(text):
@@ -93,10 +98,9 @@ def test_state_dict_carries_the_scroll_bookkeeping(store):
     agent, _ = _seed_session(store)
     dumped = QwenPawAgent.state_dict(agent)
     assert "state" in dumped
-    assert "scroll" in dumped  # the wiring: cm.to_dict() is embedded
-    assert set(dumped["scroll"]["persisted_ids"]) == {
-        m.id for m in agent.state.context
-    }
+    assert "scroll" not in dumped
+    scroll = dumped["state"]["middle_context"][SCROLL_MIDDLE_CONTEXT_KEY]
+    assert set(scroll["persisted_ids"]) == {m.id for m in agent.state.context}
 
 
 def test_resume_after_crash_does_not_reappend(store):
@@ -118,6 +122,8 @@ def test_resume_after_crash_does_not_reappend(store):
     ]
     assert mgr2._persisted_ids == mgr1._persisted_ids
     assert mgr2._index.to_dict() == mgr1._index.to_dict()
+    assert agent2._engine.context is agent2.state.permission_context
+    assert agent2.state.permission_context.mode == PermissionMode.BYPASS
     # ...so the resumed session's write-through re-appends NOTHING.
     mgr2.on_save(agent2, None)
     assert store.count("s1") == 3
@@ -184,7 +190,10 @@ def test_resume_without_scroll_block_is_tolerated(store):
     prevents duplicate rows on the re-append."""
     agent1, _ = _seed_session(store)
     snapshot = json.loads(json.dumps(QwenPawAgent.state_dict(agent1)))
-    snapshot.pop("scroll")  # simulate an older checkpoint
+    # Simulate a snapshot created before Scroll state was checkpointed.
+    snapshot["state"]["middle_context"].pop(
+        SCROLL_MIDDLE_CONTEXT_KEY,
+    )
 
     mgr2 = ScrollContextManager(history=store, session_id="s1", agent_id="ag1")
     agent2 = AgentShim(mgr2)
@@ -193,3 +202,18 @@ def test_resume_without_scroll_block_is_tolerated(store):
     assert mgr2._persisted_ids == set()  # nothing seeded
     mgr2.on_save(agent2, None)
     assert store.count("s1") == 3  # DB-level idempotency still holds
+
+
+def test_resume_migrates_top_level_scroll_checkpoint(store):
+    """Snapshots written by the first PR revision remain loadable."""
+    agent1, mgr1 = _seed_session(store)
+    snapshot = json.loads(json.dumps(QwenPawAgent.state_dict(agent1)))
+    snapshot["scroll"] = snapshot["state"]["middle_context"].pop(
+        SCROLL_MIDDLE_CONTEXT_KEY,
+    )
+
+    mgr2 = ScrollContextManager(history=store, session_id="s1", agent_id="ag1")
+    agent2 = AgentShim(mgr2)
+    QwenPawAgent.load_state_dict(agent2, snapshot, strict=True)
+
+    assert mgr2._persisted_ids == mgr1._persisted_ids

@@ -296,15 +296,15 @@ The legacy `pruning_recent_n` and `pruning_old_msg_max_bytes` tier settings are 
 
 Important fields:
 
-| Field                                            | Default        | Meaning                                                                                                           |
-| ------------------------------------------------ | -------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `context_compact_config.compact_threshold_ratio` | `0.8`          | Trigger when model input reaches this fraction of context size.                                                   |
-| `context_compact_config.reserve_threshold_ratio` | `0.1`          | Recent tail budget kept after eviction.                                                                           |
-| `scroll_config.db_filename`                      | `"history.db"` | SQLite filename relative to the workspace.                                                                        |
-| `scroll_config.tool_output_token_cap`            | `3000`         | Deprecated and ignored; explicit values log a warning. Use `pruning_recent_msg_max_bytes`.                        |
-| `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                                                     |
-| `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                                               |
-| `scroll_config.offload_dialog`                   | `false`        | Also write legacy `dialog/*.jsonl` archive. `history.db` remains the source of truth.                             |
+| Field                                            | Default        | Meaning                                                                                    |
+| ------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------ |
+| `context_compact_config.compact_threshold_ratio` | `0.8`          | Trigger when model input reaches this fraction of context size.                            |
+| `context_compact_config.reserve_threshold_ratio` | `0.1`          | Recent tail budget kept after eviction.                                                    |
+| `scroll_config.db_filename`                      | `"history.db"` | SQLite filename relative to the workspace.                                                 |
+| `scroll_config.tool_output_token_cap`            | `3000`         | Deprecated and ignored; explicit values log a warning. Use `pruning_recent_msg_max_bytes`. |
+| `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                              |
+| `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                        |
+| `scroll_config.offload_dialog`                   | `false`        | Also write legacy `dialog/*.jsonl` archive. `history.db` remains the source of truth.      |
 
 ## Manual Compaction
 

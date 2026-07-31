@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-import time
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -26,7 +25,6 @@ from ...constant import (
 from ..utils.registry import Registry
 
 logger = logging.getLogger(__name__)
-AUTO_MEMORY_TURN_STATE_TTL_SECONDS = 24 * 60 * 60
 MAX_QUERY_CHARS = 50
 SUMMARY_WORKER_CLOSE_TIMEOUT_SECONDS = 5.0
 MAX_SUMMARY_TASK_HISTORY = 100
@@ -53,7 +51,6 @@ class BaseMemoryManager(ABC):
         self.working_dir: str = working_dir
         self.agent_id: str = agent_id
         self._summary_task_info: dict[str, dict[str, Any]] = {}
-        self._auto_memory_turn_states: dict[str, dict[str, Any]] = {}
         self._task_counter: int = 0
         self._task_queue: asyncio.Queue[
             tuple[str, list[Msg], dict]
@@ -120,27 +117,6 @@ class BaseMemoryManager(ABC):
         configuration or fixed cadence.
         """
         return 0
-
-    def get_auto_memory_turn_state(self, session_id: str) -> dict[str, Any]:
-        """Return persistent auto-memory turn tracking state for a session."""
-        now = time.monotonic()
-        expired_before = now - AUTO_MEMORY_TURN_STATE_TTL_SECONDS
-        for state_key, state in list(self._auto_memory_turn_states.items()):
-            touched_at = float(state.get("touched_at") or 0)
-            if touched_at < expired_before:
-                self._auto_memory_turn_states.pop(state_key, None)
-
-        key = session_id or "__default__"
-        state = self._auto_memory_turn_states.setdefault(
-            key,
-            {
-                "pending": [],
-                "seen": {},
-                "touched_at": now,
-            },
-        )
-        state["touched_at"] = now
-        return state
 
     def _build_auto_memory_search_msg(
         self,

@@ -16,6 +16,7 @@ from qwenpaw.agents.middlewares import MemoryMiddleware
 from qwenpaw.agents.react_agent import QwenPawAgent
 from qwenpaw.constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
+    MEMORY_MIDDLE_CONTEXT_KEY,
     QWENPAW_MESSAGE_TAG_KEY,
 )
 
@@ -32,24 +33,12 @@ class _MemoryManager:
         self._events = events
         self.enabled = True
         self.submitted: list[list[str]] = []
-        self._turn_state: dict[str, Any] = {
-            "pending": ["turn-1"],
-            "seen": {"turn-1": None},
-            "touched_at": 0,
-        }
 
     def get_memory_prompt(self) -> str:
         return ""
 
     def get_memory_config(self) -> Any:
         return SimpleNamespace(summarize_when_compact=True)
-
-    def get_auto_memory_turn_state(self, _session_id: str) -> dict[str, Any]:
-        return self._turn_state
-
-    @property
-    def pending(self) -> list[str]:
-        return self._turn_state["pending"]
 
     async def auto_memory(self, _messages: list[Msg], **_kwargs: Any) -> None:
         self._events.append("auto_memory")
@@ -116,6 +105,10 @@ def _scroll_agent(
     )
     user.id = "turn-1"
     agent.state.context = [user]
+    agent.state.middle_context[MEMORY_MIDDLE_CONTEXT_KEY] = {
+        "pending": ["turn-1"],
+        "seen": {"turn-1": None},
+    }
     return agent
 
 
@@ -132,7 +125,7 @@ async def test_scroll_runs_before_post_compression_auto_memory() -> None:
 
     assert events == ["scroll", "auto_memory"]
     assert scroll_manager.instructions is instructions
-    assert not memory_manager.pending
+    assert not agent.state.middle_context[MEMORY_MIDDLE_CONTEXT_KEY]["pending"]
 
 
 @pytest.mark.asyncio
@@ -169,4 +162,4 @@ async def test_manual_compact_submits_auto_memory_once() -> None:
 
     assert events == ["scroll", "handler_memory"]
     assert memory_manager.submitted == [["remember this", "answer-1"]]
-    assert not memory_manager.pending
+    assert not agent.state.middle_context[MEMORY_MIDDLE_CONTEXT_KEY]["pending"]

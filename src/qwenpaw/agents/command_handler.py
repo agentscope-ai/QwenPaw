@@ -18,7 +18,11 @@ from .context.scroll.continuation_summary import (
 from .middlewares import manual_compact_memory_by_handler
 from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
-from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
+from ..constant import (
+    DEBUG_HISTORY_FILE,
+    MAX_LOAD_HISTORY_COUNT,
+    MEMORY_MIDDLE_CONTEXT_KEY,
+)
 from ..exceptions import SystemCommandException
 from ..loop.gates.runner import clear_pending_gate_state
 
@@ -66,7 +70,7 @@ def _fmt_tokens(n: int) -> str:
 class ConversationCommandHandlerMixin:
     """Mixin for conversation (system) commands: /compact, /new, /clear, etc.
 
-    Expects self to have: agent_name, memory, formatter, memory_manager.
+    Expects self to expose ``agent_name``, ``state``, and ``memory_manager``.
     """
 
     # Supported conversation commands (unchanged set)
@@ -320,7 +324,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
             return None
         return HintBlock(hint=safe_hint, source="user")
 
-    async def _process_compact(  # pylint: disable=too-many-statements
+    # pylint: disable=too-many-statements,too-many-branches
+    async def _process_compact(
         self,
         messages: list[Msg],
         args: str = "",
@@ -469,16 +474,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
         messages: list[Msg],
     ) -> None:
         """Remove pending turns covered by the manual compact task."""
-        getter = getattr(
-            self.memory_manager,
-            "get_auto_memory_turn_state",
-            None,
-        )
-        if not callable(getter):
+        middle_context = getattr(self._state, "middle_context", None)
+        if not isinstance(middle_context, dict):
             return
-        state = getter(  # pylint: disable=not-callable
-            self._current_session_id(),
-        )
+        state = middle_context.get(MEMORY_MIDDLE_CONTEXT_KEY)
         pending = state.get("pending") if isinstance(state, dict) else None
         if not isinstance(pending, list):
             return
