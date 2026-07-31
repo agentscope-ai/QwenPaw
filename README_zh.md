@@ -33,7 +33,7 @@
 
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **不遗忘对话**                         | 三层记忆 — 实时工作上下文、完整逐字历史、蒸馏知识。较早轮次会被逐出但可随时召回，不摘要压缩、不丢失信息。                                                                           |
+| **不遗忘对话**                         | 三层记忆 — 实时工作上下文、完整逐字历史，以及由 [ReMe](https://github.com/agentscope-ai/ReMe) 驱动的自进化个人知识库。对话与资料持续沉淀为可读、可编辑、可检索、相互链接的 Markdown 记忆。 |
 | **本地云端，自由运行**                    | QwenPaw-Flash 模型（2B / 4B / 9B）面向 Agent 场景专项训练。内置 QwenPaw Local 运行时，无需 API Key、不依赖云端。同时支持 Ollama、LM Studio 及 14+ 云端模型供应商。                  |
 | **安全机制**                         | 内核级 Sandbox、Tool Guard、File Guard 与 Skill Scanner。危险命令在执行前即被拦截。                                        |
 | **多智能体与并行**                        | 创建拥有独立记忆与技能的 Agent；运行时生成子 Agent；通过 Agent Communication Protocol（ACP）实现跨系统编排。                                                                         |
@@ -60,9 +60,9 @@
 
 ## 新闻
 
-- [2026-07-24] **v2.0.1** | PawApp 小程序平台、用户可编辑 Agent Mode、Oh-My-Paw plugins、ReMe 记忆增强、桌面端用户体验增强等。[v2.0.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+- [2026-07-24] **v2.0.1** | PawApp 小程序平台、用户可编辑 Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) 记忆增强、桌面端用户体验增强等。[v2.0.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式发布** 🎉 | 基于 AgentScope 2.0 全面重构，Agent OS 架构、Loop Engineering、Scroll 上下文、ReMe v0.4.0 长期记忆与内置终端界面。
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式发布** 🎉 | 基于 AgentScope 2.0 全面重构，带来 Agent OS 架构、Loop Engineering、Scroll 上下文、[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自进化个人知识库与内置终端界面。
 
   | 亮点 | 更新内容 |
   |------|----------|
@@ -70,7 +70,7 @@
   | **Agent OS — 驱动** | 协议中立的 MCP / A2A / ACP 连接器层，带加密凭据与逐次调用策略门控。 |
   | **Loop Engineering** | 高级智能体循环模板（Coding Mode、Mission Mode，更多模板持续推出），配合可组合审批门控。 |
   | **Scroll 上下文** | 每一轮都持久化；滚出窗口的轮次带索引，按需回放——不摘要、不丢失。 |
-  | **ReMe v0.4.0 长期记忆** | 按轮自动追踪、使用感知搜索、后端特定嵌入。 |
+  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自进化个人知识库** | 持续将对话与资料转化为可读、可编辑、可检索、相互链接的 Markdown 记忆。 |
   | **终端界面（TUI）** | 全屏终端对话——与控制台和频道共享同一智能体、记忆与会话。 |
 
   基于 Agent OS，我们将陆续推出开箱即用的 QwenPaw 应用小程序——如 **QwenPaw Creator**、**QwenPaw Insight** 等，敬请期待。 [v2.0.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
@@ -413,7 +413,8 @@ QwenPaw 内置四层核心安全防护：
 | [插件系统](https://qwenpaw.agentscope.io/docs/plugins)               | 插件体系与 Plugin Market                         |
 | [MCP 和工具](https://qwenpaw.agentscope.io/docs/mcp)                 | 管理 MCP 客户端                                  |
 | [Persona](https://qwenpaw.agentscope.io/docs/persona)                | 智能体人格定制（SOUL / PROFILE）                 |
-| [记忆](https://qwenpaw.agentscope.io/docs/memory)                    | 长期语义记忆（ReMe）                             |
+| [记忆](https://qwenpaw.agentscope.io/docs/memory)                    | 基于本地、可编辑、可检索且相互链接的 Markdown 记忆构建自进化个人知识库，由 [ReMe](https://github.com/agentscope-ai/ReMe) 驱动 |
+| [ReMe 文档](https://docs.agentscope.io/reme/latest/zh/overview)      | ReMe 官方概览与文档                              |
 | [记忆进化与主动交互](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | 智能体记忆进化与主动交互                 |
 | [上下文](https://qwenpaw.agentscope.io/docs/context)                 | 基于滚动的上下文管理                             |
 | [魔法命令](https://qwenpaw.agentscope.io/docs/commands)              | 无需等待 AI 理解即可控制对话状态                 |
