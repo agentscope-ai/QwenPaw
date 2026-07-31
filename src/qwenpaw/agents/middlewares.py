@@ -18,7 +18,7 @@ import asyncio
 import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Iterator, Set
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Iterator
 
 from agentscope.middleware import MiddlewareBase
 from agentscope.message import Msg
@@ -395,18 +395,9 @@ class MemoryMiddleware(MiddlewareBase):
 class ToolResultPruningMiddleware(MiddlewareBase):
     """Truncate oversized tool-call results around each acting step.
 
-    Implements the ``on_acting`` hook: each ``ToolResponse`` is capped before
-    it is yielded into the agent context, then every historical ``tool_result``
-    block in the agent's context is scanned and pruned according to tiered byte
-    thresholds.
-
-    * **Recent** tool results (the last ``recent_n`` tool-bearing messages)
-      are capped at ``recent_max_bytes``.
-    * **Older** tool results are shrunk to ``old_max_bytes``.
-    * Tools whose name appears in ``exempt_tool_names``, or whose
-      ``read_file`` input references an extension in
-      ``exempt_file_extensions``, always use the larger
-      ``recent_max_bytes`` limit.
+    Each ``ToolResponse`` is capped before it enters agent context. Historical
+    results are scanned with the same byte limit so metadata from older
+    snapshots is normalized without reviving the removed Native tiering.
 
     Full tool outputs are saved to ``{tool_results_dir}/{uuid}.txt``
     before truncation so they remain recoverable.
@@ -416,22 +407,12 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         self,
         *,
         enabled: bool = True,
-        recent_n: int = 2,
-        old_max_bytes: int = 3000,
         recent_max_bytes: int = DEFAULT_MAX_BYTES,
-        exempt_file_extensions: set[str] | None = None,
-        exempt_tool_names: set[str] | None = None,
         tool_results_dir: str = "",
-        agent_id: str = "default",
     ) -> None:
         self._enabled = enabled
-        self._recent_n = recent_n
-        self._old_max_bytes = old_max_bytes
         self._recent_max_bytes = recent_max_bytes
-        self._exempt_extensions = exempt_file_extensions or set()
-        self._exempt_tools = exempt_tool_names or set()
         self._pruner = ToolResultPruner(tool_results_dir)
-        self._agent_id = agent_id
 
     async def on_acting(
         self,
@@ -486,34 +467,13 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         """Prune a response without blocking the asyncio event loop."""
         return await asyncio.to_thread(self.prune_tool_response, response)
 
-    def _prune_tool_results(  # pylint: disable=R0912
-        self,
-        messages: list["Msg"],
-    ) -> None:
+    def _prune_tool_results(self, messages: list["Msg"]) -> None:
         if not messages:
             return
 
-        recent_count = 0
-        for msg in reversed(messages):
-            if not isinstance(msg.content, list) or not any(
-                self._block_type(b) == "tool_result" for b in msg.content
-            ):
-                break
-            recent_count += 1
-        split_index = max(
-            0,
-            len(messages) - max(recent_count, self._recent_n),
-        )
-
-        exempt_tool_ids = self._detect_exempt_tool_ids(messages)
-
-        for idx, msg in enumerate(messages):
+        for msg in messages:
             if not isinstance(msg.content, list):
                 continue
-            is_recent = idx >= split_index
-            max_bytes = (
-                self._recent_max_bytes if is_recent else self._old_max_bytes
-            )
 
             for block in msg.content:
                 if self._block_type(block) != "tool_result":
@@ -532,11 +492,6 @@ class ToolResultPruningMiddleware(MiddlewareBase):
                 if not output:
                     continue
 
-                effective_max = (
-                    self._recent_max_bytes
-                    if tool_id in exempt_tool_ids
-                    else max_bytes
-                )
                 block_metadata = (
                     block.setdefault("metadata", {})
                     if isinstance(block, dict)
@@ -561,59 +516,13 @@ class ToolResultPruningMiddleware(MiddlewareBase):
                     block_metadata = by_tool.setdefault(tool_id, {})
                 pruned, _ = self._pruner.prune_output(
                     output,
-                    max_bytes=effective_max,
+                    max_bytes=self._recent_max_bytes,
                     metadata=block_metadata,
                 )
                 if isinstance(block, dict):
                     block["output"] = pruned
                 else:
                     block.output = pruned
-
-    def _detect_exempt_tool_ids(self, messages: list["Msg"]) -> Set[str]:
-        exempt_ids: Set[str] = set()
-        for msg in messages:
-            if not isinstance(msg.content, list):
-                continue
-            for block in msg.content:
-                if self._block_type(block) not in ("tool_use", "tool_call"):
-                    continue
-
-                tool_id = (
-                    block.get("id", "")
-                    if isinstance(block, dict)
-                    else getattr(block, "id", "")
-                )
-                if not tool_id:
-                    continue
-
-                tool_name = (
-                    (
-                        block.get("name", "")
-                        if isinstance(block, dict)
-                        else getattr(block, "name", "")
-                    )
-                    or ""
-                ).lower()
-                raw_input = (
-                    block.get("raw_input")
-                    if isinstance(block, dict)
-                    else getattr(block, "raw_input", None)
-                ) or ""
-                if isinstance(raw_input, dict):
-                    raw_input = str(raw_input)
-                raw_input = raw_input.lower()
-
-                if tool_name in self._exempt_tools:
-                    exempt_ids.add(tool_id)
-                    continue
-
-                if tool_name == "read_file":
-                    for ext in self._exempt_extensions:
-                        if ext in raw_input:
-                            exempt_ids.add(tool_id)
-                            break
-
-        return exempt_ids
 
     @staticmethod
     def _block_type(block: Any) -> str | None:

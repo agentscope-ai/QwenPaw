@@ -53,7 +53,7 @@ Key properties:
 - **No lossy-summary dependency**: raw evicted content remains authoritative in `history.db` and the `EvictionIndex`. A continuation summary is only a compact task-state cache; a failed update preserves the previous valid summary and never blocks eviction.
 - **Recallable raw history**: each index line carries a `seq` span. The agent can call `recall_history(op="expand", lo, hi)` to read the full original rows (or `ms.expand(lo, hi)` in the `recall_history_python` REPL).
 - **Cross-session memory**: history rows include `session_id` and `agent_id`, so recall can search this agent's past sessions and, when explicitly widened, other agents in the same workspace.
-- **Fallback-safe**: if scroll cannot be wired or its recall tools cannot run safely, QwenPaw falls back to native context management instead of evicting history that cannot be recalled.
+- **Fail-fast initialization**: if the durable store or structured recall tool cannot be initialized, agent construction fails explicitly. The optional Python recall REPL is omitted when no safe sandbox is available; structured recall remains available.
 
 Index tiers roll up only when they reach their 10-block capacity; pressure does not compact the index early. Scroll enters pre-trimming only when input is **strictly above** the automatic trigger (80% by default); input exactly at or below the trigger stops without folding tool results or evicting dialogue. Above the trigger, Scroll batch-folds every completed-turn tool result over 200 characters except those in the active turn and the five newest results globally, then recounts once. If the context is now at or below the trigger, it stops; otherwise it proceeds with normal eviction. After rebuilding, completed-result folding remains the final pressure valve above `max(trigger, reserve)`. If the input still exceeds the effective hard limit, Scroll batch-folds acknowledged old active-turn results and recounts once. Explicit `/compact` skips the pre-trim stage and performs the requested eviction.
 
@@ -236,11 +236,11 @@ Unsandboxed recall executes arbitrary host Python as the agent user and should o
 
 Tool results are handled by one mechanism:
 
-| Mechanism                     | Default                                                                                   | What it does                                                                                                                                                                                                                                                                     |
-| ----------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ToolResultPruningMiddleware` | registered for every context strategy; controlled by `tool_result_pruning_config.enabled` | Prunes current and historical tool results by bytes, saves oversized raw output under `tool_results/`, and records block-scoped recovery metadata plus a `read_file` continuation hint. The background-completion path uses the same pruner when coordinator offload is enabled. |
+| Mechanism                     | Default                                                               | What it does                                                                                                                                                                                                                                                                     |
+| ----------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ToolResultPruningMiddleware` | always registered; controlled by `tool_result_pruning_config.enabled` | Prunes current and historical tool results by bytes, saves oversized raw output under `tool_results/`, and records block-scoped recovery metadata plus a `read_file` continuation hint. The background-completion path uses the same pruner when coordinator offload is enabled. |
 
-Scroll no longer has a separate token-based tool-result cap. All live previews use `pruning_recent_msg_max_bytes`. At the automatic compression trigger, Scroll batch-replaces every eligible completed-turn result over 200 characters with an exact `recall_history` pointer, while preserving the active turn and five newest results, then recounts once. After eviction it can apply the same recovery-pointer fold to remaining completed results above the pressure target. Legacy tier settings are ignored by Scroll.
+Scroll has no separate token-based tool-result cap or recent/old tier. All live previews use `pruning_recent_msg_max_bytes`. At the automatic compression trigger, Scroll batch-replaces every eligible completed-turn result over 200 characters with an exact `recall_history` pointer, while preserving the active turn and five newest results, then recounts once. After eviction it can apply the same recovery-pointer fold to remaining completed results above the pressure target. Legacy tier fields in existing configuration files are ignored.
 
 When unified pruning is enabled, QwenPaw makes AgentScope's built-in token-based tool-result cap non-binding. This prevents a second truncation pass from replacing the byte-bounded preview and discarding its block-scoped recovery metadata. If unified pruning is disabled, AgentScope's default cap remains active as a safety net.
 
@@ -292,7 +292,7 @@ The Console's **Context Management** tab exposes Scroll's settings. There is no 
 }
 ```
 
-The legacy `pruning_recent_n` and `pruning_old_msg_max_bytes` tier settings are ignored by Scroll.
+Legacy `pruning_recent_n`, `pruning_old_msg_max_bytes`, `exempt_file_extensions`, and `exempt_tool_names` values are accepted as unknown compatibility input and omitted when the configuration is saved.
 
 Important fields:
 
@@ -308,7 +308,7 @@ Important fields:
 
 ## Manual Compaction
 
-`/compact` still exists. Under Scroll it forces eligible older turns into durable history while preserving the configured recent tail and active turn. When turns are actually archived, Scroll also updates the continuation summary. The command response reports what changed, but does not expose the internal eviction index, retrieval headlines, or continuation state in the chat transcript. Use `/compact_str` to inspect the current continuation summary; archived originals remain recoverable through Scroll history.
+`/compact` forces eligible older turns into durable history while preserving the configured recent tail and active turn. It remains available when automatic compaction is disabled. When turns are actually archived, Scroll also updates the continuation summary. The command response reports what changed, but does not expose the internal eviction index, retrieval headlines, or continuation state in the chat transcript. Use `/compact_str` to inspect the current continuation summary; archived originals remain recoverable through Scroll history.
 
 `/compact <hint>` supplies one-shot focus guidance to that compression only. The hint is secret-redacted and bounded; under Scroll it is not treated as evidence or persisted task state, and auto-compaction remains unchanged.
 
@@ -336,7 +336,7 @@ Existing configurations that already use the AgentScope-native path continue to 
 
 Visual Compact turns eligible older, longer context into visual pages before a request is sent to the model. Recent conversation remains as text. Because an image can carry a large amount of dense text, this approach can significantly reduce token usage in long conversations.
 
-It works alongside the existing context strategy and long-term memory. It does not delete chat history, rewrite stored conversations, or save the generated images to local storage.
+It works alongside Scroll and long-term memory. It does not delete chat history, rewrite stored conversations, or save the generated images to local storage.
 
 QwenPaw only applies Visual Compact when the context is long enough and the visual replacement is expected to save tokens. Short requests or requests without a worthwhile saving are left unchanged.
 

@@ -14,9 +14,9 @@ from __future__ import annotations
 import logging
 import uuid
 from pathlib import Path
-from typing import Any, Literal, Optional, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING
 
-from agentscope.agent import Agent, ReActConfig
+from agentscope.agent import Agent, ContextConfig, ReActConfig
 from agentscope.event import (
     ModelCallEndEvent,
     TextBlockDeltaEvent,
@@ -24,9 +24,11 @@ from agentscope.event import (
     TextBlockStartEvent,
 )
 from agentscope.message import HintBlock, Msg, TextBlock
-from agentscope.model import FinishedReason
+from agentscope.middleware import MiddlewareBase
+from agentscope.model import ChatModelBase, FinishedReason
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
+from agentscope.workspace import Offloader
 
 from .skill_system import get_workspace_skills_dir
 from ..modes.coding import CodingModeMixin
@@ -72,18 +74,18 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self,
         *,
         name: str,
-        model: Any,
+        model: ChatModelBase,
         system_prompt: str,
         toolkit: Toolkit,
         react_config: ReActConfig,
-        middlewares: list,
+        middlewares: list[MiddlewareBase],
         agent_config: "AgentProfileConfig",
         workspace_dir: Path | None = None,
-        request_context: Optional[dict[str, str]] = None,
-        offloader: Any = None,
-        context_config: Any = None,
+        request_context: dict[str, str] | None = None,
+        offloader: Offloader | None = None,
+        context_config: ContextConfig | None = None,
         scroll_context: "ScrollContextManager",
-        effective_skills: Optional[list[str]] = None,
+        effective_skills: list[str] | None = None,
         governor: Any = None,
     ):
         """Initialize QwenPawAgent.
@@ -106,18 +108,16 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._governor = governor
         self._gate_pending_stop = None
 
-        init_kwargs: dict[str, Any] = {
-            "name": name,
-            "model": model,
-            "system_prompt": system_prompt,
-            "toolkit": toolkit,
-            "react_config": react_config,
-            "middlewares": middlewares,
-            "offloader": offloader,
-        }
-        if context_config is not None:
-            init_kwargs["context_config"] = context_config
-        super().__init__(**init_kwargs)
+        super().__init__(
+            name=name,
+            model=model,
+            system_prompt=system_prompt,
+            toolkit=toolkit,
+            react_config=react_config,
+            middlewares=middlewares,
+            offloader=offloader,
+            context_config=context_config,
+        )
 
         # Bypass agentscope's built-in permission engine — qwenpaw uses
         # its own PolicyGuardedTool.check_permissions for tool-guard.
@@ -157,12 +157,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         except Exception:
             pass
 
-        try:
-            lcc = self._agent_config.running.light_context_config
-            if not lcc.context_compact_config.enabled:
-                return
-        except Exception:
-            pass
         await super().compress_context(
             context_config,
             instructions=instructions,
@@ -174,6 +168,17 @@ class QwenPawAgent(CodingModeMixin, Agent):
         instructions: HintBlock | None = None,
     ) -> None:
         """Implement AgentScope's compression hook with Scroll."""
+        # ``None`` is the automatic path used by AgentScope before reasoning.
+        # An explicit config comes from callers such as ``/compact`` and must
+        # remain usable even when automatic compaction is disabled.
+        if context_config is None:
+            try:
+                light_context = self._agent_config.running.light_context_config
+                compact_config = light_context.context_compact_config
+                if not compact_config.enabled:
+                    return
+            except (AttributeError, TypeError):
+                pass
         await self._scroll_context.compress(
             self,
             context_config,
@@ -853,7 +858,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     async def _run_stop_handlers(
         self,
-        final_msg: Optional[Msg],
+        final_msg: Msg | None,
     ) -> StopHandlerResult:
         """Run registered stop handlers every iteration."""
         from ..loop.gates.runner import run_stop_handlers

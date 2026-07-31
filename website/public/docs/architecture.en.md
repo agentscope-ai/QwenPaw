@@ -39,7 +39,7 @@ Think of QwenPaw as a small operating system for agents. The "kernel" is [AgentS
   <g>
     <rect x="40" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="136" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Request router</text><text x="136" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">to the addressed agent</text>
     <rect x="249" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="345" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Runtime lifecycle</text><text x="345" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">hook stages · modes</text>
-    <rect x="458" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="554" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Agent — ReAct loop</text><text x="554" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">loop engineering · context strategy</text>
+    <rect x="458" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="554" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Agent — ReAct loop</text><text x="554" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">loop engineering · Scroll lifecycle</text>
     <rect x="667" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="763" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Harness adapters</text><text x="763" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">external agents · ACP</text>
   </g>
   <line x1="450" y1="232" x2="450" y2="246" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.4" marker-end="url(#qpMapArrow)"/>
@@ -229,7 +229,7 @@ The runtime turns one incoming request into a stream of UI events. It runs as a 
   <rect x="582" y="98" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="656" y="117" text-anchor="middle" font-size="11" fill="currentColor">Before execute</text>
   <text x="164" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">session · media · context</text>
   <text x="328" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">model · tools · prompt</text>
-  <text x="328" y="153" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">memory · context strategy · policy</text>
+  <text x="328" y="153" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">memory · Scroll context · policy</text>
   <text x="492" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">inject mode context</text>
   <text x="656" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">bootstrap · prompt refresh</text>
   <!-- connector row 2→3 -->
@@ -257,7 +257,7 @@ The runtime turns one incoming request into a stream of UI events. It runs as a 
 - **Coding mode** adds project-aware tools (code search, inline diff editing) and a coding system prompt, scoped to a project directory. See [Coding Mode](./coding-mode).
 - **Mission mode** runs long tasks as a two-phase loop: the agent first writes a plan, then iterates with implementation tools until every checkpoint passes.
 
-**Assembling the agent** happens once per request: the agent config, model, tools, system prompt, memory, and context strategy come together, and every tool is wrapped so the governance layer always sees it. Building fresh each time keeps provisioning and policy out of the agent itself.
+**Assembling the agent** happens once per request: the agent config, model, tools, system prompt, memory, and Scroll context come together, and every tool is wrapped so the governance layer always sees it. Building fresh each time keeps provisioning and policy out of the agent itself.
 
 ---
 
@@ -278,7 +278,7 @@ Multiple agents coordinate two ways (see [Multi-Agent](./multi-agent)):
 
 QwenPaw separates two things that are easy to conflate: **memory** (what the agent remembers across conversations) and **context** (what fits in the model's window right now).
 
-<svg viewBox="0 0 860 372" width="100%" role="img" aria-label="Memory is a pluggable backend over transparent Markdown files; context management is either summarizing compaction or the Scroll strategy with a durable store and a recall tool." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 860 372" width="100%" role="img" aria-label="Memory is a pluggable backend over transparent Markdown files; Scroll manages context with a durable store, eviction index, and recall tools." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
     <marker id="qpMemArrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L6,3 L0,6 Z" fill="#ff9d4d"/>
@@ -302,10 +302,10 @@ QwenPaw separates two things that are easy to conflate: **memory** (what the age
   <!-- CONTEXT side -->
   <rect x="440" y="24" width="400" height="324" rx="10" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.2"/>
   <text x="460" y="50" font-size="12.5" font-weight="700" fill="#ff9d4d">CONTEXT · the live window</text>
-  <rect x="460" y="64" width="360" height="44" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="640" y="82" text-anchor="middle" font-size="12" fill="currentColor" font-weight="600">Summarizing compaction (default)</text><text x="640" y="98" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.65">older turns summarized once the window fills</text>
-  <text x="460" y="132" font-size="11" letter-spacing="1" font-weight="700" fill="currentColor" fill-opacity="0.75">OR — SCROLL STRATEGY (opt-in)</text>
+  <rect x="460" y="64" width="360" height="44" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="640" y="82" text-anchor="middle" font-size="12" fill="currentColor" font-weight="600">Scroll context protocol</text><text x="640" y="98" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.65">the single context lifecycle for every agent</text>
+  <text x="460" y="132" font-size="11" letter-spacing="1" font-weight="700" fill="currentColor" fill-opacity="0.75">DURABLE, RECALLABLE CONTEXT</text>
   <g font-size="11.5" fill="currentColor">
-    <rect x="460" y="142" width="360" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="640" y="161" text-anchor="middle">Scroll strategy</text>
+    <rect x="460" y="142" width="360" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="640" y="161" text-anchor="middle">Pressure-aware live window</text>
     <rect x="460" y="180" width="360" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="640" y="199" text-anchor="middle">Durable store — every turn kept</text>
     <rect x="460" y="218" width="360" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="640" y="237" text-anchor="middle">Index of turns scrolled out of the window</text>
     <rect x="460" y="256" width="360" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="640" y="275" text-anchor="middle">Recall tool — replay any earlier span</text>
@@ -316,7 +316,7 @@ QwenPaw separates two things that are easy to conflate: **memory** (what the age
 
 **Memory** is a pluggable backend. The default is built on the [ReMe](https://github.com/agentscope-ai/ReMe) memory library, which runs recall, write, and consolidation ("dream") as background work over the workspace; a simpler option reads and writes the same files directly. Either way the substrate is **human-readable Markdown** — `MEMORY.md` for durable notes and dated daily files — so memory is something you can open, audit, and edit. See [Memory](./memory) and [Memory-Evolving &amp; Proactive](./memory-evolving-and-proactive).
 
-**Context** management is pluggable too. By default QwenPaw summarizes older turns once the window fills. The opt-in **Scroll** strategy instead keeps every turn in a durable store, maintains a compact index of what has scrolled out, and gives the agent a tool to replay any earlier span on demand, so long conversations stay fully recallable. See [Context](./context).
+**Context** is managed by **Scroll**, which keeps every turn in a durable store, maintains a compact index of what has scrolled out, and gives the agent tools to replay earlier spans on demand. There is no alternate Native context path. See [Context](./context).
 
 ---
 

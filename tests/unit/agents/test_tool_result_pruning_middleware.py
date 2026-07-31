@@ -678,6 +678,25 @@ def test_default_legacy_scroll_tool_cap_does_not_warn(caplog):
     assert "tool_output_token_cap is deprecated and ignored" not in caplog.text
 
 
+def test_removed_native_pruning_fields_are_ignored_and_not_saved():
+    config = ToolResultPruningConfig.model_validate(
+        {
+            "pruning_recent_n": 4,
+            "pruning_old_msg_max_bytes": 1200,
+            "exempt_file_extensions": [".md"],
+            "exempt_tool_names": ["chat_with_agent"],
+        },
+    )
+
+    dumped = config.model_dump()
+    assert set(dumped) == {
+        "enabled",
+        "pruning_recent_msg_max_bytes",
+        "offload_retention_days",
+        "tool_results_cache",
+    }
+
+
 def test_scroll_pruning_disabled_leaves_current_result_unbounded(tmp_path):
     agent_config = types.SimpleNamespace(
         id="agent-1",

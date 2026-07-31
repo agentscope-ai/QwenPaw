@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
-"""Agent-level resume / crash-recovery tests for the scroll strategy.
+"""Agent-level resume / crash-recovery tests for Scroll.
 
 These drive the REAL ``QwenPawAgent.state_dict`` / ``load_state_dict`` wiring
 (not the manager in isolation): after an agent process dies mid-session and is

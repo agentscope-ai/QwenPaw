@@ -351,7 +351,7 @@ class AgentBuilder:
             model_slot_override=model_slot_override,
         )
 
-        # Built once and shared: the agent's native offloader, and (when
+        # Built once and shared: the AgentScope offloader, and (when
         # ``offload_dialog`` is on) scroll's optional dialog archive.
         offloader = self._build_offloader(ctx, agent_config)
 
@@ -1050,15 +1050,8 @@ class AgentBuilder:
 
         return ToolResultPruningMiddleware(
             enabled=trc.enabled,
-            recent_n=trc.pruning_recent_n,
-            old_max_bytes=trc.pruning_recent_msg_max_bytes,
             recent_max_bytes=trc.pruning_recent_msg_max_bytes,
-            exempt_file_extensions={
-                e.lower() for e in trc.exempt_file_extensions
-            },
-            exempt_tool_names={n.lower() for n in trc.exempt_tool_names},
             tool_results_dir=tool_results_dir,
-            agent_id=getattr(agent_config, "id", "default"),
         )
 
     # pylint: disable=too-many-statements,too-many-branches
@@ -1071,7 +1064,7 @@ class AgentBuilder:
         """Build middleware list.
 
         Order (onion model, outermost first):
-        1. ToolResultPruningMiddleware — tiered tool result pruning
+        1. ToolResultPruningMiddleware — byte-bounded tool result previews
         2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
         4. VisualCompressionMiddleware — innermost pre-provider transform

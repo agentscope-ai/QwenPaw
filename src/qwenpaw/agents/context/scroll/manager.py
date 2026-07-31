@@ -102,9 +102,10 @@ class ScrollContextManager:
         # reclaims them only while the rebuilt context remains under pressure.
         del compact_tool_result_max_bytes, tool_results_dir
         self._recall_loop_guard = recall_loop_guard
-        # Dialog archive: when an offloader is wired (``offload_dialog``, on by
-        # default), evicted turns are also written to ``dialog/{date}.jsonl``
-        # for external consumers. ``history.db`` remains the source of truth.
+        # Dialog archive: when an offloader is wired (``offload_dialog``,
+        # off by default), evicted turns are also written to
+        # ``dialog/{date}.jsonl`` for external consumers. ``history.db``
+        # remains the source of truth.
         self._offloader = offloader
         self._persisted_ids: set[
             str
@@ -325,7 +326,8 @@ class ScrollContextManager:
     async def _offload_dialog(self, middle: list[Msg]) -> None:
         """Best-effort legacy ``dialog/*.jsonl`` archive of evicted turns.
 
-        No-op unless an offloader is wired in (``offload_dialog``, default on).
+        No-op unless an offloader is wired in (``offload_dialog``, which is
+        off by default).
         Purely supplementary — the turns are already durable in history.db —
         so a write failure is logged and swallowed, never aborting eviction.
         """

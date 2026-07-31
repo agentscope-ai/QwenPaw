@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
-"""Agent-level tests for compression strategy middleware wiring."""
+"""Agent-level tests for Scroll compression middleware wiring."""
 
 from __future__ import annotations
 
@@ -72,6 +72,8 @@ class _ScrollManager:
 def _scroll_agent(
     memory_manager: _MemoryManager,
     scroll_manager: _ScrollManager,
+    *,
+    automatic_compaction: bool = True,
 ) -> QwenPawAgent:
     agent = object.__new__(QwenPawAgent)
     Agent.__init__(
@@ -85,7 +87,9 @@ def _scroll_agent(
     agent._agent_config = SimpleNamespace(
         running=SimpleNamespace(
             light_context_config=SimpleNamespace(
-                context_compact_config=SimpleNamespace(enabled=True),
+                context_compact_config=SimpleNamespace(
+                    enabled=automatic_compaction,
+                ),
             ),
         ),
     )
@@ -110,6 +114,26 @@ def _scroll_agent(
         "seen": {"turn-1": None},
     }
     return agent
+
+
+@pytest.mark.asyncio
+async def test_manual_compact_works_when_automatic_is_disabled() -> None:
+    """An explicit config is the AgentScope signal for manual compression."""
+    events: list[str] = []
+    memory_manager = _MemoryManager(events)
+    scroll_manager = _ScrollManager(events)
+    agent = _scroll_agent(
+        memory_manager,
+        scroll_manager,
+        automatic_compaction=False,
+    )
+
+    await agent.compress_context()
+    assert not events
+
+    forced = ContextConfig(trigger_ratio=1e-6, reserve_ratio=0.1)
+    await agent.compress_context(forced)
+    assert events == ["scroll", "auto_memory"]
 
 
 @pytest.mark.asyncio
