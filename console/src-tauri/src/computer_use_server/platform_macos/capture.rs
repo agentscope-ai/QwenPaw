@@ -5,7 +5,6 @@
 
 use base64::Engine;
 use block2::RcBlock;
-use core_graphics::access::ScreenCaptureAccess;
 use core_graphics::image::CGImageRef;
 use jpeg_encoder::{ColorType, Encoder};
 use objc2::AnyThread;
@@ -21,18 +20,17 @@ use super::super::state::{
 };
 use super::accessibility_tree::collect_accessibility;
 use super::window_bounds;
+use super::{request_screen_recording_access, screen_recording_authorized};
 
 pub(crate) fn observe_window(
     state: &mut ServerState,
     window: &WindowInfo,
 ) -> Result<Value, (&'static str, String)> {
-    let screen_capture_access = ScreenCaptureAccess::default();
-    if !screen_capture_access.preflight() {
+    if !screen_recording_authorized() {
         // `preflight` only reports the current TCC decision. Request access
-        // here so the native helper that performs capture is the process macOS
-        // presents to the user, rather than asking them to grant its parent
-        // desktop shell by hand.
-        screen_capture_access.request();
+        // from the helper's main AppKit loop so macOS presents the helper as
+        // the application requesting capture, rather than its desktop parent.
+        request_screen_recording_access();
         return Err(screen_recording_permission_error());
     }
 

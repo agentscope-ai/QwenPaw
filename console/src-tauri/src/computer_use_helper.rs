@@ -3,8 +3,12 @@
 //! Screen Recording and Accessibility decisions are associated with the code
 //! requesting them. The desktop bundle is replaced on update, so its bundled
 //! helper only seeds this standalone app on first use. The installed copy is
-//! deliberately never overwritten by later desktop or plugin updates.
+//! deliberately never overwritten by later desktop or plugin updates. It lives
+//! in the user's Applications directory so LaunchServices and TCC recognize it
+//! as an application when it requests system permissions.
 
+use core_foundation::base::TCFType;
+use core_foundation::url::CFURL;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -42,11 +46,12 @@ const HELPER_INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 "#;
 
-pub(crate) fn installed_executable(_app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn installed_bundle(_app: &AppHandle) -> Result<PathBuf, String> {
     let bundle = installed_bundle_path()?;
     let executable = bundle_executable(&bundle);
     if executable.is_file() {
-        return Ok(executable);
+        register_bundle(&bundle)?;
+        return Ok(bundle);
     }
     if bundle.exists() {
         return Err(format!(
@@ -56,9 +61,10 @@ pub(crate) fn installed_executable(_app: &AppHandle) -> Result<PathBuf, String> 
     }
 
     install_bundle(&seed_executable()?, &bundle)?;
+    register_bundle(&bundle)?;
     executable
         .is_file()
-        .then_some(executable.clone())
+        .then_some(bundle.clone())
         .ok_or_else(|| {
             format!(
                 "Computer Use helper installation is missing {}.",
@@ -86,15 +92,9 @@ fn seed_executable() -> Result<PathBuf, String> {
 }
 
 fn installed_bundle_path() -> Result<PathBuf, String> {
-    dirs::data_dir()
-        .map(|directory| {
-            directory
-                .join("QwenPaw")
-                .join("computer-use")
-                .join("v1")
-                .join(HELPER_BUNDLE_NAME)
-        })
-        .ok_or_else(|| "failed to resolve the QwenPaw application support directory".to_string())
+    dirs::home_dir()
+        .map(|directory| directory.join("Applications").join(HELPER_BUNDLE_NAME))
+        .ok_or_else(|| "failed to resolve the user's Applications directory".to_string())
 }
 
 fn bundle_executable(bundle: &Path) -> PathBuf {
@@ -174,4 +174,22 @@ fn sign_bundle(bundle: &Path) -> Result<(), String> {
         .success()
         .then_some(())
         .ok_or_else(|| format!("failed to sign Computer Use helper: codesign exited with {status}"))
+}
+
+fn register_bundle(bundle: &Path) -> Result<(), String> {
+    let url = CFURL::from_path(bundle, true).ok_or_else(|| {
+        format!(
+            "failed to create a LaunchServices URL for Computer Use helper at {}",
+            bundle.display()
+        )
+    })?;
+    let status = unsafe { LSRegisterURL(url.as_concrete_TypeRef(), 1) };
+    (status == 0).then_some(()).ok_or_else(|| {
+        format!("failed to register Computer Use helper with LaunchServices (status {status})")
+    })
+}
+
+#[link(name = "CoreServices", kind = "framework")]
+unsafe extern "C" {
+    fn LSRegisterURL(url: core_foundation::url::CFURLRef, update: u8) -> i32;
 }

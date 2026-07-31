@@ -8,8 +8,12 @@
 #[cfg(not(windows))]
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
-use std::sync::{mpsc, Mutex};
+use std::process::{Child, Command, Stdio};
+#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
+use std::process::{ChildStderr, ChildStdout};
+#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
+use std::sync::mpsc;
+use std::sync::Mutex;
 
 #[cfg(windows)]
 use std::os::windows::{io::AsRawHandle, process::CommandExt};
@@ -36,12 +40,16 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 // the same name in computer_use_server::parse_arguments, which is a separate
 // binary and cannot share the constant.
 const CAPABILITY_ENV: &str = "QWENPAW_CU_CAPABILITY";
+#[cfg(all(not(debug_assertions), target_os = "macos"))]
+const HELPER_HOST_PID_ENV: &str = "QWENPAW_CU_HOST_PID";
 const CONTROL_MAX_MESSAGE_BYTES: usize = 4096;
 // This is emitted by the direct helper child after it has created an endpoint
 // that the Python client can connect to. Keep it in step with the helper's
 // `computer_use_server::connection::HELPER_READY_PREFIX` constant.
+#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 const HELPER_READY_PREFIX: &str = "QWENPAW_COMPUTER_USE_READY ";
 const HELPER_READY_TIMEOUT: Duration = Duration::from_secs(8);
+#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 const MAX_CAPTURED_HELPER_STDERR_CHARS: usize = 4096;
 
 #[derive(Default)]
@@ -82,6 +90,7 @@ struct ControlRequest {
     action: String,
 }
 
+#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 #[derive(Deserialize)]
 struct HelperReadyPayload {
     protocol_version: u64,
@@ -182,21 +191,19 @@ pub(crate) fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
         cleanup_endpoint(&capability.pipe_name);
     }
 
+    #[cfg(all(not(debug_assertions), target_os = "macos"))]
+    let helper = crate::computer_use_helper::installed_bundle(app)?;
+    #[cfg(not(all(not(debug_assertions), target_os = "macos")))]
     let helper = helper_path(app)?;
     let capability = RuntimeCapability {
         pipe_name: endpoint_address()?,
         secret: random_hex(32),
     };
-    let mut command = Command::new(&helper);
-    command.args(["serve", "--pipe", &capability.pipe_name]);
-    // The secret travels in the environment, not on the command line: argv is
-    // readable by any same-user process through `ps` / GetCommandLine, whereas
-    // the environment is not exposed there. This matches how the backend
-    // sidecar passes its shutdown token.
-    command.env(CAPABILITY_ENV, &capability.secret);
+    let mut command = helper_command(&helper, &capability);
+    #[cfg(all(not(debug_assertions), target_os = "macos"))]
+    command.stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(not(all(not(debug_assertions), target_os = "macos")))]
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    #[cfg(windows)]
-    command.creation_flags(CREATE_NO_WINDOW);
 
     let mut child = command
         .spawn()
@@ -206,31 +213,123 @@ pub(crate) fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
         child.id(),
         helper.display()
     );
-    let (ready, captured_stderr) = match observe_helper_output(&mut child) {
-        Ok(output) => output,
-        Err(error) => {
+    #[cfg(all(not(debug_assertions), target_os = "macos"))]
+    {
+        if let Err(error) = wait_for_macos_helper_ready(&mut child, &capability.pipe_name) {
+            log::warn!("[computer-use] helper did not become ready: {error}");
             stop_unready_helper(&mut child);
             cleanup_endpoint(&capability.pipe_name);
             return Err(error);
         }
-    };
-    if let Err(error) = wait_for_helper_ready(&mut child, &ready, &captured_stderr) {
-        log::warn!("[computer-use] helper did not become ready: {error}");
-        stop_unready_helper(&mut child);
-        cleanup_endpoint(&capability.pipe_name);
-        return Err(error);
+        inner.child = Some(child);
+        inner.capability = Some(capability);
+        return Ok(());
     }
+    #[cfg(not(all(not(debug_assertions), target_os = "macos")))]
+    {
+        let (ready, captured_stderr) = match observe_helper_output(&mut child) {
+            Ok(output) => output,
+            Err(error) => {
+                stop_unready_helper(&mut child);
+                cleanup_endpoint(&capability.pipe_name);
+                return Err(error);
+            }
+        };
+        if let Err(error) = wait_for_helper_ready(&mut child, &ready, &captured_stderr) {
+            log::warn!("[computer-use] helper did not become ready: {error}");
+            stop_unready_helper(&mut child);
+            cleanup_endpoint(&capability.pipe_name);
+            return Err(error);
+        }
+        #[cfg(windows)]
+        assign_helper_to_job(&state, &child);
+        inner.child = Some(child);
+        inner.capability = Some(capability);
+        Ok(())
+    }
+}
+
+#[cfg(all(not(debug_assertions), target_os = "macos"))]
+fn helper_command(helper: &Path, capability: &RuntimeCapability) -> Command {
+    let mut command = Command::new("/usr/bin/open");
+    command
+        .args(["-n", "-W"])
+        .arg(helper)
+        .arg("--args")
+        .args(["serve", "--pipe", &capability.pipe_name])
+        // `open` carries this environment into the launched application. The
+        // capability therefore remains out of argv while LaunchServices owns
+        // the helper process identity.
+        .env(CAPABILITY_ENV, &capability.secret)
+        .env(HELPER_HOST_PID_ENV, std::process::id().to_string());
+    command
+}
+
+#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
+fn helper_command(helper: &Path, capability: &RuntimeCapability) -> Command {
+    let mut command = Command::new(helper);
+    command.args(["serve", "--pipe", &capability.pipe_name]);
+    // The secret travels in the environment, not on the command line: argv is
+    // readable by any same-user process through `ps` / GetCommandLine, whereas
+    // the environment is not exposed there. This matches how the backend
+    // sidecar passes its shutdown token.
+    command.env(CAPABILITY_ENV, &capability.secret);
     #[cfg(windows)]
-    assign_helper_to_job(&state, &child);
-    inner.child = Some(child);
-    inner.capability = Some(capability);
-    Ok(())
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+#[cfg(all(not(debug_assertions), target_os = "macos"))]
+fn wait_for_macos_helper_ready(child: &mut Child, endpoint: &str) -> Result<(), String> {
+    use std::os::unix::fs::FileTypeExt;
+
+    let deadline = Instant::now() + HELPER_READY_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return Err(format!(
+                    "Computer Use helper exited before readiness with {status}"
+                ));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                return Err(format!(
+                    "failed while waiting for Computer Use helper readiness: {error}"
+                ));
+            }
+        }
+
+        match std::fs::symlink_metadata(endpoint) {
+            Ok(metadata) if metadata.file_type().is_socket() => {
+                log::info!("[computer-use] helper announced readiness");
+                return Ok(());
+            }
+            Ok(_) => {
+                return Err("Computer Use helper endpoint is not a Unix socket".to_string());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "failed to inspect Computer Use helper endpoint: {error}"
+                ));
+            }
+        }
+
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "timed out after {} seconds waiting for Computer Use helper readiness",
+                HELPER_READY_TIMEOUT.as_secs()
+            ));
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// Pipe child output into desktop logs and wait for its explicit readiness
 /// signal. A successful process spawn is deliberately not considered ready:
 /// macOS has yet to bind its Unix socket and Windows has yet to create the
 /// first named-pipe instance at that point.
+#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 fn observe_helper_output(
     child: &mut Child,
 ) -> Result<(mpsc::Receiver<Result<(), String>>, Arc<Mutex<String>>), String> {
@@ -259,6 +358,7 @@ fn observe_helper_output(
     Ok((ready_receiver, captured_stderr))
 }
 
+#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 fn watch_helper_stdout(stdout: ChildStdout, readiness: mpsc::Sender<Result<(), String>>) {
     let mut readiness_sent = false;
     for line in BufReader::new(stdout).lines() {
@@ -302,6 +402,7 @@ fn watch_helper_stdout(stdout: ChildStdout, readiness: mpsc::Sender<Result<(), S
     }
 }
 
+#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 fn watch_helper_stderr(stderr: ChildStderr, captured_stderr: Arc<Mutex<String>>) {
     for line in BufReader::new(stderr).lines() {
         match line {
@@ -319,6 +420,7 @@ fn watch_helper_stderr(stderr: ChildStderr, captured_stderr: Arc<Mutex<String>>)
     }
 }
 
+#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 fn parse_helper_ready_line(line: &str) -> Result<Option<()>, String> {
     let Some(payload) = line.strip_prefix(HELPER_READY_PREFIX) else {
         return Ok(None);
@@ -334,6 +436,7 @@ fn parse_helper_ready_line(line: &str) -> Result<Option<()>, String> {
     Ok(Some(()))
 }
 
+#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 fn wait_for_helper_ready(
     child: &mut Child,
     readiness: &mpsc::Receiver<Result<(), String>>,
@@ -409,6 +512,7 @@ fn stop_unready_helper(child: &mut Child) {
     }
 }
 
+#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 fn append_captured_stderr(buffer: &mut String, line: &str) {
     buffer.push_str(line);
     buffer.push('\n');
@@ -421,6 +525,7 @@ fn append_captured_stderr(buffer: &mut String, line: &str) {
     }
 }
 
+#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 fn captured_stderr_suffix(captured_stderr: &Arc<Mutex<String>>) -> String {
     let Ok(captured_stderr) = captured_stderr.lock() else {
         return String::new();
@@ -773,11 +878,6 @@ fn helper_path(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
     path.is_file()
         .then_some(path.clone())
         .ok_or_else(|| format!("Computer Use helper not found at {}", path.display()))
-}
-
-#[cfg(all(not(debug_assertions), target_os = "macos"))]
-fn helper_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    crate::computer_use_helper::installed_executable(app)
 }
 
 #[cfg(all(not(debug_assertions), not(target_os = "macos")))]
