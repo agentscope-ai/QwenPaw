@@ -397,16 +397,28 @@ _TOOL_NAME_ALLOWED = re.compile(r"[a-zA-Z0-9_-]+")
 
 
 def _sanitize_tool_name(name: str) -> str:
-    """Rewrite an MCP tool name to satisfy OpenAI's ``^[a-zA-Z0-9_-]+$``.
+    """Rewrite an MCP tool name to satisfy OpenAI's ``^[a-zA-Z][a-zA-Z0-9_-]*$``.
 
     Names that already match the pattern are returned unchanged.
-    Characters outside the allowed set are replaced with ``_`` and leading/
-    trailing underscores are stripped.  An empty result falls back to
-    ``"tool"``.
+    Characters outside the allowed set are replaced with ``_``, leading/
+    trailing underscores are stripped, and a leading dash or digit is
+    prefixed with ``tool_`` to ensure the first character is a letter.
+    An empty result falls back to ``"tool"``.
     """
     if _TOOL_NAME_ALLOWED.fullmatch(name):
+        # Strip leading/trailing dashes and underscores
+        name = name.strip("_-")
+        if not name:
+            return "tool"
+        # OpenAI requires the first character to be a letter
+        if not name[0].isalpha():
+            name = "tool_" + name
         return name
-    return _TOOL_NAME_SAFE_CHARS.sub("_", name).strip("_") or "tool"
+    name = _TOOL_NAME_SAFE_CHARS.sub("_", name).strip("_") or "tool"
+    # Ensure the result starts with a letter
+    if not name[0].isalpha():
+        name = "tool_" + name
+    return name
 
 
 def _tool_namespace_from_display_name(
