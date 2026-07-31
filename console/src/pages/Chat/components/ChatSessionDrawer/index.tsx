@@ -41,6 +41,7 @@ import { useAgentStore } from "../../../../stores/agentStore";
 import {
   type DateGroup,
   groupSessions,
+  findSessionRowIndex,
 } from "../../../../utils/sessionGrouping";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import styles from "./index.module.less";
@@ -697,6 +698,19 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   useEffect(() => {
     listRef.current?.resetAfterIndex(0);
   }, [flatRows]);
+
+  // Bring the active conversation into view once its row is visible
+  // (group expanded + list measured). Guarded by the last-scrolled id so
+  // background polling doesn't keep yanking the scroll position.
+  const lastScrolledSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentSessionId) return;
+    if (lastScrolledSessionRef.current === currentSessionId) return;
+    const index = findSessionRowIndex(flatRows, currentSessionId);
+    if (index < 0) return;
+    lastScrolledSessionRef.current = currentSessionId;
+    listRef.current?.scrollToItem(index, "smart");
+  }, [currentSessionId, flatRows, listHeight]);
 
   /** Callback ref: attach a ResizeObserver to measure list container height */
   const listWrapperRef = useCallback((node: HTMLDivElement | null) => {

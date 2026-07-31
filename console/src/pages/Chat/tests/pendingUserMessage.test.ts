@@ -169,4 +169,63 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     expect(userCardTexts(session)).toEqual(["q"]);
     expect(getChat).toHaveBeenCalledTimes(1);
   });
+
+  it("does not clear the cache when the pending text is a substring of an older message", async () => {
+    // "yes" is contained in "yesterday what happened" — substring
+    // matching would wrongly treat the new turn as persisted and drop
+    // the pending instruction. Only a normalized full match may clear.
+    seedSessionList("chat-substr");
+    sessionApi.setLastUserMessage("chat-substr", "yes");
+    await mockGetChat({
+      messages: [
+        userMsg("u1", "yesterday what happened"),
+        assistantMsg("a1", "an answer"),
+      ],
+      status: "idle",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-substr");
+    expect(userCardTexts(session)).toContain("yes");
+    expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-substr`)).not.toBe(
+      null,
+    );
+  });
+
+  it("does not serve a patched (incomplete) idle history from the LRU cache", async () => {
+    // The patched history is missing the agent reply that has not been
+    // flushed yet. Caching it would keep serving the incomplete turn
+    // for up to the cache TTL; every switch-back must refetch until the
+    // backend history confirms the pending text.
+    seedSessionList("chat-nocache");
+    sessionApi.setLastUserMessage("chat-nocache", "unconfirmed turn");
+    const getChat = await mockGetChat({
+      messages: [userMsg("u1", "old q"), assistantMsg("a1", "old a")],
+      status: "idle",
+    } as ChatHistory);
+
+    await sessionApi.getSession("chat-nocache");
+    (sessionApi as any).sessionResultCache.clear();
+    (sessionApi as any).lastSelectedIds.clear();
+    await sessionApi.getSession("chat-nocache");
+    expect(getChat).toHaveBeenCalledTimes(2);
+  });
+
+  it("still caches idle sessions once the pending text is confirmed", async () => {
+    seedSessionList("chat-confirmed");
+    sessionApi.setLastUserMessage("chat-confirmed", "the question");
+    const getChat = await mockGetChat({
+      messages: [
+        userMsg("u1", "the question"),
+        assistantMsg("a1", "the answer"),
+      ],
+      status: "idle",
+    } as ChatHistory);
+
+    await sessionApi.getSession("chat-confirmed");
+    (sessionApi as any).sessionResultCache.clear();
+    (sessionApi as any).lastSelectedIds.clear();
+    await sessionApi.getSession("chat-confirmed");
+    // Second call is served from the LRU cache — history was complete.
+    expect(getChat).toHaveBeenCalledTimes(1);
+  });
 });

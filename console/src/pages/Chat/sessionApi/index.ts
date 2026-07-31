@@ -869,17 +869,21 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * completes). If generating, look up the cached data from sessionStorage
    * and patch it into the message list (including any attachments).
    *
-   * When not generating the conversation is done — clear the cached entry.
+   * When not generating the conversation is done — clear the cached entry
+   * once the fetched history contains the pending text.
+   *
+   * Returns true when an unconfirmed pending message was patched in (the
+   * history is incomplete and must not be treated as canonical).
    */
   private patchLastUserMessage(
     messages: IAgentScopeRuntimeWebUIMessage[],
     generating: boolean,
     backendSessionId: string,
-  ): void {
+  ): boolean {
     const cached = loadPendingUserMessage(backendSessionId);
     if (!cached || !cached.text) {
       if (!generating) clearPendingUserMessage(backendSessionId);
-      return;
+      return false;
     }
 
     // When the chat is idle, clear the cache only after the fetched
@@ -896,9 +900,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         );
         break;
       }
-      if (lastUserText && lastUserText.includes(cached.text)) {
+      // Normalized full equality: substring matching would treat e.g.
+      // pending "yes" as contained in an older "yesterday …" message
+      // and wrongly drop the cache.
+      if (lastUserText.trim() === cached.text.trim()) {
         clearPendingUserMessage(backendSessionId);
-        return;
+        return false;
       }
       // History is missing the turn — fall through and patch it in,
       // keeping the cache until a later fetch confirms persistence.
@@ -929,6 +936,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         } as Message),
       );
     }
+    return true;
   }
 
   private createEmptySession(
@@ -1330,7 +1338,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
-    this.patchLastUserMessage(messages, generating, backendId);
+    const patchedPending = this.patchLastUserMessage(
+      messages,
+      generating,
+      backendId,
+    );
 
     const session: ExtendedSession = {
       id: displayId,
@@ -1346,7 +1358,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     // Cache non-generating sessions — only within the epoch that fetched
     // them, so a stale load cannot write into the new agent's cache.
-    if (!generating && this.isActiveOwner(owner)) {
+    // A history patched with an unconfirmed pending message is NOT
+    // canonical (the agent reply may still be missing): caching it would
+    // keep serving the incomplete turn for the whole cache TTL.
+    if (!generating && !patchedPending && this.isActiveOwner(owner)) {
       this.setCachedConvertedSession(
         backendId,
         session,

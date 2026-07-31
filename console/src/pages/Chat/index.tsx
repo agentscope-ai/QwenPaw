@@ -3086,10 +3086,13 @@ export default function ChatPage() {
             return null;
           }
 
-          // Replay boundary marker from the reconnect stream — internal
-          // signal only, never rendered.
+          // Replay boundary marker from the reconnect stream. The
+          // fast-forward wrapper strips it at the byte level; if one
+          // still slips through, map it to the SDK's heartbeat no-op —
+          // returning null here would crash the response builder
+          // mid-stream and drop every subsequent live token.
           if (payload.type === "replay_end") {
-            return null;
+            return { object: "message", type: "heartbeat" } as any;
           }
 
           if (payload.type === "rate_limited") {
