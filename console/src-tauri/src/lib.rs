@@ -10,6 +10,7 @@ mod external_link;
 mod runtime_env;
 mod tray;
 mod updates;
+mod quick_input;
 
 use tauri::{Manager, RunEvent, WebviewWindow, WindowEvent};
 
@@ -30,6 +31,17 @@ pub fn run() {
         .plugin(
             tauri_plugin_updater::Builder::new()
                 .default_version_comparator(updates::is_remote_update_newer)
+                .build(),
+        )
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state
+                        == tauri_plugin_global_shortcut::ShortcutState::Pressed
+                    {
+                        quick_input::toggle_quick_input(app);
+                    }
+                })
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
@@ -56,12 +68,25 @@ pub fn run() {
         .setup(|app| {
             backend::setup(app)?;
             tray::setup(app)?;
+            quick_input::register_hotkey(app.handle());
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                tray::request_close(window.app_handle());
+        .on_window_event(|window, event| match window.label() {
+            "quick-input" => match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                WindowEvent::Focused(false) => {
+                    let _ = window.hide();
+                }
+                _ => {}
+            },
+            _ => {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    tray::request_close(window.app_handle());
+                }
             }
         })
         .build(tauri::generate_context!());

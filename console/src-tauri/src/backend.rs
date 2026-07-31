@@ -72,7 +72,7 @@ impl BackendState {
         self.generation.load(Ordering::SeqCst) == generation
     }
 
-    fn port(&self) -> Option<u16> {
+    pub(crate) fn port(&self) -> Option<u16> {
         self.with_inner(|inner| inner.port)
     }
 

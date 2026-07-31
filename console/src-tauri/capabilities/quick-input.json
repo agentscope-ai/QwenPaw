@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick-input",
+  "description": "Quick-input floating window: backend-hosted chat route, no chrome.",
+  "windows": ["quick-input"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
+  },
+  "permissions": ["core:default"]
+}

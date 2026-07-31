@@ -32,6 +32,7 @@ import { Suspense } from "react";
 import { lazyImportWithRetry } from "./utils/lazyWithRetry";
 
 const LoginPage = lazyImportWithRetry("./pages/Login/index");
+const QuickInputPage = lazyImportWithRetry("./pages/QuickInput/index");
 import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
 import { useUploadLimitStore } from "./stores/uploadLimitStore";
@@ -223,6 +224,14 @@ function AppInner() {
                     element={
                       <Suspense fallback={null}>
                         <LoginPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="/quick-input"
+                    element={
+                      <Suspense fallback={null}>
+                        <QuickInputPage />
                       </Suspense>
                     }
                   />
