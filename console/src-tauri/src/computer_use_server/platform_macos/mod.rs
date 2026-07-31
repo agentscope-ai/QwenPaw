@@ -24,6 +24,7 @@ use serde_json::{Map, Value};
 mod accessibility_tree;
 mod capture;
 mod input;
+mod permissions;
 mod window;
 
 pub(super) use accessibility_tree::{invoke_element, set_value, AxElement};
@@ -31,6 +32,7 @@ pub(super) use capture::observe_window;
 pub(super) use input::{
     click, desktop_locked, drag, last_input_age_ms, press_key, scroll, type_text,
 };
+pub(super) use permissions::ensure_for as ensure_permissions;
 pub(super) use window::{
     app_id_from_bundle_path, close_window, is_forbidden, list_apps, list_windows, resolve_window,
 };
@@ -135,12 +137,16 @@ fn integer_param(params: &Map<String, Value>, key: &str) -> Result<i64, (&'stati
         .ok_or_else(|| ("invalid_request", format!("{key} is required.")))
 }
 
-/// Exit the helper when the desktop parent process dies. macOS has no Job
-/// Object equivalent, so a background thread watches the parent pid via a
-/// kqueue `EVFILT_PROC`/`NOTE_EXIT` filter and terminates the helper when the
-/// parent exits, preventing orphaned helpers.
+/// Exit the helper when the desktop host process dies. macOS has no Job Object
+/// equivalent, so a background thread watches the host pid via a kqueue
+/// `EVFILT_PROC`/`NOTE_EXIT` filter and terminates the helper when the host
+/// exits, preventing orphaned helpers.
 pub(super) fn spawn_parent_death_watch() {
-    let parent = unsafe { libc::getppid() };
+    let parent = std::env::var("QWENPAW_CU_HOST_PID")
+        .ok()
+        .and_then(|value| value.parse::<libc::pid_t>().ok())
+        .filter(|pid| *pid > 1)
+        .unwrap_or_else(|| unsafe { libc::getppid() });
     if parent <= 1 {
         return;
     }

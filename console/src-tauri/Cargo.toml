@@ -95,6 +95,8 @@ jpeg-encoder = "0.6"
 libc = "0.2"
 block2 = "0.6"
 objc2 = "0.6"
+dispatch2 = "0.3"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication"] }
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["CGImage"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSError"] }
 objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["SCShareableContent", "SCScreenshotManager", "SCStream", "block2", "objc2-core-graphics"] }
