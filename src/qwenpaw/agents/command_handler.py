@@ -321,7 +321,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             return None
         return HintBlock(hint=safe_hint, source="user")
 
-    async def _process_compact(
+    async def _process_compact(  # pylint: disable=too-many-statements
         self,
         messages: list[Msg],
         args: str = "",
@@ -482,7 +482,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         )
         if not callable(getter):
             return
-        state = getter(self._current_session_id())
+        state = getter(  # pylint: disable=not-callable
+            self._current_session_id(),
+        )
         pending = state.get("pending") if isinstance(state, dict) else None
         if not isinstance(pending, list):
             return
