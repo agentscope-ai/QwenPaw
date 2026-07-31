@@ -27,6 +27,9 @@ from ..utils.startup_display import AgentStartupDisplay
 
 logger = logging.getLogger(__name__)
 
+_OLD_WORKSPACE_TASK_WAIT_SECONDS = 60.0
+_OLD_WORKSPACE_TASK_MAX_WAIT_ROUNDS = 24 * 60
+
 
 class MultiAgentManager:
     """Manages multiple agent workspaces.
@@ -243,6 +246,8 @@ class MultiAgentManager:
         Args:
             old_instance: The old workspace instance to stop
             agent_id: Agent ID for logging
+            active_tasks: Fixed snapshot of tasks owned by the old workspace.
+                When omitted, the method captures the snapshot itself.
         """
         if active_tasks is None:
             active_tasks = (
@@ -263,21 +268,32 @@ class MultiAgentManager:
             async def delayed_cleanup():
                 """Wait for tasks to complete, then stop old instance."""
                 try:
-                    while not (
-                        await old_instance.task_tracker.wait_tasks_done(
-                            list(active_tasks.values()),
-                            timeout=60.0,
+                    completed = False
+                    for _ in range(_OLD_WORKSPACE_TASK_MAX_WAIT_ROUNDS):
+                        completed = (
+                            await old_instance.task_tracker.wait_tasks_done(
+                                list(active_tasks.values()),
+                                timeout=_OLD_WORKSPACE_TASK_WAIT_SECONDS,
+                            )
                         )
-                    ):
+                        if completed:
+                            break
                         logger.warning(
                             f"Tasks are still active for old instance "
                             f"{agent_id}. Keeping it alive until they finish.",
                         )
 
-                    logger.info(
-                        f"All tasks completed for old instance "
-                        f"{agent_id}. Stopping now.",
-                    )
+                    if completed:
+                        logger.info(
+                            f"All tasks completed for old instance "
+                            f"{agent_id}. Stopping now.",
+                        )
+                    else:
+                        logger.error(
+                            f"Tasks did not finish within 24 hours for old "
+                            f"instance {agent_id}. Forcing cleanup to prevent "
+                            f"a resource leak.",
+                        )
                     await old_instance.stop(final=False)
                     logger.info(
                         f"Old workspace instance stopped: {agent_id}. "

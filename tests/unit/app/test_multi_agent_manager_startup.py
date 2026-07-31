@@ -152,6 +152,38 @@ async def test_cleanup_keeps_old_workspace_alive_after_wait_timeout() -> None:
     assert old_workspace.stopped is True
 
 
+@pytest.mark.asyncio
+async def test_cleanup_forces_stop_after_maximum_wait_rounds(
+    monkeypatch,
+) -> None:
+    manager = MultiAgentManager()
+    old_workspace = _ReloadWorkspace("agent-1")
+    task = asyncio.Future()
+    old_workspace.task_tracker.wait_tasks_done = AsyncMock(
+        return_value=False,
+    )
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "_OLD_WORKSPACE_TASK_MAX_WAIT_ROUNDS",
+        2,
+    )
+
+    await manager._graceful_stop_old_instance(
+        old_workspace,
+        "agent-1",
+        active_tasks={"chat-1": task},
+    )
+    cleanup_tasks = list(manager._cleanup_tasks)
+    assert cleanup_tasks
+    await asyncio.wait_for(
+        asyncio.gather(*cleanup_tasks),
+        timeout=1,
+    )
+
+    assert old_workspace.task_tracker.wait_tasks_done.await_count == 2
+    assert old_workspace.stopped is True
+
+
 def _read_custom_startup_concurrency(
     value: str | None = None,
     legacy_value: str | None = None,
