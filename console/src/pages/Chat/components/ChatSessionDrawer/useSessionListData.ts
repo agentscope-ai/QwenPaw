@@ -4,7 +4,7 @@ import type { IAgentScopeRuntimeWebUISession } from "@agentscope-ai/chat";
 import type { ChatStatus } from "../../../../api/types/chat";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
-import { clearLegacyStoredMessageQueue } from "../../inputQueueStorage";
+import { clearLegacyStoredMessageQueue } from "../../legacyMessageQueueStorage";
 import {
   ContextMenu,
   useContextMenu,

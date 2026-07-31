@@ -159,17 +159,34 @@ const ChatSessionInitializer: React.FC<ChatSessionInitializerProps> = ({
       return;
     }
 
-    // Match by multiple criteria in order of specificity:
-    // 1) Library id (localId or UUID)
-    let matching = sessions.find((s) => s.id === chatId);
+    // The route switches to the backend UUID as soon as a newly-created chat
+    // resolves, while the SDK intentionally keeps using the original local id
+    // for the active streaming turn. The SDK's sessions state can still be the
+    // pre-resolution snapshot at this point, so matching the route id alone
+    // would fall through to setCurrentSessionId(realId). That remounts the
+    // message list, clears the in-flight messages, and reloads the chat.
+    //
+    // Resolve the route through SessionApi's authoritative alias map first so
+    // localId -> realId remains one logical SDK session during streaming and
+    // queued turns.
+    const librarySessionId = sessionApi.getLibrarySessionId(chatId) ?? chatId;
 
-    // 2) realId: URL contains a UUID but the session's library id is still a
+    // Match by multiple criteria in order of specificity:
+    // 1) Canonical SDK id (localId while the first turn is streaming)
+    let matching = sessions.find((s) => s.id === librarySessionId);
+
+    // 2) Route id (normally the same as the canonical SDK id)
+    if (!matching) {
+      matching = sessions.find((s) => s.id === chatId);
+    }
+
+    // 3) realId: URL contains a UUID but the session's library id is still a
     //    local timestamp (e.g. during SSE before onSessionIdResolved fires).
     if (!matching) {
       matching = sessions.find((s) => (s as ExtendedSession).realId === chatId);
     }
 
-    // 3) sessionId field: URL contains the backend session_id format
+    // 4) sessionId field: URL contains the backend session_id format
     if (!matching) {
       matching = sessions.find(
         (s) => (s as ExtendedSession).sessionId === chatId,
@@ -182,12 +199,13 @@ const ChatSessionInitializer: React.FC<ChatSessionInitializerProps> = ({
     } else if (matching) {
       // Already in sync, just record that we've handled this chatId
       lastAppliedChatIdRef.current = chatId;
-    } else if (currentSessionIdRef.current !== chatId) {
+    } else if (currentSessionIdRef.current !== librarySessionId) {
       // A just-created chat can be addressable by URL before listChats has
       // caught up. Load the URL id directly instead of leaving the page in the
-      // default New Chat state.
+      // default New Chat state. Prefer the canonical SDK id when SessionApi
+      // already knows this route is an alias of the active local session.
       lastAppliedChatIdRef.current = chatId;
-      setCurrentSessionId(chatId);
+      setCurrentSessionId(librarySessionId);
     } else {
       lastAppliedChatIdRef.current = chatId;
     }

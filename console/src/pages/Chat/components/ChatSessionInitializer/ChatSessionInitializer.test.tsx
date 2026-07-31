@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import sessionApi from "../../sessionApi";
+import { resolveControlledSdkSessionId } from "../../chatSessionOptions";
 import ChatSessionInitializer from "./index";
 
 const { mockSetCurrentSessionId, mockCreateSession } = vi.hoisted(() => ({
@@ -31,10 +32,10 @@ function renderInitializer(initialEntries = ["/chat"]) {
   );
 }
 
-function mockSessions(sessions: any[]) {
+function mockSessions(sessions: any[], currentSessionId?: string) {
   vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
     sessions,
-    currentSessionId: undefined,
+    currentSessionId,
     setCurrentSessionId: mockSetCurrentSessionId,
   } as any);
 }
@@ -132,5 +133,50 @@ describe("ChatSessionInitializer", () => {
     expect(mockSetCurrentSessionId).not.toHaveBeenCalledWith(
       "previous-agent-chat",
     );
+  });
+
+  it("keeps the local SDK session when its backend route resolves during streaming", async () => {
+    const localId = "1783058507358-onjn1fo";
+    const backendId = "backend-resolved-id";
+    const getLibrarySessionIdSpy = vi
+      .spyOn(sessionApi, "getLibrarySessionId")
+      .mockImplementation((sessionId) =>
+        sessionId === backendId ? localId : sessionId ?? undefined,
+      );
+
+    // The SDK session list is deliberately the pre-resolution snapshot. The
+    // SessionApi alias map has already resolved the route, but React has not
+    // received a new sessions array yet.
+    mockSessions(
+      [{ id: localId, name: "Streaming Chat", sessionId: localId }],
+      localId,
+    );
+
+    renderInitializer([`/chat/${backendId}`]);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        `/chat/${backendId}`,
+      ),
+    );
+    expect(mockSetCurrentSessionId).not.toHaveBeenCalledWith(backendId);
+    expect(mockSetCurrentSessionId).not.toHaveBeenCalled();
+
+    getLibrarySessionIdSpy.mockRestore();
+  });
+
+  it("keeps the prepared local session controlled on the blank New Chat route", () => {
+    const localId = "1783058507358-onjn1fo";
+    sessionApi.lastActiveChatId = localId;
+    const getLibrarySessionIdSpy = vi
+      .spyOn(sessionApi, "getLibrarySessionId")
+      .mockImplementation((sessionId) => sessionId ?? undefined);
+
+    expect(resolveControlledSdkSessionId(undefined)).toBe(localId);
+
+    sessionApi.lastActiveChatId = null;
+    expect(resolveControlledSdkSessionId(undefined)).toBeUndefined();
+
+    getLibrarySessionIdSpy.mockRestore();
   });
 });

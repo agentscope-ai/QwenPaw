@@ -1,9 +1,13 @@
 import {
   AgentScopeRuntimeWebUI,
+  clearInputQueueState,
+  hasInputQueueItems,
   IAgentScopeRuntimeWebUIOptions,
+  migrateInputQueueState,
   type IAgentScopeRuntimeWebUIMessage,
   type IAgentScopeRuntimeWebUIQueueSessionContext,
   type IAgentScopeRuntimeWebUIRef,
+  useChatAnywhereInput,
 } from "@agentscope-ai/chat";
 import {
   useCallback,
@@ -42,7 +46,6 @@ import {
   useLoopStore,
 } from "../../stores/loopStore";
 import { LoopModeSelector } from "../../components/LoopInput";
-import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
@@ -78,16 +81,14 @@ import {
   resolveBackendChatSessionId,
   stripQueueAgentPrefix,
 } from "./chatSessionIds";
-import { buildChatSessionOptions } from "./chatSessionOptions";
+import {
+  buildChatSessionOptions,
+  resolveControlledSdkSessionId,
+} from "./chatSessionOptions";
 import {
   resolveChatRequestContext,
   type QueuedChatRequestData,
 } from "./chatRequestContext";
-import {
-  clearStoredInputQueue,
-  hasStoredInputQueueItems,
-  migrateInputQueueStorage,
-} from "./inputQueueStorage";
 import {
   resolveRuntimeChatId,
   resolveSessionInitializerChatId,
@@ -101,11 +102,6 @@ import {
   type HeadlineStreamFilterState,
   stripScrollHeadlineTextBlocks,
 } from "./headlineFilter";
-import {
-  getQueueRequestId,
-  INTERNAL_QUEUE_REQUEST_ID_PARAM,
-  shouldRestoreQueuedInputAfterError,
-} from "./queueRequestLifecycle";
 import { createSecureRandomHex } from "./secureRandom";
 
 interface ApprovalMessageData {
@@ -248,44 +244,8 @@ function renderSuggestionLabel(command: string, description?: string) {
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
 const AGENT_SWITCH_QUEUE_SETTLE_MS = 1500;
-const ACCEPTED_QUEUE_TOMBSTONE_TTL_MS = 5 * 60 * 1000;
 const WIDE_MODE_STORAGE_KEY = "qwenpaw_chat_wide_mode";
 const CHAT_STREAM_SNAPSHOT_CHANNEL = "qwenpaw:chat-stream-snapshot";
-
-function clearAcceptedQueueRequestOnStreamCompletion(
-  response: Response,
-  onComplete: () => void,
-) {
-  if (!response.body || typeof TransformStream === "undefined") {
-    onComplete();
-    return response;
-  }
-
-  const body = response.body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        controller.enqueue(chunk);
-      },
-      flush() {
-        onComplete();
-      },
-    }),
-  );
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
-}
-
-let queueRequestSequence = 0;
-
-function createQueueRequestId() {
-  queueRequestSequence += 1;
-  return `qwenpaw-queue-${Date.now().toString(
-    36,
-  )}-${queueRequestSequence.toString(36)}`;
-}
 
 interface ChatStreamSnapshotPayload {
   type: "request" | "snapshot";
@@ -964,7 +924,6 @@ export default function ChatPage() {
   const pendingAgentChatScopeRef = useRef<PendingAgentChatScope | null>(null);
   const runtimeAgent = runtimeAgentRef.current;
   const queueDrainBlockedUntilRef = useRef(new Map<string, number>());
-  const acceptedQueuedInputRef = useRef(new Set<string>());
   // sessionApi is a module singleton, so it must be re-scoped synchronously
   // before this render resolves route/session aliases for the runtime agent.
   // Otherwise agent switches can reuse another agent's chat mapping and make
@@ -1005,7 +964,7 @@ export default function ChatPage() {
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
-  const controlledSdkSessionId = sessionApi.getLibrarySessionId(runtimeChatId);
+  const controlledSdkSessionId = resolveControlledSdkSessionId(runtimeChatId);
   const scopedSessionApi = useMemo(
     () => sessionApi.createScopedApi(runtimeAgent, controlledSdkSessionId),
     [controlledSdkSessionId, runtimeAgent],
@@ -1342,12 +1301,7 @@ export default function ChatPage() {
   const streamSnapshotTabIdRef = useRef(createChatStreamSnapshotTabId());
 
   const isFrontendChatRunning = useCallback(() => {
-    const hasStopLoadingControl =
-      typeof document !== "undefined" &&
-      !!document.querySelector(
-        'button img[alt="Stop Loading"], button [aria-label="Stop Loading"], button[aria-label="Stop Loading"]',
-      );
-    if (hasStopLoadingControl) return true;
+    if (runtimeLoadingBridgeRef.current?.getLoading?.()) return true;
 
     const messages = chatRef.current?.messages?.getMessages?.();
     return (
@@ -1581,7 +1535,7 @@ export default function ChatPage() {
       // realId resolution would migrate the queue into the wrong agent's
       // scope, orphaning the original queue and risking cross-agent delivery.
       const agentId = owningAgentId ?? selectedAgentRef.current;
-      await migrateInputQueueStorage(
+      await migrateInputQueueState(
         buildAgentScopedQueueSessionId(_tempId, agentId),
         buildAgentScopedQueueSessionId(realId, agentId),
       );
@@ -1607,7 +1561,7 @@ export default function ChatPage() {
         agentId,
         (rawSessionId) => sessionApi.getQueueSessionId(rawSessionId),
       );
-      clearStoredInputQueue(queueSessionId);
+      clearInputQueueState(queueSessionId);
     };
 
     sessionApi.onSessionSelected = (
@@ -1797,18 +1751,7 @@ export default function ChatPage() {
         typeof data.session_id === "string" && data.session_id.trim()
           ? data.session_id
           : undefined;
-      const queuedAgentId =
-        typeof data.agent_id === "string" && data.agent_id
-          ? data.agent_id
-          : undefined;
-      const queuedRequestId = getQueueRequestId(data);
-      const requestBizParams = bizParams
-        ? Object.fromEntries(
-            Object.entries(bizParams).filter(
-              ([key]) => key !== INTERNAL_QUEUE_REQUEST_ID_PARAM,
-            ),
-          )
-        : undefined;
+      const isQueuedRequest = data.submission?.source === "queue";
       const session: SessionInfo = input[input.length - 1]?.session || {};
       const requestContext = resolveChatRequestContext({
         data,
@@ -1837,7 +1780,7 @@ export default function ChatPage() {
             agent_id: requestAgentId,
           });
         } catch (error) {
-          if (queuedRequestId) {
+          if (isQueuedRequest) {
             throw error;
           }
           setShowModelPrompt(true);
@@ -1848,7 +1791,7 @@ export default function ChatPage() {
           !activeModels?.active_llm?.model
         ) {
           setShowModelPrompt(true);
-          if (queuedRequestId) {
+          if (isQueuedRequest) {
             throw new Error("Model not configured");
           }
           return buildModelError();
@@ -1878,7 +1821,7 @@ export default function ChatPage() {
         channel: requestContext.channel,
         agent_id: requestAgentId,
         stream: true,
-        ...requestBizParams,
+        ...bizParams,
       };
 
       for (const entry of sortByOrder(
@@ -1942,16 +1885,6 @@ export default function ChatPage() {
         signal: data.signal,
       });
 
-      if (!response.ok && queuedRequestId) {
-        let errorMessage = `Queue request failed (${response.status})`;
-        try {
-          errorMessage = (await response.clone().text()) || errorMessage;
-        } catch {
-          // Keep the HTTP status when the response body cannot be read.
-        }
-        throw new Error(errorMessage);
-      }
-
       const localIdToResolve =
         queuedSessionId || sessionApi.lastActiveChatId || chatIdRef.current;
       if (response.ok && localIdToResolve) {
@@ -1962,22 +1895,7 @@ export default function ChatPage() {
         sessionApi.triggerResolve(localIdToResolve, runtimeAgent);
       }
 
-      const wrappedResponse = wrapChatResponseUsageStream(response, chatRef);
-      if (!response.ok || !queuedAgentId || !queuedRequestId) {
-        return wrappedResponse;
-      }
-
-      acceptedQueuedInputRef.current.add(queuedRequestId);
-      // If the stream is aborted by an Agent switch, the SDK consults this
-      // short-lived acceptance marker and consumes the item instead of
-      // restoring and sending it twice. Normal completion clears it eagerly.
-      window.setTimeout(
-        () => acceptedQueuedInputRef.current.delete(queuedRequestId),
-        ACCEPTED_QUEUE_TOMBSTONE_TTL_MS,
-      );
-      return clearAcceptedQueueRequestOnStreamCompletion(wrappedResponse, () =>
-        acceptedQueuedInputRef.current.delete(queuedRequestId),
-      );
+      return wrapChatResponseUsageStream(response, chatRef);
     },
     [extLists, runtimeAgent, runningConfigApprovalLevel, usesQwenPawBackend],
   );
@@ -2452,30 +2370,12 @@ export default function ChatPage() {
             const identity = sessionApi.getSessionIdentity(
               rawSessionId || backendSessionId,
             );
-            const queueRequestId = createQueueRequestId();
             return {
               session_id: backendSessionId || identity.sessionId,
               user_id: identity.userId,
               channel: identity.channel,
               agent_id: getQueueAgentId(sessionId) || runtimeAgent,
-              // Persist a stable ID inside the SDK queue item. The host records
-              // backend acceptance against this exact request, so the SDK can
-              // decide whether an Agent-switch abort should restore or consume
-              // the item without confusing duplicate text.
-              qwenpaw_queue_request_id: queueRequestId,
-              // The SDK narrows queued data before customFetch to its public
-              // request fields. Carry the same ID through biz_params, then
-              // strip it before the backend payload is built above.
-              biz_params: {
-                [INTERNAL_QUEUE_REQUEST_ID_PARAM]: queueRequestId,
-              },
             };
-          },
-          shouldRestoreOnError: ({ data }: { data: QueuedChatRequestData }) => {
-            return shouldRestoreQueuedInputAfterError(
-              data,
-              acceptedQueuedInputRef.current,
-            );
           },
           isSessionRunning: async ({
             sessionId,
@@ -2489,7 +2389,7 @@ export default function ChatPage() {
               queueDrainBlockedUntilRef.current.get(queueAgentId) ?? 0;
             if (
               Date.now() < queueDrainBlockedUntil &&
-              hasStoredInputQueueItems(queueSessionId)
+              hasInputQueueItems(queueSessionId)
             ) {
               return true;
             }

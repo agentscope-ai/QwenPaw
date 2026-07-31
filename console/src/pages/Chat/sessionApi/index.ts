@@ -474,6 +474,14 @@ function clearPendingUserMessage(sessionId: string): void {
 class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionList: IAgentScopeRuntimeWebUISession[] = [];
   private realIdResolutionTasks: Set<string> = new Set();
+  private notifiedRealIdResolutions: Map<string, string> = new Map();
+  private pendingRealIdResolutions: Map<
+    string,
+    { realId: string; agentId?: string }
+  > = new Map();
+  private sessionIdResolvedListener:
+    | ((tempId: string, realId: string, agentId?: string) => void)
+    | null = null;
   private activeAgentId: string | undefined;
   private sessionScopeVersion = 0;
 
@@ -520,6 +528,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     this.sessionList = [];
     this.realIdResolutionTasks.clear();
+    this.notifiedRealIdResolutions.clear();
     this._prevReturnedList = null;
     this.preferredChatId = null;
     this.lastActiveChatId = null;
@@ -803,9 +812,23 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * under the original agent's scope instead of the (now-active) destination
    * agent. Older consumers that only read (tempId, realId) keep working.
    */
-  onSessionIdResolved:
-    | ((tempId: string, realId: string, agentId?: string) => void)
-    | null = null;
+  get onSessionIdResolved() {
+    return this.sessionIdResolvedListener;
+  }
+
+  set onSessionIdResolved(
+    listener:
+      | ((tempId: string, realId: string, agentId?: string) => void)
+      | null,
+  ) {
+    this.sessionIdResolvedListener = listener;
+    if (!listener || this.pendingRealIdResolutions.size === 0) return;
+
+    const pending = Array.from(this.pendingRealIdResolutions.entries());
+    for (const [tempId, resolution] of pending) {
+      this.notifyRealIdResolved(tempId, resolution.realId, resolution.agentId);
+    }
+  }
 
   /**
    * Called after a session is removed. Consumers can register here to clear
@@ -1156,6 +1179,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         // library's currentSessionId (local timestamp) stays valid during SSE.
         next.id = existing.id;
         next.realId = existing.realId;
+      } else if (isLocalTimestamp(existing.id) && !isLocalTimestamp(s.id)) {
+        // listChats can observe the persisted UUID before triggerResolve runs.
+        // Preserve the SDK's local id and record the UUID as an alias; replacing
+        // the row with the UUID here remounts the message list mid-stream.
+        next.id = existing.id;
+        next.realId = s.id;
       }
       // Only carry over generating=true from the old session when the
       // backend hasn't explicitly reported the chat as idle.  Previously
@@ -1466,17 +1495,37 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const { list, realId } = resolveRealId(this.sessionList, tempId);
     this.sessionList = list;
     if (realId) {
-      // Migrate the pending user message from the local timestamp key to
-      // the backend UUID key so patchLastUserMessage can find it after
-      // page refresh (where the URL — and therefore the lookup key — is
-      // the UUID, not the original timestamp).
-      const cached = loadPendingUserMessage(tempId);
-      if (cached) {
-        savePendingUserMessage(realId, cached);
-        clearPendingUserMessage(tempId);
-      }
-      this.onSessionIdResolved?.(tempId, realId, resolutionAgentId);
+      this.notifyRealIdResolved(tempId, realId, resolutionAgentId);
     }
+  }
+
+  private notifyRealIdResolved(
+    tempId: string,
+    realId: string,
+    resolutionAgentId?: string,
+  ): void {
+    if (this.notifiedRealIdResolutions.get(tempId) === realId) return;
+
+    // Migrate the pending user message from the local timestamp key to the
+    // backend UUID key so patchLastUserMessage can find it after refresh.
+    const cached = loadPendingUserMessage(tempId);
+    if (cached) {
+      savePendingUserMessage(realId, cached);
+      clearPendingUserMessage(tempId);
+    }
+
+    const listener = this.sessionIdResolvedListener;
+    if (!listener) {
+      this.pendingRealIdResolutions.set(tempId, {
+        realId,
+        agentId: resolutionAgentId,
+      });
+      return;
+    }
+
+    this.pendingRealIdResolutions.delete(tempId);
+    this.notifiedRealIdResolutions.set(tempId, realId);
+    listener(tempId, realId, resolutionAgentId);
   }
 
   /**
@@ -1606,12 +1655,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       (session as ExtendedSession).realId = realId;
       this._prevReturnedList = null;
     }
-    const cached = loadPendingUserMessage(tempId);
-    if (cached) {
-      savePendingUserMessage(realId, cached);
-      clearPendingUserMessage(tempId);
-    }
-    this.onSessionIdResolved?.(tempId, realId, resolutionAgentId);
+    this.notifyRealIdResolved(tempId, realId, resolutionAgentId);
   }
 
   /**
@@ -1628,8 +1672,32 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   triggerResolve(tempId: string, agentId?: string): void {
     if (!isLocalTimestamp(tempId)) return;
     const existing = this.findSession(tempId);
-    if (existing?.realId) return; // already resolved
     const resolutionAgentId = agentId ?? this.activeAgentId;
+    if (existing?.realId) {
+      // A session-list poll may have discovered the UUID before customFetch
+      // reaches triggerResolve. The alias is already known, but consumers
+      // still need the one-time route and queue migration notification.
+      this.notifyRealIdResolved(tempId, existing.realId, resolutionAgentId);
+      return;
+    }
+
+    // After switching away from an Agent and back, its queue items still carry
+    // the original local session_id, while the freshly loaded session list is
+    // already keyed by the backend UUID. Treat that identity match as resolved.
+    // Scheduling another resolution would rewrite the UUID entry back to the
+    // local id, briefly putting the SDK in "New Chat" while messages reload.
+    const persistedSession = this.findSessionByIdentity(tempId);
+    if (persistedSession && !isLocalTimestamp(persistedSession.id)) {
+      if (this.lastActiveChatId === tempId) {
+        this.notifyRealIdResolved(
+          tempId,
+          persistedSession.id,
+          resolutionAgentId,
+        );
+      }
+      return;
+    }
+
     const promise = this.scheduleResolveAndNotify(tempId, resolutionAgentId);
     if (promise) this.resolvePromise = promise;
   }
