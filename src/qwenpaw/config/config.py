@@ -300,7 +300,7 @@ class OneBotConfig(BaseChannelConfig):
     access_token: str = ""
     share_session_in_group: bool = False
     media_base64: bool = False
-    media_base64_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
+    media_base64_max_mb: int = Field(default=10, gt=0)
 
 
 class TelegramConfig(BaseChannelConfig):
