@@ -6,9 +6,7 @@ Covers:
 - prepend_to_message_content
 """
 # pylint: disable=redefined-outer-name
-from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from agentscope.message import DataBlock, Msg, TextBlock, URLSource
 
@@ -247,7 +245,8 @@ class TestSanitizeDisplayFilename:
 
     def test_whitespace_collapses(self):
         cleaned = _sanitize_display_filename(
-            "  my   file  name.pdf  ", self.LOCAL_PATH
+            "  my   file  name.pdf  ",
+            self.LOCAL_PATH,
         )
         assert cleaned == "my file name.pdf"
 
@@ -286,7 +285,8 @@ class TestProcessFileBlocksInjectsDisplayName:
         path = "/ws/media/abc_code.docx"
         db = DataBlock(
             source=URLSource(
-                url=f"file://{path}", media_type="application/msword"
+                url=f"file://{path}",
+                media_type="application/msword",
             ),
             name="特斯拉财报Q2分析.docx",
         )
@@ -313,7 +313,8 @@ class TestProcessFileBlocksInjectsDisplayName:
         path = "/ws/media/abc_plan.pdf"
         db = DataBlock(
             source=URLSource(
-                url=f"file://{path}", media_type="application/pdf"
+                url=f"file://{path}",
+                media_type="application/pdf",
             ),
             name="年度财务计划-2026.pdf",
         )
@@ -340,7 +341,8 @@ class TestProcessFileBlocksInjectsDisplayName:
         path = "/ws/media/a1b2c3d_report.xlsx"
         db = DataBlock(
             source=URLSource(
-                url=f"file://{path}", media_type="application/vnd"
+                url=f"file://{path}",
+                media_type="application/vnd",
             ),
             name=None,
         )
@@ -403,7 +405,8 @@ class TestProcessFileBlocksInjectsDisplayName:
         path = "/ws/media/a_x.pdf"
         db = DataBlock(
             source=URLSource(
-                url=f"file://{path}", media_type="application/pdf"
+                url=f"file://{path}",
+                media_type="application/pdf",
             ),
             name="%E5%AE%A1%E8%AE%A1%E6%8A%A5%E5%91%8A.pdf",
         )

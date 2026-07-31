@@ -436,6 +436,60 @@ def _coerce_block_to_dict(
     return None
 
 
+def _resolve_data_block_path(block) -> tuple[str, str] | None:
+    """Return ``(local_path, display_name)`` for a Pydantic DataBlock file URL.
+
+    Extracts ``file://`` URLs from :class:`agentscope.message.DataBlock`
+    (produced by the console upload flow) and sanitizes the user-visible
+    display name via :func:`_sanitize_display_filename`.  Returns ``None``
+    for non-file DataBlocks (remote URLs, in-memory Base64Source, etc.) so
+    callers can skip non-downloadable entries without branching.
+    """
+    source = getattr(block, "source", None)
+    url = str(getattr(source, "url", "")) if source else ""
+    if not url.startswith("file://"):
+        return None
+    local_path = url.removeprefix("file://")
+    display_name = _sanitize_display_filename(
+        getattr(block, "name", None),
+        local_path,
+    )
+    return local_path, display_name
+
+
+def _resolve_legacy_block_path(
+    block: dict, local_path: str
+) -> tuple[str, str] | None:
+    """Resolve the 1.x dict-block path into ``(local_path, display_name)``."""
+    display_name = _sanitize_display_filename(
+        block.get("name"),
+        local_path,
+    )
+    return local_path, display_name
+
+
+def _build_upload_hint(local_path: str, display_name: str, lang: str) -> str:
+    """Build the user-facing "file downloaded" prompt hint.
+
+    When ``display_name`` differs from the filesystem basename (the usual
+    case for console UUID-prefixed media storage), both are shown so the
+    model has the semantic filename the user uploaded AND the concrete
+    local path to read from.  When they match, only the path is shown,
+    preserving exact historical behavior for the unaffected majority.
+    """
+    basename = Path(local_path).name
+    if lang == "zh":
+        if display_name and basename != display_name:
+            return "用户上传文件“" f"{display_name}”，已经下载到 " f"{local_path}"
+        return f"用户上传文件，已经下载到 {local_path}"
+    if display_name and basename != display_name:
+        return (
+            f'User uploaded a file "{display_name}", '
+            f"downloaded to {local_path}"
+        )
+    return f"User uploaded a file, downloaded to {local_path}"
+
+
 async def process_file_and_media_blocks_in_message(msg) -> None:
     """Process file and media blocks (file, image, audio, video) in messages.
 
@@ -456,32 +510,12 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
         downloaded_files = []
 
         for i, block in enumerate(message.content):
-            # === 2.0 Pydantic DataBlock fast-path ===
-            # Console uploads land as ``DataBlock(URLSource(url=file:///..))``
-            # already pointing at ``media_dir``.  Skip the dict-based
-            # download / mutation entirely (it would replace the Pydantic
-            # block with a dict and break ``msg.has_content_blocks(...)``
-            # in agentscope ``_handle_incoming_messages``).  We only need
-            # the local path + original display name for the sibling-text-
-            # block injection below.
             if not isinstance(block, dict):
-                source = getattr(block, "source", None)
-                url = str(getattr(source, "url", "")) if source else ""
-                if url.startswith("file://"):
-                    local_path = url.removeprefix("file://")
-                    display_name = _sanitize_display_filename(
-                        getattr(block, "name", None),
-                        local_path,
-                    )
-                    downloaded_files.append((i, local_path, display_name))
-                # Remote URL or no URL on a Pydantic block: skip silently.
-                # Adding remote-download for Pydantic DataBlock is a
-                # separate feature (would need to also convert the dict
-                # result back into a DataBlock to preserve the array
-                # type homogeneity that 2.0 expects).
+                resolved = _resolve_data_block_path(block)
+                if resolved is not None:
+                    downloaded_files.append((i, *resolved))
                 continue
 
-            # === 1.x legacy dict path ===
             block_dict = _coerce_block_to_dict(block)
             if block_dict is None:
                 continue
@@ -496,29 +530,14 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
                 block_dict,
             )
             if local_path:
-                display_name = _sanitize_display_filename(
-                    block_dict.get("name"),
-                    local_path,
+                downloaded_files.append(
+                    (i, *_resolve_legacy_block_path(block_dict, local_path)),
                 )
-                downloaded_files.append((i, local_path, display_name))
 
         if downloaded_files:
             lang = load_config().agents.language
             for i, local_path, display_name in reversed(downloaded_files):
-                if lang == "zh":
-                    if display_name and Path(local_path).name != display_name:
-                        text = (
-                            "用户上传文件“" f"{display_name}”，已经下载到 " f"{local_path}"
-                        )
-                    else:
-                        text = f"用户上传文件，已经下载到 {local_path}"
-                elif display_name and Path(local_path).name != display_name:
-                    text = (
-                        f'User uploaded a file "{display_name}", '
-                        f"downloaded to {local_path}"
-                    )
-                else:
-                    text = f"User uploaded a file, downloaded to {local_path}"
+                text = _build_upload_hint(local_path, display_name, lang)
                 message.content.insert(
                     i + 1,
                     TextBlock(type="text", text=text),
