@@ -46,6 +46,7 @@ import {
   patchContextMaxInputLength,
   wrapChatResponseUsageStream,
 } from "./turnUsage";
+import { wrapReplayFastForward } from "./replayFastForward";
 import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
@@ -3085,6 +3086,12 @@ export default function ChatPage() {
             return null;
           }
 
+          // Replay boundary marker from the reconnect stream — internal
+          // signal only, never rendered.
+          if (payload.type === "replay_end") {
+            return null;
+          }
+
           if (payload.type === "rate_limited") {
             const alts =
               (payload.alternatives as typeof rateLimitAlternatives) || [];
@@ -3135,7 +3142,12 @@ export default function ChatPage() {
             signal: data.signal,
           });
 
-          return wrapChatResponseUsageStream(response, chatRef);
+          // Fast-forward the replayed section: render the already
+          // generated part instantly instead of re-animating it.
+          return wrapChatResponseUsageStream(
+            wrapReplayFastForward(response),
+            chatRef,
+          );
         },
       },
       customToolRenderConfig: withGenericFallback(mergedToolRenderers),

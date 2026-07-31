@@ -22,6 +22,7 @@ import {
   type ExtendedSession,
 } from "../stores/sessionListStore";
 import { type DateGroup, groupSessions } from "../utils/sessionGrouping";
+import { useCollapsedSessionGroups } from "../hooks/useCollapsedSessionGroups";
 import SessionItem from "../components/SessionItem";
 import styles from "./sidebarSessionList.module.less";
 
@@ -147,10 +148,9 @@ export default function SidebarSessionList({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
-  /** Collapsed date groups — default: "month" and "older" are collapsed */
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<DateGroup>>(
-    () => new Set<DateGroup>(["month", "older"]),
-  );
+  /** Collapsed date groups — persisted so remounts keep the user's state */
+  const { collapsedGroups, toggleGroup, expandGroupForSession } =
+    useCollapsedSessionGroups();
 
   const storeSessionsRaw = useSessionListStore((s) => s.sessions);
   const storeSessions = storeSessionsRaw as ExtendedChatSession[];
@@ -219,14 +219,15 @@ export default function SidebarSessionList({
     [sortedSessions, searchQuery, t],
   );
 
-  const toggleGroup = useCallback((key: DateGroup) => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  // Keep the active conversation reachable: expand the (possibly
+  // collapsed) date group that contains it whenever it changes.
+  useEffect(() => {
+    if (!currentSessionId) return;
+    const active = sortedSessions.find(
+      (s) => s.id === currentSessionId || s.realId === currentSessionId,
+    );
+    if (active) expandGroupForSession(active);
+  }, [currentSessionId, sortedSessions, expandGroupForSession]);
 
   /** Flatten groups into a single array of rows for virtual list */
   const flatRows = useMemo<FlatRow[]>(() => {

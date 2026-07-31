@@ -876,13 +876,33 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     generating: boolean,
     backendSessionId: string,
   ): void {
-    if (!generating) {
-      clearPendingUserMessage(backendSessionId);
+    const cached = loadPendingUserMessage(backendSessionId);
+    if (!cached || !cached.text) {
+      if (!generating) clearPendingUserMessage(backendSessionId);
       return;
     }
 
-    const cached = loadPendingUserMessage(backendSessionId);
-    if (!cached || !cached.text) return;
+    // When the chat is idle, clear the cache only after the fetched
+    // history actually contains the pending text. Clearing
+    // unconditionally lost the last message in two windows: POST sent
+    // but the run not registered yet (status still "idle"), and
+    // generation completed but the memory flush not finished.
+    if (!generating) {
+      let lastUserText = "";
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role !== ROLE_USER) continue;
+        lastUserText = extractTextFromContent(
+          messages[i]?.cards?.[0]?.data?.input?.[0]?.content,
+        );
+        break;
+      }
+      if (lastUserText && lastUserText.includes(cached.text)) {
+        clearPendingUserMessage(backendSessionId);
+        return;
+      }
+      // History is missing the turn — fall through and patch it in,
+      // keeping the cache until a later fetch confirms persistence.
+    }
 
     // Use the full content array (with images/files) when available;
     // fall back to text-only for legacy entries.

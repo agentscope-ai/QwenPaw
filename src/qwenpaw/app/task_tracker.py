@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 _SENTINEL = None
 
+# Emitted to reconnect subscribers right after the buffered events, so
+# the client can render the replayed part instantly (no token-by-token
+# re-animation) and switch to live streaming afterwards.
+REPLAY_END_SSE = f"data: {json.dumps({'type': 'replay_end'})}\n\n"
+
 
 @dataclass
 class _RunState:
@@ -139,8 +144,9 @@ class TaskTracker:
     async def attach(self, run_key: str) -> asyncio.Queue | None:
         """Attach to an existing run.
 
-        Returns a new queue pre-filled with the event buffer, or ``None``
-        if no run is active for *run_key*.
+        Returns a new queue pre-filled with the event buffer plus a
+        ``replay_end`` marker, or ``None`` if no run is active for
+        *run_key*.
         """
         async with self._lock:
             state = self._runs.get(run_key)
@@ -149,6 +155,7 @@ class TaskTracker:
             q: asyncio.Queue = asyncio.Queue()
             for sse in state.buffer:
                 q.put_nowait(sse)
+            q.put_nowait(REPLAY_END_SSE)
             state.queues.append(q)
             return q
 

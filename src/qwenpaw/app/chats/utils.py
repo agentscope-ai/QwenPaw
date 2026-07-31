@@ -30,6 +30,7 @@ from ...config import load_config
 from ...constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SCROLL_MEMORY_MESSAGE_TAG,
+    SYNTHETIC_USER_MESSAGE_TAGS,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,35 @@ def _is_scroll_memory_placeholder(msg: Msg) -> bool:
     return (
         text.lstrip().startswith("<system-info>")
         and "[context compressed]" in text
+    )
+
+
+# Visual compression collapses history/context ranges into user-role
+# messages with these names. They are model-only reconstructions.
+_VISUAL_PLACEHOLDER_NAMES = frozenset(
+    {"visual_context", "visual_history"},
+)
+
+
+def _is_synthetic_user_message(msg: Msg) -> bool:
+    """Return whether *msg* is a runtime-injected user-role message.
+
+    Loop gates, stop handlers, and rubric evaluation append tagged
+    ``role="user"`` stubs to keep a turn going; visual compression
+    collapses history into ``visual_history`` / ``visual_context``
+    user messages. None of them is user transcript — rendering them as
+    user cards made the original instruction appear rewritten after a
+    session switch.
+    """
+    if msg.role != "user":
+        return False
+    if msg.name in _VISUAL_PLACEHOLDER_NAMES:
+        return True
+    metadata = getattr(msg, "metadata", None)
+    return (
+        isinstance(metadata, dict)
+        and metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+        in SYNTHETIC_USER_MESSAGE_TAGS
     )
 
 
@@ -492,6 +522,8 @@ def agentscope_msg_to_message(
 
     for msg in msgs:
         if _is_scroll_memory_placeholder(msg):
+            continue
+        if _is_synthetic_user_message(msg):
             continue
         role = msg.role or "assistant"
 

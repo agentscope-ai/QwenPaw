@@ -159,6 +159,37 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     return native_payload
 
 
+def _is_reconnect_request(request_data: Union[AgentRequest, dict]) -> bool:
+    """Return whether the chat request asks to attach to a running stream.
+
+    ``AgentRequest`` uses ``extra="allow"`` and has no required fields,
+    so FastAPI parses ``{"reconnect": true, ...}`` bodies into an
+    ``AgentRequest`` instance — a dict-only check silently classified
+    every reconnect as a fresh send and restarted a run with an empty
+    input. Check both shapes.
+    """
+    if isinstance(request_data, dict):
+        return request_data.get("reconnect") is True
+    return getattr(request_data, "reconnect", None) is True
+
+
+def _empty_sse_response() -> StreamingResponse:
+    """An SSE response that terminates immediately."""
+
+    async def _empty() -> AsyncGenerator[str, None]:
+        return
+        yield  # pragma: no cover — makes this an async generator
+
+    return StreamingResponse(
+        _empty(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 def _tail_text_file(
     path: Path,
     *,
@@ -239,14 +270,16 @@ async def post_console_chat(
             ),
         )
 
-    is_reconnect = False
-    if isinstance(request_data, dict):
-        is_reconnect = request_data.get("reconnect") is True
+    is_reconnect = _is_reconnect_request(request_data)
 
     if is_reconnect:
         queue = await tracker.attach(chat.id)
         if queue is None:
-            return
+            # The run finished (or never existed): reply with an
+            # immediately-terminated SSE stream so the client's reader
+            # completes normally and falls back to the persisted
+            # history. Returning a JSON null here left the chat blank.
+            return _empty_sse_response()
     else:
         queue, _ = await tracker.attach_or_start(
             chat.id,

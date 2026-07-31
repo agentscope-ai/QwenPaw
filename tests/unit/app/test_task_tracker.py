@@ -378,3 +378,50 @@ async def test_concurrent_attach_or_start_only_one_producer():
             item = await asyncio.wait_for(q.get(), timeout=1)
             if item is None:
                 break
+
+
+# ---------------------------------------------------------------------------
+# attach(): replay-end marker for reconnect fast-forward
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_attach_appends_replay_end_marker_after_buffer():
+    """Reconnect subscribers get the buffered events, then a
+    ``replay_end`` marker, then live events. The marker lets the client
+    render the replayed part instantly instead of re-animating it."""
+    tracker = TaskTracker()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_stream(_payload):
+        yield "data: first\n\n"
+        started.set()
+        await release.wait()
+        yield "data: second\n\n"
+
+    queue_a, _ = await tracker.attach_or_start(
+        "run-replay",
+        payload=None,
+        stream_fn=slow_stream,
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    queue_b = await tracker.attach("run-replay")
+    assert queue_b is not None
+
+    first = await asyncio.wait_for(queue_b.get(), timeout=1)
+    marker = await asyncio.wait_for(queue_b.get(), timeout=1)
+    assert first == "data: first\n\n"
+    assert marker.startswith("data: ")
+    assert json.loads(marker[len("data: ") :].strip()) == {
+        "type": "replay_end",
+    }
+
+    release.set()
+    rest_b = await _drain(queue_b, 2)
+    assert rest_b == ["data: second\n\n", None]
+    # The original (non-reconnect) subscriber never sees the marker.
+    rest_a = await _drain(queue_a, 3)
+    assert rest_a == ["data: first\n\n", "data: second\n\n", None]
