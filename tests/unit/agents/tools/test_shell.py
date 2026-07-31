@@ -1778,6 +1778,10 @@ class TestBundledPythonEnv:
             captured_env.update(kw.get("env", {}))
             return mock_proc
 
+        async def fake_windows_host(cmd, cwd, timeout, env, shell_executable):
+            captured_env.update(env)
+            return (0, "ok", "")
+
         with (
             patch(
                 "qwenpaw.agents.tools.shell"
@@ -1787,6 +1791,10 @@ class TestBundledPythonEnv:
             patch(
                 "qwenpaw.agents.tools.shell.asyncio.wait_for",
                 side_effect=fake_wait_for,
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell._execute_windows_host",
+                side_effect=fake_windows_host,
             ),
         ):
             from qwenpaw.agents.tools.shell import (
@@ -1840,6 +1848,10 @@ class TestBundledPythonEnv:
             captured_env.update(kw.get("env", {}))
             return mock_proc
 
+        async def fake_windows_host(cmd, cwd, timeout, env, shell_executable):
+            captured_env.update(env)
+            return (0, "ok", "")
+
         with (
             patch(
                 "qwenpaw.agents.tools.shell"
@@ -1849,6 +1861,10 @@ class TestBundledPythonEnv:
             patch(
                 "qwenpaw.agents.tools.shell.asyncio.wait_for",
                 side_effect=fake_wait_for,
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell._execute_windows_host",
+                side_effect=fake_windows_host,
             ),
         ):
             from qwenpaw.agents.tools.shell import (

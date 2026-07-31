@@ -136,7 +136,6 @@ class TestXiaoYiChannelInit:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 class TestXiaoYiChannelFactoryMethods:
     """
     P0: Factory method tests - from_env and from_config.
@@ -234,7 +233,6 @@ class TestXiaoYiChannelFactoryMethods:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 class TestXiaoYiChannelValidation:
     """
     P0: Configuration validation tests.
