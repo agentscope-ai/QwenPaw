@@ -1,12 +1,12 @@
 # Computer Use
 
-Computer Use is an optional tool plugin that lets a QwenPaw Agent operate
+Computer Use is an optional tool plugin that lets a NousAIPaw Agent operate
 **approved desktop applications** on your computer. It can launch apps, inspect
 windows, click controls, enter text, scroll, and drag to complete routine
 desktop tasks.
 
 > **Beta feature:** Computer Use currently supports Windows and macOS, and is
-> available only in the QwenPaw Desktop app. Install the plugin before use, and
+> available only in the NousAIPaw Desktop app. Install the plugin before use, and
 > use it only when you can supervise the operation and are comfortable granting
 > the target application access.
 
@@ -16,7 +16,7 @@ desktop tasks.
 
 ### Supported platforms
 
-Computer Use relies on native capabilities supplied by QwenPaw Desktop.
+Computer Use relies on native capabilities supplied by NousAIPaw Desktop.
 
 | Platform | Requirement                                                    |
 | -------- | -------------------------------------------------------------- |
@@ -24,7 +24,7 @@ Computer Use relies on native capabilities supplied by QwenPaw Desktop.
 | macOS    | macOS 14 (Sonoma) or later; Apple Silicon Macs are recommended |
 
 Linux, the browser-based Console, Docker, and command-line-only environments
-do not support Computer Use. The current plugin release targets QwenPaw 2.1.x;
+do not support Computer Use. The current plugin release targets NousAIPaw 2.1.x;
 always follow the compatibility notice shown in Plugin Manager when installing.
 
 ### Install the Computer Use plugin
@@ -32,31 +32,31 @@ always follow the compatibility notice shown in Plugin Manager when installing.
 Computer Use is not enabled as a default built-in tool. Install its plugin
 first:
 
-1. Start QwenPaw Desktop and open **Settings → Plugin Manager**.
+1. Start NousAIPaw Desktop and open **Settings → Plugin Manager**.
 2. Search for **Computer Use** under **Official Plugins** or **Plugin Market**,
    then select **Install**.
 3. If you received a trusted plugin ZIP file or install URL from another
    source, select **Install Plugin** in the upper-right corner, then upload the
    ZIP file or enter the plugin URL.
 4. In **Installed Plugins**, make sure **Computer Use** is shown as **Running**.
-   Restart QwenPaw Desktop if the plugin has not loaded.
+   Restart NousAIPaw Desktop if the plugin has not loaded.
 
 > Install plugins only from Official Plugins, Plugin Market, or another source
 > you trust. Do not grant desktop-automation permissions to an unknown ZIP
 > file.
 
-### Use QwenPaw Desktop
+### Use NousAIPaw Desktop
 
 Computer Use needs the native capabilities in
-[QwenPaw Desktop](./desktop). Install and start the desktop app before
+[NousAIPaw Desktop](./desktop). Install and start the desktop app before
 installing the plugin.
 
 ### macOS: grant the required permissions
 
 On first use, macOS may request these permissions:
 
-- **Accessibility**, so QwenPaw can operate controls in approved apps;
-- **Screen Recording**, so QwenPaw can read the target window.
+- **Accessibility**, so NousAIPaw can operate controls in approved apps;
+- **Screen Recording**, so NousAIPaw can read the target window.
 
 Allow the requests when macOS prompts you. If a prompt does not appear, or the
 feature still cannot work after approval, open **System Settings → Privacy &
@@ -74,14 +74,14 @@ Computer Use has a global switch and an Agent-level switch. Both must be on
 before an Agent can use the feature; operating an application still requires
 separate approval for that application.
 
-| Switch                 | Location                               | Scope                                                     |
-| ---------------------- | -------------------------------------- | --------------------------------------------------------- |
-| **Global switch**      | **Computer Use → Enable Computer Use** | Every Agent and chat in this QwenPaw Desktop installation |
-| **Agent-level switch** | **Agent → Tools → Computer Use**       | The currently selected Agent                              |
+| Switch                 | Location                               | Scope                                                       |
+| ---------------------- | -------------------------------------- | ----------------------------------------------------------- |
+| **Global switch**      | **Computer Use → Enable Computer Use** | Every Agent and chat in this NousAIPaw Desktop installation |
+| **Agent-level switch** | **Agent → Tools → Computer Use**       | The currently selected Agent                                |
 
 ### Global switch
 
-Open **Computer Use** from the left sidebar in QwenPaw Desktop. Make sure the
+Open **Computer Use** from the left sidebar in NousAIPaw Desktop. Make sure the
 runtime says it is ready, then check that **Enable Computer Use** is on. It is
 on by default after installation until a choice has been saved, and your choice
 persists after restarting the desktop app.
@@ -171,7 +171,7 @@ revoked application asks for your approval again.
 
 Computer Use binds input to the target window it just observed and refuses new
 desktop input when the desktop is locked or it detects that you have recently
-used the mouse or keyboard. The native runtime also rejects QwenPaw's own
+used the mouse or keyboard. The native runtime also rejects NousAIPaw's own
 windows and some credential windows that the operating system can identify.
 
 These protections cannot identify every sensitive interface. System-permission
@@ -190,7 +190,7 @@ to avoid authorizing an unknown program with a similar name.
 
 ### The runtime is unavailable
 
-Make sure you are using QwenPaw Desktop rather than the browser Console or a
+Make sure you are using NousAIPaw Desktop rather than the browser Console or a
 command-line-only installation. If the runtime remains unavailable after
 restarting the desktop app, update to a version that includes Computer Use and
 include the desktop-app logs when reporting the problem.
