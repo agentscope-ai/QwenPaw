@@ -9,7 +9,7 @@
 
 ReMe 的核心目标，是基于 _Memory as File, File as Memory_ 原则长出一个**自进化的个人知识库**。每个工作记忆或长期记忆节点都是一份普通 Markdown 文件——可读、可编辑、可追溯、可迁移、由你与 agent 协作维护——同时又可被索引和链接；原始来源与派生系统状态则使用适合各自职责的格式。workspace 把记忆组织为四层：
 
-| 分层     | QwenPaw 目录                | 职责                                                |
+| 分层     | NousAIPaw 目录              | 职责                                                |
 | -------- | --------------------------- | --------------------------------------------------- |
 | 原始输入 | `mem_session/`、`resource/` | 作为证据保留的原始对话与外部资料                    |
 | 工作记忆 | `memory/`                   | daily note：事实、决策、资源解读                    |
@@ -303,19 +303,19 @@ score、vector、keyword 字段，不要总结或改写。
 
 记忆配置位于 `agent.json` 的 `running.reme_light_memory_config` 中：
 
-| 配置项                   | 说明                                                                                | 默认值           |
-| ------------------------ | ----------------------------------------------------------------------------------- | ---------------- |
-| `metadata_dir`           | ReMe 持久状态目录，用于保存索引、catalog、graph 和缓存                              | `"mem_metadata"` |
-| `session_dir`            | 来源对话保存目录                                                                    | `"mem_session"`  |
-| `mem_session_dir`        | ReMe 内部 memory-agent 会话目录                                                     | `"mem_agent"`    |
-| `resource_dir`           | `auto_resource` 监听的资源目录                                                      | `"resource"`     |
-| `daily_dir`              | 每日记忆目录                                                                        | `"memory"`       |
-| `digest_dir`             | dream/digest 记忆目录                                                               | `"digest"`       |
-| `summarize_when_compact` | 是否在上下文压缩前将待保存回合提交给 Auto-Memory                                    | `true`           |
-| `inbox_push_enabled`     | 是否将 `auto_memory`、`auto_dream`、`auto_resource` 的 job 结果推送到 QwenPaw inbox | `true`           |
-| `auto_memory_interval`   | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆            | `5`              |
-| `dream_cron_enabled`     | 是否启用按 Cron 定时执行的 Auto-Dream 任务                                          | `true`           |
-| `dream_cron`             | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动    | `"0 23 * * *"`   |
+| 配置项                   | 说明                                                                                  | 默认值           |
+| ------------------------ | ------------------------------------------------------------------------------------- | ---------------- |
+| `metadata_dir`           | ReMe 持久状态目录，用于保存索引、catalog、graph 和缓存                                | `"mem_metadata"` |
+| `session_dir`            | 来源对话保存目录                                                                      | `"mem_session"`  |
+| `mem_session_dir`        | ReMe 内部 memory-agent 会话目录                                                       | `"mem_agent"`    |
+| `resource_dir`           | `auto_resource` 监听的资源目录                                                        | `"resource"`     |
+| `daily_dir`              | 每日记忆目录                                                                          | `"memory"`       |
+| `digest_dir`             | dream/digest 记忆目录                                                                 | `"digest"`       |
+| `summarize_when_compact` | 是否在上下文压缩前将待保存回合提交给 Auto-Memory                                      | `true`           |
+| `inbox_push_enabled`     | 是否将 `auto_memory`、`auto_dream`、`auto_resource` 的 job 结果推送到 NousAIPaw inbox | `true`           |
+| `auto_memory_interval`   | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆              | `5`              |
+| `dream_cron_enabled`     | 是否启用按 Cron 定时执行的 Auto-Dream 任务                                            | `true`           |
+| `dream_cron`             | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动      | `"0 23 * * *"`   |
 
 ### 重建记忆搜索索引
 

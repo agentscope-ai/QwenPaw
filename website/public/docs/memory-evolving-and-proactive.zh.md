@@ -31,7 +31,7 @@ workspace 把记忆从"原始证据"到"可复用知识"组织为四层：
 系统状态   → mem_metadata/               索引、wikilink 图、catalog（不手工编辑）
 ```
 
-QwenPaw 的目录名与 ReMe 上游默认值不同，但每层的职责一致：`mem_session/` 对应 ReMe `session/`，`memory/` 对应 `daily/`，`mem_metadata/` 对应 `metadata/`；`resource/` 和 `digest/` 保持同名。
+NousAIPaw 的目录名与 ReMe 上游默认值不同，但每层的职责一致：`mem_session/` 对应 ReMe `session/`，`memory/` 对应 `daily/`，`mem_metadata/` 对应 `metadata/`；`resource/` 和 `digest/` 保持同名。
 
 ### 知识库如何进化
 
@@ -40,7 +40,7 @@ QwenPaw 的目录名与 ReMe 上游默认值不同，但每层的职责一致：
 1. **Capture（捕获）** — Auto Memory 把对话蒸馏成 daily note，Auto Resource 把 `resource/` 下的文件转成 daily note，同时保留原始对话作为证据。
 2. **Index（索引）** — 后台 job 通过 BM25 关键词索引、可选向量、以及 wikilink 图，让 `memory/` 和 `digest/` 始终可检索。
 3. **Consolidate（整合）** — Auto Dream 读取近期 daily note，整合进长期 `digest/` 节点。这一步才是记忆真正**进化**的地方：它不是复制文本，而是把每个抽取出的 unit 合并进已有节点或创建新节点，并织入来源与关系 wikilink。
-4. **Recall（召回）** — `memory_search` 召回最相关的片段并沿 wikilink 图展开；interest topics 和 QwenPaw 的 `/proactive` 主动浮现值得关注的内容。
+4. **Recall（召回）** — `memory_search` 召回最相关的片段并沿 wikilink 图展开；interest topics 和 NousAIPaw 的 `/proactive` 主动浮现值得关注的内容。
 
 digest 层刻意**不是只追加**的。当新素材与已有节点重复、细化或冲突时，Auto Dream 会对其 corroborate、refine 或 correct（见下文整合动作）。再配合让节点保持连通、可追溯的 wikilink 图，知识库会随时间变得更密、更准，而不只是变得更大。
 

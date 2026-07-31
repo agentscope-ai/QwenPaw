@@ -31,7 +31,7 @@ long-term memory → digest/                     reusable knowledge: personal / 
 system state     → mem_metadata/               indexes, wikilink graph, catalogs (not hand-edited)
 ```
 
-QwenPaw's directory names differ from ReMe's upstream defaults, but the layer roles are identical: `mem_session/` ↔ ReMe `session/`, `memory/` ↔ `daily/`, `mem_metadata/` ↔ `metadata/`. `resource/` and `digest/` keep the same names.
+NousAIPaw's directory names differ from ReMe's upstream defaults, but the layer roles are identical: `mem_session/` ↔ ReMe `session/`, `memory/` ↔ `daily/`, `mem_metadata/` ↔ `metadata/`. `resource/` and `digest/` keep the same names.
 
 ### How the Knowledge Base Evolves
 
@@ -40,7 +40,7 @@ The base grows through a continuous **capture → index → consolidate → reca
 1. **Capture** — Auto Memory distills conversations into daily notes; Auto Resource turns files under `resource/` into daily notes. The raw conversation is retained as evidence.
 2. **Index** — A background job keeps `memory/` and `digest/` searchable through a BM25 keyword index, optional embeddings, and a wikilink graph.
 3. **Consolidate** — Auto Dream reads recent daily notes and integrates them into long-term `digest/` nodes. This is where memory actually _evolves_: instead of copying text, each extracted unit is merged into an existing node or creates a new one, and source and relationship wikilinks are woven in.
-4. **Recall** — `memory_search` retrieves the most relevant fragments and expands along the wikilink graph; interest topics and QwenPaw's `/proactive` surface what is worth attention.
+4. **Recall** — `memory_search` retrieves the most relevant fragments and expands along the wikilink graph; interest topics and NousAIPaw's `/proactive` surface what is worth attention.
 
 The digest layer is deliberately **not append-only**. When new material repeats, refines, or contradicts an existing node, Auto Dream corroborates, refines, or corrects it (see the integration actions below). Combined with the wikilink graph that keeps nodes connected and traceable, the knowledge base becomes denser and more accurate over time rather than merely larger.
 

@@ -8,7 +8,7 @@ watch resource files, and search the memory vault.
 
 ReMe's core goal is to grow a **self-evolving personal knowledge base** on the principle of _Memory as File, File as Memory_. Every working or long-term memory node is a plain Markdown file — readable, editable, traceable, portable, and maintained collaboratively by you and the agent — and at the same time indexable and linkable. Raw sources and derived system state use formats suited to their roles. The workspace organizes memory into four layers:
 
-| Layer            | QwenPaw directory           | Role                                                          |
+| Layer            | NousAIPaw directory         | Role                                                          |
 | ---------------- | --------------------------- | ------------------------------------------------------------- |
 | Raw input        | `mem_session/`, `resource/` | Original conversations and external material kept as evidence |
 | Working memory   | `memory/`                   | Daily notes: facts, decisions, and resource readings          |
@@ -365,7 +365,7 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 | `daily_dir`              | Directory for daily memory notes                                                                                                | `"memory"`       |
 | `digest_dir`             | Directory for dream/digest memory                                                                                               | `"digest"`       |
 | `summarize_when_compact` | Whether pending turns are flushed to Auto-Memory before context compression                                                     | `true`           |
-| `inbox_push_enabled`     | Whether `auto_memory`, `auto_dream`, and `auto_resource` job results are pushed to the QwenPaw inbox                            | `true`           |
+| `inbox_push_enabled`     | Whether `auto_memory`, `auto_dream`, and `auto_resource` job results are pushed to the NousAIPaw inbox                          | `true`           |
 | `auto_memory_interval`   | Auto-Memory every N user turns. `None` or `<= 0` disables periodic Auto-Memory                                                  | `5`              |
 | `dream_cron_enabled`     | Whether the scheduled Auto-Dream job is enabled                                                                                 | `true`           |
 | `dream_cron`             | Valid 5-field cron expression for Auto-Dream (required when enabled); scheduled runs start after a random delay of 0–60 seconds | `"0 23 * * *"`   |
