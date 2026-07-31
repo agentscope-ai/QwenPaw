@@ -431,6 +431,20 @@
     "id": "ID",
     "description": "Deskripsi",
     "workspace": "Path Workspace",
+    "agentType": "Tipe Agen",
+    "agentTypeRequired": "Pilih tipe agen",
+    "agentTypePlaceholder": "Pilih tipe agen",
+    "agentTypeReadonlyHelp": "Tipe agen ditetapkan saat pembuatan dan tidak dapat diubah.",
+    "types": {
+      "default": {
+        "name": "Default",
+        "description": "Agen asisten pribadi tujuan umum."
+      },
+      "business_analysis": {
+        "name": "Analisis Bisnis",
+        "description": "Menganalisis dokumen bisnis tidak terstruktur dan menyimpan wawasan ke basis pengetahuan."
+      }
+    },
     "backend": {
       "column": "Backend",
       "eyebrow": "Arsitektur agen",

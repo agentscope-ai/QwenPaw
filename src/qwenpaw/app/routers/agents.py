@@ -32,6 +32,12 @@ from ...config.config import (
 from ...config.utils import load_config, save_config
 from ...agents.utils import copy_workspace_md_files, normalize_agent_language
 from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
+from ...agents.agent_types import (
+    DEFAULT_AGENT_TYPE,
+    AgentTypeDefinition,
+    is_valid_agent_type,
+    list_agent_types,
+)
 from ...harnesses.registry import ProviderCatalogItem, get_provider
 from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
@@ -53,6 +59,7 @@ class AgentSummary(BaseModel):
     pinned: bool
     startup_status: AgentStartupStatus
     backend: str = "qwenpaw"
+    agent_type: str = DEFAULT_AGENT_TYPE
     backend_capabilities: dict[str, Any] = Field(default_factory=dict)
     backend_model: str | None = None
     backend_reasoning_effort: str | None = None
@@ -94,6 +101,12 @@ class MemoryGraphSnapshot(BaseModel):
     edges: list[MemoryGraphEdge]
 
 
+class AgentTypeListResponse(BaseModel):
+    """Response for listing selectable agent types."""
+
+    types: list[AgentTypeDefinition]
+
+
 class ReorderAgentsRequest(BaseModel):
     """Request model for persisting agent order."""
 
@@ -124,6 +137,7 @@ class CreateAgentRequest(BaseModel):
     active_model: ModelSlotConfig | None = None
     backend: str = "qwenpaw"
     backend_settings: dict[str, Any] = Field(default_factory=dict)
+    agent_type: str = DEFAULT_AGENT_TYPE
 
     @field_validator("id", mode="before")
     @classmethod
@@ -145,6 +159,18 @@ class CreateAgentRequest(BaseModel):
         if isinstance(value, str):
             stripped = value.strip()
             return stripped if stripped else None
+        return value
+
+    @field_validator("agent_type")
+    @classmethod
+    def validate_agent_type(cls, value: str) -> str:
+        """Ensure agent_type is a registered type."""
+        if not is_valid_agent_type(value):
+            supported = ", ".join(t.id for t in list_agent_types())
+            raise ValueError(
+                f"Unsupported agent_type {value!r}. "
+                f"Supported types: {supported}",
+            )
         return value
 
 
@@ -328,6 +354,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     pinned=pinned,
                     startup_status=startup_status,
                     backend=agent_config.backend,
+                    agent_type=agent_config.agent_type,
                     backend_capabilities=backend_capabilities,
                     backend_model=agent_config.backend_settings.get("model"),
                     backend_reasoning_effort=(
@@ -352,6 +379,17 @@ async def list_agents(request: Request = None) -> AgentListResponse:
             )
 
     return AgentListResponse(agents=agents)
+
+
+@router.get(
+    "/types",
+    response_model=AgentTypeListResponse,
+    summary="List agent types",
+    description="Get selectable agent types for agent creation",
+)
+async def list_agent_type_options() -> AgentTypeListResponse:
+    """List registered agent types available when creating an agent."""
+    return AgentTypeListResponse(types=list_agent_types())
 
 
 @router.put(
@@ -574,6 +612,7 @@ async def create_agent(
         workspace_dir=str(workspace_dir),
         backend=request.backend,
         backend_settings=request.backend_settings,
+        agent_type=request.agent_type,
         language=language,
         channels=ChannelConfig(),
         mcp=MCPConfig(),
@@ -777,6 +816,8 @@ async def update_agent(
     existing_config = load_agent_config(agentId)
 
     update_data = agent_config.model_dump(exclude_unset=True)
+    # Agent type is fixed at creation time.
+    update_data.pop("agent_type", None)
     for key, value in update_data.items():
         if key != "id":
             setattr(existing_config, key, value)

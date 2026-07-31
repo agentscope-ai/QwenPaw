@@ -12,17 +12,20 @@ import {
 } from "antd";
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import type { AgentSummary } from "@/api/types/agents";
+import type { AgentSummary, AgentTypeDefinition } from "@/api/types/agents";
 import type { ProviderInfo } from "@/api/types/provider";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import type { PoolSkillSpec } from "@/api/types/skill";
 import { skillApi } from "@/api/modules/skill";
 import { providerApi } from "@/api/modules/provider";
+import { agentsApi } from "@/api/modules/agents";
 import { providerIcon } from "../../Models/components/providerIcon";
 import styles from "../index.module.less";
 import { AgentBackendFields } from "./AgentBackendFields";
 
 const { Text } = Typography;
+
+const DEFAULT_AGENT_TYPE = "default";
 
 interface EligibleProvider {
   id: string;
@@ -57,10 +60,14 @@ export function AgentModal({
   const [loadingSkills, setLoadingSkills] = useState(false);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [loadingProviders, setLoadingProviders] = useState(false);
+  const [agentTypes, setAgentTypes] = useState<AgentTypeDefinition[]>([]);
+  const [loadingAgentTypes, setLoadingAgentTypes] = useState(false);
 
   const selectedProviderId = Form.useWatch("active_model_provider", form);
   const selectedModelId = Form.useWatch("active_model_model", form);
   const selectedBackend = Form.useWatch("backend", form) ?? "qwenpaw";
+  const selectedAgentType =
+    Form.useWatch("agent_type", form) ?? DEFAULT_AGENT_TYPE;
 
   const eligibleProviders: EligibleProvider[] = useMemo(() => {
     return providers
@@ -85,6 +92,26 @@ export function AgentModal({
     const provider = eligibleProviders.find((p) => p.id === selectedProviderId);
     return provider?.models ?? [];
   }, [selectedProviderId, eligibleProviders]);
+
+  const selectedTypeMeta = useMemo(
+    () => agentTypes.find((item) => item.id === selectedAgentType),
+    [agentTypes, selectedAgentType],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+
+    setLoadingAgentTypes(true);
+    agentsApi
+      .listAgentTypes()
+      .then((data) => {
+        if (Array.isArray(data?.types)) {
+          setAgentTypes(data.types);
+        }
+      })
+      .catch((err) => console.error("Failed to load agent types:", err))
+      .finally(() => setLoadingAgentTypes(false));
+  }, [open]);
 
   useEffect(() => {
     if (!open || selectedBackend !== "qwenpaw") return;
@@ -173,6 +200,18 @@ export function AgentModal({
     onSelectedSkillsChange(editingAgent ? [...installedSkills] : []);
   };
 
+  const typeLabel = (typeDef: AgentTypeDefinition) =>
+    t(`agent.types.${typeDef.id}.name`, {
+      defaultValue: typeDef.name,
+    });
+
+  const typeDescription = (typeDef: AgentTypeDefinition | undefined) => {
+    if (!typeDef) return undefined;
+    return t(`agent.types.${typeDef.id}.description`, {
+      defaultValue: typeDef.description || "",
+    });
+  };
+
   return (
     <Modal
       title={
@@ -196,6 +235,28 @@ export function AgentModal({
         </Form.Item>
         <Form.Item name="active_model_model" hidden>
           <Input />
+        </Form.Item>
+
+        <Form.Item
+          name="agent_type"
+          label={t("agent.agentType")}
+          rules={[{ required: true, message: t("agent.agentTypeRequired") }]}
+          help={
+            editingAgent
+              ? t("agent.agentTypeReadonlyHelp")
+              : typeDescription(selectedTypeMeta)
+          }
+          initialValue={DEFAULT_AGENT_TYPE}
+        >
+          <Select
+            loading={loadingAgentTypes}
+            disabled={!!editingAgent}
+            options={agentTypes.map((typeDef) => ({
+              value: typeDef.id,
+              label: typeLabel(typeDef),
+            }))}
+            placeholder={t("agent.agentTypePlaceholder")}
+          />
         </Form.Item>
 
         <AgentBackendFields form={form} open={open} />

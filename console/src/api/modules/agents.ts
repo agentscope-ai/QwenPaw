@@ -2,6 +2,7 @@ import { request } from "../request";
 import type {
   AgentListResponse,
   AgentProfileConfig,
+  AgentTypeListResponse,
   CreateAgentRequest,
   CopyAgentRequest,
   AgentProfileRef,
@@ -13,6 +14,9 @@ import type {
 export const agentsApi = {
   // List all agents
   listAgents: () => request<AgentListResponse>("/agents"),
+
+  // List selectable agent types for creation
+  listAgentTypes: () => request<AgentTypeListResponse>("/agents/types"),
 
   // Get agent details
   getAgent: (agentId: string) =>

@@ -652,6 +652,20 @@
     "id": "ID",
     "description": "Mô tả",
     "workspace": "Đường dẫn Workspace",
+    "agentType": "Loại Agent",
+    "agentTypeRequired": "Vui lòng chọn loại agent",
+    "agentTypePlaceholder": "Chọn loại agent",
+    "agentTypeReadonlyHelp": "Loại agent được đặt khi tạo và không thể thay đổi.",
+    "types": {
+      "default": {
+        "name": "Mặc định",
+        "description": "Agent trợ lý cá nhân đa năng."
+      },
+      "business_analysis": {
+        "name": "Phân tích nghiệp vụ",
+        "description": "Phân tích tài liệu nghiệp vụ phi cấu trúc và lưu insight vào kho kiến thức."
+      }
+    },
     "backend": {
       "column": "Backend",
       "eyebrow": "Kiến trúc tác nhân",

@@ -193,6 +193,20 @@
     "id": "ID",
     "description": "説明",
     "workspace": "ワークスペースパス",
+    "agentType": "エージェントタイプ",
+    "agentTypeRequired": "エージェントタイプを選択してください",
+    "agentTypePlaceholder": "エージェントタイプを選択",
+    "agentTypeReadonlyHelp": "エージェントタイプは作成時に設定され、変更できません。",
+    "types": {
+      "default": {
+        "name": "デフォルト",
+        "description": "汎用パーソナルアシスタントエージェント。"
+      },
+      "business_analysis": {
+        "name": "ビジネス分析",
+        "description": "非構造化のビジネス文書を分析し、知見をナレッジベースに整理します。"
+      }
+    },
     "backend": {
       "column": "バックエンド",
       "eyebrow": "エージェントアーキテクチャ",

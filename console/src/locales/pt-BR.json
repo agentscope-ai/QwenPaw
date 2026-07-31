@@ -520,6 +520,20 @@
     "id": "ID",
     "description": "Descricao",
     "workspace": "Caminho do Workspace",
+    "agentType": "Tipo de Agente",
+    "agentTypeRequired": "Selecione um tipo de agente",
+    "agentTypePlaceholder": "Selecione o tipo de agente",
+    "agentTypeReadonlyHelp": "O tipo de agente é definido na criação e não pode ser alterado.",
+    "types": {
+      "default": {
+        "name": "Padrão",
+        "description": "Agente assistente pessoal de uso geral."
+      },
+      "business_analysis": {
+        "name": "Análise de Negócios",
+        "description": "Analisa documentos de negócios não estruturados e consolida insights na base de conhecimento."
+      }
+    },
     "backend": {
       "column": "Backend",
       "eyebrow": "Arquitetura do agente",

@@ -182,6 +182,22 @@ export function AgentTable({
       },
     },
     {
+      title: t("agent.agentType"),
+      dataIndex: "agent_type",
+      key: "agent_type",
+      width: 160,
+      render: (agentType: AgentSummary["agent_type"]) => {
+        const typeId = agentType || "default";
+        return (
+          <Tag>
+            {t(`agent.types.${typeId}.name`, {
+              defaultValue: typeId,
+            })}
+          </Tag>
+        );
+      },
+    },
+    {
       title: t("agent.description"),
       dataIndex: "description",
       key: "description",
