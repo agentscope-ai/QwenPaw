@@ -14,6 +14,11 @@ import { useTranslation } from "react-i18next";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
+import {
+  attachClientMessageId,
+  createClientMessageId,
+  QWENPAW_CLIENT_MESSAGE_ID_KEY,
+} from "../../utils/clientMessageId";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
 import { agentApi } from "../../api/modules/agent";
@@ -296,6 +301,7 @@ async function startBackgroundQueue(
       if (rs === "paused" || rs === "error") break;
 
       const item = current[0];
+      const clientMessageId = item.clientMessageId ?? item.id;
 
       // Wait until the backend finishes the currently running task before
       // sending the next one. This preserves order task1 → task2 → task3
@@ -328,7 +334,12 @@ async function startBackgroundQueue(
           { type: "text", text: item.text },
           ...buildAttachmentContentItems(item.attachments),
         ];
-        sessionApi.setLastUserMessage(chatIdForStatus, item.text, contentItems);
+        sessionApi.setLastUserMessage(
+          chatIdForStatus,
+          item.text,
+          contentItems,
+          clientMessageId,
+        );
       }
 
       let fetchSucceeded = false;
@@ -358,6 +369,9 @@ async function startBackgroundQueue(
             input: [
               {
                 role: "user",
+                metadata: {
+                  [QWENPAW_CLIENT_MESSAGE_ID_KEY]: clientMessageId,
+                },
                 content: [
                   { type: "text", text: item.text },
                   ...buildAttachmentContentItems(item.attachments),
@@ -2417,15 +2431,24 @@ export default function ChatPage() {
       const session: SessionInfo = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
-      const rewrittenInput =
-        lastMsg?.content && Array.isArray(lastMsg.content)
+      const clientMessageId =
+        lastMsg?.role === "user" ? createClientMessageId() : undefined;
+      const rewrittenLastMsg: Record<string, unknown> | undefined = lastMsg
+        ? clientMessageId
+          ? attachClientMessageId(lastMsg, clientMessageId)
+          : lastMsg
+        : undefined;
+      const rewrittenInput: Array<Record<string, unknown>> =
+        rewrittenLastMsg?.content && Array.isArray(rewrittenLastMsg.content)
           ? [
               {
-                ...lastMsg,
-                content: lastMsg.content.map(normalizeContentUrls),
+                ...rewrittenLastMsg,
+                content: rewrittenLastMsg.content.map(normalizeContentUrls),
               },
             ]
-          : lastInput;
+          : rewrittenLastMsg
+          ? [rewrittenLastMsg]
+          : [];
 
       const identity = sessionApi.getSessionIdentity();
       let requestBody: Record<string, unknown> = {
@@ -2447,6 +2470,21 @@ export default function ChatPage() {
         });
         if (next && typeof next === "object") {
           requestBody = next;
+        }
+      }
+
+      if (clientMessageId && Array.isArray(requestBody.input)) {
+        const requestInput = [...requestBody.input] as Array<
+          Record<string, unknown>
+        >;
+        for (let i = requestInput.length - 1; i >= 0; i--) {
+          if (requestInput[i]?.role !== "user") continue;
+          requestInput[i] = attachClientMessageId(
+            requestInput[i],
+            clientMessageId,
+          );
+          requestBody.input = requestInput;
+          break;
         }
       }
 
@@ -2474,7 +2512,7 @@ export default function ChatPage() {
         String(requestBody.session_id || "");
       if (backendChatId) {
         const userText = rewrittenInput
-          .filter((m: any) => m.role === "user")
+          .filter((m) => m.role === "user")
           .map(extractUserMessageText)
           .join("\n")
           .trim();
@@ -2482,7 +2520,7 @@ export default function ChatPage() {
           // Also pass the full content array so patchLastUserMessage can
           // rebuild user card with images/files when reconnecting.
           const lastUserMsg = rewrittenInput
-            .filter((m: any) => m.role === "user")
+            .filter((m) => m.role === "user")
             .slice(-1)[0];
           const contentArr = Array.isArray(lastUserMsg?.content)
             ? (lastUserMsg.content as Array<{
@@ -2490,7 +2528,12 @@ export default function ChatPage() {
                 [key: string]: unknown;
               }>)
             : undefined;
-          sessionApi.setLastUserMessage(backendChatId, userText, contentArr);
+          sessionApi.setLastUserMessage(
+            backendChatId,
+            userText,
+            contentArr,
+            clientMessageId,
+          );
         }
       }
 

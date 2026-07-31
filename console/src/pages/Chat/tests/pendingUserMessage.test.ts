@@ -39,15 +39,56 @@ vi.mock("../../../api/modules/chat", async (importOriginal) => {
 
 // Import AFTER mocks are registered.
 import sessionApi from "../sessionApi";
+import {
+  attachClientMessageId,
+  QWENPAW_CLIENT_MESSAGE_ID_KEY,
+} from "../../../utils/clientMessageId";
 
 const STORAGE_PREFIX = "qwenpaw_pending_user_msg_";
 
-function userMsg(id: string, text: string): Message {
+interface SessionApiTestAccess {
+  sessionList: Array<Record<string, unknown>>;
+  convertedSessionCache: Map<unknown, unknown>;
+  sessionResultCache: Map<unknown, unknown>;
+  sessionRequests: Map<unknown, unknown>;
+  lastSelectedIds: Set<unknown>;
+}
+
+interface RuntimeContent {
+  type?: string;
+  text?: string;
+}
+
+interface RuntimeMessage {
+  role?: string;
+  cards?: Array<{
+    data?: {
+      input?: Array<{ content?: RuntimeContent[] }>;
+    };
+  }>;
+}
+
+interface RuntimeSession {
+  messages: RuntimeMessage[];
+}
+
+const testApi = sessionApi as unknown as SessionApiTestAccess;
+
+function userMsg(id: string, text: string, clientMessageId?: string): Message {
   return {
     id,
     role: "user",
     content: [{ type: "text", text }],
-    metadata: { timestamp: "2026-06-01 10:00:00.000" },
+    metadata: {
+      timestamp: "2026-06-01 10:00:00.000",
+      ...(clientMessageId
+        ? {
+            metadata: {
+              [QWENPAW_CLIENT_MESSAGE_ID_KEY]: clientMessageId,
+            },
+          }
+        : {}),
+    },
   } as Message;
 }
 
@@ -61,7 +102,7 @@ function assistantMsg(id: string, text: string): Message {
 }
 
 function seedSessionList(id: string): void {
-  (sessionApi as any).sessionList = [
+  testApi.sessionList = [
     { id, sessionId: id, userId: "u", channel: "c", name: "t" },
   ];
 }
@@ -73,15 +114,15 @@ async function mockGetChat(history: ChatHistory) {
 
 /** Collect texts of user-role cards from a converted session. */
 function userCardTexts(session: unknown): string[] {
-  const msgs = (session as { messages: any[] }).messages;
+  const msgs = (session as RuntimeSession).messages;
   return msgs
     .filter((m) => m.role === "user")
     .map((m) => {
       const content = m.cards?.[0]?.data?.input?.[0]?.content;
       return Array.isArray(content)
         ? content
-            .filter((c: any) => c.type === "text")
-            .map((c: any) => c.text)
+            .filter((c) => c.type === "text")
+            .map((c) => c.text)
             .join("\n")
         : "";
     });
@@ -89,11 +130,11 @@ function userCardTexts(session: unknown): string[] {
 
 describe("patchLastUserMessage — pending cache lifecycle", () => {
   beforeEach(() => {
-    (sessionApi as any).sessionList = [];
-    (sessionApi as any).convertedSessionCache.clear();
-    (sessionApi as any).sessionResultCache.clear();
-    (sessionApi as any).sessionRequests.clear();
-    (sessionApi as any).lastSelectedIds.clear();
+    testApi.sessionList = [];
+    testApi.convertedSessionCache.clear();
+    testApi.sessionResultCache.clear();
+    testApi.sessionRequests.clear();
+    testApi.lastSelectedIds.clear();
     sessionStorage.clear();
   });
 
@@ -116,6 +157,21 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-running`)).not.toBe(
       null,
     );
+  });
+
+  it("attaches the client id without dropping existing metadata", () => {
+    expect(
+      attachClientMessageId(
+        { role: "user", metadata: { source: "sdk" } },
+        "client-new",
+      ),
+    ).toEqual({
+      role: "user",
+      metadata: {
+        source: "sdk",
+        [QWENPAW_CLIENT_MESSAGE_ID_KEY]: "client-new",
+      },
+    });
   });
 
   it("clears the cache on idle when history already contains the text", async () => {
@@ -191,6 +247,52 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     );
   });
 
+  it("keeps an identical pending prompt when its client id is newer", async () => {
+    seedSessionList("chat-repeat");
+    sessionApi.setLastUserMessage(
+      "chat-repeat",
+      "continue",
+      undefined,
+      "client-new",
+    );
+    await mockGetChat({
+      messages: [
+        userMsg("u1", "continue", "client-old"),
+        assistantMsg("a1", "previous answer"),
+      ],
+      status: "idle",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-repeat");
+    expect(userCardTexts(session)).toEqual(["continue", "continue"]);
+    expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-repeat`)).not.toBe(
+      null,
+    );
+  });
+
+  it("clears an identical pending prompt only when its client id matches", async () => {
+    seedSessionList("chat-repeat-confirmed");
+    sessionApi.setLastUserMessage(
+      "chat-repeat-confirmed",
+      "continue",
+      undefined,
+      "client-new",
+    );
+    await mockGetChat({
+      messages: [
+        userMsg("u1", "continue", "client-new"),
+        assistantMsg("a1", "latest answer"),
+      ],
+      status: "idle",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-repeat-confirmed");
+    expect(userCardTexts(session)).toEqual(["continue"]);
+    expect(
+      sessionStorage.getItem(`${STORAGE_PREFIX}chat-repeat-confirmed`),
+    ).toBe(null);
+  });
+
   it("does not serve a patched (incomplete) idle history from the LRU cache", async () => {
     // The patched history is missing the agent reply that has not been
     // flushed yet. Caching it would keep serving the incomplete turn
@@ -204,8 +306,8 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     } as ChatHistory);
 
     await sessionApi.getSession("chat-nocache");
-    (sessionApi as any).sessionResultCache.clear();
-    (sessionApi as any).lastSelectedIds.clear();
+    testApi.sessionResultCache.clear();
+    testApi.lastSelectedIds.clear();
     await sessionApi.getSession("chat-nocache");
     expect(getChat).toHaveBeenCalledTimes(2);
   });
@@ -222,8 +324,8 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     } as ChatHistory);
 
     await sessionApi.getSession("chat-confirmed");
-    (sessionApi as any).sessionResultCache.clear();
-    (sessionApi as any).lastSelectedIds.clear();
+    testApi.sessionResultCache.clear();
+    testApi.lastSelectedIds.clear();
     await sessionApi.getSession("chat-confirmed");
     // Second call is served from the LRU cache — history was complete.
     expect(getChat).toHaveBeenCalledTimes(1);

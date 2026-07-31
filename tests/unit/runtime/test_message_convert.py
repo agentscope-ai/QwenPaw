@@ -3,6 +3,7 @@
 
 from qwenpaw.constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
+    QWENPAW_CLIENT_MESSAGE_ID_KEY,
     QWENPAW_MESSAGE_TAG_KEY,
 )
 from qwenpaw.runtime.message_convert import _request_input_to_msgs
@@ -28,3 +29,20 @@ def test_only_external_user_input_gets_query_tag():
         EXTERNAL_USER_QUERY_MESSAGE_TAG
     )
     assert QWENPAW_MESSAGE_TAG_KEY not in messages[1].metadata
+
+
+def test_user_message_client_id_survives_conversion():
+    messages = _request_input_to_msgs(
+        [
+            Message(
+                role=Role.USER,
+                content=[TextContent(text="repeat")],
+                metadata={QWENPAW_CLIENT_MESSAGE_ID_KEY: "client-2"},
+            ),
+        ],
+    )
+
+    assert messages[0].metadata[QWENPAW_CLIENT_MESSAGE_ID_KEY] == "client-2"
+    assert messages[0].metadata[QWENPAW_MESSAGE_TAG_KEY] == (
+        EXTERNAL_USER_QUERY_MESSAGE_TAG
+    )

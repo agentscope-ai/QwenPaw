@@ -19,7 +19,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from qwenpaw.app.routers.console import _extract_session_and_payload
 from qwenpaw.app.task_tracker import TaskTracker
+from qwenpaw.schemas import AgentRequest, Message, Role, TextContent
 
 
 @pytest.fixture
@@ -94,6 +96,26 @@ def test_reconnect_without_active_run_returns_empty_sse(
     # A reconnect must attach only — never start a fresh run with the
     # (empty) reconnect payload.
     assert console_workspace.console_channel.stream_calls == []
+
+
+def test_extract_payload_preserves_user_message_metadata():
+    payload = _extract_session_and_payload(
+        AgentRequest(
+            input=[
+                Message(
+                    role=Role.USER,
+                    content=[TextContent(text="continue")],
+                    metadata={
+                        "qwenpaw_client_message_id": "client-new",
+                    },
+                ),
+            ],
+        ),
+    )
+
+    assert payload["message_metadata"] == {
+        "qwenpaw_client_message_id": "client-new",
+    }
 
 
 @pytest.mark.asyncio

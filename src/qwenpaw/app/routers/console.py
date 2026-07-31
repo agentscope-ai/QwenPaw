@@ -112,15 +112,24 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         content_parts = (
             list(request_data.input[0].content) if request_data.input else []
         )
+        message_metadata = (
+            request_data.input[0].metadata if request_data.input else None
+        )
     else:
         channel_id = request_data.get("channel", "console")
         sender_id = request_data.get("user_id", "default")
         session_id = request_data.get("session_id", "default")
         input_data = request_data.get("input", [])
         content_parts = []
+        message_metadata = None
         for content_part in input_data:
             if hasattr(content_part, "content"):
                 content_parts.extend(list(content_part.content or []))
+                message_metadata = getattr(
+                    content_part,
+                    "metadata",
+                    message_metadata,
+                )
             elif isinstance(content_part, dict) and "content" in content_part:
                 # Coerce raw dicts to typed Content models so downstream
                 # getattr checks (e.g. _content_has_text) see real attrs.
@@ -128,6 +137,8 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
                     _coerce_content_item(c)
                     for c in (content_part["content"] or [])
                 )
+                if isinstance(content_part.get("metadata"), dict):
+                    message_metadata = content_part["metadata"]
 
     meta: dict = {
         "session_id": session_id,
@@ -146,6 +157,7 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         "channel_id": channel_id,
         "sender_id": sender_id,
         "content_parts": content_parts,
+        "message_metadata": message_metadata,
         "meta": meta,
     }
 

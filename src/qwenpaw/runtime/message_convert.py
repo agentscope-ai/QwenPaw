@@ -16,12 +16,15 @@ from ..constant import (
 logger = logging.getLogger(__name__)
 
 
-def _request_message_metadata(role: str) -> dict[str, str]:
+def _request_message_metadata(
+    role: str,
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
     if role != "user":
         return {}
-    return {
-        QWENPAW_MESSAGE_TAG_KEY: EXTERNAL_USER_QUERY_MESSAGE_TAG,
-    }
+    result = dict(metadata or {})
+    result[QWENPAW_MESSAGE_TAG_KEY] = EXTERNAL_USER_QUERY_MESSAGE_TAG
+    return result
 
 
 def _media_type_to_block_type(media_type: str | None) -> str:
@@ -179,7 +182,10 @@ def _request_input_to_msgs(
                 name=role,
                 role=role,
                 content=blocks,
-                metadata=_request_message_metadata(role),
+                metadata=_request_message_metadata(
+                    role,
+                    getattr(m, "metadata", None),
+                ),
             ),
         )
     return out

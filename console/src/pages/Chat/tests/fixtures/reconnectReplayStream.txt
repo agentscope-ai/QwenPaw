@@ -13,4 +13,3 @@ data: {"type": "text", "delta": true, "index": 0, "status": null, "object": "con
 data: {"type": "text", "delta": true, "index": 0, "status": null, "object": "content", "msg_id": "msg_e0e7dfe2e3be4cc9b481f22dc851ebdb", "text": "8\n49", "sequence_number": 57}
 
 data: {"type": "text", "delta": true, "index": 0, "status": null, "object": "content", "msg_id": "msg_e0e7dfe2e3be4cc9b481f22dc851ebdb", "text": "196\n", "sequence_number": 192}
-

@@ -16,6 +16,7 @@ import {
   extractLatestSnapshotFromCards,
 } from "../turnUsage";
 import { useTurnUsageStore } from "../turnUsageStore";
+import { QWENPAW_CLIENT_MESSAGE_ID_KEY } from "../../../utils/clientMessageId";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -163,6 +164,18 @@ const extractTextFromContent = (content: unknown): string => {
     .join("\n");
 };
 
+const extractClientMessageId = (metadata: unknown): string | undefined => {
+  if (!metadata || typeof metadata !== "object") return undefined;
+  const nestedMetadata = (metadata as Record<string, unknown>).metadata;
+  if (!nestedMetadata || typeof nestedMetadata !== "object") {
+    return undefined;
+  }
+  const candidate = (nestedMetadata as Record<string, unknown>)[
+    QWENPAW_CLIENT_MESSAGE_ID_KEY
+  ];
+  return typeof candidate === "string" ? candidate : undefined;
+};
+
 function resolveContentItemUrl(c: ContentItem): ContentItem {
   if (c.type === "image" && c.image_url) {
     return { ...c, image_url: toDisplayUrl(c.image_url as string) };
@@ -246,6 +259,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
               role: "user",
               type: "message",
               content: contentParts,
+              metadata: msg.metadata ?? null,
             },
           ],
         },
@@ -420,6 +434,7 @@ const STORAGE_PREFIX = "qwenpaw_pending_user_msg_";
 /** Shape stored in sessionStorage. Backward compat: old format was plain text. */
 interface PendingUserMsg {
   text: string;
+  clientMessageId?: string;
   /** Full content array (stored-name format) for rebuilding the user card
    *  with attachments. When absent, only text is displayed. */
   content?: Array<{ type: string; [key: string]: unknown }>;
@@ -791,12 +806,15 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     sessionId: string,
     text: string,
     content?: Array<{ type: string; [key: string]: unknown }>,
+    clientMessageId?: string,
   ): void {
     if (!sessionId || !text) return;
     // Invalidate LRU cache so switching back fetches fresh messages
     this.invalidateConvertedCache(sessionId);
     if (content && content.length > 0) {
-      savePendingUserMessage(sessionId, { text, content });
+      savePendingUserMessage(sessionId, { text, content, clientMessageId });
+    } else if (clientMessageId) {
+      savePendingUserMessage(sessionId, { text, clientMessageId });
     } else {
       savePendingUserMessage(sessionId, text);
     }
@@ -893,17 +911,18 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // generation completed but the memory flush not finished.
     if (!generating) {
       let lastUserText = "";
+      let lastUserClientMessageId: string | undefined;
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].role !== ROLE_USER) continue;
-        lastUserText = extractTextFromContent(
-          messages[i]?.cards?.[0]?.data?.input?.[0]?.content,
-        );
+        const input = messages[i]?.cards?.[0]?.data?.input?.[0];
+        lastUserText = extractTextFromContent(input?.content);
+        lastUserClientMessageId = extractClientMessageId(input?.metadata);
         break;
       }
-      // Normalized full equality: substring matching would treat e.g.
-      // pending "yes" as contained in an older "yesterday …" message
-      // and wrongly drop the cache.
-      if (lastUserText.trim() === cached.text.trim()) {
+      const persistenceConfirmed = cached.clientMessageId
+        ? lastUserClientMessageId === cached.clientMessageId
+        : lastUserText.trim() === cached.text.trim();
+      if (persistenceConfirmed) {
         clearPendingUserMessage(backendSessionId);
         return false;
       }
