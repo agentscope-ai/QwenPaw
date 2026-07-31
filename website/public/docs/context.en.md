@@ -79,6 +79,9 @@ Index tiers roll up only when they reach their 10-block capacity; pressure does 
 
 If SQLite FTS5 is available, QwenPaw also keeps a `conversation_history_fts` index over `content`. Without FTS5, recall search degrades to a slower `LIKE` scan.
 
+Instance backups preserve the history store while the service is running. See
+[Backup & Restore](./backup).
+
 ## Working Memory
 
 **Working memory** is the live prompt window — what the model can attend to right now. When it fills, scroll keeps it within budget by persisting and evicting older turns, then retaining a compact task-state summary and an expandable index. The summary never replaces the exact rows. Each substantive task turn also supplies a one-line **headline** for retrieval and navigation.
@@ -302,7 +305,7 @@ Important fields:
 | `strategy`                                       | `"scroll"`     | Selects Scroll's durable-history protocol. Legacy Native values are accepted only for compatibility and fallback. |
 | `context_compact_config.compact_threshold_ratio` | `0.8`          | Trigger when model input reaches this fraction of context size.                                                   |
 | `context_compact_config.reserve_threshold_ratio` | `0.1`          | Recent tail budget kept after eviction.                                                                           |
-| `scroll_config.db_filename`                      | `"history.db"` | SQLite filename relative to the workspace.                                                                        |
+| `scroll_config.db_filename`                      | `"history.db"` | SQLite filename relative to the workspace; absolute paths and `..` are rejected.                                  |
 | `scroll_config.tool_output_token_cap`            | `3000`         | Deprecated and ignored; explicit values log a warning. Use `pruning_recent_msg_max_bytes`.                        |
 | `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                                                     |
 | `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                                               |

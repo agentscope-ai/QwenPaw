@@ -1,17 +1,24 @@
 # -*- coding: utf-8 -*-
 """Helpers for creating backups: agents, global config, secrets, skill pool."""
+
 from __future__ import annotations
 
 import logging
+import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
 
+from ...agents.context.scroll.history import backup_history_database
 from .._utils.constants import (
     PREFIX_CONFIG,
     PREFIX_SECRETS,
     PREFIX_SKILL_POOL,
     PREFIX_WORKSPACES,
+)
+from .._utils.history_sqlite import (
+    configured_history_db_path,
+    history_sidecar_paths,
 )
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
 
@@ -47,25 +54,48 @@ def add_agent_workspaces(
         if ws.is_dir():
             file_count = 0
             skipped = 0
-            for entry in sorted(ws.rglob("*")):
-                if not entry.is_file():
-                    continue
-                rel = entry.relative_to(ws).as_posix()
-                arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
-                try:
-                    zf.write(entry, arcname)
-                except (PermissionError, OSError) as exc:
-                    # A file that can't be added (e.g. an open Chromium
-                    # cache file the backend has locked) must not abort
-                    # the whole backup; skip it and continue (#4916).
-                    skipped += 1
-                    logger.warning(
-                        "Skipping %s (could not be added to backup): %s",
-                        entry,
-                        exc,
-                    )
-                    continue
-                file_count += 1
+            history_db = configured_history_db_path(ws)
+            sidecars = history_sidecar_paths(history_db)
+            with tempfile.TemporaryDirectory(
+                prefix=f"qwenpaw-history-{aid}-",
+            ) as snapshot_dir:
+                history_snapshot = Path(snapshot_dir) / "history.db"
+                for entry in sorted(ws.rglob("*")):
+                    if not entry.is_file():
+                        continue
+                    relative = entry.relative_to(ws)
+                    resolved_entry = entry.resolve()
+                    if resolved_entry == history_db:
+                        # SQLite's backup API captures one consistent point
+                        # while the runtime continues writing in WAL mode.
+                        # Failure is fatal: a "successful" instance backup
+                        # must never silently omit durable conversation
+                        # history.
+                        rel = relative.as_posix()
+                        arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
+                        backup_history_database(entry, history_snapshot)
+                        zf.write(history_snapshot, arcname)
+                        file_count += 1
+                        continue
+                    if resolved_entry in sidecars:
+                        continue
+
+                    rel = relative.as_posix()
+                    arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
+                    try:
+                        zf.write(entry, arcname)
+                    except (PermissionError, OSError) as exc:
+                        # A file that can't be added (e.g. an open Chromium
+                        # cache file the backend has locked) must not abort
+                        # the whole backup; skip it and continue (#4916).
+                        skipped += 1
+                        logger.warning(
+                            "Skipping %s (could not be added to backup): %s",
+                            entry,
+                            exc,
+                        )
+                        continue
+                    file_count += 1
             if skipped:
                 logger.warning(
                     "Agent '%s': skipped %d file(s) that could not be "

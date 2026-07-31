@@ -19,6 +19,7 @@ from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll import sync as sync_mod
+from qwenpaw.agents.context.types import LogEntry
 from qwenpaw.agents.context.scroll.sync import (
     MANIFEST_NAME,
     sync_all_scroll_agents,
@@ -384,7 +385,12 @@ def test_fully_aged_session_imports_nothing_and_skips_on_rerun(
     assert r2.rows_inserted == 0
 
 
-def _stub_config_loaders(monkeypatch, workspace: Path) -> None:
+def _stub_config_loaders(
+    monkeypatch,
+    workspace: Path,
+    *,
+    retention_days: int = 0,
+) -> None:
     """Point the startup sync at one scroll agent under *workspace*.
 
     ``agent_config.workspace_dir`` is deliberately a bogus path: the sync must
@@ -400,7 +406,7 @@ def _stub_config_loaders(monkeypatch, workspace: Path) -> None:
                 strategy="scroll",
                 scroll_config=SimpleNamespace(
                     db_filename="history.db",
-                    history_retention_days=0,
+                    history_retention_days=retention_days,
                 ),
             ),
         ),
@@ -449,3 +455,114 @@ def test_first_run_emits_console_notice_then_stays_quiet(
     with caplog.at_level(logging.WARNING, logger=sync_mod.logger.name):
         sync_all_scroll_agents()
     assert not [r for r in caplog.records if "first run" in r.getMessage()]
+
+
+def test_invalid_history_path_does_not_block_other_agents(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    invalid_workspace = tmp_path / "invalid"
+    valid_workspace = tmp_path / "valid"
+    _write_session_2x(
+        invalid_workspace / "sessions",
+        "bad.json",
+        "bad-session",
+        _sample_msgs(),
+    )
+    _write_session_2x(
+        valid_workspace / "sessions",
+        "good.json",
+        "good-session",
+        _sample_msgs(),
+    )
+
+    profiles = {
+        "invalid": SimpleNamespace(workspace_dir=str(invalid_workspace)),
+        "valid": SimpleNamespace(workspace_dir=str(valid_workspace)),
+    }
+    config = SimpleNamespace(agents=SimpleNamespace(profiles=profiles))
+    agent_configs = {
+        "invalid": SimpleNamespace(
+            running=SimpleNamespace(
+                light_context_config=SimpleNamespace(
+                    strategy="scroll",
+                    scroll_config=SimpleNamespace(
+                        db_filename="../outside.db",
+                        history_retention_days=0,
+                    ),
+                ),
+            ),
+        ),
+        "valid": SimpleNamespace(
+            running=SimpleNamespace(
+                light_context_config=SimpleNamespace(
+                    strategy="scroll",
+                    scroll_config=SimpleNamespace(
+                        db_filename="history.db",
+                        history_retention_days=0,
+                    ),
+                ),
+            ),
+        ),
+    }
+    import qwenpaw.config as cfg
+    import qwenpaw.config.config as cfgcfg
+
+    monkeypatch.setattr(cfg, "load_config", lambda: config, raising=False)
+    monkeypatch.setattr(
+        cfgcfg,
+        "load_agent_config",
+        lambda agent_id: agent_configs[agent_id],
+        raising=False,
+    )
+
+    sync_all_scroll_agents()
+
+    assert not (tmp_path / "outside.db").exists()
+    history = HistoryStore(valid_workspace / "history.db")
+    try:
+        assert history.count("good-session") > 0
+    finally:
+        history.close()
+
+
+def test_startup_retention_runs_without_sessions_directory(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    history = HistoryStore(workspace / "history.db")
+    history.append(
+        session_id="old-session",
+        dedup_key="old",
+        entry=LogEntry(
+            kind="model_turn",
+            content="expired",
+            created_at="2020-01-01T00:00:00+00:00",
+        ),
+    )
+    history.close()
+    assert not (workspace / "sessions").exists()
+    _stub_config_loaders(monkeypatch, workspace, retention_days=30)
+
+    sync_all_scroll_agents()
+
+    maintained = HistoryStore(workspace / "history.db")
+    try:
+        assert maintained.count("old-session") == 0
+    finally:
+        maintained.close()
+
+
+def test_startup_maintenance_does_not_create_empty_store(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _stub_config_loaders(monkeypatch, workspace, retention_days=30)
+
+    sync_all_scroll_agents()
+
+    assert not (workspace / "history.db").exists()

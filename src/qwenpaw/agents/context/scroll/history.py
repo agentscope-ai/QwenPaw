@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import sqlite3
 import sys
 import threading
+import time
 from collections.abc import Sequence
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -17,7 +20,40 @@ from ..types import LogEntry
 
 logger = logging.getLogger(__name__)
 
-_BUSY_TIMEOUT_MS = 5000
+_BUSY_TIMEOUT_MS = 250
+_WRITE_RETRY_DEADLINE_S = 2.0
+_WRITE_RETRY_MIN_S = 0.020
+_WRITE_RETRY_MAX_S = 0.150
+_CHECKPOINT_EVERY_N_WRITES = 50
+_SCHEMA_VERSION = 1
+_REQUIRED_COLUMNS = {"seq", "session_id", "kind"}
+
+# SQLite extended result codes keep the primary result code in the low byte.
+# Only these errors prove that the file itself is corrupt/unreadable. Busy,
+# readonly, I/O, disk-full, and permission errors must NEVER quarantine a DB.
+_CORRUPTION_CODES = {
+    sqlite3.SQLITE_CORRUPT,
+    sqlite3.SQLITE_NOTADB,
+}
+_CONTENTION_CODES = {
+    sqlite3.SQLITE_BUSY,
+    sqlite3.SQLITE_LOCKED,
+}
+
+_OPTIONAL_COLUMNS = {
+    "agent_id": "TEXT",
+    "role": "TEXT",
+    "name": "TEXT",
+    "content": "TEXT",
+    "tool_call_id": "TEXT",
+    "tool_input": "TEXT",
+    "tool_state": "TEXT",
+    "headline": "TEXT",
+    "blocks": "TEXT",
+    "metadata": "TEXT",
+    "created_at": "TEXT",
+    "dedup_key": "TEXT",
+}
 
 # The recall tool's own turns — the model's ``ms.*`` Python source and its
 # printed stdout/stderr — are written through to history like any turn, but
@@ -52,6 +88,176 @@ _INSERT_COLUMNS = (
 )
 
 
+class HistorySchemaError(sqlite3.DatabaseError):
+    """The DB is valid SQLite, but its schema cannot be opened safely."""
+
+
+class HistoryCorruptionError(sqlite3.DatabaseError):
+    """An integrity check proved that the SQLite file is corrupt."""
+
+
+def _is_corruption_error(exc: BaseException) -> bool:
+    """Whether *exc* proves on-disk SQLite corruption.
+
+    Python exposes SQLite's primary/extended result code on exceptions raised
+    by the driver. The message fallback covers wrapped errors and older Python
+    builds, but is deliberately narrow: lock/contention and general I/O errors
+    are operational failures, not evidence that the database should be moved.
+    """
+    if isinstance(exc, HistoryCorruptionError):
+        return True
+    code = getattr(exc, "sqlite_errorcode", None)
+    if isinstance(code, int) and (code & 0xFF) in _CORRUPTION_CODES:
+        return True
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "database disk image is malformed",
+            "file is not a database",
+            "file is encrypted or is not a database",
+        )
+    )
+
+
+def _is_contention_error(exc: BaseException) -> bool:
+    """Whether *exc* is transient SQLite writer/schema contention."""
+    code = getattr(exc, "sqlite_errorcode", None)
+    if isinstance(code, int) and (code & 0xFF) in _CONTENTION_CODES:
+        return True
+    message = str(exc).lower()
+    return "locked" in message or "busy" in message
+
+
+def _retry_contention(operation):
+    """Run *operation* with a bounded randomized SQLite contention retry."""
+    deadline = time.monotonic() + _WRITE_RETRY_DEADLINE_S
+    while True:
+        try:
+            return operation()
+        except sqlite3.OperationalError as exc:
+            now = time.monotonic()
+            if not _is_contention_error(exc) or now >= deadline:
+                raise
+            delay = min(
+                random.uniform(_WRITE_RETRY_MIN_S, _WRITE_RETRY_MAX_S),
+                max(0.0, deadline - now),
+            )
+            if delay:
+                time.sleep(delay)
+
+
+@contextmanager
+def _immediate_transaction(
+    conn: sqlite3.Connection,
+    *,
+    on_commit=None,
+):
+    """Run a short write transaction with bounded, jittered lock retries.
+
+    ``BEGIN IMMEDIATE`` surfaces the only-writer collision before any
+    statement mutates state. Retrying that boundary is therefore safe and
+    avoids SQLite's deterministic lock-wait convoy across gateway/CLI/worker
+    processes. Non-contention errors are never retried.
+    """
+    _retry_contention(lambda: conn.execute("BEGIN IMMEDIATE"))
+    try:
+        yield
+    except BaseException:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+    conn.commit()
+    if on_commit is not None:
+        on_commit()
+
+
+def _validate_history_connection(conn: sqlite3.Connection) -> int:
+    """Validate integrity and the minimum compatible history schema."""
+    row = conn.execute("PRAGMA quick_check").fetchone()
+    result = str(row[0]) if row else "no result"
+    if result != "ok":
+        raise HistoryCorruptionError(f"quick_check failed: {result}")
+
+    version_row = conn.execute("PRAGMA user_version").fetchone()
+    version = int(version_row[0] if version_row else 0)
+    if version > _SCHEMA_VERSION:
+        raise HistorySchemaError(
+            f"history schema version {version} is newer than supported "
+            f"version {_SCHEMA_VERSION}",
+        )
+
+    columns = {
+        str(column[1])
+        for column in conn.execute(
+            "PRAGMA table_info(conversation_history)",
+        ).fetchall()
+    }
+    missing_required = _REQUIRED_COLUMNS - columns
+    if missing_required:
+        raise HistorySchemaError(
+            "history schema is missing required column(s): "
+            + ", ".join(sorted(missing_required)),
+        )
+    return version
+
+
+def validate_history_database(db_path: str | Path) -> int:
+    """Read-only integrity and compatibility check for an existing store.
+
+    Returns the on-disk ``PRAGMA user_version``. Version ``0`` remains valid
+    for pre-versioned stores and is migrated on the next runtime open.
+    """
+    path = Path(db_path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    conn = sqlite3.connect(
+        path.as_uri() + "?mode=ro",
+        uri=True,
+        timeout=_BUSY_TIMEOUT_MS / 1000,
+    )
+    try:
+        conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
+        return _validate_history_connection(conn)
+    finally:
+        conn.close()
+
+
+def backup_history_database(
+    source: str | Path,
+    destination: str | Path,
+) -> Path:
+    """Create a verified online snapshot without mutating the source store."""
+    source_path = Path(source).expanduser().resolve()
+    if not source_path.is_file():
+        raise FileNotFoundError(source_path)
+    target = Path(destination).expanduser()
+    if target.resolve() == source_path:
+        raise ValueError(
+            "history backup destination must differ from source",
+        )
+    if target.exists():
+        raise FileExistsError(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(
+        source_path.as_uri() + "?mode=ro",
+        uri=True,
+        timeout=_BUSY_TIMEOUT_MS / 1000,
+    )
+    snapshot: sqlite3.Connection | None = None
+    try:
+        conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
+        snapshot = sqlite3.connect(str(target))
+        conn.backup(snapshot)
+        _validate_history_connection(snapshot)
+        return target
+    finally:
+        if snapshot is not None:
+            snapshot.close()
+        conn.close()
+
+
 class HistoryStore:
     """Owns the *read-write* connection to the ``conversation_history`` file.
 
@@ -80,15 +286,20 @@ class HistoryStore:
         # degraded; callers/monitoring can read this.
         self.degraded = False
         self.write_failures = 0
+        self._writes_since_checkpoint = 0
         # Flipped True by ``close()`` so callers can tell an intentional
         # teardown race from a real disk outage (see ``closed``).
         self._closed = False
         try:
             self._open_and_init()
         except sqlite3.DatabaseError as exc:
-            # A corrupt / unreadable DB (truncated file, stale WAL trio, bad
-            # page) would crash every task at startup. Quarantine the bad file
-            # and recreate fresh, degrading "broken memory" to "lost history".
+            # Only proven corruption is recoverable by moving the file aside.
+            # A broad DatabaseError also includes busy/locked, readonly, I/O,
+            # disk-full, and unsupported-schema failures; quarantining any of
+            # those could move a healthy live database out from other writers.
+            if not _is_corruption_error(exc):
+                self._close_connection()
+                raise
             self._quarantine(exc)
             self._open_and_init()
 
@@ -99,17 +310,28 @@ class HistoryStore:
         self._conn = sqlite3.connect(
             str(self._path),
             check_same_thread=False,
+            timeout=_BUSY_TIMEOUT_MS / 1000,
         )
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
+        # Set the wait policy before journal_mode: switching/confirming WAL can
+        # itself need a lock when several processes start at once.
         self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
+        _retry_contention(
+            lambda: self._conn.execute("PRAGMA journal_mode=WAL"),
+        )
         # Probe for corruption that only surfaces on read.
         row = self._conn.execute("PRAGMA quick_check").fetchone()
         if not row or row[0] != "ok":
-            raise sqlite3.DatabaseError(
+            raise HistoryCorruptionError(
                 f"quick_check failed: {row[0] if row else None}",
             )
         self._init_schema()
+
+    def _close_connection(self) -> None:
+        try:
+            self._conn.close()
+        except (AttributeError, sqlite3.Error):
+            pass
 
     def _quarantine(self, exc: Exception) -> None:
         """Move the unreadable DB + its -wal/-shm aside with a timestamp."""
@@ -138,12 +360,45 @@ class HistoryStore:
             file=sys.stderr,
         )
 
+    @staticmethod
+    def _schema_columns(conn: sqlite3.Connection) -> set[str]:
+        return {
+            str(row["name"])
+            for row in conn.execute(
+                "PRAGMA table_info(conversation_history)",
+            ).fetchall()
+        }
+
+    def _migrate_schema(self) -> None:
+        """Apply bounded, idempotent upgrades to the current schema version."""
+        version_row = self._conn.execute("PRAGMA user_version").fetchone()
+        version = int(version_row[0] if version_row else 0)
+        if version > _SCHEMA_VERSION:
+            raise HistorySchemaError(
+                f"history schema version {version} is newer than supported "
+                f"version {_SCHEMA_VERSION}",
+            )
+
+        columns = self._schema_columns(self._conn)
+        missing_required = _REQUIRED_COLUMNS - columns
+        if missing_required:
+            raise HistorySchemaError(
+                "history schema is missing required column(s): "
+                + ", ".join(sorted(missing_required)),
+            )
+        for name, ddl in _OPTIONAL_COLUMNS.items():
+            if name not in columns:
+                self._conn.execute(
+                    f"ALTER TABLE conversation_history "
+                    f"ADD COLUMN {name} {ddl}",
+                )
+
     @property
     def path(self) -> Path:
         return self._path
 
     def _init_schema(self) -> None:
-        with self._conn:
+        with self._lock, _immediate_transaction(self._conn):
             self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS conversation_history (
@@ -165,6 +420,7 @@ class HistoryStore:
                 )
                 """,
             )
+            self._migrate_schema()
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS ch_session "
                 "ON conversation_history(session_id)",
@@ -187,6 +443,9 @@ class HistoryStore:
                 "ON conversation_history(session_id, dedup_key)",
             )
             self._init_fts()
+            # Publish the version only after every table/index/FTS migration in
+            # this transaction has succeeded.
+            self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
 
     def _init_fts(self) -> None:
         """Create the FTS5 full-text index over ``content``, if available.
@@ -220,6 +479,8 @@ class HistoryStore:
                 )
             self._fts = True
         except sqlite3.OperationalError as exc:
+            if "no such module: fts5" not in str(exc).lower():
+                raise
             self._fts = False
             if not HistoryStore._fts_unavailable_warned:
                 HistoryStore._fts_unavailable_warned = True
@@ -277,7 +538,10 @@ class HistoryStore:
         """
         row = self._insert_row(session_id, agent_id, entry, dedup_key)
         placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
-        with self._lock, self._conn:
+        with self._lock, _immediate_transaction(
+            self._conn,
+            on_commit=self._checkpoint_after_write,
+        ):
             cur = self._conn.execute(
                 f"INSERT INTO conversation_history "
                 f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders}) "
@@ -327,7 +591,10 @@ class HistoryStore:
             f"ON CONFLICT(session_id, dedup_key) DO NOTHING"
         )
         inserted = 0
-        with self._lock, self._conn:
+        with self._lock, _immediate_transaction(
+            self._conn,
+            on_commit=self._checkpoint_after_write,
+        ):
             for entry, dedup_key in entries:
                 row = self._insert_row(
                     session_id,
@@ -373,7 +640,10 @@ class HistoryStore:
         # Recall-tool rows are never FTS-indexed (see ``_RECALL_TOOL_NAMES``),
         # so don't touch the index for them on update either.
         fts_sync = self._fts and name not in _RECALL_TOOL_NAMES
-        with self._lock, self._conn:
+        with self._lock, _immediate_transaction(
+            self._conn,
+            on_commit=self._checkpoint_after_write,
+        ):
             old_content = None
             if fts_sync:
                 r = self._conn.execute(
@@ -500,7 +770,7 @@ class HistoryStore:
         show before an operator commits a purge, so they never delete blindly.
         """
         where, params = self._purge_where(before, kinds)
-        with self._lock, self._conn:
+        with self._lock:
             row = self._conn.execute(
                 "SELECT COUNT(*) AS rows, "
                 "COALESCE(SUM(LENGTH(content)), 0) AS content_bytes "
@@ -537,7 +807,10 @@ class HistoryStore:
         but the file does not shrink on disk until a separate vacuum.
         """
         where, params = self._purge_where(before, kinds)
-        with self._lock, self._conn:
+        with self._lock, _immediate_transaction(
+            self._conn,
+            on_commit=self._checkpoint_after_write,
+        ):
             doomed = self._conn.execute(
                 "SELECT seq, content FROM conversation_history WHERE " + where,
                 params,
@@ -589,6 +862,20 @@ class HistoryStore:
                 exc,
             )
 
+    def _checkpoint_after_write(self) -> None:
+        """Bound WAL growth without blocking a concurrent writer."""
+        self._writes_since_checkpoint += 1
+        if self._writes_since_checkpoint < _CHECKPOINT_EVERY_N_WRITES:
+            return
+        self._writes_since_checkpoint = 0
+        try:
+            self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except sqlite3.Error as exc:
+            # The data commit already succeeded. Checkpoint failure affects
+            # only WAL compaction and must not turn it into a false write
+            # failure or trigger a duplicate retry.
+            logger.debug("history passive WAL checkpoint skipped: %s", exc)
+
     @property
     def closed(self) -> bool:
         """True once :meth:`close` has run — the connection is gone."""
@@ -597,6 +884,10 @@ class HistoryStore:
     def close(self) -> None:
         self._closed = True
         with self._lock:
+            try:
+                self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            except sqlite3.Error:
+                pass
             try:
                 self._conn.close()
             except sqlite3.Error:

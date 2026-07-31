@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING
 from agentscope.message import Msg
 
 from .serialize import msg_to_entries
+from ....config.history_path import resolve_history_db_path
 
 if TYPE_CHECKING:
     from .history import HistoryStore
@@ -491,6 +492,7 @@ def sync_all_scroll_agents() -> None:
         logger.warning("session-sync: aborted unexpectedly", exc_info=True)
 
 
+# pylint: disable-next=too-many-branches,too-many-statements
 def _sync_all_scroll_agents() -> None:
     # Imported lazily to keep this module importable without the app config.
     from ....config import load_config
@@ -527,35 +529,56 @@ def _sync_all_scroll_agents() -> None:
         # all collapse onto one workspace.
         workspace_dir = Path(agent_ref.workspace_dir).expanduser()
         sessions_dir = workspace_dir / "sessions"
-        if not sessions_dir.is_dir():
-            logger.info("session-sync[%s]: no sessions to sync", agent_id)
-            continue
-
-        # First-run notice (no manifest yet): warn BEFORE the import so the
-        # one-time migration isn't a silent stall. Later startups have a
-        # manifest and skip straight through.
-        if not (sessions_dir / MANIFEST_NAME).exists():
-            pending = sum(1 for _ in _iter_session_files(sessions_dir))
-            if pending:
-                logger.warning(
-                    "session-sync[%s]: first run — importing %d session "
-                    "file(s) into history.db. This one-time migration may "
-                    "take a moment; later startups skip unchanged files.",
-                    agent_id,
-                    pending,
-                )
-
-        db_path = workspace_dir / lcc.scroll_config.db_filename
-        retention_days = lcc.scroll_config.history_retention_days
-        history = HistoryStore(db_path)
+        history = None
         try:
-            report = sync_sessions_to_history(
-                history=history,
-                sessions_dir=sessions_dir,
-                agent_id=agent_id,
-                retention_days=retention_days,
+            db_path = resolve_history_db_path(
+                workspace_dir,
+                lcc.scroll_config.db_filename,
             )
+            # Do not create a new store solely for maintenance when this agent
+            # has neither durable history nor legacy sessions to import.
+            if not sessions_dir.is_dir() and not db_path.is_file():
+                logger.info(
+                    "session-sync[%s]: no sessions or history to maintain",
+                    agent_id,
+                )
+                continue
+
+            retention_days = lcc.scroll_config.history_retention_days
+            history = HistoryStore(db_path)
+            # Retention is independent from legacy-session import. An agent
+            # may have history.db but no sessions/ directory, and an unclean
+            # shutdown may have skipped the teardown purge.
             _purge_old_history(history, retention_days, agent_id)
+
+            if not sessions_dir.is_dir():
+                logger.info(
+                    "session-sync[%s]: no sessions to sync; history "
+                    "maintenance complete",
+                    agent_id,
+                )
+                report = SyncReport()
+            else:
+                # First-run notice (no manifest yet): warn BEFORE the import so
+                # the one-time migration isn't a silent stall. Later startups
+                # have a manifest and skip straight through.
+                if not (sessions_dir / MANIFEST_NAME).exists():
+                    pending = sum(1 for _ in _iter_session_files(sessions_dir))
+                    if pending:
+                        logger.warning(
+                            "session-sync[%s]: first run — importing %d "
+                            "session file(s) into history.db. This one-time "
+                            "migration may take a moment; later startups skip "
+                            "unchanged files.",
+                            agent_id,
+                            pending,
+                        )
+                report = sync_sessions_to_history(
+                    history=history,
+                    sessions_dir=sessions_dir,
+                    agent_id=agent_id,
+                    retention_days=retention_days,
+                )
         except Exception as exc:  # noqa: BLE001 - isolate one agent's failure
             logger.warning(
                 "session-sync[%s]: failed: %s",
@@ -565,7 +588,8 @@ def _sync_all_scroll_agents() -> None:
             )
             continue
         finally:
-            history.close()
+            if history is not None:
+                history.close()
 
         logger.info("session-sync[%s]: %s", agent_id, report.summary())
         if history.degraded:

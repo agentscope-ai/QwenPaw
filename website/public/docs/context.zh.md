@@ -79,6 +79,8 @@ flowchart LR
 
 如果当前 SQLite 支持 FTS5，QwenPaw 会维护 `conversation_history_fts` 全文索引；否则 `ms.search` 会降级为较慢的 `LIKE` 扫描。
 
+整机备份可以在服务运行期间安全保存历史库，详见[备份与恢复](./backup)。
+
 ## 工作记忆（Working Memory）
 
 **工作记忆** 就是实时的提示词窗口——模型此刻能看到的内容。窗口写满时，scroll 先持久化并驱逐较早轮次，再保留一份紧凑的任务状态摘要和可展开索引；摘要永远不会替代精确原文。每个有实质任务信息的轮次还会为检索和导航提供一行 **headline（检索标题）**。
@@ -301,7 +303,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 | `strategy`                                       | `"scroll"`     | 选择 Scroll 的持久历史协议；旧版 Native 值仅为兼容和安全降级而保留。              |
 | `context_compact_config.compact_threshold_ratio` | `0.8`          | 模型输入达到上下文窗口该比例时触发。                                              |
 | `context_compact_config.reserve_threshold_ratio` | `0.1`          | 驱逐后保留最近尾部的预算。                                                        |
-| `scroll_config.db_filename`                      | `"history.db"` | 相对工作区的 SQLite 文件名。                                                      |
+| `scroll_config.db_filename`                      | `"history.db"` | 相对工作区的 SQLite 文件名；不得使用绝对路径或 `..`。                             |
 | `scroll_config.tool_output_token_cap`            | `3000`         | 已废弃且会被忽略；显式配置会输出 warning。请改用 `pruning_recent_msg_max_bytes`。 |
 | `scroll_config.repl_timeout_s`                   | `300`          | `recall_history_python` 单次调用超时时间。                                        |
 | `scroll_config.history_retention_days`           | `30`           | 自动清理早于该天数的历史行；设为 `0` 表示永久保留。                               |

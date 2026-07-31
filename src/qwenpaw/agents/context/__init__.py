@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import ContextManager
+from ...config.history_path import resolve_history_db_path
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +172,7 @@ def build_scroll_components(
 
         sc = lcc.scroll_config
         trc = lcc.tool_result_pruning_config
-        db_path = Path(workspace_dir) / sc.db_filename
+        db_path = resolve_history_db_path(workspace_dir, sc.db_filename)
         # First-run notice: scroll is the default as of this release, so agents
         # that never set ``strategy`` are switched to it silently. The first
         # time we wire scroll in a workspace we create ``history.db`` there;

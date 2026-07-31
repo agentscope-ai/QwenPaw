@@ -10,11 +10,16 @@ durability flag, and corruption quarantine.
 import asyncio
 import logging
 import sqlite3
+import threading
+import time
 from pathlib import Path
 
 import pytest
 
-from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.agents.context.scroll.history import (
+    HistorySchemaError,
+    HistoryStore,
+)
 from qwenpaw.agents.context.types import LogEntry
 
 
@@ -387,3 +392,161 @@ def test_corrupt_db_is_quarantined_and_recreated(tmp_path: Path):
         assert store.count("s") == 1
     finally:
         store.close()
+
+
+def test_locked_database_is_not_quarantined(tmp_path: Path, monkeypatch):
+    """Contention is operational, not proof that the DB is corrupt."""
+    db = tmp_path / "history.db"
+    original = b"healthy database placeholder"
+    db.write_bytes(original)
+
+    def locked(_self):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(HistoryStore, "_open_and_init", locked)
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        HistoryStore(db)
+
+    assert db.read_bytes() == original
+    assert not list(tmp_path.glob("history.db.corrupt-*"))
+
+
+def test_unversioned_schema_is_migrated_in_place(tmp_path: Path):
+    """Existing version-0 stores gain optional columns without losing rows."""
+    db = tmp_path / "history.db"
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE conversation_history ("
+        "seq INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "session_id TEXT NOT NULL, kind TEXT NOT NULL, content TEXT)",
+    )
+    conn.execute(
+        "INSERT INTO conversation_history(session_id, kind, content) "
+        "VALUES ('legacy', 'context_msg', 'preserved')",
+    )
+    conn.commit()
+    conn.close()
+
+    store = HistoryStore(db)
+    try:
+        assert store._conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        columns = {
+            row["name"]
+            for row in store._conn.execute(
+                "PRAGMA table_info(conversation_history)",
+            )
+        }
+        assert {"agent_id", "tool_input", "metadata", "dedup_key"} <= columns
+        row = store._conn.execute(
+            "SELECT content FROM conversation_history WHERE session_id = ?",
+            ("legacy",),
+        ).fetchone()
+        assert row["content"] == "preserved"
+        store.append(
+            session_id="new",
+            dedup_key="m1",
+            entry=_entry("after migration"),
+        )
+    finally:
+        store.close()
+
+
+def test_newer_schema_is_rejected_without_quarantine(tmp_path: Path):
+    """Downgrades fail visibly and leave the newer DB exactly where it is."""
+    db = tmp_path / "history.db"
+    store = HistoryStore(db)
+    store.close()
+    conn = sqlite3.connect(db)
+    conn.execute("PRAGMA user_version=999")
+    conn.close()
+
+    with pytest.raises(HistorySchemaError, match="newer than supported"):
+        HistoryStore(db)
+
+    assert db.exists()
+    assert not list(tmp_path.glob("history.db.corrupt-*"))
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 999
+    finally:
+        conn.close()
+
+
+def test_writes_use_begin_immediate(store: HistoryStore):
+    statements: list[str] = []
+    store._conn.set_trace_callback(statements.append)
+    store.append(session_id="s", dedup_key="m1", entry=_entry("one"))
+    assert any(sql == "BEGIN IMMEDIATE" for sql in statements)
+
+
+def test_two_store_connections_coordinate_writes(store: HistoryStore):
+    """Independent runtime connections share SQLite's writer boundary."""
+    other = HistoryStore(store.path)
+
+    async def drive():
+        await asyncio.gather(
+            *(
+                asyncio.to_thread(
+                    (store if i % 2 == 0 else other).append,
+                    session_id="shared",
+                    dedup_key=f"multi-{i}",
+                    entry=_entry(f"row-{i}"),
+                )
+                for i in range(40)
+            ),
+        )
+
+    try:
+        asyncio.run(drive())
+        assert store.count("shared") == 40
+        assert other.count("shared") == 40
+    finally:
+        other.close()
+
+
+def test_writer_contention_retries_until_lock_is_released(
+    store: HistoryStore,
+):
+    blocker = sqlite3.connect(store.path)
+    blocker.execute("BEGIN IMMEDIATE")
+    outcome: dict[str, object] = {}
+
+    def append_after_lock() -> None:
+        try:
+            outcome["seq"] = store.append(
+                session_id="shared",
+                dedup_key="after-lock",
+                entry=_entry("eventually durable"),
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=append_after_lock)
+    worker.start()
+    # Exceed one SQLite busy timeout so success proves the application-level
+    # retry path ran, then release within its bounded retry deadline.
+    time.sleep(0.4)
+    blocker.commit()
+    worker.join(timeout=5)
+    blocker.close()
+
+    assert not worker.is_alive()
+    assert "error" not in outcome
+    assert isinstance(outcome["seq"], int)
+    assert outcome["seq"] > 0
+    assert store.count("shared") == 1
+
+
+def test_periodic_passive_checkpoint_bounds_wal_growth(
+    store: HistoryStore,
+) -> None:
+    statements: list[str] = []
+    store._conn.set_trace_callback(statements.append)
+    for index in range(50):
+        store.append(
+            session_id="checkpoint",
+            dedup_key=f"row-{index}",
+            entry=_entry(f"value-{index}"),
+        )
+
+    assert statements.count("PRAGMA wal_checkpoint(PASSIVE)") == 1

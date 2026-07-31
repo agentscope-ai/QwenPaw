@@ -18,6 +18,7 @@ from .context.scroll.continuation_summary import (
 from .middlewares import manual_compact_memory_by_handler
 from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
+from ..config.history_path import resolve_history_db_path
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
 from ..loop.gates.runner import clear_pending_gate_state
@@ -598,7 +599,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
             from .context.scroll.manager import ScrollContextManager
 
             sc = lcc.scroll_config
-            history = HistoryStore(Path(self._workspace_dir) / sc.db_filename)
+            history = HistoryStore(
+                resolve_history_db_path(
+                    self._workspace_dir,
+                    sc.db_filename,
+                ),
+            )
             # Must match the id normal turns persist under (the builder uses
             # ``ctx.session_id``), so these rows align with the live history.
             session_id = (
