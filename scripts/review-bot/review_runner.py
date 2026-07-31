@@ -15,7 +15,10 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import time
+from collections.abc import Sequence
 
 try:  # ``fcntl`` is Unix-only; without it the repo lock is a no-op.
     import fcntl
@@ -53,6 +56,10 @@ QWENPAW_ENH_WORK_DIR = os.environ.get(
 MAP_CONTEXT = int(os.environ.get("MAP_CONTEXT", "20"))
 # Max lines kept per file in the change map.
 MAP_PER_FILE_LINES = int(os.environ.get("MAP_PER_FILE_LINES", "500"))
+# Max characters kept per *line*. A minified or single-line generated file
+# puts its whole diff on one line, where a line budget alone caps nothing,
+# so the streaming reader needs a width cap as well as a height cap.
+MAP_MAX_LINE_CHARS = int(os.environ.get("MAP_MAX_LINE_CHARS", "2000"))
 # Overall cap on the whole change map (safety valve for huge PRs).
 MAP_MAX_LINES = int(os.environ.get("MAP_MAX_LINES", "6000"))
 # Context ladder tried (ascending) when a file fits at MAP_CONTEXT and
@@ -150,6 +157,10 @@ def _git(
     ``errors`` defaults to ``"replace"``, which is right for diff *text*.
     Callers reading **paths** must pass ``"surrogateescape"`` instead, so
     the value round-trips back into a later argv unchanged.
+
+    Only for commands with small, bounded output (rev-parse, merge-base,
+    fetch). Diffs must go through :func:`_git_bounded`, which caps how
+    much is read into memory.
     """
     result = subprocess.run(
         ["git", "-C", repo_dir, *args],
@@ -161,6 +172,92 @@ def _git(
         check=True,
     )
     return result.stdout.strip()
+
+
+def _git_bounded(
+    repo_dir: str,
+    args: Sequence[str],
+    *,
+    max_chars: int,
+    timeout: float,
+    errors: str = "replace",
+) -> tuple[str, bool]:
+    """Run git and read at most ``max_chars`` of stdout, then stop it.
+
+    Returns ``(text, truncated)``. Unlike :func:`_git`, peak memory is
+    bounded by ``max_chars`` no matter how large the real output is: the
+    cap is applied *while* reading rather than to an already-buffered
+    string. That distinction is the whole point here -- a diff taken at
+    near-whole-file context can be tens of megabytes, and decoding it in
+    full just to throw most of it away is what spiked memory before.
+
+    stderr is spooled to a temp file rather than a second pipe, because
+    draining only stdout would deadlock as soon as stderr filled its own
+    64 KiB buffer.
+    """
+    argv = ["git", "-C", repo_dir, *args]
+    expired = threading.Event()
+
+    with tempfile.TemporaryFile("w+b") as err_file:
+        watchdog: threading.Timer | None = None
+        try:
+            with subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=err_file,
+                text=True,
+                encoding="utf-8",
+                errors=errors,
+            ) as proc:
+
+                def _expire() -> None:
+                    # git can also stall while producing *nothing* -- a
+                    # blobless clone fetching this file's blob over the
+                    # network -- where the read below blocks
+                    # indefinitely. Killing the child is what makes the
+                    # timeout real.
+                    expired.set()
+                    proc.kill()
+
+                watchdog = threading.Timer(timeout, _expire)
+                watchdog.start()
+                # A single bounded read: ``TextIOWrapper.read(n)`` returns
+                # exactly n characters or everything up to EOF, so this is
+                # already the streaming cap -- no chunk loop needed. The
+                # one extra character is how we tell "output happens to
+                # end exactly at the cap" from "there is more to come".
+                text = proc.stdout.read(max_chars + 1)
+
+                truncated = len(text) > max_chars
+                if truncated:
+                    text = text[:max_chars]
+                    # Kill before the context manager waits: git is
+                    # blocked writing into a pipe nobody will drain.
+                    proc.kill()
+            # The timer stays armed across ``Popen.__exit__``, whose
+            # ``wait()`` takes no timeout of its own.
+        finally:
+            if watchdog is not None:
+                watchdog.cancel()
+
+        if proc.returncode == 0 or truncated:
+            # Either a clean read, or we stopped git ourselves -- a
+            # non-zero code from our own kill is not a failure. Checked
+            # before ``expired`` so a watchdog that fires in the moment
+            # between a completed read and ``cancel()`` cannot discard
+            # output we already hold.
+            return text, truncated
+
+        err_file.seek(0)
+        stderr_text = err_file.read().decode("utf-8", "replace").strip()
+
+    if expired.is_set():
+        raise subprocess.TimeoutExpired(argv, timeout, stderr=stderr_text)
+    raise subprocess.CalledProcessError(
+        proc.returncode,
+        argv,
+        stderr=stderr_text,
+    )
 
 
 @contextlib.contextmanager
@@ -336,19 +433,41 @@ def _file_diff(
     to_sha: str,
     pathspecs: list[str],
     context: int,
-) -> list[str]:
-    """Return the diff lines for one file at a given context width."""
-    diff = _git(
+    max_lines: int = MAP_PER_FILE_LINES,
+) -> tuple[list[str], bool]:
+    """Return ``(diff_lines, overflowed)`` for one file at a context width.
+
+    ``overflowed`` means git had more to give than the budget allowed --
+    more than ``max_lines`` lines, or more characters than the streaming
+    cap. Callers treat the two identically: the file does not fit at this
+    context width.
+
+    Because the read itself is capped, ``-U{MAP_FULL_CONTEXT}`` is now
+    safe to probe: git is stopped as soon as it exceeds the budget
+    instead of being allowed to hand us a whole large file first.
+    """
+    text, char_truncated = _git_bounded(
         repo_dir,
-        "diff",
-        f"-U{context}",
-        from_sha,
-        to_sha,
-        "--",
-        *pathspecs,
+        [
+            "diff",
+            f"-U{context}",
+            from_sha,
+            to_sha,
+            "--",
+            *pathspecs,
+        ],
+        max_chars=max_lines * MAP_MAX_LINE_CHARS,
         timeout=DIFF_TIMEOUT,
     )
-    return diff.splitlines()
+    lines = text.splitlines()
+    overflowed = char_truncated or len(lines) > max_lines
+    # Every line is capped to the same width, so a line the character cap
+    # happened to slice is no more misleading than a legitimately long one
+    # -- and keeping it preserves the start of the change. The caller
+    # appends a truncation marker whenever ``overflowed`` is set, so a
+    # partial tail is never presented as the whole story.
+    kept = [line[:MAP_MAX_LINE_CHARS] for line in lines[:max_lines]]
+    return kept, overflowed
 
 
 def _diff_with_adaptive_context(
@@ -368,28 +487,33 @@ def _diff_with_adaptive_context(
     Returns ``(diff_lines, truncated)``. When truncated, the caller
     appends a marker pointing at the full-file fetch instruction.
     """
-    floor = _file_diff(repo_dir, from_sha, to_sha, pathspecs, MAP_CONTEXT)
+    floor, overflowed = _file_diff(
+        repo_dir,
+        from_sha,
+        to_sha,
+        pathspecs,
+        MAP_CONTEXT,
+    )
 
-    # Case 1: even minimum context overflows -> truncate the floor diff.
-    if len(floor) > MAP_PER_FILE_LINES:
-        total = len(floor)
-        kept = floor[:MAP_PER_FILE_LINES]
-        kept.append(
-            f"... (diff truncated: {total} lines at {MAP_CONTEXT}-line "
-            f"context, showing the first {MAP_PER_FILE_LINES} — read the "
-            f'complete file with the "Full-file fetch" command in Step 2) ...',
+    # Case 1: even minimum context overflows -> keep the truncated floor.
+    if overflowed:
+        floor.append(
+            f"... (diff truncated: showing the first {MAP_PER_FILE_LINES} "
+            f"lines at {MAP_CONTEXT}-line context; more changes follow — "
+            f'read the complete file with the "Full-file fetch" command '
+            f"in Step 2) ...",
         )
-        return kept, True
+        return floor, True
 
     # Case 2: room to spare -> prefer whole-file context if it fits.
-    full = _file_diff(
+    full, full_overflowed = _file_diff(
         repo_dir,
         from_sha,
         to_sha,
         pathspecs,
         MAP_FULL_CONTEXT,
     )
-    if len(full) <= MAP_PER_FILE_LINES:
+    if not full_overflowed:
         return full, False
 
     # Case 3: whole file too big -> climb the ladder, keep the widest fit.
@@ -397,11 +521,16 @@ def _diff_with_adaptive_context(
     for ctx in MAP_CONTEXT_LADDER:
         if ctx <= MAP_CONTEXT:
             continue
-        widened = _file_diff(repo_dir, from_sha, to_sha, pathspecs, ctx)
-        if len(widened) <= MAP_PER_FILE_LINES:
-            best = widened
-        else:
+        widened, widened_overflowed = _file_diff(
+            repo_dir,
+            from_sha,
+            to_sha,
+            pathspecs,
+            ctx,
+        )
+        if widened_overflowed:
             break  # context is monotonic; nothing larger will fit
+        best = widened
     return best, False
 
 
