@@ -30,6 +30,12 @@ import { DesktopUpdateProvider } from "./contexts/DesktopUpdateContext";
 import { UpdateTakeoverGate } from "./components/UpdateTakeoverPage";
 import { Suspense, lazy } from "react";
 import { lazyImportWithRetry } from "./utils/lazyWithRetry";
+import {
+  getLoginHref,
+  getLoginPath,
+  getRouterBasename,
+  isOsPath,
+} from "./utils/navigationMode";
 
 const LoginPage = lazyImportWithRetry("./pages/Login/index");
 // Desktop OS shell. Uses React.lazy (not lazyImportWithRetry, which only
@@ -121,32 +127,15 @@ function AuthGuard({
 
   if (status === "loading") return null;
   if (status === "auth-required") {
-    const loginTo = `/login?redirect=${encodeURIComponent(
-      window.location.pathname,
-    )}`;
+    const loginTo = getLoginPath(window.location);
     if (useHardRedirect) {
       // The OS shell renders outside a Router, so <Navigate> is unavailable.
-      const base = getRouterBasename(window.location.pathname) ?? "";
-      window.location.replace(`${base}${loginTo}`);
+      window.location.replace(getLoginHref(window.location));
       return null;
     }
     return <Navigate to={loginTo} replace />;
   }
   return <>{children}</>;
-}
-
-function getRouterBasename(pathname: string): string | undefined {
-  return /^\/console(?:\/|$)/.test(pathname) ? "/console" : undefined;
-}
-
-/**
- * Whether the current path should render the Desktop OS shell. Root ("/") is
- * the default landing page, plus the explicit "/os" path (with optional
- * "/console" basename).
- */
-function isOsPath(pathname: string): boolean {
-  const p = pathname.replace(/^\/console/, "");
-  return p === "" || p === "/" || p === "/os" || p.startsWith("/os/");
 }
 
 function AppInner() {

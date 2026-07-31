@@ -15,6 +15,7 @@ export const SETTINGS_APP_ID = "os.settings";
 export interface RouteLike {
   id: string;
   path: string;
+  source?: string;
 }
 
 /**
@@ -51,19 +52,70 @@ export function topSegment(pathname: string): string {
   return noQuery.replace(/^\/+/, "").split("/")[0] || "";
 }
 
+function normalizePath(path: string): string {
+  const clean = path.split(/[?#]/, 1)[0].replace(/\/+$/, "");
+  return clean || "/";
+}
+
+function routeMatchScore(pathname: string, routePath: string): number {
+  const path = normalizePath(pathname);
+  const pattern = normalizePath(routePath);
+  const pathParts = path.split("/").filter(Boolean);
+  const patternParts = pattern.split("/").filter(Boolean);
+  let score = 0;
+
+  if (patternParts.length === 0) {
+    return pathParts.length === 0 ? 1000 : -1;
+  }
+
+  for (let index = 0; index < patternParts.length; index += 1) {
+    const part = patternParts[index];
+    if (part === "*") return score + 1;
+    const current = pathParts[index];
+    if (!current) return -1;
+    if (part.startsWith(":")) {
+      score += 2;
+    } else if (part === current) {
+      score += part.length + 4;
+    } else {
+      return -1;
+    }
+  }
+
+  if (pathParts.length === patternParts.length) return score + 1000;
+  return score;
+}
+
+function bundleRouteId(route: RouteLike, routes: RouteLike[]): string {
+  if (route.source === undefined || route.source === "core") return route.id;
+  return (
+    routes.find(
+      (candidate) =>
+        candidate.source === route.source &&
+        candidate.path.startsWith("/apps/"),
+    )?.id ?? route.id
+  );
+}
+
 /**
- * Resolve a navigation target pathname to a route id by matching its top
- * segment against the registered routes' bases. Returns undefined when no
- * app owns the path.
+ * Resolve a navigation target pathname to the most specific registered app.
+ * Static paths beat parameterized parents, so `/apps/office` maps to the
+ * Office PawApp instead of the aggregate `/apps/:appId` route. Every route
+ * contributed by the same PawApp source maps back to its bundle window.
  */
 export function pathToRouteId(
   pathname: string,
   routes: RouteLike[],
 ): string | undefined {
-  const seg = topSegment(pathname);
-  if (!seg) return undefined;
+  if (normalizePath(pathname) === "/") return undefined;
+  let best: RouteLike | undefined;
+  let bestScore = -1;
   for (const r of routes) {
-    if (topSegment(baseFromRoutePath(r.path)) === seg) return r.id;
+    const score = routeMatchScore(pathname, r.path);
+    if (score > bestScore) {
+      best = r;
+      bestScore = score;
+    }
   }
-  return undefined;
+  return best ? bundleRouteId(best, routes) : undefined;
 }

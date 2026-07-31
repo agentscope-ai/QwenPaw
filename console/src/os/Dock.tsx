@@ -40,7 +40,11 @@ export default function Dock({ revealed = true }: { revealed?: boolean }) {
   const runningIds = useMemo(() => new Set(order), [order]);
 
   return (
-    <div className={cx(styles.dock, !revealed && styles.dockHidden)}>
+    <div
+      className={cx(styles.dock, !revealed && styles.dockHidden)}
+      role="toolbar"
+      aria-label={t("os.dock", "Dock")}
+    >
       {/* Launchpad-style entry */}
       <div
         className={styles.dockItem}
@@ -100,9 +104,9 @@ export default function Dock({ revealed = true }: { revealed?: boolean }) {
               className={styles.dockItem}
               onMouseEnter={() => setHovered(a.routeId)}
               onMouseLeave={() => setHovered(null)}
-              onClick={() => open(a.routeId)}
+              onClick={() => (running ? focus(a.routeId) : open(a.routeId))}
               {...buttonRoleProps(
-                () => open(a.routeId),
+                () => (running ? focus(a.routeId) : open(a.routeId)),
                 t(a.labelKey, a.fallback),
               )}
             >

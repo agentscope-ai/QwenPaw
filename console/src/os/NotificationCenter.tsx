@@ -20,6 +20,7 @@ import {
   type NotifyKind,
 } from "./osNotifyStore";
 import { useOsStyles, ACCENT } from "./useOsStyles";
+import { buttonRoleProps } from "./a11y";
 
 const INBOX_ROUTE = "core.inbox";
 const INBOX_TAB_KEY = "qwenpaw.inbox.activeTab";
@@ -128,6 +129,8 @@ function Toast({ item }: { item: OsNotifyItem }) {
   return (
     <div
       className={cx(styles.toast, styles.toastEnter)}
+      role="status"
+      aria-live="polite"
       onClick={() => {
         openInbox(item.kind);
         dismiss(item.id);
@@ -153,6 +156,7 @@ function Toast({ item }: { item: OsNotifyItem }) {
       <button
         className={styles.toastClose}
         title={t("common.close", "Close")}
+        aria-label={t("common.close", "Close")}
         onClick={(e) => {
           e.stopPropagation();
           dismiss(item.id);
@@ -182,7 +186,12 @@ export default function NotificationCenter() {
 
       {/* Notification Center panel */}
       {centerOpen && (
-        <div className={styles.ncPanel}>
+        <div
+          className={styles.ncPanel}
+          role="dialog"
+          aria-modal="false"
+          aria-label={t("os.notifications", "Notifications")}
+        >
           <div className={styles.ncHeader}>
             <span className={styles.ncTitle}>
               <Bell size={15} />
@@ -192,6 +201,7 @@ export default function NotificationCenter() {
               <button
                 className={styles.ncIconBtn}
                 title={t("os.clearAll", "Clear all")}
+                aria-label={t("os.clearAll", "Clear all")}
                 onClick={clearHistory}
               >
                 <Trash2 size={15} />
@@ -199,6 +209,7 @@ export default function NotificationCenter() {
               <button
                 className={styles.ncIconBtn}
                 title={t("common.close", "Close")}
+                aria-label={t("common.close", "Close")}
                 onClick={() => setCenter(false)}
               >
                 <X size={16} />
@@ -221,6 +232,10 @@ export default function NotificationCenter() {
                     openInbox(item.kind);
                     setCenter(false);
                   }}
+                  {...buttonRoleProps(() => {
+                    openInbox(item.kind);
+                    setCenter(false);
+                  }, item.title)}
                 >
                   <div className={styles.ncItemIcon}>
                     <KindIcon kind={item.kind} size={16} />

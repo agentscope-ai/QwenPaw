@@ -65,6 +65,31 @@ afterEach(() => {
 });
 
 describe("WindowFrame drag", () => {
+  it("supports keyboard move and resize alternatives", () => {
+    renderWithProviders(
+      <WindowFrame
+        win={winA}
+        title="Chat A"
+        Icon={MessageSquare}
+        accent="#3b82f6"
+        isMobile={false}
+      >
+        <div>a-content</div>
+      </WindowFrame>,
+    );
+
+    const frame = screen.getByRole("group", { name: "Chat A" });
+    fireEvent.keyDown(frame, { key: "ArrowRight", altKey: true });
+    expect(useOsWindows.getState().windows["core.chat"].x).toBe(120);
+
+    fireEvent.keyDown(frame, {
+      key: "ArrowDown",
+      altKey: true,
+      shiftKey: true,
+    });
+    expect(useOsWindows.getState().windows["core.chat"].h).toBe(520);
+  });
+
   it("keeps the store untouched during pointermove and commits once on pointerup", () => {
     const onRenderB = vi.fn();
     renderWithProviders(

@@ -9,7 +9,14 @@
  * Reachable at /os (registered in App.tsx) — isolated from MainLayout so the
  * classic sidebar layout is untouched.
  */
-import { Suspense, useMemo, useEffect, useState, useCallback } from "react";
+import {
+  Suspense,
+  useMemo,
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { App, Dropdown, Spin } from "antd";
 import { Command, Trash2, Image as ImageIcon } from "lucide-react";
@@ -28,7 +35,8 @@ import { useOsNotifyPoller } from "./useOsNotifyPoller";
 import { purgeAppState, purgePluginAppState } from "./osCleanup";
 import WindowFrame from "./WindowFrame";
 import WindowRouter from "./WindowRouter";
-import { baseFromRoutePath } from "./osRouteMap";
+import { baseFromRoutePath, pathToRouteId } from "./osRouteMap";
+import { useOsRoute } from "./osRouteStore";
 import MenuBar from "./MenuBar";
 import Dock from "./Dock";
 import SpacesPanel from "./SpacesPanel";
@@ -45,6 +53,16 @@ import ConsolePollService from "../components/ConsolePollService";
 import WallpaperPicker from "./WallpaperPicker";
 import { useOsWallpaper } from "./osWallpaperStore";
 import { wallpaperBackground } from "./wallpapers";
+import { buttonRoleProps } from "./a11y";
+import {
+  getPawAppIdFromPath,
+  setActivePawAppId,
+} from "../plugins/pawapp-sdk/context";
+import {
+  getOsAppHref,
+  getOsRootHref,
+  stripRouterBasename,
+} from "../utils/navigationMode";
 import "./osWindowBody.css";
 
 /** Session flag so the boot splash plays once per browser session. */
@@ -59,7 +77,7 @@ function shouldPlayBoot(): boolean {
 }
 
 export default function DesktopOS() {
-  const { styles } = useOsStyles();
+  const { styles, cx } = useOsStyles();
   const { t } = useTranslation();
   const { message } = App.useApp();
   const isMobile = useIsMobile();
@@ -69,6 +87,7 @@ export default function DesktopOS() {
   const {
     windows,
     order,
+    activeId,
     open,
     launcherOpen,
     setLauncher,
@@ -80,6 +99,7 @@ export default function DesktopOS() {
     useShallow((s) => ({
       windows: s.windows,
       order: s.order,
+      activeId: s.activeId,
       open: s.open,
       launcherOpen: s.launcherOpen,
       setLauncher: s.setLauncher,
@@ -99,6 +119,7 @@ export default function DesktopOS() {
   // Desktop right-click menu and wallpaper picker overlay.
   const [wpOpen, setWpOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [selectedIconId, setSelectedIconId] = useState<string | null>(null);
 
   // Power-on splash: overlays the desktop, fades out, then unmounts. Played
   // once per browser session (survives OS <-> classic layout switches).
@@ -181,11 +202,46 @@ export default function DesktopOS() {
   }, [routes]);
 
   // Map route id -> registry path so each window can seed its own router base.
-  const routePathById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const r of routes) map.set(r.id, r.path);
+  const routeById = useMemo(() => {
+    const map = new Map<string, (typeof routes)[number]>();
+    for (const route of routes) map.set(route.id, route);
     return map;
   }, [routes]);
+
+  const restoredDeepLink = useRef(false);
+  useEffect(() => {
+    if (restoredDeepLink.current) return;
+    restoredDeepLink.current = true;
+    const appPath = stripRouterBasename(window.location.pathname).replace(
+      /^\/os(?=\/|$)/,
+      "",
+    );
+    if (!appPath || appPath === "/") return;
+    const routeId = pathToRouteId(appPath, routes);
+    if (routeId) useOsRoute.getState().openApp(routeId, appPath);
+  }, [routes]);
+
+  // Keep the browser path OS-owned and expose the focused PawApp id to the
+  // legacy SDK without letting app windows navigate the top-level document.
+  useEffect(() => {
+    const activeRoute = activeId ? routeById.get(activeId) : undefined;
+    const pawAppId =
+      activeRoute?.source !== "core" && activeRoute?.path.startsWith("/apps/")
+        ? getPawAppIdFromPath(activeRoute.path)
+        : "";
+    setActivePawAppId(pawAppId || null);
+    const browserPath = pawAppId
+      ? getOsAppHref(
+          window.location.pathname,
+          baseFromRoutePath(activeRoute?.path),
+        )
+      : getOsRootHref(window.location.pathname);
+    if (
+      `${window.location.pathname}${window.location.search}` !== browserPath
+    ) {
+      window.history.replaceState({ osApp: activeId }, "", browserPath);
+    }
+  }, [activeId, routeById]);
 
   const openWindows = order
     .map((id) => windows[id])
@@ -237,11 +293,22 @@ export default function DesktopOS() {
     const Icon = a.Icon;
     const uninstallable =
       Boolean(a.source) || OS_APPS.some((o) => o.routeId === a.routeId);
+    const activate = () => open(a.routeId);
     const iconEl = (
       <div
-        className={styles.desktopIcon}
-        onDoubleClick={() => open(a.routeId)}
-        onClick={() => isMobile && open(a.routeId)}
+        className={cx(
+          styles.desktopIcon,
+          selectedIconId === a.routeId && styles.desktopIconSelected,
+        )}
+        onDoubleClick={activate}
+        onClick={(event) => {
+          event.stopPropagation();
+          setSelectedIconId(a.routeId);
+          if (isMobile) activate();
+        }}
+        onFocus={() => setSelectedIconId(a.routeId)}
+        title={t(a.labelKey, a.fallback)}
+        {...buttonRoleProps(activate, t(a.labelKey, a.fallback))}
       >
         <div className={styles.iconTile} style={{ background: a.accent }}>
           <Icon size={26} />
@@ -275,6 +342,7 @@ export default function DesktopOS() {
       className={styles.desktop}
       style={{ background: wallpaperBackground(wallpaperId) }}
       onPointerDown={() => {
+        setSelectedIconId(null);
         if (launcherOpen) setLauncher(false);
         if (ctxMenu) setCtxMenu(null);
       }}
@@ -358,7 +426,7 @@ export default function DesktopOS() {
                   ) : Component ? (
                     <WindowRouter
                       routeId={win.id}
-                      base={baseFromRoutePath(routePathById.get(win.id))}
+                      base={baseFromRoutePath(routeById.get(win.id)?.path)}
                       element={<Component />}
                     />
                   ) : null}
@@ -387,14 +455,24 @@ export default function DesktopOS() {
       {ctxMenu && (
         <div
           className={styles.desktopMenu}
+          role="menu"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onPointerDown={(e) => e.stopPropagation()}
         >
           <div
             className={styles.desktopMenuItem}
+            role="menuitem"
+            tabIndex={0}
             onClick={() => {
               setWpOpen(true);
               setCtxMenu(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setWpOpen(true);
+                setCtxMenu(null);
+              }
             }}
           >
             <ImageIcon size={15} />

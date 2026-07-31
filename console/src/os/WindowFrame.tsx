@@ -21,6 +21,7 @@ import {
 } from "react";
 import { theme as antdTheme } from "antd";
 import { Minus, X, Maximize2, type LucideIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { useTheme } from "../contexts/ThemeContext";
 import { useOsWindows, type OsWindow, type OsRect } from "./osWindowStore";
@@ -142,6 +143,7 @@ export default function WindowFrame({
   children,
 }: WindowFrameProps) {
   const { styles, cx } = useOsStyles();
+  const { t } = useTranslation();
   const { isDark } = useTheme();
   const { token } = antdTheme.useToken();
   // Actions only (referentially stable) + a boolean activity flag — this
@@ -174,6 +176,39 @@ export default function WindowFrame({
   const [minimizing, setMinimizing] = useState(false);
 
   const isFull = win.maximized || isMobile;
+  const closeLabel = t("common.close", "Close");
+  const minimizeLabel = t("os.minimize", "Minimize");
+  const zoomLabel = isFull
+    ? t("common.restore", "Restore")
+    : t("os.zoom", "Zoom");
+
+  const onWindowKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.target !== event.currentTarget || !event.altKey || isFull) {
+        return;
+      }
+      const step = 20;
+      const direction = {
+        ArrowLeft: [-step, 0],
+        ArrowRight: [step, 0],
+        ArrowUp: [0, -step],
+        ArrowDown: [0, step],
+      }[event.key];
+      if (!direction) return;
+
+      event.preventDefault();
+      const [dx, dy] = direction;
+      if (event.shiftKey) {
+        resize(win.id, {
+          w: Math.max(minW, win.w + dx),
+          h: Math.max(minH, win.h + dy),
+        });
+      } else {
+        move(win.id, Math.max(0, win.x + dx), Math.max(MENUBAR_H, win.y + dy));
+      }
+    },
+    [isFull, minH, minW, move, resize, win],
+  );
 
   // Write the pending gesture rect to the DOM (idempotent, cheap no-op
   // when no gesture is in flight).
@@ -400,6 +435,12 @@ export default function WindowFrame({
       )}
       style={geometry}
       onPointerDown={() => focus(win.id)}
+      onFocus={() => focus(win.id)}
+      onKeyDown={onWindowKeyDown}
+      role="group"
+      tabIndex={0}
+      aria-label={title}
+      aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown Alt+Shift+ArrowLeft Alt+Shift+ArrowRight Alt+Shift+ArrowUp Alt+Shift+ArrowDown"
     >
       {snapZone && <SnapPreview zone={snapZone} />}
       <div
@@ -410,31 +451,36 @@ export default function WindowFrame({
         onPointerCancel={endDrag}
         onLostPointerCapture={endDrag}
         onDoubleClick={() => !isMobile && toggleMaximize(win.id)}
+        data-active={isActive ? "true" : "false"}
       >
         <div className={styles.lights}>
           <button
             className={cx(styles.light, styles.lightClose)}
-            title="Close"
+            title={closeLabel}
+            aria-label={closeLabel}
             onClick={() => close(win.id)}
           >
             <X size={8} strokeWidth={3} />
           </button>
           <button
             className={cx(styles.light, styles.lightMin)}
-            title="Minimize"
+            title={minimizeLabel}
+            aria-label={minimizeLabel}
             onClick={handleMinimize}
           >
             <Minus size={8} strokeWidth={3} />
           </button>
           <button
             className={cx(styles.light, styles.lightMax)}
-            title="Zoom"
+            title={zoomLabel}
+            aria-label={zoomLabel}
+            disabled={isMobile}
             onClick={() => !isMobile && toggleMaximize(win.id)}
           >
             <Maximize2 size={7} strokeWidth={3} />
           </button>
         </div>
-        <div className={styles.macTitle}>
+        <div className={styles.macTitle} title={title}>
           <Icon size={14} color={accent} />
           {title}
         </div>

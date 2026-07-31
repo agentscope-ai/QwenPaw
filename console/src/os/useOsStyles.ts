@@ -20,6 +20,13 @@ export const MENUBAR_H = 28;
 /** Reserved bottom band for the floating Dock. */
 export const DOCK_H = 78;
 
+const RADIUS_WINDOW = 14;
+const RADIUS_PANEL = 18;
+const RADIUS_CONTROL = 9;
+const MOTION_FAST = "140ms";
+const MOTION_BASE = "220ms";
+const MOTION_SPRING = "cubic-bezier(0.22, 1, 0.36, 1)";
+
 /** Semantic colour roles for the OS chrome (dark / light variants below). */
 interface OsPalette {
   textStrong: string;
@@ -68,20 +75,20 @@ const DARK: OsPalette = {
   textMuted: "#94a3b8",
   textFaint: "#64748b",
   hoverText: "#fff",
-  winBg: "rgba(15, 23, 42, 0.86)",
-  panelBg: "rgba(15, 23, 42, 0.95)",
-  barBg: "rgba(2, 6, 23, 0.58)",
-  barBgStrong: "rgba(2, 6, 23, 0.72)",
-  cardBg: "rgba(2, 6, 23, 0.45)",
-  floatBg: "rgba(30, 41, 59, 0.55)",
-  floatBgHover: "rgba(30, 41, 59, 0.8)",
-  toastBg: "rgba(30, 41, 59, 0.92)",
-  winCardBg: "rgba(15, 23, 42, 0.7)",
-  overlayBg: "rgba(2, 6, 23, 0.72)",
-  dimBg: "rgba(2, 6, 23, 0.5)",
-  inputBg: "rgba(2, 6, 23, 0.6)",
-  tooltipBg: "rgba(2, 6, 23, 0.9)",
-  sideBg: "rgba(2, 6, 23, 0.3)",
+  winBg: "rgba(24, 24, 27, 0.9)",
+  panelBg: "rgba(28, 28, 30, 0.94)",
+  barBg: "rgba(30, 30, 32, 0.62)",
+  barBgStrong: "rgba(24, 24, 27, 0.8)",
+  cardBg: "rgba(63, 63, 70, 0.32)",
+  floatBg: "rgba(54, 54, 58, 0.58)",
+  floatBgHover: "rgba(72, 72, 78, 0.78)",
+  toastBg: "rgba(38, 38, 42, 0.9)",
+  winCardBg: "rgba(39, 39, 42, 0.72)",
+  overlayBg: "rgba(9, 9, 11, 0.62)",
+  dimBg: "rgba(9, 9, 11, 0.52)",
+  inputBg: "rgba(82, 82, 91, 0.32)",
+  tooltipBg: "rgba(28, 28, 30, 0.94)",
+  sideBg: "rgba(9, 9, 11, 0.22)",
   hoverBg: "rgba(255, 255, 255, 0.08)",
   hoverBgStrong: "rgba(255, 255, 255, 0.1)",
   subtleBg: "rgba(255, 255, 255, 0.06)",
@@ -95,10 +102,10 @@ const DARK: OsPalette = {
   dockDivider: "rgba(255, 255, 255, 0.16)",
   badgeRing: "rgba(30, 41, 59, 0.9)",
   shadowWindow:
-    "0 30px 70px rgba(0, 0, 0, 0.62), 0 10px 24px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.08)",
-  shadowPanel: "0 24px 60px rgba(0, 0, 0, 0.6)",
-  shadowFloat: "0 12px 40px rgba(0, 0, 0, 0.5)",
-  shadowToast: "0 14px 40px rgba(0, 0, 0, 0.5)",
+    "0 36px 90px rgba(0, 0, 0, 0.46), 0 12px 30px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.08)",
+  shadowPanel: "0 28px 70px rgba(0, 0, 0, 0.42)",
+  shadowFloat: "0 18px 44px rgba(0, 0, 0, 0.34)",
+  shadowToast: "0 18px 46px rgba(0, 0, 0, 0.34)",
 };
 
 const LIGHT: OsPalette = {
@@ -108,10 +115,10 @@ const LIGHT: OsPalette = {
   textMuted: "#64748b",
   textFaint: "#94a3b8",
   hoverText: "#0f172a",
-  winBg: "rgba(250, 250, 252, 0.9)",
-  panelBg: "rgba(255, 255, 255, 0.95)",
-  barBg: "rgba(255, 255, 255, 0.65)",
-  barBgStrong: "rgba(255, 255, 255, 0.78)",
+  winBg: "rgba(246, 246, 248, 0.92)",
+  panelBg: "rgba(250, 250, 252, 0.94)",
+  barBg: "rgba(246, 246, 248, 0.68)",
+  barBgStrong: "rgba(246, 246, 248, 0.84)",
   cardBg: "rgba(255, 255, 255, 0.72)",
   floatBg: "rgba(255, 255, 255, 0.6)",
   floatBgHover: "rgba(255, 255, 255, 0.85)",
@@ -135,10 +142,10 @@ const LIGHT: OsPalette = {
   dockDivider: "rgba(15, 23, 42, 0.12)",
   badgeRing: "#ffffff",
   shadowWindow:
-    "0 30px 70px rgba(15, 23, 42, 0.18), 0 10px 24px rgba(15, 23, 42, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.7)",
-  shadowPanel: "0 24px 60px rgba(15, 23, 42, 0.16)",
-  shadowFloat: "0 12px 40px rgba(15, 23, 42, 0.15)",
-  shadowToast: "0 14px 40px rgba(15, 23, 42, 0.15)",
+    "0 34px 84px rgba(15, 23, 42, 0.16), 0 10px 28px rgba(15, 23, 42, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.85)",
+  shadowPanel: "0 26px 64px rgba(15, 23, 42, 0.14)",
+  shadowFloat: "0 16px 42px rgba(15, 23, 42, 0.14)",
+  shadowToast: "0 18px 44px rgba(15, 23, 42, 0.13)",
 };
 
 /** Stable props objects so antd-style can memoise per theme. */
@@ -151,7 +158,7 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     inset: 0;
     overflow: hidden;
     user-select: none;
-    color: #e2e8f0;
+    color: #f4f4f5;
     background: linear-gradient(135deg, #0b1120 0%, #14162e 50%, #1e1b4b 100%);
     font-family:
       "Inter",
@@ -159,6 +166,21 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
       BlinkMacSystemFont,
       "Segoe UI",
       sans-serif;
+    isolation: isolate;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+    @media (prefers-reduced-motion: reduce) {
+      &,
+      & * {
+        scroll-behavior: auto !important;
+        animation-duration: 1ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 1ms !important;
+      }
+    }
+    @media (max-width: 768px) {
+      min-height: 100dvh;
+    }
   `,
   iconsGrid: css`
     position: absolute;
@@ -170,42 +192,69 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     gap: 8px;
     z-index: 0;
     align-content: start;
+    @media (max-width: 768px) {
+      inset: ${MENUBAR_H + 8}px 0 ${DOCK_H + 10}px;
+      grid-auto-flow: row;
+      grid-template-rows: none;
+      grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+      align-content: start;
+      overflow-y: auto;
+      padding: 16px 12px;
+    }
   `,
   desktopIcon: css`
     width: 84px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 10px 6px;
-    border-radius: 12px;
+    gap: 7px;
+    padding: 9px 6px 8px;
+    border-radius: 13px;
+    outline: none;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition:
+      background ${MOTION_FAST} ease,
+      box-shadow ${MOTION_FAST} ease;
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.1);
     }
     &:hover > div {
-      transform: translateY(-3px) scale(1.06);
+      transform: translateY(-2px) scale(1.035);
       box-shadow:
         0 14px 28px rgba(0, 0, 0, 0.5),
         inset 0 1px 0 rgba(255, 255, 255, 0.4),
         inset 0 -2px 6px rgba(0, 0, 0, 0.28);
     }
     span {
+      padding: 2px 6px;
+      border-radius: 5px;
       font-size: 12px;
+      line-height: 16px;
       text-align: center;
-      color: #cbd5e1;
-      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+      color: #fafafa;
+      background: rgba(9, 9, 11, 0.26);
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.72);
       max-width: 100%;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    &:focus-visible {
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
+    }
+  `,
+  desktopIconSelected: css`
+    background: rgba(255, 255, 255, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+    span {
+      background: rgba(0, 102, 255, 0.82);
+      color: #fff;
+    }
   `,
   iconTile: css`
     width: 52px;
     height: 52px;
-    border-radius: 14px;
+    border-radius: 13px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -215,8 +264,8 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
       inset 0 1px 0 rgba(255, 255, 255, 0.35),
       inset 0 -2px 6px rgba(0, 0, 0, 0.25);
     transition:
-      transform 0.15s ease,
-      box-shadow 0.15s ease;
+      transform ${MOTION_FAST} ${MOTION_SPRING},
+      box-shadow ${MOTION_FAST} ease;
   `,
   windowsLayer: css`
     position: absolute;
@@ -229,16 +278,29 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-radius: 12px;
+    border-radius: ${RADIUS_WINDOW}px;
     pointer-events: auto;
+    outline: none;
     background: ${p.winBg};
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: saturate(1.18) blur(22px);
+    -webkit-backdrop-filter: saturate(1.18) blur(22px);
     border: 1px solid ${p.border};
     box-shadow: ${p.shadowWindow};
+    transition:
+      border-color ${MOTION_BASE} ease,
+      box-shadow ${MOTION_BASE} ease,
+      opacity ${MOTION_BASE} ease;
+    &:focus-visible {
+      box-shadow:
+        ${p.shadowWindow},
+        0 0 0 2px rgba(255, 127, 22, 0.74);
+    }
   `,
   windowActive: css`
-    border-color: rgba(255, 127, 22, 0.4);
+    border-color: rgba(255, 255, 255, 0.24);
+    box-shadow:
+      ${p.shadowWindow},
+      0 0 0 1px rgba(255, 127, 22, 0.12);
   `,
   header: css`
     height: 40px;
@@ -415,63 +477,128 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   // ── Launcher ─────────────────────────────────────────────────────────────
   launcher: css`
     position: absolute;
-    left: 50%;
-    bottom: ${DOCK_H + 12}px;
-    transform: translateX(-50%);
-    width: min(620px, 92vw);
-    max-height: 460px;
+    inset: 0;
     z-index: 60;
     display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: max(64px, 8vh) clamp(16px, 5vw, 72px) ${DOCK_H + 24}px;
+    background: ${p.dimBg};
+    backdrop-filter: saturate(1.15) blur(28px);
+    -webkit-backdrop-filter: saturate(1.15) blur(28px);
+    animation: launcherIn ${MOTION_BASE} ${MOTION_SPRING};
+    @keyframes launcherIn {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+    @media (max-width: 768px) {
+      padding: 54px 14px ${DOCK_H + 18}px;
+      align-items: flex-start;
+    }
+  `,
+  launcherSurface: css`
+    width: min(920px, 100%);
+    max-height: 100%;
+    display: flex;
     flex-direction: column;
-    padding: 18px;
-    border-radius: 16px;
-    background: ${p.panelBg};
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    border: 1px solid ${p.border};
-    box-shadow: ${p.shadowPanel};
+    align-items: center;
   `,
   launcherSearch: css`
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 12px;
-    margin-bottom: 14px;
-    border-radius: 10px;
-    background: ${p.inputBg};
-    border: 1px solid ${p.border};
+    width: min(420px, 100%);
+    min-height: 44px;
+    padding: 0 15px;
+    margin-bottom: clamp(24px, 5vh, 48px);
+    border-radius: 13px;
+    color: ${p.textMuted};
+    background: ${p.floatBg};
+    border: 1px solid ${p.borderStrong};
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
     input {
       flex: 1;
+      min-width: 0;
       background: transparent;
       border: none;
       outline: none;
       color: ${p.text};
-      font-size: 14px;
+      font-size: 15px;
+      &::placeholder {
+        color: ${p.textMuted};
+      }
+    }
+    &:focus-within {
+      border-color: rgba(255, 255, 255, 0.36);
+      box-shadow:
+        0 8px 28px rgba(0, 0, 0, 0.14),
+        0 0 0 3px rgba(255, 127, 22, 0.18);
     }
   `,
   launcherGrid: css`
+    width: 100%;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+    gap: clamp(16px, 3vw, 30px) clamp(12px, 2vw, 24px);
     overflow-y: auto;
+    padding: 4px 8px 24px;
+    align-content: start;
+    @media (max-width: 768px) {
+      grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+      gap: 16px 8px;
+    }
   `,
   launcherItem: css`
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 14px 8px;
-    border-radius: 12px;
+    gap: 10px;
+    min-height: 108px;
+    padding: 10px 8px;
+    border-radius: 15px;
+    outline: none;
     cursor: pointer;
-    transition: background 0.12s ease;
+    transition:
+      background ${MOTION_FAST} ease,
+      transform ${MOTION_FAST} ${MOTION_SPRING};
     &:hover {
       background: ${p.subtleBg};
+      transform: translateY(-2px);
     }
     span {
-      font-size: 12px;
-      color: ${p.textSecondary};
+      max-width: 120px;
+      font-size: 13px;
+      line-height: 17px;
+      color: ${p.text};
       text-align: center;
+      text-shadow: 0 1px 5px rgba(0, 0, 0, 0.28);
     }
+    &:focus-visible {
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.72);
+    }
+  `,
+  launcherIcon: css`
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    box-shadow:
+      0 12px 24px rgba(0, 0, 0, 0.28),
+      inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  `,
+  launcherEmpty: css`
+    grid-column: 1 / -1;
+    padding: 48px 16px;
+    color: ${p.textSecondary};
+    font-size: 14px;
+    text-align: center;
   `,
   emptyHint: css`
     position: absolute;
@@ -483,7 +610,7 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     gap: 18px;
     color: ${ACCENT};
     pointer-events: none;
-    opacity: 0.1;
+    opacity: 0.055;
     z-index: 0;
     svg {
       filter: drop-shadow(0 8px 28px rgba(0, 0, 0, 0.4));
@@ -691,12 +818,12 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     z-index: 80;
     display: flex;
     flex-direction: column;
-    padding: 24px 32px;
+    padding: clamp(20px, 4vw, 48px);
     gap: 20px;
     background: ${p.overlayBg};
-    backdrop-filter: blur(22px);
-    -webkit-backdrop-filter: blur(22px);
-    animation: mcFade 0.18s ease-out;
+    backdrop-filter: saturate(1.1) blur(26px);
+    -webkit-backdrop-filter: saturate(1.1) blur(26px);
+    animation: mcFade ${MOTION_BASE} ease-out;
     @keyframes mcFade {
       from {
         opacity: 0;
@@ -704,6 +831,10 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
       to {
         opacity: 1;
       }
+    }
+    @media (max-width: 768px) {
+      padding: 48px 14px ${DOCK_H + 18}px;
+      gap: 14px;
     }
   `,
   mcSpaces: css`
@@ -718,7 +849,7 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   mcSpaceCard: css`
     width: 176px;
     height: 104px;
-    border-radius: 12px;
+    border-radius: ${RADIUS_WINDOW}px;
     background: ${p.floatBg};
     border: 2px solid transparent;
     display: flex;
@@ -727,11 +858,18 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     justify-content: center;
     gap: 8px;
     cursor: pointer;
-    transition: all 0.15s ease;
+    outline: none;
+    transition:
+      background ${MOTION_FAST} ease,
+      border-color ${MOTION_FAST} ease,
+      transform ${MOTION_FAST} ${MOTION_SPRING};
     color: ${p.text};
     &:hover {
       background: ${p.floatBgHover};
       transform: translateY(-2px);
+    }
+    &:focus-visible {
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.72);
     }
     .avatar {
       width: 40px;
@@ -755,6 +893,10 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
       font-size: 11px;
       color: ${p.textMuted};
     }
+    @media (max-width: 768px) {
+      width: 142px;
+      height: 94px;
+    }
   `,
   mcSpaceActive: css`
     border-color: ${ACCENT};
@@ -763,7 +905,7 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   mcSpaceAdd: css`
     width: 56px;
     height: 104px;
-    border-radius: 12px;
+    border-radius: ${RADIUS_WINDOW}px;
     border: 2px dashed ${p.borderStrong};
     background: transparent;
     color: ${p.textMuted};
@@ -771,7 +913,11 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: all 0.15s ease;
+    outline: none;
+    transition:
+      border-color ${MOTION_FAST} ease,
+      transform ${MOTION_FAST} ${MOTION_SPRING},
+      box-shadow ${MOTION_FAST} ease;
     &:hover {
       border-color: ${ACCENT};
       color: ${ACCENT};
@@ -804,6 +950,9 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
       border-color: ${ACCENT};
       transform: translateY(-2px);
     }
+    &:focus-visible {
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.72);
+    }
     .title {
       font-size: 13px;
       font-weight: 500;
@@ -817,28 +966,36 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   `,
   // ── macOS traffic lights (window header, left side) ───────────────────
   headerMac: css`
-    height: 38px;
-    flex: 0 0 38px;
+    height: 42px;
+    flex: 0 0 42px;
     display: flex;
     align-items: center;
-    padding: 0 12px;
+    padding: 0 13px;
     background: ${p.barBg};
     border-bottom: 1px solid ${p.border};
     cursor: grab;
+    transition:
+      background ${MOTION_BASE} ease,
+      color ${MOTION_BASE} ease;
     &:active {
       cursor: grabbing;
+    }
+    &[data-active="false"] {
+      opacity: 0.86;
     }
   `,
   lights: css`
     display: flex;
     align-items: center;
-    gap: 8px;
-    width: 70px;
+    gap: 2px;
+    width: 76px;
+    height: 40px;
   `,
   light: css`
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
+    position: relative;
+    width: 24px;
+    height: 34px;
+    border-radius: 8px;
     border: none;
     padding: 0;
     cursor: pointer;
@@ -846,27 +1003,48 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     align-items: center;
     justify-content: center;
     color: rgba(0, 0, 0, 0.55);
+    background: transparent;
+    outline: none;
+    &::before {
+      content: "";
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--traffic-light-color);
+      box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.18);
+    }
     svg {
+      position: relative;
+      z-index: 1;
       opacity: 0;
-      transition: opacity 0.12s ease;
+      transition: opacity ${MOTION_FAST} ease;
     }
     &:hover svg {
       opacity: 1;
     }
+    &:focus-visible {
+      box-shadow: 0 0 0 2px ${ACCENT};
+    }
+    &:disabled {
+      cursor: default;
+      opacity: 0.55;
+    }
   `,
   lightClose: css`
-    background: #ff5f57;
+    --traffic-light-color: #ff5f57;
   `,
   lightMin: css`
-    background: #febc2e;
+    --traffic-light-color: #febc2e;
   `,
   lightMax: css`
-    background: #28c840;
+    --traffic-light-color: #28c840;
   `,
   macTitle: css`
     flex: 1;
     text-align: center;
-    font-size: 13px;
+    min-width: 0;
+    font-size: 12.5px;
     font-weight: 600;
     color: ${p.text};
     display: flex;
@@ -888,39 +1066,68 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 14px;
+    padding: 0 10px 0 12px;
     background: ${p.barBg};
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: saturate(1.2) blur(20px);
+    -webkit-backdrop-filter: saturate(1.2) blur(20px);
     border-bottom: 1px solid ${p.border};
-    font-size: 13px;
+    font-size: 12px;
     color: ${p.text};
   `,
   menubarLeft: css`
     display: flex;
     align-items: center;
-    gap: 18px;
+    min-width: 0;
+    gap: 4px;
   `,
   menubarBrand: css`
     display: flex;
     align-items: center;
     color: ${ACCENT};
+    padding: 0 5px;
   `,
   menubarName: css`
+    min-height: 24px;
+    max-width: 180px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 8px;
+    border-radius: 6px;
     font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+    outline: none;
+    &:hover {
+      background: ${p.hoverBg};
+    }
+    &:focus-visible {
+      box-shadow: 0 0 0 2px ${ACCENT};
+    }
   `,
   menubarItem: css`
+    max-width: 180px;
+    min-height: 24px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 8px;
+    border-radius: 6px;
     color: ${p.textSecondary};
-    cursor: pointer;
-    &:hover {
-      color: ${p.hoverText};
-    }
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   `,
   menubarRight: css`
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 3px;
     color: ${p.textSecondary};
+    @media (max-width: 768px) {
+      > svg {
+        display: none;
+      }
+    }
   `,
   menubarBtn: css`
     display: flex;
@@ -929,8 +1136,18 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     border: none;
     color: ${p.textSecondary};
     cursor: pointer;
-    padding: 0;
+    min-width: 28px;
+    height: 28px;
+    justify-content: center;
+    padding: 0 6px;
+    border-radius: 6px;
+    outline: none;
     &:hover {
+      background: ${p.hoverBg};
+      color: ${p.hoverText};
+    }
+    &:focus-visible {
+      box-shadow: inset 0 0 0 2px ${ACCENT};
       color: ${p.hoverText};
     }
   `,
@@ -943,17 +1160,29 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     z-index: 50;
     display: flex;
     align-items: flex-end;
-    gap: 8px;
-    padding: 8px 12px;
-    border-radius: 20px;
+    gap: 6px;
+    max-width: calc(100vw - 20px);
+    padding: 7px 10px 9px;
+    border-radius: ${RADIUS_PANEL}px;
     background: ${p.floatBg};
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: saturate(1.24) blur(24px);
+    -webkit-backdrop-filter: saturate(1.24) blur(24px);
     border: 1px solid ${p.dockBorder};
     box-shadow: ${p.shadowFloat};
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-width: none;
+    &::-webkit-scrollbar {
+      display: none;
+    }
     transition:
-      transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1),
-      opacity 0.24s ease;
+      transform ${MOTION_BASE} ${MOTION_SPRING},
+      opacity ${MOTION_BASE} ease;
+    @media (max-width: 768px) {
+      gap: 4px;
+      bottom: max(8px, env(safe-area-inset-bottom));
+      padding: 6px 8px 8px;
+    }
   `,
   dockHidden: css`
     transform: translateX(-50%) translateY(140%);
@@ -965,26 +1194,49 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     display: flex;
     flex-direction: column;
     align-items: center;
+    flex: 0 0 auto;
+    min-width: 48px;
+    min-height: 52px;
+    justify-content: flex-end;
+    border-radius: 13px;
+    outline: none;
     cursor: pointer;
-    transition: transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: transform ${MOTION_FAST} ${MOTION_SPRING};
     transform-origin: bottom center;
     &:hover {
-      transform: scale(1.35) translateY(-6px);
+      transform: scale(1.18) translateY(-5px);
+    }
+    &:focus-visible {
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.78);
+    }
+    @media (max-width: 768px) {
+      min-width: 44px;
+      min-height: 48px;
+      &:hover {
+        transform: none;
+      }
     }
   `,
   dockIcon: css`
-    width: 46px;
-    height: 46px;
-    border-radius: 12px;
+    width: 48px;
+    height: 48px;
+    border-radius: 13px;
     display: flex;
     align-items: center;
     justify-content: center;
     color: #fff;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow:
+      0 7px 16px rgba(0, 0, 0, 0.28),
+      inset 0 1px 0 rgba(255, 255, 255, 0.28);
+    @media (max-width: 768px) {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+    }
   `,
   dockDot: css`
     position: absolute;
-    bottom: -6px;
+    bottom: -5px;
     left: 50%;
     transform: translateX(-50%);
     width: 4px;
@@ -994,11 +1246,11 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   `,
   dockTooltip: css`
     position: absolute;
-    bottom: 62px;
+    bottom: 66px;
     left: 50%;
     transform: translateX(-50%);
-    padding: 4px 10px;
-    border-radius: 8px;
+    padding: 5px 9px;
+    border-radius: 7px;
     background: ${p.tooltipBg};
     border: 1px solid ${p.borderStrong};
     color: ${p.text};
@@ -1006,11 +1258,12 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     white-space: nowrap;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.12s ease;
+    box-shadow: ${p.shadowFloat};
+    transition: opacity ${MOTION_FAST} ease;
   `,
   dockDivider: css`
     width: 1px;
-    height: 46px;
+    height: 42px;
     margin: 0 4px;
     background: ${p.dockDivider};
   `,
@@ -1072,14 +1325,14 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     align-items: flex-start;
     gap: 10px;
     padding: 12px;
-    border-radius: 14px;
+    border-radius: ${RADIUS_PANEL}px;
     cursor: pointer;
     background: ${p.toastBg};
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
     border: 1px solid ${p.border};
     box-shadow: ${p.shadowToast};
-    transition: transform 0.12s ease;
+    transition: transform ${MOTION_FAST} ${MOTION_SPRING};
     &:hover {
       transform: scale(1.01);
     }
@@ -1203,13 +1456,20 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     z-index: 65;
     display: flex;
     flex-direction: column;
-    border-radius: 16px;
+    border-radius: ${RADIUS_PANEL}px;
     background: ${p.panelBg};
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid ${p.border};
     box-shadow: ${p.shadowPanel};
     overflow: hidden;
+    @media (max-width: 768px) {
+      top: ${MENUBAR_H + 6}px;
+      right: 6px;
+      bottom: max(8px, env(safe-area-inset-bottom));
+      width: calc(100vw - 12px);
+      max-width: none;
+    }
   `,
   ncHeader: css`
     flex: 0 0 auto;
@@ -1228,19 +1488,23 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     color: ${p.textStrong};
   `,
   ncIconBtn: css`
-    width: 26px;
-    height: 26px;
+    width: 36px;
+    height: 36px;
     border: none;
     background: transparent;
     color: ${p.textMuted};
-    border-radius: 7px;
+    border-radius: ${RADIUS_CONTROL}px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    outline: none;
     &:hover {
       background: ${p.hoverBgStrong};
       color: ${p.hoverText};
+    }
+    &:focus-visible {
+      box-shadow: inset 0 0 0 2px ${ACCENT};
     }
   `,
   ncList: css`
@@ -1269,10 +1533,14 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     padding: 10px;
     border-radius: 12px;
     cursor: pointer;
+    outline: none;
     background: ${p.faintBg};
     transition: background 0.12s ease;
     &:hover {
       background: ${p.hoverBg};
+    }
+    &:focus-visible {
+      box-shadow: inset 0 0 0 2px ${ACCENT};
     }
   `,
   ncItemIcon: css`
@@ -1457,9 +1725,13 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     font-size: 13px;
     color: ${p.text};
     cursor: pointer;
+    outline: none;
     transition: background 0.12s ease;
     &:hover {
       background: ${p.hoverBg};
+    }
+    &:focus-visible {
+      box-shadow: inset 0 0 0 2px ${ACCENT};
     }
   `,
   // ── Wallpaper picker overlay ───────────────────────────────────────
@@ -1523,11 +1795,17 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     display: flex;
     flex-direction: column;
     gap: 8px;
+    padding: 4px;
+    border-radius: 13px;
     cursor: pointer;
+    outline: none;
     span {
       font-size: 12px;
       color: ${p.textSecondary};
       text-align: center;
+    }
+    &:focus-visible {
+      box-shadow: 0 0 0 2px ${ACCENT};
     }
   `,
   wpItemActive: css`
@@ -1575,13 +1853,13 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     gap: 14px;
     padding: 12px 18px;
     background: ${p.barBgStrong};
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: saturate(1.2) blur(22px);
+    -webkit-backdrop-filter: saturate(1.2) blur(22px);
     border-bottom: 1px solid ${p.border};
     transform: translateY(0);
     transition:
-      transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1),
-      opacity 0.24s ease;
+      transform ${MOTION_BASE} ${MOTION_SPRING},
+      opacity ${MOTION_BASE} ease;
   `,
   spacesPanelHidden: css`
     transform: translateY(-100%);
@@ -1596,9 +1874,15 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     border-radius: 999px;
     cursor: pointer;
     border: 1px solid transparent;
-    transition: background 0.15s ease;
+    outline: none;
+    transition:
+      background ${MOTION_FAST} ease,
+      border-color ${MOTION_FAST} ease;
     &:hover {
       background: ${p.hoverBg};
+    }
+    &:focus-visible {
+      box-shadow: 0 0 0 2px ${ACCENT};
     }
     .avatar {
       width: 30px;
@@ -1624,7 +1908,7 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   snapPreview: css`
     position: absolute;
     z-index: 9;
-    border-radius: 12px;
+    border-radius: ${RADIUS_WINDOW}px;
     background: rgba(255, 127, 22, 0.18);
     border: 2px solid ${ACCENT};
     pointer-events: none;
@@ -1651,9 +1935,15 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     transform: scale(0.2) translateY(60vh);
     opacity: 0;
     transition:
-      transform 0.2s ease-in,
-      opacity 0.2s ease-in;
+      transform ${MOTION_BASE} ease-in,
+      opacity ${MOTION_BASE} ease-in;
     transform-origin: bottom center;
+  `,
+  reducedMotion: css`
+    @media (prefers-reduced-motion: reduce) {
+      animation: none !important;
+      transition-duration: 1ms !important;
+    }
   `,
 }));
 

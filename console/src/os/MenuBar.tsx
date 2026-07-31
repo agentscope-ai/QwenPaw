@@ -74,8 +74,16 @@ export default function MenuBar({ hidden = false }: { hidden?: boolean }) {
         </span>
         <span
           className={styles.menubarName}
-          style={{ cursor: "pointer" }}
+          role="button"
+          tabIndex={0}
+          aria-label={t("os.currentSpace", "Current space")}
           onClick={() => setMissionControl(!missionControlOpen)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setMissionControl(!missionControlOpen);
+            }
+          }}
           title={t("os.currentSpace", "Current space")}
         >
           {spaceName}
@@ -90,6 +98,7 @@ export default function MenuBar({ hidden = false }: { hidden?: boolean }) {
           <button
             className={styles.menubarBtn}
             title={t("os.notifications", "Notifications")}
+            aria-label={t("os.notifications", "Notifications")}
             onClick={() => setCenter(!centerOpen)}
           >
             <Bell size={15} />
@@ -103,6 +112,7 @@ export default function MenuBar({ hidden = false }: { hidden?: boolean }) {
         <button
           className={styles.menubarBtn}
           title={t("os.missionControl", "Mission Control")}
+          aria-label={t("os.missionControl", "Mission Control")}
           onClick={() => setMissionControl(!missionControlOpen)}
         >
           <LayoutPanelTop size={15} />

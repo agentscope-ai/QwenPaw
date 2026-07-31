@@ -24,7 +24,7 @@ import {
 } from "react-router-dom";
 import { useRoutes } from "../plugins/registry/hooks";
 import { useOsRoute } from "./osRouteStore";
-import { topSegment, pathToRouteId } from "./osRouteMap";
+import { pathToRouteId } from "./osRouteMap";
 
 interface WindowRouterProps {
   /** This window's route id (e.g. "core.chat"). */
@@ -48,7 +48,6 @@ function WindowRouterBridge({
   const target = useOsRoute((s) => s.targets[routeId]);
   const navigateTo = useOsRoute((s) => s.navigateTo);
 
-  const ownSeg = topSegment(base);
   const lastOwnPath = useRef(base);
   // Start at 0 so a target already pending when the window opens still fires.
   const seenNonce = useRef(0);
@@ -63,19 +62,16 @@ function WindowRouterBridge({
 
   // Cross-app OUT: navigation to another app's path -> open that app window.
   useEffect(() => {
-    const seg = topSegment(location.pathname);
-    if (seg === "" || seg === ownSeg) {
+    const targetId = pathToRouteId(location.pathname, routes);
+    if (!targetId || targetId === routeId) {
       // Intra-app navigation — remember it so we can restore after a bounce.
       lastOwnPath.current = location.pathname + location.search;
       return;
     }
-    const targetId = pathToRouteId(location.pathname, routes);
-    if (targetId && targetId !== routeId) {
-      navigateTo(targetId, location.pathname + location.search);
-    }
+    navigateTo(targetId, location.pathname + location.search);
     // Restore this window to its last own-app location (preserve state).
     navigate(lastOwnPath.current, { replace: true });
-  }, [location, ownSeg, routeId, routes, navigate, navigateTo]);
+  }, [location, routeId, routes, navigate, navigateTo]);
 
   return null;
 }

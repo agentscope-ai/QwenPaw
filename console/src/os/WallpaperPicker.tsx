@@ -9,6 +9,7 @@ import { X, Check } from "lucide-react";
 import { WALLPAPERS } from "./wallpapers";
 import { useOsWallpaper } from "./osWallpaperStore";
 import { useOsStyles } from "./useOsStyles";
+import { buttonRoleProps } from "./a11y";
 
 interface WallpaperPickerProps {
   onClose: () => void;
@@ -20,7 +21,13 @@ export default function WallpaperPicker({ onClose }: WallpaperPickerProps) {
   const { wallpaperId, setWallpaper } = useOsWallpaper();
 
   return (
-    <div className={styles.wpOverlay} onPointerDown={onClose}>
+    <div
+      className={styles.wpOverlay}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("os.wallpaper", "Wallpaper")}
+      onPointerDown={onClose}
+    >
       <div
         className={styles.wpPanel}
         onPointerDown={(e) => e.stopPropagation()}
@@ -44,6 +51,10 @@ export default function WallpaperPicker({ onClose }: WallpaperPickerProps) {
                 wallpaperId === w.id && styles.wpItemActive,
               )}
               onClick={() => setWallpaper(w.id)}
+              {...buttonRoleProps(
+                () => setWallpaper(w.id),
+                t(w.labelKey, w.name),
+              )}
             >
               <div
                 className={styles.wpSwatch}

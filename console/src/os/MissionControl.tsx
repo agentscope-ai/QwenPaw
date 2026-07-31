@@ -85,7 +85,13 @@ export default function MissionControl() {
   };
 
   return (
-    <div className={styles.mcOverlay} onClick={() => setMissionControl(false)}>
+    <div
+      className={styles.mcOverlay}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("os.missionControl", "Mission Control")}
+      onClick={() => setMissionControl(false)}
+    >
       {/* Spaces row */}
       <div className={styles.mcSpaces} onClick={(e) => e.stopPropagation()}>
         {spaces.map((s) => {
@@ -157,6 +163,7 @@ export default function MissionControl() {
         style={{ position: "absolute", top: 20, right: 24 }}
         onClick={() => setMissionControl(false)}
         title={t("common.close", "Close")}
+        aria-label={t("common.close", "Close")}
       >
         <X size={18} />
       </button>
