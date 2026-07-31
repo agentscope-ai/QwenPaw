@@ -544,6 +544,11 @@ def test_spawn_subagent_schema_accepts_batch_string():
         },
         schema,
     )
+    # Single-task mode with batch omitted must validate (Issue #6588).
+    jsonschema.validate(
+        {"task": "do single task"},
+        schema,
+    )
     # Native list still validates.
     jsonschema.validate(
         {

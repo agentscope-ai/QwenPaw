@@ -966,9 +966,9 @@ async def spawn_subagent(  # pylint: disable=too-many-return-statements
     fork: bool | str | int = False,
     background: bool | str | int = False,
     timeout: int | float | str = 600,
-    allowed_tools: Optional[list[str] | str] = None,
-    skills: Optional[list[str] | str] = None,
-    batch: Optional[list[Dict[str, Any]] | str] = None,
+    allowed_tools: list[str] | str | None = None,
+    skills: list[str] | str | None = None,
+    batch: list[Dict[str, Any]] | str | None = None,
 ) -> ToolChunk:
     """Spawn an ephemeral subagent within the CURRENT workspace.
 
