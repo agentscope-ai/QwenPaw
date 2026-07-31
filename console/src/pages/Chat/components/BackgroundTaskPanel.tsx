@@ -21,7 +21,7 @@ import { message } from "antd";
 
 interface BackgroundTaskPanelProps {
   sessionId: string;
-  /** When true, omit outer chrome/title (used inside ChatSenderTabsPanel). */
+  /** When true, omit the outer chrome/title for compact host layouts. */
   embedded?: boolean;
 }
 

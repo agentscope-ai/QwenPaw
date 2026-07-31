@@ -8,10 +8,10 @@ import { buildBasePath } from "../../../utils/sessionRoute";
 /**
  * Returns a stable async function that creates a new blank chat session.
  *
- * Navigates to the base path (/chat or /coding) BEFORE calling the library's
- * createSession so that ChatSessionInitializer sees chatId=undefined and does
- * not re-apply the previous session, which would race against the new session
- * creation.
+ * Marks the blank-create intent before navigating to the base path, otherwise
+ * ChatSessionInitializer can briefly see /chat with historical sessions and
+ * restore the latest conversation before createSession has inserted the local
+ * placeholder.
  */
 export function useCreateNewSession(): () => Promise<void> {
   const navigate = useNavigate();
@@ -20,8 +20,19 @@ export function useCreateNewSession(): () => Promise<void> {
 
   return useCallback(async () => {
     const mode = codingMode ? "coding" : "chat";
-    navigate(buildBasePath(mode), { replace: true });
+    const basePath = buildBasePath(mode);
+    sessionApi.suppressBaseAutoSelect = true;
     sessionApi.userInitiatedCreate = true;
-    await createSession();
+    sessionApi.preferredChatId = null;
+    sessionApi.lastActiveChatId = null;
+    const localId = sessionApi.prepareBlankSession();
+    navigate(basePath, { replace: true });
+    try {
+      await createSession();
+    } finally {
+      sessionApi.suppressBaseAutoSelect = true;
+      sessionApi.lastActiveChatId = localId;
+      navigate(basePath, { replace: true });
+    }
   }, [navigate, createSession, codingMode]);
 }

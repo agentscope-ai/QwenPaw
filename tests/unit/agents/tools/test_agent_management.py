@@ -429,6 +429,31 @@ async def test_chat_with_agent_normalizes_agent_ids(monkeypatch):
     assert "reply from peer" in response.content[0].text
 
 
+async def test_chat_with_agent_rejects_current_agent_target(monkeypatch):
+    calls = []
+
+    async def fake_to_thread(func, *args, **kwargs):
+        calls.append((func, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(
+        agent_management,
+        "resolve_calling_agent_id",
+        lambda _from_agent=None: "default",
+    )
+
+    response = await agent_management.chat_with_agent(
+        to_agent='  "default"  ',
+        text="Need help",
+    )
+
+    assert (
+        "must be different from the current agent" in response.content[0].text
+    )
+    assert not calls
+
+
 async def test_chat_with_agent_returns_clear_error_when_agent_missing(
     monkeypatch,
 ):
@@ -448,6 +473,31 @@ async def test_chat_with_agent_returns_clear_error_when_agent_missing(
     )
 
     assert response.content[0].text == "Agent [missing_bot] not exists"
+
+
+async def test_submit_to_agent_rejects_current_agent_target(monkeypatch):
+    calls = []
+
+    async def fake_to_thread(func, *args, **kwargs):
+        calls.append((func, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(
+        agent_management,
+        "resolve_calling_agent_id",
+        lambda _from_agent=None: "default",
+    )
+
+    response = await agent_management.submit_to_agent(
+        to_agent="default",
+        text="Run this in the background",
+    )
+
+    assert (
+        "must be different from the current agent" in response.content[0].text
+    )
+    assert not calls
 
 
 async def test_spawn_subagent_inherits_root_channel_context(monkeypatch):

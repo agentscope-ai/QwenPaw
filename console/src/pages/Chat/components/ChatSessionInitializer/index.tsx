@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import sessionApi from "../../sessionApi";
 import {
+  buildBasePath,
   buildSessionPath,
   getSessionIdFromPath,
 } from "../../../../utils/sessionRoute";
@@ -12,6 +13,29 @@ import {
   type ExtendedSession,
 } from "../../../../stores/sessionListStore";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
+
+function getSessionRecency(session: ExtendedSession) {
+  return session.updatedAt ?? session.createdAt ?? "";
+}
+
+function compareSessionRecencyDesc(a: ExtendedSession, b: ExtendedSession) {
+  const aTime = getSessionRecency(a);
+  const bTime = getSessionRecency(b);
+  if (!aTime && !bTime) return 0;
+  if (!aTime) return 1;
+  if (!bTime) return -1;
+  return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
+}
+
+function getLatestRoutableSession(
+  sessions: readonly ExtendedSession[],
+): ExtendedSession | undefined {
+  return [...sessions]
+    .filter((session) =>
+      sessionApi.getRoutableSessionId(session.id, session.realId),
+    )
+    .sort(compareSessionRecencyDesc)[0];
+}
 
 /**
  * URL chatId → context currentSessionId (one direction of bidirectional sync).
@@ -31,17 +55,31 @@ import { useCreateNewSession } from "../../hooks/useCreateNewSession";
  *  - qwenpaw:sidebar-select-session → switch to the given sessionId
  *  - qwenpaw:sidebar-new-chat       → create a new session
  */
-const ChatSessionInitializer: React.FC = () => {
+interface ChatSessionInitializerProps {
+  /**
+   * Resolve the route owned by the currently mounted Agent SDK instance.
+   *
+   * The SDK retains the header React node from its initial options. A stable
+   * resolver can read current refs when this component re-renders, while a
+   * captured string would keep restoring a stale conversation after New Chat.
+   */
+  resolveChatId?: (routeChatId: string | undefined) => string | undefined;
+}
+
+const ChatSessionInitializer: React.FC<ChatSessionInitializerProps> = ({
+  resolveChatId,
+}) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { codingMode } = useCodingMode();
 
   // Issue #5142: Match both /chat/<id> and /coding/<id> so that Coding mode
   // sessions are restored from the URL on page refresh, just like Chat mode.
-  const chatId = useMemo(
+  const routeChatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
   );
+  const chatId = resolveChatId ? resolveChatId(routeChatId) : routeChatId;
 
   const { sessions, currentSessionId, setCurrentSessionId, setSessions } =
     useChatAnywhereSessionsState();
@@ -81,6 +119,22 @@ const ChatSessionInitializer: React.FC = () => {
 
   useEffect(() => {
     if (!chatId || !sessions.length) return;
+    const mode = codingModeRef.current ? "coding" : "chat";
+    const routableChatId = sessionApi.getRoutableSessionId(chatId);
+
+    if (routableChatId && routableChatId !== chatId) {
+      navigate(buildSessionPath(mode, routableChatId), { replace: true });
+      return;
+    }
+
+    if (sessionApi.isLocalSessionId(chatId) && !routableChatId) {
+      navigate(buildBasePath(mode), { replace: true });
+      return;
+    }
+
+    if (routableChatId) {
+      sessionApi.suppressBaseAutoSelect = false;
+    }
 
     // Issue #4557: Do NOT trigger setCurrentSessionId while a user-initiated
     // session switch is in progress. This breaks the infinite loop where
@@ -105,17 +159,34 @@ const ChatSessionInitializer: React.FC = () => {
       return;
     }
 
-    // Match by multiple criteria in order of specificity:
-    // 1) Library id (localId or UUID)
-    let matching = sessions.find((s) => s.id === chatId);
+    // The route switches to the backend UUID as soon as a newly-created chat
+    // resolves, while the SDK intentionally keeps using the original local id
+    // for the active streaming turn. The SDK's sessions state can still be the
+    // pre-resolution snapshot at this point, so matching the route id alone
+    // would fall through to setCurrentSessionId(realId). That remounts the
+    // message list, clears the in-flight messages, and reloads the chat.
+    //
+    // Resolve the route through SessionApi's authoritative alias map first so
+    // localId -> realId remains one logical SDK session during streaming and
+    // queued turns.
+    const librarySessionId = sessionApi.getLibrarySessionId(chatId) ?? chatId;
 
-    // 2) realId: URL contains a UUID but the session's library id is still a
+    // Match by multiple criteria in order of specificity:
+    // 1) Canonical SDK id (localId while the first turn is streaming)
+    let matching = sessions.find((s) => s.id === librarySessionId);
+
+    // 2) Route id (normally the same as the canonical SDK id)
+    if (!matching) {
+      matching = sessions.find((s) => s.id === chatId);
+    }
+
+    // 3) realId: URL contains a UUID but the session's library id is still a
     //    local timestamp (e.g. during SSE before onSessionIdResolved fires).
     if (!matching) {
       matching = sessions.find((s) => (s as ExtendedSession).realId === chatId);
     }
 
-    // 3) sessionId field: URL contains the backend session_id format
+    // 4) sessionId field: URL contains the backend session_id format
     if (!matching) {
       matching = sessions.find(
         (s) => (s as ExtendedSession).sessionId === chatId,
@@ -128,10 +199,46 @@ const ChatSessionInitializer: React.FC = () => {
     } else if (matching) {
       // Already in sync, just record that we've handled this chatId
       lastAppliedChatIdRef.current = chatId;
+    } else if (currentSessionIdRef.current !== librarySessionId) {
+      // A just-created chat can be addressable by URL before listChats has
+      // caught up. Load the URL id directly instead of leaving the page in the
+      // default New Chat state. Prefer the canonical SDK id when SessionApi
+      // already knows this route is an alias of the active local session.
+      lastAppliedChatIdRef.current = chatId;
+      setCurrentSessionId(librarySessionId);
+    } else {
+      lastAppliedChatIdRef.current = chatId;
     }
     // Intentionally exclude currentSessionId from deps: only react to URL / session list changes.
     // currentSessionId is read via ref to avoid circular triggers.
-  }, [chatId, sessions, setCurrentSessionId]);
+  }, [chatId, navigate, sessions, setCurrentSessionId]);
+
+  useEffect(() => {
+    if (chatId || !sessions.length) return;
+    if (
+      sessionApi.isSessionSwitching ||
+      sessionApi.userInitiatedCreate ||
+      sessionApi.suppressBaseAutoSelect
+    ) {
+      return;
+    }
+
+    const target = getLatestRoutableSession(sessions as ExtendedSession[]);
+    if (!target?.id) return;
+
+    const mode = codingModeRef.current ? "coding" : "chat";
+    const effectiveId = sessionApi.getRoutableSessionId(
+      target.id,
+      target.realId,
+    );
+    if (!effectiveId) return;
+
+    sessionApi.trackNavigatedSession(effectiveId);
+    navigate(buildSessionPath(mode, effectiveId), { replace: true });
+    if (currentSessionIdRef.current !== target.id) {
+      setCurrentSessionId(target.id);
+    }
+  }, [chatId, navigate, sessions, setCurrentSessionId]);
 
   // ── Sidebar event handlers ────────────────────────────────────────────────
 
@@ -149,9 +256,14 @@ const ChatSessionInitializer: React.FC = () => {
 
       const mode = codingModeRef.current ? "coding" : "chat";
       const currentSessions = sessionsRef.current;
-      const matching = currentSessions.find((s) => s.id === sessionId);
+      const matching = currentSessions.find(
+        (s) =>
+          s.id === sessionId || (s as ExtendedSession).realId === sessionId,
+      );
 
       if (matching) {
+        const librarySessionId = matching.id;
+        if (!librarySessionId) return;
         // Abort any previous embedded switch
         switchControllerRef.current?.abort();
         const controller = new AbortController();
@@ -159,22 +271,25 @@ const ChatSessionInitializer: React.FC = () => {
 
         sessionApi.isSessionSwitching = true;
         sessionApi
-          .preloadSession(sessionId, controller.signal)
+          .preloadSession(librarySessionId, controller.signal)
           .then(({ realId }) => {
             if (controller.signal.aborted) return;
-            const effectiveId = sessionApi.getEffectiveSessionId(
-              sessionId,
+            const effectiveId = sessionApi.getRoutableSessionId(
+              librarySessionId,
               realId,
             );
+            if (!effectiveId) return;
             const targetUrl = buildSessionPath(mode, effectiveId);
             sessionApi.trackNavigatedSession(effectiveId);
             sessionApi.preferredChatId = effectiveId;
             navigate(targetUrl, { replace: true });
-            setCurrentSessionId(sessionId);
+            setCurrentSessionId(librarySessionId);
           })
           .catch((err) => {
             if (err?.name === "AbortError") return;
-            setCurrentSessionId(sessionId);
+            if (!sessionApi.isLocalSessionId(librarySessionId)) {
+              setCurrentSessionId(librarySessionId);
+            }
           })
           .finally(() => {
             if (!controller.signal.aborted) {

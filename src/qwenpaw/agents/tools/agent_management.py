@@ -118,6 +118,26 @@ def resolve_agent_session_id(
     return session_id
 
 
+def is_self_agent_target(
+    to_agent: Optional[str],
+    from_agent: Optional[str] = None,
+) -> bool:
+    """Return whether an inter-agent target resolves to the caller itself."""
+    caller_agent_id = normalize_id(resolve_calling_agent_id(from_agent))
+    target_agent_id = normalize_id(to_agent)
+    return bool(caller_agent_id and target_agent_id) and (
+        caller_agent_id == target_agent_id
+    )
+
+
+def self_agent_target_error() -> ToolChunk:
+    return _tool_text_response(
+        "ERROR: 'to_agent' must be different from the current agent. "
+        "Reply directly in the current conversation, or use spawn_subagent "
+        "for same-agent background work.",
+    )
+
+
 def ensure_agent_identity_prefix(
     text: str,
     from_agent: Optional[str] = None,
@@ -548,6 +568,9 @@ async def chat_with_agent(
     if not text:
         return _tool_text_response("ERROR: 'text' is required for chat")
 
+    if is_self_agent_target(normalized_to_agent):
+        return self_agent_target_error()
+
     target_exists = await asyncio.to_thread(
         agent_exists,
         normalized_to_agent,
@@ -666,6 +689,9 @@ async def submit_to_agent(
         return _tool_text_response(
             "ERROR: 'text' is required for submission",
         )
+
+    if is_self_agent_target(normalized_to_agent):
+        return self_agent_target_error()
 
     target_exists = await asyncio.to_thread(
         agent_exists,

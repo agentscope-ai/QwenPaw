@@ -13,3 +13,4 @@ node_modules/
 coverage/
 .vscode/
 .idea/
+src/pages/Chat/INPUT_QUEUE_REGRESSION.md

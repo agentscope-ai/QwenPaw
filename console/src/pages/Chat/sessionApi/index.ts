@@ -16,6 +16,7 @@ import {
   extractLatestSnapshotFromCards,
 } from "../turnUsage";
 import { useTurnUsageStore } from "../turnUsageStore";
+import { createSecureRandomHex } from "../secureRandom";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -24,6 +25,8 @@ import { useTurnUsageStore } from "../turnUsageStore";
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
 const DEFAULT_SESSION_NAME = "New Chat";
+const REAL_ID_RESOLVE_RETRY_COUNT = 12;
+const REAL_ID_RESOLVE_RETRY_DELAY_MS = 500;
 const ROLE_TOOL = "tool";
 const ROLE_USER = "user";
 const ROLE_ASSISTANT = "assistant";
@@ -127,21 +130,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
 // Message conversion helpers: backend flat messages → card-based UI format
 // ---------------------------------------------------------------------------
 
-/**
- * Cryptographically random base36 suffix for locally generated ids.
- * The ids are not secrets, but sourcing them from the CSPRNG avoids any
- * predictability concern and keeps static analysis clean.
- */
-function randomBase36(length: number): string {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  let out = "";
-  for (const byte of bytes) out += (byte % 36).toString(36);
-  return out;
-}
-
 function generateId(): string {
-  return `${Date.now()}-${randomBase36(9)}`;
+  return `${Date.now()}-${createSecureRandomHex(8)}`;
 }
 
 /** Parse metadata.timestamp string (e.g. "2026-05-27 10:44:53.362") to unix seconds. */
@@ -348,8 +338,22 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     archivedAt: chat.archived_at ?? null,
   }) as ExtendedSession;
 
-/** Returns true when id is a local session id (timestamp-random, not a backend UUID). */
-const isLocalTimestamp = (id: string): boolean => /^\d+-[a-z0-9]+$/.test(id);
+const getSessionRecency = (
+  session: Pick<ExtendedSession, "updatedAt" | "createdAt">,
+) => session.updatedAt ?? session.createdAt ?? "";
+
+const compareSessionRecencyDesc = (a: ExtendedSession, b: ExtendedSession) => {
+  const aTime = getSessionRecency(a);
+  const bTime = getSessionRecency(b);
+  if (!aTime && !bTime) return 0;
+  if (!aTime) return 1;
+  if (!bTime) return -1;
+  return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
+};
+
+/** Returns true when id is a local session id, not a backend UUID. */
+const isLocalTimestamp = (id: string): boolean =>
+  /^\d+(?:-[a-z0-9]+)?$/.test(id);
 
 /** Detect if backend is still generating content for this chat.
  *  Only trust the explicit `status` field from the backend.
@@ -484,6 +488,17 @@ export interface SessionOwnerToken {
 
 class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionList: IAgentScopeRuntimeWebUISession[] = [];
+  private realIdResolutionTasks: Set<string> = new Set();
+  private notifiedRealIdResolutions: Map<string, string> = new Map();
+  private pendingRealIdResolutions: Map<
+    string,
+    { realId: string; agentId?: string }
+  > = new Map();
+  private sessionIdResolvedListener:
+    | ((tempId: string, realId: string, agentId?: string) => void)
+    | null = null;
+  private activeAgentId: string | undefined;
+  private sessionScopeVersion = 0;
 
   /** Previous returned list reference for shallow-compare optimisation. */
   private _prevReturnedList: IAgentScopeRuntimeWebUISession[] | null = null;
@@ -501,6 +516,121 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * a chatId in the URL (e.g. navigating back to /chat from /settings).
    */
   lastActiveChatId: string | null = null;
+
+  /**
+   * True after the user explicitly requests a blank new chat. While this is set,
+   * the base /chat route must not auto-open the latest history item.
+   */
+  suppressBaseAutoSelect = false;
+
+  setActiveAgent(
+    agentId: string | undefined,
+    preferredChatId?: string | null,
+  ): SessionOwnerToken {
+    const normalizedAgentId = agentId ?? "";
+    if (
+      this.activeAgentId === agentId &&
+      this.activeOwner.agentId === normalizedAgentId
+    ) {
+      if (preferredChatId !== undefined) {
+        this.preferredChatId = preferredChatId;
+        this.lastActiveChatId = preferredChatId;
+      }
+      return this.activeOwner;
+    }
+    this.activeAgentId = agentId;
+    this.sessionScopeVersion += 1;
+    this.activeOwner = {
+      agentId: normalizedAgentId,
+      generation: this.activeOwner.generation + 1,
+    };
+
+    this.switchAbortController?.abort();
+    this.switchAbortController = null;
+    this.isSessionSwitching = false;
+
+    this.sessionList = [];
+    this.realIdResolutionTasks.clear();
+    this.notifiedRealIdResolutions.clear();
+    this._prevReturnedList = null;
+    this.preferredChatId = null;
+    this.lastActiveChatId = null;
+    this.lastNavigatedChatId = null;
+    this.suppressBaseAutoSelect = false;
+    this.sessionResultCache.clear();
+    this.convertedSessionCache.clear();
+    this.sessionListRequest = null;
+    this.resolvePromise = null;
+    this.sessionRequests.clear();
+    this.lastSelectedIds.clear();
+
+    // Agent switching restores the destination route at the same time as the
+    // singleton is re-scoped. Applying it after the reset prevents the next
+    // render from losing the restored chat and briefly loading the old route.
+    if (preferredChatId !== undefined) {
+      this.preferredChatId = preferredChatId;
+      this.lastActiveChatId = preferredChatId;
+    }
+    return this.activeOwner;
+  }
+
+  isActiveAgent(agentId: string | undefined): boolean {
+    return this.activeAgentId === agentId;
+  }
+
+  /**
+   * Give each mounted SDK instance an immutable view of the active Agent
+   * scope. An SDK instance may issue delayed session calls while it is being
+   * unmounted; those calls must not be retargeted through this singleton after
+   * another Agent becomes active.
+   */
+  createScopedApi(
+    agentId: string | undefined,
+    initialSessionId?: string,
+  ): IAgentScopeRuntimeWebUISessionAPI {
+    const scopeVersion = this.sessionScopeVersion;
+    const isCurrentScope = () =>
+      this.activeAgentId === agentId &&
+      this.sessionScopeVersion === scopeVersion;
+    const abort = () => new DOMException("Aborted", "AbortError");
+
+    return {
+      getSessionList: async () => {
+        if (!isCurrentScope()) return [];
+        const sessions = await this.getSessionList();
+        return isCurrentScope() ? sessions : [];
+      },
+      getSession: async (sessionId: string) => {
+        if (!isCurrentScope()) throw abort();
+
+        // A newly mounted SDK may retain a delayed selection from the instance
+        // it replaced. Only the controlled route or a session in this Agent's
+        // freshly loaded list may be selected.
+        if (
+          sessionId !== initialSessionId &&
+          !this.findSessionByIdentity(sessionId)
+        ) {
+          throw abort();
+        }
+
+        const session = await this.getSession(sessionId);
+        if (!isCurrentScope()) throw abort();
+        return session;
+      },
+      updateSession: async (session) => {
+        if (!isCurrentScope()) return [];
+        return this.updateSession(session);
+      },
+      createSession: async (session) => {
+        if (!isCurrentScope()) return [];
+        return this.createSession(session);
+      },
+      removeSession: async (session) => {
+        if (!isCurrentScope()) return [];
+        return this.removeSession(session);
+      },
+    };
+  }
 
   // ---------------------------------------------------------------------------
   // Session switch lock (issue #4557)
@@ -689,42 +819,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    *  at runtime the module claims the selected agent on load, below). */
   private activeOwner: SessionOwnerToken = { agentId: "", generation: 0 };
 
-  /**
-   * Claims session ownership for an agent. Advances the generation whenever
-   * the agent actually changes so that A -> B -> A creates a fresh epoch.
-   * Driven by the agent-store subscription at the bottom of this module, so
-   * the claim happens synchronously with the agent change — before any React
-   * re-render or effect can start new-agent session work.
-   */
-  setActiveAgent(agentId: string): SessionOwnerToken {
-    if (this.activeOwner.agentId === agentId) return this.activeOwner;
-    this.activeOwner = { agentId, generation: this.activeOwner.generation + 1 };
-    // Drop shared in-flight work and short-lived caches from the previous
-    // epoch so the new agent never awaits or reuses them. The underlying
-    // promises keep running but their results are rejected by the owner
-    // checks at the apply sites.
-    this.sessionListRequest = null;
-    this.resolvePromise = null;
-    this.sessionRequests.clear();
-    this.sessionResultCache.clear();
-    this.convertedSessionCache.clear();
-    // Reset the session list and its comparison state as well: the next
-    // agent's chats can share a session_id (channel:user_id) with the old
-    // list, and merging against leftover entries would transfer the previous
-    // agent's local id / backend UUID onto a different chat.
-    this.sessionList = [];
-    this._prevReturnedList = null;
-    this.lastSelectedIds.clear();
-    // Release the switch lock: the switch it belonged to is owned by the
-    // previous epoch and its completion handler may never run (e.g. the
-    // initializer aborted on unmount). Leaving it set would make the new
-    // agent permanently skip URL sync, session selection, and list polling.
-    this.isSessionSwitching = false;
-    this.switchAbortController?.abort();
-    this.switchAbortController = null;
-    return this.activeOwner;
-  }
-
   getActiveOwner(): SessionOwnerToken {
     return this.activeOwner;
   }
@@ -757,6 +851,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * pristine page-load state so tests cannot leak state into each other.
    */
   resetForTests(): void {
+    this.activeAgentId = undefined;
+    this.sessionScopeVersion = 0;
     this.activeOwner = { agentId: "", generation: 0 };
     this.sessionListRequest = null;
     this.resolvePromise = null;
@@ -833,8 +929,30 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   /**
    * Called when a temporary timestamp session id is resolved to a real backend
    * UUID. Consumers (e.g. Chat/index.tsx) can register here to update the URL.
+   *
+   * The third argument carries the agent that owned the temp id at the time
+   * triggerResolve was called. When an Agent switch happens between POST
+   * acceptance and resolution, this lets consumers migrate the input queue
+   * under the original agent's scope instead of the (now-active) destination
+   * agent. Older consumers that only read (tempId, realId) keep working.
    */
-  onSessionIdResolved: ((tempId: string, realId: string) => void) | null = null;
+  get onSessionIdResolved() {
+    return this.sessionIdResolvedListener;
+  }
+
+  set onSessionIdResolved(
+    listener:
+      | ((tempId: string, realId: string, agentId?: string) => void)
+      | null,
+  ) {
+    this.sessionIdResolvedListener = listener;
+    if (!listener || this.pendingRealIdResolutions.size === 0) return;
+
+    const pending = Array.from(this.pendingRealIdResolutions.entries());
+    for (const [tempId, resolution] of pending) {
+      this.notifyRealIdResolved(tempId, resolution.realId, resolution.agentId);
+    }
+  }
 
   /**
    * Called after a session is removed. Consumers can register here to clear
@@ -954,17 +1072,41 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     ) as ExtendedSession | undefined;
   }
 
+  private findSessionByIdentity(id: string): ExtendedSession | undefined {
+    return this.sessionList.find((x) => {
+      const session = x as ExtendedSession;
+      return x.id === id || session.realId === id || session.sessionId === id;
+    }) as ExtendedSession | undefined;
+  }
+
   /** Returns the real backend UUID, or null when not yet resolved. */
   getRealIdForSession(sessionId: string): string | null {
     return this.findSession(sessionId)?.realId ?? null;
   }
 
-  /** Resolves the effective ID for URL navigation (prefers backend UUID). */
+  /** Resolves the effective SDK/session id, falling back to local id if needed. */
   getEffectiveSessionId(
     sessionId: string,
     resolvedRealId?: string | null,
   ): string {
     return resolvedRealId ?? this.getRealIdForSession(sessionId) ?? sessionId;
+  }
+
+  isLocalSessionId(sessionId: string | null | undefined): boolean {
+    return !!sessionId && isLocalTimestamp(sessionId);
+  }
+
+  /** Returns a backend-safe route id, or null while a local id is unresolved. */
+  getRoutableSessionId(
+    sessionId: string | null | undefined,
+    resolvedRealId?: string | null,
+  ): string | null {
+    if (!sessionId) return null;
+    const session = this.findSessionByIdentity(sessionId);
+    const realId = resolvedRealId ?? session?.realId;
+    if (realId) return realId;
+    if (session?.id && !isLocalTimestamp(session.id)) return session.id;
+    return isLocalTimestamp(sessionId) ? null : sessionId;
   }
 
   /**
@@ -977,6 +1119,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     persistFn?: (agentId: string, id: string) => void,
     agentId?: string,
   ): void {
+    this.suppressBaseAutoSelect = false;
     this.lastActiveChatId = effectiveId;
     this.lastNavigatedChatId = effectiveId;
     // Never persist a temporary local timestamp id. These ids only exist in
@@ -999,19 +1142,77 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return !!session && !session.realId;
   }
 
+  prepareBlankSession(name = DEFAULT_SESSION_NAME): string {
+    const existing = this.sessionList.find(
+      (s) => isLocalTimestamp(s.id) && !(s as ExtendedSession).realId,
+    ) as ExtendedSession | undefined;
+    if (existing) {
+      existing.name = name || existing.name || DEFAULT_SESSION_NAME;
+      this.lastActiveChatId = existing.id;
+      this.updateWindowVariables(existing);
+      return existing.id;
+    }
+
+    const localId = `${Date.now()}-${createSecureRandomHex(8)}`;
+    const extended = this.createEmptySession(localId, this.getActiveOwner());
+    extended.name = name || DEFAULT_SESSION_NAME;
+    this.sessionList.unshift(extended);
+    this.lastActiveChatId = localId;
+    return localId;
+  }
+
   /** Returns the backend-compatible session_id. Falls back to the id itself. */
   getBackendSessionId(libraryId: string): string {
-    return this.findSession(libraryId)?.sessionId || libraryId;
+    return this.findSessionByIdentity(libraryId)?.sessionId || libraryId;
+  }
+
+  /**
+   * Returns the stable public chat id used by the input queue.
+   *
+   * The backend chat UUID is visible in routes and history across browser tabs,
+   * while the SDK session_id can be a local timestamp during the first turn.
+   * Keeping queue storage on the public id prevents peer tabs from opening a
+   * second queue for the same chat before the SDK alias is fully loaded.
+   */
+  getQueueSessionId(sessionId: string): string {
+    const session = this.findSessionByIdentity(sessionId);
+    return session?.realId || session?.id || sessionId;
+  }
+
+  /**
+   * Returns the id that should be passed to the AgentScope SDK session context.
+   *
+   * CoPaw routes prefer backend chat UUIDs once a chat is persisted, while the
+   * SDK may still be keyed by the original local timestamp during the first
+   * streaming turn. This keeps URL realId/localId aliases pointing at one SDK
+   * session instead of letting loading and queue state drift across tabs.
+   */
+  getLibrarySessionId(
+    sessionId: string | null | undefined,
+  ): string | undefined {
+    if (!sessionId) return undefined;
+    return this.findSession(sessionId)?.id || sessionId;
   }
 
   /** Returns session identity from the session list (authoritative).
    *  Uses lastActiveChatId (set only by intentional user actions) as the
    *  primary lookup key, avoiding the stale window globals problem. */
-  getSessionIdentity(): {
+  getSessionIdentity(sessionId?: string): {
     sessionId: string;
     userId: string;
     channel: string;
   } {
+    const targetSession = sessionId
+      ? this.findSessionByIdentity(sessionId)
+      : undefined;
+    if (targetSession?.userId) {
+      return {
+        sessionId: targetSession.sessionId || "",
+        userId: targetSession.userId,
+        channel: targetSession.channel || DEFAULT_CHANNEL,
+      };
+    }
+
     // lastActiveChatId is immune to stale updateWindowVariables overwrites
     // because it is only set by onSessionSelected / onSessionCreated /
     // handleSessionClick — all intentional user actions.
@@ -1075,7 +1276,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const newList = chats
       .filter((c) => c.id && c.id !== "undefined" && c.id !== "null")
       .map(chatSpecToSession)
-      .reverse();
+      .sort(compareSessionRecencyDesc);
 
     // Track which existing sessions have already been matched so that
     // sessions sharing the same sessionId (channel:user_id) don't all
@@ -1110,6 +1311,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         // library's currentSessionId (local timestamp) stays valid during SSE.
         next.id = existing.id;
         next.realId = existing.realId;
+      } else if (isLocalTimestamp(existing.id) && !isLocalTimestamp(s.id)) {
+        // listChats can observe the persisted UUID before triggerResolve runs.
+        // Preserve the SDK's local id and record the UUID as an alias; replacing
+        // the row with the UUID here remounts the message list mid-stream.
+        next.id = existing.id;
+        next.realId = s.id;
       }
       // Only carry over generating=true from the old session when the
       // backend hasn't explicitly reported the chat as idle.  Previously
@@ -1133,18 +1340,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       const preferredId = this.preferredChatId;
       this.preferredChatId = null;
       let idx = this.sessionList.findIndex((s) => s.id === preferredId);
-      // Page refresh: URL may contain a local timestamp but backend only has UUIDs.
-      // Fall back to matching by sessionId (channel:user_id format).
-      if (idx < 0 && isLocalTimestamp(preferredId)) {
-        idx = this.sessionList.findIndex(
-          (s) => (s as ExtendedSession).sessionId === preferredId,
-        );
-        if (idx >= 0) {
-          const s = this.sessionList[idx] as ExtendedSession;
-          s.realId = s.id;
-          s.id = preferredId;
-        }
-      }
       if (idx > 0) {
         const [preferred] = this.sessionList.splice(idx, 1);
         this.sessionList.unshift(preferred);
@@ -1202,13 +1397,21 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     }
 
     const owner = this.getActiveOwner();
+    const requestAgent = this.activeAgentId;
     const entry = { owner } as {
       owner: SessionOwnerToken;
       promise: Promise<IAgentScopeRuntimeWebUISession[]>;
     };
     entry.promise = (async () => {
       try {
-        const chats = await api.listChats({ archived: false });
+        // Do not let a rapid selector change retarget this request through
+        // buildAuthHeaders' storage lookup. The SessionApi cache belongs to
+        // the runtime agent captured by setActiveAgent, so its backend request
+        // must use the same immutable scope.
+        const chats = await api.listChats(
+          { archived: false },
+          { agentId: requestAgent },
+        );
         // A result from a stale epoch must not replace the current agent's
         // session list; hand back the current list without mutation.
         if (!this.isActiveOwner(owner)) {
@@ -1306,11 +1509,17 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       }
     }
 
-    const chatHistory = await api.getChat(backendId, { signal });
+    const chatHistory = await api.getChat(backendId, {
+      signal,
+      agentId: owner.agentId || undefined,
+    });
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const isCurrentOwner = this.isActiveOwner(owner);
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
-    this.patchLastUserMessage(messages, generating, backendId);
+    if (isCurrentOwner) {
+      this.patchLastUserMessage(messages, generating, backendId);
+    }
 
     const session: ExtendedSession = {
       id: displayId,
@@ -1326,7 +1535,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     // Cache non-generating sessions — only within the epoch that fetched
     // them, so a stale load cannot write into the new agent's cache.
-    if (!generating && this.isActiveOwner(owner)) {
+    if (!generating && isCurrentOwner) {
       this.setCachedConvertedSession(
         backendId,
         session,
@@ -1432,51 +1641,222 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
   /**
    * After fetching the latest session list, try to resolve a local timestamp
-   * session to its real backend UUID and notify listeners. Skipped entirely
-   * when the ownership epoch the resolution was started under is no longer
-   * active: a late resolution from a previous agent must neither rewrite the
-   * current agent's session list nor fire onSessionIdResolved into its view.
+   * session to its real backend UUID and notify listeners.
+   *
+   * `resolutionAgentId` is the agent that owned the tempId when triggerResolve
+   * was called. It is forwarded to onSessionIdResolved so consumers can
+   * migrate scoped state (e.g. input queue storage) under the original agent
+   * even after an Agent switch has re-scoped this singleton.
    */
-  private resolveAndNotify(tempId: string, owner: SessionOwnerToken): void {
-    if (!this.isActiveOwner(owner)) return;
+  private resolveAndNotify(tempId: string, resolutionAgentId?: string): void {
     const { list, realId } = resolveRealId(this.sessionList, tempId);
     this.sessionList = list;
     if (realId) {
-      // Migrate the pending user message from the local timestamp key to
-      // the backend UUID key so patchLastUserMessage can find it after
-      // page refresh (where the URL — and therefore the lookup key — is
-      // the UUID, not the original timestamp).
-      const cached = loadPendingUserMessage(tempId);
-      if (cached) {
-        savePendingUserMessage(realId, cached);
-        clearPendingUserMessage(tempId);
-      }
-      this.onSessionIdResolved?.(tempId, realId);
+      this.notifyRealIdResolved(tempId, realId, resolutionAgentId);
     }
+  }
+
+  private notifyRealIdResolved(
+    tempId: string,
+    realId: string,
+    resolutionAgentId?: string,
+  ): void {
+    if (this.notifiedRealIdResolutions.get(tempId) === realId) return;
+
+    // Migrate the pending user message from the local timestamp key to the
+    // backend UUID key so patchLastUserMessage can find it after refresh.
+    const cached = loadPendingUserMessage(tempId);
+    if (cached) {
+      savePendingUserMessage(realId, cached);
+      clearPendingUserMessage(tempId);
+    }
+
+    const listener = this.sessionIdResolvedListener;
+    if (!listener) {
+      this.pendingRealIdResolutions.set(tempId, {
+        realId,
+        agentId: resolutionAgentId,
+      });
+      return;
+    }
+
+    this.pendingRealIdResolutions.delete(tempId);
+    this.notifiedRealIdResolutions.set(tempId, realId);
+    listener(tempId, realId, resolutionAgentId);
+  }
+
+  /**
+   * Resolve a local timestamp tempId using a direct listChats call scoped to
+   * `resolutionAgentId`. This is independent of the singleton's currently
+   * active agent, so resolution continues to work even after the user switches
+   * to a different agent. Returns the matching ChatSpec if found, else null.
+   *
+   * We avoid mutating this.sessionList here because the list belongs to the
+   * currently active agent; merging an external-agent list would corrupt it.
+   */
+  private async resolveRealIdViaAgentList(
+    tempId: string,
+    resolutionAgentId: string,
+  ): Promise<ChatSpec | null> {
+    try {
+      const chats = await api.listChats(
+        { archived: false },
+        { agentId: resolutionAgentId },
+      );
+      if (!Array.isArray(chats)) return null;
+      // Match the same way applyChatsToSessionList / resolveRealId do:
+      //   1) backend chat whose session_id matches the temp id
+      //   2) backend chat whose id matches the temp id (defensive — the
+      //      local timestamp is never a backend UUID, but a backend UUID
+      //      equal to the temp id is still a successful resolve)
+      // Skip entries whose own id is a local timestamp — those would never
+      // be the real backend UUID.
+      const match =
+        chats.find(
+          (c) => c && c.session_id === tempId && !isLocalTimestamp(c.id),
+        ) ?? chats.find((c) => c && c.id === tempId);
+      return match ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private scheduleResolveAndNotify(
+    tempId: string,
+    resolutionAgentId?: string,
+  ): Promise<void> | null {
+    if (!tempId || this.realIdResolutionTasks.has(tempId)) {
+      return this.resolvePromise;
+    }
+
+    this.realIdResolutionTasks.add(tempId);
+    const scopeVersion = this.sessionScopeVersion;
+    let promise: Promise<void> | null = null;
+    promise = (async () => {
+      try {
+        for (
+          let attempt = 0;
+          attempt < REAL_ID_RESOLVE_RETRY_COUNT;
+          attempt++
+        ) {
+          // Resolve via the agent-scoped listChats path in two cases:
+          //  - scopeVersion mismatch (Agent switched mid-resolution)
+          //  - resolutionAgentId is set but differs from the currently
+          //    active agent (triggerResolve was called AFTER an Agent
+          //    switch — the singleton's listChats would be scoped to the
+          //    wrong agent and never find this tempId)
+          const scopeSwitched = scopeVersion !== this.sessionScopeVersion;
+          const agentMismatch =
+            !!resolutionAgentId &&
+            !!this.activeAgentId &&
+            resolutionAgentId !== this.activeAgentId;
+          if (scopeSwitched || agentMismatch) {
+            if (resolutionAgentId) {
+              const matched = await this.resolveRealIdViaAgentList(
+                tempId,
+                resolutionAgentId,
+              );
+              if (matched) {
+                this.applyResolvedRealId(tempId, matched.id, resolutionAgentId);
+                return;
+              }
+            }
+            await new Promise((resolve) =>
+              setTimeout(resolve, REAL_ID_RESOLVE_RETRY_DELAY_MS),
+            );
+            continue;
+          }
+          // Force a fresh listChats request on every attempt: a response from
+          // before POST completion cannot contain the newly-created backend id.
+          this.sessionListRequest = null;
+          await this.getSessionList();
+          if (scopeVersion !== this.sessionScopeVersion) {
+            // Detected switch after getSessionList — retry via the
+            // agent-scoped path on the next loop iteration.
+            continue;
+          }
+          this.resolveAndNotify(tempId, resolutionAgentId);
+          if (this.getRealIdForSession(tempId)) return;
+
+          await new Promise((resolve) =>
+            setTimeout(resolve, REAL_ID_RESOLVE_RETRY_DELAY_MS),
+          );
+        }
+      } finally {
+        this.realIdResolutionTasks.delete(tempId);
+        if (promise && this.resolvePromise === promise) {
+          this.resolvePromise = null;
+        }
+      }
+    })();
+
+    return promise;
+  }
+
+  /**
+   * Apply a resolved realId to the matching session (if still present) and
+   * fire onSessionIdResolved. Called when resolution happens outside the
+   * active-agent scope (e.g. after an Agent switch).
+   *
+   * We only patch the session entry when the tempId is still in the current
+   * list — otherwise the Chat page restores the chat by realId on the next
+   * route change and no in-memory patch is needed.
+   */
+  private applyResolvedRealId(
+    tempId: string,
+    realId: string,
+    resolutionAgentId?: string,
+  ): void {
+    const session = this.findSession(tempId);
+    if (session && !(session as ExtendedSession).realId) {
+      (session as ExtendedSession).realId = realId;
+      this._prevReturnedList = null;
+    }
+    this.notifyRealIdResolved(tempId, realId, resolutionAgentId);
   }
 
   /**
    * Trigger ID resolution for a local timestamp session.
    * Called by customFetch after POST succeeds (the backend has created the
    * chat at that point). Fire-and-forget — runs concurrently with SSE.
+   *
+   * `agentId` is the agent that owned the tempId at the time of the POST
+   * (captured by the caller before any Agent switch). When provided,
+   * resolution survives an Agent switch: if the singleton has been
+   * re-scoped by the time the retry loop runs, it falls back to an
+   * agent-scoped listChats call using this id instead of giving up.
    */
-  triggerResolve(tempId: string): void {
+  triggerResolve(tempId: string, agentId?: string): void {
     if (!isLocalTimestamp(tempId)) return;
     const existing = this.findSession(tempId);
-    if (!existing || existing.realId) return; // already resolved
-    const owner = this.getActiveOwner();
-    // Force a fresh listChats request: if a stale in-flight getSessionList
-    // (started before the POST) is still pending, its response won't contain
-    // the new backend session yet. Sharing that stale promise would cause
-    // resolveRealId to silently fail and onSessionIdResolved never fires,
-    // leaving the URL at /chat instead of /chat/<uuid>.
-    this.sessionListRequest = null;
-    const promise = this.getSessionList()
-      .then(() => this.resolveAndNotify(tempId, owner))
-      .finally(() => {
-        if (this.resolvePromise === promise) this.resolvePromise = null;
-      });
-    this.resolvePromise = promise;
+    const resolutionAgentId = agentId ?? this.activeAgentId;
+    if (existing?.realId) {
+      // A session-list poll may have discovered the UUID before customFetch
+      // reaches triggerResolve. The alias is already known, but consumers
+      // still need the one-time route and queue migration notification.
+      this.notifyRealIdResolved(tempId, existing.realId, resolutionAgentId);
+      return;
+    }
+
+    // After switching away from an Agent and back, its queue items still carry
+    // the original local session_id, while the freshly loaded session list is
+    // already keyed by the backend UUID. Treat that identity match as resolved.
+    // Scheduling another resolution would rewrite the UUID entry back to the
+    // local id, briefly putting the SDK in "New Chat" while messages reload.
+    const persistedSession = this.findSessionByIdentity(tempId);
+    if (persistedSession && !isLocalTimestamp(persistedSession.id)) {
+      if (this.lastActiveChatId === tempId) {
+        this.notifyRealIdResolved(
+          tempId,
+          persistedSession.id,
+          resolutionAgentId,
+        );
+      }
+      return;
+    }
+
+    const promise = this.scheduleResolveAndNotify(tempId, resolutionAgentId);
+    if (promise) this.resolvePromise = promise;
   }
 
   async updateSession(session: Partial<IAgentScopeRuntimeWebUISession>) {
@@ -1524,6 +1904,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     ) as ExtendedSession | undefined;
     if (existing) {
       session.id = existing.id;
+      this.lastActiveChatId = existing.id;
+      this.updateWindowVariables(existing);
       if (isUserInitiated) this.onSessionCreated?.(existing.id);
       return [...this.sessionList];
     }
@@ -1540,12 +1922,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return [...this.sessionList];
     }
 
-    const localId = `${Date.now()}-${randomBase36(7)}`;
-    const extended = this.createEmptySession(localId, this.getActiveOwner());
-    extended.name = session.name || DEFAULT_SESSION_NAME;
-    this.sessionList.unshift(extended);
+    const localId = this.prepareBlankSession(
+      session.name || DEFAULT_SESSION_NAME,
+    );
+    const extended = this.findSession(localId);
     session.id = localId;
-    this.onSessionCreated?.(localId);
+    this.lastActiveChatId = localId;
+    if (extended) this.updateWindowVariables(extended);
+    if (isUserInitiated) this.onSessionCreated?.(localId);
     return [...this.sessionList];
   }
 
@@ -1559,7 +1943,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const deleteId =
       existing?.realId ?? (isLocalTimestamp(sessionId) ? null : sessionId);
 
-    if (deleteId) await api.deleteChat(deleteId);
+    if (deleteId) {
+      await api.deleteChat(deleteId, { agentId: this.activeAgentId });
+    }
 
     // Invalidate LRU cache for the deleted session
     if (deleteId) this.invalidateConvertedCache(deleteId);

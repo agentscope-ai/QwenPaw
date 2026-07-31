@@ -191,7 +191,7 @@ describe("agent session ownership epochs", () => {
     ]);
     sessionApi.triggerResolve(tempId);
     await flush();
-    expect(onSessionIdResolved).toHaveBeenCalledWith(tempId, B_CHAT);
+    expect(onSessionIdResolved).toHaveBeenCalledWith(tempId, B_CHAT, "agent-a");
   });
 
   it("a stale getSession cannot rewrite window identity, turn usage, or fire selection", async () => {

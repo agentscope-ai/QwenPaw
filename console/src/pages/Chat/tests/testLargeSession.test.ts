@@ -64,6 +64,24 @@ vi.mock("../../../api/modules/chat", async (importOriginal) => {
 import { __test__ } from "../sessionApi";
 import sessionApiDefaultExport from "../sessionApi";
 
+type SessionApiTestInternals = {
+  activeAgentId?: string;
+  applyChatsToSessionList: (
+    chats: Array<Record<string, unknown>>,
+  ) => Array<Record<string, unknown>>;
+  notifiedRealIdResolutions: Map<string, string>;
+  pendingRealIdResolutions: Map<string, { realId: string; agentId?: string }>;
+  notifyRealIdResolved: (
+    tempId: string,
+    realId: string,
+    agentId?: string,
+  ) => void;
+  realIdResolutionTasks: Set<string>;
+  resolvePromise: Promise<void> | null;
+  sessionList: Array<Record<string, unknown>>;
+  sessionListRequest: Promise<unknown> | null;
+};
+
 const {
   convertMessages,
   buildResponseCard,
@@ -638,16 +656,137 @@ describe("session id + status helpers", () => {
 
 describe("SessionApi.getSession — large payload integration (#5479)", () => {
   beforeEach(() => {
+    const internal =
+      sessionApiDefaultExport as unknown as SessionApiTestInternals;
     // Reset internal sessionList + caches between tests so the cache never
     // masks a regression introduced by another test.
     (sessionApiDefaultExport as any).sessionList = [];
     (sessionApiDefaultExport as any).convertedSessionCache.clear();
     (sessionApiDefaultExport as any).sessionResultCache.clear();
     (sessionApiDefaultExport as any).sessionRequests.clear();
+    internal.realIdResolutionTasks.clear();
+    internal.notifiedRealIdResolutions.clear();
+    internal.pendingRealIdResolutions.clear();
+    internal.resolvePromise = null;
+    internal.sessionListRequest = null;
+    internal.activeAgentId = undefined;
+    sessionApiDefaultExport.onSessionIdResolved = null;
+    sessionApiDefaultExport.lastActiveChatId = null;
   });
 
   afterEach(() => {
+    sessionApiDefaultExport.onSessionIdResolved = null;
     vi.restoreAllMocks();
+  });
+
+  it("replays a real-id resolution registered before its listener mounts", () => {
+    const internal =
+      sessionApiDefaultExport as unknown as SessionApiTestInternals;
+    const localId = "1785401069398-78aeba54e389b998";
+    const realId = "045dadca-728e-4262-beff-3a47b48de808";
+    const agentId = "QwenPaw_QA_Agent_0.2";
+
+    internal.notifyRealIdResolved(localId, realId, agentId);
+    sessionApiDefaultExport.setActiveAgent("another-agent");
+
+    expect(internal.notifiedRealIdResolutions.has(localId)).toBe(false);
+    expect(internal.pendingRealIdResolutions.get(localId)).toEqual({
+      realId,
+      agentId,
+    });
+
+    const resolved = vi.fn();
+    sessionApiDefaultExport.onSessionIdResolved = resolved;
+
+    expect(resolved).toHaveBeenCalledTimes(1);
+    expect(resolved).toHaveBeenCalledWith(localId, realId, agentId);
+    expect(internal.pendingRealIdResolutions.has(localId)).toBe(false);
+    expect(internal.notifiedRealIdResolutions.get(localId)).toBe(realId);
+
+    internal.notifyRealIdResolved(localId, realId, agentId);
+    expect(resolved).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not remap a persisted UUID session to its local id on the first queued submit after an Agent switch", async () => {
+    const localId = "1785401069399-78aeba54e389b99a";
+    const realId = "145dadca-728e-4262-beff-3a47b48de809";
+    const agentId = "QwenPaw_QA_Agent_0.2";
+    const apiImport = await import("../../../api");
+    const listChats = vi
+      .spyOn(apiImport.api, "listChats")
+      .mockResolvedValue([]);
+    const internal =
+      sessionApiDefaultExport as unknown as SessionApiTestInternals;
+
+    internal.activeAgentId = agentId;
+    sessionApiDefaultExport.lastActiveChatId = realId;
+    internal.sessionList = [
+      {
+        id: realId,
+        sessionId: localId,
+        userId: "default",
+        channel: "console",
+        name: "persisted chat",
+      },
+    ];
+    const resolved = vi.fn();
+    sessionApiDefaultExport.onSessionIdResolved = resolved;
+
+    sessionApiDefaultExport.triggerResolve(localId, agentId);
+    await Promise.resolve();
+
+    expect(listChats).not.toHaveBeenCalled();
+    expect(internal.sessionList[0].id).toBe(realId);
+    expect(sessionApiDefaultExport.getLibrarySessionId(realId)).toBe(realId);
+    expect(resolved).not.toHaveBeenCalled();
+  });
+
+  it("preserves the local SDK id and notifies once when polling discovers the UUID before triggerResolve", async () => {
+    const localId = "1785401069400-78aeba54e389b99b";
+    const realId = "245dadca-728e-4262-beff-3a47b48de810";
+    const agentId = "QwenPaw_QA_Agent_0.2";
+    const apiImport = await import("../../../api");
+    const listChats = vi
+      .spyOn(apiImport.api, "listChats")
+      .mockResolvedValue([]);
+    const internal =
+      sessionApiDefaultExport as unknown as SessionApiTestInternals;
+    const resolved = vi.fn();
+
+    internal.activeAgentId = agentId;
+    sessionApiDefaultExport.lastActiveChatId = localId;
+    sessionApiDefaultExport.onSessionIdResolved = resolved;
+    internal.sessionList = [
+      {
+        id: localId,
+        sessionId: localId,
+        userId: "default",
+        channel: "console",
+        name: "New Chat",
+      },
+    ];
+
+    internal.applyChatsToSessionList([
+      {
+        id: realId,
+        session_id: localId,
+        user_id: "default",
+        channel: "console",
+        name: "persisted chat",
+      },
+    ]);
+    sessionApiDefaultExport.triggerResolve(localId, agentId);
+    sessionApiDefaultExport.triggerResolve(localId, agentId);
+    await Promise.resolve();
+
+    expect(listChats).not.toHaveBeenCalled();
+    expect(internal.sessionList[0]).toMatchObject({
+      id: localId,
+      realId,
+      sessionId: localId,
+    });
+    expect(resolved).toHaveBeenCalledTimes(1);
+    expect(resolved).toHaveBeenCalledWith(localId, realId, agentId);
   });
 
   it("returns a fully-converted session for a 600KB backend payload without throwing", async () => {

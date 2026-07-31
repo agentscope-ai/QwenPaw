@@ -4,7 +4,7 @@ import type { IAgentScopeRuntimeWebUISession } from "@agentscope-ai/chat";
 import type { ChatStatus } from "../../../../api/types/chat";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
-import { useMessageQueueStore } from "../../../../stores/messageQueueStore";
+import { clearLegacyStoredMessageQueue } from "../../legacyMessageQueueStorage";
 import {
   ContextMenu,
   useContextMenu,
@@ -65,7 +65,8 @@ export interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
 export const getBackendId = (session: ExtendedChatSession): string | null => {
   if (session.realId) return session.realId;
   const id = session.id;
-  if (/^\d+-[a-z0-9]+$/.test(id)) return null;
+  if (!id) return null;
+  if (sessionApi.isLocalSessionId(id)) return null;
   return id;
 };
 
@@ -219,7 +220,7 @@ export function useSessionListData(
   const resolvedSessions = useMemo(() => {
     return sessions.filter((s) => {
       const id = s.id ?? "";
-      return !(/^\d+-[a-z0-9]+$/.test(id) && !s.realId);
+      return !(sessionApi.isLocalSessionId(id) && !s.realId);
     });
   }, [sessions]);
 
@@ -241,10 +242,14 @@ export function useSessionListData(
   const handleSessionClick = useCallback(
     (sessionId: string) => {
       if (sessionId === currentSessionId) return;
+      const session = sessions.find(
+        (s) => s.id === sessionId || s.realId === sessionId,
+      );
+      if (!sessionApi.getRoutableSessionId(sessionId, session?.realId)) return;
       setSwitchingSessionId(sessionId);
       onSessionClick(sessionId);
     },
-    [currentSessionId, onSessionClick],
+    [currentSessionId, onSessionClick, sessions],
   );
 
   // Clear switchingSessionId once the URL / currentSessionId has settled
@@ -276,9 +281,10 @@ export function useSessionListData(
       // Clear the message queue for the deleted session so stale items don't
       // linger in storage or get sent after deletion. The queue may be keyed
       // by the local id or the resolved backend id, so clear both.
-      const mq = useMessageQueueStore.getState();
-      mq.clear(sessionId);
-      if (backendId && backendId !== sessionId) mq.clear(backendId);
+      clearLegacyStoredMessageQueue(sessionId);
+      if (backendId && backendId !== sessionId) {
+        clearLegacyStoredMessageQueue(backendId);
+      }
 
       // Everything below mutates the CURRENT view (callbacks, shared list,
       // navigation). A delete that finished after an agent switch must not

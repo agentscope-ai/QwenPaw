@@ -15,9 +15,11 @@ const STORAGE_KEY = "qwenpaw-agent-storage";
  * New tabs read this to set their initial selectedAgent.
  */
 const LAST_USED_AGENT_KEY = "qwenpaw-last-used-agent";
+const LOCAL_CHAT_ID_RE = /^\d+(?:-[a-z0-9]+)?$/;
 
-/** Returns true for temporary local session ids like 1785114733908-0l0jmai. */
-const isLocalTimestamp = (id: string): boolean => /^\d+-[a-z0-9]+$/.test(id);
+function isLocalChatId(chatId: string | undefined): boolean {
+  return !!chatId && LOCAL_CHAT_ID_RE.test(chatId);
+}
 
 let agentRefreshPromise: Promise<void> | null = null;
 
@@ -145,7 +147,7 @@ export const useAgentStore = create<AgentStore>()(
         // Never persist a temporary local timestamp id. These ids only exist
         // in memory before the first message is sent and should not be
         // restored on agent switch.
-        if (isLocalTimestamp(chatId)) {
+        if (isLocalChatId(chatId)) {
           set((state) => {
             const remainingChatIds = { ...state.lastChatIdByAgent };
             delete remainingChatIds[agentId];
@@ -165,7 +167,10 @@ export const useAgentStore = create<AgentStore>()(
           return { lastChatIdByAgent: remainingChatIds };
         }),
 
-      getLastChatId: (agentId) => get().lastChatIdByAgent[agentId],
+      getLastChatId: (agentId) => {
+        const chatId = get().lastChatIdByAgent[agentId];
+        return isLocalChatId(chatId) ? undefined : chatId;
+      },
     }),
     {
       name: STORAGE_KEY,

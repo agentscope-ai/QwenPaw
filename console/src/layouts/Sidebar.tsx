@@ -436,7 +436,8 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const handleSidebarSessionClick = useCallback(
     (sessionId: string) => {
       const mode = codingMode ? "coding" : "chat";
-      const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
+      const effectiveId = sessionApi.getRoutableSessionId(sessionId);
+      if (!effectiveId) return;
       const targetPath = buildSessionPath(mode, effectiveId);
       navigate(targetPath);
     },

@@ -21,13 +21,14 @@ import {
   type IAgentScopeRuntimeWebUISession,
 } from "@agentscope-ai/chat";
 import { useIsMobile } from "../../../../hooks/useIsMobile";
+import { useAgentStore } from "../../../../stores/agentStore";
 import { useCodingMode } from "../../../../stores/codingModeStore";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import SessionItem from "../../../../components/SessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
-import { useMessageQueueStore } from "../../../../stores/messageQueueStore";
+import { clearLegacyStoredMessageQueue } from "../../legacyMessageQueueStorage";
 import {
   buildSessionPath,
   getSessionIdFromPath,
@@ -36,7 +37,6 @@ import {
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../../../../stores/sessionListStore";
-import { useAgentStore } from "../../../../stores/agentStore";
 import {
   type DateGroup,
   groupSessions,
@@ -49,6 +49,8 @@ import type { ChatStatus } from "../../../../api/types/chat";
 const SESSION_ROW_HEIGHT = 77;
 /** Fixed height of each group header row */
 const GROUP_HEADER_HEIGHT = 36;
+/** Stable fallback while an Agent's first session list is loading */
+const EMPTY_SESSIONS: IAgentScopeRuntimeWebUISession[] = [];
 
 /** A flattened row: either a group header or a session item */
 type FlatRow =
@@ -232,30 +234,57 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const navigate = useNavigate();
   const location = useLocation();
   const sdkState = useChatAnywhereSessionsState();
-  const { codingMode } = useCodingMode();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
+  const { codingMode } = useCodingMode();
 
   const createNewSession = useCreateNewSession();
 
-  // In embedded mode, maintain a local session list fetched directly from the
-  // API so we don't depend on the SDK context tree (which lives inside
-  // AgentScopeRuntimeWebUI and may not be accessible from outside).
-  const [localSessions, setLocalSessions] = useState<
-    IAgentScopeRuntimeWebUISession[]
-  >([]);
+  // Keep an independent cache per Agent. A single local list can be emptied by
+  // an in-flight request from the Agent we just left, which makes the history
+  // panel flash until the destination Agent's next list request completes.
+  const sessionScopeKey = selectedAgent || "__default__";
+  const [sessionsByAgent, setSessionsByAgent] = useState<
+    Record<string, IAgentScopeRuntimeWebUISession[]>
+  >({});
 
-  // Always use the component's own localSessions state.  In non-embedded
-  // mode (mobile full mode) this component is rendered outside the
-  // AgentScopeRuntimeWebUI context tree, where sdkState.sessions would be
-  // the default empty context value and sdkState.setSessions a no-op.
-  const sessions = localSessions;
+  // Always use the component's own Agent-scoped cache. In non-embedded mode
+  // (mobile full mode) this component is rendered outside the
+  // AgentScopeRuntimeWebUI context tree, where sdkState.sessions would be the
+  // default empty context value and sdkState.setSessions a no-op.
+  const sessions = sessionsByAgent[sessionScopeKey] ?? EMPTY_SESSIONS;
+  const listLoading = !Object.prototype.hasOwnProperty.call(
+    sessionsByAgent,
+    sessionScopeKey,
+  );
   const { currentSessionId: sdkCurrentSessionId } = sdkState;
   // Prefer URL-derived chatId for active-state matching in ALL modes —
   // the SDK context may not be accessible from outside the provider.
   const urlCurrentSessionId =
     getSessionIdFromPath(location.pathname) ?? undefined;
   const currentSessionId = urlCurrentSessionId || sdkCurrentSessionId;
-  const setSessions = setLocalSessions;
+  const setSessions = useCallback(
+    (nextSessions: IAgentScopeRuntimeWebUISession[]) => {
+      setSessionsByAgent((current) => {
+        if (current[sessionScopeKey] === nextSessions) return current;
+        return {
+          ...current,
+          [sessionScopeKey]: nextSessions,
+        };
+      });
+    },
+    [sessionScopeKey],
+  );
+  const markSessionScopeLoaded = useCallback(() => {
+    setSessionsByAgent((current) => {
+      if (Object.prototype.hasOwnProperty.call(current, sessionScopeKey)) {
+        return current;
+      }
+      return {
+        ...current,
+        [sessionScopeKey]: EMPTY_SESSIONS,
+      };
+    });
+  }, [sessionScopeKey]);
   const { embedded, pinned, onClose } = props;
 
   /** Create a new session; close the drawer only when not pinned */
@@ -278,11 +307,10 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Current value of the rename input */
   const [editValue, setEditValue] = useState("");
 
-  /** Whether the session list is being fetched (default true because destroyOnHidden re-mounts) */
-  const [listLoading, setListLoading] = useState(true);
-
-  /** Cache last polled sessions to skip no-op state updates */
-  const lastPolledSessionsRef = useRef<IAgentScopeRuntimeWebUISession[]>([]);
+  /** Cache last polled sessions per Agent to skip no-op state updates */
+  const lastPolledSessionsRef = useRef(
+    new Map<string, IAgentScopeRuntimeWebUISession[]>(),
+  );
 
   /** Collapsed date groups — default: "month" and "older" are collapsed */
   const [collapsedGroups, setCollapsedGroups] = useState<Set<DateGroup>>(
@@ -340,39 +368,38 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     const list = await sessionApi.getSessionList();
     // Never publish a list that finished loading under a previous agent.
     if (!sessionApi.isActiveOwner(owner)) return;
+    lastPolledSessionsRef.current.set(sessionScopeKey, list);
     setSessions(list);
-  }, [setSessions]);
+  }, [selectedAgent, sessionScopeKey, setSessions]);
 
   /** Open drawer → refresh session list and start polling */
   useEffect(() => {
     if (!props.open) return;
 
     let isCancelled = false;
+    const requestScopeKey = sessionScopeKey;
     const owner = sessionApi.getActiveOwner();
 
-    // The drawer owns a local list outside the SDK context. Clear the
-    // previous agent's entries before loading the newly selected agent.
-    lastPolledSessionsRef.current = [];
-    setSessions([]);
-
     const fetchSessions = async () => {
-      setListLoading(true);
       try {
         const list = await sessionApi.getSessionList();
         if (!isCancelled && sessionApi.isActiveOwner(owner)) {
           // sessionApi already returns the previous array reference when the
           // list hasn't changed, so a reference check is enough to skip no-op
           // state updates and avoid a full re-render cascade.
-          if (list !== lastPolledSessionsRef.current) {
-            lastPolledSessionsRef.current = list;
+          if (list !== lastPolledSessionsRef.current.get(requestScopeKey)) {
+            lastPolledSessionsRef.current.set(requestScopeKey, list);
             setSessions(list);
           }
         }
       } catch (error) {
         console.error("Failed to refresh session list:", error);
-      } finally {
-        if (!isCancelled) {
-          setListLoading(false);
+        if (!isCancelled && sessionApi.isActiveOwner(owner)) {
+          // Mark this Agent scope as loaded even when the initial request
+          // fails. Otherwise listLoading remains true forever and the polling
+          // retry can never replace the permanent spinner with an empty/error
+          // state.
+          markSessionScopeLoaded();
         }
       }
     };
@@ -388,8 +415,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           // sessionApi already returns the previous array reference when the
           // list hasn't changed, so a reference check is enough to skip no-op
           // state updates and avoid a full re-render cascade.
-          if (list !== lastPolledSessionsRef.current) {
-            lastPolledSessionsRef.current = list;
+          if (list !== lastPolledSessionsRef.current.get(requestScopeKey)) {
+            lastPolledSessionsRef.current.set(requestScopeKey, list);
             setSessions(list);
           }
         }
@@ -402,7 +429,13 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       isCancelled = true;
       clearInterval(timer);
     };
-  }, [props.open, selectedAgent, setSessions]);
+  }, [
+    markSessionScopeLoaded,
+    props.open,
+    selectedAgent,
+    sessionScopeKey,
+    setSessions,
+  ]);
 
   /** Whether a session switch is in progress (issue #4557) */
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(
@@ -423,7 +456,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       // the "flash to new chat" issue.
       setSwitchingSessionId(sessionId);
       const mode = codingMode ? "coding" : "chat";
-      const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
+      const effectiveId = sessionApi.getRoutableSessionId(sessionId);
+      if (!effectiveId) return;
       const targetPath = buildSessionPath(mode, effectiveId);
       navigate(targetPath);
     },
@@ -469,9 +503,10 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       // Clear the message queue for the deleted session so stale items don't
       // linger in storage or get sent after deletion. The queue may be keyed
       // by the local id or the resolved backend id, so clear both.
-      const mq = useMessageQueueStore.getState();
-      mq.clear(sessionId);
-      if (backendId && backendId !== sessionId) mq.clear(backendId);
+      clearLegacyStoredMessageQueue(sessionId);
+      if (backendId && backendId !== sessionId) {
+        clearLegacyStoredMessageQueue(backendId);
+      }
 
       // Everything below mutates the CURRENT view (callbacks, shared list,
       // navigation). A delete that finished after an agent switch must not
