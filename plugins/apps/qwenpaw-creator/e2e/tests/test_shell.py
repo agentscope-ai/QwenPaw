@@ -16,7 +16,7 @@ def test_home_and_composer_use_current_project_contract(page):
     expect(page.get_by_role("heading", name="我的项目")).to_be_visible()
     composer = home.open_composer()
     expect(
-        page.get_by_role("heading", name="把目标、素材和限制交给 Agent"),
+        page.get_by_text("开始创作吧！请将目标、素材和限制交给 Agent"),
     ).to_be_visible()
     composer.select_scenario("通用")
     composer.fill_name("E2E 冒烟项目").fill_goal("只验证当前 Composer")

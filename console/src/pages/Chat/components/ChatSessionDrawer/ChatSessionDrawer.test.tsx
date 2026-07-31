@@ -92,12 +92,23 @@ vi.mock("../../sessionApi", () => ({
     finishSessionSwitch: vi.fn(),
     lastNavigatedChatId: null,
     getRoutableSessionId: mockGetRoutableSessionId,
+    getActiveOwner: vi.fn(() => ({
+      agentId: mockAgentState.selectedAgent,
+      generation: 0,
+    })),
+    isActiveOwner: vi.fn(
+      (owner: { agentId: string }) =>
+        owner.agentId === mockAgentState.selectedAgent,
+    ),
   },
 }));
 
 vi.mock("../../../../stores/agentStore", () => ({
-  useAgentStore: (selector?: (state: typeof mockAgentState) => unknown) =>
-    selector ? selector(mockAgentState) : mockAgentState,
+  useAgentStore: Object.assign(
+    (selector?: (state: typeof mockAgentState) => unknown) =>
+      selector ? selector(mockAgentState) : mockAgentState,
+    { subscribe: vi.fn(() => vi.fn()) },
+  ),
 }));
 
 vi.mock("react-router-dom", async () => {

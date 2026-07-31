@@ -12,6 +12,7 @@ from .registry import (
     ensure_skills_initialized,
     reconcile_pool_manifest,
     reconcile_workspace_manifest,
+    resolve_builtin_skill_dir,
     resolve_effective_skills,
 )
 from .store import (
@@ -38,6 +39,7 @@ __all__ = [
     "read_skill_manifest",
     "read_skill_pool_manifest",
     "reconcile_pool_manifest",
+    "resolve_builtin_skill_dir",
     "resolve_pool_skill_dir",
     "reconcile_workspace_manifest",
     "resolve_effective_skills",

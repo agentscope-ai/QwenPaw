@@ -9,6 +9,7 @@ export interface PawAppInfo {
   author: string;
   category: string;
   icon: string;
+  icon_url?: string;
   status: string;
   home_page: string | null;
   entry_page?: string;

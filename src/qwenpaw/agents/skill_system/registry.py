@@ -240,6 +240,21 @@ def get_builtin_skills_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "skills"
 
 
+def resolve_builtin_skill_dir(
+    name: str,
+    *,
+    preferred_language: str | None = None,
+) -> str | None:
+    """Return a builtin skill's packaged directory, language-resolved."""
+    registry = _get_packaged_builtin_registry()
+    variant = _select_builtin_variant(
+        registry,
+        name,
+        preferred_language=preferred_language,
+    )
+    return str(variant.skill_dir) if variant is not None else None
+
+
 # ---------------------------------------------------------------------------
 # Skill config -> environment variable overrides
 # ---------------------------------------------------------------------------

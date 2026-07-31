@@ -364,9 +364,10 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
   /** Re-fetch session list from the backend and sync to context state */
   const refreshSessions = useCallback(async () => {
-    const requestAgent = selectedAgent;
+    const owner = sessionApi.getActiveOwner();
     const list = await sessionApi.getSessionList();
-    if (!sessionApi.isActiveAgent(requestAgent)) return;
+    // Never publish a list that finished loading under a previous agent.
+    if (!sessionApi.isActiveOwner(owner)) return;
     lastPolledSessionsRef.current.set(sessionScopeKey, list);
     setSessions(list);
   }, [selectedAgent, sessionScopeKey, setSessions]);
@@ -376,13 +377,13 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     if (!props.open) return;
 
     let isCancelled = false;
-    const requestAgent = selectedAgent;
     const requestScopeKey = sessionScopeKey;
+    const owner = sessionApi.getActiveOwner();
 
     const fetchSessions = async () => {
       try {
         const list = await sessionApi.getSessionList();
-        if (!isCancelled && sessionApi.isActiveAgent(requestAgent)) {
+        if (!isCancelled && sessionApi.isActiveOwner(owner)) {
           // sessionApi already returns the previous array reference when the
           // list hasn't changed, so a reference check is enough to skip no-op
           // state updates and avoid a full re-render cascade.
@@ -393,7 +394,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         }
       } catch (error) {
         console.error("Failed to refresh session list:", error);
-        if (!isCancelled && sessionApi.isActiveAgent(requestAgent)) {
+        if (!isCancelled && sessionApi.isActiveOwner(owner)) {
           // Mark this Agent scope as loaded even when the initial request
           // fails. Otherwise listLoading remains true forever and the polling
           // retry can never replace the permanent spinner with an empty/error
@@ -410,7 +411,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       if (sessionApi.isSessionSwitching) return;
       try {
         const list = await sessionApi.getSessionList();
-        if (!isCancelled && sessionApi.isActiveAgent(requestAgent)) {
+        if (!isCancelled && sessionApi.isActiveOwner(owner)) {
           // sessionApi already returns the previous array reference when the
           // list hasn't changed, so a reference check is enough to skip no-op
           // state updates and avoid a full re-render cascade.
@@ -485,6 +486,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Delete a session: call deleteChat API then refresh the list */
   const handleDelete = useCallback(
     async (sessionId: string) => {
+      const owner = sessionApi.getActiveOwner();
       const session = sessions.find((s) => s.id === sessionId) as
         | ExtendedChatSession
         | undefined;
@@ -494,21 +496,28 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         await chatApi.deleteChat(backendId);
       }
 
+      // Per-session cleanup is safe regardless of the active agent: it is
+      // keyed to the deleted conversation only.
       localStorage.removeItem(`approval_level-${sessionId}`);
 
       // Clear the message queue for the deleted session so stale items don't
       // linger in storage or get sent after deletion. The queue may be keyed
-      // by the local id or the resolved backend id, so clear both. Also notify
-      // the chat page (when mounted) to abort any in-flight background send.
+      // by the local id or the resolved backend id, so clear both.
       clearLegacyStoredMessageQueue(sessionId);
       if (backendId && backendId !== sessionId) {
         clearLegacyStoredMessageQueue(backendId);
       }
+
+      // Everything below mutates the CURRENT view (callbacks, shared list,
+      // navigation). A delete that finished after an agent switch must not
+      // touch the new agent's state.
+      if (!sessionApi.isActiveOwner(owner)) return;
       sessionApi.onSessionRemoved?.(backendId ?? sessionId);
 
       // Fetch the updated session list after deletion
       const freshList =
         (await sessionApi.getSessionList()) as ExtendedChatSession[];
+      if (!sessionApi.isActiveOwner(owner)) return;
       setSessions(freshList);
       syncSessionsGlobal(freshList as unknown as ExtendedSession[]);
 
@@ -548,6 +557,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Submit rename */
   const handleEditSubmit = useCallback(async () => {
     if (!editingSessionId) return;
+    const owner = sessionApi.getActiveOwner();
 
     const session = sessions.find((s) => s.id === editingSessionId) as
       | ExtendedChatSession
@@ -563,6 +573,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
     setEditingSessionId(null);
     setEditValue("");
+    if (!sessionApi.isActiveOwner(owner)) return;
     await refreshSessions();
   }, [editingSessionId, editValue, sessions, refreshSessions]);
 
@@ -575,6 +586,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Toggle pin status for a session */
   const handlePinToggle = useCallback(
     async (sessionId: string) => {
+      const owner = sessionApi.getActiveOwner();
       const session = sessions.find((s) => s.id === sessionId) as
         | ExtendedChatSession
         | undefined;
@@ -586,6 +598,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           await chatApi.updateChat(backendId, {
             pinned: newPinnedState,
           });
+          if (!sessionApi.isActiveOwner(owner)) return;
           await refreshSessions();
         } catch (error) {
           console.error("Failed to toggle pin status:", error);
@@ -598,6 +611,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Toggle archive status for a session */
   const handleArchiveToggle = useCallback(
     async (sessionId: string) => {
+      const owner = sessionApi.getActiveOwner();
       const session = sessions.find((s) => s.id === sessionId) as
         | ExtendedChatSession
         | undefined;
@@ -607,13 +621,15 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       try {
         if (wasArchived) {
           await chatApi.unarchiveChat(backendId);
-          message.success(
-            t("sessions.archive.unarchiveSuccess", "Chat unarchived"),
-          );
         } else {
           await chatApi.archiveChat(backendId);
-          message.success(t("sessions.archive.successHint"));
         }
+        if (!sessionApi.isActiveOwner(owner)) return;
+        message.success(
+          wasArchived
+            ? t("sessions.archive.unarchiveSuccess", "Chat unarchived")
+            : t("sessions.archive.successHint"),
+        );
         await refreshSessions();
 
         if (!wasArchived) {

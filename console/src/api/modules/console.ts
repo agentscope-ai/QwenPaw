@@ -53,6 +53,7 @@ export interface PendingApproval {
   is_generalized?: boolean;
   exact_target?: string;
   similar_target?: string;
+  source_type: string;
 }
 
 export const consoleApi = {

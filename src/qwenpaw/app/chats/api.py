@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
+
 from __future__ import annotations
 import logging
 from typing import Optional
@@ -19,6 +20,7 @@ from .models import (
     ChatHistory,
 )
 from .utils import agentscope_msg_to_message, parse_legacy_memory_state
+from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +137,7 @@ async def create_chat(
 async def batch_delete_chats(
     chat_ids: list[str],
     mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
 ):
     """Delete chats by chat IDs.
 
@@ -145,7 +148,17 @@ async def batch_delete_chats(
         True if deleted, False if failed
 
     """
+    chats = {chat.id: chat for chat in await mgr.list_chats(archived=None)}
     deleted = await mgr.delete_chats(chat_ids=chat_ids)
+    if deleted:
+        await CHECKPOINT_RUNTIME.delete_session_checkpoints(
+            workspace,
+            [
+                (chat.session_id, chat.user_id, chat.channel)
+                for chat_id in chat_ids
+                if (chat := chats.get(chat_id)) is not None
+            ],
+        )
     return {"deleted": deleted}
 
 
@@ -344,6 +357,7 @@ async def update_chat(
 async def delete_chat(
     chat_id: str,
     mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
 ):
     """Delete a chat by UUID.
 
@@ -360,10 +374,16 @@ async def delete_chat(
     Raises:
         HTTPException: If chat not found (404)
     """
+    chat = await mgr.get_chat(chat_id)
     deleted = await mgr.delete_chats(chat_ids=[chat_id])
     if not deleted:
         raise HTTPException(
             status_code=404,
             detail=f"Chat not found: {chat_id}",
+        )
+    if chat is not None:
+        await CHECKPOINT_RUNTIME.delete_session_checkpoints(
+            workspace,
+            [(chat.session_id, chat.user_id, chat.channel)],
         )
     return {"deleted": True}

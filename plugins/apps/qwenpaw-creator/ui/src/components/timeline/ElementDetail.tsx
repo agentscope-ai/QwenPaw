@@ -17,9 +17,9 @@ import type {
 } from "@/contracts/creator";
 import { getArtifactVersionMediaUrl } from "@/api/creator";
 import {
-  ELEMENT_TYPE_META,
   TRANSITION_KIND_LABEL,
   resolveElementOutputs,
+  resolveElementVisualMeta,
 } from "@/selectors/timelineElementSelectors";
 import { outputLabel } from "@/lib/creatorPresentation";
 import { projectJsonPointer } from "@/lib/projectJsonPointer";
@@ -189,7 +189,7 @@ export default function ElementDetail({
     );
   }
 
-  const meta = ELEMENT_TYPE_META[element.creation.type];
+  const meta = resolveElementVisualMeta(element);
   const status = taskStatus(element, tasks);
   const baseSegments = [
     "timelines",

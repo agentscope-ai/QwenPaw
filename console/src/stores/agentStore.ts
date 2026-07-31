@@ -35,6 +35,7 @@ interface AgentStore {
   removeAgent: (agentId: string) => void;
   updateAgent: (agentId: string, updates: Partial<AgentSummary>) => void;
   setLastChatId: (agentId: string, chatId: string) => void;
+  removeLastChatId: (agentId: string) => void;
   getLastChatId: (agentId: string) => string | undefined;
 }
 
@@ -143,11 +144,28 @@ export const useAgentStore = create<AgentStore>()(
         })),
 
       setLastChatId: (agentId, chatId) => {
-        if (isLocalChatId(chatId)) return;
+        // Never persist a temporary local timestamp id. These ids only exist
+        // in memory before the first message is sent and should not be
+        // restored on agent switch.
+        if (isLocalChatId(chatId)) {
+          set((state) => {
+            const remainingChatIds = { ...state.lastChatIdByAgent };
+            delete remainingChatIds[agentId];
+            return { lastChatIdByAgent: remainingChatIds };
+          });
+          return;
+        }
         set((state) => ({
           lastChatIdByAgent: { ...state.lastChatIdByAgent, [agentId]: chatId },
         }));
       },
+
+      removeLastChatId: (agentId) =>
+        set((state) => {
+          const remainingChatIds = { ...state.lastChatIdByAgent };
+          delete remainingChatIds[agentId];
+          return { lastChatIdByAgent: remainingChatIds };
+        }),
 
       getLastChatId: (agentId) => {
         const chatId = get().lastChatIdByAgent[agentId];

@@ -62,6 +62,7 @@ customized_skills/
 tool_result/
 tool_results/
 skills/
+checkpoints/
 
 # QwenPaw runtime files
 chats.json
@@ -80,6 +81,15 @@ agent.json
 # ---------------------------------------------------------------------------
 # Git command helper
 # ---------------------------------------------------------------------------
+
+# Temporary per-invocation identity for product-initiated commits. Avoids
+# depending on global/system gitconfig or GECOS-derived names (CI/Docker).
+_GIT_IDENTITY_ARGS = (
+    "-c",
+    "user.email=qwenpaw@localhost",
+    "-c",
+    "user.name=QwenPaw",
+)
 
 
 async def _git(cwd: Path, *args: str) -> tuple[int, str, str]:
@@ -173,10 +183,7 @@ async def _auto_init_repo(cwd: Path) -> str:
 
     commit_rc, _, commit_err = await _git(
         cwd,
-        "-c",
-        "user.email=qwenpaw@localhost",
-        "-c",
-        "user.name=QwenPaw",
+        *_GIT_IDENTITY_ARGS,
         "commit",
         "--allow-empty",
         "-m",
@@ -468,6 +475,7 @@ async def commit_changes(body: CommitRequest, request: Request) -> dict:
     workspace = await get_agent_for_request(request)
     rc, out, err = await _git(
         get_coding_dir(workspace),
+        *_GIT_IDENTITY_ARGS,
         "commit",
         "-m",
         body.message.strip(),
@@ -524,10 +532,7 @@ async def revert_commit(body: RevertRequest, request: Request) -> dict:
     cwd = get_coding_dir(workspace)
     rc, out, err = await _git(
         cwd,
-        "-c",
-        "user.email=qwenpaw@localhost",
-        "-c",
-        "user.name=QwenPaw",
+        *_GIT_IDENTITY_ARGS,
         "revert",
         "--no-edit",
         body.commit_hash,

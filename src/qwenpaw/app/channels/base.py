@@ -11,6 +11,7 @@ import json
 import logging
 import time
 from abc import ABC
+from pathlib import Path
 from typing import (
     Optional,
     Dict,
@@ -458,8 +459,6 @@ class BaseChannel(ABC):
 
     def _get_acl_store(self):
         """Get the AccessControlStore for this channel's workspace."""
-        from pathlib import Path
-
         workspace_dir = None
         if self._workspace is not None:
             workspace_dir = Path(self._workspace.workspace_dir)
@@ -1037,6 +1036,8 @@ class BaseChannel(ABC):
                 "Internal error",
             )
             raise
+        finally:
+            await self._finish_response_cycle(session_id)
 
     @staticmethod
     def _sanitize_surrogate_text(text: str) -> str:
@@ -1603,6 +1604,8 @@ class BaseChannel(ABC):
                 to_handle,
                 "An error occurred while processing your request.",
             )
+        finally:
+            await self._finish_response_cycle(session_id)
 
     def _get_response_error_message(self, last_response: Any) -> Optional[str]:
         """
@@ -1784,6 +1787,29 @@ class BaseChannel(ABC):
 
         Override for post-processing (e.g. Feishu DONE reaction).
         """
+
+    async def _finish_response_cycle(self, session_id: str) -> None:
+        """Run best-effort browser cleanup after one channel response cycle."""
+        if not session_id or self._workspace is None:
+            return
+        workspace_dir = getattr(self._workspace, "workspace_dir", None)
+        if workspace_dir is None:
+            return
+        try:
+            from ...browser.execution.kernel import get_default_kernel_manager
+            from ...browser.tool_entrypoint import derive_workspace_id
+
+            await get_default_kernel_manager().on_response_cycle_end(
+                derive_workspace_id(Path(workspace_dir)),
+                session_id,
+            )
+        # Intentional boundary: provider cleanup cannot fail a channel reply.
+        except Exception:
+            logger.warning(
+                "browser response-cycle cleanup failed for session=%s",
+                session_id[:30],
+                exc_info=True,
+            )
 
     @staticmethod
     def _clear_session_turn_usage(session_id: str) -> None:

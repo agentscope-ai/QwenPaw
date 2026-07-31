@@ -1,6 +1,7 @@
 // ─── Skill Hub URL prefixes ───────────────────────────────────────────────────
 
 export const SUPPORTED_SKILL_URL_PREFIXES = [
+  "https://platform.agentscope.io/skills/",
   "https://skills.sh/",
   "https://clawhub.ai/",
   "https://skillsmp.com/",

@@ -17,9 +17,12 @@ from pydantic import Field
 from qwenpaw.providers.multimodal_prober import (
     ProbeResult,
     _PROBE_IMAGE_B64,
+    _PROBE_VIDEO_B64,
+    _PROBE_VIDEO_URL,
     _IMAGE_PROBE_PROMPT,
     _is_media_keyword_error,
     evaluate_image_probe_answer,
+    evaluate_video_probe_answer,
 )
 from qwenpaw.providers.provider import ModelInfo, Provider
 
@@ -305,24 +308,195 @@ class AnthropicProvider(Provider):
         self,
         model_id: str,
         timeout: float = 60,
-        image_only: bool = False,  # pylint: disable=unused-argument
+        image_only: bool = False,
     ) -> ProbeResult:
-        """Probe multimodal support using Anthropic messages API format.
+        """Probe multimodal support via Anthropic messages API.
 
-        Anthropic does not support video input, so supports_video is
-        always False.  Image support is probed by sending a minimal 1x1
-        PNG via the Anthropic base64 image source format.
+        Image support is probed by sending a solid-red PNG.
+        Video support is probed by sending a solid-blue MP4
+        to cover third-party Anthropic-compatible providers
+        that accept video input (official Anthropic does not).
         """
         img_ok, img_msg = await self._probe_image_support(
             model_id,
             timeout,
         )
+        if not img_ok:
+            return ProbeResult(
+                supports_image=False,
+                supports_video=False,
+                image_message=img_msg,
+                video_message="Skipped: image probe failed",
+            )
+        if image_only:
+            return ProbeResult(
+                supports_image=img_ok,
+                supports_video=False,
+                image_message=img_msg,
+                video_message="Skipped: image_only=True",
+            )
+        vid_ok, vid_msg = await self._probe_video_support(
+            model_id,
+            timeout,
+        )
         return ProbeResult(
             supports_image=img_ok,
-            supports_video=False,
+            supports_video=vid_ok,
             image_message=img_msg,
-            video_message="Video not supported by Anthropic",
+            video_message=vid_msg,
         )
+
+    async def _probe_video_support(
+        self,
+        model_id: str,
+        timeout: float = 30,
+    ) -> tuple[bool, str]:
+        """Probe video support via Anthropic messages API.
+
+        Tries a base64 probe video first; if the provider
+        rejects it (400) falls back to an HTTP URL probe.
+        Official Anthropic endpoints reject ``video`` blocks
+        entirely; third-party providers may accept them.
+        """
+        logger.info(
+            "Video probe start: model=%s url=%s",
+            model_id,
+            self.base_url,
+        )
+        start_time = time.monotonic()
+        sources = [
+            {
+                "type": "base64",
+                "media_type": "video/mp4",
+                "data": _PROBE_VIDEO_B64,
+            },
+            {
+                "type": "url",
+                "url": _PROBE_VIDEO_URL,
+            },
+        ]
+        last_err = ""
+        last_400: list[str] = []
+        for source in sources:
+            is_http = source.get("type") == "url"
+            result = await self._try_video_source(
+                model_id,
+                source,
+                timeout=(timeout * 3 if is_http else timeout),
+                start_time=start_time,
+                is_http=is_http,
+                last_400=last_400,
+            )
+            if result is not None:
+                return result
+            detail = last_400[-1] if last_400 else ""
+            last_err = (
+                f"format rejected ({source['type']})"
+                f"{f': {detail}' if detail else ''}"
+            )
+        elapsed = time.monotonic() - start_time
+        logger.info(
+            "Video probe: model=%s ok=False %.2fs",
+            model_id,
+            elapsed,
+        )
+        return False, f"Video not supported: {last_err}"
+
+    async def _try_video_source(
+        self,
+        model_id: str,
+        source: dict,
+        timeout: float,
+        *,
+        start_time: float,
+        is_http: bool = False,
+        last_400: list[str] | None = None,
+    ) -> tuple[bool, str] | None:
+        """Try one video source format. Return None to try next.
+
+        If a 400 error occurs and *last_400* is provided, the
+        error summary is appended to help callers log the
+        actual rejection reason.
+        """
+        client = self._client(timeout=timeout)
+        try:
+            resp = await client.messages.create(
+                model=model_id,
+                max_tokens=200,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "video",
+                                "source": source,
+                            },
+                            {
+                                "type": "text",
+                                "text": (
+                                    "What is the single "
+                                    "dominant color shown "
+                                    "in this video? Reply "
+                                    "with ONLY the color "
+                                    "name, nothing else."
+                                ),
+                            },
+                        ],
+                    },
+                ],
+            )
+            answer = ""
+            thinking = ""
+            for block in resp.content:
+                btype = getattr(block, "type", "")
+                if btype == "thinking":
+                    thinking += getattr(
+                        block,
+                        "thinking",
+                        "",
+                    )
+                elif hasattr(block, "text"):
+                    answer += block.text
+            return evaluate_video_probe_answer(
+                answer,
+                model_id,
+                start_time,
+                reasoning=thinking,
+                is_http=is_http,
+            )
+        except anthropic.APIError as e:
+            status = getattr(e, "status_code", None)
+            if status == 400:
+                logger.debug(
+                    "Video probe format rejected (400): %s",
+                    e,
+                )
+                if last_400 is not None:
+                    last_400.append(str(e)[:200])
+                return None
+            elapsed = time.monotonic() - start_time
+            err_type = type(e).__name__
+            logger.warning(
+                "Video probe error: model=%s %s %s %.2fs",
+                model_id,
+                err_type,
+                e,
+                elapsed,
+            )
+            if _is_media_keyword_error(e):
+                return False, f"Video not supported: {e}"
+            return False, f"Probe inconclusive: {e}"
+        except Exception as e:
+            elapsed = time.monotonic() - start_time
+            err_type = type(e).__name__
+            logger.warning(
+                "Video probe error: model=%s %s %s %.2fs",
+                model_id,
+                err_type,
+                e,
+                elapsed,
+            )
+            return False, f"Probe failed: {e}"
 
     async def _probe_image_support(
         self,

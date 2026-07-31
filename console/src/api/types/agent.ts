@@ -32,6 +32,11 @@ export interface ScrollConfig {
   offload_dialog: boolean;
 }
 
+export interface VisualCompactConfig {
+  enabled: boolean;
+  effort: "low" | "medium" | "high";
+}
+
 export interface LightContextConfig {
   strategy: ContextStrategy;
   dialog_path: string;
@@ -39,6 +44,7 @@ export interface LightContextConfig {
   context_compact_config: ContextCompactConfig;
   scroll_config: ScrollConfig;
   tool_result_pruning_config: ToolResultPruningConfig;
+  visual_compact_config: VisualCompactConfig;
 }
 
 export interface AutoMemorySearchConfig {

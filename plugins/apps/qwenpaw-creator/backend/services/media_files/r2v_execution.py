@@ -69,6 +69,7 @@ from services.media_files.element_adapter import (
     selected_element_output,
     target_element_id,
 )
+from services.media_files.review_admission import assert_media_review_admission
 from services.project_files.remote_cache import public_source_url
 from services.project_files.store import ProjectSnapshot
 from services.runtime_files.atomic_store import (
@@ -1011,6 +1012,16 @@ class FileR2VExecutionService:
             project_root=self.services.projects.project_root(project_id),
             target_ref=target_ref,
             arguments=dict(arguments),
+        )
+        reviews = await asyncio.to_thread(
+            self.services.reviews.all_pending,
+            project_id,
+        )
+        assert_media_review_admission(
+            reviews=reviews,
+            command_type=CreatorCommandType.GENERATE_R2V_VIDEO.value,
+            target_ref=resolved.target_ref,
+            reference_version_ids=resolved.reference_version_ids,
         )
         request = self._request_payload(base, resolved, stable)
         request_fingerprint = _fingerprint(request)
@@ -2674,6 +2685,7 @@ class FileR2VExecutionService:
                 "taskId": task.task_id,
                 "runId": task.run_id,
                 "commandType": CreatorCommandType.GENERATE_R2V_VIDEO.value,
+                "targetRef": str(request["targetRef"]),
                 "providerTaskId": state.provider_task_id,
                 "provider": {
                     key: value
@@ -3174,6 +3186,52 @@ class FileR2VExecutionService:
                 )
         await self._converge(latest, stable, published)
 
+    @staticmethod
+    def _frozen_inputs_still_current(
+        project: Project,
+        task: TaskRecord,
+    ) -> bool:
+        """True when the task's render inputs are unchanged in ``project``.
+
+        Whole-project etag drift treats every commit as fatal, but the most
+        common mid-render commit is a review approval of an earlier output
+        — it does not touch this Element at all, and quarantining discards
+        a finished provider render. Publishing stays allowed when the
+        target Element still exists and still selects exactly the
+        reference versions the video was rendered from (storyboard
+        selection first, then the creation's video references). Prompt or
+        settings drift is tolerated because the published video is itself
+        gated behind a Review; anything else keeps the fail-closed
+        quarantine.
+        """
+
+        raw = task.metadata.get("requestSnapshot")
+        if not isinstance(raw, Mapping):
+            return False
+        frozen_refs = raw.get("referenceVersionIds")
+        element_id = str(raw.get("elementId") or "")
+        if not element_id or not isinstance(frozen_refs, list):
+            return False
+        try:
+            _, element = find_timeline_element(project, element_id)
+        except Exception:
+            return False
+        if not isinstance(element.creation, R2VCreation):
+            return False
+        selected = selected_element_output(project, element, "storyboard")
+        storyboard_id = selected[1] if selected is not None else None
+        if not storyboard_id:
+            return False
+        current_refs = list(
+            dict.fromkeys(
+                [
+                    storyboard_id,
+                    *element.creation.video_reference_version_ids,
+                ],
+            ),
+        )
+        return current_refs == [str(item) for item in frozen_refs]
+
     async def _converge(
         self,
         task: TaskRecord,
@@ -3197,12 +3255,15 @@ class FileR2VExecutionService:
                 current = self.services.projects.read(task.project_id)
                 if self._result_is_converged(current.project, result):
                     snapshot = current
-                elif (
-                    current.etag != latest.input_etag
-                    or current.generation != latest.input_generation
-                ):
-                    return "STALE", latest, current
                 else:
+                    if (
+                        current.etag != latest.input_etag
+                        or current.generation != latest.input_generation
+                    ) and not self._frozen_inputs_still_current(
+                        current.project,
+                        latest,
+                    ):
+                        return "STALE", latest, current
                     candidate = current.project.model_dump(mode="json")
                     self._apply_result(candidate, result)
                     # Generated video must always be reviewed before it is

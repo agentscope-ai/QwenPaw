@@ -13,6 +13,7 @@ errors.  Covers:
 - 422 on a malformed PUT body
 - 404 propagated from ``get_agent_for_request``
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -412,8 +413,8 @@ def test_get_sandbox_preview_with_enabled_param(client):
 # ---------------------------------------------------------------------------
 
 
-def test_put_sandbox_idempotent_same_value_no_403(client):
-    """PUT with unchanged value must NOT trigger admin guard (M1 fix)."""
+def test_put_sandbox_idempotent_same_value_no_save(client):
+    """PUT with unchanged value must skip save (idempotent)."""
     fake_cfg = MagicMock()
     fake_cfg.security.sandbox_enabled = True
 
@@ -424,12 +425,8 @@ def test_put_sandbox_idempotent_same_value_no_403(client):
         ),
         patch(
             "qwenpaw.app.routers.config._sandbox_effective_status",
-            return_value=(False, "not_admin"),
+            return_value=(True, "unelevated"),
         ),
-        # is_windows_admin is lazily imported from utils.platform
-        patch(
-            "qwenpaw.utils.platform.is_windows_admin",
-        ) as mock_admin,
         patch("qwenpaw.app.routers.config.save_config") as mock_save,
     ):
         response = client.put(
@@ -440,16 +437,14 @@ def test_put_sandbox_idempotent_same_value_no_403(client):
     assert response.status_code == 200
     body = response.json()
     assert body["enabled"] is True
-    assert body["effective"] is False
-    assert body["reason"] == "not_admin"
-    # Must NOT have checked admin status (idempotent path)
-    mock_admin.assert_not_called()
+    assert body["effective"] is True
+    assert body["reason"] == "unelevated"
     # Must NOT have saved (value unchanged)
     mock_save.assert_not_called()
 
 
-def test_put_sandbox_non_admin_enabling_returns_403(client):
-    """PUT enabling sandbox as non-admin must return 403."""
+def test_put_sandbox_non_admin_enabling_saves_with_unelevated(client):
+    """PUT enabling sandbox as non-admin must save and return unelevated."""
     fake_cfg = MagicMock()
     fake_cfg.security.sandbox_enabled = False
 
@@ -459,17 +454,22 @@ def test_put_sandbox_non_admin_enabling_returns_403(client):
             return_value=fake_cfg,
         ),
         patch(
-            "qwenpaw.utils.platform.is_windows_admin",
-            return_value=False,
+            "qwenpaw.app.routers.config._sandbox_effective_status",
+            return_value=(True, "unelevated"),
         ),
+        patch("qwenpaw.app.routers.config.save_config") as mock_save,
     ):
         response = client.put(
             "/api/config/security/sandbox",
             json={"enabled": True},
         )
 
-    assert response.status_code == 403
-    assert "administrator" in response.json()["detail"].lower()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["effective"] is True
+    assert body["reason"] == "unelevated"
+    mock_save.assert_called_once()
 
 
 def test_put_sandbox_admin_enabling_saves(client):
@@ -481,10 +481,6 @@ def test_put_sandbox_admin_enabling_saves(client):
         patch(
             "qwenpaw.app.routers.config.load_config",
             return_value=fake_cfg,
-        ),
-        patch(
-            "qwenpaw.utils.platform.is_windows_admin",
-            return_value=True,
         ),
         patch(
             "qwenpaw.app.routers.config._sandbox_effective_status",
