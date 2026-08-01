@@ -149,6 +149,7 @@ Currently supported cloud providers include:
 - DashScope
 - Aliyun Coding Plan
 - OpenRouter
+- OrcaRouter
 - OpenAI
 - Azure OpenAI
 - Anthropic
