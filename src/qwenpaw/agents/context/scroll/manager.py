@@ -1813,7 +1813,7 @@ class ScrollContextManager:
                 + render_live_turn_banner()
             )
             memory = f"<system-info>\n{body}\n</system-info>"
-        placeholder = UserMsg(
+        placeholder = SystemMsg(
             name="memory",
             content=memory,
             metadata={
