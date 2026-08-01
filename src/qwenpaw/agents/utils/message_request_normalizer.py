@@ -28,7 +28,9 @@ _MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
 _MEDIA_MIME_PREFIXES = ("image/", "audio/", "video/")
 
 # Fields that are provider-specific and should not leak across families.
-# Gemini: extra_content carries thought_signature.
+# Gemini: extra_content carries thought_signature.  It is relayed either
+# as a top-level key on dict blocks or via the module-level side-table in
+# ``openai_chat_model_compat`` for pydantic ToolCallBlock.
 # AgentScope internal: raw_input is a stream-parsing artefact.
 _PROVIDER_ONLY_TOOL_USE_FIELDS = frozenset({"extra_content", "raw_input"})
 
@@ -48,7 +50,9 @@ def _clean_provider_specific_fields(
     Current rules
     ~~~~~~~~~~~~~
     * ``extra_content`` – Gemini-specific (``thought_signature``).
-      Kept only when *target_family* is ``"gemini"``.
+      Kept only when *target_family* is ``"gemini"``.  On dict blocks it
+      is a top-level key; on pydantic blocks it is relayed via the
+      module-level side-table in ``openai_chat_model_compat``.
     * ``raw_input`` – AgentScope stream-parsing artefact.
       Stripped unconditionally; some providers reject unknown fields.
     """

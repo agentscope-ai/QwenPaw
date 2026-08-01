@@ -39,6 +39,7 @@ from .utils.message_request_normalizer import (
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
 from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
+from ..providers.openai_chat_model_compat import _drain_tool_call_extra
 from ..providers.retry_chat_model import (
     RetryChatModel,
     RetryConfig,
@@ -1087,9 +1088,14 @@ def _create_file_block_support_formatter(
                 for block in msg.content or []:
                     btype = _battr(block, "type")
                     if btype in ("tool_use", "tool_call"):
+                        bid = _battr(block, "id", "")
                         ec = _battr(block, "extra_content")
+                        if ec is None:
+                            # Streamed Gemini thought_signature is relayed
+                            # via the module-level side-table (the pydantic
+                            # ToolCallBlock has no extra_content field).
+                            ec = _drain_tool_call_extra(bid)
                         if ec is not None:
-                            bid = _battr(block, "id", "")
                             extra_contents[bid] = ec
 
             # Convert file:// URLs to paths for all media blocks,

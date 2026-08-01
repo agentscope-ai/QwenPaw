@@ -10,6 +10,7 @@ from agentscope.credential import OpenAICredential
 
 from qwenpaw.providers.openai_chat_model_compat import (
     OpenAIChatModelCompat,
+    _drain_tool_call_extra,
     _sanitize_tool_call,
 )
 
@@ -115,6 +116,54 @@ async def test_stream_parser_skips_tool_call_without_function() -> None:
     if isinstance(block_input, str):
         block_input = json.loads(block_input)
     assert block_input == {"x": 1}
+
+
+async def test_stream_parser_relays_extra_content_via_side_table() -> None:
+    """Gemini thought_signature must not crash the strict ToolCallBlock.
+
+    Regression test for #6619: setting ``extra_content`` directly on the
+    pydantic ``ToolCallBlock`` (agentscope 2.0.4.post1) raises
+    ``ValueError``.  The relay must be stored in the module-level
+    side-table keyed by tool-call id instead.
+    """
+    model = CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        model="dummy",
+        stream=True,
+    )
+
+    tool_call = SimpleNamespace(
+        index=0,
+        id="call_sig",
+        function=SimpleNamespace(name="ping", arguments='{"x":1}'),
+        extra_content="thought-signature-abc",
+    )
+
+    stream = FakeAsyncStream([_make_chunk([tool_call])])
+
+    responses = await model.parse_stream_for_test(
+        datetime.now(),
+        stream,
+    )
+
+    assert responses
+    tool_blocks = [
+        block
+        for response in responses
+        for block in response.content
+        if getattr(block, "type", None) in ("tool_use", "tool_call")
+    ]
+    assert tool_blocks
+    block = tool_blocks[0]
+    assert getattr(block, "id", None) == "call_sig"
+    # The strict pydantic model must not carry ``extra_content`` directly.
+    assert not hasattr(block, "extra_content")
+    # The relayed signature is available via the side-table and drains once.
+    assert _drain_tool_call_extra("call_sig") == "thought-signature-abc"
+    assert _drain_tool_call_extra("call_sig") is None
 
 
 def test_sanitize_tool_call_normalizes_non_string_arguments() -> None:

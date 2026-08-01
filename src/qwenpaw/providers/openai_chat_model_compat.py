@@ -153,6 +153,28 @@ def _sanitize_stream_item(item: Any) -> Any:
     return _sanitize_chunk(item)
 
 
+# Extra content (Gemini ``thought_signature``) relayed from streamed
+# tool-call chunks, keyed by tool-call id.  ``ToolCallBlock`` is a strict
+# pydantic model (agentscope 2.0.4.post1) without an ``extra_content`` or
+# ``metadata`` field, so the value cannot be stored on the block itself.
+# The id -> extra mapping is consumed once by the formatter
+# (``model_factory``) when it rebuilds the Gemini wire request; it is
+# scoped to a single streamed response, which is how the stream parser is
+# always invoked.
+_TOOL_CALL_EXTRA_CONTENTS: dict[str, Any] = {}
+
+
+def _register_tool_call_extra(tool_id: str, extra: Any) -> None:
+    """Remember relayed ``extra_content`` (Gemini thought_signature) for a
+    tool-call id so the formatter can re-attach it to the Gemini request."""
+    _TOOL_CALL_EXTRA_CONTENTS[tool_id] = extra
+
+
+def _drain_tool_call_extra(tool_id: str) -> Any:
+    """Return and remove the relayed extra for *tool_id*."""
+    return _TOOL_CALL_EXTRA_CONTENTS.pop(tool_id, None)
+
+
 class _SanitizedStream:
     """Proxy OpenAI async stream that sanitizes each emitted item and
     captures ``extra_content`` from tool-call chunks (used by Gemini
@@ -792,10 +814,12 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                         continue
                     ec = sanitized_response.extra_contents.get(tool_id)
                     if ec:
-                        if isinstance(block, dict):
-                            block["extra_content"] = ec
-                        else:
-                            block.extra_content = ec
+                        # ToolCallBlock is a strict pydantic model without
+                        # an ``extra_content`` field; register the relayed
+                        # Gemini ``thought_signature`` in the module-level
+                        # side-table instead (see
+                        # ``_TOOL_CALL_EXTRA_CONTENTS``).
+                        _register_tool_call_extra(tool_id, ec)
 
             has_tool_use = any(
                 (
