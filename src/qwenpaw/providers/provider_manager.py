@@ -227,6 +227,13 @@ ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
 
 ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
     ModelInfo(
+        id="qwen3.7-plus",
+        name="Qwen3.7 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
         id="qwen3.6-plus",
         name="Qwen3.6 Plus",
         supports_image=True,
@@ -238,20 +245,6 @@ ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
         name="Qwen3.5 Plus",
         supports_image=True,
         supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5.2",
-        name="GLM-5.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5.1",
-        name="GLM-5.1",
-        supports_image=False,
-        supports_video=False,
         probe_source="documentation",
     ),
     ModelInfo(
