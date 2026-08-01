@@ -176,12 +176,31 @@ class MemoryMiddleware(MiddlewareBase):
         try:
             cfg = self._memory_config()
             pending_markers = self._auto_memory_turn_state(agent)["pending"]
+            will_compress = await self._will_compress_context(agent, input_kwargs)
             if (
                 getattr(cfg, "summarize_when_compact", False)
                 and pending_markers
-                and await self._will_compress_context(agent, input_kwargs)
+                and will_compress
             ):
                 await self._flush_auto_memory(agent)
+            elif (
+                getattr(cfg, "summarize_when_compact", False)
+                and will_compress
+            ):
+                # Auto-compression without pending markers: schedule a full
+                # summarize of the current messages, matching the behavior of
+                # manual /compact which calls memory_manager.add_summarize_task
+                # after compression completes.
+                try:
+                    self._memory_manager.add_summarize_task(
+                        messages=list(input_kwargs.get("messages") or []),
+                        session_id=agent.state.session_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "MemoryMiddleware summarize_when_compact failed; "
+                        "continuing context compression",
+                    )
         except Exception:
             logger.exception(
                 "MemoryMiddleware pre-compression auto-memory flush failed; "
