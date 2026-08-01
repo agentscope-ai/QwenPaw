@@ -231,6 +231,12 @@ class ACPHostedClient:
         if isinstance(update, AgentMessageChunk):
             self._thinking_active = False
             await self._accumulate_assistant_content(update.content)
+            # Emit the accumulated text immediately.  Streaming consumers
+            # such as delegate_external_agent rely on on_message callbacks
+            # to capture the final text; flushing here (in addition to the
+            # later finish_prompt() flush) makes the text available even if
+            # the prompt response races ahead of this notification task.
+            await self._emit_assistant_text_delta()
             return
 
         await self.flush_assistant_text()

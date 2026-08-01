@@ -387,6 +387,16 @@ class ACPService:
                 await conversation.client.finish_prompt()
                 raise ACPSessionError(str(exc)) from exc
 
+            # Yield once so the dispatcher gets a chance to process any
+            # session/update notifications that arrived in the same TCP
+            # segment as the prompt response.  Without this, the response
+            # handler resolves the prompt future inline, while the
+            # notification runner is still queued as a separate task, so
+            # ``finish_prompt()`` below can observe an empty
+            # ``_assistant_text`` and drop the final text (observed as
+            # "completed without text output" by delegate_external_agent).
+            await asyncio.sleep(0)
+
             conversation.prompt_task = None
             finished_event = await conversation.client.finish_prompt()
             pending_permission = conversation.client.pending_permission
