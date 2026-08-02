@@ -52,10 +52,13 @@ class MCPDriverHandler(DriverHandler):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._client: Any | None = None
-        self._capability_cache: tuple[
-            float,
-            list[DriverCapability],
-        ] | None = None
+        self._capability_cache: (
+            tuple[
+                float,
+                list[DriverCapability],
+            ]
+            | None
+        ) = None
 
     async def _setup(self) -> None:
         """Create and connect StdIOStatefulClient or HttpStatefulClient."""
@@ -395,8 +398,6 @@ def _mcp_tool_to_capability(
 # characters (for fast-path check).
 _TOOL_NAME_SAFE_CHARS = re.compile(r"[^A-Za-z0-9_-]+")
 _TOOL_NAME_ALLOWED = re.compile(r"[A-Za-z0-9_-]+")
-_TOOL_NAMESPACE_ALLOWED = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
-_TOOL_NAMESPACE_LEADING_NON_LETTERS = re.compile(r"^[^A-Za-z]+")
 
 
 def _sanitize_tool_name(name: str) -> str:
@@ -415,12 +416,11 @@ def _sanitize_tool_name(name: str) -> str:
 
 def _sanitize_tool_namespace(name: str) -> str:
     """Return a letter-led namespace for strict provider compatibility."""
-    cleaned = _sanitize_tool_name(name)
-    if _TOOL_NAMESPACE_ALLOWED.fullmatch(cleaned):
+    cleaned = _TOOL_NAME_SAFE_CHARS.sub("_", name.strip())
+    if not cleaned:
+        return "tool"
+    if re.match(r"[A-Za-z]", cleaned):
         return cleaned
-    letter_led = _TOOL_NAMESPACE_LEADING_NON_LETTERS.sub("", cleaned)
-    if letter_led:
-        return letter_led
     return f"tool_{cleaned}"
 
 
@@ -429,5 +429,4 @@ def _tool_namespace_from_display_name(
     *,
     fallback: str,
 ) -> str:
-    namespace = _TOOL_NAME_SAFE_CHARS.sub("_", display_name.strip()).strip("_")
-    return _sanitize_tool_namespace(namespace or fallback)
+    return _sanitize_tool_namespace(display_name.strip() or fallback)
