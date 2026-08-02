@@ -190,13 +190,34 @@ def _scan_error_response(exc: SkillScanError) -> JSONResponse:
     )
 
 
-class SkillSpec(SkillInfo):
+class SkillSpecSummary(BaseModel):
+    """Lightweight skill metadata for list endpoints.
+
+    Excludes `content` (full SKILL.md body) which can be MB-level for
+    large skills. The frontend loads content lazily via a dedicated
+    GET /skills/{name}/content endpoint when the skill drawer is opened.
+    """
+    name: str
+    description: str = ""
+    version_text: str = ""
+    source: str
+    references: dict[str, Any] = Field(default_factory=dict)
+    scripts: dict[str, Any] = Field(default_factory=dict)
+    emoji: str = ""
     enabled: bool = False
     channels: list[str] = Field(default_factory=lambda: ["all"])
     tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
     installed_from: str = ""
+    protected: bool = False
+    external: bool = False
+    external_path: str = ""
+    commit_text: str = ""
+    sync_status: str = ""
+    latest_version_text: str = ""
+    builtin_language: str = ""
+    available_builtin_languages: list[str] = Field(default_factory=list)
 
 
 class PoolSkillSpec(SkillInfo):
@@ -208,6 +229,35 @@ class PoolSkillSpec(SkillInfo):
     latest_version_text: str = ""
     builtin_language: str = ""
     available_builtin_languages: list[str] = Field(default_factory=list)
+
+
+def _build_skill_spec_summary(skill: SkillSpec) -> SkillSpecSummary:
+    """Build a lightweight summary from a full SkillSpec, excluding content."""
+    return SkillSpecSummary(
+        name=skill.name,
+        description=skill.description,
+        version_text=skill.version_text,
+        source=skill.source,
+        references=skill.references,
+        scripts=skill.scripts,
+        emoji=skill.emoji,
+        enabled=skill.enabled,
+        channels=skill.channels,
+        tags=skill.tags,
+        config=skill.config,
+        last_updated=skill.last_updated,
+        installed_from=skill.installed_from,
+        protected=getattr(skill, "protected", False),
+        external=getattr(skill, "external", False),
+        external_path=getattr(skill, "external_path", ""),
+        commit_text=getattr(skill, "commit_text", ""),
+        sync_status=getattr(skill, "sync_status", ""),
+        latest_version_text=getattr(skill, "latest_version_text", ""),
+        builtin_language=getattr(skill, "builtin_language", ""),
+        available_builtin_languages=getattr(
+            skill, "available_builtin_languages", []
+        ),
+    )
     tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
@@ -746,17 +796,25 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
 
 
 @router.get("")
-async def list_skills(request: Request) -> list[SkillSpec]:
+async def list_skills(request: Request) -> list[SkillSpecSummary]:
+    """List workspace skills with metadata only (no full content).
+
+    The full SKILL.md content is loaded lazily via GET /skills/{name}/content
+    when the user opens the skill drawer. This keeps list responses small
+    enough to load even on slow networks.
+    """
     workspace_dir = await _request_workspace_dir(request)
-    return _build_workspace_skill_specs(workspace_dir)
+    specs = _build_workspace_skill_specs(workspace_dir)
+    return [_build_skill_spec_summary(s) for s in specs]
 
 
 @router.post("/refresh")
-async def refresh_skills(request: Request) -> list[SkillSpec]:
+async def refresh_skills(request: Request) -> list[SkillSpecSummary]:
     """Force reconcile and return updated workspace skill list."""
     workspace_dir = await _request_workspace_dir(request)
     reconcile_workspace_manifest(workspace_dir)
-    return _build_workspace_skill_specs(workspace_dir)
+    specs = _build_workspace_skill_specs(workspace_dir)
+    return [_build_skill_spec_summary(s) for s in specs]
 
 
 @router.get("/hub/search")
@@ -781,16 +839,18 @@ async def search_hub(
 
 @router.get("/workspaces")
 async def list_workspace_skill_sources() -> list[WorkspaceSkillSummary]:
+    """List all workspaces with their skills (metadata only, no full content)."""
     summaries: list[WorkspaceSkillSummary] = []
     workspaces = list_workspaces()
     for workspace in workspaces:
         workspace_dir = Path(workspace["workspace_dir"])
+        specs = _build_workspace_skill_specs(workspace_dir)
         summaries.append(
             WorkspaceSkillSummary(
                 agent_id=workspace["agent_id"],
                 agent_name=workspace.get("agent_name", ""),
                 workspace_dir=str(workspace_dir),
-                skills=_build_workspace_skill_specs(workspace_dir),
+                skills=[_build_skill_spec_summary(s) for s in specs],
             ),
         )
     return summaries
@@ -1603,6 +1663,25 @@ async def load_skill_file(
     if content is None:
         raise HTTPException(status_code=404, detail="File not found")
     return {"content": content}
+
+
+@router.get("/{skill_name}/content")
+async def load_skill_content(
+    request: Request,
+    skill_name: str,
+) -> dict[str, str]:
+    """Load the full SKILL.md content for a skill.
+
+    This endpoint is called lazily when the user opens a skill in the
+    drawer. List endpoints use GET /api/skills which returns metadata
+    only (no content) to keep responses small.
+    """
+    workspace_dir = await _request_workspace_dir(request)
+    skill_dir = get_workspace_skills_dir(workspace_dir) / skill_name
+    skill = read_skill_from_dir(skill_dir, "customized")
+    if skill is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return {"content": skill.content}
 
 
 @router.put("/save")
