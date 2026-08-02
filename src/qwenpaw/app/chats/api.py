@@ -248,6 +248,8 @@ async def get_chat(
     mgr: ChatManager = Depends(get_chat_manager),
     session: SafeJSONSession = Depends(get_session),
     workspace=Depends(get_workspace),
+    offset: int = Query(0, ge=0, description="Message offset for pagination"),
+    limit: int = Query(100, ge=1, le=500, description="Max messages to return"),
 ):
     """Get detailed information about a specific chat by UUID.
 
@@ -256,6 +258,8 @@ async def get_chat(
         chat_id: Chat UUID
         mgr: Chat manager dependency
         session: SafeJSONSession dependency
+        offset: Message offset for pagination (default: 0)
+        limit: Max messages to return (default: 100, max: 500)
 
     Returns:
         ChatHistory with messages and status (idle/running)
@@ -322,7 +326,9 @@ async def get_chat(
             memories, _summary = parse_legacy_memory_state(memory_raw)
 
     messages = agentscope_msg_to_message(memories)
-    return ChatHistory(messages=messages, status=status)
+    # Apply pagination: return messages[offset:offset+limit]
+    paginated_messages = messages[offset : offset + limit]
+    return ChatHistory(messages=paginated_messages, status=status)
 
 
 @router.put("/{chat_id}", response_model=ChatSpec)
