@@ -1037,7 +1037,15 @@ def reconcile_pool_manifest() -> dict[str, Any]:
 
         for skill_name in list(skills):
             if skill_name not in discovered:
-                skills.pop(skill_name, None)
+                existing_entry = skills.get(skill_name, {})
+                # Preserve plugin-sourced skill entries (source: "plugin:<id>")
+                # even when their directory is not found on disk. Plugin skills
+                # are lightweight stubs with no on-disk SKILL.md, so they will
+                # never appear in discovered dirs. Preserve their tags and
+                # config so they survive restarts and plugin update cycles.
+                source = existing_entry.get("source", "")
+                if not source.startswith("plugin:"):
+                    skills.pop(skill_name, None)
 
         return payload
 
@@ -1147,7 +1155,15 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
 
         for skill_name in list(skills):
             if skill_name not in discovered:
-                skills.pop(skill_name, None)
+                existing_entry = skills.get(skill_name, {})
+                # Preserve plugin-sourced skill entries (source: "plugin:<id>")
+                # even when their directory is not found on disk. Plugin skills
+                # are lightweight stubs with no on-disk SKILL.md, so they will
+                # never appear in discovered dirs. Preserve their tags and
+                # config so they survive restarts and plugin update cycles.
+                source = existing_entry.get("source", "")
+                if not source.startswith("plugin:"):
+                    skills.pop(skill_name, None)
 
         return payload
 
