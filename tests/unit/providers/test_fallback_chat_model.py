@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """Tests for the fallback chat model module."""
 
+# pylint: disable=redefined-outer-name,protected-access
+
 from __future__ import annotations
 
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -15,7 +17,6 @@ from qwenpaw.providers.fallback_chat_model import (
     FallbackChatModel,
     ModelFallbackError,
     is_fallback_eligible_error,
-    is_retryable_llm_error,
 )
 
 # ---- Fixtures -----------------------------------------------------------
@@ -47,7 +48,7 @@ def primary_candidate(mock_model):
 
 
 @pytest.fixture
-def fallback_candidate(mock_model):
+def fallback_candidate():
     """Create a fallback candidate with a different provider/model."""
     fb_model = MagicMock()
     fb_model.__call__ = AsyncMock()
@@ -155,14 +156,16 @@ class TestFallbackChatModel:
         )
         primary_candidate.model.__call__.side_effect.status_code = 429
         fallback_candidate.model.__call__ = AsyncMock(
-            return_value="fallback-ok"
+            return_value="fallback-ok",
         )
         fallback = FallbackChatModel([primary_candidate, fallback_candidate])
         result = fallback()
         assert result == "fallback-ok"
 
     def test_all_fail_raises_error(
-        self, primary_candidate, fallback_candidate
+        self,
+        primary_candidate,
+        fallback_candidate,
     ):
         """All candidates fail."""
         primary_candidate.model.__call__ = AsyncMock(
@@ -187,7 +190,9 @@ class TestFallbackChatModel:
             fallback()
 
     def test_cooldown_skips_failed_candidate(
-        self, primary_candidate, fallback_candidate
+        self,
+        primary_candidate,
+        fallback_candidate,
     ):
         """After a failure, the candidate is on cooldown."""
         primary_candidate.model.__call__ = AsyncMock(
@@ -195,7 +200,7 @@ class TestFallbackChatModel:
         )
         primary_candidate.model.__call__.side_effect.status_code = 429
         fallback_candidate.model.__call__ = AsyncMock(
-            return_value="fallback-ok"
+            return_value="fallback-ok",
         )
         fallback = FallbackChatModel([primary_candidate, fallback_candidate])
         result = fallback()

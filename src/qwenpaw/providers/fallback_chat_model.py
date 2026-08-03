@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from agentscope.model import ChatModelBase
@@ -166,7 +166,7 @@ class CooldownManager:
 
     @classmethod
     def is_on_cooldown(cls, key: str) -> bool:
-        """Return *True* if *key* (``provider_id:model_name``) is on cooldown."""
+        """Return *True* if *key* is on cooldown."""
         state = cls._states.get(key)
         if state is None:
             return False
@@ -191,9 +191,7 @@ class CooldownManager:
         )
         state.expires_at = time.time() + cooldown
         logger.info(
-            "Cooldown set for %s: %d consecutive failures, "
-            "cooldown=%.0fs (auth=%s)",
-            key,
+            "Cooldown set: %d consecutive failures, " "cooldown=%.0fs (auth=%s)",
             state.consecutive_failures,
             cooldown,
             is_auth,
@@ -206,7 +204,7 @@ class CooldownManager:
 
     @classmethod
     def get_cooldown_remaining(cls, key: str) -> float:
-        """Return remaining cooldown seconds for *key* (0 if not on cooldown)."""
+        """Return remaining cooldown seconds for *key* (0 if none)."""
         state = cls._states.get(key)
         if state is None:
             return 0.0
@@ -344,8 +342,7 @@ class FallbackChatModel(ChatModelBase):
         if not failures:
             return
         logger.info(
-            "LLM fallback: switched to candidate %d %s "
-            "(previous failures: %d)",
+            "LLM fallback: switched to candidate %d %s " "(previous failures: %d)",
             index,
             candidate.label,
             len(failures),
