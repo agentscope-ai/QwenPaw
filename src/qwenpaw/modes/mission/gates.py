@@ -38,6 +38,7 @@ class _MissionState:
     phase: str = "prd_generation"
     last_prd: dict | None = None
     last_cfg: dict | None = None
+    iteration_count: int = 0
 
 
 class MissionGate(LoopGate):
@@ -110,9 +111,10 @@ class MissionGate(LoopGate):
         prd: dict,
         cfg: dict,
     ) -> StopHandlerResult:
-        """Evaluate PRD completion status."""
+        """Evaluate PRD completion status and enforce max_iterations."""
         from .state import (
             get_all_passed,
+            write_loop_config,
         )
 
         if not prd:
@@ -135,10 +137,32 @@ class MissionGate(LoopGate):
                 reason="All stories passed",
             )
 
+        # Enforce max_iterations server-side
         state: Optional[_MissionState] = self._state()
         if state is not None:
             state.last_prd = prd
             state.last_cfg = cfg
+            max_iter = cfg.get("max_iterations")
+            if max_iter is not None:
+                state.iteration_count += 1
+                if state.iteration_count >= max_iter:
+                    # Persist the terminal phase so the mission stops
+                    cfg["current_phase"] = "max_iterations_reached"
+                    try:
+                        write_loop_config(state.loop_dir, cfg)
+                    except Exception:
+                        logger.warning(
+                            "Failed to persist max_iterations_reached phase",
+                            exc_info=True,
+                        )
+                    self.deactivate()
+                    return StopHandlerResult(
+                        action=StopAction.TERMINATE,
+                        reason=(
+                            f"Max iterations reached "
+                            f"({state.iteration_count}/{max_iter})"
+                        ),
+                    )
 
         return StopHandlerResult(
             action=StopAction.INTERRUPT_AND_CONTINUE,
@@ -185,6 +209,7 @@ class MissionGate(LoopGate):
             "active": True,
             "loop_dir": str(state.loop_dir),
             "phase": state.phase,
+            "iteration_count": state.iteration_count,
         }
 
     def _try_restore(
@@ -213,11 +238,13 @@ class MissionGate(LoopGate):
                 "phase",
                 "execution",
             ),
+            iteration_count=saved.get("iteration_count", 0),
         )
         self.activate(ms)
         logger.info(
-            "MissionGate restored (loop_dir=%s)",
+            "MissionGate restored (loop_dir=%s, iterations=%d)",
             ld,
+            ms.iteration_count,
         )
         return ms
 
@@ -231,6 +258,8 @@ class MissionGate(LoopGate):
         remaining = [s for s in stories if not s.get("passes")]
         passed = len(stories) - len(remaining)
         max_iter = cfg.get("max_iterations", 20)
+        # Get current iteration count from cfg if available
+        current_iter = cfg.get("current_iteration", 0)
         lines = [
             f"[Mission] {passed}/{len(stories)} "
             f"stories passed. "
@@ -246,7 +275,7 @@ class MissionGate(LoopGate):
             "1. Dispatch **workers** for remaining\n"
             "2. Dispatch **verifiers** for completed\n"
             "3. Update prd.json passes accordingly"
-            f"\n\nMax iterations: {max_iter}"
+            f"\n\nIteration {current_iter}/{max_iter} (max: {max_iter})"
         )
         lines.append(tail)
         return "\n".join(lines)
