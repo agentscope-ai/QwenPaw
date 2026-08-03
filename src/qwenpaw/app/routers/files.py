@@ -5,10 +5,11 @@ import os
 import shutil
 from pathlib import Path
 from urllib.parse import unquote
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
+from ..utils import check_upload_size, safe_join
 from qwenpaw.constant import WORKING_DIR
 from qwenpaw.security.tool_guard.guardians.file_guardian import (
     FilePathToolGuardian,
@@ -228,3 +229,38 @@ async def rename_path(body: RenameRequest) -> dict:
     except OSError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"renamed": str(src), "to": str(dst)}
+
+
+@router.post(
+    "/upload",
+    summary="Upload a single file",
+    description=(
+        "Upload a file to *path* (directory relative to WORKING_DIR, "
+        "defaults to root). Filename is sanitized against traversal."
+    ),
+)
+async def upload_file(
+    file: UploadFile = File(..., description="File to upload"),
+    path: str | None = None,
+) -> dict:
+    """Upload a single file into WORKING_DIR."""
+    data = await file.read()
+    check_upload_size(data)
+    if path:
+        target_dir = _resolve_workspace_path(path, for_write=True)
+        if not target_dir.is_dir():
+            raise HTTPException(status_code=404, detail="Not found")
+    else:
+        target_dir = _ALLOWED_ROOT
+    raw_name = file.filename or "upload"
+    safe_name = Path(raw_name).name
+    if safe_name != raw_name:
+        # Filename contained path separators / ".." — reject rather than
+        # silently dropping the directory portion.
+        raise HTTPException(status_code=400, detail="Path traversal not allowed")
+    target = safe_join(target_dir, safe_name)
+    try:
+        target.write_bytes(data)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"uploaded": str(target)}

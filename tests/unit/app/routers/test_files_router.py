@@ -225,3 +225,35 @@ def test_rename_root_400(client) -> None:
     )
     assert resp.status_code == 400
     assert resp.json()["detail"] == "Cannot operate on root"
+
+
+def test_upload_file(client) -> None:
+    test_client, fs_root = client
+    resp = test_client.post(
+        "/api/files/upload",
+        files={"file": ("hello.txt", b"hello world", "text/plain")},
+    )
+    assert resp.status_code == 200
+    assert (fs_root / "hello.txt").read_text(encoding="utf-8") == "hello world"
+
+
+def test_upload_to_subdir(client) -> None:
+    test_client, fs_root = client
+    (fs_root / "sub").mkdir()
+    resp = test_client.post(
+        "/api/files/upload",
+        params={"path": "sub"},
+        files={"file": ("f.txt", b"x", "text/plain")},
+    )
+    assert resp.status_code == 200
+    assert (fs_root / "sub" / "f.txt").exists()
+
+
+def test_upload_traversal_rejected(client) -> None:
+    test_client, fs_root = client
+    resp = test_client.post(
+        "/api/files/upload",
+        files={"file": ("../../evil.txt", b"x", "text/plain")},
+    )
+    assert resp.status_code == 400
+    assert not (fs_root.parent / "evil.txt").exists()
