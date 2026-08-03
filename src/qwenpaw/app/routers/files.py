@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 from urllib.parse import unquote
 from fastapi import APIRouter, HTTPException
@@ -173,3 +174,30 @@ async def create_directory(body: MkdirRequest) -> dict:
     except OSError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"created": str(target)}
+
+
+@router.delete(
+    "/delete/{path:path}",
+    summary="Delete a file or directory",
+    description=(
+        "Delete *path* (relative to WORKING_DIR). Directories require "
+        "recursive=true to delete non-empty contents."
+    ),
+)
+async def delete_path(
+    path: str,
+    recursive: bool = False,
+) -> dict:
+    """Delete a file or directory."""
+    target = _resolve_workspace_path(path, for_write=True)
+    if target == _ALLOWED_ROOT:
+        raise HTTPException(status_code=400, detail="Cannot operate on root")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    if target.is_dir():
+        if not recursive and any(target.iterdir()):
+            raise HTTPException(status_code=409, detail="Directory not empty")
+        shutil.rmtree(target)
+    else:
+        target.unlink()
+    return {"deleted": str(target)}

@@ -138,3 +138,47 @@ def test_mkdir_nested_creates_parents(client) -> None:
     )
     assert resp.status_code == 200
     assert (fs_root / "a" / "b" / "c").is_dir()
+
+
+def test_delete_file(client) -> None:
+    test_client, fs_root = client
+    f = fs_root / "todelete.txt"
+    f.write_text("x", encoding="utf-8")
+    resp = test_client.delete("/api/files/delete/todelete.txt")
+    assert resp.status_code == 200
+    assert not f.exists()
+
+
+def test_delete_root_400(client) -> None:
+    test_client, _ = client
+    resp = test_client.delete("/api/files/delete/", params={})
+    # FastAPI will route "" to root; also test explicit "."
+    resp2 = test_client.delete("/api/files/delete/.")
+    assert resp2.status_code == 400
+    assert resp2.json()["detail"] == "Cannot operate on root"
+
+
+def test_delete_nonempty_dir_requires_recursive(client) -> None:
+    test_client, fs_root = client
+    d = fs_root / "dir"
+    d.mkdir()
+    (d / "f.txt").write_text("x", encoding="utf-8")
+    resp = test_client.delete("/api/files/delete/dir")
+    assert resp.status_code == 409
+    assert d.exists()
+
+
+def test_delete_dir_recursive(client) -> None:
+    test_client, fs_root = client
+    d = fs_root / "dir"
+    d.mkdir()
+    (d / "f.txt").write_text("x", encoding="utf-8")
+    resp = test_client.delete("/api/files/delete/dir", params={"recursive": "true"})
+    assert resp.status_code == 200
+    assert not d.exists()
+
+
+def test_delete_missing_404(client) -> None:
+    test_client, _ = client
+    resp = test_client.delete("/api/files/delete/does-not-exist")
+    assert resp.status_code == 404
