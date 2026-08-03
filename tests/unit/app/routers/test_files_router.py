@@ -87,3 +87,26 @@ def test_list_missing_dir_404(client) -> None:
     test_client, _ = client
     resp = test_client.get("/api/files/list", params={"path": "nope"})
     assert resp.status_code == 404
+
+
+def test_list_directory_filters_sensitive(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sensitive files inside WORKING_DIR must not appear in the listing."""
+    test_client, fs_root = client
+    (fs_root / "ok.txt").write_text("hello", encoding="utf-8")
+    sensitive = fs_root / "secret.txt"
+    sensitive.write_text("secret", encoding="utf-8")
+
+    def fake_is_sensitive(normalized: str) -> bool:
+        return normalized == str(sensitive.resolve())
+
+    monkeypatch.setattr(
+        files_module._file_guardian, "_is_sensitive", fake_is_sensitive
+    )
+
+    resp = test_client.get("/api/files/list")
+    assert resp.status_code == 200
+    names = [e["name"] for e in resp.json()]
+    assert "ok.txt" in names
+    assert "secret.txt" not in names

@@ -141,6 +141,8 @@ async def list_directory(path: str | None = None) -> list[dict]:
     entries = []
     for child in sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name)):
         try:
+            if _check_path(child, for_write=False):
+                continue
             entries.append(_entry_info(child))
         except OSError:
             continue
