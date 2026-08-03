@@ -110,3 +110,31 @@ def test_list_directory_filters_sensitive(
     names = [e["name"] for e in resp.json()]
     assert "ok.txt" in names
     assert "secret.txt" not in names
+
+
+def test_mkdir_creates_dir(client) -> None:
+    test_client, fs_root = client
+    resp = test_client.post(
+        "/api/files/mkdir", json={"path": "newdir"}
+    )
+    assert resp.status_code == 200
+    assert (fs_root / "newdir").is_dir()
+
+
+def test_mkdir_existing_409(client) -> None:
+    test_client, fs_root = client
+    (fs_root / "exists").mkdir()
+    resp = test_client.post(
+        "/api/files/mkdir", json={"path": "exists"}
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "Target exists"
+
+
+def test_mkdir_nested_creates_parents(client) -> None:
+    test_client, fs_root = client
+    resp = test_client.post(
+        "/api/files/mkdir", json={"path": "a/b/c"}
+    )
+    assert resp.status_code == 200
+    assert (fs_root / "a" / "b" / "c").is_dir()

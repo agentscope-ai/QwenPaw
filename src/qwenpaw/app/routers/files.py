@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from urllib.parse import unquote
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
 from qwenpaw.constant import WORKING_DIR
@@ -147,3 +148,28 @@ async def list_directory(path: str | None = None) -> list[dict]:
         except OSError:
             continue
     return entries
+
+
+class MkdirRequest(BaseModel):
+    path: str = Field(..., description="Directory path relative to WORKING_DIR")
+
+
+@router.post(
+    "/mkdir",
+    summary="Create a directory",
+    description="Create *path* (relative to WORKING_DIR). Creates parents.",
+)
+async def create_directory(body: MkdirRequest) -> dict:
+    """Create a directory (and parents)."""
+    target = _resolve_workspace_path(body.path, for_write=True)
+    if target == _ALLOWED_ROOT:
+        raise HTTPException(status_code=400, detail="Cannot operate on root")
+    if target.exists():
+        raise HTTPException(status_code=409, detail="Target exists")
+    try:
+        target.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail="Target exists") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"created": str(target)}
