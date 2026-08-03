@@ -40,6 +40,32 @@
   font-size: 15px;
 }
 
+.trashNoticeBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: rgba(255, 77, 79, 0.06);
+  border: 1px solid rgba(255, 77, 79, 0.15);
+}
+
+.autoCleanNotice {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:global(.dark-mode) {
+  .trashNoticeBar {
+    background: rgba(255, 77, 79, 0.08);
+    border-color: rgba(255, 77, 79, 0.2);
+  }
+  .autoCleanNotice {
+    color: rgba(255, 255, 255, 0.5);
+  }
+}
+
 .wobbleToggleActive {
   color: #ff7f16 !important;
 }

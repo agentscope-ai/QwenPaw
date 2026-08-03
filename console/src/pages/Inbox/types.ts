@@ -33,6 +33,14 @@ export interface PushMessage {
   };
   createdAt: Date;
   read: boolean;
+  /** Whether the message has been archived (hidden from main list). */
+  archived?: boolean;
+  /** Timestamp when archived (Unix ms). */
+  archivedAt?: number;
+  /** Whether the message is in trash (soft-deleted). */
+  trashed?: boolean;
+  /** Timestamp when moved to trash (Unix ms). */
+  trashedAt?: number;
   metadata?: {
     priority?: "low" | "normal" | "high" | "urgent";
     sourceType?: string;
@@ -46,6 +54,9 @@ export interface PushMessage {
     payload?: Record<string, unknown>;
   };
 }
+
+/** Which message list tab is active. */
+export type MessageTab = "messages" | "archived" | "trash";
 
 export interface HarvestInstance {
   id: string;

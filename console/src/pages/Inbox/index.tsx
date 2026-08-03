@@ -22,7 +22,7 @@ import {
   DownOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
-import { PackageOpen, Bell, BellRing } from "lucide-react";
+import { PackageOpen, Bell, BellRing, Archive, Trash2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
@@ -35,6 +35,7 @@ import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
 import { PushMessageCard } from "./components";
+import type { MessageTab } from "./types";
 import { useInboxData } from "./hooks/useInboxData";
 import { useTraceViewer } from "./hooks/useTraceViewer";
 import { useAgentStore } from "../../stores/agentStore";
@@ -49,9 +50,10 @@ import {
 } from "./utils/traceUtils";
 import styles from "./index.module.less";
 
-type TabKey = "approvals" | "messages";
+type TabKey = "approvals" | "messages" | "archived" | "trash";
 const INBOX_TAB_STORAGE_KEY = "qwenpaw.inbox.activeTab";
 const PUSH_MESSAGES_PAGE_SIZE = 5;
+const MSG_TABS: TabKey[] = ["messages", "archived", "trash"];
 
 const SOURCE_TYPE_LABEL_KEYS: Record<string, string> = {
   cron: "inbox.sourceTypeCron",
@@ -60,11 +62,14 @@ const SOURCE_TYPE_LABEL_KEYS: Record<string, string> = {
 };
 
 const resolveInitialTab = (): TabKey => {
-  if (typeof window === "undefined") {
-    return "messages";
-  }
+  if (typeof window === "undefined") return "messages";
   const stored = window.localStorage.getItem(INBOX_TAB_STORAGE_KEY);
-  if (stored === "approvals" || stored === "messages") {
+  if (
+    stored === "approvals" ||
+    stored === "messages" ||
+    stored === "archived" ||
+    stored === "trash"
+  ) {
     return stored;
   }
   return "messages";
@@ -100,18 +105,41 @@ export default function InboxPage() {
   const {
     summary,
     pushMessages,
+    archivedMessages,
+    trashedMessages,
     markMessageAsRead,
     markAllMessagesAsRead,
-    deleteMessage,
-    deleteMessages,
+    archiveMessage,
+    archiveMessages,
+    trashMessage,
+    trashMessages,
+    restoreMessage,
+    restoreMessages,
+    permanentlyDeleteMessages,
+    emptyTrash,
   } = useInboxData();
   const agentDisplayNameById = useMemo(
     () =>
       new Map(agents.map((agent) => [agent.id, getAgentDisplayName(agent, t)])),
     [agents, t],
   );
+
+  // ── Message list per active tab ──────────────────────────────────────
+
+  const currentMessageList = useMemo(() => {
+    if (activeTab === "archived") return archivedMessages;
+    if (activeTab === "trash") return trashedMessages;
+    return pushMessages;
+  }, [activeTab, pushMessages, archivedMessages, trashedMessages]);
+
+  const currentTabLabel = useMemo((): MessageTab => {
+    if (activeTab === "archived") return "archived";
+    if (activeTab === "trash") return "trash";
+    return "messages";
+  }, [activeTab]);
+
   const filteredPushMessages = useMemo(() => {
-    return pushMessages.filter((message) => {
+    return currentMessageList.filter((message) => {
       if (
         selectedAgentFilter &&
         (message.metadata?.agentId || DEFAULT_AGENT_ID) !== selectedAgentFilter
@@ -126,14 +154,15 @@ export default function InboxPage() {
       }
       return true;
     });
-  }, [pushMessages, selectedAgentFilter, selectedSourceTypeFilter]);
+  }, [currentMessageList, selectedAgentFilter, selectedSourceTypeFilter]);
+
   const pushMessageAgentOptions = useMemo(() => {
     const ids = new Set<string>(
       filteredPushMessages.map(
         (message) => message.metadata?.agentId || DEFAULT_AGENT_ID,
       ),
     );
-    pushMessages.forEach((message) => {
+    currentMessageList.forEach((message) => {
       ids.add(message.metadata?.agentId || DEFAULT_AGENT_ID);
     });
     const options = Array.from(ids)
@@ -146,10 +175,10 @@ export default function InboxPage() {
           (id === DEFAULT_AGENT_ID ? t("agent.defaultDisplayName") : id),
       }));
     return options;
-  }, [agentDisplayNameById, filteredPushMessages, pushMessages, t]);
+  }, [agentDisplayNameById, filteredPushMessages, currentMessageList, t]);
   const sourceTypeOptions = useMemo(() => {
     const types = new Set<string>(
-      pushMessages
+      currentMessageList
         .map((m) => m.metadata?.sourceType)
         .filter((v): v is string => Boolean(v)),
     );
@@ -159,7 +188,7 @@ export default function InboxPage() {
         value: type,
         label: t(SOURCE_TYPE_LABEL_KEYS[type] || type),
       }));
-  }, [pushMessages, t]);
+  }, [currentMessageList, t]);
   const approvalCount = pendingApprovals.length;
   const pagedPushMessages = useMemo(() => {
     const start = (messagesPage - 1) * PUSH_MESSAGES_PAGE_SIZE;
@@ -244,16 +273,22 @@ export default function InboxPage() {
   }, [messagesPage, totalMessagePages]);
 
   useEffect(() => {
-    const validIdSet = new Set(pushMessages.map((item) => item.id));
+    const validIdSet = new Set(currentMessageList.map((item) => item.id));
     setSelectedMessageIds((prev) => prev.filter((id) => validIdSet.has(id)));
-  }, [pushMessages]);
+  }, [currentMessageList]);
 
   useEffect(() => {
     setMessagesPage(1);
-  }, [selectedAgentFilter, selectedSourceTypeFilter]);
+  }, [selectedAgentFilter, selectedSourceTypeFilter, activeTab]);
+
+  useEffect(() => {
+    // Reset selection when switching tabs
+    setSelectedMessageIds([]);
+    setBatchMode(false);
+  }, [activeTab]);
 
   const handleViewMessage = (messageId: string) => {
-    const found = pushMessages.find((item) => item.id === messageId);
+    const found = currentMessageList.find((item) => item.id === messageId);
     if (!found) {
       message.warning(t("inbox.messageNotFound"));
       return;
@@ -302,94 +337,156 @@ export default function InboxPage() {
     });
   };
 
-  const handleBatchDeleteMessages = async () => {
+  const handleBatchArchiveMessages = () => {
     if (!selectedMessageIds.length) return;
-    const deletedCount = await deleteMessages(selectedMessageIds);
+    archiveMessages(selectedMessageIds);
     setSelectedMessageIds([]);
-    if (deletedCount > 0) {
-      message.success(t("inbox.batchDeleteSuccess", { count: deletedCount }));
-    }
+    setBatchMode(false);
+    message.success(
+      t("inbox.batchArchiveSuccess", { count: selectedMessageIds.length }),
+    );
   };
 
-  const tabItems = [
-    {
-      key: "messages",
-      label: (
-        <span className={styles.tabLabel}>
-          <Bell size={16} />
-          {t("inbox.tabPushMessages")}
-          {summary.pushMessages.unread > 0 && (
-            <Badge count={summary.pushMessages.unread} color="#ff7f16" />
-          )}
-        </span>
-      ),
-      children: (
-        <div className={styles.tabContent}>
-          <div className={styles.messagesToolbar}>
-            <div className={styles.messagesSelectionTools}>
-              <Select
-                size="middle"
-                value={selectedAgentFilter}
-                onChange={(value) => setSelectedAgentFilter(value)}
-                allowClear
-                options={pushMessageAgentOptions}
-                style={{ width: 180 }}
-                placeholder={t("inbox.filterByAgent")}
-              />
-              <Select
-                size="middle"
-                value={selectedSourceTypeFilter}
-                onChange={(value) => setSelectedSourceTypeFilter(value)}
-                allowClear
-                options={sourceTypeOptions}
-                style={{ width: 160 }}
-                placeholder={t("inbox.filterBySourceType")}
-              />
-            </div>
-            <div className={styles.messagesSelectionTools}>
-              {batchMode ? (
-                <>
-                  <Checkbox
-                    checked={allCurrentPageSelected}
-                    onChange={(event) =>
-                      handleToggleSelectCurrentPage(event.target.checked)
-                    }
-                    disabled={currentPageMessageIds.length <= 0}
-                  >
-                    {t("inbox.selectAllCurrentPage")}
-                  </Checkbox>
-                  <span className={styles.selectedCountText}>
-                    {t("inbox.selectedItems", {
-                      count: selectedMessageIds.length,
-                    })}
-                  </span>
-                  <Popconfirm
-                    title={t("inbox.batchDeleteConfirm", {
-                      count: selectedMessageIds.length,
-                    })}
-                    onConfirm={() => void handleBatchDeleteMessages()}
-                    okText={t("common.confirm")}
-                    cancelText={t("common.cancel")}
-                    disabled={selectedMessageIds.length <= 0}
-                  >
-                    <Button danger disabled={selectedMessageIds.length <= 0}>
-                      {t("inbox.batchDeleteButton")}
-                    </Button>
-                  </Popconfirm>
-                  <Button
-                    onClick={() => {
-                      setBatchMode(false);
-                      setSelectedMessageIds([]);
-                    }}
-                  >
-                    {t("inbox.exitBatch")}
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button onClick={() => setBatchMode(true)}>
-                    {t("inbox.batchOperation")}
-                  </Button>
+  const handleBatchTrashMessages = () => {
+    if (!selectedMessageIds.length) return;
+    trashMessages(selectedMessageIds);
+    setSelectedMessageIds([]);
+    setBatchMode(false);
+    message.success(
+      t("inbox.batchTrashSuccess", { count: selectedMessageIds.length }),
+    );
+  };
+
+  const handleBatchRestoreMessages = () => {
+    if (!selectedMessageIds.length) return;
+    restoreMessages(selectedMessageIds);
+    setSelectedMessageIds([]);
+    setBatchMode(false);
+    message.success(
+      t("inbox.batchRestoreSuccess", { count: selectedMessageIds.length }),
+    );
+  };
+
+  const handleBatchPermanentDelete = async () => {
+    if (!selectedMessageIds.length) return;
+    await permanentlyDeleteMessages(selectedMessageIds);
+    const count = selectedMessageIds.length;
+    setSelectedMessageIds([]);
+    setBatchMode(false);
+    message.success(t("inbox.permanentDeleteSuccess", { count }));
+  };
+
+  const handleEmptyTrash = async () => {
+    if (trashedMessages.length === 0) {
+      message.info(t("inbox.noTrash"));
+      return;
+    }
+    await emptyTrash();
+    message.success(t("inbox.emptyTrashSuccess"));
+  };
+
+  const handleSingleArchive = (id: string) => {
+    archiveMessage(id);
+    message.success(t("inbox.archiveSuccess"));
+  };
+
+  const handleSingleTrash = (id: string) => {
+    trashMessage(id);
+    message.success(t("inbox.trashSuccess"));
+  };
+
+  const handleSingleRestore = (id: string) => {
+    restoreMessage(id);
+    message.success(t("inbox.restoreSuccess"));
+  };
+
+  const handleSinglePermanentDelete = async (id: string) => {
+    await permanentlyDeleteMessages([id]);
+    message.success(t("inbox.permanentDeleteSuccess", { count: 1 }));
+  };
+
+  // ── Build a message-list tab ─────────────────────────────────────────
+
+  const buildMessageTab = (
+    tabKey: TabKey,
+    tabLabel: string,
+    icon: React.ReactNode,
+    emptyText: string,
+    showBadge: boolean,
+    showMarkAllRead: boolean,
+    batchActions: React.ReactNode,
+    cardOverrides: Partial<
+      React.ComponentProps<typeof PushMessageCard>
+    >,
+    extraToolbar?: React.ReactNode,
+  ) => ({
+    key: tabKey,
+    label: (
+      <span className={styles.tabLabel}>
+        {icon}
+        {tabLabel}
+        {showBadge && summary.pushMessages.unread > 0 && (
+          <Badge count={summary.pushMessages.unread} color="#ff7f16" />
+        )}
+      </span>
+    ),
+    children: (
+      <div className={styles.tabContent}>
+        {extraToolbar}
+        <div className={styles.messagesToolbar}>
+          <div className={styles.messagesSelectionTools}>
+            <Select
+              size="middle"
+              value={selectedAgentFilter}
+              onChange={(value) => setSelectedAgentFilter(value)}
+              allowClear
+              options={pushMessageAgentOptions}
+              style={{ width: 180 }}
+              placeholder={t("inbox.filterByAgent")}
+            />
+            <Select
+              size="middle"
+              value={selectedSourceTypeFilter}
+              onChange={(value) => setSelectedSourceTypeFilter(value)}
+              allowClear
+              options={sourceTypeOptions}
+              style={{ width: 160 }}
+              placeholder={t("inbox.filterBySourceType")}
+            />
+          </div>
+          <div className={styles.messagesSelectionTools}>
+            {batchMode ? (
+              <>
+                <Checkbox
+                  checked={allCurrentPageSelected}
+                  onChange={(event) =>
+                    handleToggleSelectCurrentPage(event.target.checked)
+                  }
+                  disabled={currentPageMessageIds.length <= 0}
+                >
+                  {t("inbox.selectAllCurrentPage")}
+                </Checkbox>
+                <span className={styles.selectedCountText}>
+                  {t("inbox.selectedItems", {
+                    count: selectedMessageIds.length,
+                  })}
+                </span>
+                {batchActions}
+                <Button
+                  onClick={() => {
+                    setBatchMode(false);
+                    setSelectedMessageIds([]);
+                  }}
+                >
+                  {t("inbox.exitBatch")}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button onClick={() => setBatchMode(true)}>
+                  {t("inbox.batchOperation")}
+                </Button>
+                {showMarkAllRead && (
                   <Button
                     onClick={() => void handleMarkAllRead()}
                     loading={markAllReading}
@@ -397,41 +494,159 @@ export default function InboxPage() {
                   >
                     {t("inbox.markAllRead")}
                   </Button>
-                </>
-              )}
+                )}
+              </>
+            )}
+          </div>
+        </div>
+        {filteredPushMessages.length > 0 ? (
+          <div className={styles.cardList}>
+            {pagedPushMessages.map((item) => (
+              <PushMessageCard
+                key={item.id}
+                message={item}
+                tab={currentTabLabel}
+                onMarkAsRead={markMessageAsRead}
+                onView={handleViewMessage}
+                selected={selectedMessageIds.includes(item.id)}
+                onSelectChange={
+                  batchMode ? handleToggleMessageSelection : undefined
+                }
+                {...cardOverrides}
+              />
+            ))}
+            <div className={styles.paginationWrap}>
+              <Pagination
+                current={messagesPage}
+                total={filteredPushMessages.length}
+                pageSize={PUSH_MESSAGES_PAGE_SIZE}
+                onChange={setMessagesPage}
+                showSizeChanger={false}
+              />
             </div>
           </div>
-          {filteredPushMessages.length > 0 ? (
-            <div className={styles.cardList}>
-              {pagedPushMessages.map((item) => (
-                <PushMessageCard
-                  key={item.id}
-                  message={item}
-                  onMarkAsRead={markMessageAsRead}
-                  onDelete={deleteMessage}
-                  onView={handleViewMessage}
-                  selected={selectedMessageIds.includes(item.id)}
-                  onSelectChange={
-                    batchMode ? handleToggleMessageSelection : undefined
-                  }
-                />
-              ))}
-              <div className={styles.paginationWrap}>
-                <Pagination
-                  current={messagesPage}
-                  total={filteredPushMessages.length}
-                  pageSize={PUSH_MESSAGES_PAGE_SIZE}
-                  onChange={setMessagesPage}
-                  showSizeChanger={false}
-                />
-              </div>
-            </div>
-          ) : (
-            <Empty description={t("inbox.emptyPush")} />
-          )}
+        ) : (
+          <Empty description={emptyText} />
+        )}
+      </div>
+    ),
+  });
+
+  const tabItems = [
+    buildMessageTab(
+      "messages",
+      t("inbox.tabPushMessages"),
+      <Bell size={16} />,
+      t("inbox.emptyPush"),
+      true,
+      true,
+      <>
+        <Popconfirm
+          title={t("inbox.archiveConfirm")}
+          onConfirm={handleBatchArchiveMessages}
+          okText={t("common.confirm")}
+          cancelText={t("common.cancel")}
+          disabled={selectedMessageIds.length <= 0}
+        >
+          <Button disabled={selectedMessageIds.length <= 0}>
+            {t("inbox.archive")}
+          </Button>
+        </Popconfirm>
+        <Popconfirm
+          title={t("inbox.moveToTrashConfirm")}
+          onConfirm={handleBatchTrashMessages}
+          okText={t("common.confirm")}
+          cancelText={t("common.cancel")}
+          disabled={selectedMessageIds.length <= 0}
+        >
+          <Button danger disabled={selectedMessageIds.length <= 0}>
+            {t("inbox.moveToTrash")}
+          </Button>
+        </Popconfirm>
+      </>,
+      { onArchive: handleSingleArchive, onTrash: handleSingleTrash },
+    ),
+    buildMessageTab(
+      "archived",
+      t("inbox.tabArchived"),
+      <Archive size={16} />,
+      t("inbox.noArchived"),
+      false,
+      false,
+      <>
+        <Button
+          disabled={selectedMessageIds.length <= 0}
+          onClick={handleBatchRestoreMessages}
+        >
+          {t("inbox.restore")}
+        </Button>
+        <Popconfirm
+          title={t("inbox.moveToTrashConfirm")}
+          onConfirm={handleBatchTrashMessages}
+          okText={t("common.confirm")}
+          cancelText={t("common.cancel")}
+          disabled={selectedMessageIds.length <= 0}
+        >
+          <Button danger disabled={selectedMessageIds.length <= 0}>
+            {t("inbox.moveToTrash")}
+          </Button>
+        </Popconfirm>
+      </>,
+      { onRestore: handleSingleRestore, onTrash: handleSingleTrash },
+    ),
+    buildMessageTab(
+      "trash",
+      t("inbox.tabTrash"),
+      <Trash2 size={16} />,
+      t("inbox.noTrash"),
+      false,
+      false,
+      <>
+        <Button
+          disabled={selectedMessageIds.length <= 0}
+          onClick={handleBatchRestoreMessages}
+        >
+          {t("inbox.restore")}
+        </Button>
+        <Popconfirm
+          title={t("inbox.permanentDeleteConfirm")}
+          onConfirm={() => void handleBatchPermanentDelete()}
+          okText={t("common.confirm")}
+          cancelText={t("common.cancel")}
+          disabled={selectedMessageIds.length <= 0}
+        >
+          <Button danger disabled={selectedMessageIds.length <= 0}>
+            {t("inbox.permanentDelete")}
+          </Button>
+        </Popconfirm>
+      </>,
+      {
+        onRestore: handleSingleRestore,
+        onPermanentDelete: handleSinglePermanentDelete,
+      },
+      <>
+        <div className={styles.trashNoticeBar}>
+          <span className={styles.autoCleanNotice}>
+            {t("inbox.autoCleanNotice", { days: 30 })}
+          </span>
+          <Popconfirm
+            title={t("inbox.emptyTrashConfirm")}
+            onConfirm={() => void handleEmptyTrash()}
+            okText={t("common.confirm")}
+            cancelText={t("common.cancel")}
+            disabled={trashedMessages.length === 0}
+          >
+            <Button
+              size="small"
+              danger
+              disabled={trashedMessages.length === 0}
+            >
+              {t("inbox.emptyTrash")}
+            </Button>
+          </Popconfirm>
         </div>
-      ),
-    },
+      </>,
+    ),
     {
       key: "approvals",
       label: (

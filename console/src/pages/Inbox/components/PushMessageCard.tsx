@@ -1,4 +1,4 @@
-import { Card, Button, Tag, Avatar, Popconfirm, Checkbox } from "antd";
+import { Card, Button, Tag, Avatar, Popconfirm, Checkbox, Tooltip } from "antd";
 import {
   MessageCircle,
   Hash,
@@ -7,17 +7,25 @@ import {
   Mail,
   RefreshCw,
   Trash2,
+  Archive,
+  RotateCcw,
   Brain,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { PushMessage } from "../types";
+import type { PushMessage, MessageTab } from "../types";
 import styles from "./PushMessageCard.module.less";
 
 interface PushMessageCardProps {
   message: PushMessage;
+  /** Which tab this card is rendered in — controls available actions. */
+  tab: MessageTab;
   onMarkAsRead: (id: string) => void;
   onView: (id: string) => void;
-  onDelete: (id: string) => void;
+  onDelete?: (id: string) => void;
+  onArchive?: (id: string) => void;
+  onTrash?: (id: string) => void;
+  onRestore?: (id: string) => void;
+  onPermanentDelete?: (id: string) => void;
   selected?: boolean;
   onSelectChange?: (id: string, checked: boolean) => void;
 }
@@ -51,7 +59,18 @@ const normalizeCronTaskName = (title: string): string =>
     .trim();
 
 export function PushMessageCard(props: PushMessageCardProps) {
-  const { message, onView, onDelete, selected = false, onSelectChange } = props;
+  const {
+    message,
+    tab,
+    onView,
+    onDelete,
+    onArchive,
+    onTrash,
+    onRestore,
+    onPermanentDelete,
+    selected = false,
+    onSelectChange,
+  } = props;
   const { t } = useTranslation();
   const IconComponent = CHANNEL_ICONS[message.channelType];
   const channelColor = CHANNEL_COLORS[message.channelType];
@@ -60,6 +79,154 @@ export function PushMessageCard(props: PushMessageCardProps) {
   const displayTitle = isCronMessage
     ? t("inbox.pushCronHeader", { name: normalizeCronTaskName(message.title) })
     : message.title;
+
+  // ── Action buttons per tab ───────────────────────────────────────────
+
+  const renderActions = () => {
+    const buttons: React.ReactNode[] = [];
+
+    if (tab === "messages") {
+      // Archive button
+      if (onArchive) {
+        buttons.push(
+          <Tooltip key="archive" title={t("inbox.archive")}>
+            <Popconfirm
+              title={t("inbox.archiveConfirm")}
+              onConfirm={(event) => {
+                event?.stopPropagation();
+                onArchive(message.id);
+              }}
+              onCancel={(event) => event?.stopPropagation()}
+              okText={t("common.confirm")}
+              cancelText={t("common.cancel")}
+            >
+              <Button
+                size="small"
+                type="text"
+                icon={<Archive size={14} />}
+                onClick={(event) => event.stopPropagation()}
+              />
+            </Popconfirm>
+          </Tooltip>,
+        );
+      }
+      // Move to trash button
+      if (onTrash) {
+        buttons.push(
+          <Tooltip key="trash" title={t("inbox.moveToTrash")}>
+            <Popconfirm
+              title={t("inbox.moveToTrashConfirm")}
+              onConfirm={(event) => {
+                event?.stopPropagation();
+                onTrash(message.id);
+              }}
+              onCancel={(event) => event?.stopPropagation()}
+              okText={t("common.confirm")}
+              cancelText={t("common.cancel")}
+            >
+              <Button
+                size="small"
+                type="text"
+                danger
+                icon={<Trash2 size={14} />}
+                onClick={(event) => event.stopPropagation()}
+              />
+            </Popconfirm>
+          </Tooltip>,
+        );
+      }
+    }
+
+    if (tab === "archived") {
+      // Restore button
+      if (onRestore) {
+        buttons.push(
+          <Tooltip key="restore" title={t("inbox.restore")}>
+            <Button
+              size="small"
+              type="text"
+              icon={<RotateCcw size={14} />}
+              onClick={(event) => {
+                event.stopPropagation();
+                onRestore(message.id);
+              }}
+            />
+          </Tooltip>,
+        );
+      }
+      // Move to trash
+      if (onTrash) {
+        buttons.push(
+          <Tooltip key="trash" title={t("inbox.moveToTrash")}>
+            <Popconfirm
+              title={t("inbox.moveToTrashConfirm")}
+              onConfirm={(event) => {
+                event?.stopPropagation();
+                onTrash(message.id);
+              }}
+              onCancel={(event) => event?.stopPropagation()}
+              okText={t("common.confirm")}
+              cancelText={t("common.cancel")}
+            >
+              <Button
+                size="small"
+                type="text"
+                danger
+                icon={<Trash2 size={14} />}
+                onClick={(event) => event.stopPropagation()}
+              />
+            </Popconfirm>
+          </Tooltip>,
+        );
+      }
+    }
+
+    if (tab === "trash") {
+      // Restore button
+      if (onRestore) {
+        buttons.push(
+          <Tooltip key="restore" title={t("inbox.restore")}>
+            <Button
+              size="small"
+              type="text"
+              icon={<RotateCcw size={14} />}
+              onClick={(event) => {
+                event.stopPropagation();
+                onRestore(message.id);
+              }}
+            />
+          </Tooltip>,
+        );
+      }
+      // Permanent delete
+      if (onPermanentDelete) {
+        buttons.push(
+          <Tooltip key="permdelete" title={t("inbox.permanentDelete")}>
+            <Popconfirm
+              title={t("inbox.permanentDeleteConfirm")}
+              onConfirm={(event) => {
+                event?.stopPropagation();
+                onPermanentDelete(message.id);
+              }}
+              onCancel={(event) => event?.stopPropagation()}
+              okText={t("common.confirm")}
+              cancelText={t("common.cancel")}
+            >
+              <Button
+                size="small"
+                type="text"
+                danger
+                icon={<Trash2 size={14} />}
+                onClick={(event) => event.stopPropagation()}
+              />
+            </Popconfirm>
+          </Tooltip>,
+        );
+      }
+    }
+
+    return <>{buttons}</>;
+  };
 
   return (
     <Card
@@ -104,26 +271,7 @@ export function PushMessageCard(props: PushMessageCardProps) {
               {message.metadata.priority.toUpperCase()}
             </Tag>
           ) : null}
-          <Popconfirm
-            title={t("inbox.deleteMessageConfirm")}
-            onConfirm={(event) => {
-              event?.stopPropagation();
-              onDelete(message.id);
-            }}
-            onCancel={(event) => {
-              event?.stopPropagation();
-            }}
-            okText={t("common.confirm")}
-            cancelText={t("common.cancel")}
-          >
-            <Button
-              size="small"
-              type="text"
-              danger
-              icon={<Trash2 size={14} />}
-              onClick={(event) => event.stopPropagation()}
-            />
-          </Popconfirm>
+          {renderActions()}
         </div>
       </div>
       <div className={styles.cardBody}>
