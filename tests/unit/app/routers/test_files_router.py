@@ -257,3 +257,18 @@ def test_upload_traversal_rejected(client) -> None:
     )
     assert resp.status_code == 400
     assert not (fs_root.parent / "evil.txt").exists()
+
+
+def test_download_file(client) -> None:
+    test_client, fs_root = client
+    (fs_root / "data.txt").write_text("payload", encoding="utf-8")
+    resp = test_client.get("/api/files/download/data.txt")
+    assert resp.status_code == 200
+    assert resp.content == b"payload"
+    assert "attachment" in resp.headers.get("content-disposition", "")
+
+
+def test_download_missing_404(client) -> None:
+    test_client, _ = client
+    resp = test_client.get("/api/files/download/nope.txt")
+    assert resp.status_code == 404

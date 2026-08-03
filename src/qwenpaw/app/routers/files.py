@@ -152,6 +152,19 @@ async def list_directory(path: str | None = None) -> list[dict]:
     return entries
 
 
+@router.get(
+    "/download/{path:path}",
+    summary="Download a single file",
+    description="Download *path* (relative to WORKING_DIR) as an attachment.",
+)
+async def download_file(path: str) -> FileResponse:
+    """Download a single file."""
+    target = _resolve_workspace_path(path, for_write=False)
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(target, filename=target.name)
+
+
 class MkdirRequest(BaseModel):
     path: str = Field(..., description="Directory path relative to WORKING_DIR")
 
