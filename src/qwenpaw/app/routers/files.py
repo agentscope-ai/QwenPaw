@@ -90,3 +90,58 @@ async def preview_file(
     if not os.access(path, os.R_OK):
         raise HTTPException(status_code=500, detail="Permission denied")
     return FileResponse(path, filename=path.name)
+
+
+def _resolve_workspace_path(raw: str, for_write: bool) -> Path:
+    """Normalize *raw* to an absolute path and validate it.
+
+    Raises HTTPException for invalid / disallowed paths.
+    """
+    normalized = unquote(raw)
+    path = Path(normalized).expanduser()
+    if not path.is_absolute():
+        path = _ALLOWED_ROOT / path
+    path = path.resolve()
+    reason = _check_path(path, for_write=for_write)
+    if reason:
+        raise HTTPException(status_code=403, detail=reason)
+    return path
+
+
+def _entry_info(path: Path) -> dict:
+    st = path.stat()
+    return {
+        "name": path.name,
+        "path": str(path),
+        "is_dir": path.is_dir(),
+        "size": st.st_size if path.is_file() else 0,
+        "modified_time": st.st_mtime,
+    }
+
+
+@router.get(
+    "/list",
+    summary="List directory contents",
+    description=(
+        "List the contents of *path* (relative to WORKING_DIR, or absolute). "
+        "Omit *path* to list the WORKING_DIR root."
+    ),
+)
+async def list_directory(path: str | None = None) -> list[dict]:
+    """List directory contents."""
+    if path is None:
+        target = _ALLOWED_ROOT
+        reason = _check_path(target, for_write=False)
+        if reason:
+            raise HTTPException(status_code=403, detail=reason)
+    else:
+        target = _resolve_workspace_path(path, for_write=False)
+    if not target.is_dir():
+        raise HTTPException(status_code=404, detail="Not found")
+    entries = []
+    for child in sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name)):
+        try:
+            entries.append(_entry_info(child))
+        except OSError:
+            continue
+    return entries

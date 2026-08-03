@@ -17,7 +17,9 @@ from qwenpaw.app.routers.files import router, _check_path
 @pytest.fixture
 def fs_root(tmp_path: Path) -> Path:
     """Isolated WORKING_DIR for each test."""
-    return tmp_path / "root"
+    root = tmp_path / "root"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
 
 @pytest.fixture
@@ -55,3 +57,33 @@ def test_check_path_read_skips_when_allowed(
     outside = fs_root.parent / "evil" / "file.txt"
     outside.mkdir(parents=True)
     assert _check_path(outside, for_write=False) is None
+
+
+def test_list_directory(client) -> None:
+    test_client, fs_root = client
+    (fs_root / "sub").mkdir()
+    (fs_root / "sub" / "a.txt").write_text("hello", encoding="utf-8")
+    (fs_root / "b.txt").write_text("world", encoding="utf-8")
+
+    resp = test_client.get("/api/files/list")
+    assert resp.status_code == 200
+    entries = {e["name"]: e for e in resp.json()}
+    assert "sub" in entries and entries["sub"]["is_dir"] is True
+    assert "b.txt" in entries and entries["b.txt"]["is_dir"] is False
+
+
+def test_list_directory_nested(client) -> None:
+    test_client, fs_root = client
+    (fs_root / "sub" / "deep").mkdir(parents=True)
+    (fs_root / "sub" / "deep" / "f.txt").write_text("x", encoding="utf-8")
+
+    resp = test_client.get("/api/files/list", params={"path": "sub"})
+    assert resp.status_code == 200
+    names = [e["name"] for e in resp.json()]
+    assert "deep" in names
+
+
+def test_list_missing_dir_404(client) -> None:
+    test_client, _ = client
+    resp = test_client.get("/api/files/list", params={"path": "nope"})
+    assert resp.status_code == 404
