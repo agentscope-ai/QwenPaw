@@ -568,6 +568,27 @@ def test_normalize_batch_accepts_json_array_string():
     assert out[1]["fork"] is True
 
 
+def test_normalize_batch_empty_placeholders_return_none():
+    """Empty batch representations normalize to None (Issue #6588)."""
+    assert agent_management._normalize_batch(None) is None
+    assert agent_management._normalize_batch("") is None
+    assert agent_management._normalize_batch("   ") is None
+    assert agent_management._normalize_batch([]) is None
+    assert agent_management._normalize_batch("[]") is None
+    assert agent_management._normalize_batch("  [  ]  ") is None
+
+
+def test_normalize_batch_rejects_invalid_values():
+    """Ambiguous literals and non-array types raise ValueError."""
+    for bad in ("null", "None", "{}", '{"task": "a"}', "invalid", 123, True):
+        try:
+            agent_management._normalize_batch(bad)
+        except ValueError as exc:
+            assert "batch" in str(exc)
+        else:
+            raise AssertionError(f"expected ValueError for {bad!r}")
+
+
 def test_coerce_bool_string_false_is_false():
     assert agent_management._coerce_bool("false") is False
     assert agent_management._coerce_bool("true") is True
@@ -1051,6 +1072,64 @@ async def test_spawn_subagent_top_level_string_bools(monkeypatch):
     assert bad_timeout.content[0].text.startswith("ERROR:")
     assert "timeout" in bad_timeout.content[0].text.lower()
     assert not collected
+
+
+async def test_spawn_subagent_empty_batch_placeholders_single_task(
+    monkeypatch,
+):
+    """Empty batch placeholders fall through to single-task mode.
+
+    Regression test for Issue #6588.
+    """
+    collected: list[dict] = []
+
+    def fake_collect(_base, payload, _agent_id, _timeout):
+        collected.append(payload)
+        return {
+            "output": [
+                {"content": [{"type": "text", "text": "done"}]},
+            ],
+        }
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    from qwenpaw.app import agent_context
+
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response",
+        fake_collect,
+    )
+    monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(agent_context, "get_current_agent_id", lambda: "bot-a")
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_approval_route",
+        lambda: None,
+    )
+    monkeypatch.setattr(agent_context, "get_current_session_id", lambda: "s1")
+    monkeypatch.setattr(agent_context, "get_current_user_id", lambda: "u1")
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_channel",
+        lambda: "console",
+    )
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_root_session_id",
+        lambda: "s1",
+    )
+
+    for empty_batch in ([], "", "   ", "[]", " [ ] "):
+        collected.clear()
+        res = await agent_management.spawn_subagent(
+            task="do work",
+            batch=empty_batch,
+        )
+        assert "ERROR" not in res.content[0].text
+        assert "done" in res.content[0].text
+        assert len(collected) == 1
 
 
 async def test_spawn_subagent_batch_item_timeout_errors_before_dispatch(

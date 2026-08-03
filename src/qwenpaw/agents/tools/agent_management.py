@@ -988,13 +988,22 @@ def _normalize_batch(
 ) -> Optional[list[Dict[str, Any]]]:
     """Normalize ``batch`` to ``list[dict]`` or ``None``.
 
-    Accepts a real list or a JSON array string.  Structural checks
-    (non-empty, per-item ``task``) remain in :func:`_spawn_batch`.
+    Accepts a real list or a JSON array string. Empty placeholders
+    (``None``, ``""``, whitespace, ``[]``, ``"[]"``) normalize to ``None``
+    so single-task execution paths remain usable when models emit empty
+    placeholders for optional parameters (Issue #6588).
+
+    Structural checks (per-item ``task``) remain in :func:`_spawn_batch`.
     """
     if value is None:
         return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    if isinstance(value, list) and not value:
+        return None
     coerced = _coerce_json_list(value, "batch")
-    assert coerced is not None
+    if not coerced:
+        return None
     return coerced  # type: ignore[return-value]
 
 
