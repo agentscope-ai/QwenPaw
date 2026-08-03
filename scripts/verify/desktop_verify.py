@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import abc
 import argparse
+import faulthandler
 import json
 import os
 import sys
@@ -55,6 +56,12 @@ DEFAULT_PROVIDER = "dashscope"
 DEFAULT_TIMEOUT = 120
 SESSION_ID = "release-verify-session"
 USER_ID = "release-verify-user"
+
+# The verify step runs under timeout-minutes: 10 in desktop-build.yml, so
+# self-report at 540s: a hung driver dumps every thread's stack and exits
+# while there is still time, instead of being SIGKILLed at 600s with its
+# buffered stdout discarded and the step showing no diagnostics at all.
+HANG_DUMP_SECONDS = 540
 
 # Selectors come straight from e2e/pages/chat_page.py so they stay in sync
 # with what the real UI tests expect.
@@ -254,6 +261,7 @@ class PlaywrightDriver(UIDriver):
 
     INPUT_VISIBLE_TIMEOUT_MS = 60_000
     NAVIGATE_TIMEOUT_MS = 60_000
+    LAUNCH_TIMEOUT_MS = 60_000
 
     def __init__(
         self,
@@ -306,7 +314,10 @@ class PlaywrightDriver(UIDriver):
                     raise UIDriverInitError(
                         f"playwright has no browser '{browser}'",
                     )
-                self._browser = launcher.launch(headless=headless)
+                self._browser = launcher.launch(
+                    headless=headless,
+                    timeout=self.LAUNCH_TIMEOUT_MS,
+                )
                 self._context = self._browser.new_context()
                 self._page = self._context.new_page()
         except UIDriverInitError:
@@ -946,4 +957,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    faulthandler.dump_traceback_later(HANG_DUMP_SECONDS, exit=True)
     sys.exit(main())
