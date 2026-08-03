@@ -98,28 +98,15 @@ async def preview_file(
 
 
 def _resolve_workspace_path(raw: str, for_write: bool) -> Path:
-    """Normalize *raw* to an absolute path and validate it.
+    """Resolve *raw* under WORKING_DIR and validate it.
 
-    Resolves the path and then pins it inside ``_ALLOWED_ROOT`` before any
-    file-system operation, so a caller-supplied path can never escape the
-    workspace. Raises HTTPException for invalid / disallowed paths.
+    The path is joined under ``_ALLOWED_ROOT`` with ``safe_join``, which
+    rejects any ``..`` / absolute escape before it reaches a file-system
+    operation. The sensitive-file guard always applies via ``_check_path``.
+    Raises HTTPException for invalid / disallowed paths.
     """
     normalized = unquote(raw)
-    candidate = Path(normalized).expanduser()
-    if not candidate.is_absolute():
-        candidate = _ALLOWED_ROOT / candidate
-    path = candidate.resolve()
-    # Pin the path inside WORKING_DIR before any file-system operation so a
-    # caller-supplied path can never escape the workspace, unless the read
-    # config explicitly allows previewing outside the workspace.
-    try:
-        path.relative_to(_ALLOWED_ROOT)
-    except ValueError:
-        if for_write or not _is_preview_outside_workspace_allowed():
-            raise HTTPException(
-                status_code=403,
-                detail="OUTSIDE_WORKSPACE",
-            ) from None
+    path = safe_join(_ALLOWED_ROOT, normalized)
     reason = _check_path(path, for_write=for_write)
     if reason:
         raise HTTPException(status_code=403, detail=reason)
