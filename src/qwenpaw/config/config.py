@@ -1596,7 +1596,8 @@ class AgentsLLMRoutingConfig(BaseModel):
         ),
     )
     fallback: "AgentsLLMFallbackConfig" = Field(
-        default_factory=AgentsLLMFallbackConfig,
+        # pylint: disable=unnecessary-lambda
+        default_factory=lambda: AgentsLLMFallbackConfig(),
         description=(
             "Optional fallback model candidates tried after the primary "
             "model exhausts retryable failures."

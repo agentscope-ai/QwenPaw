@@ -579,7 +579,7 @@ def _promote_tool_result_videos(
                 for item in output
                 if (
                     (item if isinstance(item, dict) else _block_to_dict(item)).get(
-                        "type"
+                        "type",
                     )
                     in ("video", "data")
                     and (
