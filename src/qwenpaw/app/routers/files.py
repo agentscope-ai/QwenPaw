@@ -168,7 +168,7 @@ async def download_file(path: str) -> FileResponse:
 
 
 class MkdirRequest(BaseModel):
-    path: str = Field(..., description="Directory path relative to WORKING_DIR")
+    path: str = Field(..., description="Directory path in WORKING_DIR")
 
 
 @router.post(
@@ -272,7 +272,7 @@ async def upload_file(
     if safe_name != raw_name:
         # Filename contained path separators / ".." — reject rather than
         # silently dropping the directory portion.
-        raise HTTPException(status_code=400, detail="Path traversal not allowed")
+        raise HTTPException(status_code=400, detail="Traversal not allowed")
     target = safe_join(target_dir, safe_name)
     try:
         target.write_bytes(data)
