@@ -26,6 +26,7 @@ def build_review_prompt(
     repo: str,
     change_map: str = "",
     head_sha: str = "",
+    base_sha: str = "",
 ) -> str:
     """Build a task-oriented review prompt.
 
@@ -37,9 +38,18 @@ def build_review_prompt(
             embeds it and switches to the enhanced workflow.
         head_sha: The PR head commit SHA, used in the full-file fetch
             command so the agent reads the exact reviewed revision.
+        base_sha: The merge-base SHA. Required for files the change map
+            marks DELETED: they are absent from the head revision, so
+            fetching them there can only 404.
     """
     if change_map.strip():
-        return _build_enhanced_prompt(pr_number, repo, change_map, head_sha)
+        return _build_enhanced_prompt(
+            pr_number,
+            repo,
+            change_map,
+            head_sha,
+            base_sha,
+        )
     return _build_fallback_prompt(pr_number, repo)
 
 
@@ -51,6 +61,7 @@ def _build_enhanced_prompt(
     repo: str,
     change_map: str,
     head_sha: str,
+    base_sha: str = "",
 ) -> str:
     # The contents API needs a concrete ref. Prefer the pinned head SHA;
     # if the runner couldn't resolve it, tell the agent to look it up.
@@ -63,6 +74,29 @@ def _build_enhanced_prompt(
             f"`gh pr view {pr_number} --repo {repo} "
             "--json headRefOid --jq .headRefOid`)"
         )
+    )
+    base_ref = base_sha or f"{repo.split('/')[-1]}-base"
+    # A deleted file is absent from the head revision, so it can only be
+    # read at the merge-base. Without this the change map's truncation
+    # marker points at a fetch that is guaranteed to 404, while the rules
+    # below still require reading the full file before raising anything.
+    deleted_rule = (
+        f"""
+**Deleted files** — any file the change map marks `DELETED in this PR` \
+(and any binary file whose fetch below returns 404) no longer exists at \
+`{ref}`. Read its PRE-DELETION source from the base revision instead:
+   `gh api -H "Accept: application/vnd.github.raw" \
+"repos/{repo}/contents/<PATH>?ref={base_ref}"`
+   Judge a deletion by whether the removed code is still referenced \
+elsewhere — use `gh search code` to check before approving it.
+"""
+        if base_sha
+        else """
+**Deleted files** — a file the change map marks `DELETED in this PR` is \
+absent from the revision above, so that fetch will 404. Read its \
+pre-deletion source with \
+`gh pr diff <PR> --repo <REPO>` or at the PR's base branch instead.
+"""
     )
     return f"""\
 Please perform a thorough yet precise code review for \
@@ -98,7 +132,7 @@ PR's revision, run{ref_hint}:
    (replace `<PATH>` with the repo-relative file path, e.g. \
 `src/cache.py`). Use this whenever a file is marked truncated/omitted or \
 you need more context than the change map shows.
-
+{deleted_rule}
 Rules you must follow:
 - **Read the full file for any non-trivial finding.** If a hunk calls a \
 function, mutates shared state, or changes a signature, use the Full-file \

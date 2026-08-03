@@ -373,6 +373,29 @@ def prepare_repo(
     return repo_dir, merge_base, head_sha
 
 
+def _safe_display(path: str) -> str:
+    """Render a git path for the prompt with no lone surrogates.
+
+    Git paths are bytes and need not be valid UTF-8, so :func:`_numstat`
+    reads them with ``surrogateescape`` to keep them round-trippable into
+    a later argv. Those surrogates must never reach the prompt: httpx
+    encodes the JSON body with ``ensure_ascii=False`` and then UTF-8, so a
+    single one raises ``UnicodeEncodeError`` from inside the HTTP call --
+    long after :func:`resolve_change_map` returned, with its fallback
+    already skipped and only ``TimeoutException``/``ConnectError`` caught
+    around the request.
+
+    Undecodable bytes become ``\\xNN`` text: valid UTF-8, unambiguous, and
+    still legible to the agent. Genuine UTF-8 paths (``café.py``) are
+    passed through untouched. The display value is therefore NOT a usable
+    pathspec -- that is what the separate ``pathspecs`` field is for.
+    """
+    return path.encode("utf-8", "surrogateescape").decode(
+        "utf-8",
+        "backslashreplace",
+    )
+
+
 def _numstat(
     repo_dir: str,
     from_sha: str,
@@ -412,14 +435,17 @@ def _numstat(
             i += 1
             continue
         add, dele, path = parts
+        # ``pathspecs`` keeps the raw surrogate form so it can go back
+        # into git's argv; ``display`` is sanitised for the prompt.
         if path:
-            display, pathspecs = path, [path]
+            display, pathspecs = _safe_display(path), [path]
             i += 1
         else:
             if i + 2 >= len(fields):
                 break
             old, new = fields[i + 1], fields[i + 2]
-            display, pathspecs = f"{old} => {new}", [old, new]
+            display = f"{_safe_display(old)} => {_safe_display(new)}"
+            pathspecs = [old, new]
             i += 3
         # Binary files show "-" for counts; keep them but mark n/a.
         stat = "binary" if add == "-" or dele == "-" else f"+{add} -{dele}"
@@ -545,13 +571,25 @@ def _render_file_chunk(
     ``entry`` is one ``(display, stat, pathspecs)`` record from
     :func:`_numstat`.
 
+    Deleted files are flagged in the header. Without that flag a truncated
+    deletion is a dead end: the marker sends the agent to the full-file
+    fetch, but the file does not exist at the PR head, so the fetch can
+    only 404 -- while the prompt still demands it read the full file
+    before asserting anything. The flag tells it to use the base revision
+    instead (spelled out once in the prompt's Step 2).
+
     Returns ``(chunk_text, line_count, truncated)`` where ``truncated``
     marks that the diff was cut to the per-file budget.
     """
     display, stat, pathspecs = entry
-    header = f"### {display} ({stat})"
     if stat == "binary":
-        return f"{header}\n(binary file — diff omitted)\n", 2, False
+        # No diff body to inspect, so the change type is unknown here; the
+        # prompt's Step 2 covers the 404-means-deleted case.
+        return (
+            f"### {display} ({stat})\n(binary file — diff omitted)\n",
+            2,
+            False,
+        )
     try:
         diff_lines, truncated = _diff_with_adaptive_context(
             repo_dir,
@@ -563,7 +601,19 @@ def _render_file_chunk(
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
     ) as e:
-        return f"{header}\n(could not read diff: {e})\n", 0, False
+        return (
+            f"### {display} ({stat})\n(could not read diff: {e})\n",
+            0,
+            False,
+        )
+
+    # git puts "deleted file mode <mode>" right after the "diff --git"
+    # line, so this is reliable even when the body was truncated.
+    deleted = any(
+        line.startswith("deleted file mode") for line in diff_lines[:5]
+    )
+    note = f"{stat} · DELETED in this PR" if deleted else stat
+    header = f"### {display} ({note})"
 
     block = "\n".join(diff_lines)
     return f"{header}\n```diff\n{block}\n```\n", len(diff_lines) + 3, truncated
@@ -979,15 +1029,19 @@ def write_outputs(verdict_info: dict, review_text: str):
         f.write(clean_text)
 
 
-def resolve_change_map(pr_number: int, repo: str) -> tuple[str, str]:
-    """Resolve the PR's change map + head SHA, degrading gracefully.
+def resolve_change_map(pr_number: int, repo: str) -> tuple[str, str, str]:
+    """Resolve the PR's change map + both SHAs, degrading gracefully.
 
     Pre-computes a per-file change map from an internal blobless clone. The
     clone is an implementation detail — it is never surfaced to the model;
-    only the resulting diff text (and the head SHA, used in the full-file
-    fetch instruction) go into the prompt. Returns ``(change_map, head_sha)``,
-    both ``""`` on any failure so the caller falls back to the self-fetch
-    prompt.
+    only the resulting diff text and the two SHAs used in the full-file
+    fetch instructions go into the prompt. Returns
+    ``(change_map, head_sha, base_sha)``, all ``""`` on any failure so the
+    caller falls back to the self-fetch prompt.
+
+    ``base_sha`` (the merge-base) is needed as well as the head: a deleted
+    file does not exist at the head, so fetching its full source there
+    always 404s.
     """
     try:
         base_ref = fetch_base_branch(pr_number, repo)
@@ -1000,6 +1054,13 @@ def resolve_change_map(pr_number: int, repo: str) -> tuple[str, str]:
             base_ref=base_ref,
         )
         change_map = build_change_map(repo_dir, from_sha, head_sha)
+        # The prompt travels as a JSON body that httpx encodes as UTF-8.
+        # Verifying that here means a stray surrogate costs us only the
+        # map (this except clause) instead of raising deep inside
+        # call_qwenpaw's request, which catches only timeout/connect
+        # errors. _safe_display already sanitises paths; this is the
+        # backstop for any future source of undecodable text.
+        change_map.encode("utf-8")
         if change_map:
             print(
                 f"  change map: {len(change_map)} chars "
@@ -1007,7 +1068,7 @@ def resolve_change_map(pr_number: int, repo: str) -> tuple[str, str]:
             )
         else:
             print("  change map empty; using self-fetch prompt")
-        return change_map, head_sha
+        return change_map, head_sha, from_sha
     # Deliberately broad: the change map is an optimisation, and this is
     # the single point where its failure must never fail the CI job. An
     # allow-list of exception types silently made that promise
@@ -1020,7 +1081,7 @@ def resolve_change_map(pr_number: int, repo: str) -> tuple[str, str]:
             f"({type(e).__name__}: {e}); "
             f"falling back to self-fetch prompt",
         )
-        return "", ""
+        return "", "", ""
 
 
 def main():
@@ -1041,9 +1102,15 @@ def main():
     pr_number = int(pr_number)
     print(f"\nTarget: {repo} PR #{pr_number}")
 
-    change_map, head_sha = resolve_change_map(pr_number, repo)
+    change_map, head_sha, base_sha = resolve_change_map(pr_number, repo)
 
-    prompt = build_review_prompt(pr_number, repo, change_map, head_sha)
+    prompt = build_review_prompt(
+        pr_number,
+        repo,
+        change_map,
+        head_sha,
+        base_sha,
+    )
     print(f"Prompt size: {len(prompt)} chars")
 
     session_id = f"pr-review-{pr_number}-{int(time.time())}"
