@@ -32,6 +32,7 @@ No LLM / external network deps required.
 from __future__ import annotations
 
 import io
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -174,15 +175,17 @@ def test_import_local_copies_source(app_server) -> None:
     """POST /import-local copies a real source dir into the project.
 
     Test flow:
-      1. Seed a source dir (under working_dir) with a marker file.
+      1. Seed a source dir (under home, required by #6487) with a marker.
       2. POST /import-local {path, name} -> 200 {path, name}.
       3. The marker file exists inside the imported project dir.
-      4. finally: reset to default.
+      4. finally: remove the seeded source + reset to default.
 
     API endpoints:
       - POST /api/workspace/coding-project/import-local
     """
-    src = app_server.working_dir / "integ-cp-import-src"
+    # Upstream #6487 requires the import source to live under the user's
+    # home directory, so a pytest tmp working dir cannot be used here.
+    src = Path.home() / ".qwenpaw-integ-cp-import-src"
     src.mkdir(parents=True, exist_ok=True)
     (src / "marker.txt").write_text("imported\n", encoding="utf-8")
     name = "integ-cp-import-C"
@@ -197,6 +200,7 @@ def test_import_local_copies_source(app_server) -> None:
         dest = Path(resp.json()["path"])
         assert (dest / "marker.txt").is_file(), resp.json()
     finally:
+        shutil.rmtree(src, ignore_errors=True)
         _reset_project(app_server)
 
 

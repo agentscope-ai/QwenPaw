@@ -94,10 +94,12 @@ def test_observed_state_closed_set(case, expected) -> None:
     assert result["observedState"] == expected
 
 
-def test_stale_receipt_is_never_reexecuted() -> None:
-    result = run_scenario("stale_epoch_no_reexec")
-    assert result["executorCalls"] == 0
-    assert result["receiptState"] in {"RECEIVED", "RUNNING"}
+def test_stale_received_receipt_is_reexecuted() -> None:
+    # A stale RECEIVED receipt proves the executor never crossed the
+    # durable RUNNING barrier, so runReceiptCommand safely re-runs it.
+    result = run_scenario("stale_received_reexecuted")
+    assert result["executorCalls"] == 1
+    assert result["receiptState"] == "COMPLETED"
 
 
 # test_chrome_cdp_send_guard.py

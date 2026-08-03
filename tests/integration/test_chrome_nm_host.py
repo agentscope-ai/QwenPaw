@@ -53,7 +53,9 @@ def test_two_mib_inbound_message_is_accepted() -> None:
     raw = payload.encode("utf-8")
     reader = io.BytesIO(struct.pack("<I", len(raw)) + raw)
 
-    message = host.read_nm_message(reader)
+    frame = host.read_nm_frame(reader)
+    assert frame is not None
+    message = json.loads(frame)
 
     assert message["result"]["data"].startswith("x")
     assert len(message["result"]["data"]) == 2 * 1024 * 1024
@@ -65,7 +67,7 @@ def test_inbound_above_protocol_limit_is_rejected() -> None:
     reader = io.BytesIO(struct.pack("<I", oversized))
 
     with pytest.raises(ValueError):
-        host.read_nm_message(reader)
+        host.read_nm_frame(reader)
 
 
 def test_oversized_outbound_message_writes_nothing() -> None:
@@ -73,9 +75,9 @@ def test_oversized_outbound_message_writes_nothing() -> None:
     stdout = io.BytesIO()
 
     with pytest.raises(host.NativeMessageTooLargeError):
-        host.write_nm_message(
+        host.write_nm_frame(
             stdout,
-            {"id": 7, "result": "q" * 2_000_000},
+            host._dumps({"id": 7, "result": "q" * 2_000_000}).encode("utf-8"),
         )
 
     assert stdout.getvalue() == b""
@@ -143,7 +145,7 @@ class _ClosedWebSocket:
     async def send(self, _message: str) -> None:
         return None
 
-    async def close(self) -> None:
+    async def close(self, **_kwargs: object) -> None:
         return None
 
     def __aiter__(self) -> "_ClosedWebSocket":
@@ -164,7 +166,7 @@ class _FailingSendWebSocket:
             return None
         raise RuntimeError("send failed")
 
-    async def close(self) -> None:
+    async def close(self, **_kwargs: object) -> None:
         return None
 
     def __aiter__(self) -> "_FailingSendWebSocket":
@@ -257,7 +259,7 @@ class _CoreWebSocket:
             raise self._response
         return self._response
 
-    async def close(self) -> None:
+    async def close(self, **_kwargs: object) -> None:
         self.closed = True
 
 
@@ -334,7 +336,7 @@ class _WebSocket:
     async def send(self, _message: str) -> None:
         return None
 
-    async def close(self) -> None:
+    async def close(self, **_kwargs: object) -> None:
         return None
 
 
@@ -457,7 +459,7 @@ class _FakeWebSocket:
     async def send(self, message: str) -> None:
         self.sent.append(message)
 
-    async def close(self) -> None:
+    async def close(self, **_kwargs: object) -> None:
         self.closed = True
 
     def __aiter__(self):
