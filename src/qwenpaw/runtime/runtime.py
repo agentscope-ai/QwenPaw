@@ -22,11 +22,70 @@ from typing import Any, AsyncGenerator
 from .builder import AgentBuilder
 from .envelope import Envelope
 from .executor import AgentExecutor
+from .heartbeat import _HEARTBEAT_TICK
 from .hooks import HookAction, HookContext
 from .message_convert import _get_last_user_text, _request_input_to_msgs
 from .phases import Phase
 
 logger = logging.getLogger(__name__)
+
+
+async def _msg_to_agent_events(
+    msg: Any,
+    ctx: HookContext,
+) -> AsyncGenerator[Any, None]:
+    """Project a short-circuit/slash-command ``Msg`` into a synthetic
+    AgentScope ``AgentEvent`` sequence so the raw-agent-events stream
+    stays type-consistent (``ReplyStart -> TextBlock* -> ReplyEnd``).
+    """
+    from agentscope.event import (
+        ReplyEndEvent,
+        ReplyStartEvent,
+        TextBlockDeltaEvent,
+        TextBlockEndEvent,
+        TextBlockStartEvent,
+    )
+
+    reply_id = "msg_" + uuid.uuid4().hex
+    session_id = ctx.session_id
+    text = msg.get_text_content() or ""
+
+    yield ReplyStartEvent(
+        session_id=session_id,
+        reply_id=reply_id,
+        name=getattr(ctx.agent, "name", "") or "assistant",
+    )
+
+    block_id = "block_" + uuid.uuid4().hex
+    yield TextBlockStartEvent(reply_id=reply_id, block_id=block_id)
+    if text:
+        yield TextBlockDeltaEvent(
+            reply_id=reply_id,
+            block_id=block_id,
+            delta=text,
+        )
+    yield TextBlockEndEvent(reply_id=reply_id, block_id=block_id)
+
+    yield ReplyEndEvent(session_id=session_id, reply_id=reply_id)
+
+
+async def _project_msg(
+    envelope: Envelope | None,
+    msg: Any,
+    ctx: HookContext,
+) -> AsyncGenerator[Any, None]:
+    """Project a short-circuit/slash-command ``Msg`` to the active output.
+
+    With an envelope this is ``Envelope.from_msg`` (the ``/console/chat``
+    SSE sequence); without one the message is emitted as synthetic
+    AgentEvents so protocol adapters see a type-consistent stream.
+    """
+    if envelope is not None:
+        async for ev in envelope.from_msg(msg):
+            yield ev
+    else:
+        async for ev in _msg_to_agent_events(msg, ctx):
+            yield ev
 
 
 class Runtime:
@@ -46,24 +105,59 @@ class Runtime:
         self.workspace = workspace
         self.app_services = app_services
 
-    async def run(  # pylint: disable=too-many-branches,too-many-statements
+    async def run(  # pylint: disable=too-many-branches
         self,
         request: Any,
     ) -> AsyncGenerator[Any, None]:
         """Orchestrate request lifecycle and yield SSE envelope objects."""
         request = self._normalize(request)
         ctx = self._build_context(request)
-        hooks = self.workspace.plugins.hook_registry
-
         envelope = Envelope(session_id=ctx.session_id)
         ctx._envelope = envelope  # pylint: disable=protected-access
+        async for item in self._lifecycle(ctx, envelope):
+            yield item
+
+    async def run_agent_events(  # pylint: disable=too-many-branches
+        self,
+        request: Any,
+    ) -> AsyncGenerator[Any, None]:
+        """Yield raw AgentScope ``AgentEvent`` objects — no envelope wrapping.
+
+        Designed for protocol adapters (e.g. AG-UI SSE) that consume
+        native agent events directly.  Runs the full hook lifecycle;
+        slash-command / short-circuit results are projected as synthetic
+        AgentEvents so the stream stays type-consistent.
+        """
+        request = self._normalize(request)
+        ctx = self._build_context(request)
+        async for item in self._lifecycle(ctx, None):
+            yield item
+
+    # pylint: disable=too-many-branches,too-many-statements
+    async def _lifecycle(
+        self,
+        ctx: HookContext,
+        envelope: Envelope | None,
+    ) -> AsyncGenerator[Any, None]:
+        """Run the full request lifecycle, varying only the output projection.
+
+        Single orchestration core shared by ``run()`` and
+        ``run_agent_events()``.  When *envelope* is provided, agent events
+        are translated into SSE envelope objects (the ``/console/chat``
+        projection); when ``None``, raw AgentScope ``AgentEvent`` objects
+        are yielded directly (the protocol-adapter projection).
+
+        The ``finally`` block runs cleanup (agent close + FINALLY hooks)
+        for every exit path.
+        """
+        hooks = self.workspace.plugins.hook_registry
         skip_agent = False
 
         try:
             # --- [phase 1] PRE_DISPATCH ---
             r = await hooks.run(Phase.PRE_DISPATCH, ctx)
             if r.action == HookAction.SHORT_CIRCUIT:
-                async for ev in envelope.from_msg(r.payload):
+                async for ev in _project_msg(envelope, r.payload, ctx):
                     yield ev
                 return
             if r.action == HookAction.SKIP_AGENT:
@@ -74,14 +168,14 @@ class Runtime:
             cmd_registry = self.workspace.plugins.slash_command_registry
             cmd_msg = await cmd_registry.dispatch(text or "", ctx)
             if cmd_msg is not None:
-                async for ev in envelope.from_msg(cmd_msg):
+                async for ev in _project_msg(envelope, cmd_msg, ctx):
                     yield ev
                 skip_agent = True
             else:
                 # --- [phase 2] POST_DISPATCH ---
                 r = await hooks.run(Phase.POST_DISPATCH, ctx)
                 if r.action == HookAction.SHORT_CIRCUIT:
-                    async for ev in envelope.from_msg(r.payload):
+                    async for ev in _project_msg(envelope, r.payload, ctx):
                         yield ev
                     skip_agent = True
                 elif r.action == HookAction.SKIP_AGENT:
@@ -91,7 +185,7 @@ class Runtime:
                 # --- [phase 3] PRE_AGENT_BUILD ---
                 r = await hooks.run(Phase.PRE_AGENT_BUILD, ctx)
                 if r.action == HookAction.SHORT_CIRCUIT:
-                    async for ev in envelope.from_msg(r.payload):
+                    async for ev in _project_msg(envelope, r.payload, ctx):
                         yield ev
                     skip_agent = True
                 elif r.action == HookAction.SKIP_AGENT:
@@ -111,7 +205,7 @@ class Runtime:
                 # --- [phase 5] PRE_EXECUTE ---
                 r = await hooks.run(Phase.PRE_EXECUTE, ctx)
                 if r.action == HookAction.SHORT_CIRCUIT:
-                    async for ev in envelope.from_msg(r.payload):
+                    async for ev in _project_msg(envelope, r.payload, ctx):
                         yield ev
                     skip_agent = True
                 elif r.action == HookAction.SKIP_AGENT:
@@ -120,9 +214,10 @@ class Runtime:
             if not skip_agent:
                 self._apply_context_injections(ctx)
                 # --- [fixed 3] execute agent ---
-                async for ev in envelope.emit_response_created():
-                    yield ev
-                executor = AgentExecutor(ctx.agent, envelope)
+                if envelope is not None:
+                    async for ev in envelope.emit_response_created():
+                        yield ev
+                executor = AgentExecutor(ctx.agent)
                 logger.debug(
                     "Agent input: %s",
                     _get_last_user_text(
@@ -130,15 +225,24 @@ class Runtime:
                     )
                     or "(empty)",
                 )
-                async for ev in executor.run(ctx.input_msgs):
-                    yield ev
+                async for event in executor.run(ctx.input_msgs):
+                    if event is _HEARTBEAT_TICK:
+                        if envelope is not None:
+                            async for ev in envelope.heartbeat():
+                                yield ev
+                    elif envelope is not None:
+                        async for ev in envelope.translate_event(event):
+                            yield ev
+                    else:
+                        yield event
 
             # --- [phase 6] POST_RESPONSE ---
             await hooks.run(Phase.POST_RESPONSE, ctx)
 
             # Finalize envelope (complete message + response).
-            async for ev in envelope.finalize():
-                yield ev
+            if envelope is not None:
+                async for ev in envelope.finalize():
+                    yield ev
 
         except (asyncio.CancelledError, KeyboardInterrupt) as e:
             ctx.error = e
@@ -161,8 +265,9 @@ class Runtime:
             # asyncio.shield protects the save from task re-cancellation.
             await self._try_save_on_cancel(ctx)
 
-            async for ev in envelope.cancel_envelope():
-                yield ev
+            if envelope is not None:
+                async for ev in envelope.cancel_envelope():
+                    yield ev
             raise
         except BaseException as e:
             await self._try_save_on_cancel(ctx)
@@ -175,128 +280,25 @@ class Runtime:
                 exc_info=True,
             )
             await hooks.run(Phase.ON_ERROR, ctx)
-            err_text = ctx.extras.get(
-                "_error_text",
-                str(e) or e.__class__.__name__,
-            )
-            err_code = ctx.extras.get(
-                "_error_code",
-                e.__class__.__name__,
-            )
-            async for ev in envelope.error_envelope(
-                err_text,
-                err_code,
-            ):
-                yield ev
+            if envelope is not None:
+                err_text = ctx.extras.get(
+                    "_error_text",
+                    str(e) or e.__class__.__name__,
+                )
+                err_code = ctx.extras.get(
+                    "_error_code",
+                    e.__class__.__name__,
+                )
+                async for ev in envelope.error_envelope(
+                    err_text,
+                    err_code,
+                ):
+                    yield ev
             raise
         finally:
             # Close agent first so governor can flush audit log and persist
             # policy before downstream FINALLY hooks observe the context.
             # See ``QwenPawAgent.close`` (agents/react_agent.py).
-            agent = getattr(ctx, "agent", None)
-            if agent is not None and hasattr(agent, "close"):
-                try:
-                    await agent.close()
-                except Exception:  # pylint: disable=broad-except
-                    logger.warning(
-                        "runtime: agent.close() failed session=%s",
-                        getattr(ctx, "session_id", ""),
-                        exc_info=True,
-                    )
-            await hooks.run(Phase.FINALLY, ctx)
-
-    async def run_agent_events(  # pylint: disable=too-many-branches
-        self,
-        request: Any,
-    ) -> AsyncGenerator[Any, None]:
-        """Yield raw AgentScope ``AgentEvent`` objects — no envelope wrapping.
-
-        Designed for protocol adapters (e.g. AG-UI SSE) that consume
-        native agent events directly.  Runs the full hook lifecycle but
-        skips envelope-dependent short-circuits and slash commands so the
-        stream stays type-consistent.
-        """
-        request = self._normalize(request)
-        ctx = self._build_context(request)
-        hooks = self.workspace.plugins.hook_registry
-
-        # Create a minimal envelope solely so _try_save_on_cancel can
-        # close dangling tool calls on interruption.  No envelope events
-        # are emitted through this path.
-        ctx._envelope = Envelope(  # pylint: disable=protected-access
-            session_id=ctx.session_id,
-        )
-
-        try:
-            # --- [phase 1] PRE_DISPATCH ---
-            r = await hooks.run(Phase.PRE_DISPATCH, ctx)
-            if r.action in (HookAction.SHORT_CIRCUIT, HookAction.SKIP_AGENT):
-                return
-
-            # Slash commands are not supported in the agent-events path
-            # (they require envelope wrapping).
-
-            # --- [phase 2] POST_DISPATCH ---
-            r = await hooks.run(Phase.POST_DISPATCH, ctx)
-            if r.action in (HookAction.SHORT_CIRCUIT, HookAction.SKIP_AGENT):
-                return
-
-            # --- [phase 3] PRE_AGENT_BUILD ---
-            r = await hooks.run(Phase.PRE_AGENT_BUILD, ctx)
-            if r.action in (HookAction.SHORT_CIRCUIT, HookAction.SKIP_AGENT):
-                return
-
-            # --- [fixed 2] build agent ---
-            builder = AgentBuilder(
-                app_services=self.app_services,
-            )
-            ctx.agent = await builder.build(ctx)
-            await self._start_modes(ctx)
-
-            # --- [phase 4] POST_AGENT_BUILD ---
-            await hooks.run(Phase.POST_AGENT_BUILD, ctx)
-
-            # --- [phase 5] PRE_EXECUTE ---
-            r = await hooks.run(Phase.PRE_EXECUTE, ctx)
-            if r.action in (HookAction.SHORT_CIRCUIT, HookAction.SKIP_AGENT):
-                return
-
-            self._apply_context_injections(ctx)
-            executor = AgentExecutor(ctx.agent, None)  # no envelope needed
-            logger.debug(
-                "Agent input: %s",
-                _get_last_user_text(ctx.input_msgs) or "(empty)",
-            )
-            async for event in executor.run_agent_events(ctx.input_msgs):
-                yield event
-
-            # --- [phase 6] POST_RESPONSE ---
-            await hooks.run(Phase.POST_RESPONSE, ctx)
-
-        except (asyncio.CancelledError, KeyboardInterrupt) as e:
-            ctx.error = e
-            try:
-                await hooks.run(Phase.ON_ERROR, ctx)
-            except asyncio.CancelledError:
-                logger.debug(
-                    "ON_ERROR hooks skipped due to asyncio "
-                    "re-cancellation (session=%s)",
-                    getattr(ctx, "session_id", ""),
-                )
-            await self._try_save_on_cancel(ctx)
-            raise
-        except BaseException as e:
-            await self._try_save_on_cancel(ctx)
-            ctx.error = e
-            logger.error(
-                "runtime: unhandled error session=%s: %s",
-                getattr(ctx, "session_id", ""),
-                e,
-                exc_info=True,
-            )
-            await hooks.run(Phase.ON_ERROR, ctx)
-            raise
-        finally:
             agent = getattr(ctx, "agent", None)
             if agent is not None and hasattr(agent, "close"):
                 try:

@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 """Agent execution driver.
 
-Drives ``agent.reply_stream(inputs=msgs)`` with heartbeat wrapping
-and delegates each ``EventType`` event to ``Envelope.translate_event()``.
+Drives ``agent.reply_stream(inputs=msgs)`` with heartbeat wrapping and
+yields raw AgentScope ``AgentEvent`` objects interleaved with
+``_HEARTBEAT_TICK`` markers.  Output projection (SSE envelope vs. raw
+events) is the caller's responsibility — see ``Runtime._lifecycle``.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator
 
-from .envelope import Envelope
 from .heartbeat import (
     _iter_with_heartbeat,
-    _HEARTBEAT_TICK,
     HEARTBEAT_INTERVAL_SECONDS,
 )
 
@@ -21,53 +21,32 @@ logger = logging.getLogger(__name__)
 
 
 class AgentExecutor:
-    """Execute the agent's reply stream and translate
-    events into SSE envelopes.
+    """Drive the agent's reply stream.
 
-    One instance per ``Runtime.run()`` invocation.  The executor owns the
+    One instance per ``Runtime`` invocation.  The executor owns the
     heartbeat wrapper but not the agent itself (that belongs to the
     ``HookContext``).
-
-    When *envelope* is ``None`` only ``run_agent_events()`` may be used.
     """
 
-    def __init__(self, agent: Any, envelope: Optional[Envelope]) -> None:
+    def __init__(self, agent: Any) -> None:
         self._agent = agent
-        self._envelope = envelope
 
     async def run(
         self,
         msgs: list[Any],
     ) -> AsyncGenerator[Any, None]:
-        """Drive ``agent.reply_stream`` and yield SSE envelope objects.
+        """Drive ``agent.reply_stream`` and yield raw events plus ticks.
 
-        Wraps the raw event stream with ``_iter_with_heartbeat`` so long
-        idle periods (e.g. tool-guard approval waits) emit keep-alive
-        envelopes instead of letting the connection drop.
+        Yields AgentScope ``AgentEvent`` objects from the agent's reply
+        stream, interleaved with ``_HEARTBEAT_TICK`` markers during idle
+        periods (e.g. tool-guard approval waits).  Callers project each
+        item to their wire format.
         """
         agent_iter = self._agent.reply_stream(inputs=msgs).__aiter__()
         async for event in _iter_with_heartbeat(
             agent_iter,
             HEARTBEAT_INTERVAL_SECONDS,
         ):
-            if event is _HEARTBEAT_TICK:
-                async for obj in self._envelope.heartbeat():
-                    yield obj
-                continue
-
-            async for obj in self._envelope.translate_event(event):
-                yield obj
-
-    async def run_agent_events(
-        self,
-        msgs: list[Any],
-    ) -> AsyncGenerator[Any, None]:
-        """Yield raw AgentScope ``AgentEvent`` objects directly.
-
-        No heartbeat wrapping and no envelope translation — the caller
-        (e.g. an SSE endpoint) is responsible for keep-alive frames.
-        """
-        async for event in self._agent.reply_stream(inputs=msgs):
             yield event
 
 

@@ -30,11 +30,12 @@ class AGUIErrorResponse(BaseModel):
 def _get_agui_converter():
     """Return an AG-UI conversion function (AgentEvent → dict).
 
-    Validates that ``ag-ui-protocol`` is installed before proceeding.
+    Validates that ``ag-ui-protocol`` (importable as ``ag_ui``) is
+    installed before proceeding.
     """
 
     try:
-        import ag_ui_protocol  # noqa: F401  # pylint: disable=unused-import
+        import ag_ui  # noqa: F401  # pylint: disable=unused-import
         from agentscope.app.middleware import AGUIProtocolMiddleware
     except ImportError as exc:
         raise HTTPException(
