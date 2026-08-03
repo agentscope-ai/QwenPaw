@@ -18,7 +18,6 @@ from qwenpaw.providers.fallback_chat_model import (
     is_retryable_llm_error,
 )
 
-
 # ---- Fixtures -----------------------------------------------------------
 
 
@@ -155,12 +154,16 @@ class TestFallbackChatModel:
             side_effect=Exception("rate limit"),
         )
         primary_candidate.model.__call__.side_effect.status_code = 429
-        fallback_candidate.model.__call__ = AsyncMock(return_value="fallback-ok")
+        fallback_candidate.model.__call__ = AsyncMock(
+            return_value="fallback-ok"
+        )
         fallback = FallbackChatModel([primary_candidate, fallback_candidate])
         result = fallback()
         assert result == "fallback-ok"
 
-    def test_all_fail_raises_error(self, primary_candidate, fallback_candidate):
+    def test_all_fail_raises_error(
+        self, primary_candidate, fallback_candidate
+    ):
         """All candidates fail."""
         primary_candidate.model.__call__ = AsyncMock(
             side_effect=Exception("rate limit"),
@@ -191,7 +194,9 @@ class TestFallbackChatModel:
             side_effect=Exception("rate limit"),
         )
         primary_candidate.model.__call__.side_effect.status_code = 429
-        fallback_candidate.model.__call__ = AsyncMock(return_value="fallback-ok")
+        fallback_candidate.model.__call__ = AsyncMock(
+            return_value="fallback-ok"
+        )
         fallback = FallbackChatModel([primary_candidate, fallback_candidate])
         result = fallback()
         assert result == "fallback-ok"

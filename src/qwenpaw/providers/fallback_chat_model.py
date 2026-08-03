@@ -26,8 +26,12 @@ from typing import Any
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
 
-from qwenpaw.providers.error_utils import extract_status_code as _extract_status
-from qwenpaw.providers.retry_chat_model import is_retryable_llm_error as _is_retryable_llm_error
+from qwenpaw.providers.error_utils import (
+    extract_status_code as _extract_status,
+)
+from qwenpaw.providers.retry_chat_model import (
+    is_retryable_llm_error as _is_retryable_llm_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +89,7 @@ class ModelFallbackError(Exception):
     def __init__(self, failures: list[tuple[FallbackCandidate, Exception]]):
         self.failures = failures
         detail = "; ".join(
-            f"{c.label} -> {_safe_error_summary(exc)}"
-            for c, exc in failures
+            f"{c.label} -> {_safe_error_summary(exc)}" for c, exc in failures
         )
         super().__init__(f"All fallback model candidates failed: {detail}")
 

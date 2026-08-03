@@ -1512,7 +1512,9 @@ def _apply_fallback_if_configured(
         )
     ]
 
-    seen: set[tuple[str, str]] = {(provider_id, getattr(primary_model, "model", "unknown"))}
+    seen: set[tuple[str, str]] = {
+        (provider_id, getattr(primary_model, "model", "unknown"))
+    }
     primary_formatter_class = type(formatter)
 
     for slot in fallback_models:
@@ -1555,7 +1557,10 @@ def _apply_fallback_if_configured(
         # Check formatter compatibility
         fb_formatter = getattr(fb_model, "formatter", None)
         fb_formatter_class = type(fb_formatter) if fb_formatter else None
-        if fb_formatter_class is not None and fb_formatter_class is not primary_formatter_class:
+        if (
+            fb_formatter_class is not None
+            and fb_formatter_class is not primary_formatter_class
+        ):
             logger.debug(
                 "Skipping fallback candidate with incompatible formatter: "
                 "%s:%s (%s != %s)",
