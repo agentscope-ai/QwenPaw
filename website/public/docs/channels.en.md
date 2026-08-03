@@ -77,7 +77,11 @@ In your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`),
   "card_template_id": "",
   "card_template_key": "content",
   "robot_code": "",
-  "filter_tool_messages": false
+  "show_tool_calls": true,
+  "show_tool_results": true,
+  "show_thinking": true,
+  "tool_call_max_length": 200,
+  "tool_result_max_length": 500
 }
 ```
 
@@ -95,7 +99,7 @@ In your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`),
 
 > **Tips:**
 >
-> - Set `filter_tool_messages: true` if you want to hide tool execution details in the chat.
+> - Tool calls and results can be shown independently. Set a maximum length to `0` to disable truncation.
 > - AI Card mode: set `message_type` to `card`, then configure `card_template_id`; keep `card_template_key` consistent with your DingTalk template variable (default `content`).
 > - `robot_code` is recommended in group scenarios; if empty, QwenPaw falls back to `client_id`.
 
@@ -1635,17 +1639,20 @@ Field details and structure are in the tables above and [Config & working dir](.
 
 All channels support the following common fields:
 
-| Field                  | Type     | Default  | Description                                                               |
-| ---------------------- | -------- | -------- | ------------------------------------------------------------------------- |
-| `enabled`              | bool     | `false`  | Whether to enable this channel                                            |
-| `bot_prefix`           | string   | `""`     | Bot reply prefix (e.g., `[BOT]`)                                          |
-| `filter_tool_messages` | bool     | `false`  | Whether to filter tool call/output messages                               |
-| `filter_thinking`      | bool     | `false`  | Whether to filter thinking/reasoning content                              |
-| `dm_policy`            | string   | `"open"` | Direct message access policy: `"open"` (open) / `"allowlist"` (whitelist) |
-| `group_policy`         | string   | `"open"` | Group chat access policy: `"open"` (open) / `"allowlist"` (whitelist)     |
-| `allow_from`           | string[] | `[]`     | Whitelist (effective when policy is `"allowlist"`)                        |
-| `deny_message`         | string   | `""`     | Denial message when access is denied                                      |
-| `require_mention`      | bool     | `false`  | Whether @mention is required to respond                                   |
+| Field                    | Type     | Default  | Description                                                               |
+| ------------------------ | -------- | -------- | ------------------------------------------------------------------------- |
+| `enabled`                | bool     | `false`  | Whether to enable this channel                                            |
+| `bot_prefix`             | string   | `""`     | Bot reply prefix (e.g., `[BOT]`)                                          |
+| `show_tool_calls`        | bool     | `true`   | Whether to show tool call information                                     |
+| `show_tool_results`      | bool     | `true`   | Whether to show tool result text; result media is always sent             |
+| `tool_call_max_length`   | int      | `200`    | Tool call preview length; `0` means unlimited                             |
+| `tool_result_max_length` | int      | `500`    | Tool result preview length; `0` means unlimited                           |
+| `show_thinking`          | bool     | `true`   | Whether to show thinking/reasoning content                                |
+| `dm_policy`              | string   | `"open"` | Direct message access policy: `"open"` (open) / `"allowlist"` (whitelist) |
+| `group_policy`           | string   | `"open"` | Group chat access policy: `"open"` (open) / `"allowlist"` (whitelist)     |
+| `allow_from`             | string[] | `[]`     | Whitelist (effective when policy is `"allowlist"`)                        |
+| `deny_message`           | string   | `""`     | Denial message when access is denied                                      |
+| `require_mention`        | bool     | `false`  | Whether @mention is required to respond                                   |
 
 ### Multi-modal message support
 
@@ -1740,20 +1747,32 @@ For text-only channels using the manager queue, you do not need to implement `co
 # my_channel.py
 from agentscope_runtime.engine.schemas.agent_schemas import TextContent, ContentType
 from qwenpaw.app.channels.base import BaseChannel
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 from qwenpaw.app.channels.schema import ChannelType
 
 class MyChannel(BaseChannel):
     channel: ChannelType = "my_channel"
 
-    def __init__(self, process, enabled=True, bot_prefix="", **kwargs):
-        super().__init__(process, on_reply_sent=kwargs.get("on_reply_sent"))
+    def __init__(self, process, enabled=True, bot_prefix="",
+                 display_config=None, **kwargs):
+        super().__init__(
+            process,
+            on_reply_sent=kwargs.get("on_reply_sent"),
+            display_config=display_config,
+        )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
 
     @classmethod
-    def from_config(cls, process, config, on_reply_sent=None, show_tool_details=True):
-        return cls(process=process, enabled=getattr(config, "enabled", True),
-                   bot_prefix=getattr(config, "bot_prefix", ""), on_reply_sent=on_reply_sent)
+    def from_config(cls, process, config, on_reply_sent=None,
+                    display_config=None, **kwargs):
+        return cls(
+            process=process,
+            enabled=getattr(config, "enabled", True),
+            bot_prefix=getattr(config, "bot_prefix", ""),
+            on_reply_sent=on_reply_sent,
+            display_config=display_config or ChannelDisplayConfig.from_config(config),
+        )
 
     @classmethod
     def from_env(cls, process, on_reply_sent=None):
@@ -1841,7 +1860,7 @@ def build_agent_request_from_native(self, native_payload):
 ### Adding custom channels via plugins
 
 Custom channels are now registered through the **plugin system**. See the
-[Plugin System — Example 8: Register a Custom Channel](./plugins) for a
+[Plugin System — Example 10: Register a Custom Channel](./plugins#example-10-register-a-custom-channel) for a
 complete tutorial.
 
 To add a custom channel:

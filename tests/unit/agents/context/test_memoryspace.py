@@ -472,12 +472,33 @@ def test_no_notice_when_fts_available(ms: MemorySpace):
 
 def test_expand_returns_full_turns_in_span(ms: MemorySpace):
     rows = ms.expand(1, 99)
-    # Globally-unique seq spans every session/agent, so expand is unscoped.
-    assert {r["content"] for r in rows} == {
-        "tanks rolled in",
-        "tanks regrouped later",
-        "tanks of another agent",
-    }
+    assert [r["content"] for r in rows] == ["tanks rolled in"]
+
+
+def test_expand_includes_legacy_unowned_rows(history_db: Path):
+    history = HistoryStore(history_db)
+    legacy_seq = history.append(
+        session_id="legacy",
+        agent_id=None,
+        dedup_key="legacy-null-agent",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="legacy unowned turn",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=str(history_db),
+        session_id="legacy",
+        agent_id="ag1",
+    )
+    try:
+        rows = space.expand(legacy_seq, legacy_seq)
+    finally:
+        space.close()
+
+    assert [row["content"] for row in rows] == ["legacy unowned turn"]
 
 
 def test_recall_tool_is_agent_scoped_by_default(history_db: Path, tmp_path):

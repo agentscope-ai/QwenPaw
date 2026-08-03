@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """Tauri sidecar entry point for starting the Python backend."""
+
 from __future__ import annotations
 
-from collections.abc import Sequence
 import json
 import logging
 import multiprocessing as mp
 import os
 import socket
 import sys
+from collections.abc import Sequence
 
 import click
 
@@ -18,6 +19,7 @@ from qwenpaw.tauri.env import (
     DESKTOP_READY_PREFIX,
     ensure_desktop_cors_origins,
 )
+from qwenpaw.browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
 from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
 
 logger = logging.getLogger(__name__)
@@ -303,13 +305,23 @@ def _run_backend_server(log_level: str) -> None:
     port_file = str(WORKING_DIR / "desktop_port")
     port, reused_socket = get_stable_port(port_file, host)
 
+    # Import the app instance (instead of the import string) so the desktop
+    # shutdown endpoint can reach the uvicorn server via app.state.
+    from qwenpaw.app._app import app as fastapi_app
+
     config = uvicorn.Config(
-        "qwenpaw.app._app:app",
+        fastapi_app,
         host=host,
         port=0,
         reload=False,
         workers=1,
         log_level=normalized_log_level,
+        # Bound graceful shutdown so long-lived SSE connections (e.g.
+        # /console/push-messages) cannot stall the lifespan shutdown that
+        # flushes memory/index on exit.
+        timeout_graceful_shutdown=5,
+        # Chrome Native Messaging inbound limit; this applies server-wide.
+        ws_max_size=NM_MAX_INBOUND_BYTES,
     )
 
     if reused_socket:
@@ -321,8 +333,11 @@ def _run_backend_server(log_level: str) -> None:
         port = _socket_port(backend_socket)
         write_port_file(port_file, port)
         write_last_api(host, port)
+        server = uvicorn.Server(config)
+        # Exposed so /api/desktop/shutdown can trigger a graceful exit.
+        fastapi_app.state.uvicorn_server = server
         _emit_backend_ready(port)
-        uvicorn.Server(config).run(sockets=[backend_socket])
+        server.run(sockets=[backend_socket])
     except Exception:
         backend_socket.close()
         raise
@@ -359,12 +374,11 @@ def main() -> None:
             label="initialization",
         )
 
-    # On Windows, auto-disable sandbox when not running as admin so the
-    # desktop backend starts without a half-broken sandbox layer (mirrors
-    # the same guard in cli/app_cmd.py for `qwenpaw app`).
-    from qwenpaw.utils.platform import auto_disable_sandbox_on_windows
+    # On Windows without admin, warn that sandbox runs in unelevated mode
+    # with limited isolation (mirrors the same guard in cli/app_cmd.py).
+    from qwenpaw.utils.platform import warn_unelevated_sandbox
 
-    auto_disable_sandbox_on_windows()
+    warn_unelevated_sandbox()
 
     _run_backend_server(os.environ.get(LOG_LEVEL_ENV, "info"))
 

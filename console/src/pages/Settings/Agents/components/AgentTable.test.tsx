@@ -8,12 +8,17 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-const agent = (id: string, pinned: boolean): AgentSummary => ({
+const agent = (
+  id: string,
+  pinned: boolean,
+  backend: AgentSummary["backend"] = "qwenpaw",
+): AgentSummary => ({
   id,
   name: id,
   description: "",
   workspace_dir: "",
   enabled: true,
+  backend,
   pinned,
   startup_status: "running",
 });
@@ -26,6 +31,7 @@ describe("AgentTable", () => {
         loading={false}
         reordering={false}
         onEdit={vi.fn()}
+        onCopy={vi.fn()}
         onDelete={vi.fn()}
         onToggle={vi.fn()}
         onPin={vi.fn()}
@@ -48,6 +54,7 @@ describe("AgentTable", () => {
         loading={false}
         reordering={false}
         onEdit={vi.fn()}
+        onCopy={vi.fn()}
         onDelete={vi.fn()}
         onToggle={vi.fn()}
         onPin={vi.fn()}
@@ -58,5 +65,48 @@ describe("AgentTable", () => {
     // Regression guard: the table body height must come from the container
     // (measured), never from 100vh, so OS windows don't nest scrollbars.
     expect(container.innerHTML).not.toContain("100vh");
+  });
+
+  it("keeps Copy enabled for default agent with template tooltip", () => {
+    renderWithProviders(
+      <AgentTable
+        agents={[agent("default", true), agent("custom", false)]}
+        loading={false}
+        reordering={false}
+        onEdit={vi.fn()}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onPin={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTitle("agent.copyDefaultTooltip")).toBeEnabled();
+    expect(screen.getByTitle("agent.copyTooltip")).toBeEnabled();
+  });
+
+  it("shows each agent runtime backend", () => {
+    renderWithProviders(
+      <AgentTable
+        agents={[
+          agent("native", false),
+          agent("coding", false, "codex"),
+          agent("qoder", false, "qoder"),
+        ]}
+        loading={false}
+        reordering={false}
+        onEdit={vi.fn()}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onPin={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/QwenPaw/)).toBeInTheDocument();
+    expect(screen.getByText(/Codex/)).toBeInTheDocument();
+    expect(screen.getByText(/Qoder/)).toBeInTheDocument();
   });
 });

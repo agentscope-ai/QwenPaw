@@ -4,15 +4,14 @@
 """Shared utilities for file and shell tools."""
 
 import logging
+import os
 import re
 import uuid
 from pathlib import Path
 from typing import Any
 
-import aiofiles
-import aiofiles.os
-
 from ...constant import TRUNCATION_NOTICE_MARKER
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -519,11 +518,31 @@ def truncate_text_output(
         return text, {}
 
 
+def _read_file_safe_sync(
+    file_path: str,
+    max_bytes: int,
+) -> str:
+    """Read one byte snapshot from a single opened file handle."""
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(file_path)
+    if not path.is_file():
+        raise IsADirectoryError(file_path)
+    with path.open("rb") as file:
+        read_size = min(os.fstat(file.fileno()).st_size, max_bytes)
+        content = file.read(read_size)
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = content.decode("utf-8-sig", errors="ignore")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 async def read_file_safe(
     file_path: str,
     max_bytes: int = MAX_FILE_READ_BYTES,
 ) -> str:
-    """Read file with Unicode error handling and memory protection.
+    """Read one consistent file snapshot without blocking the event loop.
 
     Args:
         file_path: Path to the file.
@@ -532,22 +551,4 @@ async def read_file_safe(
     Returns:
         File content as string (up to max_bytes).
     """
-    stat_result = await aiofiles.os.stat(file_path)
-    read_size = min(stat_result.st_size, max_bytes)
-
-    # Use utf-8-sig to auto-remove BOM if present, compatible with plain utf-8
-    try:
-        async with aiofiles.open(
-            file_path,
-            "r",
-            encoding="utf-8-sig",
-        ) as f:
-            return await f.read(read_size)
-    except UnicodeDecodeError:
-        async with aiofiles.open(
-            file_path,
-            "r",
-            encoding="utf-8-sig",
-            errors="ignore",
-        ) as f:
-            return await f.read(read_size)
+    return await run_sync_io(_read_file_safe_sync, file_path, max_bytes)

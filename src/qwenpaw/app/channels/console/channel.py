@@ -31,6 +31,7 @@ from ....config.config import ConsoleConfig as ConsoleChannelConfig
 from ...console_push_store import append as push_store_append
 from ....constant import DEFAULT_MEDIA_DIR
 from ....exceptions import ModelQuotaExceededException
+from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
     AudioContent,
@@ -69,9 +70,7 @@ class ConsoleChannel(BaseChannel):
     takes care of output (printing to the terminal).
 
     Supports filtering options via config:
-        - show_tool_details: Display tool execution details
-        - filter_tool_messages: Hide intermediate tool messages
-        - filter_thinking: Hide agent thinking/reasoning blocks
+        - display_config: Control thinking and tool message presentation
     """
 
     channel = "console"
@@ -82,9 +81,7 @@ class ConsoleChannel(BaseChannel):
         enabled: bool,
         bot_prefix: str,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         workspace_dir: Optional[Union[str, Path]] = None,
         media_dir: Optional[str] = None,
     ):
@@ -95,9 +92,7 @@ class ConsoleChannel(BaseChannel):
             enabled: Whether this channel is active.
             bot_prefix: Prefix string for bot messages.
             on_reply_sent: Callback when reply is sent.
-            show_tool_details: Whether to show tool execution details.
-            filter_tool_messages: Whether to filter out tool messages.
-            filter_thinking: Whether to filter thinking/reasoning blocks.
+            display_config: Thinking and tool display settings.
             workspace_dir: Agent workspace directory; used to resolve uploaded
                 file names (media_dir = workspace_dir / "media").
             media_dir: Agent workspace directory for resolving uploads.
@@ -105,9 +100,7 @@ class ConsoleChannel(BaseChannel):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config,
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
@@ -160,10 +153,8 @@ class ConsoleChannel(BaseChannel):
         process: ProcessHandler,
         config: ConsoleChannelConfig,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         workspace_dir: Optional[Union[str, Path]] = None,
     ) -> "ConsoleChannel":
         """Create ConsoleChannel from config.
@@ -172,9 +163,7 @@ class ConsoleChannel(BaseChannel):
             process: Handler for agent requests.
             config: Console channel configuration.
             on_reply_sent: Callback when reply is sent.
-            show_tool_details: Whether to show tool execution details.
-            filter_tool_messages: Whether to filter out tool messages.
-            filter_thinking: Whether to filter thinking/reasoning blocks.
+            display_config: Thinking and tool display settings.
             workspace_dir: Agent workspace directory for resolving uploads.
 
         Returns:
@@ -185,9 +174,8 @@ class ConsoleChannel(BaseChannel):
             enabled=config.enabled,
             bot_prefix=config.bot_prefix or "",
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
             workspace_dir=workspace_dir,
             media_dir=config.media_dir or "",
         )
@@ -275,10 +263,16 @@ class ConsoleChannel(BaseChannel):
             content_parts=content_parts,
             channel_meta=meta,
         )
+        message_metadata = payload.get("message_metadata")
+        if isinstance(message_metadata, dict) and request.input:
+            request.input[0].metadata = message_metadata
         request.channel_meta = meta
         rc = meta.get("request_context")
         if isinstance(rc, dict) and rc:
             request.request_context = rc
+        mso = payload.get("model_slot_override")
+        if mso is not None:
+            request.model_slot_override = mso
         return request
 
     async def _extract_media_message(self, message: Message) -> Message | None:
@@ -407,13 +401,11 @@ class ConsoleChannel(BaseChannel):
             try:
                 chat_mgr = getattr(self._workspace, "chat_manager", None)
                 if chat_mgr is not None:
-                    existing_chat_id = await chat_mgr.get_chat_id_by_session(
+                    await chat_mgr.touch_chat_by_session(
                         session_id=session_id,
                         channel=channel_name,
                         user_id=user_id or None,
                     )
-                    if existing_chat_id:
-                        await chat_mgr.touch_chat(existing_chat_id)
             except Exception:  # pylint: disable=broad-except
                 logger.debug(
                     "failed to touch chat updated_at for session=%s",
@@ -426,6 +418,7 @@ class ConsoleChannel(BaseChannel):
             send_meta.setdefault("bot_prefix", self.bot_prefix)
             last_response = None
             event_count = 0
+            headline_stream_states: dict[str, Any] = {}
 
             async for event in self._process(request):
                 event_count += 1
@@ -451,7 +444,27 @@ class ConsoleChannel(BaseChannel):
                         for message in event_output:
                             event.output.append(message)
 
-                data = self._serialize_event_for_sse(event)
+                if obj == "message" and status == RunStatus.Completed:
+                    msg_id = str(
+                        getattr(event, "msg_id", "")
+                        or getattr(event, "id", "")
+                        or "",
+                    )
+                    for pending_data in self._flush_headline_stream_states(
+                        headline_stream_states,
+                        msg_id=msg_id,
+                    ):
+                        yield f"data: {pending_data}\n\n"
+                elif obj == "response" and status == RunStatus.Completed:
+                    for pending_data in self._flush_headline_stream_states(
+                        headline_stream_states,
+                    ):
+                        yield f"data: {pending_data}\n\n"
+
+                data = self._serialize_event_for_sse(
+                    event,
+                    headline_stream_states,
+                )
                 yield f"data: {data}\n\n"
 
                 if obj == "message" and status == RunStatus.Completed:
@@ -460,6 +473,11 @@ class ConsoleChannel(BaseChannel):
 
                 elif obj == "response":
                     last_response = event
+
+            for pending_data in self._flush_headline_stream_states(
+                headline_stream_states,
+            ):
+                yield f"data: {pending_data}\n\n"
 
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
@@ -508,6 +526,19 @@ class ConsoleChannel(BaseChannel):
             logger.exception("console process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
             self._print_error(err_msg)
+        finally:
+            try:
+                await self._on_response_cycle_end(session_id)
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "console response-cycle cleanup failed for session=%s",
+                    session_id[:30],
+                    exc_info=True,
+                )
+
+    async def _on_response_cycle_end(self, session_id: str) -> None:
+        """Delegate console streaming cleanup to the shared channel path."""
+        await self._finish_response_cycle(session_id)
 
     async def consume_one(self, payload: Any) -> None:
         """Process one payload; drain stream_one (queue/terminal)."""

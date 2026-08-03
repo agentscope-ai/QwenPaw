@@ -1,0 +1,18 @@
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  line-height: 22px;
+}
+
+.description {
+  color: #8b8179;
+  font-size: 12px;
+}
+
+:global(.dark-mode) {
+  .description {
+    color: rgba(255, 255, 255, 0.58);
+  }
+}

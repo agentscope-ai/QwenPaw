@@ -97,6 +97,73 @@ def test_same_dedup_key_different_session_does_not_collide(
     assert store.count("s1") == 1 and store.count("s2") == 1
 
 
+def test_reconcile_rows_uses_exact_file_keys_and_claims_agent(
+    store: HistoryStore,
+):
+    selected_seq = store.append(
+        session_id="sync:shared-stem",
+        agent_id=None,
+        dedup_key="selected",
+        entry=_entry("selected row"),
+    )
+    unrelated_seq = store.append(
+        session_id="sync:shared-stem",
+        agent_id=None,
+        dedup_key="other-file",
+        entry=_entry("unrelated row"),
+    )
+
+    moved, deduplicated, claimed = store.reconcile_session_rows(
+        {"sync:shared-stem"},
+        "canonical",
+        {"selected"},
+        agent_id="agent-1",
+    )
+
+    assert (moved, deduplicated, claimed) == (1, 0, 0)
+    selected = store._conn.execute(
+        "SELECT session_id, agent_id FROM conversation_history WHERE seq = ?",
+        (selected_seq,),
+    ).fetchone()
+    assert tuple(selected) == ("canonical", "agent-1")
+    unrelated = store._conn.execute(
+        "SELECT session_id, agent_id FROM conversation_history WHERE seq = ?",
+        (unrelated_seq,),
+    ).fetchone()
+    assert tuple(unrelated) == ("sync:shared-stem", None)
+
+
+def test_reconcile_rows_deduplicates_source_and_fts(store: HistoryStore):
+    if not store._fts:
+        pytest.skip("SQLite build lacks FTS5")
+    kept = store.append(
+        session_id="canonical",
+        dedup_key="shared",
+        entry=_entry("canonical copy"),
+    )
+    duplicate = store.append(
+        session_id="sync:file",
+        dedup_key="shared",
+        entry=_entry("legacy duplicate token"),
+    )
+
+    moved, deduplicated, claimed = store.reconcile_session_rows(
+        {"sync:file"},
+        "canonical",
+        {"shared"},
+    )
+
+    assert (moved, deduplicated, claimed) == (0, 1, 0)
+    assert store.count("sync:file") == 0
+    assert store.count("canonical") == 1
+    assert duplicate != kept
+    hits = store._conn.execute(
+        "SELECT rowid FROM conversation_history_fts "
+        "WHERE conversation_history_fts MATCH 'legacy'",
+    ).fetchall()
+    assert hits == []
+
+
 def test_null_dedup_key_is_never_deduped(store: HistoryStore):
     store.append(session_id="s", dedup_key=None, entry=_entry("x"))
     store.append(session_id="s", dedup_key=None, entry=_entry("x"))

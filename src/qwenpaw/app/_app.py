@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
 import asyncio
+import hmac
 import inspect
 import mimetypes
 import os
@@ -10,7 +11,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -72,6 +73,42 @@ mimetypes.add_type("image/svg+xml", ".svg")
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.
 load_envs_into_environ()
+
+
+async def _browser_idle_watchdog(kernel: Any, interval: float) -> None:
+    """Periodically reclaim idle browser workers for this app process."""
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await kernel.discard_idle_workers()
+            await kernel.sweep_idle_sessions()
+            await kernel.sweep_wire_spill()
+        # intentional boundary: watchdog failures must not kill the app.
+        except Exception:
+            logger.warning("Browser idle watchdog failed", exc_info=True)
+
+
+def _start_browser_runtime(app: FastAPI, kernel: Any, interval: float) -> None:
+    """Attach browser worker housekeeping to this app's lifespan."""
+    app.state.browser_kernel = kernel
+    app.state.browser_watchdog = asyncio.create_task(
+        _browser_idle_watchdog(kernel, interval),
+    )
+
+
+async def _stop_browser_runtime(app: FastAPI) -> None:
+    """Cancel browser housekeeping and reclaim all browser workers."""
+    browser_watchdog = getattr(app.state, "browser_watchdog", None)
+    if browser_watchdog is not None:
+        browser_watchdog.cancel()
+        with suppress(asyncio.CancelledError):
+            await browser_watchdog
+    browser_kernel = getattr(app.state, "browser_kernel", None)
+    if browser_kernel is not None:
+        try:
+            await browser_kernel.discard_all_workers()
+        except Exception:
+            logger.error("Error shutting down browser workers", exc_info=True)
 
 
 @asynccontextmanager
@@ -216,18 +253,36 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 exc_info=True,
             )
 
-        # --- Built-in tools ---
-        try:
-            from ..agents.tools import discover_builtin_tool_funcs
+        # --- Use shared bootstrap factory ---
+        from .workspace.bootstrap_factory import WorkspaceBootstrapFactory
 
+        factory_kwargs = WorkspaceBootstrapFactory.build_bootstrap_kwargs(
+            app_services,
+            extra_command_specs=_api_action_command_specs
+            if _api_action_command_specs
+            else None,
+        )
+        # Merge factory output into workspace_registry._bootstrap_kwargs
+        for key, value in factory_kwargs.items():
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_tool_funcs"
-            ] = discover_builtin_tool_funcs()
-            logger.debug("Built-in tool funcs collected")
+            workspace_registry._bootstrap_kwargs[key] = value
+
+        # Warm descriptor-driven caches off the event loop so the first
+        # /tools or agent-config path does not pay full import cost inline.
+        def _warm_descriptor_caches() -> None:
+            from ..config.config import _default_builtin_tools
+            from ..governance.policy import get_default_user_rules
+            from ..governance.tool_registry import DEFAULT_REGISTRY
+
+            DEFAULT_REGISTRY.get_all_tool_names()
+            _default_builtin_tools()
+            get_default_user_rules()
+
+        try:
+            await asyncio.to_thread(_warm_descriptor_caches)
         except Exception:
             logger.debug(
-                "Built-in tool func collection skipped",
+                "Descriptor cache warm-up skipped",
                 exc_info=True,
             )
 
@@ -333,13 +388,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         # --- Built-in modes (CodingMode, MissionMode) ---
         try:
             from ..modes.coding import CodingMode
-            from ..modes.default import DefaultMode
             from ..modes.goal import GoalMode
             from ..modes.mission import MissionMode
 
             # pylint: disable-next=protected-access
             workspace_registry._bootstrap_kwargs["builtin_mode_clses"] = [
-                DefaultMode,
                 CodingMode,
                 MissionMode,
                 GoalMode,
@@ -390,6 +443,20 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     app.state.startup_ready = asyncio.Event()
     app.state.startup_time = startup_start_time
+    from ..browser.execution.kernel import get_default_kernel_manager
+
+    browser_config = load_config(get_config_path()).browser
+    _start_browser_runtime(
+        app,
+        get_default_kernel_manager(),
+        max(0.1, browser_config.idle_ttl_seconds),
+    )
+    try:
+        from ..browser.control_link.chrome.ws_handler import prime_bridge_token
+
+        prime_bridge_token()
+    except Exception:
+        logger.warning("Bridge token priming failed", exc_info=True)
 
     fast_elapsed = time.time() - startup_start_time
     logger.info(
@@ -449,11 +516,17 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 startup_display.mark_core_ready(core_elapsed)
                 app.state.startup_ready.set()
 
-            await workspace_registry.start_all_configured_agents(
-                on_core_ready=_mark_core_agents_ready,
-                startup_display=startup_display,
+            startup_results = (
+                await workspace_registry.start_all_configured_agents(
+                    on_core_ready=_mark_core_agents_ready,
+                    startup_display=startup_display,
+                )
             )
-            if app.state.startup_ready.is_set():
+            if startup_results.get("default") is False:
+                startup_display.mark_failed(
+                    "Default agent failed to start",
+                )
+            elif app.state.startup_ready.is_set():
                 startup_display.mark_finalizing()
 
             provider_manager.start_local_model_resume(local_model_manager)
@@ -604,6 +677,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             with suppress(asyncio.CancelledError):
                 await _bg_task
 
+        await _stop_browser_runtime(app)
+        from ..agents.tools import shutdown_browser_runtime
+
+        await shutdown_browser_runtime()
+
         # ==================== Execute Shutdown Hooks ====================
         plugin_registry = getattr(app.state, "plugin_registry", None)
         if plugin_registry is not None:
@@ -667,7 +745,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         # These three cleanup tasks are independent; run in parallel.
         from ..agents.skill_system.hub import aclose_hub_client
-        from ..agents.tools.browser_control import stop_all_browsers
 
         async def _stop_token_usage():
             logger.info("Stopping TokenUsageManager...")
@@ -676,14 +753,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             except Exception as e:
                 logger.error(
                     f"Error stopping TokenUsageManager: {e}",
-                )
-
-        async def _stop_browsers():
-            try:
-                await stop_all_browsers()
-            except Exception as e:
-                logger.error(
-                    f"Error stopping browsers: {e}",
                 )
 
         async def _close_hub():
@@ -696,7 +765,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         await asyncio.gather(
             _stop_token_usage(),
-            _stop_browsers(),
             _close_hub(),
         )
 
@@ -829,7 +897,62 @@ def get_doctor_runtime():
     }
 
 
+@app.post("/api/desktop/shutdown")
+async def post_desktop_shutdown(
+    x_qwenpaw_desktop_shutdown_token: str | None = Header(default=None),
+):
+    """Gracefully stop the desktop sidecar before the Tauri app exits.
+
+    The Tauri shell calls this on quit so uvicorn performs a normal shutdown
+    (running the lifespan ``finally`` block that flushes memory/index) instead
+    of being force-killed. Only available when running as the desktop sidecar.
+    """
+    from ..tauri.env import DESKTOP_APP_ENV, DESKTOP_SHUTDOWN_TOKEN_ENV
+
+    expected_token = os.environ.get(DESKTOP_SHUTDOWN_TOKEN_ENV)
+    if (
+        os.environ.get(DESKTOP_APP_ENV) != "1"
+        or not expected_token
+        or x_qwenpaw_desktop_shutdown_token is None
+        or not hmac.compare_digest(
+            x_qwenpaw_desktop_shutdown_token,
+            expected_token,
+        )
+    ):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    server = getattr(app.state, "uvicorn_server", None)
+    if server is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Desktop backend is not ready",
+        )
+
+    server.should_exit = True
+    return {"ok": True}
+
+
 app.include_router(api_router, prefix="/api")
+
+# These registrations require the fully constructed application instance.
+# pylint: disable-next=wrong-import-position,wrong-import-order
+from qwenpaw.browser.control_link import (  # noqa: E402
+    register_builtin_control_links,
+)
+
+# pylint: disable-next=wrong-import-position,wrong-import-order
+from qwenpaw.browser.control_link.chrome.ws_handler import (  # noqa: E402
+    ws_router as browser_chrome_ws_router,
+)
+
+# pylint: disable-next=wrong-import-position,wrong-import-order
+from qwenpaw.browser.control_link.chrome.observe import (  # noqa: E402
+    status_router as browser_chrome_status_router,
+)
+
+app.include_router(browser_chrome_ws_router, prefix="/api")
+app.include_router(browser_chrome_status_router, prefix="/api")
+register_builtin_control_links()
 
 app.include_router(healthz_router, prefix="/api")
 

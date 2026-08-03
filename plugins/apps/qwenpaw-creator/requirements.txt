@@ -1,0 +1,11 @@
+# QwenPaw supplies the shared framework/runtime dependencies. Keep only
+# Creator-specific, non-database packages that are absent from the host
+# lockfile here. Creator persistence is filesystem-native.
+oss2
+imageio-ffmpeg
+# Deterministic HTML/CSS motion-overlay rendering (seek-and-capture).
+# The Python package does not include a browser binary. Developer installs
+# run `scripts/dev.sh install`, which idempotently installs Chromium as well.
+# Other deployments must run `python -m playwright install chromium` once;
+# motion overlays degrade gracefully when the browser runtime is unavailable.
+playwright

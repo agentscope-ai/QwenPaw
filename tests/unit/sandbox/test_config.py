@@ -11,6 +11,7 @@ from qwenpaw.sandbox import (
     PortRule,
     SandboxConfig,
     SandboxMode,
+    create_sandbox,
 )
 from qwenpaw.sandbox.macos_sandbox import MacOSSandbox
 
@@ -241,3 +242,30 @@ class TestUnsupportedFeaturesLogging:
             sandbox._compile_seatbelt_profile()
 
         mock_logger.warning.assert_not_called()
+
+
+# ============================================================================
+# Platform compatibility guard — cross-platform downgrade
+# ============================================================================
+
+
+class TestCreateSandboxSeatbeltDowngrade:
+    """Test that SEATBELT mode downgrades on non-darwin platforms."""
+
+    @patch("qwenpaw.sandbox.config.sys")
+    @patch(
+        "qwenpaw.sandbox.config.detect_platform_mode",
+        return_value=SandboxMode.NONE,
+    )
+    def test_seatbelt_mode_on_windows_downgrades(self, mock_detect, mock_sys):
+        """SEATBELT on Windows downgrades to platform default."""
+        from qwenpaw.sandbox.local_sandbox import NoneSandbox
+
+        mock_sys.platform = "win32"
+        config = SandboxConfig(
+            mode=SandboxMode.SEATBELT,
+            workspace_dir="/tmp/ws",
+        )
+        sb = create_sandbox(config)
+        assert isinstance(sb, NoneSandbox)
+        mock_detect.assert_called_once()

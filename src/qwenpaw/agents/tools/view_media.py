@@ -321,11 +321,22 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
     )
 
 
-@tool_descriptor(requires_sandbox=("file_read",), async_execution=True)
+@tool_descriptor(
+    requires_sandbox=("file_read",),
+    async_execution=True,
+    tool_type="file",
+    target_param="image_path",
+    policy_name="ViewImage",
+    default_policy="allow",
+    policy_reason="Image view (global)",
+    ui_description="Load an image into LLM context for visual analysis",
+    ui_icon="🖼️",
+    display_to_user=False,
+)
 async def view_image(image_path: str) -> ToolChunk:
     """Load an image file into the LLM context so the model can see it.
 
-    Use this after desktop_screenshot, browser_use, or any tool that
+    Use this after desktop_screenshot or any tool that
     produces an image file path.  Also accepts an HTTP(S) URL for
     online images — the URL is passed directly to the model without
     downloading.
@@ -396,7 +407,18 @@ async def view_image(image_path: str) -> ToolChunk:
     )
 
 
-@tool_descriptor(requires_sandbox=("file_read",), async_execution=True)
+@tool_descriptor(
+    requires_sandbox=("file_read",),
+    async_execution=True,
+    tool_type="file",
+    target_param="video_path",
+    policy_name="ViewVideo",
+    default_policy="allow",
+    policy_reason="Video view (global)",
+    ui_description="Load a video into LLM context for visual analysis",
+    ui_icon="🎥",
+    display_to_user=False,
+)
 async def view_video(video_path: str) -> ToolChunk:
     """Load a video file into the LLM context so the model can see it.
 

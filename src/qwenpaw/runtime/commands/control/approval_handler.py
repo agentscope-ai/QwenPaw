@@ -10,7 +10,11 @@ from __future__ import annotations
 import logging
 import time
 
-from ....app.approvals import get_approval_service
+from ....app.approvals import (
+    ApprovalService,
+    PendingApproval,
+    get_approval_service,
+)
 from ....security.tool_guard.approval import ApprovalDecision, ApprovalScope
 
 from .base import BaseControlCommandHandler, ControlContext
@@ -34,6 +38,25 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
     """
 
     command_name = "/approval"
+
+    @staticmethod
+    async def _get_spawn_child_queue_head(
+        context: ControlContext,
+        svc: ApprovalService,
+    ) -> PendingApproval | None:
+        """Return the oldest spawned child approval owned by this session."""
+        pending_list = await svc.get_pending_by_root_session(
+            context.session_id,
+        )
+        for pending in pending_list:
+            if (
+                pending.session_id != context.session_id
+                and pending.agent_id == context.agent_id
+                and pending.owner_agent_id == context.agent_id
+                and (pending.extra or {}).get("_spawn_subagent")
+            ):
+                return pending
+        return None
 
     async def handle(self, context: ControlContext) -> str:
         """Handle /approval command with various actions.
@@ -73,6 +96,8 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
         # If no request_id provided, get queue head (FIFO)
         if not request_id:
             pending = await svc.get_pending_by_session(context.session_id)
+            if pending is None:
+                pending = await self._get_spawn_child_queue_head(context, svc)
             if pending is None:
                 return "❌ **无待审批工具**\n\n" "当前会话没有需要审批的工具调用。"
             request_id = pending.request_id
@@ -132,6 +157,8 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
         # If no request_id provided, get queue head
         if not request_id:
             pending = await svc.get_pending_by_session(context.session_id)
+            if pending is None:
+                pending = await self._get_spawn_child_queue_head(context, svc)
             if pending is None:
                 return "❌ **无待审批工具**\n\n" "当前会话没有需要审批的工具调用。"
             request_id = pending.request_id

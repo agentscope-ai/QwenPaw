@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from agentscope.message import Msg
@@ -12,9 +13,9 @@ from ..types import LogEntry
 
 # The model echoes a milestone as a fenced single line: ``⟦ text ⟧`` (rare
 # brackets U+27E6 / U+27E7, chosen to almost never collide with code, markdown,
-# or diff hunks). The fence is normally wrapped in an HTML comment
-# (``<!-- ⟦ … ⟧ -->``) so it stays invisible in the rendered chat; the optional
-# wrapper is tolerated here.
+# or diff hunks). Older prompts wrapped the fence in an HTML comment, so the
+# parser keeps accepting that legacy form even though new prompts use only the
+# plain fence.
 #
 # Qwen routinely substitutes the visually-identical white square brackets
 # U+301A/U+301B (``〚 〛``) for the intended U+27E6/U+27E7 (``⟦ ⟧``). Accept both
@@ -28,7 +29,27 @@ _HEADLINE_RE = re.compile(
     rf"[ \t]*(?:-->)?[ \t]*$",
     re.MULTILINE,
 )
-_HEADLINE_MAX = 200  # chars — a headline is an index entry, not a paragraph
+# Display cleanup is deliberately more tolerant than index extraction. If a
+# model starts a final headline but mixes it with provider tool-protocol tokens
+# or never closes the fence, hide that trailing protocol line without treating
+# it as a valid index entry (issue #6240).
+_TRAILING_HEADLINE_RE = re.compile(
+    rf"(?:<!--[ \t]*{_OPEN}|(?:^|\n)[ \t]*{_OPEN})[^\r\n]*\Z",
+)
+_HEADLINE_MAX = 2000  # safety ceiling; prompts still ask for concise headlines
+_LEGACY_START_RE = re.compile(r"<!--\s*[⟦〚]")
+_PLAIN_START_RE = re.compile(r"(?:^|\n)[ \t]*[⟦〚]")
+_LEGACY_CLOSE_RE = re.compile(r"[⟧〛]\s*-->")
+_PLAIN_CLOSE_RE = re.compile(r"[⟧〛]")
+
+
+@dataclass
+class HeadlineDeltaState:
+    """Per-output-stream state for hiding a chunked headline protocol."""
+
+    pending: str = ""
+    suppressing: bool = False
+    legacy_comment: bool = False
 
 
 def _dump(block: Any) -> dict:
@@ -101,14 +122,7 @@ def _state_value(state: Any) -> str | None:
 
 
 def extract_headline(text: str | None) -> str | None:
-    """The turn's durable index line: the model's own ``⟦ … ⟧`` fence, or None.
-
-    Headlines are *milestone* markers the model emits deliberately — most turns
-    carry none. A turn with no fence does not become a leaf of the eviction
-    index; it stays durably stored and recallable by ``seq`` range or
-    ``ms.search``, just not listed in the map. There is intentionally no
-    extractive fallback.
-    """
+    """Return a valid ``⟦ … ⟧`` headline, otherwise ``None``."""
     if text:
         m = _HEADLINE_RE.search(text)
         if m and m.group(1).strip():
@@ -117,22 +131,118 @@ def extract_headline(text: str | None) -> str | None:
 
 
 def strip_headline(text: str | None) -> str | None:
-    """Remove the headline line for display, keeping it in context/index.
+    """Remove Scroll's headline protocol line for display.
 
-    Deletes exactly the line :func:`extract_headline` matched (same first
-    match, by span) — so a line is hidden iff it became the index entry. The
-    headline stays verbatim in the live context and persisted row; this only
-    cleans the text rendered to channels/console, where ``<!-- … -->`` shows.
+    Complete fences remain extractable by :func:`extract_headline`. A malformed
+    trailing fence is also removed from display but is intentionally not
+    indexed. The live context and persisted row keep the original text; this
+    function only cleans channel/console output.
     """
     if not text:
         return text
     m = _HEADLINE_RE.search(text)
     if not m or not m.group(1).strip():
-        return text
+        m = _TRAILING_HEADLINE_RE.search(text)
+        if not m:
+            return text
     start, end = m.span()  # one line: ``.`` never crosses a newline
     cleaned = text[:start] + text[end:]
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)  # collapse blank line left
     return cleaned.strip()
+
+
+def strip_headline_delta(
+    text: str,
+    *,
+    state: HeadlineDeltaState | None = None,
+) -> tuple[str, HeadlineDeltaState]:
+    """Hide one streamed headline fragment and return its updated state.
+
+    SSE content events carry deltas rather than the complete assistant text.
+    Both the opening and closing markers may straddle chunk boundaries, so
+    ambiguous trailing prefixes are buffered until the next delta.
+
+    Headlines are a trailing protocol line, so any text after their opening
+    fence in the same delta is intentionally hidden.
+    """
+    state = state or HeadlineDeltaState()
+    text = state.pending + text
+    state.pending = ""
+    visible: list[str] = []
+
+    while text:
+        if state.suppressing:
+            close_re = (
+                _LEGACY_CLOSE_RE if state.legacy_comment else _PLAIN_CLOSE_RE
+            )
+            close = close_re.search(text)
+            if close is not None:
+                text = text[close.end() :]
+                state.suppressing = False
+                state.legacy_comment = False
+                continue
+            if state.legacy_comment:
+                close_start = max(text.rfind("⟧"), text.rfind("〛"))
+                if close_start >= 0 and _possible_legacy_close_prefix(
+                    text[close_start:],
+                ):
+                    state.pending = text[close_start:]
+            return "".join(visible), state
+
+        legacy = _LEGACY_START_RE.search(text)
+        plain = _PLAIN_START_RE.search(text)
+        starts = [
+            (match.start(), match.end(), is_legacy)
+            for match, is_legacy in ((legacy, True), (plain, False))
+            if match is not None
+        ]
+        if starts:
+            start, end, is_legacy = min(starts, key=lambda item: item[0])
+            visible.append(text[:start])
+            text = text[end:]
+            state.suppressing = True
+            state.legacy_comment = is_legacy
+            continue
+
+        prefix_start = text.rfind("<")
+        if prefix_start >= 0 and _possible_legacy_start_prefix(
+            text[prefix_start:],
+        ):
+            visible.append(text[:prefix_start])
+            state.pending = text[prefix_start:]
+            return "".join(visible), state
+
+        visible.append(text)
+        break
+
+    return "".join(visible), state
+
+
+def flush_headline_delta(state: HeadlineDeltaState) -> str:
+    """Finalize one stream, releasing only an unconfirmed marker prefix."""
+    visible = "" if state.suppressing else state.pending
+    state.pending = ""
+    state.suppressing = False
+    state.legacy_comment = False
+    return visible
+
+
+def _possible_legacy_start_prefix(value: str) -> bool:
+    marker = "<!--"
+    if len(value) < len(marker):
+        return marker.startswith(value)
+    return value.startswith(marker) and not value[len(marker) :].strip()
+
+
+def _possible_legacy_close_prefix(value: str) -> bool:
+    if not value or value[0] not in "⟧〛":
+        return False
+    suffix = value[1:]
+    marker_start = next(
+        (index for index, char in enumerate(suffix) if not char.isspace()),
+        len(suffix),
+    )
+    return "-->".startswith(suffix[marker_start:])
 
 
 def msg_to_entries(msg: Msg) -> list[LogEntry]:

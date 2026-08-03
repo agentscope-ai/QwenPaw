@@ -9,7 +9,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Callable, Optional, cast
 
 from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
@@ -77,12 +77,18 @@ def _get_acp_service() -> Any:
     # ``qwenpaw.agents.acp.__getattr__`` lazy-loader; pylint can't see them.
     from ..acp import get_acp_service, init_acp_service
 
+    get_service = cast(Callable[[str], Any], get_acp_service)
+    init_service = cast(
+        Callable[[str, ACPConfig], Any],
+        init_acp_service,
+    )
+
     agent_id = get_current_agent_id()
     agent_config = load_agent_config(agent_id)
     acp_config = agent_config.acp or ACPConfig()
-    service = get_acp_service(agent_id)
+    service = get_service(agent_id)
     if service is None or getattr(service, "config", None) != acp_config:
-        service = init_acp_service(agent_id, acp_config)
+        service = init_service(agent_id, acp_config)
     return service
 
 
@@ -587,18 +593,27 @@ async def _stream_action_responses(
         ),
     )
     loop = asyncio.get_running_loop()
-    from ...tool_calls import get_call_context
+    from ...tool_calls import arm_kill_deadline, get_call_context
 
     _tc_ctx = get_call_context()
-    if _tc_ctx is not None and _tc_ctx.remaining() is not None:
-        deadline = _tc_ctx.deadline
-    elif max_runtime is not None and max_runtime > 0:
-        deadline = loop.time() + max_runtime
-    else:
-        deadline = None
+    # Publish max_runtime onto kill_deadline so coordinator keep_foreground
+    # does not treat a shorter offload hook timeout as a hard kill.
+    if _tc_ctx is not None and max_runtime is not None and max_runtime > 0:
+        arm_kill_deadline(_tc_ctx, float(max_runtime))
+    fallback_deadline = (
+        loop.time() + max_runtime
+        if max_runtime is not None and max_runtime > 0
+        else None
+    )
 
     try:
         while True:
+            # Re-read kill_deadline each iteration so extend / no_deadline
+            # from the coordinator take effect (do not freeze a local copy).
+            if _tc_ctx is not None:
+                deadline = _tc_ctx.kill_deadline
+            else:
+                deadline = fallback_deadline
             if run_task.done():
                 await flush_snapshot()
                 await settle_flush_task()
@@ -908,7 +923,15 @@ async def _run_streaming_agent_action(
         yield response_text(f"ACP execution error: {e}")
 
 
-@tool_descriptor(async_execution=True)
+@tool_descriptor(
+    async_execution=True,
+    enabled_by_default=False,
+    tool_type="internal",
+    target_param="runner",
+    policy_name="DelegateExternalAgent",
+    ui_description="Delegate work to an external ACP agent runner",
+    ui_icon="📡",
+)
 async def delegate_external_agent(
     action: str,
     runner: str = "",

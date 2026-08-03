@@ -24,6 +24,12 @@ from qwenpaw.exceptions import (
 
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
+from ...utils.io_utils import (
+    get_path_lock,
+    make_dirs_async,
+    run_sync_io,
+    write_bytes_async,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +199,52 @@ def _download_remote_to_path(url: str, local_file_path: Path) -> None:
         ) from urllib_err
 
 
+def _finish_remote_download(url: str, local_file_path: Path) -> Path:
+    """Download and validate one remote file in a worker thread."""
+    created = False
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    try:
+        fd = os.open(local_file_path, flags, 0o600)
+    except FileExistsError:
+        pass
+    else:
+        os.close(fd)
+        created = True
+
+    _download_remote_to_path(url, local_file_path)
+    if not local_file_path.exists():
+        raise FileNotFoundError("Downloaded file does not exist")
+    if local_file_path.stat().st_size == 0:
+        raise AgentRuntimeErrorException(
+            code="FILE_EMPTY",
+            message="Downloaded file is empty",
+        )
+    result_path = local_file_path
+    if local_file_path.suffix == ".file":
+        real_suffix = _guess_suffix_from_url_headers(url)
+        if not real_suffix:
+            real_suffix = _guess_suffix_from_file_content(local_file_path)
+        if real_suffix:
+            result_path = local_file_path.with_suffix(real_suffix)
+            local_file_path.rename(result_path)
+            logger.debug(
+                "Replaced .file with %s for %s",
+                real_suffix,
+                result_path,
+            )
+    if created:
+        result_path.chmod(0o644)
+    return result_path
+
+
+def _decode_base64(base64_data: str) -> tuple[bytes, str]:
+    """Decode base64 and calculate its fallback filename hash."""
+    content = base64.b64decode(base64_data)
+    return content, hashlib.md5(content).hexdigest()
+
+
 def _guess_suffix_from_url_headers(url: str) -> Optional[str]:
     """
     HEAD request to get Content-Type and return a suffix like '.pdf'.
@@ -261,20 +313,25 @@ async def download_file_from_base64(
         The local file path.
     """
     try:
-        file_content = base64.b64decode(base64_data)
+        file_content, file_hash = await run_sync_io(
+            _decode_base64,
+            base64_data,
+        )
 
         download_path = Path(
             download_dir if download_dir else _default_download_dir(),
         )
-        download_path.mkdir(parents=True, exist_ok=True)
+        await make_dirs_async(download_path)
 
         if not filename:
-            file_hash = hashlib.md5(file_content).hexdigest()
             filename = f"file_{file_hash}"
 
         local_file_path = download_path / filename
-        with open(local_file_path, "wb") as f:
-            f.write(file_content)
+        await write_bytes_async(
+            local_file_path,
+            file_content,
+            new_file_mode=0o644,
+        )
 
         logger.debug("Downloaded file to: %s", local_file_path)
         return str(local_file_path.absolute())
@@ -308,14 +365,14 @@ async def download_file_from_url(
     """
     try:
         parsed = urllib.parse.urlparse(url)
-        local = _resolve_local_path(url, parsed)
+        local = await run_sync_io(_resolve_local_path, url, parsed)
         if local is not None:
             return local
 
         download_path = Path(
             download_dir if download_dir else _default_download_dir(),
         )
-        download_path.mkdir(parents=True, exist_ok=True)
+        await make_dirs_async(download_path)
         if not filename:
             url_filename = os.path.basename(parsed.path)
             filename = (
@@ -324,29 +381,12 @@ async def download_file_from_url(
                 else f"file_{hashlib.md5(url.encode()).hexdigest()}"
             )
         local_file_path = download_path / filename
-        _download_remote_to_path(url, local_file_path)
-        if not local_file_path.exists():
-            raise FileNotFoundError("Downloaded file does not exist")
-        if local_file_path.stat().st_size == 0:
-            raise AgentRuntimeErrorException(
-                code="FILE_EMPTY",
-                message="Downloaded file is empty",
+        async with get_path_lock(local_file_path):
+            local_file_path = await run_sync_io(
+                _finish_remote_download,
+                url,
+                local_file_path,
             )
-        # DingTalk (and similar) return URLs that save as .file; replace with
-        # real extension. Try HEAD first; if that fails (e.g. OSS), use magic.
-        if local_file_path.suffix == ".file":
-            real_suffix = _guess_suffix_from_url_headers(url)
-            if not real_suffix:
-                real_suffix = _guess_suffix_from_file_content(local_file_path)
-            if real_suffix:
-                new_path = local_file_path.with_suffix(real_suffix)
-                local_file_path.rename(new_path)
-                local_file_path = new_path
-                logger.debug(
-                    "Replaced .file with %s for %s",
-                    real_suffix,
-                    local_file_path,
-                )
         return str(local_file_path.absolute())
     except subprocess.TimeoutExpired as e:
         logger.error("Download timeout for URL: %s", url)

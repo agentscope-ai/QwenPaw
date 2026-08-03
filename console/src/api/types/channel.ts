@@ -1,8 +1,11 @@
 export interface BaseChannelConfig {
   enabled: boolean;
   bot_prefix: string;
-  filter_tool_messages?: boolean;
-  filter_thinking?: boolean;
+  show_tool_calls?: boolean;
+  show_tool_results?: boolean;
+  tool_call_max_length?: number;
+  tool_result_max_length?: number;
+  show_thinking?: boolean;
   dm_policy?: "open" | "allowlist";
   group_policy?: "open" | "allowlist";
   allow_from?: string[];
@@ -178,6 +181,8 @@ export interface OneBotConfig extends BaseChannelConfig {
   ws_host: string;
   ws_port: number;
   access_token: string;
+  media_base64: boolean;
+  media_base64_max_mb: number;
   share_session_in_group: boolean;
 }
 

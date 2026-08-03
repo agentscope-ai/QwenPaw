@@ -162,16 +162,12 @@ async def test_config_change_rebuilds_without_duplicate_registration():
 @pytest.mark.asyncio
 async def test_conversation_reset_clears_session_and_pending_state():
     """Full reset tears down current gates and deferred decisions."""
-    agent = SimpleNamespace(
-        _gate_pending_stop=object(),
-        _gate_pending_continue="continue",
-    )
+    agent = SimpleNamespace(_gate_pending_stop=object())
     mode = DefaultMode()
     await mode.on_turn_start(_context(_running_config(), agent))
     iteration = _find_gate(mode, IterationGate)
 
-    mode.on_conversation_reset(_context(_running_config(), agent))
+    await mode.on_conversation_reset(_context(_running_config(), agent))
 
     assert iteration._state() is None
     assert agent._gate_pending_stop is None
-    assert agent._gate_pending_continue is None

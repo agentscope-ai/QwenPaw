@@ -44,7 +44,11 @@ _RECALL_EXCL_PLACEHOLDERS = ", ".join("?" for _ in _RECALL_TOOL_NAMES)
 # stub and the real request becomes searchable mid-turn again (echo loop).
 # Values must match SYNTHETIC_USER_MESSAGE_TAGS in qwenpaw.constant (this
 # module stays stdlib-only for the sandboxed REPL, so no import).
-_SYNTHETIC_USER_TAGS = ("loop_continuation", "auto_continue")
+_SYNTHETIC_USER_TAGS = (
+    "loop_continuation",
+    "auto_continue",
+    "rubric_evaluation",
+)
 
 _DATE_RE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
 _SAVED_TOOL_FILE_RE = re.compile(
@@ -281,15 +285,26 @@ class MemorySpace:
     def expand(self, lo: int, hi: int) -> list[dict]:
         """Full durable turns in the seq span ``[lo, hi]``, oldest first.
 
-        ``seq`` is a globally-unique address (one autoincrement across every
-        session and agent), so a span needs no scope filter. This is the
-        primary way to re-read the evicted turns the index points you at.
+        ``seq`` is globally unique, but rows from concurrent conversations can
+        interleave inside a range. The eviction index belongs to this
+        MemorySpace's conversation, so retain its session and agent lineage.
         """
+        where = ["seq BETWEEN ? AND ?"]
+        params: list = [int(lo), int(hi)]
+        if self._session_id:
+            where.append("session_id = ?")
+            params.append(self._session_id)
+        if self._agent_id:
+            # Early migration versions wrote agent_id=NULL. Session + seq range
+            # already pins these rows to this eviction lineage, so retain them
+            # until startup reconciliation can claim the canonical session.
+            where.append("(agent_id = ? OR agent_id IS NULL)")
+            params.append(self._agent_id)
         return self._select(
             "SELECT seq, kind, role, name, content, headline, metadata "
             "FROM hist.conversation_history "
-            "WHERE seq BETWEEN ? AND ? ORDER BY seq",
-            (int(lo), int(hi)),
+            "WHERE " + " AND ".join(where) + " ORDER BY seq",
+            tuple(params),
         )
 
     def recall_tool(

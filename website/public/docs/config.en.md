@@ -100,13 +100,15 @@ You can customize paths and behavior via environment variables:
 
 **Other configuration:**
 
-| Variable                             | Default         | Description                                                                 |
-| ------------------------------------ | --------------- | --------------------------------------------------------------------------- |
-| `QWENPAW_LOG_LEVEL`                  | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)             |
-| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`        | Character threshold to trigger memory compaction                            |
-| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`             | Number of recent messages to keep after compaction                          |
-| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window size) |
-| `QWENPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_ | Console frontend static files path                                          |
+| Variable                             | Default         | Description                                                                  |
+| ------------------------------------ | --------------- | ---------------------------------------------------------------------------- |
+| `QWENPAW_LOG_LEVEL`                  | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)              |
+| `QWENPAW_LOG_MAX_SIZE`               | `5MiB`          | Maximum active log size; accepts bytes or suffixes such as `10MB` and `1GiB` |
+| `QWENPAW_LOG_MAX_BACKUPS`            | `3`             | Number of rotated log backups to retain; `0` disables backups                |
+| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`        | Character threshold to trigger memory compaction                             |
+| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`             | Number of recent messages to keep after compaction                           |
+| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)  |
+| `QWENPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_ | Console frontend static files path                                           |
 
 **Security & Authentication:**
 

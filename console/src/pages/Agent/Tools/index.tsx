@@ -20,6 +20,7 @@ import {
 } from "@ant-design/icons";
 import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
@@ -59,6 +60,65 @@ function ToolIcon({ icon, name }: { icon: string; name: string }) {
   );
 }
 
+const BROWSER_TOOL_NAMES = new Set(["browser"]);
+
+function browserModeLabel(experimental: boolean, t: TFunction): string {
+  return experimental
+    ? t("tools.browserUnifiedMode")
+    : t("tools.browserLegacyMode");
+}
+
+function browserModeButtonLabel(experimental: boolean, t: TFunction): string {
+  return experimental
+    ? t("tools.browserUnifiedModeButton")
+    : t("tools.browserLegacyModeButton");
+}
+
+function browserTrackLabel(tool: ToolInfo, t: TFunction): string {
+  const effective = tool.config_values?.experimental_effective;
+  const shown =
+    effective === undefined
+      ? tool.config_values?.experimental !== false
+      : effective !== false;
+  return shown
+    ? t("tools.browserUnifiedDescription")
+    : t("tools.browserLegacyDescription");
+}
+
+function browserRestartPending(tool: ToolInfo): boolean {
+  const effective = tool.config_values?.experimental_effective;
+  return (
+    effective !== undefined &&
+    (tool.config_values?.experimental !== false) !== (effective !== false)
+  );
+}
+
+export function BrowserExperimentalToggle({
+  toolName,
+  experimental,
+  onChange,
+}: {
+  toolName: string;
+  experimental: boolean;
+  onChange: (experimental: boolean) => void;
+}) {
+  const { t } = useTranslation();
+
+  if (!BROWSER_TOOL_NAMES.has(toolName)) return null;
+
+  return (
+    <div className={styles.browserModeControl}>
+      <Button
+        className={`${styles.toggleButton} ${styles.browserModeButton}`}
+        onClick={() => onChange(!experimental)}
+        icon={experimental ? <ThunderboltOutlined /> : <ClockCircleOutlined />}
+      >
+        {browserModeButtonLabel(experimental, t)}
+      </Button>
+    </div>
+  );
+}
+
 /** Configuration modal for tools that require configuration */
 function ToolConfigModal({
   tool,
@@ -69,7 +129,7 @@ function ToolConfigModal({
   tool: ToolInfo;
   visible: boolean;
   onClose: () => void;
-  onSave: (values: Record<string, any>) => Promise<void>;
+  onSave: (values: Record<string, unknown>) => Promise<void>;
 }) {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
@@ -223,9 +283,16 @@ export default function ToolsPage() {
     setConfigModalVisible(true);
   };
 
-  const handleSaveConfig = async (values: Record<string, any>) => {
+  const handleSaveConfig = async (values: Record<string, unknown>) => {
     if (!currentTool) return;
     await saveToolConfig(currentTool.name, values);
+    await loadTools();
+  };
+
+  const handleExperimentalChange = async (experimental: boolean) => {
+    // Keep the switch on the Browser card even when the currently registered
+    // implementation is the deprecated stable browser track.
+    await saveToolConfig("browser", { experimental });
     await loadTools();
   };
 
@@ -307,7 +374,23 @@ export default function ToolsPage() {
                       </div>
 
                       <p className={styles.toolDescription}>
-                        {tool.description}
+                        {tool.name === "browser"
+                          ? browserTrackLabel(tool, t)
+                          : tool.description}
+                        {tool.name === "browser" &&
+                          browserRestartPending(tool) && (
+                            <span
+                              className={styles.browserRestartPending}
+                              role="status"
+                            >
+                              {t("tools.browserRestartPending", {
+                                mode: browserModeLabel(
+                                  tool.config_values?.experimental !== false,
+                                  t,
+                                ),
+                              })}
+                            </span>
+                          )}
                       </p>
 
                       {/* Show config status */}
@@ -327,6 +410,15 @@ export default function ToolsPage() {
                       )}
 
                       <div className={styles.cardFooter}>
+                        {BROWSER_TOOL_NAMES.has(tool.name) && (
+                          <BrowserExperimentalToggle
+                            toolName={tool.name}
+                            experimental={
+                              tool.config_values?.experimental !== false
+                            }
+                            onChange={handleExperimentalChange}
+                          />
+                        )}
                         {[
                           "execute_shell_command",
                           "delegate_external_agent",

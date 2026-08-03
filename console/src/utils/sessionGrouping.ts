@@ -86,3 +86,23 @@ export function groupSessions<
       sessions: buckets[key],
     }));
 }
+
+/**
+ * Locate a session inside the flattened (group header + session) rows
+ * of the virtualized session lists. Rows inside collapsed groups are
+ * not present, so a -1 result also means "not currently visible".
+ */
+export function findSessionRowIndex(
+  rows: Array<{
+    kind: string;
+    session?: { id?: string; realId?: string };
+  }>,
+  sessionId: string | undefined,
+): number {
+  if (!sessionId) return -1;
+  return rows.findIndex(
+    (row) =>
+      row.kind === "session" &&
+      (row.session?.id === sessionId || row.session?.realId === sessionId),
+  );
+}

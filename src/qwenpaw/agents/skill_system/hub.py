@@ -1053,13 +1053,28 @@ def _extract_modelscope_skill_spec(
 def _extract_qwenpaw_skill_spec(
     url: str,
 ) -> tuple[str, str, str] | None:
-    """Parse a QwenPaw plaza skill URL into (owner, skill_name, version)."""
+    """Parse a QwenPaw skill URL into (owner, name_or_id, version).
+
+    Public detail pages use ``/skills/{uuid}``; archive URLs use the
+    ModelScope-compatible ``/skills/{owner}/{name}/...`` shape. An empty
+    owner marks the UUID detail-page form.
+    """
     parsed = urlparse(url)
     host = (parsed.netloc or "").lower()
     if host != "platform.agentscope.io":
         return None
     parts = [unquote(p) for p in parsed.path.split("/") if p]
-    if len(parts) < 3 or parts[0] != "skills":
+    if not parts or parts[0] != "skills":
+        return None
+
+    if len(parts) == 2 and re.fullmatch(
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+        r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+        parts[1],
+    ):
+        return "", parts[1], ""
+
+    if len(parts) < 3:
         return None
 
     # Owner kept verbatim (incl. any leading `@`); the archive endpoint
@@ -1661,7 +1676,12 @@ async def _fetch_bundle_from_lobehub_url(
         ) from e
     except ValueError as e:
         raise SkillsError(message=f"LobeHub skill download failed: {e}") from e
-    return _lobehub_zip_to_bundle(identifier, payload), bundle_url
+    bundle = await asyncio.to_thread(
+        _lobehub_zip_to_bundle,
+        identifier,
+        payload,
+    )
+    return bundle, bundle_url
 
 
 # ---------- Provider: ModelScope (archive zip) -----------------------------
@@ -1722,6 +1742,60 @@ def _modelscope_archive_to_bundle(
     return {"name": name, "files": files}
 
 
+def _qwenpaw_detail_archive_to_bundle(
+    payload: bytes,
+    fallback_name: str,
+) -> dict[str, Any]:
+    """Convert the flat zip returned by QwenPaw's UUID download endpoint."""
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(payload))
+    except zipfile.BadZipFile as e:
+        raise SkillsError(
+            message="QwenPaw archive is not a valid zip",
+        ) from e
+
+    files: dict[str, str] = {}
+    entry_count = 0
+    total_bytes = 0
+    with zf:
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            entry_count += 1
+            if entry_count > SKILL_PACKAGE_MAX_ENTRIES:
+                raise SkillsError(
+                    message="QwenPaw archive has too many files",
+                )
+            total_bytes += max(0, info.file_size)
+            if total_bytes > SKILL_PACKAGE_MAX_BYTES:
+                raise SkillsError(
+                    message="QwenPaw archive is too large to import",
+                )
+            parts = _safe_path_parts(info.filename.replace("\\", "/"))
+            if not parts:
+                continue
+            rel = "/".join(parts)
+            raw = zf.read(info)
+            if not _is_probably_text_blob(raw):
+                continue
+            files[rel] = raw.decode("utf-8", errors="replace")
+
+    if "SKILL.md" not in files:
+        raise SkillsError(
+            message="QwenPaw archive is missing SKILL.md",
+        )
+
+    name = fallback_name
+    try:
+        post = frontmatter.loads(files["SKILL.md"])
+        fm_name = post.get("name")
+        if isinstance(fm_name, str) and fm_name.strip():
+            name = fm_name.strip()
+    except yaml.YAMLError:
+        pass
+    return {"name": name, "files": files}
+
+
 async def _fetch_bundle_from_qwenpaw_url(
     bundle_url: str,
     requested_version: str,
@@ -1734,12 +1808,18 @@ async def _fetch_bundle_from_qwenpaw_url(
             "https://platform.agentscope.io/skills/@owner/skill-name",
         )
     owner, skill_name, version_hint = spec
-    branch = requested_version.strip() or version_hint or "master"
-    archive_url = (
-        "https://platform.agentscope.io/skills/"
-        f"{quote(owner, safe='@')}/{quote(skill_name, safe='')}"
-        f"/archive/zip/{quote(branch, safe='')}"
-    )
+    if owner:
+        branch = requested_version.strip() or version_hint or "master"
+        archive_url = (
+            "https://platform.agentscope.io/skills/"
+            f"{quote(owner, safe='@')}/{quote(skill_name, safe='')}"
+            f"/archive/zip/{quote(branch, safe='')}"
+        )
+    else:
+        archive_url = (
+            "https://platform.agentscope.io/api/v1/skills/"
+            f"{quote(skill_name, safe='')}/download"
+        )
     try:
         payload = await _http_bytes_get(
             archive_url,
@@ -1752,10 +1832,17 @@ async def _fetch_bundle_from_qwenpaw_url(
                 f"{_format_http_error_body(e)}."
             ),
         ) from e
-    return (
-        _modelscope_archive_to_bundle(payload, fallback_name=skill_name),
-        bundle_url,
+    converter = (
+        _modelscope_archive_to_bundle
+        if owner
+        else _qwenpaw_detail_archive_to_bundle
     )
+    bundle = await asyncio.to_thread(
+        converter,
+        payload,
+        fallback_name=skill_name,
+    )
+    return bundle, bundle_url
 
 
 async def _fetch_bundle_from_modelscope_url(
@@ -1791,10 +1878,12 @@ async def _fetch_bundle_from_modelscope_url(
                 "instead."
             ),
         ) from e
-    return (
-        _modelscope_archive_to_bundle(payload, fallback_name=skill_name),
-        bundle_url,
+    bundle = await asyncio.to_thread(
+        _modelscope_archive_to_bundle,
+        payload,
+        fallback_name=skill_name,
     )
+    return bundle, bundle_url
 
 
 # ---------- Provider: Aliyun AgentExplorer (signed API) --------------------

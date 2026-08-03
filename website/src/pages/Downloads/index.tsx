@@ -45,8 +45,8 @@ const OTHER_METHODS = [
     titleKey: "downloads.cloud" as const,
     descKey: "downloads.cloudDesc" as const,
     hash: {
-      zh: "方式四部署到阿里云-ECS",
-      en: "Option-4-Deploy-to-Alibaba-Cloud-ECS",
+      zh: "方式五部署到阿里云-ECS",
+      en: "Option-5-Deploy-to-Alibaba-Cloud-ECS",
     },
   },
 ] as const;

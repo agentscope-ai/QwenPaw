@@ -39,6 +39,7 @@ from ....exceptions import ChannelError
 from ....config.config import FeishuConfig as FeishuChannelConfig
 from ....config.utils import get_config_path
 from ....constant import DEFAULT_MEDIA_DIR
+from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
     ContentType,
@@ -71,7 +72,6 @@ from .utils import (
     sender_display_string,
     short_session_id_from_full_id,
 )
-from .cards import FeishuCardHandler
 
 
 # Compatibility for setuptools>=82 where pkg_resources may be absent.
@@ -119,6 +119,7 @@ class _EventLoopProxy:
 
 
 try:
+    from .cards import FeishuCardHandler
     import lark_oapi as lark
     from lark_oapi.api.contact.v3 import GetUserRequest
     from lark_oapi.api.im.v1 import (
@@ -217,10 +218,8 @@ class FeishuChannel(BaseChannel):
         media_dir: str = "",
         workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         dm_policy: str = "open",
         group_policy: str = "open",
         allow_from: Optional[List[str]] = None,
@@ -235,10 +234,8 @@ class FeishuChannel(BaseChannel):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config,
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             dm_policy=dm_policy,
             group_policy=group_policy,
             allow_from=allow_from,
@@ -341,10 +338,8 @@ class FeishuChannel(BaseChannel):
         process: ProcessHandler,
         config: FeishuChannelConfig,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "FeishuChannel":
         return cls(
@@ -358,10 +353,9 @@ class FeishuChannel(BaseChannel):
             media_dir=config.media_dir or "",
             workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             dm_policy=config.dm_policy or "open",
             group_policy=config.group_policy or "open",
             allow_from=config.allow_from or [],
@@ -1207,9 +1201,11 @@ class FeishuChannel(BaseChannel):
             quoted_lines.append(f"[quoted {label}]")
         for hint in error_hints:
             quoted_lines.append(
-                f"[quoted {hint[1:]}"
-                if hint.startswith("[")
-                else f"[quoted {hint}]",
+                (
+                    f"[quoted {hint[1:]}"
+                    if hint.startswith("[")
+                    else f"[quoted {hint}]"
+                ),
             )
         # Prepend all quoted lines before existing text_parts.
         text_parts[:0] = quoted_lines

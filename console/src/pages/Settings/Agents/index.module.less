@@ -1,7 +1,4 @@
 .agentsPage {
-  /* Fill the parent container (classic .page-content or the OS window
-   * body) instead of the browser viewport, so the page fits inside OS
-   * windows of any height. */
   height: 100%;
   padding: 0;
   display: flex;
@@ -138,6 +135,26 @@
   }
 }
 
+.backendTag {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-color: #ded7d1;
+  color: #685f58;
+  background: #faf8f6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backendTagThirdParty {
+  border-color: rgba(255, 127, 22, 0.42);
+  color: #bd5100;
+  background: #fff4e9;
+}
+
 .dragHandleButton {
   width: 28px;
   height: 28px;
@@ -261,7 +278,19 @@
   }
 
   .sortableRowDragging {
-    background: rgba(120, 170, 255, 0.12);
+    background: rgba(255, 127, 22, 0.12);
+  }
+
+  .backendTag {
+    border-color: #48413c;
+    color: #c6bbb2;
+    background: #282522;
+  }
+
+  .backendTagThirdParty {
+    border-color: rgba(255, 127, 22, 0.52);
+    color: #ff9a47;
+    background: rgba(255, 127, 22, 0.12);
   }
 
   .pickerCard {

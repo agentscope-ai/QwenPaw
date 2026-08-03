@@ -237,6 +237,26 @@ describe("window.QwenPaw.chat.request / response", () => {
   });
 });
 
+describe("window.QwenPaw.chat.approval", () => {
+  it("registers and disposes a renderer by source type", () => {
+    const RenderFC = () => null;
+    const disposable = window.QwenPaw.chat!.approval.render(
+      "p1",
+      "plugin_approval",
+      RenderFC,
+    );
+
+    expect(
+      chatExtensions.getListSnapshot()["approval.renderers"][0].item,
+    ).toMatchObject({ sourceType: "plugin_approval", render: RenderFC });
+
+    disposable.dispose();
+    expect(chatExtensions.getListSnapshot()["approval.renderers"]).toHaveLength(
+      0,
+    );
+  });
+});
+
 describe("disposeAll", () => {
   it("clears every registration from the named plugin", () => {
     window.QwenPaw.chat!.welcome.set("p1", { greeting: "Hi", avatar: "/x" });
