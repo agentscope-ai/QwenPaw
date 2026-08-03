@@ -5,16 +5,18 @@ import os
 import shutil
 from pathlib import Path
 from urllib.parse import unquote
+
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
-from ..utils import check_upload_size, safe_join
 from qwenpaw.constant import WORKING_DIR
 from qwenpaw.security.tool_guard.guardians.file_guardian import (
     FilePathToolGuardian,
     _normalize_path,
 )
+
+from ..utils import check_upload_size, safe_join
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -249,7 +251,7 @@ async def rename_path(body: RenameRequest) -> dict:
     summary="Upload a single file",
     description=(
         "Upload a file to *path* (directory relative to WORKING_DIR, "
-        "defaults to root). Filename is sanitized against traversal."
+        "defaults to root). Filename is rejected against traversal."
     ),
 )
 async def upload_file(

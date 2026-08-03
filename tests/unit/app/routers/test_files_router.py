@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import qwenpaw.app.routers.files as files_module
-from qwenpaw.app.routers.files import router, _check_path
+from qwenpaw.app.routers.files import _check_path, router
 
 
 @pytest.fixture
@@ -151,7 +151,7 @@ def test_delete_file(client) -> None:
 
 def test_delete_root_400(client) -> None:
     test_client, _ = client
-    resp = test_client.delete("/api/files/delete/", params={})
+    test_client.delete("/api/files/delete/", params={})
     # FastAPI will route "" to root; also test explicit "."
     resp2 = test_client.delete("/api/files/delete/.")
     assert resp2.status_code == 400
