@@ -948,7 +948,7 @@ class OneBotChannel(BaseChannel):
         if not self.enabled or not text.strip():
             return
 
-        text = _clean_onebot_plain_text(text)
+        text = await asyncio.to_thread(_clean_onebot_plain_text, text)
         if not text.strip():
             return
 
@@ -1020,19 +1020,19 @@ class OneBotChannel(BaseChannel):
             url = getattr(part, "image_url", "")
             if not url:
                 return
-            url = await self._normalize_media_ref(str(url))
+            url = await self._apply_media_ref_policy(str(url))
             segments = [{"type": "image", "data": {"file": url}}]
         elif t == ContentType.AUDIO:
             url = getattr(part, "data", "")
             if not url:
                 return
-            url = await self._normalize_media_ref(str(url))
+            url = await self._apply_media_ref_policy(str(url))
             segments = [{"type": "record", "data": {"file": url}}]
         elif t == ContentType.VIDEO:
             url = getattr(part, "video_url", "")
             if not url:
                 return
-            url = await self._normalize_media_ref(str(url))
+            url = await self._apply_media_ref_policy(str(url))
             segments = [{"type": "video", "data": {"file": url}}]
         elif t == ContentType.FILE:
             url = getattr(part, "file_url", "") or getattr(
@@ -1043,7 +1043,7 @@ class OneBotChannel(BaseChannel):
             name = getattr(part, "filename", "") or "file"
             if not url:
                 return
-            url = await self._normalize_media_ref(str(url))
+            url = await self._apply_media_ref_policy(str(url))
             await self._send_file(to_handle, url, name, meta)
             return
         else:
@@ -1051,7 +1051,7 @@ class OneBotChannel(BaseChannel):
 
         await self._send_segments(to_handle, segments, meta)
 
-    async def _normalize_media_ref(self, ref: str) -> str:
+    async def _apply_media_ref_policy(self, ref: str) -> str:
         """Apply the configured OneBot media reference policy."""
         return await _normalize_media_ref(
             ref,
@@ -1063,7 +1063,7 @@ class OneBotChannel(BaseChannel):
     def _resolve_target(
         to_handle: str,
         meta: Optional[Dict[str, Any]] = None,
-    ) -> tuple[bool, int]:
+    ) -> tuple[bool, Optional[int]]:
         """Resolve a OneBot group/private target."""
         meta = meta or {}
         is_group = meta.get("is_group", False) or to_handle.startswith(
@@ -1073,7 +1073,17 @@ class OneBotChannel(BaseChannel):
             target = meta.get("group_id") or to_handle.removeprefix("group:")
         else:
             target = meta.get("sender_id") or to_handle
-        return is_group, int(target)
+        try:
+            target_id = int(target)
+        except (TypeError, ValueError):
+            logger.warning(
+                "onebot: invalid target %r (to_handle=%r), "
+                "dropping message",
+                target,
+                to_handle,
+            )
+            return is_group, None
+        return is_group, target_id
 
     async def _send_segments(
         self,
@@ -1083,6 +1093,8 @@ class OneBotChannel(BaseChannel):
     ) -> None:
         """Send OneBot message segments to a private or group target."""
         is_group, target = self._resolve_target(to_handle, meta)
+        if target is None:
+            return
         if is_group:
             await self._call_api(
                 "send_group_msg",
@@ -1103,6 +1115,8 @@ class OneBotChannel(BaseChannel):
     ) -> None:
         """Send a file via NapCat upload_group_file / upload_private_file."""
         is_group, target = self._resolve_target(to_handle, meta)
+        if target is None:
+            return
         if is_group:
             await self._call_api(
                 "upload_group_file",
