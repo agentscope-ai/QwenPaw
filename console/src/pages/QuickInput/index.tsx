@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
@@ -55,7 +55,6 @@ export default function QuickInputPage() {
   const [text, setText] = useState("");
   const [reply, setReply] = useState("");
   const [loading, setLoading] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
 
   const send = useCallback(async () => {
     const query = text.trim();
@@ -63,7 +62,6 @@ export default function QuickInputPage() {
     setLoading(true);
     setReply("");
     const controller = new AbortController();
-    abortRef.current = controller;
 
     const identity = sessionApi.getSessionIdentity();
     const body = {
