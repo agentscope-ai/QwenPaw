@@ -33,12 +33,13 @@ def _is_preview_outside_workspace_allowed() -> bool:
         return False
 
 
-def _check_path(path: Path) -> str | None:
+def _check_path(path: Path, for_write: bool = False) -> str | None:
     """Return ``None`` when *path* is allowed, or an error reason string.
 
     When ``allow_preview_outside_workspace`` is enabled, skip the
     WORKING_DIR containment check so that console can preview files
     (e.g. media produced by tools) stored outside the workspace.
+    Write operations (``for_write=True``) always stay inside WORKING_DIR.
     The sensitive-file guard is **always** enforced.
     """
     resolved = path.resolve()
@@ -47,8 +48,8 @@ def _check_path(path: Path) -> str | None:
     # pylint: disable-next=protected-access
     if _file_guardian._is_sensitive(normalized):
         return "SENSITIVE_FILE_BLOCKED"
-    # 2. Workspace scope check (skippable via config).
-    if not _is_preview_outside_workspace_allowed():
+    # 2. Workspace scope check (skippable via config for reads only).
+    if for_write or not _is_preview_outside_workspace_allowed():
         if not (
             resolved == _ALLOWED_ROOT or resolved.is_relative_to(_ALLOWED_ROOT)
         ):
