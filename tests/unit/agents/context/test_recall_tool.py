@@ -201,7 +201,7 @@ async def test_large_recall_is_cursor_paginated(
     guard.begin_turn("user-1")
     bounded_tool = make_recall_history(
         history_db_path=str(tmp_path / "large-history.db"),
-        session_id="current",
+        session_id="old",
         agent_id="ag1",
         loop_guard=guard,
         page_max_bytes=1024,

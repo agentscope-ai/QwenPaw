@@ -2,12 +2,12 @@ name: Creator App Tests
 
 on:
   push:
-    branches: [main, master, dev, develop]
+    branches: [main, master, dev, develop, "dev/**"]
     paths:
       - "plugins/apps/qwenpaw-creator/**"
       - ".github/workflows/creator-app-tests.yml"
   pull_request:
-    branches: [main, master, dev, develop]
+    branches: [main, master, dev, develop, "dev/**"]
     paths:
       - "plugins/apps/qwenpaw-creator/**"
       - ".github/workflows/creator-app-tests.yml"

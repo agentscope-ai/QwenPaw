@@ -164,7 +164,7 @@ def test_ffmpeg_progress_counts_unique_elements_across_segments(
         segment.write_bytes(_MP4)
 
     monkeypatch.setattr(runner, "_run", fake_run)
-    monkeypatch.setattr(runner, "_apply_overlay", lambda *_args: None)
+    monkeypatch.setattr(runner, "_apply_overlay", lambda *_args: [])
     monkeypatch.setattr(runner, "_apply_motion_overlays", lambda *_args: [])
     monkeypatch.setattr(
         runner,
@@ -196,7 +196,7 @@ def test_ffmpeg_progress_counts_unique_elements_across_segments(
                     source_ref=f"element:edit-{index}",
                     start_seconds=index - 1,
                     end_seconds=index,
-                    overlay=shared_overlay,
+                    overlays=(shared_overlay,),
                 )
                 for index in (1, 2)
             ),
@@ -590,8 +590,8 @@ def test_each_edit_selection_is_an_element_and_timeline_executes_them(
     assert edit_runner.calls[0].inputs[0].end_seconds == 1
     assert edit_runner.calls[0].canvas_size == (1280, 720)
     assert edit_runner.calls[0].inputs[0].location["x"] == 0.5
-    assert edit_runner.calls[0].inputs[0].overlay["element_id"] == "overlay-1"
-    assert edit_runner.calls[0].inputs[0].overlay["location"]["x"] == 0.5
-    assert all(
-        item.overlay is not None for item in edit_runner.calls[0].inputs
+    assert (
+        edit_runner.calls[0].inputs[0].overlays[0]["element_id"] == "overlay-1"
     )
+    assert edit_runner.calls[0].inputs[0].overlays[0]["location"]["x"] == 0.5
+    assert all(item.overlays for item in edit_runner.calls[0].inputs)

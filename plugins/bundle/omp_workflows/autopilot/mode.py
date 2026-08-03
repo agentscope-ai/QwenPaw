@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Optional
 from qwenpaw.runtime.slash_command_registry import CommandSpec
 
 from ..shared.args import split_args
+from ..shared.loop_ui_i18n import loop_command_metadata, loop_help_text
 from ..shared.mode_base import OMPModeBase, info_msg, rewrite_user_msg
 from .gate import AutopilotGate
 
@@ -21,14 +22,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_HELP = (
-    "**Autopilot** — full lifecycle pipeline\n\n"
-    "Usage: `/autopilot [--skip-qa] [--skip-validation] <task>`\n\n"
-    "Phases: expansion -> planning -> execution "
-    "-> qa -> validation -> cleanup -> completed\n"
-    "Validation uses 3 parallel reviewers "
-    "(architect + security + code)."
-)
+_HELP = loop_help_text("autopilot")
 
 
 class AutopilotMode(OMPModeBase):
@@ -47,7 +41,7 @@ class AutopilotMode(OMPModeBase):
                 handler=self._handler,
                 category="builtin",
                 help_text=_HELP,
-                metadata={"builtin": True},
+                metadata=loop_command_metadata("autopilot"),
             ),
         ]
 

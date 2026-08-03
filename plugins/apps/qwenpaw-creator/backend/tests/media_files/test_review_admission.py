@@ -9,7 +9,7 @@ import logging
 
 import pytest
 
-from domain.errors import ConflictError
+from domain.errors import ConflictError, ReviewPendingError
 from services.media_files.image_execution import FileImageExecutionService
 from services.media_files.review_admission import assert_media_review_admission
 from services.project_files.facade import CreatorFileServices
@@ -105,7 +105,10 @@ def _review(
 def test_pending_review_blocks_same_variant_but_not_another_variant() -> None:
     reviews = [_review()]
 
-    with pytest.raises(ConflictError, match="不要重试同一目标"):
+    with pytest.raises(
+        ReviewPendingError,
+        match="不要重试同一目标",
+    ) as captured:
         assert_media_review_admission(
             reviews=reviews,
             command_type="GENERATE_ASSET",
@@ -113,6 +116,15 @@ def test_pending_review_blocks_same_variant_but_not_another_variant() -> None:
             variant_id="variant:hero-peak",
             reference_version_ids=(),
         )
+    assert captured.value.code == "WAITING_REVIEW"
+    assert captured.value.retryable is False
+    assert captured.value.details == {
+        "reason": "TARGET_PENDING_REVIEW",
+        "reviewId": "review-media-1",
+        "artifactVersionId": "artifact-version-pending",
+        "targetRef": "asset:char:hero",
+        "commandType": "GENERATE_ASSET",
+    }
 
     assert_media_review_admission(
         reviews=reviews,
@@ -124,13 +136,18 @@ def test_pending_review_blocks_same_variant_but_not_another_variant() -> None:
 
 
 def test_pending_review_blocks_exact_artifact_downstream() -> None:
-    with pytest.raises(ConflictError, match="不要继续下游生成"):
+    with pytest.raises(
+        ReviewPendingError,
+        match="不要继续下游生成",
+    ) as captured:
         assert_media_review_admission(
             reviews=[_review()],
             command_type="GENERATE_R2V_VIDEO",
             target_ref="element:shot-1",
             reference_version_ids=("artifact-version-pending",),
         )
+    assert captured.value.details["reason"] == "INPUT_PENDING_REVIEW"
+    assert captured.value.details["targetRef"] == "element:shot-1"
 
 
 def test_resolved_or_unrelated_review_does_not_block() -> None:

@@ -119,7 +119,7 @@ describe("origin/main visible shell fidelity", () => {
     // name, description, meta row and update time, actions on hover.
     fireEvent.click(screen.getByRole("tab", { name: "我的项目" }));
     expect(await screen.findByText("雪夜短片")).toBeInTheDocument();
-    // Content type is editing-only, so a short drama never shows it.
+    // The content type row was removed from cards; only the meta row shows.
     expect(screen.getByText("短剧")).toBeInTheDocument();
     expect(screen.queryByText("类型：")).not.toBeInTheDocument();
     expect(screen.queryByText("采访")).not.toBeInTheDocument();
@@ -200,14 +200,11 @@ describe("origin/main visible shell fidelity", () => {
     );
     fireEvent.click(screen.getByRole("tab", { name: "我的项目" }));
     expect(await screen.findByText("采访粗切")).toBeInTheDocument();
-    // Editing is the one scenario that carries a content type on the meta row.
-    expect(screen.getByText("类型：")).toHaveClass(
-      "font-medium",
-      "text-[var(--color-text-secondary)]",
-    );
-    expect(screen.getByText("采访")).toHaveClass(
-      "text-[var(--color-text-tertiary)]",
-    );
+    // The meta row keeps scenario, ratio and resolution; content type no
+    // longer appears on cards.
+    expect(screen.getByText("剪辑")).toBeInTheDocument();
+    expect(screen.queryByText("类型：")).not.toBeInTheDocument();
+    expect(screen.queryByText("采访")).not.toBeInTheDocument();
     // A final cut enables the preview chip playing in a modal video.
     const previewButton = screen.getByRole("button", {
       name: "预览 采访粗切 成片",

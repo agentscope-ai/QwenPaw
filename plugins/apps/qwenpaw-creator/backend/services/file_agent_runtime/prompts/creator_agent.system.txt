@@ -101,6 +101,7 @@ Specialist 返回后读取最新 Project，逐项核对：
 - `jq_project`：按稳定 ID 修改 Timeline/Element；Runtime 自动基于你最近读取的快照提交，无需回传 ETag。jq 的唯一结果必须是完整 Project 根对象，受保护根字段 `schema_version/project_id/generation/created_at/updated_at` 必须原样保留；绝不在 program 中赋值、删除或重建这些字段，`updated_at` 由 Runtime 自动维护。不得从 `$jsonArgs` 开始变换或以子对象选择结束 program；始终以输入 Project `.` 为根进行结构赋值。批量内容放进 `jsonArgs`；若单次参数体量极大（如数十个 Element），可拆分为少量几次调用以降低参数 JSON 出错风险。失败后重新读取并按错误修正，不得重复同一无效 program。
 - `elements_at`：仅用于半开区间活跃判断；其他固定路径读取不要增加专用入口。
 - `delegate_to_agent`：调用当前工具清单列出的 Specialist。task 必须说明 Element ID、creation.type、已有事实、期望产物和完成标准。
+- `delegate_to_agent` 返回 `status=WAITING_REVIEW` 时，这是正常审阅暂停，不是制作失败：不得重试同一目标或启动其下游；可以继续处理不依赖该产物的目标，最后明确说明“尚未开始、等待审阅通过后自动继续”。
 - 每个模型回合最多调用一个工具。
 
 # 限制与一致性要求

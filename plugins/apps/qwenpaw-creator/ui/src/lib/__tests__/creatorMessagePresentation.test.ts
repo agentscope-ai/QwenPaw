@@ -5,6 +5,8 @@ import {
   actionEnvelopeFromStreamText,
   conversationContent,
   creatorActionEnvelope,
+  deduplicateReviewFeedbackMessages,
+  isReviewFeedbackMessage,
   isUserAuthorityMessage,
   shouldRenderConversationMessage,
   toolCallPresentations,
@@ -45,6 +47,7 @@ describe("Creator conversation presentation", () => {
       "frontend_manual_edit",
       "user",
       "user_continuation",
+      "review_rejection_feedback",
     ]) {
       const message = creatorMessage({ source });
       expect(isUserAuthorityMessage(message)).toBe(true);
@@ -61,6 +64,37 @@ describe("Creator conversation presentation", () => {
       expect(isUserAuthorityMessage(message)).toBe(false);
       expect(shouldRenderConversationMessage(message)).toBe(false);
     }
+  });
+
+  it("renders one review feedback message per durable decision", () => {
+    const first = creatorMessage({
+      messageId: "feedback-first",
+      messageSeq: 4,
+      source: "review_rejection_feedback",
+      metadata: {
+        decisionId: "decision-1",
+        rejectionFeedback: {
+          action: "UNDO_AND_REGENERATE",
+          feedbackNote: "人物状态不对，请保持身份一致",
+        },
+      },
+    });
+    const replay = creatorMessage({
+      ...first,
+      messageId: "feedback-replay",
+      messageSeq: 8,
+    });
+    const unrelated = creatorMessage({
+      messageId: "ordinary",
+      messageSeq: 9,
+      source: "user",
+    });
+
+    expect(isReviewFeedbackMessage(first)).toBe(true);
+    expect(shouldRenderConversationMessage(first)).toBe(true);
+    expect(
+      deduplicateReviewFeedbackMessages([replay, unrelated, first]),
+    ).toEqual([unrelated, first]);
   });
 
   it("never renders reserved Creator/Runtime control markers as user input", () => {

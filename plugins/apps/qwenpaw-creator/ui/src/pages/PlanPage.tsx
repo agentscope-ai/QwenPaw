@@ -546,7 +546,7 @@ export default function PlanPage() {
             </h2>
           )}
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2 pr-5">
           <span className="rounded-full border border-[var(--color-border)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-secondary)]">
             {sec(durationTick, timeline.ticks_per_second)}s
           </span>

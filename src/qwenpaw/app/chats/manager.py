@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Chat manager for managing chat specifications."""
+
 from __future__ import annotations
 
 import asyncio
