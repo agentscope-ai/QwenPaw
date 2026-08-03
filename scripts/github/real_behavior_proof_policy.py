@@ -91,8 +91,8 @@ def _extract_sections(body: str) -> dict[str, str]:
 
     This aligns the port with openclaw's upstream ``extractMarkdownSections``
     + ``stripMarkdownFenceMarkers`` (a fence-tracking state machine) after
-    the original Python port wrongly deleted the entire fenced block via
-    ``re.sub(r"\`\`\`[^\n]*\n.*?\`\`\`", "", ...)`` (see issue #6626).
+    the original Python port wrongly deleted the entire fenced block via a
+    ``re.sub`` over the triple-backtick fenced-block pattern (see #6626).
     """
     body = _normalize_line_endings(body)
     body = _mask_html_comments(body)

@@ -110,7 +110,7 @@ class TestExternalPrPass:
         )
         assert ev.status == ProofStatus.PASSED
         # The fake heading inside the fence must not register as a section.
-        assert ev.missing_sections == []
+        assert not ev.missing_sections
 
     @staticmethod
     def test_passes_with_test_output():
