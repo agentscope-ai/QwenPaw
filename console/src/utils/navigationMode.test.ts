@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   addRouterBasename,
   getAppRelativeLocation,
+  getConsoleRootHref,
   getLoginHref,
   getLoginPath,
   getOsAppHref,
@@ -15,9 +16,9 @@ import {
 
 describe("navigationMode", () => {
   it("recognizes OS routes with and without the console basename", () => {
-    expect(isOsPath("/")).toBe(true);
+    expect(isOsPath("/")).toBe(false);
     expect(isOsPath("/os/apps/office")).toBe(true);
-    expect(isOsPath("/console")).toBe(true);
+    expect(isOsPath("/console")).toBe(false);
     expect(isOsPath("/console/os/apps/office?tab=one")).toBe(true);
     expect(isOsPath("/chat")).toBe(false);
     expect(isOsPath("/console/chat")).toBe(false);
@@ -59,5 +60,10 @@ describe("navigationMode", () => {
     expect(getOsRootHref("/console/os/apps/office")).toBe("/console/os");
     expect(getOsAppHref("/os", "/apps/office")).toBe("/os/apps/office");
     expect(addRouterBasename("/console/login", "/os")).toBe("/console/os");
+  });
+
+  it("builds basename-safe classic console paths", () => {
+    expect(getConsoleRootHref("/console/os/apps/office")).toBe("/console/chat");
+    expect(getConsoleRootHref("/os")).toBe("/chat");
   });
 });

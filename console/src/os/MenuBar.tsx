@@ -7,20 +7,23 @@
  */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Dropdown, Tooltip } from "antd";
 import {
-  Command,
   LayoutPanelTop,
   Bell,
   Wifi,
   Volume2,
   BatteryFull,
+  ArrowLeft,
+  Monitor,
 } from "lucide-react";
 import { useAgentStore } from "../stores/agentStore";
 import { useShallow } from "zustand/react/shallow";
 import { useOsWindows } from "./osWindowStore";
-import { useOsNotify, unreadNotifyCount } from "./osNotifyStore";
+import { useOsNotify } from "./osNotifyStore";
 import { resolveAppDef } from "./osAppRegistry";
 import { useOsStyles } from "./useOsStyles";
+import { getConsoleRootHref } from "../utils/navigationMode";
 
 function useClock() {
   const [now, setNow] = useState(() => new Date());
@@ -45,8 +48,13 @@ export default function MenuBar({ hidden = false }: { hidden?: boolean }) {
         setMissionControl: s.setMissionControl,
       })),
     );
-  const { history, centerOpen, setCenter } = useOsNotify();
-  const unread = unreadNotifyCount(history);
+  const { approvalCount, inboxCount, centerOpen, setCenter } = useOsNotify();
+  const unread = approvalCount + inboxCount;
+  const notificationLabel = t("os.notificationSummary", {
+    approvals: approvalCount,
+    inbox: inboxCount,
+    defaultValue: `Approvals ${approvalCount} · Inbox ${inboxCount}`,
+  });
   const now = useClock();
 
   const spaceName = agents.find((a) => a.id === spaceId)?.name ?? spaceId;
@@ -69,46 +77,92 @@ export default function MenuBar({ hidden = false }: { hidden?: boolean }) {
       )}
     >
       <div className={styles.menubarLeft}>
-        <span className={styles.menubarBrand}>
-          <Command size={15} />
-        </span>
-        <span
-          className={styles.menubarName}
-          role="button"
-          tabIndex={0}
-          aria-label={t("os.currentSpace", "Current space")}
-          onClick={() => setMissionControl(!missionControlOpen)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              setMissionControl(!missionControlOpen);
-            }
+        <Dropdown
+          placement="bottomLeft"
+          trigger={["click"]}
+          menu={{
+            items: [
+              {
+                key: "desktop",
+                disabled: true,
+                icon: <Monitor size={14} />,
+                label: t("os.desktopMode", "Desktop mode"),
+              },
+              { type: "divider" },
+              {
+                key: "console",
+                icon: <ArrowLeft size={14} />,
+                label: t("os.returnToConsole", "Return to console"),
+                onClick: () =>
+                  window.location.assign(
+                    getConsoleRootHref(window.location.pathname),
+                  ),
+              },
+            ],
           }}
-          title={t("os.currentSpace", "Current space")}
         >
-          {spaceName}
-        </span>
-        <span className={styles.menubarItem} style={{ fontWeight: 600 }}>
-          {activeTitle}
-        </span>
+          <button
+            type="button"
+            className={styles.menubarBrand}
+            title={t("os.qwenpawMenu", "QwenPaw menu")}
+            aria-label={t("os.qwenpawMenu", "QwenPaw menu")}
+          >
+            <img src="/qwenpaw.png" alt="QwenPaw" />
+          </button>
+        </Dropdown>
+        <Tooltip
+          title={t("os.currentSpaceLabel", {
+            name: spaceName,
+            defaultValue: `Current space: ${spaceName}`,
+          })}
+        >
+          <span
+            className={styles.menubarName}
+            role="button"
+            tabIndex={0}
+            aria-label={t("os.currentSpace", "Current space")}
+            onClick={() => setMissionControl(!missionControlOpen)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setMissionControl(!missionControlOpen);
+              }
+            }}
+          >
+            {spaceName}
+          </span>
+        </Tooltip>
+        <Tooltip
+          title={t("os.currentAppLabel", {
+            name: activeTitle,
+            defaultValue: `Current app: ${activeTitle}`,
+          })}
+        >
+          <span className={styles.menubarItem} style={{ fontWeight: 600 }}>
+            {activeTitle}
+          </span>
+        </Tooltip>
       </div>
 
       <div className={styles.menubarRight}>
-        <span className={styles.bellWrap}>
+        <Tooltip title={notificationLabel}>
           <button
-            className={styles.menubarBtn}
-            title={t("os.notifications", "Notifications")}
-            aria-label={t("os.notifications", "Notifications")}
+            type="button"
+            className={styles.notificationMenuButton}
+            aria-label={`${t(
+              "os.notifications",
+              "Notifications",
+            )}: ${notificationLabel}`}
             onClick={() => setCenter(!centerOpen)}
           >
             <Bell size={15} />
+            {unread > 0 && (
+              <span className={styles.notificationMenuCount} aria-hidden>
+                {unread > 99 ? "99+" : unread}
+              </span>
+            )}
           </button>
-          {unread > 0 && (
-            <span className={styles.bellBadge}>
-              {unread > 99 ? "99+" : unread}
-            </span>
-          )}
-        </span>
+        </Tooltip>
         <button
           className={styles.menubarBtn}
           title={t("os.missionControl", "Mission Control")}

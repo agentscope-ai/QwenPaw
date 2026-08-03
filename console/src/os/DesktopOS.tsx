@@ -18,8 +18,15 @@ import {
   useRef,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { App, Dropdown, Spin } from "antd";
-import { Command, Trash2, Image as ImageIcon } from "lucide-react";
+import { App, Dropdown, Spin, type MenuProps } from "antd";
+import {
+  ArrowDownAZ,
+  Check,
+  Grid2X2,
+  Image as ImageIcon,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { useRoutes } from "../plugins/registry/hooks";
 import { uninstallPlugin } from "../api/modules/plugin";
 import { ChunkErrorBoundary } from "../components/ChunkErrorBoundary";
@@ -42,7 +49,10 @@ import Dock from "./Dock";
 import SpacesPanel from "./SpacesPanel";
 import { useEdgeReveal } from "./useEdgeReveal";
 import { useOsIcons, defaultIconPos } from "./osIconStore";
+import type { IconLayout } from "./osIconStore";
+import { useOsDock } from "./osDockStore";
 import { useIconDrag } from "./useIconDrag";
+import { arrangeApps } from "./iconArrangement";
 import Launcher from "./Launcher";
 import AppStore from "./AppStore";
 import SettingsApp from "./SettingsApp";
@@ -78,7 +88,7 @@ function shouldPlayBoot(): boolean {
 
 export default function DesktopOS() {
   const { styles, cx } = useOsStyles();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { message } = App.useApp();
   const isMobile = useIsMobile();
   const routes = useRoutes();
@@ -255,8 +265,117 @@ export default function DesktopOS() {
   // Persisted desktop icon positions + transient drag handlers. While a
   // drag is in flight the position lives in the DOM only (rAF-coalesced);
   // the persisted store is written once when the gesture ends.
-  const { positions: iconPositions, setPosition } = useOsIcons();
-  const iconDragHandlers = useIconDrag(setPosition, MENUBAR_H);
+  const {
+    positions: iconPositions,
+    layout: iconLayout,
+    setPosition,
+    setLayout: setIconLayout,
+    arrange: arrangeIcons,
+  } = useOsIcons();
+  const pinDock = useOsDock((s) => s.pin);
+  const iconDragHandlers = useIconDrag(
+    setPosition,
+    MENUBAR_H,
+    (id, event, moved) => {
+      if (!moved) return false;
+      const overDock = document
+        .elementFromPoint?.(event.clientX, event.clientY)
+        ?.closest("[data-os-dock-dropzone]");
+      if (!overDock) return false;
+      pinDock(id);
+      return true;
+    },
+  );
+
+  const displayedApps = useMemo(
+    () =>
+      iconLayout === "free"
+        ? visibleApps
+        : arrangeApps(visibleApps, iconLayout, t, i18n.resolvedLanguage),
+    [i18n.resolvedLanguage, iconLayout, t, visibleApps],
+  );
+
+  const closeDesktopMenu = () => setCtxMenu(null);
+  const handleArrangeIcons = () => {
+    arrangeIcons(
+      displayedApps.map((app) => app.routeId),
+      window.innerHeight,
+    );
+    setIconLayout("free");
+    closeDesktopMenu();
+  };
+  const handleIconLayout = (layout: IconLayout) => {
+    setIconLayout(layout);
+    closeDesktopMenu();
+  };
+  const desktopMenuItems: MenuProps["items"] = [
+    {
+      key: "refresh",
+      icon: <RefreshCw size={15} />,
+      label: t("os.refreshDesktop", "Refresh desktop"),
+      onClick: () => window.location.reload(),
+    },
+    { type: "divider" },
+    {
+      key: "arrange",
+      icon: <Grid2X2 size={15} />,
+      label: t("os.arrangeDesktop", "Clean up"),
+      onClick: handleArrangeIcons,
+    },
+    {
+      key: "sort",
+      icon: <ArrowDownAZ size={15} />,
+      label: t("os.sortBy", "Sort by"),
+      children: [
+        {
+          key: "sort-free",
+          icon: (
+            <Check
+              size={15}
+              aria-hidden
+              style={{ opacity: iconLayout === "free" ? 1 : 0 }}
+            />
+          ),
+          label: t("os.sortFree", "Free arrangement"),
+          onClick: () => handleIconLayout("free"),
+        },
+        {
+          key: "sort-name",
+          icon: (
+            <Check
+              size={15}
+              aria-hidden
+              style={{ opacity: iconLayout === "name" ? 1 : 0 }}
+            />
+          ),
+          label: t("os.sortName", "Name"),
+          onClick: () => handleIconLayout("name"),
+        },
+        {
+          key: "sort-type",
+          icon: (
+            <Check
+              size={15}
+              aria-hidden
+              style={{ opacity: iconLayout === "type" ? 1 : 0 }}
+            />
+          ),
+          label: t("os.sortType", "Type"),
+          onClick: () => handleIconLayout("type"),
+        },
+      ],
+    },
+    { type: "divider" },
+    {
+      key: "wallpaper",
+      icon: <ImageIcon size={15} />,
+      label: t("os.changeWallpaper", "Change wallpaper"),
+      onClick: () => {
+        setWpOpen(true);
+        closeDesktopMenu();
+      },
+    },
+  ];
 
   // Uninstall an app. Plugin apps (PawApps, carrying `source`) are removed on
   // the backend (then reload to refresh the registry); built-in catalog apps
@@ -359,21 +478,26 @@ export default function DesktopOS() {
           free-drag positions. */}
       {isMobile ? (
         <div className={styles.iconsGrid}>
-          {visibleApps.map((a) => (
+          {displayedApps.map((a) => (
             <div key={a.routeId}>{renderIcon(a)}</div>
           ))}
         </div>
       ) : (
         <div className={styles.iconsLayer}>
-          {visibleApps.map((a, i) => {
+          {displayedApps.map((a, i) => {
             const pos =
-              iconPositions[a.routeId] ?? defaultIconPos(i, window.innerHeight);
+              iconLayout === "free"
+                ? iconPositions[a.routeId] ??
+                  defaultIconPos(i, window.innerHeight)
+                : defaultIconPos(i, window.innerHeight);
             return (
               <div
                 key={a.routeId}
                 className={styles.iconAbsolute}
                 style={{ left: pos.x, top: pos.y }}
-                {...iconDragHandlers(a.routeId, pos)}
+                {...(iconLayout === "free"
+                  ? iconDragHandlers(a.routeId, pos)
+                  : {})}
               >
                 {renderIcon(a)}
               </div>
@@ -386,7 +510,7 @@ export default function DesktopOS() {
           lowest layer and never intercepts pointer events, so it reads as a
           backdrop behind icons and app windows rather than a card. */}
       <div className={styles.emptyHint}>
-        <Command size={72} strokeWidth={1.4} />
+        <img src="/qwenpaw.png" alt="" />
         <div className={styles.emptyBrandName}>QwenPaw OS</div>
       </div>
 
@@ -453,32 +577,30 @@ export default function DesktopOS() {
       <Dock />
 
       {ctxMenu && (
-        <div
-          className={styles.desktopMenu}
-          role="menu"
-          style={{ left: ctxMenu.x, top: ctxMenu.y }}
-          onPointerDown={(e) => e.stopPropagation()}
+        <Dropdown
+          open
+          trigger={[]}
+          placement="bottomLeft"
+          overlayClassName={styles.desktopContextMenu}
+          menu={{ items: desktopMenuItems }}
+          popupRender={(menu) => (
+            <div
+              onPointerDown={(event) => event.stopPropagation()}
+              onContextMenu={(event) => event.stopPropagation()}
+            >
+              {menu}
+            </div>
+          )}
+          onOpenChange={(open) => {
+            if (!open) closeDesktopMenu();
+          }}
         >
-          <div
-            className={styles.desktopMenuItem}
-            role="menuitem"
-            tabIndex={0}
-            onClick={() => {
-              setWpOpen(true);
-              setCtxMenu(null);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                setWpOpen(true);
-                setCtxMenu(null);
-              }
-            }}
-          >
-            <ImageIcon size={15} />
-            {t("os.changeWallpaper", "Change wallpaper")}
-          </div>
-        </div>
+          <span
+            className={styles.desktopMenuAnchor}
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+            onPointerDown={(event) => event.stopPropagation()}
+          />
+        </Dropdown>
       )}
 
       {wpOpen && <WallpaperPicker onClose={() => setWpOpen(false)} />}

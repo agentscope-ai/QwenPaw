@@ -14,9 +14,14 @@ export interface IconPos {
   y: number;
 }
 
+export type IconLayout = "free" | "name" | "type";
+
 interface OsIconStore {
   positions: Record<string, IconPos>;
+  layout: IconLayout;
   setPosition: (id: string, x: number, y: number) => void;
+  setLayout: (layout: IconLayout) => void;
+  arrange: (ids: readonly string[], viewportH: number) => void;
   /** Transactional cleanup: drop positions for confirmed-removed apps. */
   purge: (ids: ReadonlySet<string>) => void;
   reset: () => void;
@@ -40,8 +45,18 @@ export const useOsIcons = create<OsIconStore>()(
   persist(
     (set) => ({
       positions: {},
+      layout: "free",
       setPosition: (id, x, y) =>
         set((s) => ({ positions: { ...s.positions, [id]: { x, y } } })),
+      setLayout: (layout) => set({ layout }),
+      arrange: (ids, viewportH) =>
+        set((state) => {
+          const positions = { ...state.positions };
+          ids.forEach((id, index) => {
+            positions[id] = defaultIconPos(index, viewportH);
+          });
+          return { positions };
+        }),
       purge: (ids) =>
         set((s) => {
           if (![...ids].some((id) => id in s.positions)) return {};
@@ -49,7 +64,7 @@ export const useOsIcons = create<OsIconStore>()(
           for (const id of ids) delete positions[id];
           return { positions };
         }),
-      reset: () => set({ positions: {} }),
+      reset: () => set({ positions: {}, layout: "free" }),
     }),
     { name: "qwenpaw.os.iconPositions" },
   ),

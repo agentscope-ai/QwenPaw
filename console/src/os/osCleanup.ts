@@ -15,6 +15,7 @@
 import { useOsWindows } from "./osWindowStore";
 import { useOsIcons } from "./osIconStore";
 import { useOsRoute } from "./osRouteStore";
+import { useOsDock } from "./osDockStore";
 import { appsBySource } from "./osAppRegistry";
 
 /** Purge desktop state for the given app route ids (confirmed removals). */
@@ -24,6 +25,7 @@ export function purgeAppState(routeIds: Iterable<string>): void {
   useOsWindows.getState().purgeApps(ids);
   useOsIcons.getState().purge(ids);
   useOsRoute.getState().purge(ids);
+  useOsDock.getState().purge(ids);
 }
 
 /**

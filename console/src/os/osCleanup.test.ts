@@ -7,6 +7,7 @@ import {
 import { useOsWindows } from "./osWindowStore";
 import { useOsIcons } from "./osIconStore";
 import { useOsRoute } from "./osRouteStore";
+import { useOsDock } from "./osDockStore";
 import { routeRegistry } from "../plugins/registry/store";
 import type { Disposable } from "../plugins/registry/types";
 
@@ -35,6 +36,7 @@ beforeEach(() => {
   });
   useOsIcons.setState({ positions: {} });
   useOsRoute.setState({ targets: {} });
+  useOsDock.setState({ pinned: ["core.chat", "core.inbox", "os.store"] });
 });
 
 afterEach(() => {
@@ -50,6 +52,7 @@ describe("osCleanup (transactional)", () => {
     w().open("gone.app");
     useOsIcons.getState().setPosition("gone.app", 10, 10);
     useOsIcons.getState().setPosition("core.chat", 20, 20);
+    useOsDock.getState().pin("gone.app");
     useOsRoute.setState({
       targets: {
         "gone.app": { path: "/x", nonce: 1 },
@@ -66,6 +69,11 @@ describe("osCleanup (transactional)", () => {
     });
     expect(useOsRoute.getState().targets["gone.app"]).toBeUndefined();
     expect(useOsRoute.getState().targets["core.chat"]).toBeDefined();
+    expect(useOsDock.getState().pinned).toEqual([
+      "core.chat",
+      "core.inbox",
+      "os.store",
+    ]);
   });
 
   it("purgePluginAppState maps a confirmed source to its bundle app", () => {

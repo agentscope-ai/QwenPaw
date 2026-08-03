@@ -19,6 +19,8 @@ interface IconDragState {
   dy: number;
   sx: number;
   sy: number;
+  originX: number;
+  originY: number;
   moved: boolean;
   pending: { x: number; y: number } | null;
   raf: number | null;
@@ -32,12 +34,21 @@ export interface IconDragHandlers {
   onLostPointerCapture: (e: React.PointerEvent) => void;
 }
 
+export interface IconDragEnd {
+  (id: string, event: React.PointerEvent, moved: boolean): boolean | void;
+}
+
 /** Pixels of movement tolerated before a press becomes a drag. */
 const CLICK_SLOP = 3;
+
+function elementAtPoint(x: number, y: number): Element | null {
+  return document.elementFromPoint?.(x, y) ?? null;
+}
 
 export function useIconDrag(
   setPosition: (id: string, x: number, y: number) => void,
   minY: number,
+  onDragEnd?: IconDragEnd,
 ): (id: string, pos: { x: number; y: number }) => IconDragHandlers {
   const dragRef = useRef<IconDragState | null>(null);
 
@@ -50,7 +61,16 @@ export function useIconDrag(
       dragRef.current = null;
       if (d) {
         if (d.raf !== null) cancelAnimationFrame(d.raf);
-        if (d.moved && d.pending) {
+        window.dispatchEvent(
+          new CustomEvent("os-dock-dragover", { detail: { active: false } }),
+        );
+        const handled =
+          e.type === "pointerup" && onDragEnd?.(d.id, e, d.moved) === true;
+        if (handled) {
+          d.el.style.left = `${d.originX}px`;
+          d.el.style.top = `${d.originY}px`;
+        }
+        if (!handled && d.moved && d.pending) {
           setPosition(d.id, d.pending.x, d.pending.y);
         }
       }
@@ -60,7 +80,7 @@ export function useIconDrag(
         /* capture already released */
       }
     },
-    [setPosition],
+    [onDragEnd, setPosition],
   );
 
   return useCallback(
@@ -78,6 +98,8 @@ export function useIconDrag(
           dy: e.clientY - pos.y,
           sx: e.clientX,
           sy: e.clientY,
+          originX: pos.x,
+          originY: pos.y,
           moved: false,
           pending: null,
           raf: null,
@@ -103,6 +125,14 @@ export function useIconDrag(
           x: Math.max(0, e.clientX - d.dx),
           y: Math.max(minY, e.clientY - d.dy),
         };
+        const overDock = elementAtPoint(e.clientX, e.clientY)?.closest(
+          "[data-os-dock-dropzone]",
+        );
+        window.dispatchEvent(
+          new CustomEvent("os-dock-dragover", {
+            detail: { active: Boolean(overDock) },
+          }),
+        );
         if (d.raf === null) {
           d.raf = requestAnimationFrame(() => {
             d.raf = null;

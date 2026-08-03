@@ -7,6 +7,11 @@
  */
 import { useEffect } from "react";
 import api from "../api";
+import {
+  INBOX_EVENT_QUERY_LIMIT,
+  PUSH_MESSAGE_SOURCES,
+  isPushMessageEvent,
+} from "../utils/inboxEvents";
 import { useOsNotify, type OsNotifyItem } from "./osNotifyStore";
 
 const POLL_INTERVAL_MS = 12000;
@@ -21,7 +26,11 @@ export function useOsNotifyPoller() {
       try {
         const [push, inbox] = await Promise.all([
           api.getPushMessages(),
-          api.getInboxEvents({ unread_only: true, limit: 50 }),
+          api.getInboxEvents({
+            unread_only: true,
+            limit: INBOX_EVENT_QUERY_LIMIT,
+            source_types: [...PUSH_MESSAGE_SOURCES],
+          }),
         ]);
         if (!alive) return;
 
@@ -38,16 +47,18 @@ export function useOsNotifyPoller() {
           }),
         );
 
-        const events: OsNotifyItem[] = (inbox?.events || []).map((e) => ({
-          id: `ib:${e.id}`,
-          kind: "inbox",
-          title: e.title || "Inbox message",
-          body: e.body || "",
-          createdAt: (e.created_at || Date.now() / 1000) * 1000,
-          read: false,
-        }));
+        const events: OsNotifyItem[] = (inbox?.events || [])
+          .filter(isPushMessageEvent)
+          .map((e) => ({
+            id: `ib:${e.id}`,
+            kind: "inbox",
+            title: e.title || "Inbox message",
+            body: e.body || "",
+            createdAt: (e.created_at || Date.now() / 1000) * 1000,
+            read: false,
+          }));
 
-        ingest(approvals, events);
+        ingest(approvals, events, inbox?.unread_count);
       } catch {
         // Backend offline in PoC — keep previous state silently.
       }

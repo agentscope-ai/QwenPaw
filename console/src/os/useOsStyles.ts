@@ -612,7 +612,11 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     pointer-events: none;
     opacity: 0.055;
     z-index: 0;
-    svg {
+    img {
+      width: 88px;
+      height: 88px;
+      border-radius: 50%;
+      object-fit: contain;
       filter: drop-shadow(0 8px 28px rgba(0, 0, 0, 0.4));
     }
   `,
@@ -1083,8 +1087,26 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   menubarBrand: css`
     display: flex;
     align-items: center;
-    color: ${ACCENT};
-    padding: 0 5px;
+    width: 24px;
+    height: 24px;
+    padding: 2px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    outline: none;
+    img {
+      width: 20px;
+      height: 20px;
+      display: block;
+      border-radius: 50%;
+    }
+    &:hover {
+      background: ${p.hoverBg};
+    }
+    &:focus-visible {
+      box-shadow: inset 0 0 0 2px ${ACCENT};
+    }
   `,
   menubarName: css`
     min-height: 24px;
@@ -1189,6 +1211,12 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     opacity: 0;
     pointer-events: none;
   `,
+  dockDropActive: css`
+    border-color: ${ACCENT};
+    box-shadow:
+      0 0 0 3px rgba(255, 127, 22, 0.22),
+      ${p.shadowFloat};
+  `,
   dockItem: css`
     position: relative;
     display: flex;
@@ -1216,6 +1244,10 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
         transform: none;
       }
     }
+  `,
+  dockItemDragging: css`
+    opacity: 0.62;
+    transform: scale(1.12) translateY(-8px);
   `,
   dockIcon: css`
     width: 48px;
@@ -1284,27 +1316,46 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     justify-content: center;
     border: 2px solid ${p.badgeRing};
   `,
-  // ── Menu-bar bell badge ────────────────────────────────────
-  bellWrap: css`
-    position: relative;
-    display: flex;
-    align-items: center;
-  `,
-  bellBadge: css`
+  dockDropMarker: css`
     position: absolute;
-    top: -7px;
-    right: -8px;
-    min-width: 15px;
-    height: 15px;
-    padding: 0 3px;
-    border-radius: 8px;
-    background: #ef4444;
-    color: #fff;
-    font-size: 9px;
-    font-weight: 700;
+    left: -5px;
+    bottom: 5px;
+    width: 3px;
+    height: 40px;
+    border-radius: 2px;
+    background: ${ACCENT};
+    box-shadow: 0 0 12px ${ACCENT};
+  `,
+  // ── Menu-bar notification entry ────────────────────────────
+  notificationMenuButton: css`
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 4px;
+    min-width: 28px;
+    height: 28px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: ${p.textSecondary};
+    cursor: pointer;
+    outline: none;
+    &:hover {
+      background: ${p.hoverBg};
+      color: ${p.hoverText};
+    }
+    &:focus-visible {
+      box-shadow: inset 0 0 0 2px ${ACCENT};
+      color: ${p.hoverText};
+    }
+  `,
+  notificationMenuCount: css`
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 600;
+    color: currentColor;
+    font-variant-numeric: tabular-nums;
   `,
   // ── Notification toasts (top-right banners) ─────────────────────
   toastStack: css`
@@ -1704,34 +1755,28 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     color: #64748b;
   `,
   // ── Desktop right-click context menu ───────────────────────────────
-  desktopMenu: css`
-    position: absolute;
+  desktopMenuAnchor: css`
+    position: fixed;
     z-index: 90;
-    min-width: 160px;
-    padding: 6px;
-    border-radius: 10px;
-    background: ${p.panelBg};
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    border: 1px solid ${p.border};
-    box-shadow: ${p.shadowPanel};
+    width: 1px;
+    height: 1px;
+    pointer-events: none;
   `,
-  desktopMenuItem: css`
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    border-radius: 7px;
-    font-size: 13px;
-    color: ${p.text};
-    cursor: pointer;
-    outline: none;
-    transition: background 0.12s ease;
-    &:hover {
-      background: ${p.hoverBg};
+  desktopContextMenu: css`
+    .ant-dropdown-menu {
+      min-width: 190px;
+      padding: 6px;
+      border: 1px solid ${p.border};
+      border-radius: 12px;
+      background: ${p.panelBg};
+      box-shadow: ${p.shadowPanel};
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
     }
-    &:focus-visible {
-      box-shadow: inset 0 0 0 2px ${ACCENT};
+    .ant-dropdown-menu-item,
+    .ant-dropdown-menu-submenu-title {
+      min-height: 36px;
+      border-radius: 7px;
     }
   `,
   // ── Wallpaper picker overlay ───────────────────────────────────────

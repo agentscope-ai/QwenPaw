@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Select } from "antd";
+import { Drawer, Modal, Select } from "antd";
 import { fireEvent } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 import OsAppHost from "./OsAppHost";
@@ -40,5 +40,23 @@ describe("OsAppHost", () => {
       </OsAppHost>,
     );
     expect(getByTestId("probe").dataset.hasContainer).toBe("true");
+  });
+
+  it("keeps ordinary Modal and Drawer portals inside the window", () => {
+    const { container } = renderWithProviders(
+      <OsAppHost>
+        <Modal open title="Modal title">
+          modal body
+        </Modal>
+        <Drawer open title="Drawer title">
+          drawer body
+        </Drawer>
+      </OsAppHost>,
+    );
+
+    const overlayRoot = container.querySelector(".os-window-overlay-root");
+    expect(overlayRoot).not.toBeNull();
+    expect(overlayRoot!.querySelector("[class*='modal-wrap']")).not.toBeNull();
+    expect(overlayRoot!.querySelector("[class*='drawer']")).not.toBeNull();
   });
 });

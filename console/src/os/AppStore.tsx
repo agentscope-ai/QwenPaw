@@ -11,16 +11,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  App,
-  Button,
-  Input,
-  Pagination,
-  Spin,
-  Tag,
-  Tooltip,
-  Modal,
-} from "antd";
+import { App, Button, Input, Pagination, Spin, Tag, Tooltip } from "antd";
 import {
   Download,
   Trash2,
@@ -42,7 +33,7 @@ import {
 import { OS_APPS } from "./osApps";
 import { useOsPlugins } from "./osPluginStore";
 import { purgeAppState, purgePluginAppState } from "./osCleanup";
-import { useOverlayContainer } from "./osWindowContainer";
+import { useOsModal } from "./useOsModal";
 import { useOsStyles } from "./useOsStyles";
 
 const MARKET_CATEGORIES = [
@@ -76,8 +67,8 @@ export default function AppStore() {
   const { message } = App.useApp();
   const routes = useRoutes();
   const { installed, install, uninstall, installAll } = useOsPlugins();
-  // App overlay semantics: keep the confirm dialog inside this window.
-  const overlayContainer = useOverlayContainer();
+  // App overlay semantics: keep static confirm dialogs inside this window.
+  const osModal = useOsModal();
 
   // Installed PawApps (app-type plugins, e.g. agent-kanban). Sourced from the
   // backend so the list reflects what is actually loaded, enabling in-place
@@ -127,13 +118,12 @@ export default function AppStore() {
     plugins.find((e) => e.id === p.id);
 
   const uninstallApp = (p: PluginInfo) => {
-    Modal.confirm({
+    osModal.confirm({
       title: t("os.uninstallConfirmTitle", "Uninstall app?"),
       content: p.name,
       okText: t("os.uninstall", "Uninstall"),
       okButtonProps: { danger: true },
       cancelText: t("common.cancel", "Cancel"),
-      getContainer: overlayContainer,
       onOk: async () => {
         try {
           await uninstallPlugin(p.id);
@@ -173,7 +163,7 @@ export default function AppStore() {
       void handleInstall(entry);
       return;
     }
-    Modal.confirm({
+    osModal.confirm({
       title: t("pluginManager.compatWarningTitle", "Compatibility Warning"),
       content: t("pluginManager.compatWarningContent", {
         defaultValue:
@@ -189,6 +179,7 @@ export default function AppStore() {
 
   return (
     <div className={styles.storeRoot}>
+      {osModal.holder}
       <div className={styles.storeHead}>
         <h2>{t("os.appStore", "App Store")}</h2>
         <p>{t("os.appStoreDesc", "Install or remove desktop apps")}</p>

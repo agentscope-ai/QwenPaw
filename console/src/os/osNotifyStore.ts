@@ -31,6 +31,21 @@ export interface OsNotifyItem {
 
 const HISTORY_CAP = 50;
 const TOAST_CAP = 4;
+const KNOWN_INBOX_CAP = 500;
+
+function boundedKnownIds(
+  known: ReadonlySet<string>,
+  incoming: readonly OsNotifyItem[],
+): Set<string> {
+  const activeApprovals = incoming
+    .filter((item) => item.kind === "approval")
+    .map((item) => item.id);
+  const inboxIds = [
+    ...incoming.filter((item) => item.kind === "inbox").map((item) => item.id),
+    ...[...known].filter((id) => id.startsWith("ib:")),
+  ].slice(0, KNOWN_INBOX_CAP);
+  return new Set([...activeApprovals, ...inboxIds]);
+}
 
 interface OsNotifyState {
   history: OsNotifyItem[];
@@ -41,7 +56,11 @@ interface OsNotifyState {
   seeded: boolean;
   knownIds: Set<string>;
 
-  ingest: (approvals: OsNotifyItem[], inbox: OsNotifyItem[]) => void;
+  ingest: (
+    approvals: OsNotifyItem[],
+    inbox: OsNotifyItem[],
+    inboxCount?: number,
+  ) => void;
   dismissToast: (id: string) => void;
   dismissItem: (id: string) => void;
   setCenter: (open: boolean) => void;
@@ -58,11 +77,11 @@ export const useOsNotify = create<OsNotifyState>((set, get) => ({
   seeded: false,
   knownIds: new Set<string>(),
 
-  ingest: (approvals, inbox) => {
+  ingest: (approvals, inbox, exactInboxCount) => {
     const state = get();
     const incoming = [...approvals, ...inbox];
     const approvalCount = approvals.length;
-    const inboxCount = inbox.length;
+    const inboxCount = exactInboxCount ?? inbox.length;
     const approvalIds = new Set(approvals.map((i) => i.id));
 
     // Drop approval items no longer pending (resolved from the Inbox, a
@@ -75,7 +94,7 @@ export const useOsNotify = create<OsNotifyState>((set, get) => ({
     if (!state.seeded) {
       set({
         seeded: true,
-        knownIds: new Set(incoming.map((i) => i.id)),
+        knownIds: boundedKnownIds(new Set(), incoming),
         approvalCount,
         inboxCount,
       });
@@ -92,11 +111,12 @@ export const useOsNotify = create<OsNotifyState>((set, get) => ({
     for (const id of known) {
       if (id.startsWith("ap:") && !approvalIds.has(id)) nextKnown.delete(id);
     }
+    const boundedKnown = boundedKnownIds(nextKnown, incoming);
 
     set({
       approvalCount,
       inboxCount,
-      knownIds: nextKnown,
+      knownIds: boundedKnown,
       history: prune([...fresh, ...state.history]).slice(0, HISTORY_CAP),
       toasts: prune([...fresh, ...state.toasts]).slice(0, TOAST_CAP),
     });

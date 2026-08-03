@@ -16,8 +16,10 @@ describe("osIconStore", () => {
 
   it("reset clears all positions", () => {
     useOsIcons.getState().setPosition("core.chat", 1, 2);
+    useOsIcons.getState().setLayout("name");
     useOsIcons.getState().reset();
     expect(useOsIcons.getState().positions).toEqual({});
+    expect(useOsIcons.getState().layout).toBe("free");
   });
 
   it("purge drops positions for confirmed-removed apps only", () => {
@@ -34,5 +36,16 @@ describe("osIconStore", () => {
     const second = defaultIconPos(1, 800);
     expect(second.y).toBe(first.y + 104);
     expect(second.x).toBe(first.x);
+  });
+
+  it("arranges visible ids without deleting hidden app positions", () => {
+    useOsIcons.getState().setPosition("hidden.app", 700, 300);
+    useOsIcons.getState().arrange(["core.chat", "core.inbox"], 800);
+
+    expect(useOsIcons.getState().positions).toEqual({
+      "hidden.app": { x: 700, y: 300 },
+      "core.chat": defaultIconPos(0, 800),
+      "core.inbox": defaultIconPos(1, 800),
+    });
   });
 });

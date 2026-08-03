@@ -1,9 +1,8 @@
 /**
  * OsOverlay.tsx — OS-aware Modal / Drawer wrappers (App overlay semantics).
  *
- * Antd's ConfigProvider cannot set a global getContainer for Modal/Drawer
- * (only popups), so in-window dialogs need these wrappers instead of each
- * page wiring the OS host details by hand:
+ * These wrappers let callers explicitly opt into the OS host without wiring
+ * the window container by hand:
  *
  *   - Inside an OS window: portal into the window's overlay root (from
  *     OsAppHost via useOverlayContainer), positioned against the window by
