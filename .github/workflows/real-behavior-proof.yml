@@ -6,6 +6,10 @@ name: Real behavior proof
 #
 # Ported from openclaw's real-behavior-proof system.  Complements
 # pr-spam-gate (which filters by volume) with a quality filter.
+#
+# NOTE: For fork PRs, pull_request_target events strip the PR body
+# for security reasons. We work around this by fetching the PR body
+# via the API when the event payload doesn't include it.
 
 on:
   pull_request_target:
@@ -14,7 +18,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -38,9 +42,31 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Fetch PR body for fork PRs
+        # pull_request_target events strip the body for fork PRs.
+        # Fetch it via the API so the proof check can evaluate it.
+        id: fetch-body
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            console.log(`PR body length: ${pr.body ? pr.body.length : 0} chars`);
+            core.setOutput('body', pr.body || '');
+            core.setOutput('author_association', pr.author_association || 'CONTRIBUTOR');
+            core.setOutput('labels', (pr.labels || []).map(l => l.name).join(','));
+
       - name: Check real behavior proof
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          PR_BODY: ${{ steps.fetch-body.outputs.body || github.event.pull_request.body || '' }}
+          PR_AUTHOR_ASSOC: ${{ steps.fetch-body.outputs.author_association || github.event.pull_request.author_association || 'CONTRIBUTOR' }}
+          PR_LABELS: ${{ steps.fetch-body.outputs.labels || github.event.pull_request.labels.map(l => l.name).join(',') || '' }}
         run: python scripts/github/real_behavior_proof_check.py
 
       - name: Add needs-context label on failure
