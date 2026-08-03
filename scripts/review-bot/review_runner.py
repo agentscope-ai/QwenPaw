@@ -80,25 +80,34 @@ MAP_BUILD_DEADLINE = int(os.environ.get("MAP_BUILD_DEADLINE", "300"))
 # A "degenerate" reply is non-empty text that is NOT a real review: the agent
 # hit its internal iteration cap and emitted a warning stub, or returned almost
 # nothing. These are treated as failures and retried (see call_qwenpaw).
-ITERATION_LIMIT_MARKERS = (
-    "maximum number of iterations",
-    "reached the maximum",
-)
 MIN_REVIEW_CHARS = 200
+# Stubs run 1-3 lines and the shortest complete 6-section report seen is
+# ~16, so this sits in the gap between them rather than at either edge.
+MIN_REVIEW_LINES = 10
 
 
 def _is_degenerate_review(text: str) -> bool:
-    """True if the response is an iteration-limit stub or too short to be a review."""
-    low = text.lower()
-    if any(m in low for m in ITERATION_LIMIT_MARKERS):
-        return True
+    """True if the reply is too small to be a review.
+
+    Judged purely on size. An earlier version also searched the text for
+    the agent's iteration-limit phrasing, which discarded *valid* reviews
+    that merely quoted it -- a review of a PR adding "maximum number of
+    iterations" handling describes the phrase in its own prose. Since
+    call_qwenpaw retries on a degenerate reply, such a review was thrown
+    away up to MAX_RETRIES times and the job reported "Review Failed"
+    while holding five usable reports. Size alone loses nothing: a real
+    stub is one to three lines, so it fails both checks below anyway.
+    """
     body = re.sub(
         r"^\s*#.*\n",
         "",
         text,
         count=1,
     ).strip()  # drop a leading title line
-    return len(body) < MIN_REVIEW_CHARS
+    return (
+        len(body) < MIN_REVIEW_CHARS
+        or len(body.splitlines()) < MIN_REVIEW_LINES
+    )
 
 
 def fetch_base_branch(pr_number: int, repo: str) -> str:
