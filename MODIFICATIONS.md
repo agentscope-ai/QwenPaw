@@ -35,5 +35,13 @@ per-file record.
 - **Documentation formatting**: markdown tables re-aligned with Prettier after
   the rebrand changed cell widths.
 - Added this `MODIFICATIONS.md` and the top-level `NOTICE` file.
+- **Console header**: removed the "Documentation" dropdown and the "GitHub"
+  button, including their entries in the mobile overflow menu. The overflow
+  menu is retitled with a new `header.preferences` locale key. The upstream
+  `header.resources` / `header.github` / `header.tutorial` strings are left in
+  the locale files.
+- **Assistant display name**: the chat response identity (`welcome.nick`, shown
+  above every assistant response) and the Voice/SIP `welcome_greeting` defaults
+  read `NousAIPaw`, matching the already-rebranded channel documentation.
 
 Subsequent modifications will be appended to this file.

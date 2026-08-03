@@ -5,11 +5,19 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from hashlib import sha256
+import logging
 from pathlib import Path
 import threading
 from typing import Any, Mapping
 
 from services.runtime_files.field_blocks import FieldBlockStore
+from services.runtime_files import (
+    MessageChannel,
+    MessageClassification,
+    RuntimeGoalNotFound,
+    RuntimeSessionNotFound,
+)
 from services.runtime_files.session_store import ProjectRuntimeSessionStore
 
 from .commit import ProjectCommitBoundary, ProjectCommitResult
@@ -24,8 +32,15 @@ from .review import (
     CreatorReviewRecoveryReport,
     ProjectReviewService,
     ReviewDecisionItem,
+    ReviewDecisionJournalState,
+    ReviewRejectionAction,
+    ReviewRejectionFeedback,
+    render_rejection_feedback_message,
 )
 from .store import ProjectSnapshot, ProjectStore
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -50,7 +65,7 @@ class CreatorFileServices:
         # Review decisions may depend on a compensating Project transaction.
         # Project journals therefore converge first, followed by Review facts.
         startup_review_recovery = reviews.recover_all()
-        return cls(
+        services = cls(
             root=root,
             projects=projects,
             commits=ProjectCommitBoundary(projects),
@@ -62,6 +77,8 @@ class CreatorFileServices:
             startup_recovery=startup_recovery,
             startup_review_recovery=startup_review_recovery,
         )
+        services.recover_review_rejection_feedback_messages()
+        return services
 
     def recover_project(
         self,
@@ -151,6 +168,7 @@ class CreatorFileServices:
         review_id: str,
         decision_token: str,
         decisions: list[ReviewDecisionItem],
+        rejection_feedback: ReviewRejectionFeedback | None = None,
         decision_id: str | None = None,
         _lifecycle_lock_held: bool = False,
     ):
@@ -160,12 +178,313 @@ class CreatorFileServices:
             review_id=review_id,
             decision_token=decision_token,
             decisions=decisions,
+            rejection_feedback=rejection_feedback,
             decision_id=decision_id,
             _lifecycle_lock_held=_lifecycle_lock_held,
         )
         current = await asyncio.to_thread(self.projects.read, project_id)
         await asyncio.to_thread(self.poller.note_commit, current)
         return result
+
+    async def publish_review_followup(
+        self,
+        *,
+        project_id: str,
+        review_id: str,
+        decision_id: str,
+    ) -> ReviewRejectionAction | None:
+        """Append one idempotent Runtime continuation for a Review decision."""
+
+        return await asyncio.to_thread(
+            self._publish_review_followup,
+            project_id=project_id,
+            review_id=review_id,
+            decision_id=decision_id,
+        )
+
+    async def publish_review_rejection_feedback(
+        self,
+        *,
+        project_id: str,
+        review_id: str,
+        decision_id: str,
+    ) -> ReviewRejectionAction | None:
+        """Backward-compatible alias for Review follow-up publication."""
+
+        return await self.publish_review_followup(
+            project_id=project_id,
+            review_id=review_id,
+            decision_id=decision_id,
+        )
+
+    def recover_review_rejection_feedback_messages(self) -> None:
+        """Replay the rejection-feedback outbox after a process crash.
+
+        A crash can happen after the Review journal is finalized but before
+        its Session message is appended. The deterministic client message ID
+        makes replay safe even when the first append actually succeeded.
+        """
+
+        for project_id in self.projects.discover_project_ids():
+            try:
+                journals = self.reviews.finalized_rejection_feedback_journals(
+                    project_id,
+                )
+            except Exception:
+                logger.exception(
+                    "failed to discover rejection feedback for Project %s",
+                    project_id,
+                )
+                continue
+            for journal in journals:
+                try:
+                    self._publish_review_followup(
+                        project_id=project_id,
+                        review_id=journal.review_id,
+                        decision_id=journal.decision_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "failed to recover rejection feedback %s "
+                        "for Project %s",
+                        journal.decision_id,
+                        project_id,
+                    )
+
+    def _followup_conversation_id(
+        self,
+        project_id: str,
+        session: Any,
+        journal: Any,
+    ) -> str | None:
+        """Locate the Conversation a review follow-up message belongs to.
+
+        Prefers the Conversation of the originating request, then the
+        active Goal's Conversation, then the default Conversation.
+        """
+
+        messages = self.sessions.list_messages(
+            project_id,
+            session.session_id,
+            after_seq=0,
+            limit=None,
+        )
+        originating = next(
+            (
+                item
+                for item in messages
+                if item.message_seq
+                == journal.review_before.request_message_seq
+            ),
+            None,
+        )
+        if originating is not None:
+            return originating.conversation_id
+        if session.active_goal_id is not None:
+            try:
+                goal = self.sessions.get_goal(
+                    project_id,
+                    session.active_goal_id,
+                )
+                return goal.conversation_id
+            except RuntimeGoalNotFound:
+                pass
+        conversations = self.sessions.list_conversations(
+            project_id,
+            session.session_id,
+        )
+        default = next(
+            (item for item in conversations if item.is_default),
+            conversations[0] if conversations else None,
+        )
+        return default.conversation_id if default is not None else None
+
+    def _followup_message_text(
+        self,
+        project_id: str,
+        journal: Any,
+    ) -> str | None:
+        """Render the follow-up text, or ``None`` when none is warranted."""
+
+        if journal.state is not ReviewDecisionJournalState.FINALIZED:
+            return None
+        if journal.rejection_feedback is not None:
+            return render_rejection_feedback_message(journal)
+        accepted_targets = self._accepted_artifact_targets(journal)
+        if not accepted_targets or not all(
+            item.decision == "ACCEPT" for item in journal.decisions
+        ):
+            return None
+        # A batch can expose several media Reviews at once. Queue exactly
+        # one continuation, after the last pending Review resolves, so a
+        # multi-image approval does not fan out into duplicate Agent runs.
+        if self.reviews.active(project_id) is not None:
+            return None
+        return self._render_review_approval_message(accepted_targets)
+
+    def _publish_review_followup(
+        self,
+        *,
+        project_id: str,
+        review_id: str,
+        decision_id: str,
+    ) -> ReviewRejectionAction | None:
+        """Synchronous implementation shared by HTTP and startup recovery."""
+
+        journal = self.reviews.get_decision_journal(
+            project_id,
+            review_id,
+            decision_id,
+        )
+        feedback = journal.rejection_feedback
+        text = self._followup_message_text(project_id, journal)
+        if text is None:
+            return None
+        try:
+            session = self.sessions.get_project_session_snapshot(project_id)
+        except RuntimeSessionNotFound:
+            # Unit-created/legacy Projects may have Reviews but no Runtime
+            # Session. The feedback remains durable in the decision journal.
+            return feedback.action if feedback is not None else None
+
+        conversation_id = self._followup_conversation_id(
+            project_id,
+            session,
+            journal,
+        )
+        if conversation_id is None:
+            return feedback.action if feedback is not None else None
+
+        digest = sha256(
+            f"{project_id}\0{review_id}\0{decision_id}".encode("utf-8"),
+        ).hexdigest()
+        client_message_id = (
+            f"review-feedback-{digest}"
+            if feedback is not None
+            else f"review-approval-resume-{digest}"
+        )
+        metadata = {
+            "reviewId": review_id,
+            "decisionId": decision_id,
+            "targets": (
+                [
+                    item.model_dump(mode="json")
+                    for item in journal.rejection_targets
+                ]
+                if feedback is not None
+                else self._accepted_artifact_targets(journal)
+            ),
+        }
+        if feedback is not None:
+            serialized_feedback = feedback.model_dump(
+                mode="json",
+                by_alias=True,
+            )
+            # Adding the unified field must not change the retry payload of
+            # legacy decisions. Session admission compares the entire payload
+            # for a stable client_message_id during crash recovery.
+            if serialized_feedback.get("feedbackNote") is None:
+                serialized_feedback.pop("feedbackNote", None)
+            metadata["rejectionFeedback"] = serialized_feedback
+        else:
+            metadata["reviewResolution"] = "ACCEPTED"
+        if feedback is None or (
+            feedback.action is ReviewRejectionAction.UNDO_AND_REGENERATE
+        ):
+            # A regenerate decision is a new, target-scoped user mutation.
+            # Admit it through the same durable boundary as AgentDock input so
+            # an older in-memory run cannot keep working from the pre-reject
+            # snapshot or regenerate without seeing the user's feedback.
+            self.sessions.admit_user_request(
+                project_id,
+                session.session_id,
+                conversation_id,
+                request_id=client_message_id,
+                client_message_id=client_message_id,
+                content_parts=[{"type": "text", "text": text}],
+                source=(
+                    "review_rejection_feedback"
+                    if feedback is not None
+                    else "review_approval_resume"
+                ),
+                channel=MessageChannel.AGENTDOCK,
+                classification=MessageClassification.REVIEW_REVISE,
+                metadata=metadata,
+            )
+        else:
+            # UNDO_ONLY is durable context, not executable work.
+            self.sessions.append_message(
+                project_id,
+                session.session_id,
+                conversation_id,
+                role="system",
+                content_parts=[{"type": "text", "text": text}],
+                message_id=f"message-review-feedback-{digest}",
+                client_message_id=client_message_id,
+                source="review_rejection_feedback",
+                channel=MessageChannel.RUNTIME,
+                classification=MessageClassification.REVIEW_COMMENT,
+                metadata=metadata,
+            )
+        return feedback.action if feedback is not None else None
+
+    @staticmethod
+    def _accepted_artifact_targets(journal) -> list[dict[str, str]]:
+        accepted = {
+            item.operation_id
+            for item in journal.decisions
+            if item.decision == "ACCEPT"
+        }
+        targets: dict[str, dict[str, str]] = {}
+        for operation in journal.review_before.operations:
+            if operation.operation_id not in accepted:
+                continue
+            if not (operation.json_pointer or "").startswith(
+                "/assets/artifact_versions_by_id/",
+            ):
+                continue
+            after = operation.after
+            if not isinstance(after, Mapping):
+                continue
+            metadata = after.get("metadata")
+            metadata = metadata if isinstance(metadata, Mapping) else {}
+            version_id = str(after.get("version_id") or "").strip()
+            target_ref = str(
+                metadata.get("targetRef")
+                or after.get("owner_ref")
+                or operation.target_ref
+                or "",
+            ).strip()
+            if not version_id or not target_ref:
+                continue
+            targets.setdefault(
+                target_ref,
+                {
+                    "target_ref": target_ref,
+                    "artifact_version_id": version_id,
+                    "label": str(after.get("name") or target_ref).strip(),
+                },
+            )
+        return list(targets.values())
+
+    @staticmethod
+    def _render_review_approval_message(
+        targets: list[dict[str, str]],
+    ) -> str:
+        lines = [
+            "【系统自动消息 · 审阅已通过】",
+            (
+                "用户已通过以下产物。请从原任务的下一个未完成步骤自动继续；"
+                "不要重新生成已通过产物，也不要要求用户输入 continue。"
+            ),
+            "已通过产物：",
+        ]
+        lines.extend(
+            f"- {item['label']}（{item['target_ref']} · "
+            f"{item['artifact_version_id']}）"
+            for item in targets
+        )
+        return "\n".join(lines)
 
 
 _registry_lock = threading.RLock()

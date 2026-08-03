@@ -35,6 +35,11 @@ async function main() {
     "introducing-qwenpaw-driver",
     "qwenpaw-developer-day-collection",
     "play-with-qwenpaw-pet",
+    "paw-git",
+    "runtime-architecture-upgrade",
+    "qwenpaw-plugin-picks-1",
+    "qwenpaw-loop-engineering",
+    "qwenpaw-sandbox",
   ];
   const paths = [
     "docs",

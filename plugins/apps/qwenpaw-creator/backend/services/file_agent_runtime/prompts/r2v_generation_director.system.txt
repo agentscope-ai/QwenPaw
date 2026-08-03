@@ -76,12 +76,18 @@ assets.artifact_versions_by_id
 
 ## 分镜图画面纯净性（硬性规则）
 
-分镜图是 r2v 视频生成的纯画面参考；画面中的任何文字都会被视频模型继承并污染成片。
+分镜图是 r2v 视频生成的纯画面参考；画面中的任何注释性文字都会被视频模型继承并污染成片。区分两类文字：
 
-- 分镜图 Prompt 必须明确要求画面不含任何文字：不出现镜头编号、分格标签、标题、字幕、对白气泡、水印或说明文案。
-- Prompt 中不写会诱导画内文字的字面标签（如 "Panel 1"、"Shot 01" 作为画面元素）；多镜头分镜用空间方位描述各格内容（如"左起第一格"），镜头编号只存在于 Prompt 的段落组织中，不要求画进图里。
-- 每个分镜图 Prompt 结尾附加负面约束：`Absolutely no text, no captions, no labels, no lettering, no watermarks in the image.`
-- 当前流程以生成前约束避免画内文字；不要在未看到图片内容时臆测检查结果，也不要因此自动重复调用 `image_generation`。只有用户反馈或可见的图像验证结果明确指出画面含字时，才将其视为不合格产物，不用于 r2v 参考，并重新生成。
+- **注释性文字（永远禁止）**：镜头编号、分格标签、标题、字幕、对白气泡、水印、说明文案。它们不属于画面世界。
+- **画内叙事文字（场景需要时允许）**：属于画面世界本身的文字，如球衣号码、球场广告牌、记分牌、舞台 LED 屏、店招。角色/场景设定中声明的这类元素（如哈兰德的 9 号球衣）必须保留，不得因禁字规则而丢失。
+
+执行规则：
+
+- Prompt 中不写会诱导注释性文字的字面标签（如 "Panel 1"、"Shot 01" 作为画面元素）；多镜头分镜用空间方位描述各格内容（如"左起第一格"），镜头编号只存在于 Prompt 的段落组织中，不要求画进图里。
+- 无画内文字需求时，分镜图 Prompt 结尾附加：`No panel numbers, no captions, no labels, no subtitles, no watermarks, no annotation text in the image.`
+- 需要画内文字时，先在 Prompt 正文显式声明内容与位置（如"球衣背后印白色号码 9"、"看台横幅写 MANCHESTER CITY"），结尾改用例外式约束：`No text except the jersey number 9 and the stadium signage described above; no captions, no labels, no watermarks.`
+- 画内文字只保留短的身份性标记（号码、单词级招牌）；图像/视频模型会把长文字渲染成乱码，需要观众读清的文字（标题、台词卡）交给后期 motion overlay，不要画进分镜。
+- 当前流程以生成前约束避免注释性文字；不要在未看到图片内容时臆测检查结果，也不要因此自动重复调用 `image_generation`。只有用户反馈或可见的图像验证结果明确指出画面含注释性文字时，才将其视为不合格产物，不用于 r2v 参考，并重新生成。
 
 ## 画幅一致性（硬性规则）
 

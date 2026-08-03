@@ -13,6 +13,7 @@ const USER_AUTHORITY_SOURCES = new Set([
   "user_intervention",
   "user_continuation",
   "authorization_denied",
+  "review_rejection_feedback",
 ]);
 
 const RESERVED_RUNTIME_MARKER =
@@ -79,6 +80,37 @@ export function shouldRenderConversationMessage(
     return isUserAuthorityMessage(message);
   }
   return true;
+}
+
+export function isReviewFeedbackMessage(message: CreatorMessage): boolean {
+  return (
+    message.source === "review_rejection_feedback" &&
+    typeof message.metadata?.decisionId === "string" &&
+    isRecord(message.metadata?.rejectionFeedback)
+  );
+}
+
+/**
+ * Recovery and request replay may expose the same durable Review decision
+ * more than once. The decision id is the user-visible semantic identity, so
+ * render only its earliest transcript row.
+ */
+export function deduplicateReviewFeedbackMessages(
+  messages: CreatorMessage[],
+): CreatorMessage[] {
+  const firstByDecision = new Map<string, CreatorMessage>();
+  messages.forEach((message) => {
+    if (!isReviewFeedbackMessage(message)) return;
+    const decisionId = String(message.metadata.decisionId);
+    const current = firstByDecision.get(decisionId);
+    if (!current || message.messageSeq < current.messageSeq) {
+      firstByDecision.set(decisionId, message);
+    }
+  });
+  return messages.filter((message) => {
+    if (!isReviewFeedbackMessage(message)) return true;
+    return firstByDecision.get(String(message.metadata.decisionId)) === message;
+  });
 }
 
 function legacyFileRuntimeToolCalls(

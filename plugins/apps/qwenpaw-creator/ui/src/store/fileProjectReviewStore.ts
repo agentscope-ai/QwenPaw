@@ -7,6 +7,7 @@ import {
 } from "@/api/creator";
 import type {
   FileProjectReviewDecisionItem,
+  FileProjectReviewRejectionFeedback,
   FileProjectReviewRecord,
 } from "@/contracts/creator";
 
@@ -53,6 +54,7 @@ export interface FileProjectReviewState {
     projectId: string,
     reviewId: string,
     decisions: FileProjectReviewDecisionItem[],
+    rejectionFeedback?: FileProjectReviewRejectionFeedback,
   ) => Promise<FileProjectReviewRecord>;
   startPolling: (
     projectId: string,
@@ -131,6 +133,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
       reviewId: string,
       decisionToken: string,
       decisions: FileProjectReviewDecisionItem[],
+      rejectionFeedback?: FileProjectReviewRejectionFeedback,
     ) =>
       JSON.stringify({
         projectId,
@@ -141,6 +144,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
             left.operation_id.localeCompare(right.operation_id) ||
             left.decision.localeCompare(right.decision),
         ),
+        rejectionFeedback,
       });
 
     const ensureProject = (projectId: string) => {
@@ -308,6 +312,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
       projectId: string,
       reviewId: string,
       decisions: FileProjectReviewDecisionItem[],
+      rejectionFeedback?: FileProjectReviewRejectionFeedback,
     ): Promise<FileProjectReviewRecord> => {
       ensureProject(projectId);
       const state = get();
@@ -328,6 +333,12 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
       if ([...ids].some((operationId) => !pendingIds.has(operationId))) {
         throw new Error("Review operation 已处理或不存在");
       }
+      if (
+        rejectionFeedback &&
+        !decisions.some((item) => item.decision === "REJECT")
+      ) {
+        throw new Error("撤销反馈必须对应至少一个 REJECT 决策");
+      }
 
       const epoch = projectEpoch;
       const decisionToken = review.decision_token;
@@ -341,6 +352,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
         reviewId,
         decisionToken,
         canonicalDecisions,
+        rejectionFeedback,
       );
       const decisionId =
         retryDecisionIds.get(retryKey) ?? newClientId("file-review-decision");
@@ -354,6 +366,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
             decisionId,
             decisionToken,
             decisions: canonicalDecisions,
+            ...(rejectionFeedback ? { rejectionFeedback } : {}),
           },
           decisionId,
         );

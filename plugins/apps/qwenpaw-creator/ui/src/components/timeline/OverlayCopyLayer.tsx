@@ -75,7 +75,8 @@ function useBoxSize(ref: React.RefObject<HTMLDivElement>) {
 const lineHeightOf = (fontSize: number) => Math.round(fontSize * 1.15) + 2;
 
 /** Mirrors backend _render_placed_pet_os_box: white bubble with black border +
- * tail + vibe emoji. */
+ * tail + vibe emoji. Auto-sizes to fit text content, centered in the location
+ * box. */
 export function PetOsBubble({
   text,
   vibe,
@@ -89,70 +90,85 @@ export function PetOsBubble({
   const size = useBoxSize(boxRef);
   let content: React.ReactNode = null;
   if (size && size.width > 4 && size.height > 4) {
-    const { width, height } = size;
-    const border = Math.max(2, Math.round(Math.min(width, height) * 0.018));
-    const padding = Math.max(5, Math.round(Math.min(width, height) * 0.06));
-    const tailHeight = Math.max(8, Math.round(height * 0.09));
-    const emojiSize = Math.max(18, Math.round(height * 0.2));
-    const emojiGap = Math.max(2, Math.round(height * 0.025));
-    const bubbleHeight = Math.max(
-      16,
-      height - tailHeight - emojiSize - emojiGap - border,
-    );
-    const bubbleRight = Math.max(border + 2, width - border - 1);
+    const { width: containerW, height: containerH } = size;
+    const targetFontSize = Math.max(10, Math.round((stageWidth / 1280) * 30));
+    const maxBubbleW = Math.round(containerW * 0.9);
+
+    const tailHeight = Math.max(8, Math.round(containerH * 0.09));
+    const emojiSize = Math.max(18, Math.round(containerH * 0.2));
+    const emojiGap = Math.max(2, Math.round(containerH * 0.025));
+
+    let fontSize = targetFontSize;
+    let lines: string[] = [];
+    let textW = 0;
+    let textH = 0;
+    let border = 2;
+    let padding = 5;
+    let bubbleW = 0;
+    let bubbleH = 0;
+
+    while (fontSize >= 10) {
+      border = Math.max(2, Math.round(containerH * 0.018));
+      padding = Math.max(5, Math.round(containerH * 0.06));
+      const availW = Math.max(1, maxBubbleW - padding * 2 - border * 2);
+      lines = wrapGreedy(text, fontSize, availW);
+      textW = Math.max(...lines.map((l) => measureWidth(l, fontSize)), 1);
+      textH = lines.length * lineHeightOf(fontSize) - 2;
+      bubbleW = Math.min(textW + padding * 2 + border * 2, maxBubbleW);
+      bubbleH =
+        textH + padding * 2 + border * 2 + tailHeight + emojiSize + emojiGap;
+      if (bubbleW <= maxBubbleW) break;
+      fontSize -= 1;
+    }
+
+    const bubbleX = Math.max(0, (containerW - bubbleW) / 2);
+    const bubbleY = Math.max(0, (containerH - bubbleH) / 2);
+
+    const lineHeight = lineHeightOf(fontSize);
+    const actualTextH = lines.length * lineHeight - 2;
+    const textAreaH =
+      bubbleH - tailHeight - emojiSize - emojiGap - border - padding * 2;
+    const textTop =
+      bubbleY + border + padding + Math.max(0, (textAreaH - actualTextH) / 2);
+
+    const bubbleBottom = bubbleY + bubbleH - border;
+    const bubbleRight = bubbleX + bubbleW - border;
     const radius = Math.max(
       5,
-      Math.round(Math.min(width, bubbleHeight) * 0.09),
+      Math.round(Math.min(bubbleW, bubbleH - tailHeight) * 0.09),
     );
-    const tailX = Math.min(
-      bubbleRight - tailHeight * 2,
-      Math.max(border + tailHeight * 2, Math.round(width * 0.28)),
+
+    const tailRelX = Math.min(
+      bubbleW - border - tailHeight * 2,
+      Math.max(border + tailHeight * 2, Math.round(bubbleW * 0.28)),
     );
+    const tailX = bubbleX + tailRelX;
     const tailTip: [number, number] = [
       tailX - Math.round(tailHeight * 0.55),
-      bubbleHeight + tailHeight,
+      bubbleBottom + tailHeight,
     ];
-    const availableWidth = Math.max(1, width - padding * 2 - border * 2);
-    const availableHeight = Math.max(
-      1,
-      bubbleHeight - padding * 2 - border * 2,
-    );
-    let fontSize = Math.max(
-      10,
+
+    const emojiX = Math.max(
+      bubbleX,
       Math.min(
-        Math.round((stageWidth / 1280) * 30),
-        Math.round(availableHeight / 3.5),
+        bubbleX + bubbleW - emojiSize,
+        tailTip[0] - Math.floor(emojiSize / 2),
       ),
     );
-    let lines = wrapGreedy(text, fontSize, availableWidth);
-    while (
-      fontSize > 10 &&
-      lines.length * lineHeightOf(fontSize) - 2 > availableHeight
-    ) {
-      fontSize -= 1;
-      lines = wrapGreedy(text, fontSize, availableWidth);
-    }
-    const lineHeight = lineHeightOf(fontSize);
-    const textHeight = lines.length * lineHeight - 2;
-    const textTop =
-      border + padding + Math.max(0, (availableHeight - textHeight) / 2);
-    const emojiX = Math.max(
-      0,
-      Math.min(width - emojiSize, tailTip[0] - Math.floor(emojiSize / 2)),
-    );
-    const emojiY = Math.min(height - emojiSize, tailTip[1] + emojiGap);
+    const emojiY = Math.min(containerH - emojiSize, tailTip[1] + emojiGap);
+
     content = (
       <svg
-        viewBox={`0 0 ${width} ${height}`}
+        viewBox={`0 0 ${containerW} ${containerH}`}
         width="100%"
         height="100%"
         aria-hidden
       >
         <rect
-          x={border}
-          y={border}
-          width={bubbleRight - border}
-          height={bubbleHeight - border}
+          x={bubbleX + border / 2}
+          y={bubbleY + border / 2}
+          width={bubbleW - border}
+          height={bubbleBottom - bubbleY - border}
           rx={radius}
           fill="#ffffff"
           fillOpacity={238 / 255}
@@ -160,14 +176,14 @@ export function PetOsBubble({
           strokeWidth={border}
         />
         <polygon
-          points={`${tailX},${bubbleHeight} ${tailTip[0]},${tailTip[1]} ${
+          points={`${tailX},${bubbleBottom} ${tailTip[0]},${tailTip[1]} ${
             tailX + tailHeight
-          },${bubbleHeight}`}
+          },${bubbleBottom}`}
           fill="#ffffff"
         />
         <line
           x1={tailX}
-          y1={bubbleHeight}
+          y1={bubbleBottom}
           x2={tailTip[0]}
           y2={tailTip[1]}
           stroke="#000000"
@@ -177,14 +193,14 @@ export function PetOsBubble({
           x1={tailTip[0]}
           y1={tailTip[1]}
           x2={tailX + tailHeight}
-          y2={bubbleHeight}
+          y2={bubbleBottom}
           stroke="#000000"
           strokeWidth={border}
         />
         {lines.map((line, index) => (
           <text
             key={index}
-            x={border + padding}
+            x={bubbleX + border + padding}
             y={textTop + index * lineHeight + fontSize * 0.86}
             fontSize={fontSize}
             fontFamily={CJK_FONT_STACK}
@@ -211,40 +227,79 @@ export function PetOsBubble({
   );
 }
 
-/** Mirrors backend _render_placed_text_box(bubble=False): white text with black
- * outline, truncated to two centered lines. */
-export function InterviewSummaryBox({ text }: { text: string }) {
-  const boxRef = useRef<HTMLDivElement>(null);
-  const size = useBoxSize(boxRef);
-  let content: React.ReactNode = null;
-  if (size && size.width > 4 && size.height > 4) {
-    const { width, height } = size;
-    const padding = Math.max(3, Math.round(Math.min(width, height) * 0.1));
-    const fontSize = Math.max(
-      10,
-      Math.min(
-        Math.round(height * 0.42),
-        Math.round((width / Math.max(4, text.length)) * 1.55),
-      ),
+/** Mirrors backend _render_placed_text_box(bubble=False): auto-sized dark box
+ * with white text and black outline, matching the final render. */
+export function InterviewSummaryBox({
+  text,
+  stageWidth,
+  stageHeight,
+}: {
+  text: string;
+  stageWidth: number;
+  stageHeight: number;
+}) {
+  if (stageWidth < 4 || stageHeight < 4) return null;
+  const targetFontSize = Math.max(12, Math.round((stageWidth / 1280) * 34));
+  const maxBoxW = Math.round(stageWidth * 0.7);
+  const maxBoxH = Math.round(stageHeight * 0.25);
+  const padBase = Math.max(8, Math.round(stageWidth * 0.01));
+  const lines = wrapGreedy(text, targetFontSize, maxBoxW - padBase * 2);
+  const lineHeight = lineHeightOf(targetFontSize);
+  const textW = Math.max(
+    ...lines.map((l) => measureWidth(l, targetFontSize)),
+    1,
+  );
+  const textH = lines.length * lineHeight - 2;
+  let boxW = Math.min(textW + padBase * 2, maxBoxW);
+  let boxH = Math.min(textH + padBase * 2, maxBoxH);
+  let fontSize = targetFontSize;
+  if (textW + padBase * 2 > maxBoxW || textH + padBase * 2 > maxBoxH) {
+    const s = Math.min(
+      maxBoxW / Math.max(textW + padBase * 2, 1),
+      maxBoxH / Math.max(textH + padBase * 2, 1),
     );
-    const availableWidth = Math.max(1, width - padding * 2);
-    const lines = wrapGreedy(text, fontSize, availableWidth).slice(0, 2);
-    const lineHeight = lineHeightOf(fontSize);
-    const textHeight = lines.length * lineHeight - 2;
-    const textTop = Math.max(0, (height - textHeight) / 2);
-    const strokeWidth = Math.max(1, Math.round(fontSize * 0.08));
-    content = (
+    fontSize = Math.max(10, Math.round(targetFontSize * s));
+    const reLines = wrapGreedy(text, fontSize, maxBoxW - padBase * 2).slice(
+      0,
+      2,
+    );
+    const reW = Math.max(...reLines.map((l) => measureWidth(l, fontSize)), 1);
+    const reH = reLines.length * lineHeightOf(fontSize) - 2;
+    boxW = Math.min(reW + padBase * 2, maxBoxW);
+    boxH = Math.min(reH + padBase * 2, maxBoxH);
+    lines.length = 0;
+    lines.push(...reLines);
+  }
+  const padding = Math.max(8, Math.round(Math.min(boxW, boxH) * 0.12));
+  const border = Math.max(2, Math.round(Math.min(boxW, boxH) * 0.04));
+  const radius = Math.max(4, Math.round(Math.min(boxW, boxH) * 0.18));
+  const lh = lineHeightOf(fontSize);
+  const totalH = lines.length * lh - 2;
+  const textTop = Math.max(0, (boxH - totalH) / 2);
+  const strokeWidth = Math.max(1, Math.round(fontSize * 0.08));
+  return (
+    <div className="flex h-full w-full items-center justify-center">
       <svg
-        viewBox={`0 0 ${width} ${height}`}
-        width="100%"
-        height="100%"
+        viewBox={`0 0 ${boxW} ${boxH}`}
+        width={boxW}
+        height={boxH}
         aria-hidden
       >
+        <rect
+          x={0}
+          y={0}
+          width={boxW - 1}
+          height={boxH - 1}
+          rx={radius}
+          fill="rgba(0,0,0,0.6)"
+          stroke="rgba(255,255,255,0.2)"
+          strokeWidth={border}
+        />
         {lines.map((line, index) => (
           <text
             key={index}
-            x={width / 2}
-            y={textTop + index * lineHeight + fontSize * 0.86}
+            x={boxW / 2}
+            y={textTop + index * lh + fontSize * 0.86}
             textAnchor="middle"
             fontSize={fontSize}
             fontFamily={CJK_FONT_STACK}
@@ -257,15 +312,6 @@ export function InterviewSummaryBox({ text }: { text: string }) {
           </text>
         ))}
       </svg>
-    );
-  }
-  return (
-    <div
-      ref={boxRef}
-      data-overlay-copy="interview_summary"
-      className="h-full w-full"
-    >
-      {content}
     </div>
   );
 }

@@ -12,7 +12,7 @@
  * tool name, call ID, and parameters.
  */
 
-import React, { useMemo } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Settings } from "lucide-react";
 import type { ToolCallContent } from "./types";
@@ -54,6 +54,16 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
 }) => {
   const { t } = useTranslation();
   const sessionId = useToolCallSessionId();
+  // Lazy-mount the expandable body: children stay unmounted until the
+  // <details> is first opened, so collapsed cards never pay the render
+  // cost of heavy result blocks.
+  const [bodyMounted, setBodyMounted] = useState(false);
+  const handleToggle = useCallback(
+    (e: React.SyntheticEvent<HTMLDetailsElement>) => {
+      if (e.currentTarget.open) setBodyMounted(true);
+    },
+    [],
+  );
   const isLoading = content.status === "calling" && isStreaming;
   const isError = content.status === "error";
   const inputProgress = content.inputProgress;
@@ -114,6 +124,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
         className={`${styles.toolCallCompact} ${
           isLoading ? styles.toolCallCompactLoading : ""
         } ${isError ? styles.toolCallCompactError : ""}`}
+        onToggle={handleToggle}
       >
         <summary className={styles.toolCallCompactSummary}>
           {isLoading ? (
@@ -163,34 +174,35 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
           )}
         </summary>
 
-        {isError ? (
-          <>
-            <DefaultBlock
-              title="Input"
-              content={JSON.stringify(content.params, null, 2)}
-            />
-            <DefaultBlock
-              title="Error"
-              content={stringifyResult(content.result)}
-            />
-          </>
-        ) : (
-          <>
-            {isLoading && inputPreview && (
+        {bodyMounted &&
+          (isError ? (
+            <>
               <DefaultBlock
-                title={t("tool.rawInputPreview")}
-                content={inputPreview}
+                title="Input"
+                content={JSON.stringify(content.params, null, 2)}
               />
-            )}
-            {isLoading && staticMetadata && (
-              <DefaultBlock title="Parameters" content={staticMetadata} />
-            )}
-            {isLoading && dynamicMetadata && (
-              <DefaultBlock title="Runtime" content={dynamicMetadata} />
-            )}
-            {children}
-          </>
-        )}
+              <DefaultBlock
+                title="Error"
+                content={stringifyResult(content.result)}
+              />
+            </>
+          ) : (
+            <>
+              {isLoading && inputPreview && (
+                <DefaultBlock
+                  title={t("tool.rawInputPreview")}
+                  content={inputPreview}
+                />
+              )}
+              {isLoading && staticMetadata && (
+                <DefaultBlock title="Parameters" content={staticMetadata} />
+              )}
+              {isLoading && dynamicMetadata && (
+                <DefaultBlock title="Runtime" content={dynamicMetadata} />
+              )}
+              {children}
+            </>
+          ))}
       </details>
 
       {control.bannerVisible && showGear && (

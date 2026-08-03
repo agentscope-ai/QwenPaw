@@ -15,6 +15,18 @@ from typing import Any, Mapping
 
 from services.runtime_files.locking import CrossProcessFileLock
 
+try:
+    from qwenpaw.security.secret_store import (
+        decrypt as _secret_decrypt,
+        is_encrypted as _secret_is_encrypted,
+    )
+
+    _SECRET_STORE_AVAILABLE = True
+except ImportError:
+    _SECRET_STORE_AVAILABLE = False
+    _secret_decrypt = None
+    _secret_is_encrypted = None
+
 
 CREATOR_TEXT_CONFIG_TOOL = "creator_text_model"
 CREATOR_IMAGE_CONFIG_TOOL = "creator_image_model"
@@ -228,6 +240,7 @@ def _get_user_config() -> dict:
             ):
                 return _USER_CONFIG_CACHE
             value = json.loads(path.read_text(encoding="utf-8"))
+            _decrypt_config_secrets(value)
             _USER_CONFIG_CACHE = value
             _USER_CONFIG_CACHE_PATH = path
             _USER_CONFIG_CACHE_FINGERPRINT = fingerprint
@@ -242,6 +255,30 @@ def _clear_user_config_cache():
     _USER_CONFIG_CACHE = None
     _USER_CONFIG_CACHE_PATH = None
     _USER_CONFIG_CACHE_FINGERPRINT = None
+
+
+_SECRET_FIELDS = ("api_key", "access_key_secret", "policy_api_key")
+
+
+def _decrypt_config_secrets(data: dict) -> dict:
+    """Decrypt secret fields in config data read from model_config.json.
+
+    Handles both encrypted (ENC:...) and legacy plaintext values transparently.
+    """
+    if not _SECRET_STORE_AVAILABLE:
+        return data
+    for section_data in data.values():
+        if not isinstance(section_data, dict):
+            continue
+        for field in _SECRET_FIELDS:
+            value = section_data.get(field)
+            if (
+                value
+                and isinstance(value, str)
+                and _secret_is_encrypted(value)
+            ):
+                section_data[field] = _secret_decrypt(value)
+    return data
 
 
 def get_execution_authorization_mode() -> str:

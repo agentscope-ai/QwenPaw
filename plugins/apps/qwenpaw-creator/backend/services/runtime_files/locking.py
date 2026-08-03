@@ -9,12 +9,15 @@ one process still has the old inode open.
 from __future__ import annotations
 
 import errno
+import logging
 import os
 from pathlib import Path
 import time
 from types import TracebackType
 
 from .errors import LockTimeoutError, RuntimeFileValidationError
+
+logger = logging.getLogger("qwenpaw.creator.runtime_files.locking")
 
 if os.name == "nt":  # pragma: posix no cover
     import msvcrt
@@ -91,9 +94,23 @@ class CrossProcessFileLock:
         self.shared = shared
         self._descriptor: int | None = None
 
-    @property
     def acquired(self) -> bool:
         return self._descriptor is not None
+
+    def _log_acquired(self, elapsed: float) -> None:
+        if elapsed > 0.5:
+            logger.warning(
+                "acquired lock %s after %.2fs (shared=%s)",
+                self.path,
+                elapsed,
+                self.shared,
+            )
+        else:
+            logger.debug(
+                "acquired lock %s (shared=%s)",
+                self.path,
+                self.shared,
+            )
 
     def acquire(self) -> CrossProcessFileLock:
         if self._descriptor is not None:
@@ -116,6 +133,7 @@ class CrossProcessFileLock:
                 try:
                     _try_lock(descriptor, shared=self.shared)
                     self._descriptor = descriptor
+                    self._log_acquired(time.monotonic() - started)
                     return self
                 except OSError as exc:
                     if exc.errno not in _BLOCKED_ERRNOS:
@@ -123,6 +141,11 @@ class CrossProcessFileLock:
                 if self.timeout_seconds is not None:
                     elapsed = time.monotonic() - started
                     if elapsed >= self.timeout_seconds:
+                        logger.warning(
+                            "lock %s timed out after %.2fs",
+                            self.path,
+                            elapsed,
+                        )
                         raise LockTimeoutError(self.path, self.timeout_seconds)
                     remaining = self.timeout_seconds - elapsed
                     time.sleep(min(self.poll_interval_seconds, remaining))
@@ -139,6 +162,7 @@ class CrossProcessFileLock:
         self._descriptor = None
         try:
             _unlock(descriptor)
+            logger.debug("released lock %s", self.path)
         finally:
             os.close(descriptor)
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
-from domain.errors import ConflictError
+from domain.errors import ReviewPendingError
 from services.project_files.models import ArtifactVersion
 from services.runtime_files.models import ReviewRecord, ReviewStatus
 from utils.logger import setup_logger
@@ -111,17 +111,32 @@ def assert_media_review_admission(
             )
         )
         if same_target:
-            raise ConflictError(
+            raise ReviewPendingError(
                 f"目标 {target_ref} 的生成结果仍在等待用户审阅"
                 f"（{artifact.review_id}）；请等待用户审阅，不要重试同一目标。",
+                details={
+                    "reason": "TARGET_PENDING_REVIEW",
+                    "reviewId": artifact.review_id,
+                    "artifactVersionId": artifact.version_id,
+                    "targetRef": artifact.target_ref,
+                    "commandType": command_type,
+                },
             )
 
     referenced = set(reference_version_ids)
     for artifact in pending:
         if artifact.version_id in referenced:
-            raise ConflictError(
+            raise ReviewPendingError(
                 f"输入产物 {artifact.version_id} 仍在等待用户审阅"
                 f"（{artifact.review_id}）；请等待用户审阅，不要继续下游生成。",
+                details={
+                    "reason": "INPUT_PENDING_REVIEW",
+                    "reviewId": artifact.review_id,
+                    "artifactVersionId": artifact.version_id,
+                    "targetRef": target_ref,
+                    "pendingTargetRef": artifact.target_ref,
+                    "commandType": command_type,
+                },
             )
 
 

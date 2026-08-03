@@ -421,6 +421,128 @@ class HistoryStore:
             )
             return int(cur.fetchone()["n"])
 
+    def claim_session(self, session_id: str, agent_id: str | None) -> int:
+        """Assign legacy unowned rows in a canonical session to an agent."""
+        if not session_id or not agent_id:
+            return 0
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "UPDATE conversation_history SET agent_id = ? "
+                "WHERE session_id = ? AND agent_id IS NULL",
+                (agent_id, session_id),
+            )
+            return int(cur.rowcount)
+
+    def reconcile_session_rows(
+        self,
+        source_ids: set[str],
+        target_id: str,
+        dedup_keys: set[str],
+        *,
+        agent_id: str | None = None,
+    ) -> tuple[int, int, int]:
+        """Move rows proven to come from one file into its canonical session.
+
+        ``source_ids`` alone is not sufficient provenance because synthetic
+        IDs can collide across channel directories. Restricting the operation
+        to dedup keys recomputed from the source file prevents unrelated rows
+        from being swept into ``target_id``.
+
+        Returns ``(moved, deduplicated, claimed)``. Non-conflicting rows retain
+        their original ``seq``; source duplicates are removed in favor of the
+        existing canonical row so the unique dedup contract remains valid.
+        """
+        sources = sorted(
+            source_id
+            for source_id in source_ids
+            if source_id and source_id != target_id
+        )
+        keys = sorted(str(key) for key in dedup_keys if key)
+        if not sources or not target_id or not keys:
+            return (0, 0, self.claim_session(target_id, agent_id))
+
+        moved = 0
+        deduplicated = 0
+        claimed = 0
+        with self._lock, self._conn:
+            for source_id in sources:
+                for start in range(0, len(keys), 400):
+                    chunk = keys[slice(start, start + 400)]
+                    placeholders = ", ".join("?" for _ in chunk)
+                    ownership = ""
+                    params: list[Any] = [source_id, *chunk]
+                    if agent_id:
+                        ownership = " AND (agent_id = ? OR agent_id IS NULL)"
+                        params.append(agent_id)
+                    rows = self._conn.execute(
+                        "SELECT seq, dedup_key, content "
+                        "FROM conversation_history "
+                        "WHERE session_id = ? AND dedup_key IN ("
+                        + placeholders
+                        + ")"
+                        + ownership,
+                        params,
+                    ).fetchall()
+                    if not rows:
+                        continue
+
+                    row_keys = [str(row["dedup_key"]) for row in rows]
+                    target_placeholders = ", ".join("?" for _ in row_keys)
+                    existing = self._conn.execute(
+                        "SELECT dedup_key FROM conversation_history "
+                        "WHERE session_id = ? AND dedup_key IN ("
+                        + target_placeholders
+                        + ")",
+                        [target_id, *row_keys],
+                    ).fetchall()
+                    existing_keys = {str(row["dedup_key"]) for row in existing}
+                    duplicates = [
+                        row
+                        for row in rows
+                        if str(row["dedup_key"]) in existing_keys
+                    ]
+                    movable = [
+                        row
+                        for row in rows
+                        if str(row["dedup_key"]) not in existing_keys
+                    ]
+
+                    if self._fts:
+                        for row in duplicates:
+                            self._conn.execute(
+                                "INSERT INTO conversation_history_fts"
+                                "(conversation_history_fts, rowid, content) "
+                                "VALUES('delete', ?, ?)",
+                                (row["seq"], row["content"] or ""),
+                            )
+                    if duplicates:
+                        self._conn.executemany(
+                            "DELETE FROM conversation_history WHERE seq = ?",
+                            [(row["seq"],) for row in duplicates],
+                        )
+                        deduplicated += len(duplicates)
+
+                    if movable:
+                        seqs = [int(row["seq"]) for row in movable]
+                        seq_placeholders = ", ".join("?" for _ in seqs)
+                        cur = self._conn.execute(
+                            "UPDATE conversation_history "
+                            "SET session_id = ?, "
+                            "agent_id = COALESCE(agent_id, ?) "
+                            "WHERE seq IN (" + seq_placeholders + ")",
+                            [target_id, agent_id, *seqs],
+                        )
+                        moved += int(cur.rowcount)
+
+            if agent_id:
+                cur = self._conn.execute(
+                    "UPDATE conversation_history SET agent_id = ? "
+                    "WHERE session_id = ? AND agent_id IS NULL",
+                    (agent_id, target_id),
+                )
+                claimed = int(cur.rowcount)
+        return (moved, deduplicated, claimed)
+
     def existing_seqs(self, seqs: set[int]) -> set[int]:
         """Return the subset of globally addressed history rows that exist."""
         if not seqs:

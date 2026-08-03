@@ -39,6 +39,8 @@ import {
   prepareLoopModeMessage,
   useLoopStore,
 } from "../../stores/loopStore";
+import { buildLoopSlashSuggestions } from "./loopSlashSuggestions";
+import { InlineMarkdown } from "../../components/Markdown/InlineMarkdown";
 import { LoopModeSelector } from "../../components/LoopInput";
 import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
@@ -577,7 +579,9 @@ function renderSuggestionLabel(command: string, description?: string) {
     >
       <span className={styles.suggestionCommand}>{command}</span>
       {description ? (
-        <span className={styles.suggestionDescription}>{description}</span>
+        <span className={styles.suggestionDescription}>
+          <InlineMarkdown markdown={description} />
+        </span>
       ) : null}
     </div>
   );
@@ -2660,6 +2664,17 @@ export default function ChatPage() {
     const loopCommandNames = new Set(
       loopAvailableModes.map((mode) => mode.slash_command).filter(Boolean),
     );
+    // Loop/plugin modes (goal, mission, OMP, custom) share GET /loops with
+    // LoopModeSelector; include them in the slash menu when the QwenPaw
+    // backend is active. Empty slash_command (default mode) is skipped.
+    const loopSuggestions: CommandSuggestion[] = usesQwenPawBackend
+      ? buildLoopSlashSuggestions(
+          loopAvailableModes,
+          reservedCommands,
+          t,
+          i18n.language,
+        )
+      : [];
     const skillSuggestions: CommandSuggestion[] = consoleSkills
       .filter(
         (skill) =>
@@ -2896,12 +2911,14 @@ export default function ChatPage() {
       );
     }
 
-    const baseSuggestions = [...commandSuggestions, ...skillSuggestions].map(
-      (item) => ({
-        label: renderSuggestionLabel(item.command, item.description),
-        value: item.value,
-      }),
-    );
+    const baseSuggestions = [
+      ...commandSuggestions,
+      ...loopSuggestions,
+      ...skillSuggestions,
+    ].map((item) => ({
+      label: renderSuggestionLabel(item.command, item.description),
+      value: item.value,
+    }));
     const userMessageAnchorsConfig = {
       ...defaultConfig.theme.bubbleList.userMessageAnchors,
       variant: "navigator" as const,

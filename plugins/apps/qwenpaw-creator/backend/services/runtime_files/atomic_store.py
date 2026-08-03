@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import tempfile
@@ -23,6 +24,8 @@ from .errors import (
     RuntimeFileValidationError,
 )
 from .locking import CrossProcessFileLock
+
+logger = logging.getLogger("qwenpaw.creator.runtime_files.atomic_store")
 
 
 T = TypeVar("T")
@@ -287,6 +290,7 @@ class AtomicJsonRecordStore(Generic[T]):
         try:
             value = strict_json_loads(raw)
         except (UnicodeDecodeError, ValueError) as exc:
+            logger.error("atomic_store corruption: %s: %s", self.path, exc)
             raise CorruptRecordError(self.path, str(exc)) from exc
         validated = self._validate(value, from_disk=True)
         dumped = self._dump_value(validated)
@@ -316,6 +320,7 @@ class AtomicJsonRecordStore(Generic[T]):
                 mode=self.mode,
                 stage_hook=self.stage_hook,
             )
+        logger.debug("atomic_store write: %s", self.path)
         return RecordSnapshot(validated, json_checksum(dumped))
 
     def try_create(self, value: Any) -> RecordSnapshot[T] | None:
@@ -335,7 +340,9 @@ class AtomicJsonRecordStore(Generic[T]):
     def create(self, value: Any) -> RecordSnapshot[T]:
         snapshot = self.try_create(value)
         if snapshot is None:
+            logger.debug("atomic_store create skipped (exists): %s", self.path)
             raise RecordAlreadyExistsError(self.path)
+        logger.debug("atomic_store create: %s", self.path)
         return snapshot
 
     def compare_and_swap(
@@ -353,6 +360,12 @@ class AtomicJsonRecordStore(Generic[T]):
                 current = None
             actual = current.checksum if current is not None else None
             if actual != expected_checksum:
+                logger.warning(
+                    "atomic_store cas conflict: %s expected=%s actual=%s",
+                    self.path,
+                    expected_checksum[:16],
+                    actual[:16] if actual else "none",
+                )
                 raise RecordConflictError(
                     self.path,
                     expected_checksum=expected_checksum,
@@ -364,6 +377,7 @@ class AtomicJsonRecordStore(Generic[T]):
                 mode=self.mode,
                 stage_hook=self.stage_hook,
             )
+        logger.debug("atomic_store cas: %s", self.path)
         return RecordSnapshot(validated, json_checksum(dumped))
 
     def update(
@@ -378,6 +392,12 @@ class AtomicJsonRecordStore(Generic[T]):
                 expected_checksum is not None
                 and current.checksum != expected_checksum
             ):
+                logger.warning(
+                    "atomic_store update conflict: %s expected=%s actual=%s",
+                    self.path,
+                    expected_checksum[:16],
+                    current.checksum[:16],
+                )
                 raise RecordConflictError(
                     self.path,
                     expected_checksum=expected_checksum,
@@ -391,6 +411,7 @@ class AtomicJsonRecordStore(Generic[T]):
                 mode=self.mode,
                 stage_hook=self.stage_hook,
             )
+        logger.debug("atomic_store update: %s", self.path)
         return RecordSnapshot(validated, json_checksum(dumped))
 
     def delete(self, *, expected_checksum: str | None = None) -> None:
@@ -400,6 +421,12 @@ class AtomicJsonRecordStore(Generic[T]):
                 expected_checksum is not None
                 and current.checksum != expected_checksum
             ):
+                logger.warning(
+                    "atomic_store delete conflict: %s expected=%s actual=%s",
+                    self.path,
+                    expected_checksum[:16],
+                    current.checksum[:16],
+                )
                 raise RecordConflictError(
                     self.path,
                     expected_checksum=expected_checksum,
@@ -409,6 +436,7 @@ class AtomicJsonRecordStore(Generic[T]):
                 self.path,
             ):  # pragma: no cover - lock makes this defensive
                 raise RecordNotFoundError(self.path)
+        logger.debug("atomic_store delete: %s", self.path)
 
 
 class CreateIfAbsentJsonStore(Generic[T]):
