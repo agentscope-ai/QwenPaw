@@ -30,7 +30,10 @@ from typing import List, Optional, Tuple
 
 from .config import (
     ExecutionResult,
+    NETWORK_DOMAIN_HINT,
     SandboxConfig,
+    network_allow_is_absolute,
+    report_unenforced_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -455,12 +458,9 @@ def _generate_sandbox_script(  # noqa: E501  pylint: disable=too-many-branches,t
             handled_net = 0
         else:
             # Partial: domain filtering not possible in Landlock, allow all
-            # (Landlock only supports port-level, not domain-level)
+            # (Landlock only supports port-level, not domain-level). The
+            # fail-open outcome is reported by report_unenforced_config.
             handled_net = 0
-            logger.warning(
-                "LinuxSandbox: domain-level network filtering not supported "
-                "by Landlock. Allowing all network access.",
-            )
 
         # Port-level rules
         if config.network_ports and handled_net:
@@ -472,20 +472,6 @@ def _generate_sandbox_script(  # noqa: E501  pylint: disable=too-many-branches,t
                     access = LANDLOCK_ACCESS_NET_BIND_TCP
                 if access:
                     net_port_rules.append((port_rule.port, access))
-
-    # Log unsupported features
-    if config.max_processes is not None:
-        logger.warning(
-            "LinuxSandbox: max_processes=%d requires cgroups, "
-            "not implemented; ignoring.",
-            config.max_processes,
-        )
-    if config.max_memory_mb is not None:
-        logger.warning(
-            "LinuxSandbox: max_memory_mb=%d requires cgroups, "
-            "not implemented; ignoring.",
-            config.max_memory_mb,
-        )
 
     # Generate the Python enforcement script
     script_lines = [
@@ -643,6 +629,26 @@ class LinuxSandbox:
         self._config = config
         self._process: Optional[asyncio.subprocess.Process] = None
         self._abi_version = self._detect_abi_version()
+        report_unenforced_config(
+            config,
+            "LinuxSandbox",
+            self._enforced_fields(),
+            {"network_allow": NETWORK_DOMAIN_HINT},
+        )
+
+    def _enforced_fields(self) -> frozenset:
+        """Fields Landlock applies, given the probed ABI version.
+
+        Network rules need ABI v4 (kernel 6.7+); below that the network is
+        untouched. Even on v4 Landlock is port-level only, so a domain
+        allowlist cannot be honoured.
+        """
+        enforced = {"mounts", "deny_paths"}
+        if self._abi_version >= 4:
+            enforced.add("network_ports")
+            if network_allow_is_absolute(self._config):
+                enforced.add("network_allow")
+        return frozenset(enforced)
 
     @property
     def config(self) -> SandboxConfig:

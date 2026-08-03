@@ -452,8 +452,12 @@ When a violation is detected:
 
 ### Current limitations
 
-- **Network isolation**: Not implemented in the current version. All sandboxed processes have full network access regardless of `network_allow` settings. Network namespace isolation (`--unshare-net` for bubblewrap) is planned.
-- **Resource limits**: `max_processes` and `max_memory_mb` fields exist in the config but are not enforced by any current backend.
+- **Network isolation**: Only the all-open and block-all postures are enforceable, and only on some backends — Seatbelt (macOS), Landlock ABI v4+ (Linux, kernel 6.7+) and the Windows backends. Domain-level filtering is implemented nowhere, so a `network_allow` domain list degrades to **full network access**. Bubblewrap does not isolate the network at all (`--unshare-net` is planned), and `network_ports` is honoured only by Landlock ABI v4+.
+- **Resource limits**: `max_processes` and `max_memory_mb` are accepted but not enforced by any backend; enforcing them needs Linux cgroups / Windows Job objects.
+- **`env_mode="allowlist"`**: Not implemented. Every backend behaves as `"inject"` — inherit the current environment, then apply `env_vars`.
+- **`shell_executable`**: Honoured by the Windows backends and `mode=none`. The bubblewrap / Seatbelt / Landlock backends pin their own shell.
+- **`mode=none` enforces nothing**: the passthrough backend applies only `timeout_seconds`, `env_vars` and `shell_executable`. Every isolation constraint is ignored. This is the common case inside containers, where no kernel backend is available and QwenPaw falls back to `mode=none`.
+- **Unenforced constraints are logged, never silently dropped**: each backend declares the fields it actually applies, and anything else you configured is reported when the sandbox is created — filesystem / network / resource constraints at `WARNING`, the rest at `DEBUG`. Seeing `NoneSandbox does not enforce deny_paths=~/.ssh; the constraint is IGNORED.` means those paths really are readable. Treat these lines as security findings, not noise.
 - **Windows AppContainer** (`allow_read_all=False`): Requires administrator privileges for initial ACL setup. The AppContainer profile is preserved for reuse across invocations with the same configuration.
 - **Windows AppContainer file deletion limitation** (`allow_read_all=False`): Sandboxed processes in AppContainer mode may be unable to delete files within the workspace. This does not affect `allow_read_all=True` (Restricted_token) mode. A solution is under investigation.
 - **Windows Restricted_token** (`allow_read_all=True`): Full isolation (dedicated local user, WFP firewall rules) requires administrator privileges. When running without administrator privileges, an unelevated sandbox mode is used instead — it provides write restrictions via `CreateRestrictedToken` but with limited isolation compared to the full sandbox. For maximum security, running as administrator is recommended.

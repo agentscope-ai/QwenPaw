@@ -24,7 +24,11 @@ import re
 import time
 from typing import Optional
 
-from .config import ExecutionResult
+from .config import (
+    ExecutionResult,
+    NETWORK_DOMAIN_HINT,
+    network_allow_is_absolute,
+)
 from .local_sandbox import LocalSandbox
 
 logger = logging.getLogger(__name__)
@@ -60,7 +64,22 @@ class MacOSSandbox(LocalSandbox):
       - Paths declared in mounts are ro/rw based on ``writable``
       - Network access is governed by ``network_allow``
       - Sensitive paths such as ~/.ssh are explicitly denied
+
+    Seatbelt can open or close the network wholesale but cannot filter by
+    domain, so a domain allowlist is reported as ignored (the network ends
+    up fully open) rather than silently downgraded.
     """
+
+    _ENFORCED_FIELDS = frozenset(
+        {"mounts", "deny_paths", "platform_hints"},
+    )
+
+    _ENFORCEMENT_HINTS = {"network_allow": NETWORK_DOMAIN_HINT}
+
+    def _enforced_fields(self) -> frozenset:
+        if network_allow_is_absolute(self._config):
+            return self._ENFORCED_FIELDS | {"network_allow"}
+        return self._ENFORCED_FIELDS
 
     @staticmethod
     def _sanitize_seatbelt_path(path: str) -> str:
@@ -225,25 +244,6 @@ class MacOSSandbox(LocalSandbox):
                 "; Platform hints: extra rules (admin-only, verbatim)",
             )
             lines.append(str(extra_rules))
-
-        # Log warnings for unsupported features on macOS
-        if config.max_processes is not None:
-            logger.warning(
-                "MacOSSandbox: max_processes=%d is not supported by "
-                "Seatbelt; ignoring.",
-                config.max_processes,
-            )
-        if config.max_memory_mb is not None:
-            logger.warning(
-                "MacOSSandbox: max_memory_mb=%d is not supported by "
-                "Seatbelt; ignoring.",
-                config.max_memory_mb,
-            )
-        if config.network_ports:
-            logger.warning(
-                "MacOSSandbox: network_ports (port-level filtering) is not "
-                "supported by Seatbelt; ignoring.",
-            )
 
         return "\n".join(lines)
 

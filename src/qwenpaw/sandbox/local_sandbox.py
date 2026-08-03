@@ -19,6 +19,7 @@ from typing import Optional
 from .config import (
     ExecutionResult,
     SandboxConfig,
+    report_unenforced_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,9 +33,35 @@ logger = logging.getLogger(__name__)
 class LocalSandbox(ABC):
     """Lightweight sandbox abstract base. Per-tool-call lifecycle."""
 
+    # Config fields this backend actually applies. Anything the caller
+    # requests outside this set is reported at construction time, so a
+    # backend can never drop a constraint silently. The empty default
+    # means "enforces nothing" — a new subclass is loud until it declares
+    # what it honours.
+    _ENFORCED_FIELDS: frozenset = frozenset()
+
+    # Per-field remediation text appended to the report, for constraints
+    # whose failure mode the operator needs spelled out.
+    _ENFORCEMENT_HINTS: dict = {}
+
     def __init__(self, config: SandboxConfig):
         self._config = config
         self._process: Optional[asyncio.subprocess.Process] = None
+        report_unenforced_config(
+            config,
+            type(self).__name__,
+            self._enforced_fields(),
+            self._ENFORCEMENT_HINTS,
+        )
+
+    def _enforced_fields(self) -> frozenset:
+        """Fields this backend applies *for the current config*.
+
+        Overridden where enforcement is conditional — e.g. no backend can
+        filter the network by domain, so ``network_allow`` only counts as
+        enforced for the all-open / block-all postures.
+        """
+        return self._ENFORCED_FIELDS
 
     @property
     def config(self) -> SandboxConfig:
@@ -71,8 +98,12 @@ class LocalSandbox(ABC):
 class NoneSandbox(LocalSandbox):
     """No isolation, executes directly.
 
-    Used for trusted scenarios or resource tools.
+    Used for trusted scenarios or resource tools. Enforces no filesystem,
+    network or resource boundary whatsoever: every such constraint in the
+    config is reported as ignored by :class:`LocalSandbox`.
     """
+
+    _ENFORCED_FIELDS = frozenset({"shell_executable"})
 
     async def execute(
         self,
@@ -80,7 +111,10 @@ class NoneSandbox(LocalSandbox):
         cwd: Optional[str] = None,
     ) -> ExecutionResult:
         cwd = cwd or self._config.workspace_dir
-        shell = os.environ.get("SHELL", "/bin/bash")
+        shell: str = self._config.shell_executable or os.environ.get(
+            "SHELL",
+            "/bin/bash",
+        )
         if not os.path.exists(shell):
             shell = "/bin/bash"
 
