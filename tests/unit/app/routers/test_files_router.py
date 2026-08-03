@@ -182,3 +182,46 @@ def test_delete_missing_404(client) -> None:
     test_client, _ = client
     resp = test_client.delete("/api/files/delete/does-not-exist")
     assert resp.status_code == 404
+
+
+def test_rename_file(client) -> None:
+    test_client, fs_root = client
+    (fs_root / "old.txt").write_text("x", encoding="utf-8")
+    resp = test_client.post(
+        "/api/files/rename",
+        json={"source": "old.txt", "target": "new.txt"},
+    )
+    assert resp.status_code == 200
+    assert not (fs_root / "old.txt").exists()
+    assert (fs_root / "new.txt").exists()
+
+
+def test_rename_missing_source_404(client) -> None:
+    test_client, _ = client
+    resp = test_client.post(
+        "/api/files/rename",
+        json={"source": "ghost.txt", "target": "x.txt"},
+    )
+    assert resp.status_code == 404
+
+
+def test_rename_target_exists_409(client) -> None:
+    test_client, fs_root = client
+    (fs_root / "a.txt").write_text("x", encoding="utf-8")
+    (fs_root / "b.txt").write_text("y", encoding="utf-8")
+    resp = test_client.post(
+        "/api/files/rename",
+        json={"source": "a.txt", "target": "b.txt"},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "Target exists"
+
+
+def test_rename_root_400(client) -> None:
+    test_client, _ = client
+    resp = test_client.post(
+        "/api/files/rename",
+        json={"source": ".", "target": "moved"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Cannot operate on root"

@@ -201,3 +201,30 @@ async def delete_path(
     else:
         target.unlink()
     return {"deleted": str(target)}
+
+
+class RenameRequest(BaseModel):
+    source: str = Field(..., description="Source path relative to WORKING_DIR")
+    target: str = Field(..., description="Target path relative to WORKING_DIR")
+
+
+@router.post(
+    "/rename",
+    summary="Rename or move a file/directory",
+    description="Rename/move *source* to *target* (relative to WORKING_DIR).",
+)
+async def rename_path(body: RenameRequest) -> dict:
+    """Rename or move a file/directory."""
+    src = _resolve_workspace_path(body.source, for_write=True)
+    if src == _ALLOWED_ROOT:
+        raise HTTPException(status_code=400, detail="Cannot operate on root")
+    dst = _resolve_workspace_path(body.target, for_write=True)
+    if not src.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    if dst.exists():
+        raise HTTPException(status_code=409, detail="Target exists")
+    try:
+        src.rename(dst)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"renamed": str(src), "to": str(dst)}
