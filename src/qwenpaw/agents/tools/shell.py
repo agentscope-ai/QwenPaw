@@ -698,6 +698,65 @@ async def _cleanup_proc(
     return stdout_str, stderr_str
 
 
+def _collect_request_env_vars() -> dict[str, str]:
+    """Collect per-request identity for subprocess env injection.
+
+    Reads the fixed identity fields from the existing request-scoped
+    ContextVars populated by ``ContextVarsSetupHook`` (user_id, channel,
+    session_id, root_session_id) plus the display name carried in the
+    approval-route channel metadata.  Only non-empty values are returned,
+    keyed by their ``QWENPAW_*`` env-var name.
+
+    Returns:
+        Mapping of env-var name → value to expose to the subprocess.
+    """
+    from ...app.agent_context import (
+        get_current_approval_route,
+        get_current_channel,
+        get_current_root_session_id,
+        get_current_session_id,
+        get_current_user_id,
+    )
+
+    env: dict[str, str] = {}
+    mappings = (
+        ("QWENPAW_USER_ID", get_current_user_id()),
+        ("QWENPAW_CHANNEL", get_current_channel()),
+        ("QWENPAW_SESSION_ID", get_current_session_id()),
+        ("QWENPAW_ROOT_SESSION_ID", get_current_root_session_id()),
+    )
+    for env_name, value in mappings:
+        if value:
+            env[env_name] = str(value)
+
+    route = get_current_approval_route() or {}
+    channel_meta = route.get("channel_meta")
+    if isinstance(channel_meta, dict):
+        user_name = channel_meta.get("user_name")
+        if user_name:
+            env["QWENPAW_USER_NAME"] = str(user_name)
+    return env
+
+
+def _sanitize_env_values(output: str, injected_env: dict[str, str]) -> str:
+    """Replace QWENPAW_* env var values in *output* with ``***REDACTED***``.
+
+    Only inspects keys that start with the ``QWENPAW_`` prefix used for
+    request-context injection.  Long values are truncated to 64 chars
+    for the replacement scan to bound worst-case complexity.
+    """
+    for key, value in injected_env.items():
+        if not key.startswith("QWENPAW_"):
+            continue
+        if not value:
+            continue
+        # Truncate long values for bounded replacement scan.
+        needle = value[:64]
+        if needle in output:
+            output = output.replace(needle, "***REDACTED***")
+    return output
+
+
 # pylint: disable=too-many-branches, too-many-statements
 @tool_descriptor(
     requires_sandbox=("shell_exec",),
@@ -792,6 +851,13 @@ async def execute_shell_command(
 
     # Ensure the venv Python is on PATH for subprocesses
     env = os.environ.copy()
+    # Inject per-request identity as QWENPAW_* environment variables for
+    # CLI tools and SKILL scripts.  Identity is read from the existing
+    # request-scoped ContextVars (populated by ContextVarsSetupHook) — no
+    # new transport is introduced.
+    _injected_env = _collect_request_env_vars()
+    for env_name, value in _injected_env.items():
+        env[env_name] = value
     python_bin_dir = str(Path(sys.executable).parent)
     existing_path = env.get("PATH", "")
     if existing_path:
@@ -847,18 +913,25 @@ async def execute_shell_command(
                 ],
                 metadata={"sandbox_violation": result.sandbox_violation},
             )
+        _sanitize = (
+            _sanitize_env_values if _injected_env else (lambda s, _e: s)
+        )
         if result.exit_code == 0:
+            stdout_s = _sanitize(result.stdout or "", _injected_env)
             response_text = (
-                result.stdout or "Command executed successfully (no output)."
+                stdout_s or "Command executed successfully (no output)."
             )
             if result.stderr:
-                response_text += f"\n[stderr]\n{result.stderr}"
+                stderr_s = _sanitize(result.stderr, _injected_env)
+                response_text += f"\n[stderr]\n{stderr_s}"
         else:
             parts = [f"Command failed with exit code {result.exit_code}."]
             if result.stdout:
-                parts.append(f"\n[stdout]\n{result.stdout}")
+                stdout_s = _sanitize(result.stdout, _injected_env)
+                parts.append(f"\n[stdout]\n{stdout_s}")
             if result.stderr:
-                parts.append(f"\n[stderr]\n{result.stderr}")
+                stderr_s = _sanitize(result.stderr, _injected_env)
+                parts.append(f"\n[stderr]\n{stderr_s}")
             response_text = "".join(parts)
         return ToolChunk(
             is_last=True,
@@ -937,19 +1010,26 @@ async def execute_shell_command(
                     stderr_suffix,
                 )
 
+        _sanitize = (
+            _sanitize_env_values if _injected_env else (lambda s, _e: s)
+        )
         if returncode == 0:
-            if stdout_str:
-                response_text = stdout_str
+            stdout_s = _sanitize(stdout_str, _injected_env)
+            if stdout_s:
+                response_text = stdout_s
             else:
                 response_text = "Command executed successfully (no output)."
             if stderr_str:
-                response_text += f"\n[stderr]\n{stderr_str}"
+                stderr_s = _sanitize(stderr_str, _injected_env)
+                response_text += f"\n[stderr]\n{stderr_s}"
         else:
             response_parts = [f"Command failed with exit code {returncode}."]
             if stdout_str:
-                response_parts.append(f"\n[stdout]\n{stdout_str}")
+                stdout_s = _sanitize(stdout_str, _injected_env)
+                response_parts.append(f"\n[stdout]\n{stdout_s}")
             if stderr_str:
-                response_parts.append(f"\n[stderr]\n{stderr_str}")
+                stderr_s = _sanitize(stderr_str, _injected_env)
+                response_parts.append(f"\n[stderr]\n{stderr_s}")
             response_text = "".join(response_parts)
 
         return ToolChunk(

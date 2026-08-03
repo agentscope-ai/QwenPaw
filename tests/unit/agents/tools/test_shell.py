@@ -1723,3 +1723,256 @@ async def test_execute_shell_command_win32_uses_windows_host():
 
     mock_win.assert_awaited_once()
     assert "win-ok" in result.content[0].text
+
+
+# ---------------------------------------------------------------------------
+# request-context env injection (QWENPAW_*)
+# ---------------------------------------------------------------------------
+
+
+class TestCollectRequestEnvVars:
+    """Tests for _collect_request_env_vars reading existing ContextVars."""
+
+    def test_empty_when_no_identity(self):
+        with (
+            patch(
+                "qwenpaw.app.agent_context.get_current_user_id",
+                return_value=None,
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_channel",
+                return_value=None,
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_session_id",
+                return_value=None,
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_root_session_id",
+                return_value=None,
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_approval_route",
+                return_value=None,
+            ),
+        ):
+            from qwenpaw.agents.tools.shell import _collect_request_env_vars
+
+            assert not _collect_request_env_vars()
+
+    def test_collect_identity_and_user_name(self):
+        with (
+            patch(
+                "qwenpaw.app.agent_context.get_current_user_id",
+                return_value="u-1",
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_channel",
+                return_value="console",
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_session_id",
+                return_value="s-1",
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_root_session_id",
+                return_value="r-1",
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_approval_route",
+                return_value={"channel_meta": {"user_name": "Bob"}},
+            ),
+        ):
+            from qwenpaw.agents.tools.shell import _collect_request_env_vars
+
+            assert _collect_request_env_vars() == {
+                "QWENPAW_USER_ID": "u-1",
+                "QWENPAW_CHANNEL": "console",
+                "QWENPAW_SESSION_ID": "s-1",
+                "QWENPAW_ROOT_SESSION_ID": "r-1",
+                "QWENPAW_USER_NAME": "Bob",
+            }
+
+    def test_non_dict_channel_meta_ignored(self):
+        with (
+            patch(
+                "qwenpaw.app.agent_context.get_current_user_id",
+                return_value="u-1",
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_channel",
+                return_value=None,
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_session_id",
+                return_value=None,
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_root_session_id",
+                return_value=None,
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_approval_route",
+                return_value={"channel_meta": None},
+            ),
+        ):
+            from qwenpaw.agents.tools.shell import _collect_request_env_vars
+
+            assert _collect_request_env_vars() == {"QWENPAW_USER_ID": "u-1"}
+
+
+class TestSanitizeEnvValues:
+    """Tests for _sanitize_env_values output redaction."""
+
+    def test_redacts_qwenpaw_values(self):
+        from qwenpaw.agents.tools.shell import _sanitize_env_values
+
+        out = _sanitize_env_values(
+            "user secret-user logged in",
+            {"QWENPAW_USER_ID": "secret-user"},
+        )
+        assert "***REDACTED***" in out
+        assert "secret-user" not in out
+
+    def test_non_qwenpaw_keys_not_redacted(self):
+        from qwenpaw.agents.tools.shell import _sanitize_env_values
+
+        out = _sanitize_env_values("PATH=/usr/bin", {"PATH": "/usr/bin"})
+        assert out == "PATH=/usr/bin"
+
+    def test_empty_value_skipped(self):
+        from qwenpaw.agents.tools.shell import _sanitize_env_values
+
+        out = _sanitize_env_values("keep value", {"QWENPAW_USER_ID": ""})
+        assert out == "keep value"
+
+
+class TestShellEnvInjection:
+    """End-to-end: execute_shell_command injects QWENPAW_* env + redacts."""
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
+    @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
+    @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
+    async def test_injects_env_and_redacts_output(
+        self,
+        mock_shell_exe,
+        mock_workspace,
+        mock_timeout,
+    ):
+        mock_shell_exe.return_value = None
+        mock_workspace.return_value = None
+        mock_timeout.return_value = None
+
+        async def fake_wait_for(coro, timeout=None):
+            return await coro
+
+        mock_proc = MagicMock()
+        mock_proc.communicate = AsyncMock(
+            return_value=(b"user u-1 logged in\n", b""),
+        )
+        mock_proc.returncode = 0
+        mock_proc.pid = 12345
+
+        captured: dict[str, dict[str, str]] = {}
+
+        async def fake_create_subprocess_shell(cmd, **kwargs):
+            captured["env"] = kwargs.get("env", {})
+            return mock_proc
+
+        with (
+            patch(
+                "qwenpaw.app.agent_context.get_current_user_id",
+                return_value="u-1",
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_channel",
+                return_value="console",
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_session_id",
+                return_value="s-1",
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_root_session_id",
+                return_value="r-1",
+            ),
+            patch(
+                "qwenpaw.app.agent_context.get_current_approval_route",
+                return_value={
+                    "root_session_id": "r-1",
+                    "user_id": "u-1",
+                    "channel": "console",
+                    "channel_meta": {"user_name": "Bob"},
+                },
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
+                new=AsyncMock(side_effect=fake_create_subprocess_shell),
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.wait_for",
+                side_effect=fake_wait_for,
+            ),
+        ):
+            from qwenpaw.agents.tools.shell import execute_shell_command
+
+            result = await execute_shell_command("echo hi")
+
+        env = captured["env"]
+        assert env["QWENPAW_USER_ID"] == "u-1"
+        assert env["QWENPAW_CHANNEL"] == "console"
+        assert env["QWENPAW_SESSION_ID"] == "s-1"
+        assert env["QWENPAW_ROOT_SESSION_ID"] == "r-1"
+        assert env["QWENPAW_USER_NAME"] == "Bob"
+
+        text = result.content[0].text
+        assert "***REDACTED***" in text
+        assert "u-1" not in text
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
+    @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
+    @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
+    async def test_no_identity_no_injection_no_redaction(
+        self,
+        mock_shell_exe,
+        mock_workspace,
+        mock_timeout,
+    ):
+        mock_shell_exe.return_value = None
+        mock_workspace.return_value = None
+        mock_timeout.return_value = None
+
+        async def fake_wait_for(coro, timeout=None):
+            return await coro
+
+        mock_proc = MagicMock()
+        mock_proc.communicate = AsyncMock(
+            return_value=(b"plain output\n", b""),
+        )
+        mock_proc.returncode = 0
+        mock_proc.pid = 12345
+
+        captured: dict[str, dict[str, str]] = {}
+
+        async def fake_create_subprocess_shell(cmd, **kwargs):
+            captured["env"] = kwargs.get("env", {})
+            return mock_proc
+
+        with (
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
+                new=AsyncMock(side_effect=fake_create_subprocess_shell),
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.wait_for",
+                side_effect=fake_wait_for,
+            ),
+        ):
+            from qwenpaw.agents.tools.shell import execute_shell_command
+
+            result = await execute_shell_command("echo hi")
+
+        assert not any(key.startswith("QWENPAW_") for key in captured["env"])
+        assert "plain output" in result.content[0].text
