@@ -18,16 +18,20 @@ from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from agentscope.agent import Agent, ReActConfig
 from agentscope.event import (
+    ModelCallEndEvent,
     TextBlockDeltaEvent,
     TextBlockEndEvent,
     TextBlockStartEvent,
 )
-from agentscope.message import Msg, TextBlock
+from agentscope.message import HintBlock, Msg, TextBlock
+from agentscope.model import FinishedReason
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
+from .context.base import ContextManager
 from .skill_system import get_workspace_skills_dir
 from ..modes.coding import CodingModeMixin
+from ..utils.io_utils import run_sync_io
 from ..constant import (
     LOOP_CONTINUATION_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
@@ -35,6 +39,7 @@ from ..constant import (
     WORKING_DIR,
 )
 from ..loop.gates import StopAction, StopHandlerResult
+from ..providers.error_utils import extract_status_code
 from ..providers.model_capability_cache import get_capability_cache
 
 if TYPE_CHECKING:
@@ -42,6 +47,13 @@ if TYPE_CHECKING:
     from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _effective_artifact_retention_days(light_context_config: Any) -> int:
+    """Return the independently configured tool-result artifact lifetime."""
+    return (
+        light_context_config.tool_result_pruning_config.offload_retention_days
+    )
 
 
 class QwenPawAgent(CodingModeMixin, Agent):
@@ -71,7 +83,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         memory_manager: "BaseMemoryManager | None" = None,
         offloader: Any = None,
         context_config: Any = None,
-        context_manager: Any = None,
+        context_manager: ContextManager | None = None,
         effective_skills: Optional[list[str]] = None,
         governor: Any = None,
     ):
@@ -95,11 +107,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         self._governor = governor
         self._gate_pending_stop = None
-        self._gate_pending_continue = None
 
         self.memory_manager = memory_manager
 
-        # Register memory tools into toolkit
+        # Register memory tools, then apply a final whitelist pass so
+        # subagent_allowed_tools=[] truly denies every tool (including
+        # memory / future post-toolkit injections).
         if self.memory_manager is not None:
             memory_tools = self.memory_manager.list_memory_tools()
             basic_group = toolkit.tool_groups[0]
@@ -117,6 +130,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 "Registered memory tools: %s",
                 [fn.__name__ for fn in memory_tools],
             )
+        self._apply_subagent_tool_whitelist(toolkit)
 
         init_kwargs: dict[str, Any] = {
             "name": name,
@@ -142,26 +156,87 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         self._register_tool_call_hooks()
 
+    def _apply_subagent_tool_whitelist(self, toolkit: Any) -> None:
+        """Filter every toolkit group by ``subagent_allowed_tools``."""
+        from ..runtime.builder import AgentBuilder
+
+        groups = getattr(toolkit, "tool_groups", None) or []
+        for group in groups:
+            tools = getattr(group, "tools", None)
+            if not isinstance(tools, list):
+                continue
+            group.tools = AgentBuilder.apply_subagent_tool_whitelist(
+                tools,
+                self._request_context,
+            )
+
     async def compress_context(
         self,
         context_config: Any = None,
+        instructions: HintBlock | None = None,
     ) -> None:
-        """Delegate to the context manager, else native compression.
+        """Run context compression through AgentScope's middleware chain.
 
-        With a ``context_manager`` injected (e.g. the scroll strategy), it owns
-        compression. Otherwise fall back to AgentScope's native path, gated on
-        ``context_compact_config.enabled``.
+        The actual Scroll/native dispatch lives in
+        :meth:`_compress_context_impl`, which is AgentScope's extension point
+        beneath ``on_compress_context`` middlewares. Keeping the public entry
+        point on the base path ensures memory and plugin middlewares observe
+        both strategies consistently.
         """
-        if self._context_manager is not None:
-            await self._context_manager.compress(self, context_config)
-            return
+        # ── Always sanitize tool messages before any model call ──
+        # Orphan tool_result messages (whose tool_call was evicted by a
+        # prior compression) can survive in context across session
+        # boundaries. compress() itself only cleans during an active split;
+        # if the context is already corrupted but under the trigger
+        # threshold, the corrupt messages still reach the model → 400.
+        # This unconditional guard runs on every compress_context() call
+        # (which fires before every reasoning step), catching orphans that
+        # leaked through any path: loaded sessions, pre-patch corruption,
+        # or unaccounted edge cases.
         try:
-            lcc = self._agent_config.running.light_context_config
-            if not lcc.context_compact_config.enabled:
-                return
+            from .utils.tool_message_utils import _sanitize_tool_messages
+
+            sanitized = _sanitize_tool_messages(self.state.context)
+            if sanitized is not self.state.context:
+                self.state.context = sanitized
         except Exception:
             pass
-        await super().compress_context(context_config)
+
+        if self._context_manager is None:
+            try:
+                lcc = self._agent_config.running.light_context_config
+                if not lcc.context_compact_config.enabled:
+                    return
+            except Exception:
+                pass
+        await super().compress_context(
+            context_config,
+            instructions=instructions,
+        )
+
+    async def _compress_context_impl(
+        self,
+        context_config: Any = None,
+        instructions: HintBlock | None = None,
+    ) -> None:
+        """Dispatch the middleware-wrapped compression implementation."""
+        if self._context_manager is not None:
+            if instructions is None:
+                # Preserve compatibility with third-party managers that
+                # implemented the original two-argument protocol.
+                await self._context_manager.compress(self, context_config)
+            else:
+                await self._context_manager.compress(
+                    self,
+                    context_config,
+                    instructions=instructions,
+                )
+            return
+
+        await super()._compress_context_impl(
+            context_config,
+            instructions=instructions,
+        )
 
     def _save_to_context(self, blocks: Any, usage: Any = None) -> None:
         """Append blocks, then let the context manager write them through."""
@@ -207,6 +282,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 raise KeyError(
                     f"Could not load AgentState from snapshot: {exc}",
                 ) from exc
+            # ── Sanitize loaded context: orphan tool_result messages can
+            # persist in session JSON from an evicted tool_call and leak
+            # across session boundaries when the session is reloaded.
+            self._sanitize_loaded_context()
             # Rehydrate the scroll manager's bookkeeping so the restored window
             # is recognized as already durable (no re-append on resume).
             cm = getattr(self, "_context_manager", None)
@@ -217,6 +296,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 and hasattr(cm, "load_state")
             ):
                 cm.load_state(scroll)
+                if hasattr(cm, "reconcile_loaded_context"):
+                    cm.reconcile_loaded_context(self)
             return
 
         # --- 1.x legacy format: migrate ``memory`` → ``state`` ---
@@ -228,6 +309,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
             self.state = AgentState()
             self.state.context.extend(msgs)
             self.state.summary = summary
+            # Same sanitize as 2.0 path above.
+            self._sanitize_loaded_context()
             logger.info(
                 "Migrated 1.x session: %d messages + summary(%d chars)",
                 len(msgs),
@@ -239,6 +322,26 @@ class QwenPawAgent(CodingModeMixin, Agent):
             raise KeyError(
                 "state_dict has neither 'state' nor 'memory' key",
             )
+
+    def _sanitize_loaded_context(self) -> None:
+        """Strip orphan tool_result messages from the loaded context.
+
+        Orphan tool_result messages (whose tool_call has been evicted)
+        can persist in session JSON and leak across session boundaries
+        when loaded by ``load_state_dict``.  Without sanitization here
+        they reach the model and cause ``400 - Messages with role 'tool'
+        must be a response to a preceding message with 'tool_calls'``.
+        """
+        try:
+            from .utils.tool_message_utils import _sanitize_tool_messages
+
+            self.state.context = _sanitize_tool_messages(
+                self.state.context,
+            )
+        except Exception:
+            # Best-effort: a corrupt context will be caught again by
+            # compress_context() on the next reasoning cycle.
+            pass
 
     async def close(self) -> None:
         """Shut down governor, release the history store, and clean up expired
@@ -258,7 +361,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
             if hasattr(cm, "purge_old"):
                 try:
                     lcc = self._agent_config.running.light_context_config
-                    cm.purge_old(lcc.scroll_config.history_retention_days)
+                    await run_sync_io(
+                        cm.purge_old,
+                        lcc.scroll_config.history_retention_days,
+                    )
                 except Exception:
                     logger.debug(
                         "history retention purge failed",
@@ -266,7 +372,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
             if hasattr(cm, "close"):
                 try:
-                    cm.close()
+                    await run_sync_io(cm.close)
                 except Exception:
                     logger.debug(
                         "context manager close failed",
@@ -280,10 +386,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
         ):
             try:
                 lcc = self._agent_config.running.light_context_config
-                trc = lcc.tool_result_pruning_config
-                offloader.cleanup_expired(
-                    retention_days=trc.offload_retention_days,
-                )
+                retention_days = _effective_artifact_retention_days(lcc)
+                if retention_days > 0:
+                    await run_sync_io(
+                        offloader.cleanup_expired,
+                        retention_days=retention_days,
+                    )
             except Exception:
                 logger.debug("offloader cleanup failed", exc_info=True)
 
@@ -362,6 +470,113 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return
         setattr(formatter, "_qwenpaw_force_strip_media", enabled)
 
+    @staticmethod
+    def _is_context_overflow_error(exc: Exception) -> bool:
+        """Return whether *exc* is a provider 400 for an oversized input.
+
+        A bare 400 is deliberately insufficient: malformed tool schemas,
+        unsupported parameters, and media errors must keep their existing
+        handling.  Prefer the structured status code when the SDK exposes it,
+        with the rendered exception as a compatibility fallback for gateways
+        that wrap the original response.
+        """
+        status = extract_status_code(exc)
+        error_str = str(exc).lower()
+        if status != 400 and "error code: 400" not in error_str:
+            return False
+
+        overflow_markers = (
+            "range of input length",
+            "context length exceeded",
+            "context_length_exceeded",
+            "maximum context length",
+            "maximum context window",
+            "max input length",
+            "input length should be",
+            "input is too long",
+            "prompt is too long",
+            "prompt too long",
+            "too many input tokens",
+        )
+        if any(marker in error_str for marker in overflow_markers):
+            return True
+
+        gemini_overflow_marker_groups = (
+            (
+                "input token count",
+                "exceeds the maximum number of tokens allowed",
+            ),
+            (
+                "input token count",
+                "model only supports up to",
+            ),
+        )
+        return any(
+            all(marker in error_str for marker in marker_group)
+            for marker_group in gemini_overflow_marker_groups
+        )
+
+    async def _call_model(
+        self,
+        messages: list[Msg],
+        tools: list[dict],
+        tool_choice: Any = None,
+    ) -> Any:
+        """Call the model, recovering once from a provider input overflow.
+
+        When the provider rejects the request as too large, let the configured
+        context manager attempt recovery. Rebuild and retry only when that
+        recovery changed the model input. The retry calls AgentScope directly,
+        so a second overflow propagates instead of entering a recovery loop.
+        """
+        try:
+            return await super()._call_model(
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+            )
+        except Exception as exc:
+            context_manager = getattr(self, "_context_manager", None)
+            if not isinstance(
+                context_manager,
+                ContextManager,
+            ) or not self._is_context_overflow_error(exc):
+                raise
+
+            before = len(getattr(self.state, "context", []) or [])
+            logger.warning(
+                "Model input exceeded the provider context limit; attempting "
+                "one context recovery.",
+            )
+            input_changed = (
+                await context_manager.recover_from_context_overflow(self)
+            )
+            if not input_changed:
+                logger.warning(
+                    "Context-overflow recovery did not change the model "
+                    "input; skipping the retry.",
+                )
+                raise
+            after = len(getattr(self.state, "context", []) or [])
+
+            # The original `messages` list was prepared before compaction and
+            # can still reference evicted turns.  Always rebuild it from the
+            # updated agent state before retrying.
+            refreshed = await self._prepare_model_input()
+            refreshed_messages = refreshed["messages"]
+            refreshed_tools = refreshed.get("tools", [])
+            logger.info(
+                "Context-overflow recovery rebuilt model input "
+                "(messages %d -> %d).",
+                before,
+                after,
+            )
+            return await super()._call_model(
+                messages=refreshed_messages,
+                tools=refreshed_tools,
+                tool_choice=tool_choice,
+            )
+
     # pylint: disable=too-many-branches,too-many-statements
     async def _reasoning(
         self,
@@ -370,6 +585,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
         """Forward 2.0 ``_reasoning`` events with proactive media
         stripping, passive bad-request retry, and auto-continue on
         text-only responses."""
+
+        # ── Inject background-tool results before each reasoning step ──
+        await self._inject_pending_hints()
 
         # ── Pre-check: pending gate actions from previous iter ──
         from ..loop.gates.runner import check_pending_gates
@@ -424,8 +642,34 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         # ── Model call with passive retry on media error ──
         final_msg: Msg | None = None
+        context_manager = self._context_manager
+        pending_seen_ids: set[str] = set()
+        if context_manager is not None and hasattr(
+            context_manager,
+            "model_input_tool_result_ids",
+        ):
+            pending_seen_ids = context_manager.model_input_tool_result_ids(
+                self,
+            )
+
+        def acknowledge_seen_results(evt: Any) -> None:
+            """Acknowledge inputs only after a completed model request."""
+            if (
+                isinstance(evt, ModelCallEndEvent)
+                and evt.finished_reason != FinishedReason.INTERRUPTED
+                and context_manager is not None
+                and hasattr(
+                    context_manager,
+                    "acknowledge_model_input_tool_results",
+                )
+            ):
+                context_manager.acknowledge_model_input_tool_results(
+                    pending_seen_ids,
+                )
+
         try:
             async for evt in super()._reasoning(tool_choice=tool_choice):
+                acknowledge_seen_results(evt)
                 if isinstance(evt, Msg):
                     final_msg = evt
                 else:
@@ -455,6 +699,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 async for evt in super()._reasoning(
                     tool_choice=tool_choice,
                 ):
+                    acknowledge_seen_results(evt)
                     if isinstance(evt, Msg):
                         final_msg = evt
                     else:
@@ -489,6 +734,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 stop_result.continuation_message
                 or "Continue working on the task."
             )
+            continuation_metadata = stop_result.continuation_metadata or {
+                QWENPAW_MESSAGE_TAG_KEY: (LOOP_CONTINUATION_MESSAGE_TAG),
+            }
             self.state.context.append(
                 Msg(
                     name="user",
@@ -499,9 +747,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                             text=continuation,
                         ),
                     ],
-                    metadata={
-                        QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
-                    },
+                    metadata=continuation_metadata,
                 ),
             )
             return  # outer loop continues
@@ -511,7 +757,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
             record_run_outcome_from_stop(self, stop_result)
 
-        yield final_msg
+        yield stop_result.final_message or final_msg
 
     @staticmethod
     def _is_content_safety_error(exc: Exception) -> bool:
@@ -608,8 +854,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
             self.state.context.append(hint)
 
     async def _reply(self, **kwargs: Any) -> Any:
-        """Override to inject pending background-tool hints before reply."""
-        await self._inject_pending_hints()
+        """Override kept as extension point; hint injection moved to
+        ``_reasoning`` so each ReAct iteration picks up new hints."""
         async for evt in super()._reply(**kwargs):
             yield evt
 
@@ -619,11 +865,22 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if mgr is None:
             return
 
+        from ..tool_calls import COORDINATOR_OWNED_EXEC_TIMEOUT_SECS
+
+        # Sandbox / A2A HTTP still use a 24h coordinator-owned ceiling; expose
+        # the same cap so extend/no_deadline cannot promise more than the
+        # executor will actually allow.
+        _owned_cap = float(COORDINATOR_OWNED_EXEC_TIMEOUT_SECS)
         mgr.hooks.register(
             "execute_shell_command",
             default_timeout_secs=60.0,
+            max_internal_timeout_secs=_owned_cap,
         )
-        mgr.hooks.register("chat_with_agent", default_timeout_secs=300.0)
+        mgr.hooks.register(
+            "chat_with_agent",
+            default_timeout_secs=300.0,
+            max_internal_timeout_secs=_owned_cap,
+        )
         mgr.hooks.register("check_agent_task", default_timeout_secs=30.0)
         mgr.hooks.register("grep_search", default_timeout_secs=30.0)
         mgr.hooks.register("glob_search", default_timeout_secs=15.0)
@@ -640,10 +897,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             "lsp_diagnostics",
         ):
             mgr.hooks.register(name, default_timeout_secs=20.0)
-        mgr.hooks.register(
-            "browser_use",
-            max_internal_timeout_secs=3600.0,
-        )
 
         agent_id = (self._request_context or {}).get(
             "agent_id",

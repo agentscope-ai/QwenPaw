@@ -12,10 +12,12 @@ Cases:
 - INBOX-004 P1  test_message_card_renders_and_modal_opens
 - INBOX-005 P1  test_batch_mode_select_and_delete
 - INBOX-006 P1  test_sidebar_unread_dot_appears_with_seeded_event
+- SYNC-003  P2  test_skill_autosync_notification_card
 """
 from __future__ import annotations
 
 import logging
+import re
 import time
 
 import pytest
@@ -307,6 +309,73 @@ class TestSidebarUnreadDot:
                 inbox_page.SIDEBAR_INBOX_BADGE
             ).first
             expect(badge).to_be_visible(timeout=18000)
+
+            log_test_result(test_name, True, 0)
+            logger.info(f"Test {test_name} passed")
+        finally:
+            inbox_page.clean_inbox()
+
+
+# ============================================================================
+# SYNC-003 P2  Skill auto-sync notification renders as an inbox card
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.p2
+@pytest.mark.inbox
+@pytest.mark.skill_sync
+class TestSkillAutoSyncInbox:
+    """SYNC-003: a ``skill_autoupdate`` event renders a 'Skill auto-sync' card.
+
+    The auto-sync notification (upstream #5639) is emitted server-side with
+    ``source_type='skill_autoupdate'``; the frontend maps that source to a
+    fixed card title via i18n (``inbox.skillAutoUpdateTitle``), so the visible
+    title is 'Skill auto-sync' / '技能自动同步' regardless of the stored title.
+    """
+
+    @pytest.mark.test_id("SYNC-003")
+    def test_skill_autosync_notification_card(
+        self,
+        inbox_page: InboxPage,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        test_name = request.node.name
+
+        try:
+            log_test_step("1. Seed a skill_autoupdate inbox event")
+            inbox_page.clean_inbox()
+            inbox_page.seed_events([
+                inbox_page.make_event(
+                    event_id="evt-skillsync-1",
+                    source_type="skill_autoupdate",
+                    event_type="auto_update",
+                    status="success",
+                    severity="info",
+                    title="Auto-update: 1 skill updated",
+                    body="e2e_sync_skill -> default",
+                    payload={
+                        "synced": [
+                            {"skill": "e2e_sync_skill", "agents": ["default"]},
+                        ],
+                        "failed": [],
+                    },
+                    read=False,
+                    created_at=time.time(),
+                ),
+            ])
+
+            log_test_step("2. Open /inbox")
+            inbox_page.open()
+
+            log_test_step("3. A message card is rendered (poll window ~18s)")
+            cards = inbox_page.page.locator(inbox_page.MESSAGE_CARD)
+            expect(cards.first).to_be_visible(timeout=18000)
+
+            log_test_step("4. The card title reads 'Skill auto-sync'")
+            title = inbox_page.page.locator('[class*="messageTitle"]').filter(
+                has_text=re.compile(r"Skill auto-sync|技能自动同步")
+            )
+            expect(title.first).to_be_visible(timeout=inbox_page.timeout)
 
             log_test_result(test_name, True, 0)
             logger.info(f"Test {test_name} passed")

@@ -4,8 +4,19 @@
 完成对话事实保存、每日记忆、梦境摘要、资源文件监听和记忆检索。
 
 > 长期记忆机制设计受 [OpenClaw](https://github.com/openclaw/openclaw)
-> 启发，由 [ReMe](https://github.com/agentscope-ai/ReMe) 的 **ReMeLight** 实现——以文件系统为存储后端，记忆即 Markdown
+> 启发，由 [ReMe](https://github.com/agentscope-ai/ReMe) 的 **ReMeLight** 实现——以文件系统为存储后端，工作记忆与长期记忆节点均为 Markdown
 > 文件，可直接读取、编辑与迁移。
+
+ReMe 的核心目标，是基于 _Memory as File, File as Memory_ 原则长出一个**自进化的个人知识库**。每个工作记忆或长期记忆节点都是一份普通 Markdown 文件——可读、可编辑、可追溯、可迁移、由你与 agent 协作维护——同时又可被索引和链接；原始来源与派生系统状态则使用适合各自职责的格式。workspace 把记忆组织为四层：
+
+| 分层     | QwenPaw 目录                | 职责                                                |
+| -------- | --------------------------- | --------------------------------------------------- |
+| 原始输入 | `mem_session/`、`resource/` | 作为证据保留的原始对话与外部资料                    |
+| 工作记忆 | `memory/`                   | daily note：事实、决策、资源解读                    |
+| 长期记忆 | `digest/`                   | 可复用知识节点（`personal` / `procedure` / `wiki`） |
+| 系统状态 | `mem_metadata/`             | 索引、wikilink 图、catalog——不手工编辑              |
+
+记忆通过 **capture → index → consolidate → recall** 闭环进化：Auto-Memory / Auto-Resource 捕获 daily note，索引让其可检索，Auto-Dream 把它们整合成带链接的 digest 节点，search / proactive 再召回。完整叙述——包括 Auto-Dream 如何对 digest 节点 corroborate、refine、correct 并织成 wikilink 图——见[智能体记忆进化与主动交互](./memory-evolving-and-proactive)。以下章节聚焦技术实现与配置。
 
 ---
 
@@ -61,8 +72,29 @@ graph TB
 │
 ├── digest/                         ← Auto-Dream 产出的 digest 记忆和兴趣主题
 ├── resource/                       ← auto_resource 监听的外部资源
-└── mem_metadata/                   ← ReMe 持久化索引和 catalog
+└── mem_metadata/                   ← ReMe 持久化索引、图、catalog 和缓存
+    ├── file_store/
+    │   └── file_chunks_default_v1.jsonl.zst
+    ├── file_graph/
+    │   └── default.jsonl.zst
+    ├── file_catalog/
+    │   ├── default.jsonl.zst
+    │   ├── resource.jsonl.zst
+    │   ├── digest.jsonl.zst
+    │   └── dream.jsonl.zst
+    ├── embedding_store/
+    │   └── default_v1.npz
+    └── keyword_index/
+        └── bm25_default_<tokenizer>_<fingerprint>_v1.pkl
 ```
+
+默认工作区下的完整路径是
+`~/.qwenpaw/workspaces/{agent_id}/mem_metadata/`。其中
+`file_store/file_chunks_default_v1.jsonl.zst` 是权威 chunk 存储，向量以 float16
+编码在压缩 JSONL 记录的 `_embedding_f16_b64` 字段中，并不会生成单独的向量数据库目录。
+`embedding_store/default_v1.npz` 是启用 `enable_cache` 后使用的本地 embedding
+缓存，不是权威索引；它可能要到缓存持久化后才出现。实际 BM25 文件名中的 tokenizer
+名称和 fingerprint 会随配置变化。
 
 ### memory/YYYY-MM-DD/\*.md（每日记忆）
 
@@ -85,10 +117,15 @@ note，而不是无限创建重复文件。
 
 ### digest/（梦境记忆）
 
-Auto-Dream 会读取近期每日记忆，提取可合并的 digest 单元，更新 dream catalog，并写入主动交互使用的兴趣主题。
+`digest/` 是长期知识层，也是知识库真正进化的部分。Auto-Dream 读取近期每日记忆，提取可复用的 memory unit，把每个 unit
+整合进一个 digest 节点，更新 dream catalog，并写入主动交互使用的兴趣主题。
 
 - **位置**：`{working_dir}/digest/`
-- **用途**：跨会话的高层记忆和主动交互兴趣主题
+- **Bucket**：`personal/`（用户、团队、项目身份、偏好与约定）、`procedure/`（how-to 工作流、runbook、可复用方法）、
+  `wiki/`（定义、原则、观察、作为先例的决策）
+- **进化而非追加**：每个 unit 以 `CREATE`、`CORROBORATE`、`REFINE`、`CORRECT` 之一整合，重复事实会被合并强化而非制造副本
+- **Wikilink 图**：节点带有来源边（`derived_from:: [[memory/<date>/<note>.md]]`）与关系边
+  （`relates_to:: [[digest/...]]`），让 digest 记忆保持可追溯、可连通；`memory_search` 会沿这些链接展开
 - **更新**：ReMe `auto_dream`，通常由 `dream_cron` 定时触发
 
 ### resource/（资源记忆）
@@ -97,7 +134,20 @@ Auto-Dream 会读取近期每日记忆，提取可合并的 digest 单元，更�
 
 - **位置**：`{working_dir}/resource/`
 - **默认支持后缀**：`md`、`txt`、`json`、`jsonl`、`csv`、`yaml`、`html`
+- **日期归属**：直接放在 `resource/` 下的文件归入当天；`resource/YYYY-MM-DD/`
+  下的文件归入指定日期，且可继续使用子目录
+- **输出**：生成或更新 `memory/YYYY-MM-DD/<note>.md`，frontmatter 中保留
+  `source_resource` 链接
 - **Inbox 行为**：只有实际修改记忆时，资源处理结果才会推送到 inbox
+
+```text
+resource/report.txt                    # 归入当天
+resource/2026-07-14/report.txt         # 归入 2026-07-14
+resource/2026-07-14/project/data.json  # 日期目录下可使用子目录
+```
+
+> Auto Resource 当前按 UTF-8 文本读取资源。PDF、Word、Excel、图片等二进制文件不在监听后缀中，
+> 不会被自动解析；请先转换为上述受支持的文本格式。`yml` 也不在默认白名单中，请使用 `yaml`。
 
 > 关于 Auto-Memory、Auto-Dream、Auto-Memory-Search 和 Proactive
 > 的完整工作流介绍，请参阅 [智能体记忆进化与主动交互](./memory-evolving-and-proactive)。以下仅补充技术实现细节与配置说明。
@@ -174,6 +224,77 @@ graph LR
 
 > **总结**：单独使用任何一种检索方式都存在盲区。混合检索让两种信号互补，无论是「自然语言提问」还是「精确查找」，都能获得可靠的召回结果。
 
+### 验证向量检索是否生效
+
+可以让 Agent 调用 `memory_search` 并原样返回工具结果。把 `xxx` 替换成要测试的查询：
+
+```text
+请调用 memory_search 工具搜索 "xxx"。请原样返回工具结果，包括所有分隔线以及
+score、vector、keyword 字段，不要总结或改写。
+```
+
+若要验证语义召回而不是关键词匹配，可以先保存一条记忆，例如
+“我首选的通勤工具是一辆轻便自行车。”，再搜索“用户平时怎样去上班？”。两句话没有明显的关键词重合，
+但语义相近，因此更容易观察向量检索是否命中。
+
+下面的分数仅用于说明输出格式：
+
+**仅向量分支命中：**
+
+```text
+========== memory/2026-07-23/commute.md:1-6 [score=0.8237] ==========
+我首选的通勤工具是一辆轻便自行车。
+```
+
+此时 `score` 是原始余弦相似度。
+
+**仅 BM25 分支命中：**
+
+```text
+========== memory/2026-07-23/commute.md:1-6 [score=3.1842] ==========
+我首选的通勤工具是一辆轻便自行车。
+```
+
+此时 `score` 是原始 BM25 分数。只有 `[score=...]` 时，单看数值不能严格判断是哪一路；
+应结合查询是否存在精确关键词，或者查看下面的检索日志。
+
+**两路均有候选的混合检索：**
+
+```text
+========== memory/2026-07-23/commute.md:1-6 [score=0.0164 vector=0.8237 keyword=3.1842] ==========
+我首选的通勤工具是一辆轻便自行车。
+
+========== memory/2026-07-20/purchase.md:3-7 [score=0.0113 vector=0.7915 keyword=-] ==========
+用户买了一辆轻便的两轮交通工具。
+
+========== memory/2026-07-18/maintenance.md:2-5 [score=0.0048 vector=- keyword=2.5176] ==========
+周末安排了自行车维护。
+```
+
+- `score`：RRF 融合分数
+- `vector`：原始向量余弦相似度；出现数值可直接确认向量分支返回了该结果
+- `keyword`：原始 BM25 分数
+- `-`：该结果没有被对应分支召回
+
+日志中的 `vector_hits=N keyword_hits=M` 可以确认每一路返回的候选数量。Embedding
+健康检查还会发送一次 `"ping"` 测试请求，并校验返回向量维度：
+
+```text
+[EMBEDDING HEALTH CHECK] name=default workspace_dir=<workspace> -> OK
+```
+
+`-> OK` 表示 embedding 服务可访问且返回维度与配置一致。失败时日志会包含原因，例如：
+
+```text
+[EMBEDDING HEALTH CHECK] name=default workspace_dir=<workspace> -> FAIL timeout(5.0s)
+[EMBEDDING HEALTH CHECK] name=default workspace_dir=<workspace> -> FAIL RuntimeError: embedding dimension mismatch: <actual> != <configured>
+[EMBEDDING HEALTH CHECK] name=default workspace_dir=<workspace> -> FAIL <ExceptionType>: <message>
+```
+
+健康检查会在加载持久化 chunk、发现缺失向量并需要 backfill 时运行；如果已有 chunk
+都包含有效向量，它不一定在每次启动时出现。此时搜索结果中的数值 `vector=...`
+仍是向量分支实际命中的直接证据。
+
 ---
 
 ## 记忆配置
@@ -182,19 +303,37 @@ graph LR
 
 记忆配置位于 `agent.json` 的 `running.reme_light_memory_config` 中：
 
-| 配置项                          | 说明                                                                     | 默认值           |
-| ------------------------------- | ------------------------------------------------------------------------ | ---------------- |
-| `metadata_dir`                  | ReMe 持久状态目录，用于保存索引、catalog、graph 和缓存                   | `"mem_metadata"` |
-| `session_dir`                   | 来源对话保存目录                                                         | `"mem_session"`  |
-| `mem_session_dir`               | ReMe 内部 memory-agent 会话目录                                          | `"mem_agent"`    |
-| `resource_dir`                  | `auto_resource` 监听的资源目录                                           | `"resource"`     |
-| `daily_dir`                     | 每日记忆目录                                                             | `"memory"`       |
-| `digest_dir`                    | dream/digest 记忆目录                                                    | `"digest"`       |
-| `enable_search_raw_log`         | 是否让搜索索引包含原始 session/resource JSONL 类数据                     | `false`          |
-| `summarize_when_compact`        | 是否在上下文压缩前将待保存回合提交给 Auto-Memory                         | `true`           |
-| `auto_memory_interval`          | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆 | `5`              |
-| `dream_cron`                    | Auto-Dream 任务的 Cron 表达式（空字符串表示禁用）                        | `"0 23 * * *"`   |
-| `rebuild_memory_index_on_start` | Agent 启动时是否清空并重建 ReMe 搜索索引                                 | `false`          |
+| 配置项                   | 说明                                                                                | 默认值           |
+| ------------------------ | ----------------------------------------------------------------------------------- | ---------------- |
+| `metadata_dir`           | ReMe 持久状态目录，用于保存索引、catalog、graph 和缓存                              | `"mem_metadata"` |
+| `session_dir`            | 来源对话保存目录                                                                    | `"mem_session"`  |
+| `mem_session_dir`        | ReMe 内部 memory-agent 会话目录                                                     | `"mem_agent"`    |
+| `resource_dir`           | `auto_resource` 监听的资源目录                                                      | `"resource"`     |
+| `daily_dir`              | 每日记忆目录                                                                        | `"memory"`       |
+| `digest_dir`             | dream/digest 记忆目录                                                               | `"digest"`       |
+| `summarize_when_compact` | 是否在上下文压缩前将待保存回合提交给 Auto-Memory                                    | `true`           |
+| `inbox_push_enabled`     | 是否将 `auto_memory`、`auto_dream`、`auto_resource` 的 job 结果推送到 QwenPaw inbox | `true`           |
+| `auto_memory_interval`   | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆            | `5`              |
+| `dream_cron_enabled`     | 是否启用按 Cron 定时执行的 Auto-Dream 任务                                          | `true`           |
+| `dream_cron`             | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动    | `"0 23 * * *"`   |
+
+### 重建记忆搜索索引
+
+重建索引是一项显式维护操作，仅建议用于修复索引损坏或搜索结果异常。该操作会清空并重新创建 ReMe 搜索索引，
+执行期间 CPU 和内存占用可能明显升高。只有使用 ReMeLight 记忆后端且记忆管理器正在运行的智能体支持此操作。
+
+在控制台中，打开智能体配置，在**长期记忆**区域选择**重建记忆索引**，阅读警告后确认执行。也可以调用以下
+同步维护 API：
+
+```http
+POST /api/agents/{agentId}/memory/reindex
+```
+
+重建成功时返回 `{"status":"completed"}`。同一智能体同时只能执行一个重建任务；重复请求会返回 HTTP `409`。
+非 ReMeLight 后端会返回 `400`，智能体不存在时返回 `404`，ReMe 不可用时返回 `503`，重建任务失败时返回 `500`。
+
+> `rebuild_memory_index_on_start` 已不再支持，请从 `agent.json` 中删除该字段；确实需要重建索引时，请改用
+> 控制台操作或上述 API。
 
 ### 自动记忆搜索配置
 
@@ -222,10 +361,15 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 | `enable_cache`     | 是否启用 Embedding 缓存                                                               | `true`   |
 | `use_dimensions`   | 是否在 API 请求中传递 dimensions 参数                                                 | `false`  |
 | `max_cache_size`   | Embedding 缓存最大条目数                                                              | `10000`  |
-| `max_input_length` | 单次 Embedding 最大输入长度                                                           | `8192`   |
+| `max_input_length` | 单次 Embedding 的近似字符预算                                                         | `8192`   |
 | `max_batch_size`   | Embedding 批处理最大数量                                                              | `10`     |
 
 > `use_dimensions` 用于某些 vLLM 模型不支持 dimensions 参数的情况，设为 `false` 可跳过该参数。
+
+从 ReMe 0.4.1.0 开始，Embedding 输入截断会为 token 密度更高的 CJK 和其他全角字符采用更保守的预算，
+并预留安全余量。这可以避免较长的中文记忆在 Ollama + bge-m3 等组合下超过模型上下文窗口并返回 HTTP 400。
+`max_input_length` 仍是近似字符预算，并非模型 tokenizer 计算出的严格 token 上限；如果所用模型的上下文窗口更小，
+仍应相应调低该值。
 
 向量检索只有在当前后端具备最低可运行配置时才会启用；这些条件与 AgentScope credential 要求保持一致：
 
@@ -239,13 +383,13 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 
 嵌入式 ReMe 配置使用本地 file store：
 
-| 组件       | 行为                                                                                       |
-| ---------- | ------------------------------------------------------------------------------------------ |
-| File store | ReMe 本地文件存储，持久状态位于 `mem_metadata/`                                            |
-| 关键词索引 | 默认启用 BM25 关键词索引                                                                   |
-| 向量索引   | 仅当 `embedding_model_config` 满足当前 `backend` 的启用条件时启用                          |
-| 监听目录   | 默认监听 `daily_dir` 和 `digest_dir`；`enable_search_raw_log=true` 时也索引 `resource_dir` |
-| 监听后缀   | 默认索引 `md`；启用 raw-log search 后包含 `jsonl`                                          |
+| 组件       | 行为                                                              |
+| ---------- | ----------------------------------------------------------------- |
+| File store | ReMe 本地文件存储，持久状态位于 `mem_metadata/`                   |
+| 关键词索引 | 默认启用 BM25 关键词索引                                          |
+| 向量索引   | 仅当 `embedding_model_config` 满足当前 `backend` 的启用条件时启用 |
+| 监听目录   | `daily_dir` 和 `digest_dir`                                       |
+| 监听后缀   | `md`                                                              |
 
 ---
 
@@ -266,7 +410,7 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 
 **配置方式：**
 
-进入 Agent 配置页面的「运行配置」标签，找到「记忆管理后端」下拉框，选择 `adbpg`，并在「ADBPG 长期记忆」Tab 中填写 `REST Base URL` 与 `REST API Key`。
+进入 Agent 配置页面的「运行配置」标签，找到「长期记忆管理后端」下拉框，选择 `adbpg`，并在「ADBPG 长期记忆」Tab 中填写 `REST Base URL` 与 `REST API Key`。
 
 ![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
 

@@ -98,7 +98,7 @@ def test_chat_task_get_unknown_returns_404(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p0
-def test_chat_task_submit_returns_task_id_and_completes(
+def test_chat_task_submit_registers_chat_and_completes(
     app_server,
     mock_llm,  # pylint: disable=redefined-outer-name
 ) -> None:
@@ -106,21 +106,24 @@ def test_chat_task_submit_returns_task_id_and_completes(
 
     Test purpose:
       - Verify a chat/task submission returns a fresh ``task-<hex12>``,
-        the task runs to completion in the background, and the GET
-        endpoint eventually reports ``status='finished'`` with the
+        registers its session in the chat index, runs to completion in the
+        background, and eventually reports ``status='finished'`` with the
         expected ``session_id`` in the result payload.
 
     API endpoints:
     - POST /api/console/chat/task
     - GET  /api/console/chat/task/{task_id}
+    - GET  /api/chats
     """
     _srv, mock_url = mock_llm
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
     provider_id = register_mock_provider(app_server, mock_url)
     user_id = "integ-tc-task-happy"
+    session_id = "sub-integ-tc-task-happy"
     body = {
         "channel": "console",
         "user_id": user_id,
+        "session_id": session_id,
         "input": [
             {
                 "role": "user",
@@ -141,6 +144,15 @@ def test_chat_task_submit_returns_task_id_and_completes(
         assert task_id.startswith("task-"), task_id
         # ``uuid.uuid4().hex[:12]`` is 12 hex chars.
         assert len(task_id) == len("task-") + 12, task_id
+
+        chats_resp = app_server.api_request(
+            "GET",
+            "/api/chats",
+            params={"user_id": user_id, "channel": "console"},
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert chats_resp.status_code == 200, app_server.logs_tail()
+        assert session_id in {chat["session_id"] for chat in chats_resp.json()}
 
         # Immediately poll — status may be running or finished.
         first = app_server.api_request(

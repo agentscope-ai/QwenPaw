@@ -6,6 +6,7 @@ Called by ``MissionMode._mission_handler`` (registered via
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,8 @@ _MAX_MAX_ITERATIONS = 100
 
 def parse_mission_args(
     raw_args: str,
+    default_max_iterations: int = _DEFAULT_MAX_ITERATIONS,
+    default_verify_command: str = "",
 ) -> dict[str, Any]:
     """Parse ``[task text] [--verify CMD] [--max-iterations N]``.
 
@@ -45,8 +48,8 @@ def parse_mission_args(
     """
     args: dict[str, Any] = {
         "task_text": "",
-        "verify_commands": "",
-        "max_iterations": _DEFAULT_MAX_ITERATIONS,
+        "verify_commands": default_verify_command,
+        "max_iterations": default_max_iterations,
     }
 
     tokens = raw_args.split()
@@ -151,7 +154,9 @@ def format_list(workspace_dir: Path) -> str:
     return "\n".join(lines)
 
 
-def format_help() -> str:
+def format_help(
+    default_max_iterations: int = _DEFAULT_MAX_ITERATIONS,
+) -> str:
     """Return help text for ``/mission`` without args."""
     return (
         "**Mission Mode**\n\n"
@@ -163,7 +168,7 @@ def format_help() -> str:
         "- `--verify <cmd>` \u2014 verification command\n"
         f"- `--max-iterations <n>` \u2014 "
         f"({_MIN_MAX_ITERATIONS}-{_MAX_MAX_ITERATIONS}, "
-        f"default {_DEFAULT_MAX_ITERATIONS})\n\n"
+        f"default {default_max_iterations})\n\n"
         "Task must be at least 5 characters."
     )
 
@@ -188,6 +193,14 @@ def is_meta_question(task_text: str) -> bool:
     return any(kw in lower for kw in _META_KEYWORDS)
 
 
+def _create_mission_files(workspace_dir: Path, task_text: str) -> Path:
+    """Create one mission directory and its initial atomic state files."""
+    loop_dir = create_loop_dir(workspace_dir)
+    write_task_md(loop_dir, task_text)
+    init_progress_txt(loop_dir)
+    return loop_dir
+
+
 async def start_mission(
     task_text: str,
     workspace_dir: Path,
@@ -195,6 +208,8 @@ async def start_mission(
     session_id: str,
     verify_commands: str,
     max_iterations: int,
+    verification_instructions: str = "",
+    max_retries_per_story: int = 3,
 ) -> tuple[str, Path]:
     """Create state files and return (prompt, loop_dir).
 
@@ -202,9 +217,11 @@ async def start_mission(
     message with the returned prompt string, and for
     activating the MissionGate with the loop_dir.
     """
-    loop_dir = create_loop_dir(workspace_dir)
-    write_task_md(loop_dir, task_text)
-    init_progress_txt(loop_dir)
+    loop_dir = await asyncio.to_thread(
+        _create_mission_files,
+        workspace_dir,
+        task_text,
+    )
 
     git_ctx = await detect_git_context(workspace_dir)
 
@@ -222,8 +239,10 @@ async def start_mission(
         "current_phase": "prd_generation",
         "session_id": session_id,
         "verify_commands": verify_commands,
+        "verification_instructions": verification_instructions,
+        "max_retries_per_story": max_retries_per_story,
     }
-    write_loop_config(loop_dir, loop_config)
+    await asyncio.to_thread(write_loop_config, loop_dir, loop_config)
 
     logger.info(
         "Mission %s: dir=%s git=%s repo=%s",
@@ -238,6 +257,8 @@ async def start_mission(
         agent_id=agent_id,
         max_iterations=max_iterations,
         verify_commands=verify_commands,
+        verification_instructions=verification_instructions,
+        max_retries_per_story=max_retries_per_story,
         git_context=git_ctx,
         workspace_dir=str(workspace_dir),
     )

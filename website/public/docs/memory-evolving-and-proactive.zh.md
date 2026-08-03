@@ -6,6 +6,46 @@ QwenPaw 将记忆保存为 agent workspace 下的文件。对话先保存为 JSO
 
 ---
 
+## 核心理念：自进化的个人知识库
+
+ReMe 的目标不是给聊天模型挂一个黑盒向量库，而是基于 **Memory as File, File as Memory** 原则，长出一个**自进化的个人知识库**：每个工作记忆或长期记忆节点都是一份可以直接打开、阅读、编辑、移动、删除的 Markdown 文件，同时又是一个可索引、可链接的节点；原始来源与派生系统状态则使用适合各自职责的格式。
+
+因为记忆以文件而非不透明的数据库记录形式存在，长期记忆获得了黑盒存储无法提供的特性：
+
+| 特性   | 实际意义                                                           |
+| ------ | ------------------------------------------------------------------ |
+| 可读   | 打开 workspace，像普通 Markdown 一样阅读 daily note 和 digest 节点 |
+| 可编辑 | 用普通文件编辑就能纠正、扩展、移动、删除记忆，无需专用客户端       |
+| 可追溯 | 每条长期结论都通过 `derived_from:: [[...]]` 链接回它的来源         |
+| 可迁移 | workspace 就是一个普通目录，可以备份、同步，或用 git 做版本管理    |
+| 可协作 | 你负责判断与纠正，agent 负责整理、链接、检索——都在同一批文件上     |
+
+### 记忆分层
+
+workspace 把记忆从"原始证据"到"可复用知识"组织为四层：
+
+```text
+原始输入   → mem_session/ + resource/   原始对话与外部资料
+工作记忆   → memory/                     daily note：事实、决策、资源解读
+长期记忆   → digest/                     可复用知识：personal / procedure / wiki
+系统状态   → mem_metadata/               索引、wikilink 图、catalog（不手工编辑）
+```
+
+QwenPaw 的目录名与 ReMe 上游默认值不同，但每层的职责一致：`mem_session/` 对应 ReMe `session/`，`memory/` 对应 `daily/`，`mem_metadata/` 对应 `metadata/`；`resource/` 和 `digest/` 保持同名。
+
+### 知识库如何进化
+
+知识库通过持续的 **capture → index → consolidate → recall** 闭环生长：
+
+1. **Capture（捕获）** — Auto Memory 把对话蒸馏成 daily note，Auto Resource 把 `resource/` 下的文件转成 daily note，同时保留原始对话作为证据。
+2. **Index（索引）** — 后台 job 通过 BM25 关键词索引、可选向量、以及 wikilink 图，让 `memory/` 和 `digest/` 始终可检索。
+3. **Consolidate（整合）** — Auto Dream 读取近期 daily note，整合进长期 `digest/` 节点。这一步才是记忆真正**进化**的地方：它不是复制文本，而是把每个抽取出的 unit 合并进已有节点或创建新节点，并织入来源与关系 wikilink。
+4. **Recall（召回）** — `memory_search` 召回最相关的片段并沿 wikilink 图展开；interest topics 和 QwenPaw 的 `/proactive` 主动浮现值得关注的内容。
+
+digest 层刻意**不是只追加**的。当新素材与已有节点重复、细化或冲突时，Auto Dream 会对其 corroborate、refine 或 correct（见下文整合动作）。再配合让节点保持连通、可追溯的 wikilink 图，知识库会随时间变得更密、更准，而不只是变得更大。
+
+---
+
 ## 实际流程
 
 ```mermaid
@@ -18,7 +58,7 @@ graph LR
     S --> T[ReMe auto_resource job]
     T --> E
     E --> U[ReMe auto_dream job]
-    U --> V[digest/personal|procedure|wiki/*.md]
+    U --> V["digest/personal | procedure | wiki/*.md"]
     U --> W[memory/<date>/interests.yaml]
 ```
 
@@ -110,6 +150,12 @@ QwenPaw 配置了名为 `resource_watch_loop` 的 ReMe 后台 job。它监听 `r
 md, txt, json, jsonl, csv, yaml, html
 ```
 
+文件可以直接放在 `resource_dir` 根目录，此时使用 QwenPaw 配置的时区确定当天；也可放在
+`resource_dir/YYYY-MM-DD/` 下，此时使用路径中的日期。日期目录之后可以继续嵌套子目录。新增或修改资源时，
+ReMe 按 UTF-8 文本读取内容，由 memory agent 生成或更新 daily note；删除资源时也会删除对应的来源链接 note。
+
+PDF、Word、Excel、图片等二进制文件不会被自动解析。`yml` 后缀也不在默认白名单中；需要先转换为受支持的文本格式。
+
 每个 change item 可以包含 `path` 或 `file_path`，以及类似 `added`、`modified`、`deleted` 的 `change` 值。ReMe step 会将变化的资源文件解读成 daily note。只有当 job 报告确实发生修改时，QwenPaw 才会推送 `Auto-resource result` inbox event。
 
 ---
@@ -119,7 +165,7 @@ md, txt, json, jsonl, csv, yaml, html
 QwenPaw 通过以下入口暴露 Auto Dream：
 
 - `/dream [hint]`，由 `CommandHandler._process_dream()` 处理；
-- `dream_cron` 配置的调度器，默认 `0 23 * * *`；
+- `dream_cron_enabled` 为 true 时按 `dream_cron` 配置调度，默认 `0 23 * * *`；定时触发后会随机延迟 0–60 秒启动，以避免集中调用；
 - `ReMeLightMemoryManager.dream(date="", hint="")`。
 
 QwenPaw 运行名为 `auto_dream` 的 ReMe job，并设置 `needs_llm=True`，因此嵌入式 ReMe 会在 job 运行前用 QwenPaw 当前 active model 刷新自己的 LLM component。
@@ -154,7 +200,21 @@ Digest node 按 bucket 存储：
 | `procedure/` | How-to 工作流、runbook、recipe、方法、可执行模式           |
 | `wiki/`      | 定义、原则、观察、作为先例的决策、事实 claim，以及兜底知识 |
 
-Integration action 包括 `CREATE`、`CORROBORATE`、`REFINE`、`CORRECT`。整合 prompt 要求使用 workspace-relative wikilink，例如 `derived_from:: [[memory/<date>/<note>.md]]`，让 digest 记忆可以追溯到 daily material。
+Integration action 包括 `CREATE`、`CORROBORATE`、`REFINE`、`CORRECT`。正是这四个动作让知识库"自进化"：与已有节点匹配的 unit 不会被当作重复内容追加，而是合并进该节点——用新来源 corroborate、用新边界 refine、或在冲突时 correct。
+
+| Action        | 含义                                           |
+| ------------- | ---------------------------------------------- |
+| `CREATE`      | 尚不存在等价抽象，创建新的 digest 节点         |
+| `CORROBORATE` | 同一记忆再次出现，追加来源并强化描述           |
+| `REFINE`      | 新素材补充边界、步骤、前置条件、适用范围或细节 |
+| `CORRECT`     | 新素材纠正已有节点中的错误、遗漏或冲突         |
+
+**通过 wikilink 构建知识图谱。** ReMe 的 wikilink 整合逻辑运行在 `dream_integrate_step` 中。写入前它先用 `node_search` 召回相似或相关的 digest 节点，在上述动作间做出决策，然后向节点正文织入两类 workspace-relative wikilink：
+
+- **来源边** — `derived_from:: [[memory/<date>/<note>.md]]`，让每个 digest 结论都能追溯回它来自的 daily note 或资源。
+- **关系边** — `relates_to:: [[digest/wiki/...]]`、`depends_on:: [[digest/procedure/...]]` 等 typed link，把节点连接到相邻概念、前置条件和流程。
+
+更新是增量式的：已有 wikilink 和 `derived_from` 会被保留，图因此持续生长而不丢边。`memory_search` 之后会沿这些链接展开——这正是召回不仅能给出匹配片段、还能带出它连接的长期节点与来源的原因。
 
 Auto Dream 完成后，QwenPaw 会推送标题为 `Auto-dream result` 的 inbox event。
 
@@ -237,10 +297,9 @@ text starts with "[Agent proactive_helper requesting]"
 
 嵌入式 ReMe app 会启动 `index_update_loop` 后台 job。搜索索引监听：
 
-| 配置                            | 索引目录                                  | 后缀          |
-| ------------------------------- | ----------------------------------------- | ------------- |
-| `enable_search_raw_log = false` | `daily_dir`、`digest_dir`                 | `md`          |
-| `enable_search_raw_log = true`  | `daily_dir`、`digest_dir`、`resource_dir` | `md`、`jsonl` |
+| 索引目录                  | 后缀 |
+| ------------------------- | ---- |
+| `daily_dir`、`digest_dir` | `md` |
 
 QwenPaw 的 `memory_search` tool 会运行 ReMe 的 `search` job，参数是 `query`、`limit`、`min_score`。该 job 配置为 hybrid workspace search，包含向量召回、BM25 keyword 召回、RRF 融合和 wikilink expansion。QwenPaw 嵌入式 ReMe 配置里的存储后端是 local。
 

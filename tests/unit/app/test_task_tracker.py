@@ -66,6 +66,40 @@ async def test_attach_returns_none_for_unknown_run_key():
     assert await tracker.attach("missing") is None
 
 
+@pytest.mark.asyncio
+async def test_has_active_tasks_excluding_uses_task_identity():
+    tracker = TaskTracker()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    producer_sees_other: list[bool] = []
+
+    async def producer(_payload):
+        producer_sees_other.append(
+            await tracker.has_active_tasks_excluding(
+                asyncio.current_task(),
+            ),
+        )
+        started.set()
+        await release.wait()
+        yield "data: done\n\n"
+
+    queue, _ = await tracker.attach_or_start(
+        "tracked-producer",
+        None,
+        producer,
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    assert producer_sees_other == [False]
+    assert await tracker.has_active_tasks_excluding(
+        asyncio.current_task(),
+    )
+
+    release.set()
+    async for _ in tracker.stream_from_queue(queue, "tracked-producer"):
+        pass
+
+
 # ---------------------------------------------------------------------------
 # attach_or_start: producer/consumer flow
 # ---------------------------------------------------------------------------
@@ -276,73 +310,6 @@ async def test_stream_from_queue_yields_until_sentinel_and_detaches():
 
 
 # ---------------------------------------------------------------------------
-# External task lifecycle
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_external_task_register_and_unregister_round_trip():
-    tracker = TaskTracker()
-
-    await tracker.register_external_task("ext-1")
-
-    assert await tracker.get_status("ext-1") == "running"
-    assert await tracker.has_active_tasks() is True
-    assert "ext-1" in await tracker.list_active_tasks()
-
-    summary = await tracker.get_global_status()
-    assert summary["status"] == "running"
-    assert summary["running_task_count"] == 1
-    assert summary["last_run_at"] is not None
-
-    await tracker.unregister_external_task("ext-1")
-
-    assert await tracker.get_status("ext-1") == "idle"
-    assert await tracker.has_active_tasks() is False
-    after = await tracker.get_global_status()
-    assert after["status"] == "idle"
-    assert after["running_task_count"] == 0
-    assert after["last_finish_at"] is not None
-
-
-@pytest.mark.asyncio
-async def test_external_task_register_is_idempotent_for_live_run():
-    tracker = TaskTracker()
-
-    await tracker.register_external_task("ext-dup")
-    first_state = tracker._runs["ext-dup"]
-    await tracker.register_external_task("ext-dup")  # second call is no-op
-
-    assert tracker._runs["ext-dup"] is first_state
-
-    await tracker.unregister_external_task("ext-dup")
-
-
-@pytest.mark.asyncio
-async def test_unregister_external_task_unknown_is_safe():
-    tracker = TaskTracker()
-
-    # Should not raise.
-    await tracker.unregister_external_task("never-registered")
-
-
-@pytest.mark.asyncio
-async def test_unregister_external_task_drains_subscriber_queues():
-    tracker = TaskTracker()
-    await tracker.register_external_task("ext-sub")
-
-    # Manually attach a queue (external tasks bypass attach_or_start).
-    q: asyncio.Queue = asyncio.Queue()
-    async with tracker._lock:
-        tracker._runs["ext-sub"].queues.append(q)
-
-    await tracker.unregister_external_task("ext-sub")
-
-    sentinel = await asyncio.wait_for(q.get(), timeout=1)
-    assert sentinel is None
-
-
-# ---------------------------------------------------------------------------
 # wait_all_done: timeout behaviour
 # ---------------------------------------------------------------------------
 
@@ -357,12 +324,99 @@ async def test_wait_all_done_returns_true_when_idle():
 @pytest.mark.asyncio
 async def test_wait_all_done_times_out_when_task_runs():
     tracker = TaskTracker()
-    await tracker.register_external_task("ext-long")
+    release = asyncio.Event()
+
+    async def producer(_payload):
+        await release.wait()
+        yield "data: done\n\n"
+
+    queue, _ = await tracker.attach_or_start(
+        "run-long",
+        payload=None,
+        stream_fn=producer,
+    )
 
     try:
         assert await tracker.wait_all_done(timeout=0.2) is False
     finally:
-        await tracker.unregister_external_task("ext-long")
+        release.set()
+        async for _ in tracker.stream_from_queue(queue, "run-long"):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_snapshot_active_tasks_filters_by_owner():
+    tracker = TaskTracker()
+    owner_a = object()
+    owner_b = object()
+    release = asyncio.Event()
+
+    async def producer(_payload):
+        await release.wait()
+        yield "data: done\n\n"
+
+    queue_a, _ = await tracker.attach_or_start(
+        "run-owner-a",
+        None,
+        producer,
+        owner=owner_a,
+    )
+    queue_b, _ = await tracker.attach_or_start(
+        "run-owner-b",
+        None,
+        producer,
+        owner=owner_b,
+    )
+
+    try:
+        snapshot = await tracker.snapshot_active_tasks(owner=owner_a)
+        assert list(snapshot) == ["run-owner-a"]
+    finally:
+        release.set()
+        async for _ in tracker.stream_from_queue(queue_a, "run-owner-a"):
+            pass
+        async for _ in tracker.stream_from_queue(queue_b, "run-owner-b"):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_wait_tasks_done_ignores_runs_started_after_snapshot():
+    tracker = TaskTracker()
+    release_old = asyncio.Event()
+    release_new = asyncio.Event()
+
+    async def old_producer(_payload):
+        await release_old.wait()
+        yield "data: old\n\n"
+
+    async def new_producer(_payload):
+        await release_new.wait()
+        yield "data: new\n\n"
+
+    old_queue, _ = await tracker.attach_or_start(
+        "run-old",
+        None,
+        old_producer,
+    )
+    snapshot = await tracker.snapshot_active_tasks()
+    new_queue, _ = await tracker.attach_or_start(
+        "run-new",
+        None,
+        new_producer,
+    )
+
+    release_old.set()
+    assert await tracker.wait_tasks_done(
+        list(snapshot.values()),
+        timeout=1,
+    )
+    assert await tracker.get_status("run-new") == "running"
+
+    release_new.set()
+    async for _ in tracker.stream_from_queue(old_queue, "run-old"):
+        pass
+    async for _ in tracker.stream_from_queue(new_queue, "run-new"):
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -399,3 +453,50 @@ async def test_concurrent_attach_or_start_only_one_producer():
             item = await asyncio.wait_for(q.get(), timeout=1)
             if item is None:
                 break
+
+
+# ---------------------------------------------------------------------------
+# attach(): replay-end marker for reconnect fast-forward
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_attach_appends_replay_end_marker_after_buffer():
+    """Reconnect subscribers get the buffered events, then a
+    ``replay_end`` marker, then live events. The marker lets the client
+    render the replayed part instantly instead of re-animating it."""
+    tracker = TaskTracker()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_stream(_payload):
+        yield "data: first\n\n"
+        started.set()
+        await release.wait()
+        yield "data: second\n\n"
+
+    queue_a, _ = await tracker.attach_or_start(
+        "run-replay",
+        payload=None,
+        stream_fn=slow_stream,
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    queue_b = await tracker.attach("run-replay")
+    assert queue_b is not None
+
+    first = await asyncio.wait_for(queue_b.get(), timeout=1)
+    marker = await asyncio.wait_for(queue_b.get(), timeout=1)
+    assert first == "data: first\n\n"
+    assert marker.startswith("data: ")
+    assert json.loads(marker[len("data: ") :].strip()) == {
+        "type": "replay_end",
+    }
+
+    release.set()
+    rest_b = await _drain(queue_b, 2)
+    assert rest_b == ["data: second\n\n", None]
+    # The original (non-reconnect) subscriber never sees the marker.
+    rest_a = await _drain(queue_a, 3)
+    assert rest_a == ["data: first\n\n", "data: second\n\n", None]

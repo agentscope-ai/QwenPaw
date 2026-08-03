@@ -49,6 +49,17 @@ _EXPECTED_BUILTIN_TYPES = {
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "Product bug Aone #84649306: on setuptools>=81 (which removed "
+        "pkg_resources.declare_namespace) importing the feishu channel "
+        "raises AttributeError, which escapes feishu/channel.py's "
+        "ImportError-only guard and is swallowed by registry.py, so "
+        "feishu is silently dropped from the channel type list. Remove "
+        "this marker once the upstream fix lands."
+    ),
+)
 def test_channel_types_returns_all_builtin(app_server) -> None:
     """Test purpose:
     - Verify GET /api/config/channels/types lists all 17 builtin

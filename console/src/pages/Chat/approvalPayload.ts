@@ -1,4 +1,4 @@
-import type { ToolExecutionLevel } from "./components/ApprovalLevelToggle";
+import type { ToolExecutionLevel } from "../../utils/approval";
 
 export function applyApprovalLevelToRequestBody(
   requestBody: Record<string, unknown>,

@@ -1,22 +1,26 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
+
 from __future__ import annotations
 import logging
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from agentscope.message import Msg
 from agentscope.state import AgentState
 
 from .session import SafeJSONSession
-from .manager import ChatManager
+from .manager import ChatManager, MAX_BATCH_SIZE
 from .models import (
+    BatchArchiveResult,
     ChatSpec,
     ChatUpdate,
     ChatHistory,
 )
 from .utils import agentscope_msg_to_message, parse_legacy_memory_state
+from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 
 logger = logging.getLogger(__name__)
 
@@ -71,17 +75,28 @@ async def get_session(
 async def list_chats(
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
     channel: Optional[str] = Query(None, description="Filter by channel"),
+    archived: Optional[bool] = Query(
+        None,
+        description=(
+            "Filter by archived status. "
+            "false=active only, true=archived only, "
+            "null/omit=all (default)"
+        ),
+    ),
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ):
     """List all chats with optional filters.
 
-    Args:
-        user_id: Optional user ID to filter chats
-        channel: Optional channel name to filter chats
-        mgr: Chat manager dependency
+    When ``archived`` is omitted, returns all chats (both active and archived).
+    Pass ``archived=false`` for active only,
+    ``archived=true`` for archived only.
     """
-    chats = await mgr.list_chats(user_id=user_id, channel=channel)
+    chats = await mgr.list_chats(
+        user_id=user_id,
+        channel=channel,
+        archived=archived,
+    )
     tracker = workspace.task_tracker
     result = []
     for spec in chats:
@@ -122,6 +137,7 @@ async def create_chat(
 async def batch_delete_chats(
     chat_ids: list[str],
     mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
 ):
     """Delete chats by chat IDs.
 
@@ -132,8 +148,98 @@ async def batch_delete_chats(
         True if deleted, False if failed
 
     """
+    chats = {chat.id: chat for chat in await mgr.list_chats(archived=None)}
     deleted = await mgr.delete_chats(chat_ids=chat_ids)
+    if deleted:
+        await CHECKPOINT_RUNTIME.delete_session_checkpoints(
+            workspace,
+            [
+                (chat.session_id, chat.user_id, chat.channel)
+                for chat_id in chat_ids
+                if (chat := chats.get(chat_id)) is not None
+            ],
+        )
     return {"deleted": deleted}
+
+
+# ----- Archive endpoints -----
+
+
+class BatchChatIds(BaseModel):
+    """Request body for batch archive/unarchive."""
+
+    chat_ids: list[str] = Field(
+        ...,
+        max_length=MAX_BATCH_SIZE,
+        description="List of chat IDs to process",
+    )
+
+
+@router.post("/actions/batch-archive", response_model=BatchArchiveResult)
+async def batch_archive_chats(
+    payload: BatchChatIds,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+):
+    """Batch archive chats. Running chats are skipped."""
+    tracker = workspace.task_tracker
+    return await mgr.batch_archive(
+        chat_ids=payload.chat_ids,
+        get_status=tracker.get_status,
+    )
+
+
+@router.post("/actions/batch-unarchive", response_model=BatchArchiveResult)
+async def batch_unarchive_chats(
+    payload: BatchChatIds,
+    mgr: ChatManager = Depends(get_chat_manager),
+):
+    """Batch unarchive chats."""
+    return await mgr.batch_unarchive(chat_ids=payload.chat_ids)
+
+
+@router.post("/{chat_id}/archive", response_model=ChatSpec)
+async def archive_chat(
+    chat_id: str,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+):
+    """Archive a single chat. Idempotent.
+
+    Returns 409 if the chat is currently running.
+    """
+    status = await workspace.task_tracker.get_status(chat_id)
+    try:
+        result = await mgr.archive_chat(chat_id, check_status=status)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=409,
+            detail="Chat is currently in progress, cannot archive",
+        ) from e
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+    return result
+
+
+@router.post("/{chat_id}/unarchive", response_model=ChatSpec)
+async def unarchive_chat(
+    chat_id: str,
+    mgr: ChatManager = Depends(get_chat_manager),
+):
+    """Unarchive a single chat. Idempotent."""
+    result = await mgr.unarchive_chat(chat_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+    return result
+
+
+# ----- Existing CRUD endpoints -----
 
 
 @router.get("/{chat_id}", response_model=ChatHistory)
@@ -169,6 +275,28 @@ async def get_chat(
         chat_spec.user_id,
         chat_spec.channel,
     )
+    backend = workspace.config.backend
+    context = ((state.get("agent") or {}).get("state") or {}).get("context")
+    if not context and backend != "qwenpaw":
+        try:
+            await workspace.harness_runtime.hydrate_session(
+                backend=backend,
+                session_id=chat_spec.session_id,
+                user_id=chat_spec.user_id,
+                channel=chat_spec.channel,
+                settings=dict(workspace.config.backend_settings),
+            )
+            state = await session.get_session_state_dict(
+                chat_spec.session_id,
+                chat_spec.user_id,
+                chat_spec.channel,
+            )
+        except Exception:
+            logger.debug(
+                "Third-party session recovery failed for %s",
+                chat_spec.session_id,
+                exc_info=True,
+            )
     status = await workspace.task_tracker.get_status(chat_id)
     if not state:
         return ChatHistory(messages=[], status=status)
@@ -229,6 +357,7 @@ async def update_chat(
 async def delete_chat(
     chat_id: str,
     mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
 ):
     """Delete a chat by UUID.
 
@@ -245,10 +374,16 @@ async def delete_chat(
     Raises:
         HTTPException: If chat not found (404)
     """
+    chat = await mgr.get_chat(chat_id)
     deleted = await mgr.delete_chats(chat_ids=[chat_id])
     if not deleted:
         raise HTTPException(
             status_code=404,
             detail=f"Chat not found: {chat_id}",
+        )
+    if chat is not None:
+        await CHECKPOINT_RUNTIME.delete_session_checkpoints(
+            workspace,
+            [(chat.session_id, chat.user_id, chat.channel)],
         )
     return {"deleted": True}

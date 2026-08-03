@@ -6,6 +6,46 @@ QwenPaw stores memory as files under the agent workspace. Conversations are save
 
 ---
 
+## Core Idea: A Self-Evolving Personal Knowledge Base
+
+ReMe's goal is not to be a hidden vector store bolted onto a chat model. It is to grow a **self-evolving personal knowledge base** on the principle of **Memory as File, File as Memory**: every working or long-term memory node is a plain Markdown file you can open, read, edit, move, or delete, and at the same time an indexable, linkable node. Raw sources and derived system state use formats suited to their roles.
+
+Because memory lives as files rather than opaque database rows, long-term memory gains properties a black box cannot offer:
+
+| Property      | What it means in practice                                                              |
+| ------------- | -------------------------------------------------------------------------------------- |
+| Readable      | Open the workspace and read daily notes and digest nodes like ordinary Markdown.       |
+| Editable      | Correct, extend, move, or delete memory with plain file edits — no specialized client. |
+| Traceable     | Each long-term conclusion links back to its source through `derived_from:: [[...]]`.   |
+| Portable      | The workspace is an ordinary directory; back it up, sync it, or version it with git.   |
+| Collaborative | You judge and correct; the agent organizes, links, and retrieves — on the same files.  |
+
+### Memory Layers
+
+The workspace organizes memory into four layers, from raw evidence to reusable knowledge:
+
+```text
+raw input        → mem_session/ + resource/   original conversations and external material
+working memory   → memory/                     daily notes: facts, decisions, resource readings
+long-term memory → digest/                     reusable knowledge: personal / procedure / wiki
+system state     → mem_metadata/               indexes, wikilink graph, catalogs (not hand-edited)
+```
+
+QwenPaw's directory names differ from ReMe's upstream defaults, but the layer roles are identical: `mem_session/` ↔ ReMe `session/`, `memory/` ↔ `daily/`, `mem_metadata/` ↔ `metadata/`. `resource/` and `digest/` keep the same names.
+
+### How the Knowledge Base Evolves
+
+The base grows through a continuous **capture → index → consolidate → recall** loop:
+
+1. **Capture** — Auto Memory distills conversations into daily notes; Auto Resource turns files under `resource/` into daily notes. The raw conversation is retained as evidence.
+2. **Index** — A background job keeps `memory/` and `digest/` searchable through a BM25 keyword index, optional embeddings, and a wikilink graph.
+3. **Consolidate** — Auto Dream reads recent daily notes and integrates them into long-term `digest/` nodes. This is where memory actually _evolves_: instead of copying text, each extracted unit is merged into an existing node or creates a new one, and source and relationship wikilinks are woven in.
+4. **Recall** — `memory_search` retrieves the most relevant fragments and expands along the wikilink graph; interest topics and QwenPaw's `/proactive` surface what is worth attention.
+
+The digest layer is deliberately **not append-only**. When new material repeats, refines, or contradicts an existing node, Auto Dream corroborates, refines, or corrects it (see the integration actions below). Combined with the wikilink graph that keeps nodes connected and traceable, the knowledge base becomes denser and more accurate over time rather than merely larger.
+
+---
+
 ## Actual Flow
 
 ```mermaid
@@ -18,7 +58,7 @@ graph LR
     S --> T[ReMe auto_resource job]
     T --> E
     E --> U[ReMe auto_dream job]
-    U --> V[digest/personal|procedure|wiki/*.md]
+    U --> V["digest/personal | procedure | wiki/*.md"]
     U --> W[memory/<date>/interests.yaml]
 ```
 
@@ -110,6 +150,14 @@ Watched suffixes are:
 md, txt, json, jsonl, csv, yaml, html
 ```
 
+Files can be placed directly in the `resource_dir` root, in which case QwenPaw's configured timezone determines the
+current date, or under `resource_dir/YYYY-MM-DD/`, in which case the path supplies the date. Additional subdirectories
+may follow the date directory. For added and modified resources, ReMe reads the content as UTF-8 text and asks the
+memory agent to create or update a daily note. Deleting a resource also deletes its corresponding source-linked note.
+
+Binary files such as PDF, Word, Excel, and images are not parsed automatically. The `yml` suffix is not in the default
+allowlist either; convert these inputs to one of the supported text formats first.
+
 Each change item may contain `path` or `file_path` and a `change` value such as `added`, `modified`, or `deleted`. The ReMe step interprets changed resource files into daily notes. QwenPaw pushes an `Auto-resource result` inbox event only when the job reports a real modification.
 
 ---
@@ -119,7 +167,8 @@ Each change item may contain `path` or `file_path` and a `change` value such as 
 Auto Dream is exposed in QwenPaw through:
 
 - `/dream [hint]`, handled by `CommandHandler._process_dream()`;
-- the scheduler configured by `dream_cron`, default `0 23 * * *`;
+- the scheduler configured by `dream_cron` when `dream_cron_enabled` is true,
+  default `0 23 * * *`; scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls;
 - `ReMeLightMemoryManager.dream(date="", hint="")`.
 
 QwenPaw runs the ReMe job named `auto_dream` with `needs_llm=True`, so the embedded ReMe app refreshes its LLM component from the active QwenPaw model before the job runs.
@@ -154,7 +203,21 @@ Digest nodes are stored by bucket:
 | `procedure/` | How-to workflows, runbooks, recipes, methods, and executable patterns                                  |
 | `wiki/`      | Definitions, principles, observations, decisions as precedent, factual claims, and catch-all knowledge |
 
-Integration actions are `CREATE`, `CORROBORATE`, `REFINE`, or `CORRECT`. The integration prompts require workspace-relative wikilinks such as `derived_from:: [[memory/<date>/<note>.md]]` so digest memory remains traceable to daily material.
+Integration actions are `CREATE`, `CORROBORATE`, `REFINE`, or `CORRECT`. These four actions are what makes the knowledge base _self-evolving_: a unit that matches an existing node is not appended as a duplicate but merged into it — corroborated with an extra source, refined with new boundaries, or corrected when it conflicts.
+
+| Action        | Meaning                                                                         |
+| ------------- | ------------------------------------------------------------------------------- |
+| `CREATE`      | No equivalent abstraction exists yet; create a new digest node.                 |
+| `CORROBORATE` | The same memory appeared again; append a source and strengthen the description. |
+| `REFINE`      | New material adds boundaries, steps, prerequisites, applicability, or detail.   |
+| `CORRECT`     | New material corrects errors, omissions, or conflicts in the existing node.     |
+
+**Knowledge graph via wikilinks.** ReMe's wikilink integration logic runs in `dream_integrate_step`. Before writing, it calls `node_search` to recall similar or related digest nodes, decides between the actions above, and then weaves two kinds of workspace-relative wikilinks into the node body:
+
+- **Source edges** — `derived_from:: [[memory/<date>/<note>.md]]` keep every digest conclusion traceable back to the daily note or resource it came from.
+- **Relationship edges** — `relates_to:: [[digest/wiki/...]]`, `depends_on:: [[digest/procedure/...]]`, and similar typed links connect a node to adjacent concepts, prerequisites, and procedures.
+
+Updates are additive: existing wikilinks and `derived_from` entries are preserved, so the graph keeps growing without losing edges. `memory_search` later expands along these links, which is why recall can surface not just a matching fragment but the long-term nodes and sources it connects to.
 
 When Auto Dream completes, QwenPaw pushes an inbox event titled `Auto-dream result`.
 
@@ -237,10 +300,9 @@ The command warning is accurate: proactive mode may read historical session memo
 
 The embedded ReMe app starts an `index_update_loop` background job. Search indexing watches:
 
-| Config                          | Indexed directories                       | Suffixes      |
-| ------------------------------- | ----------------------------------------- | ------------- |
-| `enable_search_raw_log = false` | `daily_dir`, `digest_dir`                 | `md`          |
-| `enable_search_raw_log = true`  | `daily_dir`, `digest_dir`, `resource_dir` | `md`, `jsonl` |
+| Indexed directories       | Suffixes |
+| ------------------------- | -------- |
+| `daily_dir`, `digest_dir` | `md`     |
 
 The QwenPaw `memory_search` tool runs ReMe's `search` job with `query`, `limit`, and `min_score`. The job is configured as hybrid workspace search with vector recall, BM25 keyword recall, RRF fusion, and wikilink expansion. The storage backend in QwenPaw's embedded ReMe config is local.
 

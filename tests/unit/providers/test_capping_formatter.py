@@ -260,3 +260,64 @@ def test_dashscope_remote_video_passthrough_unchanged() -> None:
         "type": "video_url",
         "video_url": {"url": "https://cdn.example.com/v.mp4"},
     }
+
+
+# -----------------------------------------------------------------
+# Bare local path support (after _fixup_media_list normalization)
+# -----------------------------------------------------------------
+
+
+def _source_with_bare_path(path, media_type: str):
+    """Create URLSource then assign bare path (mimics _fixup_media_list)."""
+    from agentscope.message import URLSource
+
+    source = URLSource(url=f"file://{path}", media_type=media_type)
+    source.url = str(path)
+    return source
+
+
+def test_bare_local_path_size_is_measured(tmp_path) -> None:
+    """inline_media_size handles bare paths (no file:// prefix)."""
+    path = tmp_path / "img.png"
+    path.write_bytes(b"\x89PNG" + b"\0" * 500)
+    source = _source_with_bare_path(path, "image/png")
+    assert inline_media_size(source) == 504
+
+
+def test_bare_local_path_base64_conversion(tmp_path) -> None:
+    """_local_source_to_base64 converts bare paths to Base64Source."""
+    from agentscope.message import Base64Source
+
+    path = tmp_path / "photo.jpg"
+    path.write_bytes(b"\xff\xd8" + b"\0" * 100)
+    source = _source_with_bare_path(path, "image/jpeg")
+    result = _CappingOpenAIFormatter._local_source_to_base64(source)
+    assert isinstance(result, Base64Source)
+    assert result.media_type == "image/jpeg"
+
+
+def test_bare_local_path_image_formatted(tmp_path) -> None:
+    """Capping formatter produces data URI from bare local path."""
+    path = tmp_path / "pic.png"
+    path.write_bytes(b"\x89PNG" + b"\0" * 50)
+    source = _source_with_bare_path(path, "image/png")
+    out = _CappingOpenAIFormatter()._format_image_source(source)
+    assert out["type"] == "image_url"
+    assert out["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+def test_non_http_remote_scheme_passthrough() -> None:
+    """s3://, oss://, ftp:// etc. pass through unchanged (#5934 H1)."""
+    from agentscope.message import URLSource
+
+    for scheme_url in [
+        "s3://bucket/image.png",
+        "oss://bucket/image.png",
+        "ftp://host/file.txt",
+    ]:
+        source = URLSource(url=scheme_url, media_type="image/png")
+        result = _CappingOpenAIFormatter._local_source_to_base64(source)
+        # Must return source unchanged (not try to open)
+        assert result is source, f"{scheme_url} was not passed through"
+        # inline_media_size must return None (not try getsize)
+        assert inline_media_size(source) is None

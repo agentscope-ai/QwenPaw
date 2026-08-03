@@ -1,9 +1,15 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { motion } from "motion/react";
-import { DottedlinedownArrowIcon, PathIcon } from "@/components/Icon";
+import {
+  AgentScopePlatformIcon,
+  DottedlinedownArrowIcon,
+  PathIcon,
+} from "@/components/Icon";
 import ShinyText from "@/components/ShinyText";
-import { LATEST_RELEASE_VERSION } from "@/pages/releaseNotesData";
+import { trackHeroQuickTryClick } from "@/lib/analytics";
+
+const AGENTSCOPE_PLATFORM_URL = "https://platform.agentscope.io/";
 
 const container = {
   hidden: { opacity: 0, y: 14 },
@@ -82,9 +88,7 @@ export function Hero() {
           <div className="mx-auto mb-5 inline-flex box-border items-center gap-2 rounded-full border border-(--border) bg-(--surface) px-4 py-1.5 text-sm text-(--color-text-secondary) sm:mb-6">
             <PathIcon size={16} />
             <ShinyText
-              text={t("hero.releaseNote", {
-                version: LATEST_RELEASE_VERSION,
-              })}
+              text={t("hero.releaseNote")}
               speed={1.8}
               delay={0}
               color="#9c9b9a"
@@ -132,7 +136,7 @@ export function Hero() {
             </span>
           </h1>
           <p className="font-inter mx-auto mt-3 max-w-3xl px-2 text-[14px] font-medium leading-[1.55] text-(--color-text-tertiary) sm:mt-4 sm:px-0 sm:text-[15px] md:mt-5 md:text-[16px]">
-            {t("hero.sub", { version: LATEST_RELEASE_VERSION })}
+            {t("hero.sub")}
             <br />
             {t("hero.sub1")}
           </p>
@@ -146,6 +150,16 @@ export function Hero() {
               <DottedlinedownArrowIcon />
               <span>{t("hero.quickStart")}</span>
             </button>
+            <a
+              href={AGENTSCOPE_PLATFORM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-11 w-full max-w-60 items-center justify-center gap-1.5 rounded-lg border border-[#F3F1F0] bg-(--color-secondary) px-4 text-[15px] font-normal text-(--color-text) transition hover:brightness-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-primary) sm:h-10 sm:w-auto sm:max-w-none"
+              onClick={trackHeroQuickTryClick}
+            >
+              <AgentScopePlatformIcon size={18} />
+              <span>{t("hero.quickTry")}</span>
+            </a>
           </div>
 
           <motion.div
@@ -174,9 +188,9 @@ export function Hero() {
               }}
             >
               <img
-                src="https://img.alicdn.com/imgextra/i1/O1CN01BLYCfm1Qyf5WcMDDf_!!6000000002045-2-tps-1924-1202.png"
+                src="https://img.alicdn.com/imgextra/i3/O1CN01C57zol1ud4um3nSMH_!!6000000006059-2-tps-1930-1202.png"
                 alt="QwenPaw console preview"
-                className="block h-auto max-h-full w-full rounded-t-[8px] object-top shadow-[0px_6px_56px_0px_rgba(38,33,29,0.24)] md:h-full md:object-cover"
+                className="block h-auto max-h-full w-full object-top md:h-full md:object-cover"
                 loading="lazy"
               />
             </motion.div>

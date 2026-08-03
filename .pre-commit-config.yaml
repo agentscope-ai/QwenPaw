@@ -121,3 +121,8 @@ repos:
         additional_dependencies: [ 'prettier@3.0.0' ]
         files: \.(tsx?)$
         exclude: '(?x)(^web/|^console/|/dist/|.*/skills/.*|^scripts/pack/)'
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.7
+    hooks:
+      - id: actionlint
+        args: ['-shellcheck=']

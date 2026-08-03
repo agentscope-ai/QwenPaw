@@ -19,6 +19,7 @@ import { Button, Modal } from "@agentscope-ai/design";
 import styles from "./index.module.less";
 import api from "../api";
 import { openExternalLink } from "../utils/openExternalLink";
+import { ExternalMarkdownLink } from "../components/Markdown/externalLinkComponents";
 import {
   GITHUB_URL,
   getDocsUrl,
@@ -526,21 +527,7 @@ export default function Header() {
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
-                a({ href, children, ...props }: any) {
-                  return (
-                    <a
-                      {...props}
-                      href={href}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        if (href) handleNavClick(href);
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      {children}
-                    </a>
-                  );
-                },
+                a: ExternalMarkdownLink,
                 code({ node, className, children, ...props }: any) {
                   const match = /language-(\w+)/.exec(className || "");
                   const isBlock =

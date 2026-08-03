@@ -139,6 +139,9 @@ qwenpaw cron create \
   --text "请检查我的待办，并输出优先级最高的三项。"
 ```
 
+如果 `agent` 任务只需在后台运行、不向渠道发送回复，可添加 `--silent`。
+任务仍会保留会话和追踪记录，是否写入收件箱仍由 `--save-result-to-inbox` 独立控制。
+
 示例（日程一次性：只执行一次）：
 
 ```bash
@@ -179,6 +182,7 @@ qwenpaw cron create \
 - `--schedule-type cron`：需要 `--cron`
 - `--schedule-type scheduled`：需要 `--run-at`
 - `scheduled` 重复任务：需要 `--repeat-every-days`，并搭配结束条件（`count/until/never`）
+- `--silent` 仅适用于 `agent` 任务，只抑制渠道投递，不跳过任务执行
 - 可选设置结果是否入收件箱：`--save-result-to-inbox` 或 `--no-save-result-to-inbox`
 
 ---

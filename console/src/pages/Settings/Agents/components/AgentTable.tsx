@@ -13,22 +13,42 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
-import { EyeOff, Eye } from "lucide-react";
+import {
+  EditOutlined,
+  DeleteOutlined,
+  RobotOutlined,
+  CopyOutlined,
+} from "@ant-design/icons";
+import {
+  EyeOff,
+  Eye,
+  PawPrint,
+  Pin,
+  PinOff,
+  SquareTerminal,
+} from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
 import { SortableAgentRow, DragHandle } from "./SortableAgentRow";
 import { providerIcon } from "../../Models/components/providerIcon";
+import { AgentStatusIndicator } from "@/components/AgentStatusIndicator";
 import styles from "../index.module.less";
+
+const THIRD_PARTY_AGENT_NAMES: Record<string, string> = {
+  codex: "Codex",
+  qoder: "Qoder",
+};
 
 interface AgentTableProps {
   agents: AgentSummary[];
   loading: boolean;
   reordering: boolean;
   onEdit: (agent: AgentSummary) => void;
+  onCopy: (agent: AgentSummary) => void;
   onDelete: (agentId: string) => void;
   onToggle: (agentId: string, currentEnabled: boolean) => void;
+  onPin: (agentId: string, currentPinned: boolean) => void;
   onReorder: (activeId: string, overId: string) => void;
 }
 
@@ -37,8 +57,10 @@ export function AgentTable({
   loading,
   reordering,
   onEdit,
+  onCopy,
   onDelete,
   onToggle,
+  onPin,
   onReorder,
 }: AgentTableProps) {
   const { t } = useTranslation();
@@ -74,10 +96,12 @@ export function AgentTable({
       key: "sort",
       width: 56,
       align: "center",
-      render: () => (
+      render: (_value: unknown, record: AgentSummary) => (
         <Tooltip title={t("agent.dragHandleTooltip")}>
           <span>
-            <DragHandle disabled={reordering || loading} />
+            <DragHandle
+              disabled={reordering || loading || record.id === "default"}
+            />
           </span>
         </Tooltip>
       ),
@@ -86,9 +110,13 @@ export function AgentTable({
       title: t("agent.name"),
       dataIndex: "name",
       key: "name",
-      width: 300,
+      width: 260,
       render: (_text: string, record: AgentSummary) => (
         <Space>
+          <AgentStatusIndicator
+            status={record.startup_status}
+            enabled={record.enabled}
+          />
           <RobotOutlined
             style={{
               fontSize: 16,
@@ -98,7 +126,9 @@ export function AgentTable({
           <span style={{ opacity: record.enabled ? 1 : 0.5 }}>
             {getAgentDisplayName(record, t)}
           </span>
-          {!record.enabled && <Tag color="error">{t("agent.disabled")}</Tag>}
+          {(record.id === "default" || record.pinned) && (
+            <Pin size={13} aria-label={t("agent.pinned")} />
+          )}
         </Space>
       ),
     },
@@ -106,25 +136,73 @@ export function AgentTable({
       title: t("agent.id"),
       dataIndex: "id",
       key: "id",
+      width: 180,
+    },
+    {
+      title: t("agent.backend.column"),
+      dataIndex: "backend",
+      key: "backend",
+      width: 180,
+      render: (backend: AgentSummary["backend"]) => {
+        const thirdParty = backend !== "qwenpaw";
+        const name = THIRD_PARTY_AGENT_NAMES[backend] ?? backend;
+        return (
+          <Tag
+            className={`${styles.backendTag} ${
+              thirdParty ? styles.backendTagThirdParty : ""
+            }`}
+            icon={
+              thirdParty ? <SquareTerminal size={12} /> : <PawPrint size={12} />
+            }
+          >
+            {thirdParty
+              ? `${name} · ${t("agent.backend.thirdPartyBadge")}`
+              : `QwenPaw · ${t("agent.backend.nativeBadge")}`}
+          </Tag>
+        );
+      },
     },
     {
       title: t("agent.description"),
       dataIndex: "description",
       key: "description",
+      width: 220,
       ellipsis: true,
     },
     {
       title: t("agent.workspace"),
       dataIndex: "workspace_dir",
       key: "workspace_dir",
+      width: 260,
       ellipsis: true,
     },
     {
       title: t("agent.modelColumn"),
       key: "active_model",
-      width: 260,
+      width: 220,
       ellipsis: true,
-      render: (_: any, record: AgentSummary) => {
+      render: (_value: unknown, record: AgentSummary) => {
+        if (record.backend !== "qwenpaw") {
+          const model = record.backend_model;
+          return model ? (
+            <Space size={6}>
+              <SquareTerminal size={15} />
+              <Tooltip
+                title={
+                  record.backend_reasoning_effort
+                    ? `${model} · ${record.backend_reasoning_effort}`
+                    : model
+                }
+              >
+                <span>{model}</span>
+              </Tooltip>
+            </Space>
+          ) : (
+            <span style={{ opacity: 0.45 }}>
+              {t("agent.backend.modelDefault")}
+            </span>
+          );
+        }
         if (!record.active_model) {
           return (
             <span style={{ opacity: 0.45 }}>{t("agent.modelPlaceholder")}</span>
@@ -147,74 +225,122 @@ export function AgentTable({
     {
       title: t("common.actions"),
       key: "actions",
-      render: (_: any, record: AgentSummary) => (
-        <Space>
-          <Button
-            type="text"
-            size="middle"
-            icon={<EditOutlined />}
-            onClick={() => onEdit(record)}
-            disabled={record.id === "default"}
-            style={record.id === "default" ? disabledStyle : iconStyle}
-            title={
-              record.id === "default"
-                ? t("agent.defaultNotEditable")
-                : undefined
-            }
-          />
-          <Popconfirm
-            title={
-              record.enabled
-                ? t("agent.disableConfirm")
-                : t("agent.enableConfirm")
-            }
-            description={
-              record.enabled
-                ? t("agent.disableConfirmDesc")
-                : t("agent.enableConfirmDesc")
-            }
-            onConfirm={() => onToggle(record.id, record.enabled)}
-            disabled={record.id === "default"}
-            okText={t("common.confirm")}
-            cancelText={t("common.cancel")}
-          >
+      width: 240,
+      fixed: "right",
+      render: (_value: unknown, record: AgentSummary) => {
+        const startupInProgress =
+          record.startup_status === "pending" ||
+          record.startup_status === "starting";
+        const toggleDisabled = record.id === "default" || startupInProgress;
+        const pinActionLabel =
+          record.id === "default"
+            ? t("agent.defaultPinned")
+            : record.pinned
+            ? t("agent.unpinAgent")
+            : t("agent.pinAgent");
+
+        return (
+          <Space>
+            <Tooltip title={pinActionLabel}>
+              <Button
+                type="text"
+                size="middle"
+                aria-label={pinActionLabel}
+                icon={
+                  record.id === "default" || record.pinned ? (
+                    <Pin size={14} />
+                  ) : (
+                    <PinOff size={14} />
+                  )
+                }
+                onClick={() => onPin(record.id, Boolean(record.pinned))}
+                disabled={record.id === "default"}
+                style={record.id === "default" ? disabledStyle : iconStyle}
+              />
+            </Tooltip>
             <Button
               type="text"
               size="middle"
-              icon={record.enabled ? <EyeOff size={14} /> : <Eye size={14} />}
+              icon={<EditOutlined />}
+              onClick={() => onEdit(record)}
               disabled={record.id === "default"}
               style={record.id === "default" ? disabledStyle : iconStyle}
               title={
                 record.id === "default"
-                  ? t("agent.defaultNotDisablable")
+                  ? t("agent.defaultNotEditable")
                   : undefined
               }
             />
-          </Popconfirm>
-          <Popconfirm
-            title={t("agent.deleteConfirm")}
-            description={t("agent.deleteConfirmDesc")}
-            onConfirm={() => onDelete(record.id)}
-            disabled={record.id === "default"}
-            okText={t("common.confirm")}
-            cancelText={t("common.cancel")}
-          >
             <Button
-              type="link"
+              type="text"
               size="middle"
-              danger
-              icon={<DeleteOutlined />}
-              disabled={record.id === "default"}
-              style={record.id === "default" ? disabledStyle : undefined}
+              icon={<CopyOutlined />}
+              onClick={() => onCopy(record)}
+              style={iconStyle}
               title={
                 record.id === "default"
-                  ? t("agent.defaultNotDeletable")
-                  : undefined
+                  ? t("agent.copyDefaultTooltip")
+                  : t("agent.copyTooltip")
               }
             />
-          </Popconfirm>
-        </Space>
-      ),
+            <Popconfirm
+              title={
+                record.enabled
+                  ? t("agent.disableConfirm")
+                  : t("agent.enableConfirm")
+              }
+              description={
+                record.enabled
+                  ? t("agent.disableConfirmDesc")
+                  : t("agent.enableConfirmDesc")
+              }
+              onConfirm={() => onToggle(record.id, record.enabled)}
+              disabled={toggleDisabled}
+              okText={t("common.confirm")}
+              cancelText={t("common.cancel")}
+            >
+              <Button
+                type="text"
+                size="middle"
+                icon={record.enabled ? <EyeOff size={14} /> : <Eye size={14} />}
+                disabled={toggleDisabled}
+                style={record.id === "default" ? disabledStyle : iconStyle}
+                title={
+                  record.id === "default"
+                    ? t("agent.defaultNotDisablable")
+                    : startupInProgress
+                    ? t("agent.status.waitUntilStarted")
+                    : undefined
+                }
+              />
+            </Popconfirm>
+            <Popconfirm
+              title={t("agent.deleteConfirm")}
+              description={t("agent.deleteConfirmDesc")}
+              onConfirm={() => onDelete(record.id)}
+              disabled={toggleDisabled}
+              okText={t("common.confirm")}
+              cancelText={t("common.cancel")}
+            >
+              <Button
+                type="link"
+                size="middle"
+                danger
+                icon={<DeleteOutlined />}
+                disabled={toggleDisabled}
+                style={record.id === "default" ? disabledStyle : undefined}
+                title={
+                  record.id === "default"
+                    ? t("agent.defaultNotDeletable")
+                    : startupInProgress
+                    ? t("agent.status.waitUntilStarted")
+                    : undefined
+                }
+              />
+            </Popconfirm>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -234,6 +360,7 @@ export function AgentTable({
             columns={columns}
             loading={loading}
             rowKey="id"
+            scroll={{ x: 1620 }}
             components={{
               body: {
                 row: SortableAgentRow,

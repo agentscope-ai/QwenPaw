@@ -1,0 +1,28 @@
+{
+  "id": "agent-kanban",
+  "name": "Agent Kanban",
+  "version": "0.1.0",
+  "description": "A Kanban board to create issues, assign them to agents, auto-run them via the assigned agent, and watch their output stream in real time.",
+  "author": "QwenPaw Team",
+  "type": "app",
+  "entry": {
+    "backend": "backend/main.py",
+    "frontend": "ui/index.js"
+  },
+  "qwenpaw_version": {
+    "min": "2.0.1"
+  },
+  "meta": {
+    "pawapp": {
+      "icon": "📋",
+      "category": "productivity",
+      "entry_page": "/apps/agent-kanban",
+      "launch_scope": "page"
+    },
+    "permissions": {
+      "chat": true,
+      "storage": true
+    },
+    "settings": []
+  }
+}

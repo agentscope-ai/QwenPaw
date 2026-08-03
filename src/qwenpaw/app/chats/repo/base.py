@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from typing import Optional
 
 from ..models import ChatSpec, ChatsFile
@@ -99,6 +100,41 @@ class BaseChatRepository(ABC):
             cf.chats.append(spec)
         await self.save(cf)
 
+    async def touch_chat_by_session(
+        self,
+        session_id: str,
+        channel: str,
+        user_id: str | None = None,
+    ) -> Optional[ChatSpec]:
+        """Find and touch the most recent matching chat in one transaction.
+
+        The default file-backed implementation performs exactly one load and
+        one save. Repositories with indexed storage may override this method
+        with a direct update. For backward compatibility, ``None`` and an
+        empty ``user_id`` both disable user filtering.
+        """
+        cf = await self.load()
+        matching = [
+            (index, chat)
+            for index, chat in enumerate(cf.chats)
+            if chat.session_id == session_id
+            and chat.channel == channel
+            and (not user_id or chat.user_id == user_id)
+        ]
+        if not matching:
+            return None
+
+        index, existing = max(
+            matching,
+            key=lambda item: item[1].updated_at,
+        )
+        touched = existing.model_copy(
+            update={"updated_at": datetime.now(timezone.utc)},
+        )
+        cf.chats[index] = touched
+        await self.save(cf)
+        return touched
+
     async def delete_chats(self, chat_ids: list[str]) -> bool:
         """Delete a chat spec by chat_id (UUID).
 
@@ -123,12 +159,15 @@ class BaseChatRepository(ABC):
         self,
         user_id: Optional[str] = None,
         channel: Optional[str] = None,
+        archived: Optional[bool] = None,
     ) -> list[ChatSpec]:
-        """Filter chats by user_id and/or channel.
+        """Filter chats by user_id, channel and/or archived status.
 
         Args:
             user_id: Optional user ID filter
             channel: Optional channel filter
+            archived: Optional filter by archived status.
+                True = only archived, False = only active, None = all.
 
         Returns:
             Filtered list of chat specs
@@ -141,5 +180,8 @@ class BaseChatRepository(ABC):
 
         if channel is not None:
             results = [c for c in results if c.channel == channel]
+
+        if archived is not None:
+            results = [c for c in results if c.archived == archived]
 
         return results

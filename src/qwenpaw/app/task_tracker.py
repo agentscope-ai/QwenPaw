@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
 """Task tracker for background runs: streaming, reconnect, multi-subscriber.
 
-For internal streaming runs, ``run_key`` is typically ``ChatSpec.id``
-(chat_id). For externally-managed tasks (registered via
-:meth:`TaskTracker.register_external_task`), ``run_key`` is an opaque
-identifier chosen by the caller (e.g. a UUID prefixed with ``"ext-"``).
-Per run: task, queues, event buffer. Reconnects get buffer replay + new
-events. Cleanup when task completes.
+``run_key`` is typically ``ChatSpec.id`` (chat_id). Per run: task, queues,
+event buffer. Reconnects get buffer replay + new events. Cleanup when task
+completes.
 """
 from __future__ import annotations
 
@@ -22,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 _SENTINEL = None
 
+# Emitted to reconnect subscribers right after the buffered events, so
+# the client can render the replayed part instantly (no token-by-token
+# re-animation) and switch to live streaming afterwards.
+REPLAY_END_SSE = f"data: {json.dumps({'type': 'replay_end'})}\n\n"
+
 
 @dataclass
 class _RunState:
@@ -32,14 +34,16 @@ class _RunState:
     buffer: list[str] = field(default_factory=list)
     start_time: Optional[datetime] = None
     finish_time: Optional[datetime] = None
+    owner: object | None = None
 
 
 class TaskTracker:
-    """Per-workspace tracker: run_key -> RunState.
+    """Per-agent tracker: run_key -> RunState.
 
     All mutations to _runs under _lock. Producer broadcasts under lock.
     Subscribers use unbounded per-connection queues; disconnect removes them
-    via :meth:`detach_subscriber`.
+    via :meth:`detach_subscriber`. A workspace reload reuses the same tracker
+    so active runs remain reconnectable.
     """
 
     def __init__(self) -> None:
@@ -95,6 +99,17 @@ class TaskTracker:
                     return True
             return False
 
+    async def has_active_tasks_excluding(
+        self,
+        excluded_task: asyncio.Future | None,
+    ) -> bool:
+        """Check for active tasks other than ``excluded_task``."""
+        async with self._lock:
+            return any(
+                not state.task.done() and state.task is not excluded_task
+                for state in self._runs.values()
+            )
+
     async def list_active_tasks(self) -> list[str]:
         """List all currently running task keys.
 
@@ -107,6 +122,40 @@ class TaskTracker:
                 for run_key, state in self._runs.items()
                 if not state.task.done()
             ]
+
+    async def snapshot_active_tasks(
+        self,
+        owner: object | None = None,
+    ) -> dict[str, asyncio.Future]:
+        """Return the currently active tasks without tracking later runs."""
+        async with self._lock:
+            return {
+                run_key: state.task
+                for run_key, state in self._runs.items()
+                if not state.task.done()
+                and (owner is None or state.owner is owner)
+            }
+
+    async def wait_tasks_done(
+        self,
+        tasks: list[asyncio.Future],
+        timeout: float = 300.0,
+    ) -> bool:
+        """Wait for a fixed task snapshot without cancelling on timeout."""
+        if not tasks:
+            return True
+
+        async def _wait_snapshot() -> None:
+            await asyncio.gather(
+                *(asyncio.shield(task) for task in tasks),
+                return_exceptions=True,
+            )
+
+        try:
+            await asyncio.wait_for(_wait_snapshot(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
 
     async def wait_all_done(self, timeout: float = 300.0) -> bool:
         """Wait for all active tasks to complete.
@@ -128,69 +177,12 @@ class TaskTracker:
         except asyncio.TimeoutError:
             return False
 
-    async def register_external_task(self, run_key: str) -> None:
-        """Register an externally-managed task so it is visible to
-        :meth:`has_active_tasks` and :meth:`wait_all_done`.
-
-        This is used for tasks managed outside of QwenPaw's own streaming
-        pipeline (e.g. background tasks dispatched through a third-party
-        scheduler).  The caller **must** call
-        :meth:`unregister_external_task` when the task completes.
-
-        Args:
-            run_key: Unique identifier for the external task.
-        """
-        start_time = datetime.now(timezone.utc)
-        async with self._lock:
-            if run_key in self._runs and not self._runs[run_key].task.done():
-                logger.debug(
-                    "External task already registered: %s",
-                    run_key,
-                )
-                return
-            # Use an unresolved Future as the "task" — it stays not-done
-            # until unregister_external_task resolves it.
-            future: asyncio.Future = asyncio.get_running_loop().create_future()
-            self._runs[run_key] = _RunState(
-                task=future,
-                queues=[],
-                buffer=[],
-                start_time=start_time,
-            )
-            self._global_last_run_at = start_time
-            logger.debug("Registered external task: %s", run_key)
-
-    async def unregister_external_task(self, run_key: str) -> None:
-        """Mark an externally-managed task as done and remove it.
-
-        Sends the sentinel value to any subscriber queues so their
-        :meth:`stream_from_queue` consumers terminate cleanly instead of
-        hanging. Idempotent — safe to call even if *run_key* was never
-        registered or was already unregistered.
-
-        Args:
-            run_key: Unique identifier previously passed to
-                :meth:`register_external_task`.
-        """
-        finish_time = datetime.now(timezone.utc)
-        async with self._lock:
-            state = self._runs.pop(run_key, None)
-            if state is None:
-                return
-            # Notify any subscriber queues so consumers exit cleanly.
-            for q in state.queues:
-                q.put_nowait(_SENTINEL)
-            if not state.task.done():
-                state.task.set_result(None)
-            state.finish_time = finish_time
-            self._global_last_finish_at = finish_time
-            logger.debug("Unregistered external task: %s", run_key)
-
     async def attach(self, run_key: str) -> asyncio.Queue | None:
         """Attach to an existing run.
 
-        Returns a new queue pre-filled with the event buffer, or ``None``
-        if no run is active for *run_key*.
+        Returns a new queue pre-filled with the event buffer plus a
+        ``replay_end`` marker, or ``None`` if no run is active for
+        *run_key*.
         """
         async with self._lock:
             state = self._runs.get(run_key)
@@ -199,6 +191,7 @@ class TaskTracker:
             q: asyncio.Queue = asyncio.Queue()
             for sse in state.buffer:
                 q.put_nowait(sse)
+            q.put_nowait(REPLAY_END_SSE)
             state.queues.append(q)
             return q
 
@@ -241,15 +234,21 @@ class TaskTracker:
                 "[STOP] Calling task.cancel() for run_key=%s",
                 run_key,
             )
-            state.task.cancel()
+            task = state.task
+            task.cancel()
             logger.debug("[STOP] task.cancel() called for run_key=%s", run_key)
-            return True
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        return True
 
     async def attach_or_start(
         self,
         run_key: str,
         payload: Any,
         stream_fn: Callable[..., Coroutine],
+        owner: object | None = None,
     ) -> tuple[asyncio.Queue, bool]:
         """Attach to an existing run or start a new one.
 
@@ -269,6 +268,7 @@ class TaskTracker:
                 task=asyncio.Future(),  # placeholder, replaced below
                 queues=[my_queue],
                 buffer=[],
+                owner=owner,
             )
             self._runs[run_key] = run
 

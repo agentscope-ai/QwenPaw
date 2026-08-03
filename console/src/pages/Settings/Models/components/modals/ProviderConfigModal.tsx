@@ -461,6 +461,7 @@ export function ProviderConfigModal({
     if (open) {
       form.setFieldsValue({
         api_key: undefined,
+        name: provider.name,
         base_url: provider.base_url || undefined,
         chat_model: provider.chat_model || "OpenAIChatModel",
         generate_kwargs_text:
@@ -523,6 +524,7 @@ export function ProviderConfigModal({
 
       await api.configureProvider(provider.id, {
         api_key: values.api_key,
+        name: provider.is_custom ? values.name?.trim() : undefined,
         base_url: values.base_url,
         chat_model: values.chat_model,
         generate_kwargs: hasGenerateConfigInput ? generateConfig : {},
@@ -533,7 +535,11 @@ export function ProviderConfigModal({
       await onSaved();
       setFormDirty(false);
       onClose();
-      message.success(t("models.configurationSaved", { name: provider.name }));
+      message.success(
+        t("models.configurationSaved", {
+          name: (provider.is_custom && values.name?.trim()) || provider.name,
+        }),
+      );
     } catch (error) {
       if (error && typeof error === "object" && "errorFields" in error) return;
       const errMsg =
@@ -664,6 +670,7 @@ export function ProviderConfigModal({
         form={form}
         layout="vertical"
         initialValues={{
+          name: provider.name,
           base_url: provider.base_url || undefined,
           chat_model: provider.chat_model || "OpenAIChatModel",
           generate_kwargs_text:
@@ -674,6 +681,22 @@ export function ProviderConfigModal({
         }}
         onValuesChange={() => setFormDirty(true)}
       >
+        {provider.is_custom && (
+          <Form.Item
+            name="name"
+            label={t("models.providerNameLabel")}
+            rules={[
+              {
+                required: true,
+                whitespace: true,
+                message: t("models.providerNameLabel"),
+              },
+            ]}
+          >
+            <Input placeholder={t("models.providerNamePlaceholder")} />
+          </Form.Item>
+        )}
+
         {provider.is_custom && (
           <Form.Item
             name="chat_model"

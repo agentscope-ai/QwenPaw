@@ -32,83 +32,49 @@ _PKG_DIR = str(Path(__file__).parent)
 
 _DOC = """Recall conversation history via Python — the ADVANCED recall tool.
 
-For the common reads — re-expand a seq span, search by keywords, re-read one
-tool call — prefer the simpler `recall_history` tool (op="expand"/"search"/
-"recall_tool"): it needs no code and no sandbox. Reach for THIS Python REPL
-when you need more than those three: listing/reading whole sessions, custom
-SQL counting/ranking, scratch tables, or programmatically cross-referencing
-many turns in one cell.
+Prefer `recall_history` for ordinary expand/search/recall_tool reads. Use this
+sandboxed Python tool for session listing, custom SQL counting/ranking,
+scratch tables, or cross-referencing many turns programmatically.
 
-Read back the verbatim turns of your conversations from a durable log: this
-session's turns that scrolled out of context (seq spans come from the
-[context compressed] map) plus your earlier sessions. Usual flow: LOCATE a
-seq — via the map or ms.search — then ms.expand(lo, hi) for the full turns
-(one turn is ms.expand(seq, seq)). Commit an answer only from the FULL turn
-text that ms.search / ms.expand return, never from a headline alone — the
-answer is often buried late in a long, multi-topic turn.
+`ms` is ALREADY DEFINED; use it directly (do not import it). Each call is a
+fresh process: Python variables do NOT persist, while tables written through
+`ms.sql_exec` persist in the scratch DB. Only printed stdout is returned.
 
-`ms` is ALREADY DEFINED in this cell — use it directly. Do NOT `import ms`: it
-is a ready-made object, not a module, and importing it raises
-ModuleNotFoundError. Only what you print() is returned; variables do NOT
-persist across calls, but scratch tables do.
+KEEP STDOUT BOUNDED. This tool has no continuation cursor and large stdout is
+truncated. Filter before printing, print short fields/slices, or page with SQL
+`LIMIT ? OFFSET ?`; issue another call for the next page. Never print a broad
+unbounded result set.
 
-    # scan hits by content (raw turns usually have NO headline), then re-read
-    hits = ms.search("flight number", k=20)
-    for r in hits:
-        print(r["seq"], r["content"][:1000])
-    print(ms.expand(180, 184))   # full turns once you have the seq span
+Helpers return `list[dict]`; text is always in `content` (not
+`content_preview`). A trailing `{"_truncated": True}` means the row cap was
+reached: narrow or page the query.
 
-Every helper returns a LIST OF DICTS (rows). Each helper's output schema is its
-`Row: {…}` line below — those are the EXACT dict keys you index by (there is no
-`content_preview`: the text key is always `content`, and only `search` carries
-`session_id`). Don't assume a key; print(rows[0].keys()) if unsure. On overflow
-the row helpers append a trailing {"_truncated": True} row (search is capped by
-k instead) — narrow your span if you see it.
+  • ms.expand(lo, hi)
+    Raw turns for an inclusive seq span, oldest first.
+  • ms.search(query, k=10, kind=None, all_agents=False,
+              session_id=None, agent_id=None)
+    Keyword/FTS search across your sessions; uppercase OR is supported.
+  • ms.recall_tool(tool_call_id, all_agents=False)
+    Tool call/result; saved large outputs include an artifact file pointer.
+  • ms.sessions(all_agents=False, limit=50)
+  • ms.session(session_id, all_agents=False, limit=1000)
+  • ms.agents(limit=100)
+  • ms.days_between(d1, d2, inclusive=False)
+  • ms.sql_query(sql, params)
+    Read-only SQL; durable history is `hist.conversation_history`.
+  • ms.sql_exec(sql, params)
+    Writes only the persistent scratch DB. Always bind values via `params`.
 
-The persistent record reaches you through `ms`. Prefer these intent helpers
-(values are bound for you — no SQL to write):
-  • ms.expand(lo, hi) — full turns in the seq span [lo, hi], oldest first.
-    Row: {seq, kind, role, name, content, headline}.
-  • ms.recall_tool(tool_call_id) — a tool call and its result (this agent;
-    pass all_agents=True to widen). Row: {seq, kind, role, name, tool_input,
-    tool_state, content}.
-  • ms.search(query, all_agents=False, kind=None, k=10) — FTS5. By default
-    searches your whole history across past sessions; all_agents=True spans
-    every agent here. Pin a specific one with session_id="cron:<job>" /
-    agent_id="<other>" (these take precedence). kind filters by row kind
-    ("model_turn" / "tool_result"). Row: {seq, session_id, kind, role, name,
-    headline, content (full turn)}. Query with keywords, not full sentences
-    (all terms must appear); use OR-sets for alternatives and a generous k to
-    cast a wide net: ms.search("tank OR aquarium OR goldfish", k=20). Your
-    current in-progress turn is never a hit — it is already in front of you.
-  • ms.sessions() — your past conversations (incl. scheduled cron/heartbeat
-    runs); ms.session(session_id, all_agents=False) reads one in full, scoped
-    to you by default. ms.agents() lists agents.
-  • ms.days_between(d1, d2, inclusive=False) — |days| between two dates
-    (parses a date out of either string); use it instead of hand math.
-Advanced escape hatch: ms.sql_query(sql, params) reads arbitrary SQL over the
-read-only `hist.conversation_history` (for custom counting/ranking) and
-ms.sql_exec(sql, params) writes a `main` scratch DB. Bind via params, never
-f-string values in.
+Typical flow: locate targeted seq values with `ms.search`, then read only the
+needed range with `ms.expand`. For custom paging:
 
-ANSWERING FROM RECALL — once you've pulled the turns:
-  • "How many / list all": the evidence is usually spread across SESSIONS —
-    find them ALL (several searches / angles), then count DISTINCT items the
-    user actually DID — not mentions (the same thing said 3× is one), and not
-    things merely planned/considered or that you (the assistant) suggested.
-  • A fact that CHANGED over time: the most recent one (by date) is the current
-    answer and supersedes earlier values — give the latest, don't report a
-    stale one or stack both.
-  • "When / how long between": read each relevant turn's date (turns carry a
-    date), anchor relative phrases ("last Tuesday", "two months ago") to THAT
-    turn's date, and use ms.days_between — never do calendar math by hand.
-  • What the USER did, owns, or prefers comes from the USER's own turns, not
-    from suggestions you (the assistant) offered.
-  • CONNECT facts: linking two stated facts to reach a third is valid reading,
-    not fabrication. But COMMIT only to the EXACT thing asked — a near-relative
-    does not count ("Sales Engineer" != "Sales Manager").
-  • Don't refuse after one empty query — try a differently-phrased search
-    first; abstain only when the history genuinely holds nothing.
+    rows = ms.sql_query(
+        "SELECT seq, content FROM hist.conversation_history "
+        "WHERE seq BETWEEN ? AND ? ORDER BY seq LIMIT ? OFFSET ?",
+        (lo, hi, 20, offset),
+    )
+    for row in rows:
+        print(row["seq"], row["content"][:2000])
 
 Args:
     source (str): Python source to execute.
@@ -229,9 +195,11 @@ def make_recall_history_python(
         # would leave it looking perpetually in-flight to tool coordination,
         # persisted tool_state, and the model. Reflect the actual exit.
         state = ToolResultState.SUCCESS if code == 0 else ToolResultState.ERROR
+        text, metadata = truncate_text_output(text)
         return ToolChunk(
-            content=[TextBlock(type="text", text=truncate_text_output(text))],
+            content=[TextBlock(type="text", text=text)],
             state=state,
+            metadata=metadata,
         )
 
     recall_history_python.__doc__ = _DOC

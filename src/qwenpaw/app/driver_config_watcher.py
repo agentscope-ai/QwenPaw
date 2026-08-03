@@ -2,8 +2,8 @@
 """Watch DriverCard files and hot-reload active Drivers.
 
 This is the protocol-neutral successor to the old MCP-only config watcher.
-Console/API saves already trigger reloads directly; this watcher preserves the
-manual-edit path for ``drivers/<protocol>/<name>.yaml`` files.
+Console/API saves already apply runtime updates directly. This watcher
+preserves the manual-edit path for ``drivers/<protocol>/<name>.yaml`` files.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ DEFAULT_POLL_INTERVAL = 2.0
 
 
 class DriverConfigWatcher:
-    """Poll DriverCard storage and reload changed external capabilities."""
+    """Poll DriverCard storage and refresh changed external capabilities."""
 
     def __init__(
         self,
@@ -114,17 +114,17 @@ class DriverConfigWatcher:
 
         for name in sorted(changed_names):
             try:
-                await self._driver_manager.reload_driver(name)
-                logger.info("Driver '%s' reloaded after card change", name)
+                await self._driver_manager.refresh_driver(name)
+                logger.info("Driver '%s' refreshed after card change", name)
             except Exception:
                 logger.warning(
-                    "Failed to reload Driver '%s' after card change",
+                    "Failed to refresh Driver '%s' after card change",
                     name,
                     exc_info=True,
                 )
 
         # Use the snapshot that triggered this pass as the baseline. If a
-        # manual edit lands while reload_driver() is running, the next poll
-        # will compare against this observed state and reload it instead of
+        # manual edit lands while refresh_driver() is running, the next poll
+        # will compare against this observed state and apply it instead of
         # accidentally swallowing the newer write.
         self._last_snapshot = current

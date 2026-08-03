@@ -17,6 +17,8 @@ import {
 import { MermaidBlock } from "@/components/MermaidBlock";
 import { ImageZoom } from "@/components/ImageZoom";
 import { trackBlogPostView } from "@/lib/analytics";
+import { BlogEngagement } from "@/components/BlogEngagement";
+import { BlogRelatedCard } from "@/components/BlogRelatedCard";
 
 /** Turn plain "Meeting link: https://…" lines into markdown links for session lists. */
 function linkifySessionUrls(body: string): string {
@@ -187,7 +189,7 @@ export default function BlogPost() {
     <BlogPostShell>
       <article>
         <nav
-          className="font-inter mb-4 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-(--color-text-tertiary) sm:mb-6 sm:text-sm"
+          className="font-inter mb-4 flex items-center gap-x-1.5 text-xs text-(--color-text-tertiary) sm:mb-6 sm:text-sm"
           aria-label="Breadcrumb"
         >
           <Link
@@ -200,7 +202,7 @@ export default function BlogPost() {
           <span className="shrink-0" aria-hidden>
             /
           </span>
-          <span className="min-w-0 truncate text-(--color-text) md:max-w-md">
+          <span className="min-w-0 flex-1 truncate text-(--color-text)">
             {frontmatter.title}
           </span>
         </nav>
@@ -240,7 +242,12 @@ export default function BlogPost() {
                 : t("blog.readTime", { minutes: readMinutes })}
             </span>
           </p>
+          {slug ? <BlogEngagement slug={slug} /> : null}
         </header>
+
+        {frontmatter.related ? (
+          <BlogRelatedCard related={frontmatter.related} />
+        ) : null}
 
         <div
           className={`docs-content blog-content${
@@ -282,13 +289,28 @@ export default function BlogPost() {
                   </code>
                 );
               },
-              img: ({ src, alt, className }) => (
-                <ImageZoom
-                  src={src ?? ""}
-                  alt={alt ?? ""}
-                  className={className}
-                />
-              ),
+              img: ({ src, alt, className }) => {
+                const isVideo = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(src ?? "");
+                if (isVideo) {
+                  return (
+                    <video
+                      src={src ?? undefined}
+                      controls
+                      playsInline
+                      className="my-4 w-full rounded-lg"
+                    >
+                      {alt || t("docs.videoNotSupported")}
+                    </video>
+                  );
+                }
+                return (
+                  <ImageZoom
+                    src={src ?? ""}
+                    alt={alt ?? ""}
+                    className={className}
+                  />
+                );
+              },
             }}
           >
             {isSessionList ? linkifySessionUrls(body) : body}

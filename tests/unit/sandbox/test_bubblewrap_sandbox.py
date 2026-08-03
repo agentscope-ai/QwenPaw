@@ -16,11 +16,10 @@ from qwenpaw.sandbox import (
     create_sandbox,
 )
 from qwenpaw.sandbox.bubblewrap_sandbox import (
-    BubblewrapSandbox,
     _BWRAP_VIOLATION_RE,
+    BubblewrapSandbox,
 )
 from qwenpaw.sandbox.config import _probe_linux_bubblewrap
-
 
 # ============================================================================
 # _build_bwrap_args() — parameter generation
@@ -226,6 +225,15 @@ class TestProbeLinuxBubblewrap:
 class TestProbeSandboxSupportLinuxBwrap:
     """Test that probe_sandbox_support on Linux tries bwrap first."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_probe_cache(self):
+        """Clear lru_cache so each test starts fresh."""
+        from qwenpaw.sandbox.config import probe_sandbox_support
+
+        probe_sandbox_support.cache_clear()
+        yield
+        probe_sandbox_support.cache_clear()
+
     @patch("sys.platform", "linux")
     @patch(
         "qwenpaw.sandbox.config._probe_linux_bubblewrap",
@@ -284,7 +292,9 @@ class TestProbeSandboxSupportLinuxBwrap:
 class TestCreateSandboxBubblewrap:
     """Test create_sandbox returns BubblewrapSandbox for BUBBLEWRAP mode."""
 
-    def test_create_sandbox_bubblewrap(self):
+    @patch("qwenpaw.sandbox.config.sys")
+    def test_create_sandbox_bubblewrap(self, mock_sys):
+        mock_sys.platform = "linux"
         config = SandboxConfig(
             mode=SandboxMode.BUBBLEWRAP,
             workspace_dir="/tmp/ws",
@@ -301,3 +311,32 @@ class TestCreateSandboxBubblewrap:
         config.mode = "bogus_mode"
         with pytest.raises(ValueError, match="Unknown sandbox mode"):
             create_sandbox(config)
+
+
+# ============================================================================
+# Platform compatibility guard — cross-platform downgrade
+# ============================================================================
+
+
+class TestCreateSandboxPlatformDowngrade:
+    """Test create_sandbox downgrades incompatible modes."""
+
+    @patch("qwenpaw.sandbox.config.sys")
+    @patch(
+        "qwenpaw.sandbox.config.detect_platform_mode",
+        return_value=SandboxMode.BUBBLEWRAP,
+    )
+    def test_seatbelt_mode_on_linux_downgrades_to_bubblewrap(
+        self,
+        mock_detect,
+        mock_sys,
+    ):
+        """SEATBELT on Linux downgrades to BUBBLEWRAP."""
+        mock_sys.platform = "linux"
+        config = SandboxConfig(
+            mode=SandboxMode.SEATBELT,
+            workspace_dir="/tmp/ws",
+        )
+        sb = create_sandbox(config)
+        assert isinstance(sb, BubblewrapSandbox)
+        mock_detect.assert_called_once()

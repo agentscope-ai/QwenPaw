@@ -9,9 +9,11 @@ Covers:
 - ``migrate_legacy_weixin_session_files`` weixin -> wechat rename
 - ``AgentStateError`` raised for missing-file ``allow_not_exist=False``
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -23,6 +25,8 @@ from qwenpaw.app.chats.session import (
     _safe_json_loads,
     migrate_legacy_weixin_session_files,
     sanitize_filename,
+    session_filename,
+    session_relative_paths,
 )
 from qwenpaw.exceptions import AgentStateError
 
@@ -192,6 +196,57 @@ async def test_update_session_state_appends_to_existing(
 
 
 @pytest.mark.asyncio
+async def test_update_session_state_serializes_across_instances(
+    tmp_path: Path,
+    monkeypatch,
+):
+    """Two session objects must not lose updates to the same file."""
+    first_session = SafeJSONSession(save_dir=str(tmp_path))
+    second_session = SafeJSONSession(save_dir=str(tmp_path))
+    first_write_started = asyncio.Event()
+    release_first_write = asyncio.Event()
+    original_write = session_mod.write_json_atomic_async
+
+    async def delayed_write(path, payload, **kwargs):
+        if payload == {"first": 1}:
+            first_write_started.set()
+            await release_first_write.wait()
+        await original_write(path, payload, **kwargs)
+
+    monkeypatch.setattr(
+        session_mod,
+        "write_json_atomic_async",
+        delayed_write,
+    )
+
+    first_update = asyncio.create_task(
+        first_session.update_session_state(
+            session_id="shared",
+            key="first",
+            value=1,
+            user_id="u",
+        ),
+    )
+    await first_write_started.wait()
+    second_update = asyncio.create_task(
+        second_session.update_session_state(
+            session_id="shared",
+            key="second",
+            value=2,
+            user_id="u",
+        ),
+    )
+    await asyncio.sleep(0.05)
+    release_first_write.set()
+    await asyncio.gather(first_update, second_update)
+
+    saved = json.loads(
+        (tmp_path / "u_shared.json").read_text(encoding="utf-8"),
+    )
+    assert saved == {"first": 1, "second": 2}
+
+
+@pytest.mark.asyncio
 async def test_update_session_state_missing_file_disallowed(session):
     with pytest.raises(AgentStateError):
         await session.update_session_state(
@@ -280,6 +335,25 @@ def test_get_save_path_uses_channel_subdir(session, tmp_path: Path):
 
     assert Path(path) == tmp_path / "console" / "u_sess.json"
     assert (tmp_path / "console").is_dir()
+
+
+def test_session_path_helpers_match_save_layout():
+    assert session_filename("console:sid", "user") == "user_console--sid.json"
+    assert session_relative_paths(
+        "console:sid",
+        "user",
+        "console",
+    ) == {
+        "user_console--sid.json",
+        "console/user_console--sid.json",
+    }
+
+
+def test_session_path_helpers_reject_parent_channel(session):
+    with pytest.raises(ValueError, match="invalid session channel"):
+        session_relative_paths("sid", "user", "..")
+    with pytest.raises(ValueError, match="invalid session channel"):
+        session._get_save_path("sid", "user", "..")
 
 
 def test_get_save_path_migrates_legacy_session_into_channel(

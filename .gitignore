@@ -24,6 +24,7 @@ htmlcov/
 htmlcov.zip
 htmlcov-integration/
 .integration_coverage/
+**/.creator-dev-runtime/
 
 # cookbook
 cookbook/_build

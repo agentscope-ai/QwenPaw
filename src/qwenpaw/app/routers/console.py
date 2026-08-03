@@ -27,7 +27,7 @@ from qwenpaw.schemas import (
     AgentRequest,
     _coerce_content_item,
 )
-from ...utils.logging import LOG_FILE_PATH
+from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
 from ..chats.title_generator import generate_and_update_title
@@ -112,15 +112,24 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         content_parts = (
             list(request_data.input[0].content) if request_data.input else []
         )
+        message_metadata = (
+            request_data.input[0].metadata if request_data.input else None
+        )
     else:
         channel_id = request_data.get("channel", "console")
         sender_id = request_data.get("user_id", "default")
         session_id = request_data.get("session_id", "default")
         input_data = request_data.get("input", [])
         content_parts = []
+        message_metadata = None
         for content_part in input_data:
             if hasattr(content_part, "content"):
                 content_parts.extend(list(content_part.content or []))
+                message_metadata = getattr(
+                    content_part,
+                    "metadata",
+                    message_metadata,
+                )
             elif isinstance(content_part, dict) and "content" in content_part:
                 # Coerce raw dicts to typed Content models so downstream
                 # getattr checks (e.g. _content_has_text) see real attrs.
@@ -128,6 +137,8 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
                     _coerce_content_item(c)
                     for c in (content_part["content"] or [])
                 )
+                if isinstance(content_part.get("metadata"), dict):
+                    message_metadata = content_part["metadata"]
 
     meta: dict = {
         "session_id": session_id,
@@ -146,9 +157,49 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         "channel_id": channel_id,
         "sender_id": sender_id,
         "content_parts": content_parts,
+        "message_metadata": message_metadata,
         "meta": meta,
     }
+
+    if isinstance(request_data, AgentRequest):
+        mso = getattr(request_data, "model_slot_override", None)
+    else:
+        mso = request_data.get("model_slot_override")
+    if mso is not None:
+        native_payload["model_slot_override"] = mso
+
     return native_payload
+
+
+def _is_reconnect_request(request_data: Union[AgentRequest, dict]) -> bool:
+    """Return whether the chat request asks to attach to a running stream.
+
+    ``AgentRequest`` uses ``extra="allow"`` and has no required fields,
+    so FastAPI parses ``{"reconnect": true, ...}`` bodies into an
+    ``AgentRequest`` instance — a dict-only check silently classified
+    every reconnect as a fresh send and restarted a run with an empty
+    input. Check both shapes.
+    """
+    if isinstance(request_data, dict):
+        return request_data.get("reconnect") is True
+    return getattr(request_data, "reconnect", None) is True
+
+
+def _empty_sse_response() -> StreamingResponse:
+    """An SSE response that terminates immediately."""
+
+    async def _empty() -> AsyncGenerator[str, None]:
+        return
+        yield  # pragma: no cover — makes this an async generator
+
+    return StreamingResponse(
+        _empty(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 def _tail_text_file(
@@ -231,19 +282,22 @@ async def post_console_chat(
             ),
         )
 
-    is_reconnect = False
-    if isinstance(request_data, dict):
-        is_reconnect = request_data.get("reconnect") is True
+    is_reconnect = _is_reconnect_request(request_data)
 
     if is_reconnect:
         queue = await tracker.attach(chat.id)
         if queue is None:
-            return
+            # The run finished (or never existed): reply with an
+            # immediately-terminated SSE stream so the client's reader
+            # completes normally and falls back to the persisted
+            # history. Returning a JSON null here left the chat blank.
+            return _empty_sse_response()
     else:
         queue, _ = await tracker.attach_or_start(
             chat.id,
             native_payload,
             console_channel.stream_one,
+            owner=workspace,
         )
 
     async def event_generator() -> AsyncGenerator[str, None]:
@@ -524,7 +578,7 @@ def _parse_sse_payload(line: str) -> Optional[Dict[str, Any]]:
     status_code=200,
     summary="Submit a background chat task",
 )
-async def post_console_chat_task(
+async def post_console_chat_task(  # pylint: disable=too-many-statements
     request_data: Union[AgentRequest, dict],
     request: Request,
 ) -> dict:
@@ -547,12 +601,36 @@ async def post_console_chat_task(
         sender_id=native_payload["sender_id"],
         channel_meta=native_payload["meta"],
     )
+    name, _ = _extract_placeholder_name(native_payload["content_parts"])
+    await workspace.chat_manager.get_or_create_chat(
+        session_id,
+        native_payload["sender_id"],
+        native_payload["channel_id"],
+        name=name,
+    )
 
     task_timeout: Optional[float] = None
+    fork_project_dir = ""
+    fork_worktree_branch = ""
+    fork_scope_id = ""
     if isinstance(request_data, dict):
         task_timeout = request_data.get("timeout")
+        rc = request_data.get("request_context")
+        if isinstance(rc, dict):
+            fork_project_dir = str(rc.get("fork_project_dir") or "")
+            fork_worktree_branch = str(
+                rc.get("fork_worktree_branch") or "",
+            )
+            fork_scope_id = str(rc.get("fork_scope_id") or "")
     elif hasattr(request_data, "timeout"):
         task_timeout = getattr(request_data, "timeout", None)
+        rc = getattr(request_data, "request_context", None)
+        if isinstance(rc, dict):
+            fork_project_dir = str(rc.get("fork_project_dir") or "")
+            fork_worktree_branch = str(
+                rc.get("fork_worktree_branch") or "",
+            )
+            fork_scope_id = str(rc.get("fork_scope_id") or "")
 
     bg = _BackgroundTask(
         status="running",
@@ -575,6 +653,23 @@ async def post_console_chat_task(
                 "status": "failed",
                 "error": {"message": "Task cancelled"},
             }
+            if fork_project_dir and fork_worktree_branch:
+                try:
+                    from qwenpaw.agents.fork_project import mark_fork_failed
+
+                    await asyncio.to_thread(
+                        mark_fork_failed,
+                        fork_project_dir,
+                        fork_worktree_branch,
+                        reason="Task cancelled",
+                        expected_scope=fork_scope_id or None,
+                    )
+                except Exception:
+                    logger.warning(
+                        "mark_fork_failed on cancel failed for %s",
+                        sanitize_log_value(fork_worktree_branch),
+                        exc_info=True,
+                    )
             return
         except Exception as exc:
             bg.status = "finished"
@@ -583,6 +678,23 @@ async def post_console_chat_task(
                 "status": "failed",
                 "error": {"message": str(exc)},
             }
+            if fork_project_dir and fork_worktree_branch:
+                try:
+                    from qwenpaw.agents.fork_project import mark_fork_failed
+
+                    await asyncio.to_thread(
+                        mark_fork_failed,
+                        fork_project_dir,
+                        fork_worktree_branch,
+                        reason=str(exc),
+                        expected_scope=fork_scope_id or None,
+                    )
+                except Exception:
+                    logger.warning(
+                        "mark_fork_failed on error failed for %s",
+                        sanitize_log_value(fork_worktree_branch),
+                        exc_info=True,
+                    )
             return
 
         bg.status = "finished"
@@ -599,6 +711,27 @@ async def post_console_chat_task(
                 "session_id": session_id,
                 "output": [],
             }
+        # Fork subagents: commit dirty worktree so branch tips are mergeable.
+        if fork_project_dir and fork_worktree_branch:
+            try:
+                from qwenpaw.agents.fork_project import (
+                    finalize_fork_worktree_or_fail,
+                )
+
+                await asyncio.to_thread(
+                    finalize_fork_worktree_or_fail,
+                    fork_project_dir,
+                    fork_worktree_branch,
+                    message=f"fork worker {fork_worktree_branch}",
+                    expected_scope=fork_scope_id or None,
+                )
+            except Exception:
+                logger.warning(
+                    "Background fork finalize failed for %s (%s)",
+                    sanitize_log_value(fork_worktree_branch),
+                    sanitize_log_value(fork_project_dir),
+                    exc_info=True,
+                )
 
     atask = asyncio.create_task(_run())
     bg.asyncio_task = atask

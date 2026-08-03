@@ -1,17 +1,28 @@
 # -*- coding: utf-8 -*-
 """Chat manager for managing chat specifications."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
 from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable
 from typing import Optional
 
-from .models import ChatSpec, ChatUpdate, SessionSource
+from .models import (
+    BatchArchiveResult,
+    BatchFailure,
+    ChatSpec,
+    ChatUpdate,
+    SessionSource,
+)
 from .repo import BaseChatRepository
 from ..channels.schema import DEFAULT_CHANNEL
+from ...utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
+
+MAX_BATCH_SIZE = 500
 
 
 class ChatManager:
@@ -27,6 +38,7 @@ class ChatManager:
         self,
         *,
         repo: BaseChatRepository,
+        on_session_closed: Callable[[str], Awaitable[None]] | None = None,
     ):
         """Initialize chat manager.
 
@@ -34,10 +46,18 @@ class ChatManager:
             repo: Chat spec repository for persistence
         """
         self._repo = repo
+        self._on_session_closed = on_session_closed
         self._lock = asyncio.Lock()
         logger.debug(
             f"ChatManager created with repo path: {repo.path}",
         )
+
+    def set_on_session_closed(
+        self,
+        callback: Callable[[str], Awaitable[None]] | None,
+    ) -> None:
+        """Update the browser lifecycle callback when a service is reused."""
+        self._on_session_closed = callback
 
     # ----- Read Operations -----
 
@@ -45,12 +65,16 @@ class ChatManager:
         self,
         user_id: Optional[str] = None,
         channel: Optional[str] = None,
+        archived: Optional[bool] = None,
     ) -> list[ChatSpec]:
         """List chat specs with optional filters.
 
         Args:
             user_id: Optional user ID filter
             channel: Optional channel filter
+            archived: Optional archived status filter.
+                False (default in API) = active only,
+                True = archived only, None = all.
 
         Returns:
             List of chat specifications
@@ -58,11 +82,13 @@ class ChatManager:
         async with self._lock:
             logger.debug(
                 f"list_chats: repo path={self._repo.path}, "
-                f"filters: user_id={user_id}, channel={channel}",
+                f"filters: user_id={user_id}, channel={channel}, "
+                f"archived={archived}",
             )
             return await self._repo.filter_chats(
                 user_id=user_id,
                 channel=channel,
+                archived=archived,
             )
 
     async def get_chat(self, chat_id: str) -> Optional[ChatSpec]:
@@ -222,13 +248,187 @@ class ChatManager:
         Returns:
             True if deleted, False if not found
         """
+        session_ids: set[str] = set()
         async with self._lock:
+            for chat_id in chat_ids:
+                chat = await self._repo.get_chat(chat_id)
+                if chat is not None:
+                    session_ids.add(chat.session_id)
             deleted = await self._repo.delete_chats(chat_ids)
 
             if deleted:
                 logger.debug(f"Deleted chats: {chat_ids}")
 
-            return deleted
+        if deleted:
+            for session_id in session_ids:
+                await self._close_browser_session(session_id)
+        return deleted
+
+    # ----- Archive Operations -----
+
+    async def archive_chat(
+        self,
+        chat_id: str,
+        *,
+        check_status: Optional[str] = None,
+    ) -> Optional[ChatSpec]:
+        """Archive a single chat. Idempotent: already-archived chats are
+        returned unchanged (archived_at is NOT refreshed).
+
+        Args:
+            chat_id: Chat UUID
+            check_status: If provided and equals "running", raises ValueError
+
+        Returns:
+            Updated ChatSpec, or None if not found
+
+        Raises:
+            ValueError: If the chat is currently running (in_progress)
+        """
+        archived: ChatSpec | None
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            if check_status == "running":
+                raise ValueError("in_progress")
+            if existing.archived:
+                archived = existing
+            else:
+                archived = existing.model_copy(
+                    update={"archived_at": datetime.now(timezone.utc)},
+                )
+                assert archived is not None
+                await self._repo.upsert_chat(archived)
+                logger.debug("Archived chat: %s", sanitize_log_value(chat_id))
+        await self._close_browser_session(archived.session_id)
+        return archived
+
+    async def _close_browser_session(self, session_id: str) -> None:
+        """Ask the optional lifecycle owner to close one chat's browser."""
+        if self._on_session_closed is None:
+            return
+        try:
+            await self._on_session_closed(session_id)
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "chat browser cleanup failed for session=%s",
+                session_id[:30],
+                exc_info=True,
+            )
+
+    async def unarchive_chat(self, chat_id: str) -> Optional[ChatSpec]:
+        """Unarchive a single chat. Idempotent: active chats unchanged.
+
+        Args:
+            chat_id: Chat UUID
+
+        Returns:
+            Updated ChatSpec, or None if not found
+        """
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            if not existing.archived:
+                return existing
+            merged = existing.model_copy(update={"archived_at": None})
+            await self._repo.upsert_chat(merged)
+            logger.debug(f"Unarchived chat: {chat_id}")
+            return merged
+
+    async def batch_archive(
+        self,
+        chat_ids: list[str],
+        *,
+        get_status: Optional[Callable[[str], Awaitable[Optional[str]]]] = None,
+    ) -> BatchArchiveResult:
+        """Archive multiple chats. Partial failures do not roll back.
+
+        Args:
+            chat_ids: List of chat IDs (max MAX_BATCH_SIZE)
+            get_status: Optional async callable that returns chat status.
+                If provided, running chats are skipped.
+
+        Returns:
+            BatchArchiveResult with succeeded and failed lists
+        """
+        result = BatchArchiveResult()
+        session_ids: set[str] = set()
+        async with self._lock:
+            for chat_id in chat_ids:
+                existing = await self._repo.get_chat(chat_id)
+                if existing is None:
+                    result.failed.append(
+                        BatchFailure(
+                            chat_id=chat_id,
+                            reason="not_found",
+                            message=f"Chat not found: {chat_id}",
+                        ),
+                    )
+                    continue
+                if get_status is not None:
+                    status = await get_status(chat_id)
+                    if status == "running":
+                        result.failed.append(
+                            BatchFailure(
+                                chat_id=chat_id,
+                                reason="in_progress",
+                                message="Chat is running",
+                            ),
+                        )
+                        continue
+                if not existing.archived:
+                    merged = existing.model_copy(
+                        update={"archived_at": datetime.now(timezone.utc)},
+                    )
+                    await self._repo.upsert_chat(merged)
+                result.succeeded.append(chat_id)
+                session_ids.add(existing.session_id)
+        for session_id in session_ids:
+            await self._close_browser_session(session_id)
+        logger.debug(
+            f"batch_archive: {len(result.succeeded)} succeeded, "
+            f"{len(result.failed)} failed",
+        )
+        return result
+
+    async def batch_unarchive(
+        self,
+        chat_ids: list[str],
+    ) -> BatchArchiveResult:
+        """Unarchive multiple chats. Partial failures do not roll back.
+
+        Args:
+            chat_ids: List of chat IDs (max MAX_BATCH_SIZE)
+
+        Returns:
+            BatchArchiveResult with succeeded and failed lists
+        """
+        result = BatchArchiveResult()
+        async with self._lock:
+            for chat_id in chat_ids:
+                existing = await self._repo.get_chat(chat_id)
+                if existing is None:
+                    result.failed.append(
+                        BatchFailure(
+                            chat_id=chat_id,
+                            reason="not_found",
+                            message=f"Chat not found: {chat_id}",
+                        ),
+                    )
+                    continue
+                if existing.archived:
+                    merged = existing.model_copy(update={"archived_at": None})
+                    await self._repo.upsert_chat(merged)
+                result.succeeded.append(chat_id)
+        logger.debug(
+            f"batch_unarchive: {len(result.succeeded)} succeeded, "
+            f"{len(result.failed)} failed",
+        )
+        return result
+
+    # ----- Misc Operations -----
 
     async def count_chats(
         self,
@@ -303,3 +503,27 @@ class ChatManager:
                 f"(from {len(matching_chats)} matches)",
             )
             return most_recent.id
+
+    async def touch_chat_by_session(
+        self,
+        session_id: str,
+        channel: str,
+        user_id: str | None = None,
+    ) -> Optional[ChatSpec]:
+        """Find and touch a chat with one repository load and save.
+
+        This is the message-path variant of :meth:`touch_chat`. It avoids a
+        separate session lookup followed by another read-modify-write cycle.
+        """
+        async with self._lock:
+            touched = await self._repo.touch_chat_by_session(
+                session_id=session_id,
+                channel=channel,
+                user_id=user_id,
+            )
+            if touched is None:
+                logger.debug(
+                    f"No chat to touch for session={session_id[:30]} "
+                    f"channel={channel} user_id={user_id}",
+                )
+            return touched

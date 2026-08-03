@@ -2,6 +2,7 @@
 """GuardedFunctionTool — permission-checked tool wrapper."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -186,7 +187,12 @@ async def _guarded_tool_check_permissions(
 
     # Denied list (applies to every mode).
     if engine.is_denied(tool_name):
-        denied_result = engine.guard(tool_name, input_data)
+        # Offload: guardians may do sync Path.resolve() I/O.
+        denied_result = await asyncio.to_thread(
+            engine.guard,
+            tool_name,
+            input_data,
+        )
         body = (
             f"Tool '{tool_name}' is permanently blocked by the denied-list."
             if denied_result is None or not denied_result.findings
@@ -198,8 +204,11 @@ async def _guarded_tool_check_permissions(
         )
 
     # Resolve the guard_result that drives the rest of the decisions.
+    # Offload the full engine.guard() so sync filesystem work in
+    # SharedSafetyToolGuardian / path classifiers cannot block the loop.
     if exec_level.requires_approval_for_all_tools():
-        guard_result = engine.guard(
+        guard_result = await asyncio.to_thread(
+            engine.guard,
             tool_name,
             input_data,
             only_always_run=False,
@@ -208,7 +217,8 @@ async def _guarded_tool_check_permissions(
             guard_result = _strict_info_guard_result(tool_name, input_data)
     else:
         guarded = engine.is_guarded(tool_name)
-        guard_result = engine.guard(
+        guard_result = await asyncio.to_thread(
+            engine.guard,
             tool_name,
             input_data,
             only_always_run=not guarded,
@@ -367,6 +377,9 @@ async def _ask_user_approval(
             },
             "channel_meta": ctx.get("channel_meta"),
             "_channel_instance": ctx.get("_channel_instance"),
+            **(
+                {"_spawn_subagent": True} if ctx.get("_spawn_subagent") else {}
+            ),
         },
     )
 

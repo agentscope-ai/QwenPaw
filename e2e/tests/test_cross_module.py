@@ -92,12 +92,21 @@ class TestSkillAgentChatFlow:
             log_test_step("1. Navigate to the skills management page")
             navigate_to_skills(page)
 
-            log_test_step("2. Click the create-skill button")
-            create_btn = page.locator(
-                'button:has-text("Create")'
+            log_test_step("2. Open Add Skill menu and choose Create Skill")
+            # Post v2.0.0 the create entry lives inside the "Add Skill"
+            # dropdown (AddSkillDropdown.tsx), not a standalone button.
+            add_btn = page.locator(
+                'button:has-text("Add Skill"), button:has-text("添加技能")'
             ).first
-            expect(create_btn).to_be_visible(timeout=5000)
-            create_btn.click()
+            expect(add_btn).to_be_visible(timeout=8000)
+            add_btn.click()
+            page.wait_for_timeout(600)
+            create_item = page.locator(
+                '.qwenpaw-dropdown-menu-item:has-text("Create Skill"), '
+                '.qwenpaw-dropdown-menu-item:has-text("创建技能")'
+            ).first
+            expect(create_item).to_be_visible(timeout=5000)
+            create_item.click()
             page.wait_for_timeout(1500)
 
             log_test_step("3. Fill in skill information")
@@ -158,10 +167,7 @@ When invoked, respond with: "Cross-module test skill executed successfully."
             log_test_step("7. Find an editable agent and click edit")
             editable_agent_found = False
             for agent_row in agent_rows:
-                edit_btn = agent_row.locator(
-                    'button:has(.spark-icon-spark-edit-line), '
-                    '.qwenpaw-space-item:nth-child(1) button'
-                ).first
+                edit_btn = agent_row.locator('button:has(.anticon-edit)').first
                 if edit_btn.count() > 0 and edit_btn.is_enabled(timeout=1000):
                     edit_btn.click()
                     page.wait_for_timeout(1500)

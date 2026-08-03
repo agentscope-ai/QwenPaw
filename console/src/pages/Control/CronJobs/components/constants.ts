@@ -31,7 +31,8 @@ export const DEFAULT_FORM_VALUES = {
       user_id: "",
       session_id: "",
     },
-    mode: "final" as const,
+    mode: "stream" as const,
+    silent: false,
   },
   runtime: {
     share_session: true,

@@ -6,11 +6,16 @@ Covers:
 - prepend_to_message_content
 """
 # pylint: disable=redefined-outer-name
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from agentscope.message import DataBlock, Msg, TextBlock, URLSource
 
 from qwenpaw.agents.utils.message_processing import (
+    _process_audio_block,
     is_first_user_interaction,
     prepend_to_message_content,
+    process_file_and_media_blocks_in_message,
 )
 
 
@@ -24,6 +29,35 @@ def _msg(role: str, content="content"):
     m.role = role
     m.content = content
     return m
+
+
+def _audio_message(audio_path, media_type="audio/opus"):
+    block = DataBlock(
+        source=URLSource(
+            url=audio_path.resolve().as_uri(),
+            media_type=media_type,
+        ),
+    )
+    return Msg(name="user", role="user", content=[block]), block
+
+
+def _mock_transcription(result=None):
+    return patch(
+        "qwenpaw.agents.utils.audio_transcription.transcribe_audio",
+        new=AsyncMock(return_value=result),
+    )
+
+
+@pytest.fixture
+def _audio_config():
+    config = MagicMock()
+    config.agents.audio_mode = "auto"
+    config.agents.language = "en"
+    with patch(
+        "qwenpaw.agents.utils.message_processing.load_config",
+        return_value=config,
+    ):
+        yield config
 
 
 # ---------------------------------------------------------------------------
@@ -144,3 +178,89 @@ class TestPrependToMessageContent:
         prepend_to_message_content(msg, "guidance")
         assert len(msg.content) == 2
         assert msg.content[1]["type"] == "image"
+
+
+class TestProcessAudioDataBlock:
+    """P0: local AgentScope audio blocks reach transcription."""
+
+    @pytest.mark.asyncio
+    async def test_local_audio_is_replaced_with_transcription(
+        self,
+        tmp_path,
+        _audio_config,
+    ):
+        audio_path = tmp_path / "voice note.opus"
+        msg, _ = _audio_message(audio_path)
+
+        with _mock_transcription("hello from voice") as transcribe:
+            await process_file_and_media_blocks_in_message(msg)
+
+        transcribe.assert_awaited_once_with(str(audio_path.resolve()))
+        assert len(msg.content) == 1
+        assert isinstance(msg.content[0], TextBlock)
+        assert msg.content[0].text == "[Voice message]: hello from voice"
+
+    @pytest.mark.asyncio
+    async def test_failed_transcription_keeps_local_path_hint(
+        self,
+        tmp_path,
+        _audio_config,
+    ):
+        audio_path = tmp_path / "voice.opus"
+        msg, _ = _audio_message(audio_path)
+
+        with _mock_transcription():
+            await process_file_and_media_blocks_in_message(msg)
+
+        assert len(msg.content) == 2
+        assert isinstance(msg.content[0], TextBlock)
+        assert msg.content[0].text == "[Voice message]: (audio file received)"
+        assert isinstance(msg.content[1], TextBlock)
+        assert str(audio_path.resolve()) in msg.content[1].text
+
+    @pytest.mark.asyncio
+    async def test_native_audio_remains_data_block(
+        self,
+        tmp_path,
+        _audio_config,
+    ):
+        audio_path = tmp_path / "voice.wav"
+        msg, block = _audio_message(audio_path, "audio/wav")
+        _audio_config.agents.audio_mode = "native"
+
+        with _mock_transcription() as transcribe:
+            await process_file_and_media_blocks_in_message(msg)
+
+        transcribe.assert_not_awaited()
+        assert msg.content == [block]
+        assert block.source.media_type == "audio/wav"
+
+    @pytest.mark.asyncio
+    async def test_legacy_audio_replacement_remains_dict(
+        self,
+        tmp_path,
+        _audio_config,
+    ):
+        audio_path = tmp_path / "voice.opus"
+        block = {
+            "type": "audio",
+            "source": {
+                "type": "url",
+                "url": audio_path.resolve().as_uri(),
+                "media_type": "audio/opus",
+            },
+        }
+        content = [block]
+
+        with _mock_transcription("legacy voice"):
+            handled = await _process_audio_block(
+                content,
+                0,
+                str(audio_path),
+                block,
+            )
+
+        assert handled is True
+        assert content == [
+            {"type": "text", "text": "[Voice message]: legacy voice"},
+        ]

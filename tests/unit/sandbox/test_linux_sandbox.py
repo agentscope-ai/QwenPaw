@@ -14,6 +14,7 @@ from qwenpaw.sandbox import (
     SandboxCapability,
     SandboxConfig,
     SandboxMode,
+    create_sandbox,
     probe_sandbox_support,
 )
 from qwenpaw.sandbox.config import (
@@ -38,6 +39,13 @@ pytestmark = pytest.mark.skipif(
 class TestProbeSandboxSupport:
     """Test probe_sandbox_support() for each platform."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_probe_cache(self):
+        """Clear lru_cache so each test starts fresh."""
+        probe_sandbox_support.cache_clear()
+        yield
+        probe_sandbox_support.cache_clear()
+
     @patch("sys.platform", "darwin")
     @patch("shutil.which", return_value="/usr/bin/sandbox-exec")
     def test_darwin_delegates_to_seatbelt(self, mock_which):
@@ -57,9 +65,8 @@ class TestProbeSandboxSupport:
         assert "4.0" in result.reason
 
     @patch("sys.platform", "win32")
-    @patch("qwenpaw.sandbox.config._probe_windows_appcontainer")
-    def test_windows_calls_appcontainer_probe(self, mock_probe):
-        # Windows sandbox should delegate to _probe_windows_appcontainer.
+    @patch("qwenpaw.sandbox.config._probe_windows")
+    def test_windows_calls_windows_probe(self, mock_probe):
         mock_probe.return_value = SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,
@@ -337,15 +344,19 @@ class TestLinuxSandboxRuleCompilation:
 
 
 # ============================================================================
-# Governance: sandbox_available=False → SANDBOX_FALLBACK escalates to ASK
+# Governance: sandbox_available=False when the platform cannot sandbox
 # ============================================================================
 
 
 class TestGovernanceSandboxUnavailable:
-    """Test SANDBOX_FALLBACK escalates to ASK when sandbox unavailable."""
+    """Probe degradation: sandbox_available is False when unsupported.
+
+    (A shell SANDBOX_FALLBACK then runs unsandboxed via ALLOW in
+    ``assert_policy``; that behavior is covered in test_policy.py.)
+    """
 
     def test_sandbox_fallback_becomes_ask(self):
-        """When sandbox is unavailable, SANDBOX_FALLBACK should become ASK."""
+        """When the platform cannot sandbox, ``sandbox_available`` is False."""
         cap = SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,
@@ -376,3 +387,30 @@ class TestGovernanceSandboxUnavailable:
             governor.sandbox_capability.reason
             == "Kernel 5.10 < 5.13, Landlock unavailable"
         )
+
+
+# ============================================================================
+# Platform compatibility guard — cross-platform downgrade
+# ============================================================================
+
+
+class TestCreateSandboxLandlockDowngrade:
+    """Test that LANDLOCK mode downgrades on non-linux platforms."""
+
+    @patch("qwenpaw.sandbox.config.sys")
+    @patch(
+        "qwenpaw.sandbox.config.detect_platform_mode",
+        return_value=SandboxMode.NONE,
+    )
+    def test_landlock_mode_on_darwin_downgrades(self, mock_detect, mock_sys):
+        """LANDLOCK on macOS downgrades to platform default."""
+        from qwenpaw.sandbox.local_sandbox import NoneSandbox
+
+        mock_sys.platform = "darwin"
+        config = SandboxConfig(
+            mode=SandboxMode.LANDLOCK,
+            workspace_dir="/tmp/ws",
+        )
+        sb = create_sandbox(config)
+        assert isinstance(sb, NoneSandbox)
+        mock_detect.assert_called_once()

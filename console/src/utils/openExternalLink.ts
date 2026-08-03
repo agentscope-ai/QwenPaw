@@ -64,7 +64,7 @@ function isSupportedExternalUrl(url: string): boolean {
 }
 
 /** Resolve an input URL only if its protocol is safe to hand to external openers. */
-function resolveSupportedExternalUrl(url: string): string | null {
+export function resolveSupportedExternalUrl(url: string): string | null {
   const resolvedUrl = resolveExternalUrl(url);
   if (!resolvedUrl || !isSupportedExternalUrl(resolvedUrl)) {
     return null;

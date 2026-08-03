@@ -9,6 +9,7 @@ Platform-specific code is handled with @pytest.mark.skipif decorators.
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 from __future__ import annotations
 
+
 import base64
 import os
 import sys
@@ -17,6 +18,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 # Platform check for macOS-specific tests
 IS_DARWIN = sys.platform == "darwin"
@@ -60,8 +63,9 @@ def mock_channel_config() -> MagicMock:
     config.bot_prefix = "@bot "
     config.media_dir = None
     config.max_decoded_size = 10 * 1024 * 1024
-    config.filter_tool_messages = False
-    config.filter_thinking = False
+    config.show_tool_calls = True
+    config.show_tool_results = True
+    config.show_thinking = True
     return config
 
 
@@ -105,9 +109,12 @@ class TestIMessageChannelInit:
             media_dir=temp_media_dir,
             max_decoded_size=5 * 1024 * 1024,
             on_reply_sent=None,
-            show_tool_details=False,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_details=False,
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
 
         assert channel.enabled is True
@@ -115,9 +122,10 @@ class TestIMessageChannelInit:
         assert channel.poll_sec == 2.5
         assert channel.bot_prefix == "@test "
         assert channel.max_decoded_size == 5 * 1024 * 1024
-        assert channel._show_tool_details is False
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is False
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
 
     def test_init_creates_media_directory(
         self,
@@ -253,8 +261,10 @@ class TestIMessageChannelFactoryMethods:
             bot_prefix="@ai ",
             media_dir=temp_media_dir,
             max_decoded_size=20 * 1024 * 1024,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
 
         channel = IMessageChannel.from_config(

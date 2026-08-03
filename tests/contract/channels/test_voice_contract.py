@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 from tests.contract.channels import ChannelContractTest
 
@@ -36,7 +37,8 @@ class TestVoiceChannelContract(ChannelContractTest):
         return VoiceChannel(
             process=process,
             on_reply_sent=None,
-            show_tool_details=False,
-            filter_tool_messages=True,
-            filter_thinking=False,
+            display_config=ChannelDisplayConfig(
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )

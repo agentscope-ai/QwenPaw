@@ -14,6 +14,7 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from config.settings import config
+from pages.skill_pool_page import SkillPoolPage
 from utils.helpers import log_test_step, log_test_result
 
 logger = logging.getLogger(__name__)
@@ -644,3 +645,131 @@ class TestSkillPoolBuiltinImport:
                 logger.info("No dialog appeared after click, may be running in background")
 
         log_test_result(test_name, True, 0)
+
+
+# ============================================================================
+# SYNC-001 P1  Skill card shows sync-status badge + auto-update button
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.p1
+@pytest.mark.skill_pool
+@pytest.mark.skill_sync
+class TestSkillAutoSyncCard:
+    """SYNC-001: a pool skill card carries a sync-status badge and, on hover,
+    the auto-update quick-toggle button (upstream #5639)."""
+
+    SKILL_NAME = "e2e_sync_card_skill"
+
+    @pytest.mark.test_id("SYNC-001")
+    def test_skill_card_sync_badge_and_button(
+        self,
+        page: Page,
+        api_context,
+        request: pytest.FixtureRequest,
+    ):
+        test_name = request.node.name
+        pool = SkillPoolPage(page)
+        try:
+            log_test_step("1. Seed a pool skill via API (no LLM)")
+            SkillPoolPage.delete_pool_skill(api_context, self.SKILL_NAME)
+            assert SkillPoolPage.seed_pool_skill(
+                api_context, self.SKILL_NAME
+            ), "Failed to seed pool skill"
+
+            log_test_step("2. Open the Skill Pool page (card view is default)")
+            pool.open()
+
+            log_test_step("3. Locate the seeded skill card")
+            card = pool.find_card_by_name(self.SKILL_NAME)
+            assert card is not None, f"Seeded card not found: {self.SKILL_NAME}"
+            expect(card).to_be_visible(timeout=pool.timeout)
+
+            log_test_step("4. Card shows a sync-status badge with a colored dot")
+            expect(
+                card.locator(pool.STATUS_BADGE).first
+            ).to_be_visible(timeout=pool.timeout)
+            expect(
+                card.locator(pool.STATUS_DOT).first
+            ).to_be_visible(timeout=pool.timeout)
+
+            log_test_step("5. Hovering the card reveals the auto-update button")
+            pool.hover_card(card)
+            expect(
+                card.locator(pool.AUTO_UPDATE_BUTTON).first
+            ).to_be_visible(timeout=pool.timeout)
+
+            log_test_result(test_name, True, 0)
+            logger.info(f"Test {test_name} passed")
+        finally:
+            SkillPoolPage.delete_pool_skill(api_context, self.SKILL_NAME)
+
+
+# ============================================================================
+# SYNC-002 P1  Edit-drawer Auto Sync switch reveals targets + persists on Save
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.p1
+@pytest.mark.skill_pool
+@pytest.mark.skill_sync
+class TestSkillAutoSyncDrawer:
+    """SYNC-002: in the edit drawer, turning the Auto Sync switch ON reveals the
+    target-agent select; clicking Save persists it (card shows the Auto Sync
+    tag afterwards). The switch is staged — nothing persists until Save."""
+
+    SKILL_NAME = "e2e_sync_drawer_skill"
+
+    @pytest.mark.test_id("SYNC-002")
+    def test_auto_sync_switch_reveals_targets_and_persists(
+        self,
+        page: Page,
+        api_context,
+        request: pytest.FixtureRequest,
+    ):
+        test_name = request.node.name
+        pool = SkillPoolPage(page)
+        try:
+            log_test_step("1. Seed a pool skill (auto_update defaults off)")
+            SkillPoolPage.delete_pool_skill(api_context, self.SKILL_NAME)
+            assert SkillPoolPage.seed_pool_skill(
+                api_context, self.SKILL_NAME
+            ), "Failed to seed pool skill"
+
+            log_test_step("2. Open the Skill Pool page and the skill's edit drawer")
+            pool.open()
+            pool.open_edit_drawer(self.SKILL_NAME)
+
+            log_test_step("3. Auto Sync switch visible; target select hidden")
+            expect(
+                page.locator(pool.AUTO_SYNC_SWITCH).first
+            ).to_be_visible(timeout=pool.timeout)
+            target_before = page.locator(pool.TARGET_SELECT_PLACEHOLDER)
+            assert (
+                target_before.count() == 0
+                or not target_before.first.is_visible()
+            ), "Target-agent select should be hidden while Auto Sync is off"
+
+            log_test_step("4. Turn Auto Sync ON → target-agent select appears")
+            pool.toggle_auto_sync_switch()
+            expect(
+                page.locator(pool.TARGET_SELECT_PLACEHOLDER).first
+            ).to_be_visible(timeout=pool.timeout)
+
+            log_test_step("5. Save → the drawer closes")
+            pool.save_drawer()
+            expect(
+                page.locator(pool.DRAWER).first
+            ).to_be_hidden(timeout=pool.timeout)
+
+            log_test_step("6. The card now shows the Auto Sync tag (persisted)")
+            card = pool.find_card_by_name(self.SKILL_NAME)
+            assert card is not None, "Card missing after save"
+            expect(
+                card.locator(pool.AUTO_UPDATE_TAG).first
+            ).to_be_visible(timeout=pool.timeout)
+
+            log_test_result(test_name, True, 0)
+            logger.info(f"Test {test_name} passed")
+        finally:
+            SkillPoolPage.delete_pool_skill(api_context, self.SKILL_NAME)

@@ -26,6 +26,7 @@ Run:
 # pylint: disable=broad-exception-raised,using-constant-test
 from __future__ import annotations
 
+
 import json
 import threading
 from pathlib import Path
@@ -33,6 +34,8 @@ from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 from tests.fixtures.channels.mock_http import MockAiohttpSession
 
@@ -86,8 +89,10 @@ def wechat_channel(
         bot_token="test_token_123",
         bot_prefix="[TestBot] ",
         media_dir=str(temp_media_dir),
-        show_tool_details=False,
-        filter_tool_messages=True,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=False,
+            show_tool_results=False,
+        ),
         dm_policy="open",
         group_policy="open",
     )
@@ -182,18 +187,21 @@ class TestWeChatChannelInit:
             base_url="https://custom.api.com",
             bot_prefix="",
             media_dir=str(temp_media_dir),
-            show_tool_details=True,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
             allow_from=["user1", "user2"],
             deny_message="Access denied",
         )
 
         assert channel.enabled is False
         assert channel._base_url == "https://custom.api.com"
-        assert channel._show_tool_details is True
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is True
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
         assert channel.allow_from == {"user1", "user2"}
         assert channel.deny_message == "Access denied"
 

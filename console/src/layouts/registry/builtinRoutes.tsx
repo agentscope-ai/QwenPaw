@@ -36,11 +36,15 @@ const SkillsPage = lazyImportWithRetry("../../pages/Agent/Skills");
 const SkillPoolPage = lazyImportWithRetry("../../pages/Settings/SkillPool");
 const ToolsPage = lazyImportWithRetry("../../pages/Agent/Tools");
 const WorkspacePage = lazyImportWithRetry("../../pages/Agent/Workspace");
+const CheckpointsPage = lazyImportWithRetry("../../pages/Agent/Checkpoints");
 const MCPPage = lazyImportWithRetry("../../pages/Agent/MCP");
 const ACPPage = lazyImportWithRetry("../../pages/Agent/ACP");
 const ModelsPage = lazyImportWithRetry("../../pages/Settings/Models");
 const EnvironmentsPage = lazyImportWithRetry(
   "../../pages/Settings/Environments",
+);
+const OffloadPolicyPage = lazyImportWithRetry(
+  "../../pages/Settings/OffloadPolicy",
 );
 const SecurityPage = lazyImportWithRetry("../../pages/Settings/Security");
 const TokenUsagePage = lazyImportWithRetry("../../pages/Settings/TokenUsage");
@@ -54,6 +58,7 @@ const BackupsPage = lazyImportWithRetry("../../pages/Settings/Backups");
 const PluginManagerPage = lazyImportWithRetry(
   "../../pages/Settings/PluginManager",
 );
+const AppCenterPage = lazyImportWithRetry("../../pages/AppCenter");
 
 /**
  * "/" lands here. Waits for useSyncCodingMode to populate the store before
@@ -94,12 +99,18 @@ export const BUILTIN_ROUTES: Route[] = [
   { id: "core.acp", path: "/acp", component: ACPPage },
   { id: "core.acp-alias", path: "/ACP", component: ACPRedirect },
   { id: "core.workspace", path: "/workspace", component: WorkspacePage },
+  { id: "core.checkpoints", path: "/checkpoints", component: CheckpointsPage },
   { id: "core.agents", path: "/agents", component: AgentsPage },
   { id: "core.models", path: "/models", component: ModelsPage },
   {
     id: "core.environments",
     path: "/environments",
     component: EnvironmentsPage,
+  },
+  {
+    id: "core.offload-policy",
+    path: "/offload-policy",
+    component: OffloadPolicyPage,
   },
   {
     id: "core.agent-config",
@@ -120,6 +131,14 @@ export const BUILTIN_ROUTES: Route[] = [
     id: "core.plugin-manager",
     path: "/plugin-manager",
     component: PluginManagerPage,
+  },
+  { id: "core.app-center", path: "/apps", component: AppCenterPage },
+  // Deep-link / refresh target: `/apps/<id>` also lands on the App Center,
+  // which opens the app inline (with the “← App Center” bar) from the URL.
+  {
+    id: "core.app-center.embed",
+    path: "/apps/:appId",
+    component: AppCenterPage,
   },
 ];
 

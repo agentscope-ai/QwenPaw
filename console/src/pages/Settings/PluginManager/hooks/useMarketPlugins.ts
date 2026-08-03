@@ -5,31 +5,12 @@ import {
   fetchMarketPlugins,
   buildMarketDownloadUrl,
   type MarketPluginEntry,
+  type MarketPluginSortBy,
 } from "@/api/modules/pluginMarket";
 import { installPlugin } from "@/api/modules/plugin";
+import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 
-/**
- * Derive a compatibility label (e.g. "2.x") from a version string.
- * Handles leading "v", pre-release suffixes, and invalid inputs gracefully.
- */
-function deriveCompatLabel(version: string): string | null {
-  const trimmed = version.trim().replace(/^v/i, "");
-  const match = trimmed.match(/^(\d+)/);
-  if (!match) return null;
-  return `${match[1]}.x`;
-}
-
-export function isMarketPluginCompatible(
-  entry: MarketPluginEntry,
-  currentVersion: string | null,
-): boolean {
-  if (!currentVersion) return true;
-  const labels = entry.qwenpaw_compat_labels;
-  if (!labels || labels.length === 0) return true;
-  const label = deriveCompatLabel(currentVersion);
-  if (!label) return true; // Cannot parse version → treat as compatible
-  return labels.includes(label);
-}
+export { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 
 interface UseMarketPluginsOptions {
   onInstalled: () => void;
@@ -49,6 +30,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
   const [pageSize] = useState(20);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string | undefined>(undefined);
+  const [sortBy, setSortBy] = useState<MarketPluginSortBy>("downloads");
   const [installingId, setInstallingId] = useState<string | null>(null);
   const [qwenpawVersion, setQwenpawVersion] = useState<string | null>(null);
 
@@ -70,7 +52,6 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
         if (err instanceof Error && err.name === "AbortError") {
           return;
         }
-        // eslint-disable-next-line no-console
         console.error("[useMarketPlugins] failed to fetch version:", err);
         setQwenpawVersion(null);
       });
@@ -80,7 +61,12 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
   }, []);
 
   const loadPlugins = useCallback(
-    async (pageNum: number, keyword: string, cat?: string) => {
+    async (
+      pageNum: number,
+      keyword: string,
+      cat: string | undefined,
+      sort: MarketPluginSortBy,
+    ) => {
       setLoading(true);
       setError(null);
       try {
@@ -89,6 +75,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
           page_size: pageSize,
           search: keyword || undefined,
           category: cat || undefined,
+          sort_by: sort,
         });
         setPlugins(data.plugins ?? []);
         setTotal(data.total);
@@ -104,8 +91,8 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
   );
 
   useEffect(() => {
-    void loadPlugins(page, search, category);
-  }, [page, search, category, loadPlugins]);
+    void loadPlugins(page, search, category, sortBy);
+  }, [page, search, category, sortBy, loadPlugins]);
 
   const handleSearch = useCallback((keyword: string) => {
     setSearch(keyword);
@@ -117,13 +104,18 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
     setPage(1);
   }, []);
 
+  const handleSortChange = useCallback((sort: MarketPluginSortBy) => {
+    setSortBy(sort);
+    setPage(1);
+  }, []);
+
   const handlePageChange = useCallback((newPage: number) => {
     setPage(newPage);
   }, []);
 
   const handleRefresh = useCallback(() => {
-    void loadPlugins(page, search, category);
-  }, [loadPlugins, page, search, category]);
+    void loadPlugins(page, search, category, sortBy);
+  }, [loadPlugins, page, search, category, sortBy]);
 
   const isCompatible = useCallback(
     (entry: MarketPluginEntry) =>
@@ -163,11 +155,13 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
     page,
     pageSize,
     category,
+    sortBy,
     installingId,
     qwenpawVersion,
     isCompatible,
     handleSearch,
     handleCategoryChange,
+    handleSortChange,
     handlePageChange,
     handleRefresh,
     handleInstall,

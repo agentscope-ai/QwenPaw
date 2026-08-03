@@ -2,12 +2,22 @@
 """
 QwenPaw Skill Pool page object.
 
-Wraps all interactions on the Skill Pool page and exposes business-level methods.
+Wraps interactions on the Skill Pool page (``/skill-pool``), including the
+skill auto-sync affordances added in upstream #5639:
+
+- the per-card sync status badge (colored dot + status label),
+- the hover-revealed auto-update quick-toggle button,
+- the edit-drawer Auto Sync switch + target-agent select (staged until Save).
+
+Selectors target the real post-#5639 DOM: antd ``prefixCls`` is ``qwenpaw``
+and component-local styles are CSS-Module hashed class names, matched via
+``[class*=basename]`` substrings (never the stale ``.qwenpaw-card`` stub).
 """
 from __future__ import annotations
 
 import logging
-from typing import Optional, List
+from typing import List, Optional
+
 from playwright.sync_api import Page, Locator
 
 from pages.base_page import BasePage
@@ -17,32 +27,50 @@ logger = logging.getLogger(__name__)
 
 
 class SkillPoolPage(BasePage):
-    """
-    Skill Pool page object.
-
-    Wraps all user actions on the Skill Pool page:
-    - Page navigation
-    - Get skill cards
-    - Search skills
-    - Upload and install skills
-    """
+    """Skill Pool page object (card grid + edit drawer + auto-sync)."""
 
     PAGE_TITLE = "Skill Pool"
     PAGE_URL = f"{config.base_url}/skill-pool"
 
-    # ========== Selector definitions ==========
+    # ========== Selectors ==========
+    # Page + card grid (SkillPool/index.module.less, PoolSkillCard.tsx)
+    PAGE_CONTAINER = '[class*="skillsPage"]'
+    SKILL_GRID = '[class*="skillsGrid"]'
+    SKILL_CARD = '[class*="skillCard"]'
+    SKILL_TITLE = '[class*="skillTitle"]'
+    # Sync status badge (rendered for every card) + its colored dot.
+    STATUS_BADGE = '[class*="statusBadge"]'
+    STATUS_DOT = '[class*="statusDot"]'
+    # "Auto Sync" chip in the title row — only when skill.auto_update === true.
+    AUTO_UPDATE_TAG = '[class*="autoUpdateTag"]'
+    BUILTIN_TAG = '[class*="builtinTag"]'
+    CUSTOM_TAG = '[class*="customTag"]'
+    # Card footer is only mounted on hover / batch / mobile; the auto-update
+    # quick-toggle button (SyncOutlined) lives inside it.
+    CARD_FOOTER = '[class*="cardFooter"]'
+    AUTO_UPDATE_BUTTON = '[class*="autoUpdateButton"]'
 
-    # Skill card
-    SKILL_CARD = ".qwenpaw-card"
-
-    # Search input
-    SEARCH_INPUT = 'input[placeholder*="搜索"], input[placeholder*="Search"]'
-
-    # Upload button
-    UPLOAD_BTN = 'button:has-text("上传"), button:has-text("Upload")'
-
-    # Install button
-    INSTALL_BTN = 'button:has-text("安装"), button:has-text("Install")'
+    # Edit drawer (PoolSkillDrawer.tsx)
+    DRAWER = '.qwenpaw-drawer'
+    DRAWER_TITLE = '.qwenpaw-drawer-title'
+    # The only Switch inside the drawer is the Auto Sync toggle.
+    AUTO_SYNC_SWITCH = '.qwenpaw-drawer button[role="switch"]'
+    # Target-agent multi-select is rendered ONLY after the switch is ON; anchor
+    # on its placeholder text (unique) so we don't match other selects.
+    TARGET_SELECT_PLACEHOLDER = (
+        '.qwenpaw-drawer [class*="select-selection-placeholder"]'
+        ':has-text("All agents that have this skill"), '
+        '.qwenpaw-drawer [class*="select-selection-placeholder"]'
+        ':has-text("所有已安装该技能的智能体")'
+    )
+    SAVE_BTN = (
+        '.qwenpaw-drawer button:has-text("Save"), '
+        '.qwenpaw-drawer button:has-text("保存")'
+    )
+    CANCEL_BTN = (
+        '.qwenpaw-drawer button:has-text("Cancel"), '
+        '.qwenpaw-drawer button:has-text("取消")'
+    )
 
     # ========== Initialization ==========
 
@@ -50,108 +78,112 @@ class SkillPoolPage(BasePage):
         super().__init__(page)
         logger.info("SkillPoolPage initialized")
 
-    # ========== Page navigation ==========
+    # ========== Navigation ==========
 
     def open(self) -> "SkillPoolPage":
-        """Open the Skill Pool page."""
+        """Open the Skill Pool page and wait for the card grid container."""
         logger.info("Opening Skill Pool page")
         self.goto()
-        self.wait_for_loading()
+        try:
+            self.page.locator(self.PAGE_CONTAINER).first.wait_for(
+                state="visible", timeout=self.timeout
+            )
+        except Exception:
+            logger.warning("skillsPage container not visible within timeout")
+        self.wait(500)
         return self
 
-    def wait_for_page_loaded(self) -> bool:
-        """
-        Wait for the page to finish loading.
-
-        Returns:
-            True if loaded, False otherwise.
-        """
-        try:
-            self.wait_for_element(self.SKILL_CARD, timeout=10000)
-            return True
-        except Exception as e:
-            logger.error(f"Page load failed: {e}")
-            return False
-
-    # ========== Skill card methods ==========
+    # ========== Card queries ==========
 
     def get_skill_cards(self) -> List[Locator]:
-        """
-        Return all skill cards.
+        """Return all skill cards currently rendered in the grid."""
+        return self.page.locator(self.SKILL_CARD).all()
 
-        Returns:
-            List of Locator instances.
-        """
-        logger.info("Getting skill cards")
-        return self.find_all(self.SKILL_CARD)
+    def find_card_by_name(self, name: str) -> Optional[Locator]:
+        """Return the skill card whose text contains ``name`` (or None)."""
+        card = self.page.locator(
+            f'{self.SKILL_CARD}:has-text("{name}")'
+        ).first
+        return card if card.count() > 0 else None
 
-    def get_skill_name(self, card: Locator) -> str:
-        """
-        Read the skill name from a card.
+    def hover_card(self, card: Locator) -> "SkillPoolPage":
+        """Hover a card so its footer (auto-update button) is mounted."""
+        card.scroll_into_view_if_needed(timeout=5000)
+        card.hover(timeout=5000)
+        self.wait(300)
+        return self
 
-        Args:
-            card: Skill card Locator.
+    def open_edit_drawer(self, name: str) -> "SkillPoolPage":
+        """Click a skill card (non-batch mode) to open its edit drawer."""
+        card = self.find_card_by_name(name)
+        if card is None:
+            raise ValueError(f"Skill card not found: {name}")
+        card.scroll_into_view_if_needed(timeout=5000)
+        card.click()
+        self.page.locator(self.DRAWER).first.wait_for(
+            state="visible", timeout=self.timeout
+        )
+        self.wait(400)
+        return self
 
-        Returns:
-            The skill name.
+    def toggle_auto_sync_switch(self) -> "SkillPoolPage":
+        """Click the Auto Sync switch inside the open edit drawer."""
+        switch = self.page.locator(self.AUTO_SYNC_SWITCH).first
+        switch.wait_for(state="visible", timeout=self.timeout)
+        switch.click()
+        self.wait(400)
+        return self
+
+    def save_drawer(self) -> "SkillPoolPage":
+        """Click the drawer's Save button."""
+        self.page.locator(self.SAVE_BTN).first.click()
+        self.wait(800)
+        return self
+
+    # ========== Seeding (API — pool endpoints in app/routers/skills.py) ==========
+
+    @staticmethod
+    def seed_pool_skill(api_context, name: str, content: str = "") -> bool:
+        """Create a pool skill via ``POST /api/skills/pool/create``.
+
+        A freshly-created pool skill has ``auto_update=false`` (the create
+        schema has no auto_update field). Returns True on success; a 4xx
+        (already exists) is treated as a soft success so re-runs don't break
+        setup.
         """
-        logger.info("Getting skill name from card")
+        body = content or (
+            f"---\nname: {name}\n"
+            "description: e2e seeded pool skill for auto-sync tests\n---\n"
+            f"# {name}\n\nSeeded by e2e; no LLM required.\n"
+        )
+        resp = api_context.post(
+            "/api/skills/pool/create",
+            data={"name": name, "content": body, "enable": True},
+        )
+        ok = resp.ok or resp.status in (400, 409)
+        logger.info("seed_pool_skill(%s) -> HTTP %s (ok=%s)", name, resp.status, ok)
+        return ok
+
+    @staticmethod
+    def set_pool_auto_update(
+        api_context, name: str, enabled: bool, targets=None
+    ) -> bool:
+        """Set a pool skill's auto-update via PUT .../auto-update."""
+        resp = api_context.put(
+            f"/api/skills/pool/{name}/auto-update",
+            data={"enabled": enabled, "targets": targets},
+        )
+        logger.info(
+            "set_pool_auto_update(%s, enabled=%s) -> HTTP %s",
+            name, enabled, resp.status,
+        )
+        return resp.ok
+
+    @staticmethod
+    def delete_pool_skill(api_context, name: str) -> None:
+        """Delete a pool skill (best-effort cleanup)."""
         try:
-            # Try to read the card title or its text content
-            return card.inner_text().strip().split('\n')[0]
-        except Exception as e:
-            logger.warning(f"Failed to get skill name: {e}")
-            return ""
-
-    # ========== Search ==========
-
-    def search_skills(self, keyword: str) -> "SkillPoolPage":
-        """
-        Search for skills.
-
-        Args:
-            keyword: Search keyword.
-
-        Returns:
-            self
-        """
-        logger.info(f"Searching skills with keyword: {keyword}")
-        search_input = self.find(self.SEARCH_INPUT)
-        search_input.fill(keyword)
-        self.wait(500)
-        return self
-
-    # ========== Upload and install ==========
-
-    def click_upload(self) -> "SkillPoolPage":
-        """
-        Click the Upload button.
-
-        Returns:
-            self
-        """
-        logger.info("Clicking upload button")
-        upload_btn = self.find(self.UPLOAD_BTN)
-        upload_btn.click()
-        self.wait(500)
-        return self
-
-    def click_install(self, card: Locator) -> "SkillPoolPage":
-        """
-        Click the Install button on a given skill card.
-
-        Args:
-            card: Skill card Locator.
-
-        Returns:
-            self
-        """
-        logger.info("Clicking install button on skill card")
-        # Find the install button inside the card
-        install_btn = card.locator(self.INSTALL_BTN).first
-        if install_btn.count() > 0:
-            install_btn.click()
-            self.wait(500)
-        else:
-            logger.warning("Install button not found in card")
-        return self
+            resp = api_context.delete(f"/api/skills/pool/{name}")
+            logger.info("delete_pool_skill(%s) -> HTTP %s", name, resp.status)
+        except Exception as exc:  # noqa: BLE001 - cleanup must never raise
+            logger.warning("delete_pool_skill(%s) failed: %s", name, exc)

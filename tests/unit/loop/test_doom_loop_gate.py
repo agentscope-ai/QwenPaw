@@ -49,7 +49,7 @@ def test_reset_clears_history(gate):
     gate.record("tool_a", "hash1")
     gate.record("tool_a", "hash1")
     assert len(gate._ensure_state().history) == 2
-    gate.reset()
+    gate.reset_turn()
     assert len(gate._ensure_state().history) == 0
 
 
@@ -59,7 +59,7 @@ def test_reset_clears_counters(gate):
     state.consecutive_hits = 5
     state.prompt = "some warning"
     state.last_recorded_iter = 10
-    gate.reset()
+    gate.reset_turn()
     state = gate._ensure_state()
     assert state.consecutive_hits == 0
     assert state.prompt == ""
@@ -68,7 +68,7 @@ def test_reset_clears_counters(gate):
 
 def test_reset_keeps_gate_active(gate):
     """reset() does NOT deactivate the gate."""
-    gate.reset()
+    gate.reset_turn()
     assert gate._state() is not None
 
 
@@ -77,7 +77,7 @@ async def test_no_false_positive_after_reset(gate):
     """After reset, fresh calls don't trigger doom loop."""
     for _ in range(3):
         gate.record("tool_a", "hash1")
-    gate.reset()
+    gate.reset_turn()
     gate.record("tool_b", "hash2")
     result = await gate.check({"iteration": 0})
     assert result.action == StopAction.BYPASS
@@ -92,20 +92,20 @@ async def test_cross_request_no_bleed(gate):
     result = await gate.check({"iteration": 3})
     assert result is not None
 
-    gate.reset()
+    gate.reset_turn()
     gate.record("search", "abc")
     result = await gate.check({"iteration": 1})
     assert result.action == StopAction.BYPASS
 
 
 def test_reset_when_no_state():
-    """reset() is a no-op when gate has no state."""
+    """reset_turn() is a no-op when gate has no state."""
     g = DoomLoopGate(
         window_size=3,
         similarity_threshold=1.0,
         stages=[],
     )
-    g.reset()
+    g.reset_turn()
 
 
 @pytest.mark.asyncio
@@ -137,7 +137,7 @@ async def test_session_isolation():
         "qwenpaw.loop.gates.loop_gate._session_id",
         return_value="s1",
     ):
-        g.reset()
+        g.reset_turn()
         assert len(g._state().history) == 0
 
     with patch(

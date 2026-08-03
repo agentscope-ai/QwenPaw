@@ -16,6 +16,8 @@ class NoopMemoryManager(BaseMemoryManager):
     backend when you want to run QwenPaw without any memory system.
     """
 
+    enabled = False
+
     async def start(self) -> None:
         """No-op: nothing to initialize."""
 

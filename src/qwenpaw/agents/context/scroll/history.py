@@ -8,6 +8,7 @@ import logging
 import sqlite3
 import sys
 import threading
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -176,11 +177,11 @@ class HistoryStore:
                 "CREATE INDEX IF NOT EXISTS ch_kind "
                 "ON conversation_history(kind)",
             )
-            # Idempotency net: a second append of the same logical event (a
-            # resume re-persisting its restored window, or the cap middleware
-            # racing the manager) collides here and is dropped by ON CONFLICT
-            # rather than duplicating a row. NULL dedup_key never conflicts, so
-            # un-keyed rows are simply never deduped.
+            # Idempotency net: a second append of the same logical event, such
+            # as a resume re-persisting its restored window, collides here and
+            # is dropped by ON CONFLICT rather than duplicating a row. NULL
+            # dedup_key never conflicts, so un-keyed rows are simply never
+            # deduped.
             self._conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_dedup "
                 "ON conversation_history(session_id, dedup_key)",
@@ -232,6 +233,31 @@ class HistoryStore:
 
     # --- write path ----------------------------------------------------
 
+    @staticmethod
+    def _insert_row(
+        session_id: str,
+        agent_id: str | None,
+        entry: LogEntry,
+        dedup_key: str | None,
+    ) -> tuple:
+        """Build the SQLite row shared by single and batched appends."""
+        return (
+            session_id,
+            agent_id,
+            entry.kind,
+            entry.role,
+            entry.name,
+            entry.content,
+            entry.tool_call_id,
+            _to_json(entry.tool_input),
+            entry.tool_state,
+            entry.headline,
+            _to_json(entry.blocks),
+            _to_json(entry.metadata or None),
+            entry.created_at or datetime.now(timezone.utc).isoformat(),
+            dedup_key,
+        )
+
     def append(
         self,
         *,
@@ -249,22 +275,7 @@ class HistoryStore:
         restored window can re-link bookkeeping without duplicating rows. A
         ``None`` key is never deduped.
         """
-        row = (
-            session_id,
-            agent_id,
-            entry.kind,
-            entry.role,
-            entry.name,
-            entry.content,
-            entry.tool_call_id,
-            _to_json(entry.tool_input),
-            entry.tool_state,
-            entry.headline,
-            _to_json(entry.blocks),
-            _to_json(entry.metadata or None),
-            entry.created_at or datetime.now(timezone.utc).isoformat(),
-            dedup_key,
-        )
+        row = self._insert_row(session_id, agent_id, entry, dedup_key)
         placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
         with self._lock, self._conn:
             cur = self._conn.execute(
@@ -291,6 +302,51 @@ class HistoryStore:
                     (seq, entry.content or ""),
                 )
             return seq
+
+    def append_many(
+        self,
+        *,
+        session_id: str,
+        entries: Sequence[tuple[LogEntry, str | None]],
+        agent_id: str | None = None,
+    ) -> int:
+        """Append a group of events in one transaction.
+
+        Returns the number of newly inserted rows. Duplicate keys remain
+        no-ops and only newly inserted rows are added to FTS, matching
+        :meth:`append`. This is intended for backfills where committing every
+        individual row would turn SQLite fsync latency into startup latency.
+        """
+        if not entries:
+            return 0
+
+        placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
+        sql = (
+            f"INSERT INTO conversation_history "
+            f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders}) "
+            f"ON CONFLICT(session_id, dedup_key) DO NOTHING"
+        )
+        inserted = 0
+        with self._lock, self._conn:
+            for entry, dedup_key in entries:
+                row = self._insert_row(
+                    session_id,
+                    agent_id,
+                    entry,
+                    dedup_key,
+                )
+                cur = self._conn.execute(sql, row)
+                if cur.rowcount == 0:
+                    continue
+                inserted += 1
+                seq = int(cur.lastrowid or 0)
+                if self._fts and entry.name not in _RECALL_TOOL_NAMES:
+                    self._conn.execute(
+                        "INSERT INTO conversation_history_fts(rowid, content) "
+                        "VALUES (?, ?)",
+                        (seq, entry.content or ""),
+                    )
+        return inserted
 
     def update_entry(
         self,
@@ -364,6 +420,170 @@ class HistoryStore:
                 (session_id,),
             )
             return int(cur.fetchone()["n"])
+
+    def claim_session(self, session_id: str, agent_id: str | None) -> int:
+        """Assign legacy unowned rows in a canonical session to an agent."""
+        if not session_id or not agent_id:
+            return 0
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "UPDATE conversation_history SET agent_id = ? "
+                "WHERE session_id = ? AND agent_id IS NULL",
+                (agent_id, session_id),
+            )
+            return int(cur.rowcount)
+
+    def reconcile_session_rows(
+        self,
+        source_ids: set[str],
+        target_id: str,
+        dedup_keys: set[str],
+        *,
+        agent_id: str | None = None,
+    ) -> tuple[int, int, int]:
+        """Move rows proven to come from one file into its canonical session.
+
+        ``source_ids`` alone is not sufficient provenance because synthetic
+        IDs can collide across channel directories. Restricting the operation
+        to dedup keys recomputed from the source file prevents unrelated rows
+        from being swept into ``target_id``.
+
+        Returns ``(moved, deduplicated, claimed)``. Non-conflicting rows retain
+        their original ``seq``; source duplicates are removed in favor of the
+        existing canonical row so the unique dedup contract remains valid.
+        """
+        sources = sorted(
+            source_id
+            for source_id in source_ids
+            if source_id and source_id != target_id
+        )
+        keys = sorted(str(key) for key in dedup_keys if key)
+        if not sources or not target_id or not keys:
+            return (0, 0, self.claim_session(target_id, agent_id))
+
+        moved = 0
+        deduplicated = 0
+        claimed = 0
+        with self._lock, self._conn:
+            for source_id in sources:
+                for start in range(0, len(keys), 400):
+                    chunk = keys[slice(start, start + 400)]
+                    placeholders = ", ".join("?" for _ in chunk)
+                    ownership = ""
+                    params: list[Any] = [source_id, *chunk]
+                    if agent_id:
+                        ownership = " AND (agent_id = ? OR agent_id IS NULL)"
+                        params.append(agent_id)
+                    rows = self._conn.execute(
+                        "SELECT seq, dedup_key, content "
+                        "FROM conversation_history "
+                        "WHERE session_id = ? AND dedup_key IN ("
+                        + placeholders
+                        + ")"
+                        + ownership,
+                        params,
+                    ).fetchall()
+                    if not rows:
+                        continue
+
+                    row_keys = [str(row["dedup_key"]) for row in rows]
+                    target_placeholders = ", ".join("?" for _ in row_keys)
+                    existing = self._conn.execute(
+                        "SELECT dedup_key FROM conversation_history "
+                        "WHERE session_id = ? AND dedup_key IN ("
+                        + target_placeholders
+                        + ")",
+                        [target_id, *row_keys],
+                    ).fetchall()
+                    existing_keys = {str(row["dedup_key"]) for row in existing}
+                    duplicates = [
+                        row
+                        for row in rows
+                        if str(row["dedup_key"]) in existing_keys
+                    ]
+                    movable = [
+                        row
+                        for row in rows
+                        if str(row["dedup_key"]) not in existing_keys
+                    ]
+
+                    if self._fts:
+                        for row in duplicates:
+                            self._conn.execute(
+                                "INSERT INTO conversation_history_fts"
+                                "(conversation_history_fts, rowid, content) "
+                                "VALUES('delete', ?, ?)",
+                                (row["seq"], row["content"] or ""),
+                            )
+                    if duplicates:
+                        self._conn.executemany(
+                            "DELETE FROM conversation_history WHERE seq = ?",
+                            [(row["seq"],) for row in duplicates],
+                        )
+                        deduplicated += len(duplicates)
+
+                    if movable:
+                        seqs = [int(row["seq"]) for row in movable]
+                        seq_placeholders = ", ".join("?" for _ in seqs)
+                        cur = self._conn.execute(
+                            "UPDATE conversation_history "
+                            "SET session_id = ?, "
+                            "agent_id = COALESCE(agent_id, ?) "
+                            "WHERE seq IN (" + seq_placeholders + ")",
+                            [target_id, agent_id, *seqs],
+                        )
+                        moved += int(cur.rowcount)
+
+            if agent_id:
+                cur = self._conn.execute(
+                    "UPDATE conversation_history SET agent_id = ? "
+                    "WHERE session_id = ? AND agent_id IS NULL",
+                    (agent_id, target_id),
+                )
+                claimed = int(cur.rowcount)
+        return (moved, deduplicated, claimed)
+
+    def existing_seqs(self, seqs: set[int]) -> set[int]:
+        """Return the subset of globally addressed history rows that exist."""
+        if not seqs:
+            return set()
+        ordered = sorted(int(seq) for seq in seqs)
+        placeholders = ", ".join("?" for _ in ordered)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT seq FROM conversation_history WHERE seq IN ("
+                + placeholders
+                + ")",
+                ordered,
+            ).fetchall()
+        return {int(row["seq"]) for row in rows}
+
+    def contents_by_seqs(self, seqs: set[int]) -> dict[int, str | None]:
+        """Return exact persisted content for globally addressed rows.
+
+        Summary evidence uses this after live tool results have been folded.
+        Querying exact primary keys, instead of a broad ``lo..hi`` range,
+        prevents interleaved rows from another agent or session entering the
+        evidence. Chunking also keeps the query below SQLite parameter limits
+        for unusually tool-heavy histories.
+        """
+        if not seqs:
+            return {}
+        ordered = sorted(int(seq) for seq in seqs)
+        found: dict[int, str | None] = {}
+        with self._lock:
+            for start in range(0, len(ordered), 500):
+                chunk = ordered[start : start + 500]
+                placeholders = ", ".join("?" for _ in chunk)
+                rows = self._conn.execute(
+                    "SELECT seq, content FROM conversation_history "
+                    f"WHERE seq IN ({placeholders})",
+                    chunk,
+                ).fetchall()
+                found.update(
+                    {int(row["seq"]): row["content"] for row in rows},
+                )
+        return found
 
     @staticmethod
     def _purge_where(

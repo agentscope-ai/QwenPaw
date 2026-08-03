@@ -6,6 +6,7 @@ Provider-specific probe logic lives in each provider class
 """
 
 import logging
+import time
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -108,7 +109,25 @@ _IMAGE_PROBE_PROMPT = (
 )
 
 # Red-family keywords the probe image (solid red) should elicit.
-_RED_KW = ("red", "scarlet", "crimson", "vermilion", "maroon", "红")
+_RED_KW = (
+    "red",
+    "scarlet",
+    "crimson",
+    "vermilion",
+    "maroon",
+    "红",
+)
+
+# Blue-family keywords the probe video (solid blue) should elicit.
+_BLUE_KW = (
+    "blue",
+    "navy",
+    "azure",
+    "cobalt",
+    "cyan",
+    "indigo",
+    "蓝",
+)
 
 
 def evaluate_image_probe_answer(
@@ -129,13 +148,12 @@ def evaluate_image_probe_answer(
     Returns:
         ``(supported, message)`` tuple.
     """
-    import time as _time  # deferred to keep module-level imports light
 
     answer = answer.lower().strip()
     reasoning = reasoning.lower().strip()
 
     if any(kw in answer for kw in _RED_KW):
-        elapsed = _time.monotonic() - start_time
+        elapsed = time.monotonic() - start_time
         logger.info(
             "Image probe done: model=%s result=True %.2fs",
             model_id,
@@ -144,7 +162,7 @@ def evaluate_image_probe_answer(
         return True, f"Image supported (answer={answer!r})"
 
     if reasoning and any(kw in reasoning for kw in _RED_KW):
-        elapsed = _time.monotonic() - start_time
+        elapsed = time.monotonic() - start_time
         logger.info(
             "Image probe done: model=%s result=True %.2fs",
             model_id,
@@ -152,10 +170,90 @@ def evaluate_image_probe_answer(
         )
         return True, f"Image supported (reasoning, answer={answer!r})"
 
-    elapsed = _time.monotonic() - start_time
+    elapsed = time.monotonic() - start_time
     logger.info(
         "Image probe done: model=%s result=False %.2fs",
         model_id,
         elapsed,
     )
     return False, f"Model did not recognise image (answer={answer!r})"
+
+
+def evaluate_video_probe_answer(
+    answer: str,
+    model_id: str,
+    start_time: float,
+    reasoning: str = "",
+    *,
+    is_http: bool = False,
+) -> tuple[bool, str]:
+    """Shared evaluation for video color-probe answers.
+
+    Args:
+        answer: The model's primary text answer.
+        model_id: Model identifier (for logging).
+        start_time: ``time.monotonic()`` when the probe
+            started.
+        reasoning: Optional reasoning/thinking text for
+            models that put analysis in a separate field.
+        is_http: When True, accept any non-empty answer as
+            evidence of video support.  This relaxed check
+            is safe because ``probe_model_multimodal`` only
+            reaches the video probe after the image probe
+            has already passed, filtering out text-only
+            models that silently accept media payloads.
+
+    Returns:
+        ``(supported, message)`` tuple.
+    """
+
+    answer = answer.lower().strip()
+    reasoning = reasoning.lower().strip()
+
+    answer_match = any(kw in answer for kw in _BLUE_KW)
+    reasoning_match = reasoning and any(kw in reasoning for kw in _BLUE_KW)
+
+    if answer_match:
+        elapsed = time.monotonic() - start_time
+        logger.info(
+            "Video probe done: model=%s ok=True(color) %.2fs",
+            model_id,
+            elapsed,
+        )
+        return True, f"Video supported ({answer!r})"
+
+    if reasoning_match:
+        elapsed = time.monotonic() - start_time
+        logger.info(
+            "Video probe done: model=%s ok=True(reasoning) %.2fs",
+            model_id,
+            elapsed,
+        )
+        return (
+            True,
+            f"Video supported (reasoning, {answer!r})",
+        )
+
+    if is_http and answer:
+        elapsed = time.monotonic() - start_time
+        logger.info(
+            "Video probe done: model=%s ok=True(http) %.2fs",
+            model_id,
+            elapsed,
+        )
+        return (
+            True,
+            f"Video supported (http, {answer!r})",
+        )
+
+    elapsed = time.monotonic() - start_time
+    logger.info(
+        "Video probe done: model=%s ok=False %r %.2fs",
+        model_id,
+        answer,
+        elapsed,
+    )
+    return (
+        False,
+        f"Model did not recognise video (answer={answer!r})",
+    )

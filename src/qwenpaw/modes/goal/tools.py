@@ -23,7 +23,7 @@ def make_get_goal(owner: "GoalMode") -> Any:
 
     def get_goal() -> str:
         """Get the current goal status, budgets, and usage."""
-        session = owner.first_active_session()
+        session = owner.active_session()
         if session is None:
             return json.dumps(
                 {"status": "no_active_goal"},
@@ -68,13 +68,14 @@ def make_update_goal(owner: "GoalMode") -> Any:
                 f"Must be 'complete' or 'blocked'."
             )
 
-        session = owner.first_active_session()
+        session = owner.active_session()
         if session is None:
             return "No active goal to update."
 
         if status == "complete":
             session.active = False
             session.last_verdict = "satisfied"
+            owner.deactivate()
             logger.info(
                 "Goal marked complete by agent: %s",
                 session.goal[:80],
@@ -117,7 +118,7 @@ def make_create_goal(owner: "GoalMode") -> Any:
         if not objective or not objective.strip():
             return "Objective is required."
 
-        existing = owner.first_active_session()
+        existing = owner.active_session()
         if existing is not None:
             return "A goal is already active. " "Cancel it first with /cancel."
 

@@ -224,6 +224,15 @@ def _format_matches(
 @tool_descriptor(
     requires_modes=("coding",),
     requires_sandbox=("file_read",),
+    tool_type="file",
+    target_param="path",
+    pattern_param="pattern",
+    policy_name="AstSearch",
+    default_policy="allow",
+    policy_reason="AST search (global)",
+    ui_description="Search code by AST pattern (coding mode)",
+    ui_icon="🌳",
+    display_to_user=False,
 )
 async def ast_search(  # pylint: disable=too-many-return-statements
     pattern: str,
@@ -291,6 +300,7 @@ async def ast_search(  # pylint: disable=too-many-return-statements
         returncode, stdout, stderr = await cancellable_wait(
             asyncio.to_thread(_run_ast_grep_sync, args, root),
             fallback_secs=_AST_GREP_TIMEOUT + 5,
+            as_kill_deadline=True,
         )
     except (asyncio.TimeoutError, asyncio.CancelledError):
         return _make_response(
