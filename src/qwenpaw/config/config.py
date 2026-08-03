@@ -1622,6 +1622,32 @@ class AgentsLLMRoutingConfig(BaseModel):
             "providers.json active_llm."
         ),
     )
+    fallback: "AgentsLLMFallbackConfig" = Field(
+        default_factory=lambda: AgentsLLMFallbackConfig(),
+        description=(
+            "Optional fallback model candidates tried after the primary "
+            "model exhausts retryable failures."
+        ),
+    )
+
+
+class AgentsLLMFallbackConfig(BaseModel):
+    """Fallback model candidates for LLM routing."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable automatic model fallback when primary fails.",
+    )
+    models: List[ModelSlotConfig] = Field(
+        default_factory=list,
+        description=(
+            "Ordered list of fallback model candidates. Each entry specifies "
+            "a provider_id and model name. Candidates are tried in order "
+            "when the primary model fails."
+        ),
+    )
 
 
 class AgentProfileRef(BaseModel):

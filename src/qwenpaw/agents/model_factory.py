@@ -46,6 +46,10 @@ from ..providers.retry_chat_model import (
     RetryConfig,
     RateLimitConfig,
 )
+from ..providers.fallback_chat_model import (
+    FallbackCandidate,
+    FallbackChatModel,
+)
 from ..token_usage import TokenRecordingModelWrapper
 
 # TODO(AgentScope compatibility): This is a temporary workaround for
@@ -1390,6 +1394,194 @@ def _resolved_provider_id(provider: Any, configured_provider_id: str) -> str:
     return str(getattr(provider, "id", "") or configured_provider_id)
 
 
+def _create_raw_chat_model(
+    provider_id: str,
+    model_name: str,
+) -> ChatModelBase:
+    """Create a raw ``ChatModelBase`` instance for *provider_id*:*model_name*.
+
+    This is a helper used by both the primary model path and the fallback
+    candidate path.  It creates the model without any retry/fallback wrapping.
+    """
+    manager = ProviderManager.get_instance()
+    return manager.create_chat_model(provider_id, model_name)
+
+
+def _is_fallback_candidate_available(
+    provider_id: str,
+    model_id: str,
+) -> bool:
+    """Check if a fallback candidate provider:model is available."""
+    try:
+        manager = ProviderManager.get_instance()
+        provider = manager.get_provider(provider_id)
+        if provider is None:
+            return False
+        # Check if the model is available in the provider
+        models = provider.list_models() or []
+        return any(
+            m.get("model") == model_id or m.get("name") == model_id
+            for m in models
+        )
+    except Exception:
+        logger.debug(
+            "Failed to check fallback candidate availability: %s:%s",
+            provider_id,
+            model_id,
+            exc_info=True,
+        )
+        return True  # Conservative: assume available if check fails
+
+
+def _create_fallback_candidate(
+    provider_id: str,
+    model_name: str,
+    model: ChatModelBase,
+) -> FallbackCandidate:
+    """Create a ``FallbackCandidate`` from provider/model info."""
+    return FallbackCandidate(
+        provider_id=provider_id,
+        model_name=model_name,
+        model=model,
+    )
+
+
+def _apply_fallback_if_configured(
+    primary_model: ChatModelBase,
+    agent_id: str | None,
+    provider_id: str,
+    formatter: FormatterBase,
+) -> ChatModelBase:
+    """Wrap *primary_model* in ``FallbackChatModel`` if fallback is configured.
+
+    Reads fallback config from the agent's configuration (or global config).
+    If fallback is not enabled or no fallback candidates are available, returns
+    the primary model unchanged.
+    """
+    from ..config.config import (
+        load_agent_config,
+        load_config,
+        ModelSlotConfig,
+    )
+
+    # Try to get fallback config from agent config first
+    agent_config = None
+    if agent_id:
+        try:
+            agent_config = load_agent_config(agent_id)
+        except Exception:
+            logger.debug(
+                "Could not load agent config for %s; trying global",
+                agent_id,
+                exc_info=True,
+            )
+
+    fallback_cfg = None
+    if agent_config is not None:
+        routing = getattr(agent_config, "llm_routing", None)
+        if routing is not None:
+            fallback_cfg = getattr(routing, "fallback", None)
+
+    # Fallback to global config
+    if fallback_cfg is None or not getattr(fallback_cfg, "enabled", False):
+        try:
+            global_config = load_config()
+            global_routing = getattr(global_config.agents, "llm_routing", None)
+            if global_routing is not None:
+                global_fallback = getattr(global_routing, "fallback", None)
+                if global_fallback is not None and getattr(
+                    global_fallback, "enabled", False
+                ):
+                    fallback_cfg = global_fallback
+        except Exception:
+            pass
+
+    if fallback_cfg is None or not getattr(fallback_cfg, "enabled", False):
+        return primary_model
+
+    # Build fallback candidates
+    fallback_models = getattr(fallback_cfg, "models", None) or []
+    if not fallback_models:
+        return primary_model
+
+    candidates: list[FallbackCandidate] = [
+        _create_fallback_candidate(
+            provider_id=provider_id,
+            model_name=getattr(primary_model, "model", "unknown"),
+            model=primary_model,
+        )
+    ]
+
+    seen: set[tuple[str, str]] = {(provider_id, getattr(primary_model, "model", "unknown"))}
+    primary_formatter_class = type(formatter)
+
+    for slot in fallback_models:
+        if not isinstance(slot, ModelSlotConfig):
+            continue
+        fb_provider_id = slot.provider_id or ""
+        fb_model_id = slot.model or ""
+        if not fb_provider_id or not fb_model_id:
+            continue
+
+        key = (fb_provider_id, fb_model_id)
+        if key in seen:
+            logger.debug(
+                "Skipping duplicate fallback candidate: %s:%s",
+                fb_provider_id,
+                fb_model_id,
+            )
+            continue
+        seen.add(key)
+
+        if not _is_fallback_candidate_available(fb_provider_id, fb_model_id):
+            logger.debug(
+                "Skipping unavailable fallback candidate: %s:%s",
+                fb_provider_id,
+                fb_model_id,
+            )
+            continue
+
+        try:
+            fb_model = _create_raw_chat_model(fb_provider_id, fb_model_id)
+        except Exception as exc:
+            logger.warning(
+                "Failed to create fallback model %s:%s: %s",
+                fb_provider_id,
+                fb_model_id,
+                exc,
+            )
+            continue
+
+        # Check formatter compatibility
+        fb_formatter = getattr(fb_model, "formatter", None)
+        fb_formatter_class = type(fb_formatter) if fb_formatter else None
+        if fb_formatter_class is not None and fb_formatter_class is not primary_formatter_class:
+            logger.debug(
+                "Skipping fallback candidate with incompatible formatter: "
+                "%s:%s (%s != %s)",
+                fb_provider_id,
+                fb_model_id,
+                fb_formatter_class.__name__,
+                primary_formatter_class.__name__,
+            )
+            continue
+
+        candidates.append(
+            _create_fallback_candidate(fb_provider_id, fb_model_id, fb_model),
+        )
+
+    if len(candidates) <= 1:
+        # No fallback candidates beyond the primary
+        return primary_model
+
+    logger.info(
+        "Model fallback enabled: primary=%s fallback_candidates=%d",
+        candidates[0].label,
+        len(candidates) - 1,
+    )
+    return FallbackChatModel(candidates)
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
@@ -1524,6 +1716,14 @@ def create_model_and_formatter(
         wrapped_model,
         retry_config=retry_config,
         rate_limit_config=rate_limit_config,
+    )
+
+    # Wrap with fallback model support if configured
+    wrapped_model = _apply_fallback_if_configured(
+        wrapped_model,
+        agent_id=agent_id,
+        provider_id=provider_id,
+        formatter=formatter,
     )
 
     return wrapped_model, formatter
