@@ -295,6 +295,31 @@ class TestMotionTemplates:
         assert "line-height:1.08" in html
         assert "overflow:hidden" in html
 
+    def test_caption_font_size_uses_box_dimensions_for_short_text(
+        self,
+    ) -> None:
+        html = render_caption_template(
+            "快看",
+            box_width=0.80,
+            box_height=0.18,
+        )
+        assert "font-size:13.5vh" in html
+
+    def test_caption_font_size_uses_box_dimensions_for_long_text(self) -> None:
+        html = render_caption_template(
+            "大家快看它挺淡定，还有点意思",
+            box_width=0.80,
+            box_height=0.18,
+        )
+        assert "font-size:11.6vh" in html
+
+    def test_caption_font_size_larger_box_produces_larger_font(self) -> None:
+        small = render_caption_template("测试", box_width=0.40, box_height=0.10)
+        large = render_caption_template("测试", box_width=0.80, box_height=0.30)
+        small_size = float(small.split("font-size:")[1].split("vh")[0])
+        large_size = float(large.split("font-size:")[1].split("vh")[0])
+        assert large_size > small_size
+
     def test_decoration_css_content_text_is_rejected(self) -> None:
         html = (
             "<html><head><style>.x:after{content:'WOW'}</style></head>"
@@ -515,7 +540,7 @@ class TestApplyOverlayStyledRouting:
             source_ref="source:src-1",
             start_seconds=0.0,
             end_seconds=4.0,
-            overlay=overlay,
+            overlays=(overlay,),
         )
         return item, segment
 
@@ -550,8 +575,8 @@ class TestApplyOverlayStyledRouting:
             tmp_path,
             motion={"html": _HTML, "fps": 24, "loop": False},
         )
-        warning = runner._apply_overlay(item, segment)
-        assert warning is None
+        warnings = runner._apply_overlay(item, segment)
+        assert not warnings
         assert calls == ["motion"]
         assert segment.read_bytes() == b"styled"
 
@@ -586,10 +611,10 @@ class TestApplyOverlayStyledRouting:
             tmp_path,
             motion={"html": _HTML, "fps": 24, "loop": False},
         )
-        warning = runner._apply_overlay(item, segment)
-        assert warning is not None
-        assert "回退固定样式" in warning
-        assert "capture crashed" in warning
+        warnings = runner._apply_overlay(item, segment)
+        assert len(warnings) == 1
+        assert "回退固定样式" in warnings[0]
+        assert "capture crashed" in warnings[0]
         assert calls == ["motion", "pet_os"]
         assert segment.read_bytes() == b"bubble"
 
@@ -621,6 +646,6 @@ class TestApplyOverlayStyledRouting:
         )
         runner = self._runner(monkeypatch)
         item, segment = self._input(tmp_path, motion=None)
-        warning = runner._apply_overlay(item, segment)
-        assert warning is None
+        warnings = runner._apply_overlay(item, segment)
+        assert not warnings
         assert calls == ["pet_os"]

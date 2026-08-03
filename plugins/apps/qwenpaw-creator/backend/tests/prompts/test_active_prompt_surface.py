@@ -123,10 +123,16 @@ def test_r2v_prompt_requires_text_free_storyboards_without_blind_retry() -> (
 ):
     prompt = load_file_agent_prompt("r2v_generation_director.system")
     assert "分镜图画面纯净性（硬性规则）" in prompt
+    # Annotation text stays banned by default…
     assert (
-        "Absolutely no text, no captions, no labels, no lettering, "
-        "no watermarks in the image."
+        "No panel numbers, no captions, no labels, no subtitles, "
+        "no watermarks, no annotation text in the image."
     ) in prompt
+    # …while diegetic text (jersey numbers, signage) is declared explicitly
+    # and carried through an exception-style clause.
+    assert "画内叙事文字" in prompt
+    assert "No text except" in prompt
+    assert "不得因禁字规则而丢失" in prompt
     assert "不要在未看到图片内容时臆测检查结果" in prompt
     assert "不要因此自动重复调用 `image_generation`" in prompt
 
