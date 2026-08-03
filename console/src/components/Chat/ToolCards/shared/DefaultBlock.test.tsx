@@ -96,10 +96,31 @@ describe("DefaultBlock large output", () => {
     ).toBeInTheDocument();
   });
 
+  it("does not leak the stdout marker in large output", () => {
+    const content = `Command failed with exit code 1.\n[stdout]\n${makeLines(
+      2001,
+    )}`;
+    const { container } = render(
+      <DefaultBlock title="Output" content={content} />,
+    );
+
+    const pre = container.querySelector("pre");
+    expect(pre).not.toBeNull();
+    expect(pre?.textContent).not.toContain("[stdout]");
+    expect(pre?.textContent).toContain("Command failed with exit code 1.");
+    expect(pre?.textContent).toContain("line-2001");
+  });
+
   it("renders one giant line as plain text without highlighting", () => {
     const content = "x".repeat(150_000);
-    render(<DefaultBlock title="Output" content={content} />);
+    const { container } = render(
+      <DefaultBlock title="Output" content={content} />,
+    );
     expect(screen.queryByTestId("syntax")).not.toBeInTheDocument();
+
+    expect(screen.getByText(/tool\.largeOutputTruncated/)).toBeInTheDocument();
+    const pre = container.querySelector("pre");
+    expect(pre?.textContent?.startsWith("x".repeat(32_000))).toBe(true);
   });
 
   it("copy still copies the full content in large mode", async () => {

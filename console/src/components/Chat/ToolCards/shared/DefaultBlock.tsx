@@ -124,11 +124,17 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const largeExcerpt = useMemo(() => buildLargeExcerpt(content), [content]);
-  const { head, stdout } = useMemo(
+  const { head, stdout } = useMemo(() => splitStdout(content), [content]);
+  const largeContent = useMemo(
     () =>
-      largeExcerpt ? { head: content, stdout: null } : splitStdout(content),
-    [content, largeExcerpt],
+      stdout === null
+        ? content
+        : [head, stdout].filter((part) => part.length > 0).join("\n"),
+    [content, head, stdout],
+  );
+  const largeExcerpt = useMemo(
+    () => buildLargeExcerpt(largeContent),
+    [largeContent],
   );
   const declared = typeof language === "string" && language.length > 0;
   const isMarkdown = useMemo(
@@ -229,7 +235,7 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
         </button>
       </div>
       {renderContent()}
-      {stdout !== null && (
+      {stdout !== null && !largeExcerpt && (
         <SyntaxHighlighter
           language="text"
           style={oneDark}
