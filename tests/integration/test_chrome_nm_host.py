@@ -77,7 +77,7 @@ def test_oversized_outbound_message_writes_nothing() -> None:
     with pytest.raises(host.NativeMessageTooLargeError):
         host.write_nm_frame(
             stdout,
-            host._dumps({"id": 7, "result": "q" * 2_000_000}).encode("utf-8"),
+            json.dumps({"id": 7, "result": "q" * 2_000_000}).encode("utf-8"),
         )
 
     assert stdout.getvalue() == b""
