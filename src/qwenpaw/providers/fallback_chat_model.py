@@ -190,12 +190,6 @@ class CooldownManager:
             is_auth,
         )
         state.expires_at = time.time() + cooldown
-        logger.info(
-            "Cooldown set: %d consecutive failures, " "cooldown=%.0fs (auth=%s)",
-            state.consecutive_failures,
-            cooldown,
-            is_auth,
-        )
 
     @classmethod
     def record_success(cls, key: str) -> None:
