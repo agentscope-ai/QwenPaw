@@ -146,8 +146,8 @@ Evidence:
 
 ### 9. Delivery
 
-- [ ] Review the final scoped diff against upstream.
-- [ ] Update this document with exact commands and pass counts.
+- [x] Review the final scoped diff against upstream.
+- [x] Update this document with exact commands and pass counts.
 - [ ] Commit only scoped files.
 - [ ] Push the branch to the fork.
 - [ ] Prepare an upstream PR description with limitations and verification steps.
@@ -177,3 +177,8 @@ Evidence:
 | 2026-08-04 | Focused Vitest parser command | Exit 0; terminal did not print test count |
 | 2026-08-04 | Rust toolchain lookup | Blocked; `cargo` and `rustfmt` unavailable |
 | 2026-08-04 | Full console build | Incomplete; Vite emitted no completion summary and Monaco CSS verification failed |
+| 2026-08-04 | TypeScript `tsc -b --noEmit` after CI fixes | Passed |
+| 2026-08-04 | Focused frontend Prettier check after CI fixes | Passed |
+| 2026-08-04 | Base-environment focused mypy | Passed |
+| 2026-08-04 | Pre-commit for all 19 CI-fix files | Passed; all applicable hooks |
+| 2026-08-04 | Backend artifact regression after CI fixes | Passed; 61 tests in 13.01 seconds |

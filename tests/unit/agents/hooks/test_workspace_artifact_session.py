@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from qwenpaw.hooks.session.session_hook import (
     _merge_workspace_artifact_manifests,
 )

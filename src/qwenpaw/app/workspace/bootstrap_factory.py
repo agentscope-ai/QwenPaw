@@ -85,7 +85,9 @@ class WorkspaceBootstrapFactory:
                 SkillEnvCleanupHook,
                 SkillEnvHook,
             )
-            from ...hooks.workspace_artifacts_hook import WorkspaceArtifactsHook
+            from ...hooks.workspace_artifacts_hook import (
+                WorkspaceArtifactsHook,
+            )
             from ...checkpoints.hooks import (
                 CheckpointAutoSnapshotHook,
                 CheckpointQueryGateHook,

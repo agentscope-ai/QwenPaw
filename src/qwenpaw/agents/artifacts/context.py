@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Per-turn artifact collector access for file-producing tools."""
 
 from contextvars import ContextVar

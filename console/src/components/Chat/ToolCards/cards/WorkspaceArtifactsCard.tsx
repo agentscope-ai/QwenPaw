@@ -191,42 +191,44 @@ const WorkspaceArtifactsCard: React.FC<{
           )}
         </div>
       )}
-      <Drawer
-        open={drawer !== null}
-        onClose={() => setDrawer(null)}
-        width={560}
-        title={
-          drawer === "changes"
-            ? t("tool.workspaceArtifactsChanges", "Workspace changes")
-            : previewArtifact?.name || title
-        }
-      >
-        {drawer === "artifacts" && (
-          <div className={styles.drawerBody}>
-            {artifacts.map(renderArtifact)}
-          </div>
-        )}
-        {drawer === "changes" && (
-          <div className={styles.drawerBody}>
-            {manifest.changes.map((change) => (
-              <div className={styles.artifactRow} key={change.path}>
-                <ListTree size={16} aria-hidden="true" />
-                <span className={styles.fileName}>{change.path}</span>
-                <span className={styles.changeBadge}>{change.change}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {drawer === "preview" && previewArtifact && (
-          <div className={styles.previewBody}>
-            <FilePreview
-              filePath={previewArtifact.path}
-              content={previewContent}
-              artifactAgentId={manifest.agent_id}
-            />
-          </div>
-        )}
-      </Drawer>
+      {manifest && (
+        <Drawer
+          open={drawer !== null}
+          onClose={() => setDrawer(null)}
+          width={560}
+          title={
+            drawer === "changes"
+              ? t("tool.workspaceArtifactsChanges", "Workspace changes")
+              : previewArtifact?.name || title
+          }
+        >
+          {drawer === "artifacts" && (
+            <div className={styles.drawerBody}>
+              {artifacts.map(renderArtifact)}
+            </div>
+          )}
+          {drawer === "changes" && (
+            <div className={styles.drawerBody}>
+              {manifest.changes.map((change) => (
+                <div className={styles.artifactRow} key={change.path}>
+                  <ListTree size={16} aria-hidden="true" />
+                  <span className={styles.fileName}>{change.path}</span>
+                  <span className={styles.changeBadge}>{change.change}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {drawer === "preview" && previewArtifact && (
+            <div className={styles.previewBody}>
+              <FilePreview
+                filePath={previewArtifact.path}
+                content={previewContent}
+                artifactAgentId={manifest.agent_id}
+              />
+            </div>
+          )}
+        </Drawer>
+      )}
     </ToolCardShell>
   );
 };

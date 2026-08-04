@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Workspace artifact discovery for chat turns."""
 
 from .collector import ArtifactCollector, ArtifactLimits

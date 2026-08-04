@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Merge explicit file registrations with workspace snapshot changes."""
 
 import mimetypes

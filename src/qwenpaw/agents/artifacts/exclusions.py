@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Default exclusions for bounded workspace artifact scans."""
 
 from pathlib import Path

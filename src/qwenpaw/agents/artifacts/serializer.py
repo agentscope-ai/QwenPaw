@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Serialize artifact metadata into the versioned chat manifest contract."""
 
 from datetime import datetime, timezone

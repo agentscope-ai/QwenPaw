@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Immutable models used by workspace artifact discovery."""
 
 from dataclasses import dataclass

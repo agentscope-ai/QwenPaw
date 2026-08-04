@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Bounded, cross-platform workspace snapshot and diff operations."""
 
 import os

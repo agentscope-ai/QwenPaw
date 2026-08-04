@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Collect workspace artifacts around one runtime turn."""
 
 from __future__ import annotations
@@ -43,10 +44,11 @@ class WorkspaceArtifactsHook(LifecycleHook):
     async def collect(self, ctx: HookContext) -> dict | None:
         """Collect the final state and return a serialized manifest."""
         collector = ctx.extras.get("workspace_artifact_collector")
-        if collector is None:
+        workspace_dir = ctx.workspace_dir
+        if collector is None or workspace_dir is None:
             return None
         try:
-            after = capture_workspace_snapshot(ctx.workspace_dir)
+            after = capture_workspace_snapshot(workspace_dir)
             collection = collector.collect(after)
             if not collection.artifacts and not collection.changes:
                 return None

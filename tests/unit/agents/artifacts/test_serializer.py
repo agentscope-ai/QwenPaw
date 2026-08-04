@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from qwenpaw.agents.artifacts import (
     ArtifactCollection,
     WorkspaceArtifact,
