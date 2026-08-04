@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 
 import pytest
 
@@ -35,7 +36,13 @@ from qwenpaw.sandbox.linux_sandbox import (
     LinuxSandbox,
     _generate_sandbox_script,
 )
-from qwenpaw.sandbox.local_sandbox import LocalSandbox, NoneSandbox
+from qwenpaw.sandbox.local_sandbox import (
+    LocalSandbox,
+    NoneSandbox,
+    _platform_default_shell,
+    _resolve_shell,
+    _shell_argv,
+)
 from qwenpaw.sandbox.macos_sandbox import MacOSSandbox
 from qwenpaw.sandbox.windows_elevated_sandbox import WindowsElevatedSandbox
 from qwenpaw.sandbox.windows_unelevated_sandbox import (
@@ -330,9 +337,12 @@ class TestNoneSandboxReporting:
         not os.path.exists("/bin/sh"),
         reason="POSIX shell not available",
     )
-    def test_configured_shell_actually_runs_the_command(self):
+    def test_configured_shell_actually_runs_the_command(self, tmp_path):
         sandbox = NoneSandbox(
-            _config(shell_executable="/bin/sh", workspace_dir="/tmp"),
+            _config(
+                shell_executable="/bin/sh",
+                workspace_dir=str(tmp_path),
+            ),
         )
         result = asyncio.run(sandbox.execute("echo $0"))
         assert result.exit_code == 0
@@ -552,7 +562,10 @@ class TestSeatbeltClaimMatchesProfile:
 class TestNoneSandboxShellFallback:
     """A claimed field must not degrade silently either."""
 
-    def test_missing_configured_shell_is_reported(self, caplog):
+    def test_missing_configured_shell_is_reported(self, caplog, tmp_path):
+        # The report is the cross-platform contract; the fallback shell
+        # itself differs per platform (cmd.exe on Windows, /bin/bash
+        # elsewhere), which the tests below cover separately.
         caplog.set_level(
             logging.WARNING,
             logger="qwenpaw.sandbox.local_sandbox",
@@ -560,25 +573,85 @@ class TestNoneSandboxShellFallback:
         sandbox = NoneSandbox(
             _config(
                 shell_executable="/nonexistent/fish",
-                workspace_dir="/tmp",
+                workspace_dir=str(tmp_path),
             ),
         )
-        result = asyncio.run(sandbox.execute("true"))
-        assert result.exit_code == 0
+        asyncio.run(sandbox.execute("true"))
         assert "/nonexistent/fish" in caplog.text
-        assert "falling back" in caplog.text
+        assert "could not be resolved" in caplog.text
+
+    def test_fallback_shell_still_executes(self, tmp_path):
+        # Runs everywhere: the platform default is cmd.exe on Windows and
+        # /bin/bash elsewhere, and "echo" is understood by both.
+        sandbox = NoneSandbox(
+            _config(
+                shell_executable="/nonexistent/fish",
+                workspace_dir=str(tmp_path),
+            ),
+        )
+        result = asyncio.run(sandbox.execute("echo ok"))
+        assert result.exit_code == 0
+        assert "ok" in result.stdout
 
     @pytest.mark.skipif(
         not os.path.exists("/bin/sh"),
         reason="POSIX shell not available",
     )
-    def test_existing_shell_is_not_reported(self, caplog):
+    def test_existing_shell_is_not_reported(self, caplog, tmp_path):
         caplog.set_level(
             logging.WARNING,
             logger="qwenpaw.sandbox.local_sandbox",
         )
         sandbox = NoneSandbox(
-            _config(shell_executable="/bin/sh", workspace_dir="/tmp"),
+            _config(
+                shell_executable="/bin/sh",
+                workspace_dir=str(tmp_path),
+            ),
         )
         asyncio.run(sandbox.execute("true"))
-        assert "falling back" not in caplog.text
+        assert "could not be resolved" not in caplog.text
+
+
+class TestShellArgvDispatch:
+    """The shell flag must match the shell, not just the platform.
+
+    ``NoneSandbox`` used to hard-code ``/bin/bash -c``, which cannot run on
+    Windows at all -- ``mode=none`` is returned there by ``create_sandbox``
+    like anywhere else.
+    """
+
+    def test_posix_shells_take_dash_c(self):
+        assert _shell_argv("/bin/bash", "echo hi") == [
+            "/bin/bash",
+            "-c",
+            "echo hi",
+        ]
+
+    @pytest.mark.parametrize(
+        "shell",
+        ["cmd.exe", r"C:\Windows\System32\cmd.exe", "CMD.EXE"],
+    )
+    def test_cmd_takes_slash_c(self, shell):
+        assert _shell_argv(shell, "echo hi")[1:] == ["/c", "echo hi"]
+
+    @pytest.mark.parametrize("shell", ["powershell.exe", "pwsh"])
+    def test_powershell_gets_noninteractive_flags(self, shell):
+        argv = _shell_argv(shell, "echo hi")
+        assert argv[0] == shell
+        assert "-NonInteractive" in argv
+        assert argv[-2:] == ["-Command", "echo hi"]
+
+    def test_default_shell_is_platform_appropriate(self, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.delenv("COMSPEC", raising=False)
+        assert _platform_default_shell() == "cmd.exe"
+
+        monkeypatch.setattr(sys, "platform", "linux")
+        monkeypatch.delenv("SHELL", raising=False)
+        assert _platform_default_shell() == "/bin/bash"
+
+    def test_bare_name_resolves_via_path(self):
+        # os.path.exists() alone rejects a PATH-resident name, which is how
+        # cmd.exe is normally referenced.
+        assert _resolve_shell("definitely-not-a-real-binary") is None
+        assert _resolve_shell("/nonexistent/fish") is None
