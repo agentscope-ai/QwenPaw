@@ -142,6 +142,17 @@ echo ""
 echo "== Staging bundled Python runtime =="
 "$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/stage_python_runtime.py" \
     --dest "${BINARIES_DIR}/python-runtime"
+
+# The Chrome Native Messaging host runs under this standalone interpreter,
+# outside the PyInstaller backend, so its dependencies must be installed here.
+NATIVE_HOST_PYTHON="${BINARIES_DIR}/python-runtime/python/bin/python3"
+"$NATIVE_HOST_PYTHON" -m pip install \
+    --disable-pip-version-check \
+    --no-input \
+    --no-deps \
+    -r "${REPO_ROOT}/scripts/pack-tauri/native-host-requirements.txt"
+"$NATIVE_HOST_PYTHON" -c \
+    "import importlib.metadata as m; assert m.version('websockets') == '15.0.1'"
 echo ""
 
 echo "== Staging bundled Node runtime =="

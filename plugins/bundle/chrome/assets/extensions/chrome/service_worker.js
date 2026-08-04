@@ -997,10 +997,11 @@ function connectNative() {
   });
 
   port.onDisconnect.addListener(async () => {
+    // runtime.lastError only exists in the synchronous callback scope.
+    const disconnectReason = runtimeLastErrorMessage();
     // Defensive: connectNative is already queued behind ready, but future
     // callers must not bypass the gate.
     await ready;
-    const disconnectReason = runtimeLastErrorMessage();
     if (disconnectReason) {
       console.warn("Native host disconnected", disconnectReason);
     }

@@ -173,6 +173,20 @@ def run_probe(
     return 0
 
 
+def _load_websockets() -> Any:
+    """Import the runtime dependency through one testable boundary."""
+    import websockets
+
+    return websockets
+
+
+def validate_runtime() -> None:
+    """Fail setup probes when the packaged host runtime is incomplete."""
+    websockets = _load_websockets()
+    if not callable(getattr(websockets, "connect", None)):
+        raise RuntimeError("websockets.connect is unavailable")
+
+
 def load_config(path: Path = DEFAULT_CONFIG_PATH) -> dict[str, str]:
     """Load the one configured core backend and its bearer token."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -201,7 +215,7 @@ async def connect_websocket(
             additional_headers=headers,
             max_size=NM_MAX_OUTBOUND_BYTES,
         )
-    import websockets
+    websockets = _load_websockets()
 
     # Fast exit relies on websockets' default ping/pong keepalive (20-second
     # interval and timeout) to end iteration on a half-open peer; never disable
@@ -424,12 +438,21 @@ async def run_bridge(
 def main() -> int:
     """Run the Native Messaging host."""
     _set_binary_stdio()
-    if sys.argv[1:] == ["--probe"]:
-        return run_probe()
     try:
+        validate_runtime()
+        if sys.argv[1:] == ["--probe"]:
+            return run_probe()
         asyncio.run(run_bridge(terminate=os._exit))
     except HandshakePermanentError as exc:
         diagnostic = exc.advice or str(exc)
+        print(diagnostic, file=sys.stderr)
+        log_diagnostic(diagnostic)
+        return 1
+    except Exception as exc:
+        diagnostic = (
+            "Native Messaging host startup failed: "
+            f"{type(exc).__name__}: {exc}"
+        )
         print(diagnostic, file=sys.stderr)
         log_diagnostic(diagnostic)
         return 1

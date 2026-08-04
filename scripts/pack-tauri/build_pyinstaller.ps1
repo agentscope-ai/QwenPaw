@@ -207,6 +207,19 @@ Write-Host "== Staging bundled Python runtime ==" -ForegroundColor Yellow
 & $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_python_runtime.py") `
     --dest (Join-Path $BINARIES_DIR "python-runtime")
 Assert-LastExit "Failed to stage bundled Python runtime"
+
+# The Chrome Native Messaging host runs under this standalone interpreter,
+# outside the PyInstaller backend, so its dependencies must be installed here.
+$NATIVE_HOST_PYTHON = Join-Path $BINARIES_DIR "python-runtime\python\python.exe"
+$NATIVE_HOST_REQUIREMENTS = Join-Path $REPO_ROOT "scripts\pack-tauri\native-host-requirements.txt"
+& $NATIVE_HOST_PYTHON -m pip install `
+    --disable-pip-version-check `
+    --no-input `
+    --no-deps `
+    -r $NATIVE_HOST_REQUIREMENTS
+Assert-LastExit "Failed to install Chrome Native Messaging host dependencies"
+& $NATIVE_HOST_PYTHON -c "import importlib.metadata as m; assert m.version('websockets') == '15.0.1'"
+Assert-LastExit "Bundled Python runtime cannot import the required websockets version"
 Write-Host ""
 
 Write-Host "== Staging bundled Node runtime ==" -ForegroundColor Yellow
