@@ -34,6 +34,11 @@ from ...utils.io_utils import (
 logger = logging.getLogger(__name__)
 
 
+def single_line_log_value(value: object) -> str:
+    """Render an external value without allowing forged log lines."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
+
 def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
     """Read text file with multiple encoding attempts for cross-platform
     compatibility.
@@ -80,7 +85,7 @@ def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
                 if encoding not in ("utf-8", "utf-8-sig"):
                     logger.debug(
                         "File %s read with encoding: %s",
-                        file_path.name,
+                        single_line_log_value(file_path.name),
                         encoding,
                     )
                 return content
@@ -94,14 +99,14 @@ def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
             logger.warning(
                 "File %s read with UTF-8 errors='replace' fallback, "
                 "some characters may be corrupted",
-                file_path.name,
+                single_line_log_value(file_path.name),
             )
             return content
     except Exception as e:
         logger.error(
             "File %s cannot be read even with fallback: %s",
-            file_path.name,
-            e,
+            single_line_log_value(file_path.name),
+            single_line_log_value(e),
         )
         raise IOError(
             f"File {file_path.name} cannot be read even with fallback: {e}",
