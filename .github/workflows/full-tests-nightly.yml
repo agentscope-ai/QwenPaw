@@ -248,6 +248,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,test,full]"
 
+      # tests/integration/browser drives a real Chromium through the
+      # Playwright control link, so the browser binary must exist before the
+      # full sweep runs. Same command as the e2e workflows.
+      - name: Install Playwright browser
+        shell: bash
+        run: |
+          playwright install chromium --with-deps
+
       - name: Determine coverage flag
         id: cov_flag
         shell: bash

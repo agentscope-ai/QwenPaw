@@ -41,6 +41,19 @@ const content: ToolCallContent = {
 };
 
 describe("ToolCardShell lazy body", () => {
+  it("keeps the full tool title available when the label is truncated", () => {
+    const title = `Run ${"long-command-argument ".repeat(40)}`;
+
+    const { container } = render(
+      <ToolCardShell content={content} icon={<span />} title={title} />,
+    );
+    const label = container.querySelector(`[title]`);
+
+    expect(label).not.toBeNull();
+    expect(label).toHaveAttribute("title", title);
+    expect(label).toHaveTextContent(title.trim());
+  });
+
   it("mounts the body only after the first expansion", () => {
     const { container } = render(
       <ToolCardShell content={content} icon={<span />} title="Shell">

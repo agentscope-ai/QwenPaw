@@ -45,6 +45,8 @@ def _load_host() -> ModuleType:
         sys.path.pop(0)
 
 
+@pytest.mark.integration
+@pytest.mark.p2
 def test_two_mib_inbound_message_is_accepted() -> None:
     host = _load_host()
     payload = json.dumps(
@@ -53,34 +55,42 @@ def test_two_mib_inbound_message_is_accepted() -> None:
     raw = payload.encode("utf-8")
     reader = io.BytesIO(struct.pack("<I", len(raw)) + raw)
 
-    message = host.read_nm_message(reader)
+    frame = host.read_nm_frame(reader)
+    assert frame is not None
+    message = json.loads(frame)
 
     assert message["result"]["data"].startswith("x")
     assert len(message["result"]["data"]) == 2 * 1024 * 1024
 
 
+@pytest.mark.integration
+@pytest.mark.p2
 def test_inbound_above_protocol_limit_is_rejected() -> None:
     host = _load_host()
     oversized = host.NM_MAX_INBOUND_BYTES + 1
     reader = io.BytesIO(struct.pack("<I", oversized))
 
     with pytest.raises(ValueError):
-        host.read_nm_message(reader)
+        host.read_nm_frame(reader)
 
 
+@pytest.mark.integration
+@pytest.mark.p2
 def test_oversized_outbound_message_writes_nothing() -> None:
     host = _load_host()
     stdout = io.BytesIO()
 
     with pytest.raises(host.NativeMessageTooLargeError):
-        host.write_nm_message(
+        host.write_nm_frame(
             stdout,
-            {"id": 7, "result": "q" * 2_000_000},
+            json.dumps({"id": 7, "result": "q" * 2_000_000}).encode("utf-8"),
         )
 
     assert stdout.getvalue() == b""
 
 
+@pytest.mark.integration
+@pytest.mark.p2
 async def test_pump_reports_oversized_outbound_and_keeps_running() -> None:
     host = _load_host()
 
@@ -143,7 +153,7 @@ class _ClosedWebSocket:
     async def send(self, _message: str) -> None:
         return None
 
-    async def close(self) -> None:
+    async def close(self, **_kwargs: object) -> None:
         return None
 
     def __aiter__(self) -> "_ClosedWebSocket":
@@ -164,7 +174,7 @@ class _FailingSendWebSocket:
             return None
         raise RuntimeError("send failed")
 
-    async def close(self) -> None:
+    async def close(self, **_kwargs: object) -> None:
         return None
 
     def __aiter__(self) -> "_FailingSendWebSocket":
@@ -175,6 +185,8 @@ class _FailingSendWebSocket:
         raise StopAsyncIteration
 
 
+@pytest.mark.integration
+@pytest.mark.p2
 def test_terminate_fires_while_stdin_read_is_still_blocked(
     tmp_path: Path,
     monkeypatch,
@@ -208,6 +220,8 @@ def test_terminate_fires_while_stdin_read_is_still_blocked(
     assert calls == [(0, False)]
 
 
+@pytest.mark.integration
+@pytest.mark.p2
 def test_terminate_receives_1_when_a_pump_raises(
     tmp_path: Path,
     monkeypatch,
@@ -257,10 +271,12 @@ class _CoreWebSocket:
             raise self._response
         return self._response
 
-    async def close(self) -> None:
+    async def close(self, **_kwargs: object) -> None:
         self.closed = True
 
 
+@pytest.mark.integration
+@pytest.mark.p1
 def test_version_mismatch_stops_with_upgrade_advice(tmp_path: Path) -> None:
     websocket = _CoreWebSocket(
         json.dumps(
@@ -292,6 +308,8 @@ def test_version_mismatch_stops_with_upgrade_advice(tmp_path: Path) -> None:
     assert websocket.hello_messages[0]["type"] == "hello"
 
 
+@pytest.mark.integration
+@pytest.mark.p1
 def test_timeout_then_hello_ack_reaches_the_pipe_loop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -334,10 +352,12 @@ class _WebSocket:
     async def send(self, _message: str) -> None:
         return None
 
-    async def close(self) -> None:
+    async def close(self, **_kwargs: object) -> None:
         return None
 
 
+@pytest.mark.integration
+@pytest.mark.p1
 def test_transient_hello_failure_reconnects_and_reenters_the_pump(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -394,6 +414,8 @@ def _frame(payload: dict) -> bytes:
     return struct.pack("<I", len(raw)) + raw
 
 
+@pytest.mark.integration
+@pytest.mark.p1
 def test_probe_echoes_one_frame_and_exits_zero() -> None:
     completed = subprocess.run(
         [sys.executable, str(HOST), "--probe"],
@@ -457,7 +479,7 @@ class _FakeWebSocket:
     async def send(self, message: str) -> None:
         self.sent.append(message)
 
-    async def close(self) -> None:
+    async def close(self, **_kwargs: object) -> None:
         self.closed = True
 
     def __aiter__(self):
@@ -474,6 +496,8 @@ def _native_message(payload: dict[str, str]) -> bytes:
     return struct.pack("<I", len(encoded)) + encoded
 
 
+@pytest.mark.integration
+@pytest.mark.p1
 def test_single_backend_bridge_pumps_both_directions() -> None:
     loaded_nm_host = _load_nm_host()
     stdin = _BlockingInput(_native_message({"direction": "extension-to-core"}))

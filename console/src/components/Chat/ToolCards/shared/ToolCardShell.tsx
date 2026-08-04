@@ -119,7 +119,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
   }, [control.offloadRemaining, control.killRemaining]);
 
   return (
-    <div>
+    <div className={styles.toolCallContainer}>
       <details
         className={`${styles.toolCallCompact} ${
           isLoading ? styles.toolCallCompactLoading : ""

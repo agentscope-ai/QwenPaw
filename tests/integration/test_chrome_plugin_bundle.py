@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 # test_chrome_selfcontained_plugin.py
 
 PLUGIN = Path("plugins/bundle/chrome")
@@ -19,6 +21,8 @@ def _python_files() -> list[Path]:
     ]
 
 
+@pytest.mark.integration
+@pytest.mark.p1
 def test_chrome_plugin_bundle_is_self_contained() -> None:
     required = (
         "assets/extensions/chrome/manifest.json",
@@ -40,6 +44,8 @@ def test_chrome_plugin_bundle_is_self_contained() -> None:
     assert not (PLUGIN / "engine_impl.py").exists()
 
 
+@pytest.mark.integration
+@pytest.mark.p1
 def test_chrome_plugin_manifest_uses_standard_plugin_entries() -> None:
     manifest = json.loads((PLUGIN / "plugin.json").read_text(encoding="utf-8"))
     extension_manifest = json.loads(
