@@ -914,7 +914,6 @@ def _stub_config_loaders(
         workspace_dir="/nonexistent/must-not-be-used",
         running=SimpleNamespace(
             light_context_config=SimpleNamespace(
-                strategy="scroll",
                 scroll_config=SimpleNamespace(
                     db_filename="history.db",
                     history_retention_days=retention_days,

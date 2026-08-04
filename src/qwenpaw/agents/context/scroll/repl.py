@@ -205,7 +205,7 @@ def make_recall_history_python(
     recall_history_python.__doc__ = _DOC
     # Attach the descriptor directly (not via @tool_descriptor) so the tool is
     # sandbox-capable but is NOT auto-collected into the global builtin set —
-    # it exists only when the scroll strategy wires it in.
+    # it exists only when Scroll wiring adds it.
     descriptor = ToolDescriptor(
         name="recall_history_python",
         func=recall_history_python,

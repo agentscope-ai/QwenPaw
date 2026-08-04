@@ -40,7 +40,7 @@ class CompressionTracker:
 def make_agent(tracker: SeenTracker) -> QwenPawAgent:
     """Build only the attributes the reasoning wrapper reads."""
     agent = object.__new__(QwenPawAgent)
-    agent._context_manager = tracker
+    agent._scroll_context = tracker
     agent._gate_pending_stop = None
     agent._request_context = {}
     agent.state = SimpleNamespace(context=[], reply_id="reply")
@@ -136,7 +136,7 @@ async def test_interrupted_model_call_does_not_acknowledge_results(
 async def test_compress_context_forwards_one_shot_instructions():
     tracker = CompressionTracker()
     agent = object.__new__(QwenPawAgent)
-    agent._context_manager = tracker
+    agent._scroll_context = tracker
     agent._compress_context_middlewares = []
     agent.state = SimpleNamespace(context=[])
     config = SimpleNamespace(trigger_ratio=0.1)

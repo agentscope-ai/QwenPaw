@@ -344,51 +344,33 @@ class AgentBuilder:
             ctx.extras = {}
         ctx.extras["driver_prompt_hints"] = driver_prompt_hints
 
-        # Model + formatter (built before the toolkit so the scroll context
-        # strategy, which needs the model for token counting, can wire in).
+        # Model + formatter.
         model_slot_override = getattr(ctx.request, "model_slot_override", None)
         model, _formatter = self.build_model(
             agent_config,
             model_slot_override=model_slot_override,
         )
 
-        # Built once and shared: the agent's native offloader, and (when
+        # Built once and shared: the AgentScope offloader, and (when
         # ``offload_dialog`` is on) scroll's optional dialog archive.
         offloader = self._build_offloader(ctx, agent_config)
 
-        # Optional scroll context strategy (None unless strategy="scroll").
+        # Scroll is QwenPaw's context implementation.
         scroll = self._build_scroll_components(
             ctx,
             agent_config,
-            model,
             offloader=offloader,
         )
-        # Eviction and recall must live or die together. The structured
-        # recall_history tool reads history in-process (no sandbox needed),
-        # but it is still guard-wrapped — with no governor the guard layer
-        # itself is degraded. Keep the conservative gate: if the governor
-        # never came up and the operator hasn't opted into unsandboxed
-        # recall, degrade to native so the full history stays in-context.
-        if scroll is not None and not self._scroll_recall_runnable(
+        self._append_scroll_recall_tools(
+            extra_tools,
+            scroll,
             agent_config,
+            agent_id,
+            request_context,
             governor,
-        ):
-            _logger.warning(
-                "scroll: recall tools cannot run (governor unavailable and "
-                "allow_unsandboxed is off) — falling back to native context "
-                "management so evicted history stays accessible",
-            )
-            scroll = None
-        if scroll is not None:
-            self._append_scroll_recall_tools(
-                extra_tools,
-                scroll,
-                agent_config,
-                agent_id,
-                request_context,
-                governor,
-            )
+        )
 
+        memory_manager = self._get_memory_manager(ctx)
         toolkit = await self.build_toolkit(
             agent_config,
             agent_id=agent_id,
@@ -396,6 +378,11 @@ class AgentBuilder:
             active_modes=active_modes,
             effective_skills=effective_skills,
             extra_tools=extra_tools,
+            memory_tools=(
+                memory_manager.list_memory_tools()
+                if memory_manager is not None
+                else None
+            ),
             governor=governor,
             ctx=ctx,
             workspace_dir=workspace_dir,
@@ -428,12 +415,9 @@ class AgentBuilder:
             agent_config=agent_config,
             workspace_dir=workspace_dir,
             request_context=request_context,
-            memory_manager=self._get_memory_manager(ctx),
             offloader=offloader,
             context_config=self._build_context_config(agent_config),
-            context_manager=(
-                scroll.context_manager if scroll is not None else None
-            ),
+            scroll_context=scroll.context,
             effective_skills=effective_skills,
             governor=governor,
         )
@@ -864,16 +848,9 @@ class AgentBuilder:
     def _build_scroll_components(
         ctx: Any,
         agent_config: Any,
-        model: Any,
         offloader: Any = None,
     ) -> Any:
-        """Build the scroll context strategy, or None when not selected.
-
-        Returns ``None`` for the native strategy (the default) so nothing
-        changes unless ``light_context_config.strategy == "scroll"``. The
-        shared ``offloader`` is forwarded so scroll can archive evicted turns
-        to ``dialog/*.jsonl`` (``offload_dialog``, on by default).
-        """
+        """Build the required Scroll context and recall components."""
         workspace = getattr(ctx, "workspace", None)
         workspace_dir = (
             str(getattr(workspace, "workspace_dir", ""))
@@ -895,41 +872,10 @@ class AgentBuilder:
         return build_scroll_components(
             agent_config=agent_config,
             workspace_dir=workspace_dir,
-            model=model,
             session_id=session_id,
             agent_id=agent_id,
             offloader=offloader,
         )
-
-    @staticmethod
-    def _scroll_recall_runnable(agent_config: Any, governor: Any) -> bool:
-        """Whether scroll's recall tools can actually execute in this build.
-
-        Two recall paths exist: the structured ``recall_history`` tool
-        (in-process bound queries — needs no sandbox, only a working guard
-        layer) and the sandboxed ``recall_history_python`` REPL, which fails
-        closed unless a ``sandbox_config`` is supplied. That config is
-        injected only by the governor (via ``PolicyGuardedTool``); the
-        ``GuardedFunctionTool`` fallback used when the governor is absent
-        never supplies one. A missing governor means the guard layer itself is
-        degraded, so we stay conservative: recall is runnable iff the governor
-        is present, or the deployment has opted into unsandboxed recall —
-        which requires BOTH the ``QWENPAW_ALLOW_UNSANDBOXED_RECALL`` env var
-        and ``scroll_config.allow_unsandboxed`` (see
-        ``scroll_unsandboxed_allowed`` — agent.json alone can never bypass the
-        sandbox). When neither holds, wiring scroll would evict history that
-        nothing can read back, so the caller degrades to native context
-        management.
-        """
-        if governor is not None:
-            return True
-        try:
-            from ..agents.context import scroll_unsandboxed_allowed
-
-            sc = agent_config.running.light_context_config.scroll_config
-            return scroll_unsandboxed_allowed(sc)
-        except Exception:
-            return False
 
     @staticmethod
     def _scroll_repl_runnable(agent_config: Any, governor: Any) -> bool:
@@ -1104,19 +1050,8 @@ class AgentBuilder:
 
         return ToolResultPruningMiddleware(
             enabled=trc.enabled,
-            recent_n=trc.pruning_recent_n,
-            old_max_bytes=(
-                trc.pruning_recent_msg_max_bytes
-                if getattr(lcc, "strategy", "native") == "scroll"
-                else trc.pruning_old_msg_max_bytes
-            ),
             recent_max_bytes=trc.pruning_recent_msg_max_bytes,
-            exempt_file_extensions={
-                e.lower() for e in trc.exempt_file_extensions
-            },
-            exempt_tool_names={n.lower() for n in trc.exempt_tool_names},
             tool_results_dir=tool_results_dir,
-            agent_id=getattr(agent_config, "id", "default"),
         )
 
     # pylint: disable=too-many-statements,too-many-branches
@@ -1129,7 +1064,7 @@ class AgentBuilder:
         """Build middleware list.
 
         Order (onion model, outermost first):
-        1. ToolResultPruningMiddleware — tiered tool result pruning
+        1. ToolResultPruningMiddleware — byte-bounded tool result previews
         2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
         4. VisualCompressionMiddleware — innermost pre-provider transform

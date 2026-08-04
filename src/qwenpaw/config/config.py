@@ -788,28 +788,6 @@ class ToolResultPruningConfig(BaseModel):
         description="Whether to enable tool result pruning",
     )
 
-    pruning_recent_n: int = Field(
-        default=2,
-        ge=1,
-        le=10,
-        description=(
-            "Number of recent tool-result-bearing messages to keep at the "
-            "recent preview byte limit. Scroll keeps all live previews at "
-            "this limit until pressure-driven pointer folding is required."
-        ),
-    )
-
-    pruning_old_msg_max_bytes: int = Field(
-        default=3000,
-        ge=100,
-        description=(
-            "Older tool-result preview byte limit for non-Scroll context "
-            "strategies. Scroll does not use a fixed old-result size "
-            "threshold; it folds recoverable results only while the rebuilt "
-            "context remains under pressure."
-        ),
-    )
-
     pruning_recent_msg_max_bytes: int = Field(
         default=50000,
         ge=1000,
@@ -837,31 +815,12 @@ class ToolResultPruningConfig(BaseModel):
         "relative to working_dir",
     )
 
-    exempt_file_extensions: List[str] = Field(
-        default_factory=lambda: [".md"],
-        description=(
-            "File extensions exempt from tool result pruning. "
-            "Tool results for read_file operations on these file types "
-            "will use recent_max_bytes instead of old_max_bytes."
-        ),
-    )
-
-    exempt_tool_names: List[str] = Field(
-        default_factory=lambda: ["chat_with_agent"],
-        description=(
-            "Tool names exempt from tool result pruning. "
-            "Tool results from these tools will use recent_max_bytes "
-            "instead of old_max_bytes."
-        ),
-    )
-
 
 class ScrollContextConfig(BaseModel):
-    """Scroll (retrieval-driven) context manager configuration.
+    """Retrieval-driven context manager configuration.
 
-    Only consulted when ``LightContextConfig.strategy == "scroll"``. The
-    durable history lives at ``{working_dir}/{db_filename}``; evicted turns
-    fold into an in-context eviction index recallable from the sandboxed
+    The durable history lives at ``{working_dir}/{db_filename}``; evicted
+    turns fold into an in-context eviction index recallable from the sandboxed
     ``recall_history_python`` REPL.
     """
 
@@ -949,15 +908,6 @@ class LightContextConfig(BaseModel):
     """Light context manager configuration."""
 
     model_config = ConfigDict(extra="ignore")
-
-    strategy: Literal["native", "scroll"] = Field(
-        default="scroll",
-        description=(
-            "Context management strategy. 'native' = AgentScope compression; "
-            "'scroll' = retrieval-driven history.db + eviction index with a "
-            "sandboxed recall_history_python recall REPL (the default)."
-        ),
-    )
 
     dialog_path: str = Field(
         default="dialog",

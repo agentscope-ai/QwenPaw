@@ -14,15 +14,9 @@ export interface ContextCompactConfig {
 
 export interface ToolResultPruningConfig {
   enabled: boolean;
-  pruning_recent_n: number;
-  pruning_old_msg_max_bytes: number;
   pruning_recent_msg_max_bytes: number;
   offload_retention_days: number;
-  exempt_file_extensions: string[];
-  exempt_tool_names: string[];
 }
-
-export type ContextStrategy = "native" | "scroll";
 
 export interface ScrollConfig {
   db_filename: string;
@@ -38,7 +32,6 @@ export interface VisualCompactConfig {
 }
 
 export interface LightContextConfig {
-  strategy: ContextStrategy;
   dialog_path: string;
   token_count_estimate_divisor: number;
   context_compact_config: ContextCompactConfig;

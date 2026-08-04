@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
-"""Agent-level tests for compression strategy middleware wiring."""
+"""Agent-level tests for Scroll compression middleware wiring."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from qwenpaw.agents.middlewares import MemoryMiddleware
 from qwenpaw.agents.react_agent import QwenPawAgent
 from qwenpaw.constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
+    MEMORY_MIDDLE_CONTEXT_KEY,
     QWENPAW_MESSAGE_TAG_KEY,
 )
 
@@ -32,24 +33,12 @@ class _MemoryManager:
         self._events = events
         self.enabled = True
         self.submitted: list[list[str]] = []
-        self._turn_state: dict[str, Any] = {
-            "pending": ["turn-1"],
-            "seen": {"turn-1": None},
-            "touched_at": 0,
-        }
 
     def get_memory_prompt(self) -> str:
         return ""
 
     def get_memory_config(self) -> Any:
         return SimpleNamespace(summarize_when_compact=True)
-
-    def get_auto_memory_turn_state(self, _session_id: str) -> dict[str, Any]:
-        return self._turn_state
-
-    @property
-    def pending(self) -> list[str]:
-        return self._turn_state["pending"]
 
     async def auto_memory(self, _messages: list[Msg], **_kwargs: Any) -> None:
         self._events.append("auto_memory")
@@ -67,6 +56,7 @@ class _ScrollManager:
     def __init__(self, events: list[str]) -> None:
         self._events = events
         self.instructions: HintBlock | None = None
+        self.last_compress = {"evicted": 0, "folded": 0}
 
     async def compress(
         self,
@@ -76,11 +66,14 @@ class _ScrollManager:
     ) -> None:
         self.instructions = instructions
         self._events.append("scroll")
+        self.last_compress["evicted"] = 1
 
 
 def _scroll_agent(
     memory_manager: _MemoryManager,
     scroll_manager: _ScrollManager,
+    *,
+    automatic_compaction: bool = True,
 ) -> QwenPawAgent:
     agent = object.__new__(QwenPawAgent)
     Agent.__init__(
@@ -94,7 +87,9 @@ def _scroll_agent(
     agent._agent_config = SimpleNamespace(
         running=SimpleNamespace(
             light_context_config=SimpleNamespace(
-                context_compact_config=SimpleNamespace(enabled=True),
+                context_compact_config=SimpleNamespace(
+                    enabled=automatic_compaction,
+                ),
             ),
         ),
     )
@@ -102,7 +97,7 @@ def _scroll_agent(
         "source": "user",
         "session_id": "session-1",
     }
-    agent._context_manager = scroll_manager
+    agent._scroll_context = scroll_manager
     agent.state.session_id = "session-1"
     user = Msg(
         name="user",
@@ -114,11 +109,35 @@ def _scroll_agent(
     )
     user.id = "turn-1"
     agent.state.context = [user]
+    agent.state.middle_context[MEMORY_MIDDLE_CONTEXT_KEY] = {
+        "pending": ["turn-1"],
+        "seen": {"turn-1": None},
+    }
     return agent
 
 
 @pytest.mark.asyncio
-async def test_scroll_runs_auto_memory_middleware_before_eviction() -> None:
+async def test_manual_compact_works_when_automatic_is_disabled() -> None:
+    """An explicit config is the AgentScope signal for manual compression."""
+    events: list[str] = []
+    memory_manager = _MemoryManager(events)
+    scroll_manager = _ScrollManager(events)
+    agent = _scroll_agent(
+        memory_manager,
+        scroll_manager,
+        automatic_compaction=False,
+    )
+
+    await agent.compress_context()
+    assert not events
+
+    forced = ContextConfig(trigger_ratio=1e-6, reserve_ratio=0.1)
+    await agent.compress_context(forced)
+    assert events == ["scroll", "auto_memory"]
+
+
+@pytest.mark.asyncio
+async def test_scroll_runs_before_post_compression_auto_memory() -> None:
     """Scroll must not bypass AgentScope's compression middleware chain."""
     events: list[str] = []
     memory_manager = _MemoryManager(events)
@@ -128,9 +147,9 @@ async def test_scroll_runs_auto_memory_middleware_before_eviction() -> None:
     instructions = HintBlock(hint="preserve decisions", source="user")
     await agent.compress_context(instructions=instructions)
 
-    assert events == ["auto_memory", "scroll"]
+    assert events == ["scroll", "auto_memory"]
     assert scroll_manager.instructions is instructions
-    assert not memory_manager.pending
+    assert not agent.state.middle_context[MEMORY_MIDDLE_CONTEXT_KEY]["pending"]
 
 
 @pytest.mark.asyncio
@@ -155,7 +174,6 @@ async def test_manual_compact_submits_auto_memory_once() -> None:
     handler._get_agent_config = lambda: SimpleNamespace(
         running=SimpleNamespace(
             light_context_config=SimpleNamespace(
-                strategy="scroll",
                 context_compact_config=SimpleNamespace(enabled=True),
             ),
             reme_light_memory_config=SimpleNamespace(
@@ -168,4 +186,4 @@ async def test_manual_compact_submits_auto_memory_once() -> None:
 
     assert events == ["scroll", "handler_memory"]
     assert memory_manager.submitted == [["remember this", "answer-1"]]
-    assert not memory_manager.pending
+    assert not agent.state.middle_context[MEMORY_MIDDLE_CONTEXT_KEY]["pending"]

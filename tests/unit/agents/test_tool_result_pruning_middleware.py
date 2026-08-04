@@ -69,7 +69,6 @@ async def test_scroll_artifact_retention_uses_tool_result_setting():
 
     offloader = OffloaderStub()
     lcc = LightContextConfig(
-        strategy="scroll",
         tool_result_pruning_config=ToolResultPruningConfig(
             offload_retention_days=7,
         ),
@@ -77,7 +76,10 @@ async def test_scroll_artifact_retention_uses_tool_result_setting():
     )
     agent = types.SimpleNamespace(
         _governor=None,
-        _context_manager=None,
+        _scroll_context=types.SimpleNamespace(
+            purge_old=lambda _days: None,
+            close=lambda: None,
+        ),
         offloader=offloader,
         _agent_config=types.SimpleNamespace(
             running=types.SimpleNamespace(light_context_config=lcc),
@@ -513,7 +515,6 @@ def test_builder_places_pruning_outside_tool_coordinator(tmp_path):
         id="agent-1",
         running=types.SimpleNamespace(
             light_context_config=LightContextConfig(
-                strategy="native",
                 tool_result_pruning_config=ToolResultPruningConfig(),
             ),
         ),
@@ -543,12 +544,11 @@ def test_builder_places_pruning_outside_tool_coordinator(tmp_path):
     )
 
 
-def test_builder_adds_pruning_for_scroll_strategy(tmp_path):
+def test_builder_adds_pruning_middleware(tmp_path):
     agent_config = types.SimpleNamespace(
         id="agent-1",
         running=types.SimpleNamespace(
             light_context_config=LightContextConfig(
-                strategy="scroll",
                 tool_result_pruning_config=ToolResultPruningConfig(),
             ),
         ),
@@ -574,7 +574,6 @@ def test_context_config_disables_agentscope_duplicate_tool_result_cap():
     agent_config = types.SimpleNamespace(
         running=types.SimpleNamespace(
             light_context_config=LightContextConfig(
-                strategy="scroll",
                 tool_result_pruning_config=ToolResultPruningConfig(
                     enabled=True,
                     pruning_recent_msg_max_bytes=200_000,
@@ -595,7 +594,6 @@ async def test_agentscope_does_not_resplit_pruned_tool_result():
     agent_config = types.SimpleNamespace(
         running=types.SimpleNamespace(
             light_context_config=LightContextConfig(
-                strategy="scroll",
                 tool_result_pruning_config=ToolResultPruningConfig(
                     enabled=True,
                 ),
@@ -636,7 +634,6 @@ def test_context_config_keeps_agentscope_cap_when_pruning_is_disabled():
     agent_config = types.SimpleNamespace(
         running=types.SimpleNamespace(
             light_context_config=LightContextConfig(
-                strategy="scroll",
                 tool_result_pruning_config=ToolResultPruningConfig(
                     enabled=False,
                 ),
@@ -661,11 +658,9 @@ def test_explicit_legacy_scroll_tool_cap_warns_once_and_is_not_saved(
     monkeypatch.setattr(config_module, "_legacy_scroll_tool_cap_warned", False)
     with caplog.at_level(logging.WARNING, logger="qwenpaw.config.config"):
         config = LightContextConfig(
-            strategy="scroll",
             scroll_config={"tool_output_token_cap": 1200},
         )
         LightContextConfig(
-            strategy="scroll",
             scroll_config={"tool_output_token_cap": 1200},
         )
 
@@ -678,9 +673,28 @@ def test_explicit_legacy_scroll_tool_cap_warns_once_and_is_not_saved(
 
 def test_default_legacy_scroll_tool_cap_does_not_warn(caplog):
     with caplog.at_level(logging.WARNING, logger="qwenpaw.config.config"):
-        LightContextConfig(strategy="scroll")
+        LightContextConfig()
 
     assert "tool_output_token_cap is deprecated and ignored" not in caplog.text
+
+
+def test_removed_native_pruning_fields_are_ignored_and_not_saved():
+    config = ToolResultPruningConfig.model_validate(
+        {
+            "pruning_recent_n": 4,
+            "pruning_old_msg_max_bytes": 1200,
+            "exempt_file_extensions": [".md"],
+            "exempt_tool_names": ["chat_with_agent"],
+        },
+    )
+
+    dumped = config.model_dump()
+    assert set(dumped) == {
+        "enabled",
+        "pruning_recent_msg_max_bytes",
+        "offload_retention_days",
+        "tool_results_cache",
+    }
 
 
 def test_scroll_pruning_disabled_leaves_current_result_unbounded(tmp_path):
@@ -688,7 +702,6 @@ def test_scroll_pruning_disabled_leaves_current_result_unbounded(tmp_path):
         id="agent-1",
         running=types.SimpleNamespace(
             light_context_config=LightContextConfig(
-                strategy="scroll",
                 tool_result_pruning_config=ToolResultPruningConfig(
                     enabled=False,
                 ),

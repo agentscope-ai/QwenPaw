@@ -8,6 +8,7 @@ from agentscope.message import HintBlock, Msg, TextBlock
 
 from qwenpaw.agents.command_handler import CommandHandler
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
+from qwenpaw.constant import MEMORY_MIDDLE_CONTEXT_KEY
 
 
 def _make_agent():
@@ -27,6 +28,29 @@ def _msg(role: str, text: str, *, name: str | None = None, msg_id: str = ""):
     if msg_id:
         msg.id = msg_id
     return msg
+
+
+def test_submitted_memory_turns_clear_persisted_retry_batches() -> None:
+    agent = _make_agent()
+    agent.state.middle_context = {
+        MEMORY_MIDDLE_CONTEXT_KEY: {
+            "pending": ["turn-1", "turn-2"],
+            "seen": {},
+            "pending_messages": {
+                "turn-1": [{"role": "user"}],
+                "turn-2": [{"role": "user"}],
+            },
+        },
+    }
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+
+    handler._discard_submitted_pending_markers(
+        [_msg("user", "first", msg_id="turn-1")],
+    )
+
+    state = agent.state.middle_context[MEMORY_MIDDLE_CONTEXT_KEY]
+    assert state["pending"] == ["turn-2"]
+    assert set(state["pending_messages"]) == {"turn-2"}
 
 
 @pytest.mark.asyncio
@@ -383,12 +407,10 @@ def _make_config(
     compact_enabled: bool = True,
     reserve_ratio: float = 0.1,
     summarize_when_compact: bool = True,
-    strategy: str = "scroll",
 ):
     return SimpleNamespace(
         running=SimpleNamespace(
             light_context_config=SimpleNamespace(
-                strategy=strategy,
                 context_compact_config=SimpleNamespace(
                     enabled=compact_enabled,
                     reserve_threshold_ratio=reserve_ratio,
@@ -456,7 +478,6 @@ async def test_compact_uses_manual_force_context_config() -> None:
     # pylint: disable=protected-access
     handler._get_agent_config = lambda: _make_config(
         reserve_ratio=0.2,
-        strategy="scroll",
     )
 
     msg = await handler.handle_command("/compact")
@@ -492,9 +513,9 @@ async def test_scroll_compact_reply_hides_internal_state() -> None:
     )
     agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
     agent.compress_context = _compress_context
-    agent._context_manager = context_manager
+    agent._scroll_context = context_manager
     handler = CommandHandler(agent_name="QwenPaw", agent=agent)
-    handler._get_agent_config = lambda: _make_config(strategy="scroll")
+    handler._get_agent_config = _make_config
 
     msg = await handler.handle_command("/compact")
     text = msg.get_text_content()
@@ -527,7 +548,7 @@ async def test_compact_str_reads_persisted_scroll_summary() -> None:
         state=state,
         scroll_state=scroll_state,
     )
-    handler._get_agent_config = lambda: _make_config(strategy="scroll")
+    handler._get_agent_config = _make_config
 
     msg = await handler.handle_command("/compact_str")
     text = msg.get_text_content()
@@ -535,45 +556,6 @@ async def test_compact_str_reads_persisted_scroll_summary() -> None:
     assert "**Continuation Summary**" in text
     assert "Fix provider discovery." in text
     assert "**No Compressed Summary**" not in text
-
-
-@pytest.mark.asyncio
-async def test_compact_under_native_keeps_configured_reserve() -> None:
-    """Under native, manual /compact forces the trigger but must NOT shrink the
-    reserve: native compaction is lossy (the non-reserved middle is summarized
-    away), so it keeps the agent's configured reserve_ratio for the same
-    recent-tail continuity as auto compaction."""
-    from qwenpaw.agents.command_handler import _FORCE_TRIGGER_RATIO
-
-    captured = {}
-
-    async def _compress_context(context_config=None, instructions=None):
-        del instructions
-        captured["context_config"] = context_config
-        agent.state.summary = "summary"
-
-    agent = _make_agent()
-    agent.state = SimpleNamespace(
-        context=[object()],
-        summary="",
-    )
-    agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
-    agent.compress_context = _compress_context
-    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
-    # pylint: disable=protected-access
-    handler._get_agent_config = lambda: _make_config(
-        reserve_ratio=0.2,
-        strategy="native",
-    )
-
-    await handler.handle_command("/compact")
-
-    context_config = captured["context_config"]
-    # Trigger is still forced so the manual command always runs...
-    assert context_config.trigger_ratio == _FORCE_TRIGGER_RATIO
-    # ...but the reserve is left at the agent's configured value (the base),
-    # NOT shrunk to the scroll-only _FORCE_RESERVE_RATIO.
-    assert context_config.reserve_ratio == 0.2
 
 
 @pytest.mark.asyncio
@@ -595,7 +577,6 @@ async def test_compact_forwards_one_shot_redacted_instruction() -> None:
     handler = CommandHandler(agent_name="QwenPaw", agent=agent)
     handler._get_agent_config = lambda: _make_config(
         reserve_ratio=0.2,
-        strategy="native",
     )
 
     await handler.handle_command(

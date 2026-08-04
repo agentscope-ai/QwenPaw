@@ -288,9 +288,8 @@ _CONVERSATION_COMMANDS = frozenset(
 async def _load_agent_state(ctx: Any) -> "tuple[Any, dict]":
     """Load AgentState from workspace.session without building the agent.
 
-    Returns ``(state, payload)`` where ``payload`` is the raw saved session
-    dict — so callers can read/preserve the persisted ``"scroll"`` checkpoint
-    block (the scroll context manager's bookkeeping) instead of dropping it.
+    Returns ``(state, payload)`` so callers can preserve unrelated top-level
+    session metadata while updating AgentScope state.
     """
     from agentscope.state import AgentState
 
@@ -342,11 +341,11 @@ async def _save_agent_state(
 ) -> None:
     """Save AgentState back to workspace.session.
 
-    ``scroll_block`` is the scroll context manager's checkpoint to persist
-    alongside the state (mirroring ``QwenPawAgent.state_dict``'s ``"scroll"``
-    key). Passing ``None`` writes no scroll block — callers that want to
-    *preserve* the existing one must pass it back in explicitly.
+    Scroll bookkeeping lives in ``AgentState.middle_context``, matching
+    ``QwenPawAgent.state_dict``. ``None`` removes an existing checkpoint.
     """
+    from ..constant import SCROLL_MIDDLE_CONTEXT_KEY
+
     workspace = getattr(ctx, "workspace", None)
     if workspace is None:
         return
@@ -358,10 +357,12 @@ async def _save_agent_state(
     user_id = (getattr(request, "user_id", "") if request else "") or ""
     channel = (getattr(request, "channel", "") if request else "") or ""
 
+    if scroll_block is not None:
+        state.middle_context[SCROLL_MIDDLE_CONTEXT_KEY] = scroll_block
+    else:
+        state.middle_context.pop(SCROLL_MIDDLE_CONTEXT_KEY, None)
     proxy = StateProxy()
     proxy.data = {"state": state.model_dump(mode="json")}
-    if scroll_block is not None:
-        proxy.data["scroll"] = scroll_block
     proxy.data["mode_state"] = getattr(ctx, "mode_state", {})
     await session.save_session_state(
         session_id=ctx.session_id,
@@ -419,7 +420,12 @@ def _make_conversation_adapter(
         state, payload = await _load_agent_state(ctx)
         if state is None:
             return None
-        existing_scroll = payload.get("scroll")
+        from ..constant import SCROLL_MIDDLE_CONTEXT_KEY
+
+        existing_scroll = state.middle_context.get(
+            SCROLL_MIDDLE_CONTEXT_KEY,
+            payload.get("scroll"),
+        )
         mode_state = payload.get("mode_state")
         if isinstance(mode_state, dict):
             ctx.mode_state = dict(mode_state)
@@ -438,10 +444,9 @@ def _make_conversation_adapter(
 
                 cfg = load_agent_config(agent_id)
                 lcc = cfg.running.light_context_config
-                # Under scroll, dialog archiving is opt-in (history.db is the
-                # source of truth); only wire an offloader for the commands
-                # when ``offload_dialog`` is on. Native keeps it always.
-                want_dialog = lcc.strategy != "scroll" or getattr(
+                # history.db is the source of truth; dialog archiving is
+                # independently opt-in.
+                want_dialog = getattr(
                     lcc.scroll_config,
                     "offload_dialog",
                     False,

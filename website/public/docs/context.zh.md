@@ -2,9 +2,9 @@
 
 ## 概述
 
-QwenPaw 当前默认的上下文策略是 **scroll**：旧轮次不会被总结后丢弃，而是先写入持久化 SQLite 历史库；当模型窗口接近上限时，再把中间历史从实时上下文中驱逐出去，并用一条紧凑的上下文内索引表示。之后 Agent 可以按需把原始历史读回来。
+QwenPaw 使用 **Scroll** 管理上下文：旧轮次不会被总结后丢弃，而是先写入持久化 SQLite 历史库；当模型窗口接近上限时，再把中间历史从实时上下文中驱逐出去，并用一条紧凑的上下文内索引表示。之后 Agent 可以按需把原始历史读回来。
 
-Scroll 是面向用户的默认方案。已有的 `strategy: "native"` 配置仍会为向后兼容和安全降级而被接受，但控制台不再提供策略切换入口。
+Scroll 是唯一的上下文协议，不再有 Native/Scroll 策略开关。
 
 ## 三种记忆系统
 
@@ -53,7 +53,7 @@ flowchart LR
 - **不依赖有损摘要**：被驱逐的原文仍以 `history.db` 和 `EvictionIndex` 为准。Continuation summary 只是紧凑的任务状态缓存；更新失败会保留上一份有效摘要，绝不阻塞驱逐。
 - **可回溯原文**：索引中的每一行都带 `seq` 区间。Agent 可以调用 `recall_history(op="expand", lo, hi)` 读取完整原始记录（或在 `recall_history_python` REPL 中用 `ms.expand(lo, hi)`）。
 - **跨会话历史**：历史行包含 `session_id` 和 `agent_id`，默认可检索当前 Agent 的所有历史会话；显式放宽时也能查询同一工作区内其他 Agent 的历史。
-- **安全降级**：如果 scroll 无法构建，或 recall 工具无法安全运行，QwenPaw 会退回 native 上下文管理，避免把历史驱逐到无法读取的位置。
+- **初始化失败即报错**：如果持久历史库或结构化 recall 工具无法初始化，Agent 构建会明确失败。没有安全沙箱时只省略可选的 Python recall REPL，结构化 recall 仍然可用。
 
 索引层级只会在达到 10 个 block 的容量时向上归并；压力不会提前压实索引。只有输入**严格超过**自动压缩触发线（默认 80%）时，Scroll 才会批量折叠所有超过 200 字符的已完成轮次工具结果；恰好位于或低于触发线时直接停止，不折叠工具结果，也不驱逐对话。预裁剪会完整保护活动轮次和全局最新 5 个工具结果。整批替换后只重新统计一次；如果已不高于触发线，则停止，否则继续正常驱逐。重建后，只有上下文仍高于 `max(trigger, reserve)` 时才启用已完成结果折叠作为最终泄压阀；如果输入仍高于有效硬上限，则批量折叠已确认读取的早期活动轮次结果并再统计一次。显式 `/compact` 会跳过预裁剪，执行用户要求的驱逐。
 
@@ -235,11 +235,11 @@ print(ms.agents())
 
 工具结果统一由一个机制处理：
 
-| 机制                          | 默认状态                                                             | 作用                                                                                                                                                                                            |
-| ----------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ToolResultPruningMiddleware` | 所有上下文策略下均注册，由 `tool_result_pruning_config.enabled` 控制 | 按字节裁剪当前和历史工具结果，把超大原始输出保存到 `tool_results/`，并记录按文本块隔离的恢复 metadata 与 `read_file` 续读提示；当 coordinator offload 启用时，后台完成路径也使用同一个 pruner。 |
+| 机制                          | 默认状态                                               | 作用                                                                                                                                                                                            |
+| ----------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ToolResultPruningMiddleware` | 始终注册，由 `tool_result_pruning_config.enabled` 控制 | 按字节裁剪当前和历史工具结果，把超大原始输出保存到 `tool_results/`，并记录按文本块隔离的恢复 metadata 与 `read_file` 续读提示；当 coordinator offload 启用时，后台完成路径也使用同一个 pruner。 |
 
-scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使用 `pruning_recent_msg_max_bytes`。达到自动压缩触发线时，Scroll 会把所有超过 200 字符且符合条件的已完成轮次结果批量替换为精确 `recall_history` 指针，同时保护完整活动轮次和最新 5 个结果，然后只重新统计一次；驱逐后，如果实时上下文仍高于压力目标，也会用同样的恢复指针继续折叠剩余的已完成结果。旧版分层裁剪设置会被 Scroll 忽略。
+Scroll 没有独立的 token 工具结果 cap，也不再区分 recent/old 两档。所有实时 preview 都使用 `pruning_recent_msg_max_bytes`。达到自动压缩触发线时，Scroll 会把所有超过 200 字符且符合条件的已完成轮次结果批量替换为精确 `recall_history` 指针，同时保护完整活动轮次和最新 5 个结果，然后只重新统计一次；驱逐后，如果实时上下文仍高于压力目标，也会用同样的恢复指针继续折叠剩余的已完成结果。旧配置中的分层字段会被忽略。
 
 启用统一 pruning 时，QwenPaw 会让 AgentScope 内置的 token 工具结果上限不再触发，避免已经按 bytes 裁剪的 preview 被二次截断并丢失按文本块隔离的恢复 metadata。关闭统一 pruning 时，AgentScope 的默认上限仍作为安全兜底保留。
 
@@ -249,7 +249,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 早于 scroll 的对话——或工作区里已有的任何 `sessions/*.json` 会话——会被自动回填进 `history.db`，这样旧历史依然能被情景记忆工具取回。
 
-- **时机**：应用启动时，对每个 `strategy` 为 `"scroll"` 的 Agent 执行。
+- **时机**：应用启动时，对每个 Agent 执行。
 - **来源**：`{working_dir}/sessions/*.json`（含渠道子目录）。原始会话文件不会被修改或删除。
 - **逐文件一次性**：`sessions/.synced.json` 清单记录已导入的内容，之后的启动会跳过未变更的文件。重复导入是空操作——`UNIQUE` 索引会去重。
 - **遵循保留期**：导入时会跳过早于 `scroll_config.history_retention_days`（默认 `30`）的消息，与同次启动把 `history.db` 裁剪到保留期的清理保持一致。把 `history_retention_days` 设为 `0` 可保留并导入全部历史。
@@ -261,13 +261,12 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 相关配置位于 `running.light_context_config`：
 
-控制台“工作区 → 运行配置 → ReAct 智能体”只显示长期记忆管理后端，不显示上下文管理后端或上下文策略选择器。已有 Native 配置仍可为向后兼容和安全降级而加载，但 Native 不再作为用户可选项展示。控制台中的“上下文管理”页签展示 Scroll 的详细参数。
+控制台中的“上下文管理”页签展示 Scroll 的详细参数，不再提供上下文策略选择器。
 
 ```json
 {
   "running": {
     "light_context_config": {
-      "strategy": "scroll",
       "dialog_path": "dialog",
       "context_compact_config": {
         "enabled": true,
@@ -292,13 +291,12 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 }
 ```
 
-旧版 `pruning_recent_n` 和 `pruning_old_msg_max_bytes` 分层设置会被 Scroll 忽略。
+旧版 `pruning_recent_n`、`pruning_old_msg_max_bytes`、`exempt_file_extensions` 和 `exempt_tool_names` 会作为兼容输入被忽略，并在下次保存配置时省略。
 
 重要字段：
 
 | 字段                                             | 默认值         | 含义                                                                              |
 | ------------------------------------------------ | -------------- | --------------------------------------------------------------------------------- |
-| `strategy`                                       | `"scroll"`     | 选择 Scroll 的持久历史协议；旧版 Native 值仅为兼容和安全降级而保留。              |
 | `context_compact_config.compact_threshold_ratio` | `0.8`          | 模型输入达到上下文窗口该比例时触发。                                              |
 | `context_compact_config.reserve_threshold_ratio` | `0.1`          | 驱逐后保留最近尾部的预算。                                                        |
 | `scroll_config.db_filename`                      | `"history.db"` | 相对工作区的 SQLite 文件名。                                                      |
@@ -309,7 +307,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 ## 手动压缩
 
-`/compact` 仍然存在。在 Scroll 策略下，它会把符合条件的较早轮次归档到持久历史，同时保留配置指定的近期尾部和活动轮次。真正归档轮次时，Scroll 也会更新 continuation summary。命令回复只报告本次发生的变化，不会在聊天记录中暴露内部驱逐索引、检索 headline 或 continuation state。可以使用 `/compact_str` 查看当前 continuation summary；归档原文仍可通过 Scroll 历史取回。
+`/compact` 会把符合条件的较早轮次归档到持久历史，同时保留配置指定的近期尾部和活动轮次；即使关闭自动压缩，手动命令仍然可用。真正归档轮次时，Scroll 也会更新 continuation summary。命令回复只报告本次发生的变化，不会在聊天记录中暴露内部驱逐索引、检索 headline 或 continuation state。可以使用 `/compact_str` 查看当前 continuation summary；归档原文仍可通过 Scroll 历史取回。
 
 `/compact <hint>` 只为本次压缩提供取舍重点；hint 会先脱敏并限制长度，在 Scroll 下既不作为 evidence，也不持久化为任务状态，自动压缩行为不受影响。
 
@@ -337,7 +335,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 Visual Compact 会在请求发送给模型前，把符合条件的较早、较长上下文转换成视觉页面；最近对话仍然保留为文本。由于图片可以承载大量密集文本，这种方式在长会话中可以显著节省 Token。
 
-它可与现有上下文策略和长期记忆配合使用，不会删除聊天历史、改写已经存储的对话，也不会把生成的图片保存到本地。
+它可与 Scroll 和长期记忆配合使用，不会删除聊天历史、改写已经存储的对话，也不会把生成的图片保存到本地。
 
 QwenPaw 只会在上下文足够长，并且预计视觉替换确实能够节省 Token 时应用 Visual Compact。较短的请求或没有明显收益的请求会保持原样。
 

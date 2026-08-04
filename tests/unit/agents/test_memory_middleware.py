@@ -3,16 +3,24 @@
 # pylint: disable=protected-access
 from __future__ import annotations
 
+from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentscope.message import Msg, TextBlock
+from agentscope.message import (
+    AssistantMsg,
+    Msg,
+    TextBlock,
+    ToolCallBlock,
+    ToolResultBlock,
+)
 
 from qwenpaw.agents.middlewares import MemoryMiddleware
 from qwenpaw.constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     LOOP_CONTINUATION_MESSAGE_TAG,
+    MEMORY_MIDDLE_CONTEXT_KEY,
     QWENPAW_MESSAGE_TAG_KEY,
 )
 
@@ -30,6 +38,7 @@ def _make_agent(*, source: str | None = None):
         context=[],
         session_id="session-1",
         reply_id="reply-1",
+        middle_context={},
     )
     agent._context_manager = None
     if source is not None:
@@ -59,24 +68,14 @@ def _make_memory_manager(*, interval: int = 1):
     mm.auto_memory = AsyncMock()
     mm.auto_memory_search = AsyncMock(return_value=None)
     mm.get_memory_prompt.return_value = ""
-    mm._auto_memory_turn_states = {}
-
-    def _get_auto_memory_turn_state(session_id: str):
-        return mm._auto_memory_turn_states.setdefault(
-            session_id or "__default__",
-            {
-                "pending": [],
-                "seen": {},
-                "touched_at": 0,
-            },
-        )
-
-    mm.get_auto_memory_turn_state.side_effect = _get_auto_memory_turn_state
     return mm
 
 
-def _auto_memory_turn_state(mm, session_id: str = "session-1"):
-    return mm.get_auto_memory_turn_state(session_id)
+def _auto_memory_turn_state(agent):
+    return agent.state.middle_context.setdefault(
+        MEMORY_MIDDLE_CONTEXT_KEY,
+        {"pending": [], "seen": {}, "pending_messages": {}},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +158,47 @@ class TestOnModelCallAutomationSkip:
         assert mm.auto_memory_search.await_args.args[0].id == "turn-1"
 
     @pytest.mark.asyncio
+    async def test_search_result_is_model_input_only(self):
+        """Retrieved memory must not become durable conversation state."""
+        mm = _make_memory_manager()
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        query = _user_msg()
+        agent.state.context = [query]
+        memory_msg = AssistantMsg(
+            name="memory_search",
+            content=[
+                ToolCallBlock(
+                    id="memory-call",
+                    name="memory_search",
+                    input="{}",
+                ),
+                ToolResultBlock(
+                    id="memory-call",
+                    name="memory_search",
+                    output=[TextBlock(text="remembered fact")],
+                ),
+            ],
+        )
+        mm.auto_memory_search.return_value = {
+            "msg": [query, memory_msg],
+        }
+        model_messages = [query]
+        next_handler = AsyncMock(return_value="model_result")
+
+        await mw.on_model_call(
+            agent,
+            {"messages": model_messages},
+            next_handler,
+        )
+
+        assert agent.state.context == [query]
+        assert next_handler.await_args.kwargs["messages"] == [
+            query,
+            memory_msg,
+        ]
+
+    @pytest.mark.asyncio
     async def test_untagged_user_message_does_not_search(self):
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
@@ -225,7 +265,7 @@ class TestOnModelCallAutomationSkip:
         )
 
         mm.auto_memory_search.assert_awaited_once()
-        assert _auto_memory_turn_state(mm)["searched_turn"] == "turn-1"
+        assert _auto_memory_turn_state(agent)["searched_turn"] == "turn-1"
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +289,7 @@ class TestOnReplyAutomationSkip:
         async for _ in gen:
             pass
 
-        state = _auto_memory_turn_state(mm)
+        state = _auto_memory_turn_state(agent)
         assert not state["pending"]
         assert not state["seen"]
         mm.auto_memory.assert_not_awaited()
@@ -326,9 +366,10 @@ class TestOnReplyAutomationSkip:
             pass
 
         mm.auto_memory.assert_not_awaited()
-        assert _auto_memory_turn_state(mm)["pending"] == ["turn-1"]
+        assert _auto_memory_turn_state(agent1)["pending"] == ["turn-1"]
 
         agent2 = _make_agent(source="user")
+        agent2.state.middle_context = deepcopy(agent1.state.middle_context)
         agent2.state.context = [
             _user_msg(msg_id="turn-1"),
             Msg(
@@ -352,7 +393,7 @@ class TestOnReplyAutomationSkip:
             pass
 
         mm.auto_memory.assert_awaited_once()
-        assert not _auto_memory_turn_state(mm)["pending"]
+        assert not _auto_memory_turn_state(agent2)["pending"]
 
 
 # ---------------------------------------------------------------------------
@@ -375,8 +416,8 @@ class TestOnCompressContextAutomationSkip:
         mm.auto_memory.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_heartbeat_does_not_call_will_compress(self):
-        """_will_compress_context must NOT be called for automation."""
+    async def test_heartbeat_does_not_inspect_scroll_result(self):
+        """Automation does not inspect Scroll's compression result."""
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
         agent = _make_agent(source="heartbeat")
@@ -384,10 +425,10 @@ class TestOnCompressContextAutomationSkip:
 
         with patch.object(
             MemoryMiddleware,
-            "_will_compress_context",
-        ) as mock_wc:
+            "_did_compress_context",
+        ) as mock_did_compress:
             await mw.on_compress_context(agent, {}, next_handler)
-            mock_wc.assert_not_called()
+            mock_did_compress.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_normal_request_may_flush_on_compress(self):
@@ -395,27 +436,100 @@ class TestOnCompressContextAutomationSkip:
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
         agent = _make_agent(source="user")
-        _auto_memory_turn_state(mm)["pending"] = ["m1"]
-        next_handler = AsyncMock()
+        _auto_memory_turn_state(agent)["pending"] = ["m1"]
+        agent._scroll_context = SimpleNamespace(
+            last_compress={"evicted": 1, "folded": 0},
+        )
+
+        async def next_handler(**_kwargs):
+            return None
 
         with patch.object(
             MemoryMiddleware,
             "_memory_config",
-        ) as mock_cfg, patch.object(
-            MemoryMiddleware,
-            "_will_compress_context",
-            return_value=True,
-        ) as mock_wc:
+        ) as mock_cfg:
             cfg = MagicMock()
             cfg.summarize_when_compact = True
             mock_cfg.return_value = cfg
 
-            agent.state.context = [_user_msg()]
+            user = _user_msg(msg_id="m1")
+            agent.state.context = [user]
 
             await mw.on_compress_context(agent, {}, next_handler)
 
-            mock_wc.assert_awaited_once()
-            next_handler.assert_awaited_once()
+            mm.auto_memory.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_compression_flush_uses_deep_snapshot(self):
+        """In-place Scroll folding must not alter auto-memory evidence."""
+        mm = _make_memory_manager()
+        mm.get_memory_config.return_value = SimpleNamespace(
+            summarize_when_compact=True,
+        )
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        user = _user_msg(msg_id="turn-1")
+        reply = Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(text="original tool evidence")],
+        )
+        agent.state.context = [user, reply]
+        _auto_memory_turn_state(agent)["pending"] = ["turn-1"]
+        agent._scroll_context = SimpleNamespace(
+            last_compress={"evicted": 0, "folded": 0},
+        )
+
+        async def next_handler(**_kwargs):
+            reply.content[0].text = "[scroll folded]"
+            agent._scroll_context.last_compress["folded"] = 1
+
+        await mw.on_compress_context(agent, {}, next_handler)
+
+        submitted = mm.auto_memory.await_args.args[0]
+        assert submitted[1].get_text_content() == "original tool evidence"
+
+    @pytest.mark.asyncio
+    async def test_failed_post_compression_flush_survives_eviction(self):
+        """A failed write can retry after Scroll removes the live turn."""
+        mm = _make_memory_manager()
+        mm.get_memory_config.return_value = SimpleNamespace(
+            summarize_when_compact=True,
+        )
+        mm.auto_memory.side_effect = [RuntimeError("backend down"), None]
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        user = _user_msg(msg_id="turn-1")
+        reply = Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(text="answer to remember")],
+        )
+        agent.state.context = [user, reply]
+        state = _auto_memory_turn_state(agent)
+        state["pending"] = ["turn-1"]
+        agent._scroll_context = SimpleNamespace(
+            last_compress={"evicted": 0, "folded": 0},
+        )
+
+        async def next_handler(**_kwargs):
+            agent.state.context = []
+            agent._scroll_context.last_compress["evicted"] = 2
+
+        await mw.on_compress_context(agent, {}, next_handler)
+        assert state["pending"] == ["turn-1"]
+        assert "turn-1" in state["pending_messages"]
+
+        await mw._flush_auto_memory(agent)
+
+        assert mm.auto_memory.await_count == 2
+        retried = mm.auto_memory.await_args.args[0]
+        assert [msg.get_text_content() for msg in retried] == [
+            "hello",
+            "answer to remember",
+        ]
+        assert not state["pending"]
+        assert not state["pending_messages"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -423,7 +537,7 @@ class TestOnCompressContextAutomationSkip:
         [
             "memory_config",
             "turn_state",
-            "will_compress",
+            "did_compress",
             "flush",
         ],
     )
@@ -442,24 +556,25 @@ class TestOnCompressContextAutomationSkip:
                 "memory config unavailable",
             )
         else:
-            _auto_memory_turn_state(mm)["pending"] = ["m1"]
+            _auto_memory_turn_state(agent)["pending"] = ["m1"]
 
         if failing_step == "turn_state":
-            mm.get_auto_memory_turn_state.side_effect = RuntimeError(
-                "memory state unavailable",
-            )
+            agent.state.middle_context = None
 
-        will_compress = AsyncMock(return_value=True)
+        agent._scroll_context = SimpleNamespace(
+            last_compress={"evicted": 1, "folded": 0},
+        )
+        did_compress = MagicMock(return_value=True)
         flush = AsyncMock()
-        if failing_step == "will_compress":
-            will_compress.side_effect = RuntimeError("token count failed")
+        if failing_step == "did_compress":
+            did_compress.side_effect = RuntimeError("result unavailable")
         if failing_step == "flush":
             flush.side_effect = RuntimeError("memory flush failed")
 
         with patch.object(
             MemoryMiddleware,
-            "_will_compress_context",
-            will_compress,
+            "_did_compress_context",
+            did_compress,
         ), patch.object(
             MemoryMiddleware,
             "_flush_auto_memory",
@@ -483,43 +598,20 @@ class TestOnCompressContextAutomationSkip:
             await mw.on_compress_context(agent, {}, next_handler)
 
 
-class TestWillCompressContextBoundary:
-    @staticmethod
-    def _agent_at(tokens: int):
+class TestDidCompressContext:
+    def test_reports_scroll_change(self):
         agent = _make_agent(source="user")
-        agent.context_config = SimpleNamespace(trigger_ratio=0.8)
-        agent.model = SimpleNamespace(
-            context_size=1000,
-            count_tokens=AsyncMock(return_value=tokens),
+        agent._scroll_context = SimpleNamespace(
+            last_compress={"evicted": 1, "folded": 0},
         )
-        agent._prepare_model_input = AsyncMock(return_value={})
-        return agent
+        assert MemoryMiddleware._did_compress_context(agent) is True
 
-    @pytest.mark.asyncio
-    async def test_native_compacts_at_exact_trigger(self):
-        agent = self._agent_at(800)
-
-        assert await MemoryMiddleware._will_compress_context(agent, {}) is True
-
-    @pytest.mark.asyncio
-    async def test_scroll_does_not_compact_at_exact_trigger(self):
-        agent = self._agent_at(800)
-        agent._context_manager = SimpleNamespace(
-            should_compress=lambda tokens, trigger: tokens > trigger,
+    def test_reports_scroll_noop(self):
+        agent = _make_agent(source="user")
+        agent._scroll_context = SimpleNamespace(
+            last_compress={"evicted": 0, "folded": 0},
         )
-
-        assert (
-            await MemoryMiddleware._will_compress_context(agent, {}) is False
-        )
-
-    @pytest.mark.asyncio
-    async def test_scroll_compacts_above_trigger(self):
-        agent = self._agent_at(801)
-        agent._context_manager = SimpleNamespace(
-            should_compress=lambda tokens, trigger: tokens > trigger,
-        )
-
-        assert await MemoryMiddleware._will_compress_context(agent, {}) is True
+        assert MemoryMiddleware._did_compress_context(agent) is False
 
 
 # ---------------------------------------------------------------------------
@@ -534,11 +626,14 @@ class TestFlushAutoMemoryDefensiveGuard:
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
         agent = _make_agent(source="cron")
-        _auto_memory_turn_state(mm)["pending"] = ["m1", "m2"]
+        state = _auto_memory_turn_state(agent)
+        state["pending"] = ["m1", "m2"]
+        state["pending_messages"] = {"m1": [{"role": "user"}]}
 
         await mw._flush_auto_memory(agent)
 
-        assert not _auto_memory_turn_state(mm)["pending"]
+        assert not state["pending"]
+        assert not state["pending_messages"]
         mm.auto_memory.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -547,9 +642,22 @@ class TestFlushAutoMemoryDefensiveGuard:
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
         agent = _make_agent(source="user")
-        _auto_memory_turn_state(mm)["pending"] = ["turn-1"]
+        _auto_memory_turn_state(agent)["pending"] = ["turn-1"]
         agent.state.context = [_user_msg()]
 
         await mw._flush_auto_memory(agent)
 
         mm.auto_memory.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_failed_flush_keeps_pending_for_retry(self):
+        mm = _make_memory_manager()
+        mm.auto_memory.side_effect = RuntimeError("backend unavailable")
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        _auto_memory_turn_state(agent)["pending"] = ["turn-1"]
+        agent.state.context = [_user_msg()]
+
+        await mw._flush_auto_memory(agent)
+
+        assert _auto_memory_turn_state(agent)["pending"] == ["turn-1"]

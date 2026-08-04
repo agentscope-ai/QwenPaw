@@ -23,7 +23,6 @@ from agentscope.message import (
 )
 from agentscope.model import ChatResponse
 
-from qwenpaw.agents.context.base import ContextManager
 from qwenpaw.agents.context.scroll import manager as scroll_manager_module
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
@@ -1422,7 +1421,6 @@ async def test_overflow_recovery_forces_compaction_and_reports_change(
 
     mgr.compress = AsyncMock(side_effect=fake_compress)
 
-    assert isinstance(mgr, ContextManager)
     assert await mgr.recover_from_context_overflow(agent) is expected
     mgr.compress.assert_awaited_once()
     forced_config = mgr.compress.await_args.args[1]

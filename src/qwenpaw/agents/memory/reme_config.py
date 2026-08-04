@@ -56,7 +56,7 @@ def build_reme_app_config(
 
 def _base_config() -> dict[str, Any]:
     """Return the ReMe config shape used by QwenPaw."""
-    # Raw conversation-log lookup belongs to the scroll context strategy's
+    # Raw conversation-log lookup belongs to Scroll's
     # recall_history(op="search") tool. Keep ReMe search scoped to distilled
     # memory Markdown so the two systems do not duplicate indexes or duties.
     watch_dirs = ["daily_dir", "digest_dir"]

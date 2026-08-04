@@ -39,7 +39,7 @@ QwenPaw 完全跑在你自己的环境里，是一个常驻服务。一次安装
   <g>
     <rect x="40" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="136" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">请求路由器</text><text x="136" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">路由到目标智能体</text>
     <rect x="249" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="345" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">运行时生命周期</text><text x="345" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">钩子阶段 · 模式</text>
-    <rect x="458" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="554" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">智能体 — ReAct 循环</text><text x="554" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">循环工程 · 上下文策略</text>
+    <rect x="458" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="554" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">智能体 — ReAct 循环</text><text x="554" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">循环工程 · Scroll 生命周期</text>
     <rect x="667" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="763" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Harness 适配器</text><text x="763" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">外部 agent · ACP</text>
   </g>
   <line x1="450" y1="232" x2="450" y2="246" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.4" marker-end="url(#qpMapArrow)"/>
@@ -229,7 +229,7 @@ QwenPaw 构建在 **AgentScope 2.0** 之上，把它当作一个库来用。Agen
   <rect x="582" y="98" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="656" y="117" text-anchor="middle" font-size="11" fill="currentColor">执行前</text>
   <text x="164" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">会话 · 媒体 · 上下文</text>
   <text x="328" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">模型 · 工具 · 提示词</text>
-  <text x="328" y="153" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">记忆 · 上下文策略 · 策略</text>
+  <text x="328" y="153" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">记忆 · Scroll 上下文 · 策略</text>
   <text x="492" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">注入当前模式上下文</text>
   <text x="656" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">首次初始化 · 提示词刷新</text>
   <!-- connector row 2→3 -->
@@ -257,7 +257,7 @@ QwenPaw 构建在 **AgentScope 2.0** 之上，把它当作一个库来用。Agen
 - **Coding 模式**加上了懂项目的工具（代码搜索、内联 diff 编辑）和一段 Coding 系统提示，作用范围限定在某个项目目录里。参见 [Coding 模式](./coding-mode)。
 - **Mission 模式**用两阶段循环来跑长任务：智能体先写一份计划，再用实现类工具反复迭代，直到每个检查点都通过。
 
-**组装智能体**每个请求只做一次：把智能体配置、模型、工具、系统提示、记忆和上下文策略凑齐，并给每个工具都包上一层，让治理层始终看得到。每次都重新组装，资源调配和策略就都留在智能体之外。
+**组装智能体**每个请求只做一次：把智能体配置、模型、工具、系统提示、记忆和 Scroll 上下文凑齐，并给每个工具都包上一层，让治理层始终看得到。每次都重新组装，资源调配和策略就都留在智能体之外。
 
 ---
 
@@ -278,7 +278,7 @@ QwenPaw 的智能体跑的是一个 **ReAct（先推理后行动）循环**，�
 
 QwenPaw 把两个容易混为一谈的概念分开：**记忆**（智能体跨对话记住的东西）和**上下文**（当下能塞进模型窗口的内容）。
 
-<svg viewBox="0 0 860 372" width="100%" role="img" aria-label="记忆是构建在透明 Markdown 文件之上的可插拔后端；上下文管理要么采用总结式压缩，要么采用配备持久化存储和 recall 工具的 Scroll 策略。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 860 372" width="100%" role="img" aria-label="记忆是构建在透明 Markdown 文件之上的可插拔后端；Scroll 通过持久化存储、驱逐索引和 recall 工具管理上下文。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
     <marker id="qpMemArrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L6,3 L0,6 Z" fill="#ff9d4d"/>
@@ -302,10 +302,10 @@ QwenPaw 把两个容易混为一谈的概念分开：**记忆**（智能体跨�
   <!-- CONTEXT side -->
   <rect x="440" y="24" width="400" height="324" rx="10" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.2"/>
   <text x="460" y="50" font-size="12.5" font-weight="700" fill="#ff9d4d">上下文 · 实时窗口</text>
-  <rect x="460" y="64" width="360" height="44" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="640" y="82" text-anchor="middle" font-size="12" fill="currentColor" font-weight="600">总结式压缩（默认）</text><text x="640" y="98" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.65">窗口一满就总结较早的轮次</text>
-  <text x="460" y="132" font-size="11" letter-spacing="1" font-weight="700" fill="currentColor" fill-opacity="0.75">或 — SCROLL 策略（可选启用）</text>
+  <rect x="460" y="64" width="360" height="44" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="640" y="82" text-anchor="middle" font-size="12" fill="currentColor" font-weight="600">Scroll 上下文协议</text><text x="640" y="98" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.65">所有 Agent 共用的一套上下文生命周期</text>
+  <text x="460" y="132" font-size="11" letter-spacing="1" font-weight="700" fill="currentColor" fill-opacity="0.75">持久、可回溯的上下文</text>
   <g font-size="11.5" fill="currentColor">
-    <rect x="460" y="142" width="360" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="640" y="161" text-anchor="middle">Scroll 策略</text>
+    <rect x="460" y="142" width="360" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="640" y="161" text-anchor="middle">感知压力的实时窗口</text>
     <rect x="460" y="180" width="360" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="640" y="199" text-anchor="middle">持久化存储 — 保留每一轮次</text>
     <rect x="460" y="218" width="360" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="640" y="237" text-anchor="middle">已滚出窗口的轮次索引</text>
     <rect x="460" y="256" width="360" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="640" y="275" text-anchor="middle">recall 工具 — 重放任意较早的片段</text>
@@ -316,7 +316,7 @@ QwenPaw 把两个容易混为一谈的概念分开：**记忆**（智能体跨�
 
 **记忆**是一个可插拔的后端。默认那套基于 [ReMe](https://github.com/agentscope-ai/ReMe) 记忆库，在工作区上用后台任务来做取回、写入和整合（“做梦”）；另一套更简单的则直接读写同一批文件。不管哪套，底层都是**人能读的 Markdown**——`MEMORY.md` 放长期笔记，再配上按日期分的每日文件——所以记忆你随时都能打开、查看、修改。参见[记忆](./memory)和[记忆演化与主动交互](./memory-evolving-and-proactive)。
 
-**上下文**管理同样可插拔。默认情况下，窗口一满，QwenPaw 就把较早的对话轮次总结掉。可选的 **Scroll 策略**换了个思路：它把每一轮都存进持久化存储，给已经滚出窗口的内容留一份精简索引，再给智能体一个工具，按需就能回放早先的任意一段对话——长对话因此能完整找回。参见[上下文](./context)。
+**上下文**统一由 **Scroll** 管理：每一轮都会写入持久化存储，滚出窗口的内容保留精简索引，智能体可通过工具按需回放早先的片段。系统不再保留另一条 Native 上下文路径。参见[上下文](./context)。
 
 ---
 

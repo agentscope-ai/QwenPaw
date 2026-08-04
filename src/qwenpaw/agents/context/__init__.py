@@ -1,14 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Pluggable context-management strategies.
+"""Scroll context-management construction.
 
-The default agent behavior is AgentScope-native compression; injecting a
-:class:`ContextManager` replaces it. The only built-in alternative today is the
-*scroll* strategy (durable ``history.db`` + an in-context eviction index + a
-sandboxed ``recall_history_python`` recall REPL), selected via
-``LightContextConfig.strategy == "scroll"``.
-
-:func:`build_scroll_components` is the single entry point the builder calls; it
-returns ``None`` for any non-scroll strategy, so the feature is fully opt-in.
+QwenPaw has one context implementation: durable ``history.db`` storage, an
+in-context eviction index, and recall tools. ``QwenPawAgent`` adapts it to
+AgentScope's ``_save_to_context`` and ``_compress_context_impl`` hooks.
 """
 
 from __future__ import annotations
@@ -17,14 +12,14 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from .base import ContextManager
+if TYPE_CHECKING:
+    from .scroll.manager import ScrollContextManager
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "ContextManager",
     "ScrollComponents",
     "build_scroll_components",
     "scroll_unsandboxed_allowed",
@@ -64,9 +59,9 @@ _DB_SIZE_WARNED: set[str] = set()
 
 @dataclass
 class ScrollComponents:
-    """The pieces the builder wires when the scroll strategy is active."""
+    """The context and recall pieces wired into an agent."""
 
-    context_manager: Any  # ScrollContextManager (delegated agent hooks)
+    context: "ScrollContextManager"
     repl_tool: Any  # raw recall_history_python fn w/ a ``_tool_descriptor``
     recall_tool: Any  # raw structured recall_history fn (in-process, no
     # sandbox) — the front door for expand/search/recall_tool lookups
@@ -80,12 +75,10 @@ def _warn_first_run(db_path: Path) -> None:
     this workspace — the file's presence suppresses it on every later run.
     """
     logger.warning(
-        "scroll is now the DEFAULT context strategy. A durable history "
-        "store is being created at %s (this workspace had none). Conversation "
+        "Creating the Scroll history store at %s (this workspace had none). "
+        "Conversation "
         "turns evicted from the live window are persisted there and recalled "
-        "on demand instead of being summarized in place. To restore the "
-        "previous behavior, set running.light_context_config.strategy to "
-        '"native" in this agent\'s config (agent.json) and restart.',
+        "on demand instead of being summarized in place.",
         db_path,
     )
 
@@ -124,46 +117,25 @@ def build_scroll_components(
     *,
     agent_config: Any,
     workspace_dir: Any,
-    model: Any,
     session_id: str,
     agent_id: str | None = None,
     offloader: Any = None,
-) -> ScrollComponents | None:
-    """Construct the scroll strategy's components, or ``None`` if not selected.
-
-    Returns ``None`` when ``strategy != "scroll"`` or no workspace is
-    available, leaving the agent on its native context management.
-    """
+) -> ScrollComponents:
+    """Construct the agent's required Scroll context components."""
     try:
         lcc = agent_config.running.light_context_config
-    except Exception:
-        logger.info("scroll: no light_context_config; staying native")
-        return None
-    strategy = getattr(lcc, "strategy", "native")
-    if strategy != "scroll" or not workspace_dir:
-        logger.info(
-            "scroll: NOT wiring (strategy=%r, workspace_dir=%r) — native",
-            strategy,
-            workspace_dir,
-        )
-        return None
-    _ = model  # Kept for builder API compatibility.
+    except Exception as exc:
+        raise RuntimeError("scroll requires light_context_config") from exc
+    if not workspace_dir:
+        raise RuntimeError("scroll requires a workspace directory")
     logger.info(
         "scroll: wiring components (workspace_dir=%s, session_id=%s)",
         workspace_dir,
         session_id,
     )
 
-    # Everything below is guarded: if any scroll dependency is unsatisfied
-    # (a lazy import fails, e.g. a missing package or a broken submodule) or a
-    # component can't be constructed, we log and return ``None`` so the agent
-    # silently falls back to native context management instead of failing to
-    # build. Native keeps full history in-context, so degrading is always safe.
     history = None
     try:
-        # Imported lazily so the native path never pays for the scroll
-        # machinery — and so a missing scroll dependency degrades to native
-        # here rather than breaking import of this module.
         from .scroll.history import HistoryStore
         from .scroll.manager import ScrollContextManager
         from .scroll.recall_tool import RecallLoopGuard, make_recall_history
@@ -172,12 +144,8 @@ def build_scroll_components(
         sc = lcc.scroll_config
         trc = lcc.tool_result_pruning_config
         db_path = Path(workspace_dir) / sc.db_filename
-        # First-run notice: scroll is the default as of this release, so agents
-        # that never set ``strategy`` are switched to it silently. The first
-        # time we wire scroll in a workspace we create ``history.db`` there;
-        # warn once (the file's absence is the first-run signal — it never
-        # repeats) so the switch, the new on-disk file, and the rollback path
-        # are all discoverable.
+        # The file's absence is the first-run signal, so the notice never
+        # repeats for an initialized workspace.
         if not db_path.exists():
             _warn_first_run(db_path)
         else:
@@ -219,11 +187,11 @@ def build_scroll_components(
             page_max_bytes=trc.pruning_recent_msg_max_bytes,
         )
         return ScrollComponents(
-            context_manager=manager,
+            context=manager,
             repl_tool=tool,
             recall_tool=recall,
         )
-    except Exception:  # noqa: BLE001 - any scroll failure degrades to native
+    except Exception as exc:
         if history is not None:
             try:
                 history.close()
@@ -232,9 +200,4 @@ def build_scroll_components(
                     "scroll: failed to close history after wiring failure",
                     exc_info=True,
                 )
-        logger.warning(
-            "scroll: failed to wire components — falling back to native "
-            "context management",
-            exc_info=True,
-        )
-        return None
+        raise RuntimeError("failed to initialize scroll context") from exc

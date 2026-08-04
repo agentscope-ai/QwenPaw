@@ -16,9 +16,10 @@ Currently provided:
 
 import asyncio
 import logging
+from copy import deepcopy
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Iterator, Set
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Iterator
 
 from agentscope.middleware import MiddlewareBase
 from agentscope.message import Msg
@@ -30,6 +31,7 @@ from .tools.utils import (
 )
 from ..constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
+    MEMORY_MIDDLE_CONTEXT_KEY,
     QWENPAW_MESSAGE_TAG_KEY,
 )
 
@@ -113,12 +115,13 @@ class MemoryMiddleware(MiddlewareBase):
                 messages = list(input_kwargs.get("messages") or [])
                 memory_msgs = self._extract_memory_messages(
                     result,
-                    context_len=len(agent.state.context),
+                    existing_ids={
+                        msg.id for msg in agent.state.context if msg.id
+                    },
                 )
                 if memory_msgs:
                     messages.extend(memory_msgs)
                     input_kwargs["messages"] = messages
-                    agent.state.context.extend(memory_msgs)
         return await next_handler(**input_kwargs)
 
     # pylint: disable=stop-iteration-return
@@ -149,7 +152,10 @@ class MemoryMiddleware(MiddlewareBase):
 
         interval = self._auto_memory_interval()
         if interval <= 0:
-            pending_markers.clear()
+            self._discard_pending_turns(
+                turn_state,
+                list(pending_markers),
+            )
             return
         if len(pending_markers) < interval:
             return
@@ -173,28 +179,54 @@ class MemoryMiddleware(MiddlewareBase):
             await next_handler(**input_kwargs)
             return
 
+        # AgentScope's middleware hook is invoked before the concrete
+        # compressor has evaluated its threshold. Snapshot only pending turns
+        # so an actually-evicted turn remains available to long-term memory,
+        # then react to Scroll's real outcome. The copy must be deep because
+        # Scroll can fold tool-result blocks in place. Restricting it to
+        # pending turns avoids copying the full context on every reasoning
+        # step that ultimately needs no compression.
+        context_before: list[Msg] = []
+        try:
+            turn_state = self._auto_memory_turn_state(agent)
+            pending_before = list(turn_state["pending"])
+            if pending_before:
+                context_before = deepcopy(
+                    self._messages_for_pending_turns(
+                        list(agent.state.context),
+                        turn_markers=pending_before,
+                        cached=turn_state["pending_messages"],
+                    ),
+                )
+        except Exception:
+            logger.exception(
+                "MemoryMiddleware could not snapshot pending turns",
+            )
+        await next_handler(**input_kwargs)
+
         try:
             cfg = self._memory_config()
             pending_markers = self._auto_memory_turn_state(agent)["pending"]
             if (
                 getattr(cfg, "summarize_when_compact", False)
                 and pending_markers
-                and await self._will_compress_context(agent, input_kwargs)
+                and self._did_compress_context(agent)
             ):
-                await self._flush_auto_memory(agent)
+                await self._flush_auto_memory(
+                    agent,
+                    source_context=context_before,
+                )
         except Exception:
             logger.exception(
-                "MemoryMiddleware pre-compression auto-memory flush failed; "
-                "continuing context compression",
+                "MemoryMiddleware post-compression auto-memory flush failed",
             )
-
-        await next_handler(**input_kwargs)
 
     async def _flush_auto_memory(
         self,
         agent: "Agent",
         *,
         count: int | None = None,
+        source_context: list["Msg"] | None = None,
     ) -> None:
         if self._is_automation_request(agent):
             logger.debug(
@@ -203,25 +235,34 @@ class MemoryMiddleware(MiddlewareBase):
                 agent.name,
             )
             # Defensive: clear in case on_reply guard was bypassed
-            self._auto_memory_turn_state(agent)["pending"].clear()
+            turn_state = self._auto_memory_turn_state(agent)
+            self._discard_pending_turns(
+                turn_state,
+                list(turn_state["pending"]),
+            )
             return
 
-        pending_markers = self._auto_memory_turn_state(agent)["pending"]
+        turn_state = self._auto_memory_turn_state(agent)
+        pending_markers = turn_state["pending"]
         if not pending_markers:
             return
 
-        if count is None:
-            turn_markers = list(pending_markers)
-            pending_markers.clear()
-        else:
-            turn_markers = pending_markers[:count]
-            del pending_markers[:count]
+        turn_markers = list(
+            pending_markers if count is None else pending_markers[:count],
+        )
 
-        messages = self._messages_for_user_turns(
-            list(agent.state.context),
+        available_context = (
+            source_context
+            if source_context is not None
+            else list(agent.state.context)
+        )
+        messages = self._messages_for_pending_turns(
+            available_context,
             turn_markers=turn_markers,
+            cached=turn_state["pending_messages"],
         )
         if not messages:
+            self._discard_pending_turns(turn_state, turn_markers)
             return
 
         try:
@@ -230,7 +271,91 @@ class MemoryMiddleware(MiddlewareBase):
                 session_id=self._agent_session_id(agent),
             )
         except Exception:
+            self._cache_pending_messages(
+                turn_state,
+                available_context,
+                turn_markers,
+            )
             logger.exception("MemoryMiddleware auto_memory failed")
+        else:
+            self._discard_pending_turns(turn_state, turn_markers)
+
+    @staticmethod
+    def _discard_pending_turns(
+        turn_state: dict[str, Any],
+        submitted: list[str],
+    ) -> None:
+        submitted_set = set(submitted)
+        turn_state["pending"][:] = [
+            marker
+            for marker in turn_state["pending"]
+            if marker not in submitted_set
+        ]
+        cached = turn_state["pending_messages"]
+        for marker in submitted_set:
+            cached.pop(marker, None)
+
+    @classmethod
+    def _cache_pending_messages(
+        cls,
+        turn_state: dict[str, Any],
+        messages: list["Msg"],
+        turn_markers: list[str],
+    ) -> None:
+        """Persist failed batches so eviction cannot make retries empty."""
+        cached = turn_state["pending_messages"]
+        for marker in turn_markers:
+            batch = cls._messages_for_user_turns(
+                messages,
+                turn_markers=[marker],
+            )
+            if batch:
+                try:
+                    cached[marker] = [
+                        msg.model_dump(mode="json") for msg in batch
+                    ]
+                except Exception:
+                    logger.warning(
+                        "Could not cache auto-memory retry batch for %s",
+                        marker,
+                        exc_info=True,
+                    )
+
+    @classmethod
+    def _messages_for_pending_turns(
+        cls,
+        messages: list["Msg"],
+        *,
+        turn_markers: list[str],
+        cached: dict[str, Any],
+    ) -> list["Msg"]:
+        """Resolve pending turns from live context or persisted retry data."""
+        resolved: list[Msg] = []
+        for marker in turn_markers:
+            batch = cls._messages_for_user_turns(
+                messages,
+                turn_markers=[marker],
+            )
+            if batch:
+                resolved.extend(batch)
+                continue
+            raw_batch = cached.get(marker)
+            if not isinstance(raw_batch, list):
+                continue
+            for raw in raw_batch:
+                try:
+                    resolved.append(
+                        raw
+                        if isinstance(raw, Msg)
+                        else Msg.model_validate(raw),
+                    )
+                except Exception:
+                    logger.warning(
+                        "Ignoring invalid cached auto-memory message for %s",
+                        marker,
+                        exc_info=True,
+                    )
+        return resolved
 
     @staticmethod
     def _agent_session_id(agent: "Agent") -> str:
@@ -252,28 +377,18 @@ class MemoryMiddleware(MiddlewareBase):
         return source in _AUTOMATION_MEMORY_SKIP_SOURCES
 
     @staticmethod
-    async def _will_compress_context(
-        agent: "Agent",
-        input_kwargs: dict[str, Any],
-    ) -> bool:
-        cfg = input_kwargs.get("context_config") or agent.context_config
-        # pylint: disable=protected-access
-        kwargs = await agent._prepare_model_input()
-        estimated_tokens = await agent.model.count_tokens(**kwargs)
-        threshold = cfg.trigger_ratio * agent.model.context_size
-        context_manager = getattr(agent, "_context_manager", None)
-        predicate = getattr(context_manager, "should_compress", None)
-        if callable(predicate):
-            return bool(predicate(estimated_tokens, threshold))
-        # Native AgentScope compacts at the exact threshold. Custom context
-        # managers can expose ``should_compress`` when their boundary differs.
-        return estimated_tokens >= threshold
+    def _did_compress_context(agent: "Agent") -> bool:
+        scroll = getattr(agent, "_scroll_context", None)
+        stats = getattr(scroll, "last_compress", None)
+        if not isinstance(stats, dict):
+            return False
+        return bool(stats.get("evicted") or stats.get("folded"))
 
     @staticmethod
     def _extract_memory_messages(
         result: Any,
         *,
-        context_len: int,
+        existing_ids: set[str],
     ) -> list["Msg"]:
         if not isinstance(result, dict):
             return []
@@ -281,11 +396,11 @@ class MemoryMiddleware(MiddlewareBase):
         if not isinstance(msgs, list):
             return []
 
-        injected = msgs[context_len:] if len(msgs) > context_len else msgs
         return [
             msg
-            for msg in injected
+            for msg in msgs
             if hasattr(msg, "has_content_blocks")
+            and getattr(msg, "id", None) not in existing_ids
             and (
                 msg.has_content_blocks("tool_call")
                 or msg.has_content_blocks("tool_result")
@@ -299,9 +414,21 @@ class MemoryMiddleware(MiddlewareBase):
         return self._memory_manager.get_memory_config()
 
     def _auto_memory_turn_state(self, agent: "Agent") -> dict[str, Any]:
-        return self._memory_manager.get_auto_memory_turn_state(
-            self._agent_session_id(agent),
+        """Return lifecycle state in AgentScope's persisted middleware slot."""
+        state = agent.state.middle_context.setdefault(
+            MEMORY_MIDDLE_CONTEXT_KEY,
+            {
+                "pending": [],
+                "seen": {},
+                "pending_messages": {},
+            },
         )
+        # Additive normalization keeps checkpoints produced by earlier
+        # versions valid while making failed batches durable across rebuilds.
+        state.setdefault("pending", [])
+        state.setdefault("seen", {})
+        state.setdefault("pending_messages", {})
+        return state
 
     @staticmethod
     def _message_tag(msg: "Msg") -> str:
@@ -374,18 +501,9 @@ class MemoryMiddleware(MiddlewareBase):
 class ToolResultPruningMiddleware(MiddlewareBase):
     """Truncate oversized tool-call results around each acting step.
 
-    Implements the ``on_acting`` hook: each ``ToolResponse`` is capped before
-    it is yielded into the agent context, then every historical ``tool_result``
-    block in the agent's context is scanned and pruned according to tiered byte
-    thresholds.
-
-    * **Recent** tool results (the last ``recent_n`` tool-bearing messages)
-      are capped at ``recent_max_bytes``.
-    * **Older** tool results are shrunk to ``old_max_bytes``.
-    * Tools whose name appears in ``exempt_tool_names``, or whose
-      ``read_file`` input references an extension in
-      ``exempt_file_extensions``, always use the larger
-      ``recent_max_bytes`` limit.
+    Each ``ToolResponse`` is capped before it enters agent context. Historical
+    results are scanned with the same byte limit so metadata from older
+    snapshots is normalized without reviving the removed Native tiering.
 
     Full tool outputs are saved to ``{tool_results_dir}/{uuid}.txt``
     before truncation so they remain recoverable.
@@ -395,22 +513,12 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         self,
         *,
         enabled: bool = True,
-        recent_n: int = 2,
-        old_max_bytes: int = 3000,
         recent_max_bytes: int = DEFAULT_MAX_BYTES,
-        exempt_file_extensions: set[str] | None = None,
-        exempt_tool_names: set[str] | None = None,
         tool_results_dir: str = "",
-        agent_id: str = "default",
     ) -> None:
         self._enabled = enabled
-        self._recent_n = recent_n
-        self._old_max_bytes = old_max_bytes
         self._recent_max_bytes = recent_max_bytes
-        self._exempt_extensions = exempt_file_extensions or set()
-        self._exempt_tools = exempt_tool_names or set()
         self._pruner = ToolResultPruner(tool_results_dir)
-        self._agent_id = agent_id
 
     async def on_acting(
         self,
@@ -465,34 +573,13 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         """Prune a response without blocking the asyncio event loop."""
         return await asyncio.to_thread(self.prune_tool_response, response)
 
-    def _prune_tool_results(  # pylint: disable=R0912
-        self,
-        messages: list["Msg"],
-    ) -> None:
+    def _prune_tool_results(self, messages: list["Msg"]) -> None:
         if not messages:
             return
 
-        recent_count = 0
-        for msg in reversed(messages):
-            if not isinstance(msg.content, list) or not any(
-                self._block_type(b) == "tool_result" for b in msg.content
-            ):
-                break
-            recent_count += 1
-        split_index = max(
-            0,
-            len(messages) - max(recent_count, self._recent_n),
-        )
-
-        exempt_tool_ids = self._detect_exempt_tool_ids(messages)
-
-        for idx, msg in enumerate(messages):
+        for msg in messages:
             if not isinstance(msg.content, list):
                 continue
-            is_recent = idx >= split_index
-            max_bytes = (
-                self._recent_max_bytes if is_recent else self._old_max_bytes
-            )
 
             for block in msg.content:
                 if self._block_type(block) != "tool_result":
@@ -511,11 +598,6 @@ class ToolResultPruningMiddleware(MiddlewareBase):
                 if not output:
                     continue
 
-                effective_max = (
-                    self._recent_max_bytes
-                    if tool_id in exempt_tool_ids
-                    else max_bytes
-                )
                 block_metadata = (
                     block.setdefault("metadata", {})
                     if isinstance(block, dict)
@@ -540,59 +622,13 @@ class ToolResultPruningMiddleware(MiddlewareBase):
                     block_metadata = by_tool.setdefault(tool_id, {})
                 pruned, _ = self._pruner.prune_output(
                     output,
-                    max_bytes=effective_max,
+                    max_bytes=self._recent_max_bytes,
                     metadata=block_metadata,
                 )
                 if isinstance(block, dict):
                     block["output"] = pruned
                 else:
                     block.output = pruned
-
-    def _detect_exempt_tool_ids(self, messages: list["Msg"]) -> Set[str]:
-        exempt_ids: Set[str] = set()
-        for msg in messages:
-            if not isinstance(msg.content, list):
-                continue
-            for block in msg.content:
-                if self._block_type(block) not in ("tool_use", "tool_call"):
-                    continue
-
-                tool_id = (
-                    block.get("id", "")
-                    if isinstance(block, dict)
-                    else getattr(block, "id", "")
-                )
-                if not tool_id:
-                    continue
-
-                tool_name = (
-                    (
-                        block.get("name", "")
-                        if isinstance(block, dict)
-                        else getattr(block, "name", "")
-                    )
-                    or ""
-                ).lower()
-                raw_input = (
-                    block.get("raw_input")
-                    if isinstance(block, dict)
-                    else getattr(block, "raw_input", None)
-                ) or ""
-                if isinstance(raw_input, dict):
-                    raw_input = str(raw_input)
-                raw_input = raw_input.lower()
-
-                if tool_name in self._exempt_tools:
-                    exempt_ids.add(tool_id)
-                    continue
-
-                if tool_name == "read_file":
-                    for ext in self._exempt_extensions:
-                        if ext in raw_input:
-                            exempt_ids.add(tool_id)
-                            break
-
-        return exempt_ids
 
     @staticmethod
     def _block_type(block: Any) -> str | None:

@@ -404,7 +404,7 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
     the global builtin set (scroll ``recall_history*``, memory manager
     ``memory_search``). Keep this list documented when adding similar tools.
     """
-    # Scroll strategy tools — hand-built descriptors, not global builtins.
+    # Scroll tools — hand-built descriptors, not global builtins.
     register_tool_governance(
         registry,
         python_name="recall_history",

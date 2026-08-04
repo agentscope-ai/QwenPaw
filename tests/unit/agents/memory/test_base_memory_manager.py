@@ -99,41 +99,6 @@ class TestBaseMemoryManagerInit:
         assert manager._worker_task is None
 
 
-class TestBaseMemoryManagerAutoMemoryTurnState:
-    """P1: Auto-memory interval state is kept per session with TTL cleanup."""
-
-    def test_returns_same_state_for_same_session(self, manager):
-        state = manager.get_auto_memory_turn_state("session-1")
-        state["pending"].append("turn-1")
-
-        assert manager.get_auto_memory_turn_state("session-1") is state
-        assert manager.get_auto_memory_turn_state("session-1")["pending"] == [
-            "turn-1",
-        ]
-
-    def test_separates_sessions(self, manager):
-        manager.get_auto_memory_turn_state("session-1")["pending"].append(
-            "turn-1",
-        )
-
-        assert manager.get_auto_memory_turn_state("session-2")["pending"] == []
-
-    def test_cleans_expired_sessions_on_access(self, manager, monkeypatch):
-        monkeypatch.setattr(base_memory_manager.time, "monotonic", lambda: 0)
-        manager.get_auto_memory_turn_state("old-session")
-
-        now = base_memory_manager.AUTO_MEMORY_TURN_STATE_TTL_SECONDS + 1
-        monkeypatch.setattr(
-            base_memory_manager.time,
-            "monotonic",
-            lambda: now,
-        )
-        manager.get_auto_memory_turn_state("new-session")
-
-        assert "old-session" not in manager._auto_memory_turn_states
-        assert "new-session" in manager._auto_memory_turn_states
-
-
 # ---------------------------------------------------------------------------
 # TestBaseMemoryManagerAddSummarizeTask
 # ---------------------------------------------------------------------------
