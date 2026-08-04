@@ -207,8 +207,12 @@ export const useInboxData = () => {
   const pushMessagesRef = useRef(pushMessages);
   pushMessagesRef.current = pushMessages;
   const [harvests] = useState<HarvestInstance[]>(MOCK_HARVESTS);
-  const [archivedMap, setArchivedMap] = useState<IdMap>(() => readIdMap(LS_ARCHIVED_KEY));
-  const [trashedMap, setTrashedMap] = useState<IdMap>(() => readIdMap(LS_TRASHED_KEY));
+  const [archivedMap, setArchivedMap] = useState<IdMap>(() =>
+    readIdMap(LS_ARCHIVED_KEY),
+  );
+  const [trashedMap, setTrashedMap] = useState<IdMap>(() =>
+    readIdMap(LS_TRASHED_KEY),
+  );
 
   // Keep localStorage in sync with state
   const persistArchived = useCallback((map: IdMap) => {
@@ -221,28 +225,23 @@ export const useInboxData = () => {
   }, []);
 
   /** Clean up trashed items older than TRASH_RETENTION_DAYS. */
-  const cleanExpiredTrash = useCallback(
-    async (map: IdMap): Promise<IdMap> => {
-      const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-      const expired: string[] = [];
-      const remaining: IdMap = {};
-      for (const [id, ts] of Object.entries(map)) {
-        if (ts < cutoff) {
-          expired.push(id);
-        } else {
-          remaining[id] = ts;
-        }
+  const cleanExpiredTrash = useCallback(async (map: IdMap): Promise<IdMap> => {
+    const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    const expired: string[] = [];
+    const remaining: IdMap = {};
+    for (const [id, ts] of Object.entries(map)) {
+      if (ts < cutoff) {
+        expired.push(id);
+      } else {
+        remaining[id] = ts;
       }
-      if (expired.length > 0) {
-        await Promise.allSettled(
-          expired.map((id) => api.deleteInboxEvent(id)),
-        );
-        writeIdMap(LS_TRASHED_KEY, remaining);
-      }
-      return remaining;
-    },
-    [],
-  );
+    }
+    if (expired.length > 0) {
+      await Promise.allSettled(expired.map((id) => api.deleteInboxEvent(id)));
+      writeIdMap(LS_TRASHED_KEY, remaining);
+    }
+    return remaining;
+  }, []);
 
   const loadPushMessages = useCallback(async () => {
     try {
@@ -261,10 +260,7 @@ export const useInboxData = () => {
 
       // Prune stale entries from localStorage maps
       const validIds = new Set(events.map((e) => e.id));
-      const prunedArchived = pruneIdMap(
-        readIdMap(LS_ARCHIVED_KEY),
-        validIds,
-      );
+      const prunedArchived = pruneIdMap(readIdMap(LS_ARCHIVED_KEY), validIds);
       const prunedTrashed = pruneIdMap(cleanedTrash, validIds);
       writeIdMap(LS_ARCHIVED_KEY, prunedArchived);
       writeIdMap(LS_TRASHED_KEY, prunedTrashed);
@@ -274,20 +270,24 @@ export const useInboxData = () => {
       const archivedIdSet = new Set(Object.keys(prunedArchived));
       const trashedIdSet = new Set(Object.keys(prunedTrashed));
 
-      const nextItems: PushMessage[] = events.map((event) =>
-        mapEventToPushMessage(event, resolveAgentNameRef.current, tRef.current),
-      ).map((msg) => ({
-        ...msg,
-        archived: archivedIdSet.has(msg.id),
-        archivedAt: prunedArchived[msg.id],
-        trashed: trashedIdSet.has(msg.id),
-        trashedAt: prunedTrashed[msg.id],
-      }));
+      const nextItems: PushMessage[] = events
+        .map((event) =>
+          mapEventToPushMessage(
+            event,
+            resolveAgentNameRef.current,
+            tRef.current,
+          ),
+        )
+        .map((msg) => ({
+          ...msg,
+          archived: archivedIdSet.has(msg.id),
+          archivedAt: prunedArchived[msg.id],
+          trashed: trashedIdSet.has(msg.id),
+          trashedAt: prunedTrashed[msg.id],
+        }));
 
       setPushMessages(nextItems);
-      const activeMessages = nextItems.filter(
-        (m) => !m.archived && !m.trashed,
-      );
+      const activeMessages = nextItems.filter((m) => !m.archived && !m.trashed);
       setSummary((prev) => ({
         ...prev,
         pushMessages: {
@@ -425,7 +425,9 @@ export const useInboxData = () => {
       for (const id of ids) next[id] = now;
       persistArchived(next);
       setPushMessages((prev) =>
-        prev.map((m) => (ids.includes(m.id) ? { ...m, archived: true, archivedAt: now } : m)),
+        prev.map((m) =>
+          ids.includes(m.id) ? { ...m, archived: true, archivedAt: now } : m,
+        ),
       );
       setSummary((prev) => {
         const active = pushMessagesRef.current.filter(
@@ -469,7 +471,13 @@ export const useInboxData = () => {
       setPushMessages((prev) =>
         prev.map((m) =>
           ids.includes(m.id)
-            ? { ...m, trashed: true, trashedAt: now, archived: false, archivedAt: undefined }
+            ? {
+                ...m,
+                trashed: true,
+                trashedAt: now,
+                archived: false,
+                archivedAt: undefined,
+              }
             : m,
         ),
       );

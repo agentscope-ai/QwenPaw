@@ -21,7 +21,6 @@ interface PushMessageCardProps {
   tab: MessageTab;
   onMarkAsRead: (id: string) => void;
   onView: (id: string) => void;
-  onDelete?: (id: string) => void;
   onArchive?: (id: string) => void;
   onTrash?: (id: string) => void;
   onRestore?: (id: string) => void;
@@ -63,7 +62,6 @@ export function PushMessageCard(props: PushMessageCardProps) {
     message,
     tab,
     onView,
-    onDelete,
     onArchive,
     onTrash,
     onRestore,

@@ -53,7 +53,6 @@ import styles from "./index.module.less";
 type TabKey = "approvals" | "messages" | "archived" | "trash";
 const INBOX_TAB_STORAGE_KEY = "qwenpaw.inbox.activeTab";
 const PUSH_MESSAGES_PAGE_SIZE = 5;
-const MSG_TABS: TabKey[] = ["messages", "archived", "trash"];
 
 const SOURCE_TYPE_LABEL_KEYS: Record<string, string> = {
   cron: "inbox.sourceTypeCron",
@@ -415,9 +414,7 @@ export default function InboxPage() {
     showBadge: boolean,
     showMarkAllRead: boolean,
     batchActions: React.ReactNode,
-    cardOverrides: Partial<
-      React.ComponentProps<typeof PushMessageCard>
-    >,
+    cardOverrides: Partial<React.ComponentProps<typeof PushMessageCard>>,
     extraToolbar?: React.ReactNode,
   ) => ({
     key: tabKey,
@@ -636,11 +633,7 @@ export default function InboxPage() {
             cancelText={t("common.cancel")}
             disabled={trashedMessages.length === 0}
           >
-            <Button
-              size="small"
-              danger
-              disabled={trashedMessages.length === 0}
-            >
+            <Button size="small" danger disabled={trashedMessages.length === 0}>
               {t("inbox.emptyTrash")}
             </Button>
           </Popconfirm>
