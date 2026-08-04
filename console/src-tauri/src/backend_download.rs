@@ -120,7 +120,10 @@ fn parse_headers(headers: HashMap<String, String>) -> Result<HeaderMap, String> 
 mod tests {
     use std::sync::Mutex;
 
-    use super::{get_coding_directory, parse_local_backend_url};
+    use super::{
+        get_coding_directory, parse_local_backend_url,
+        resolve_agent_workspace_file_path,
+    };
 
     /// Serialize tests that mutate process environment variables.
     static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -228,6 +231,48 @@ mod tests {
 
         assert_eq!(result, workspace_dir);
     }
+
+    #[test]
+    fn artifact_path_stays_inside_agent_workspace() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let working_dir = temp.path();
+        let workspace_dir = working_dir.join("workspaces/test-agent");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+        let artifact = workspace_dir.join("report.txt");
+        std::fs::write(&artifact, "report").unwrap();
+        let outside = working_dir.join("outside.txt");
+        std::fs::write(&outside, "outside").unwrap();
+        std::fs::write(
+            working_dir.join("config.json"),
+            serde_json::json!({
+                "agents": {
+                    "profiles": {
+                        "test-agent": {
+                            "workspace_dir": workspace_dir,
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        std::env::set_var("QWENPAW_WORKING_DIR", working_dir);
+        let resolved = resolve_agent_workspace_file_path(
+            "report.txt",
+            "test-agent",
+        )
+        .unwrap();
+        let traversal = resolve_agent_workspace_file_path(
+            "../outside.txt",
+            "test-agent",
+        );
+        std::env::remove_var("QWENPAW_WORKING_DIR");
+
+        assert_eq!(resolved, artifact.canonicalize().unwrap());
+        assert!(traversal.is_err());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -320,6 +365,68 @@ fn resolve_workspace_file_path(
     }
 
     Ok(canonical_target)
+}
+
+/// Resolve a file relative to the configured agent workspace, not coding mode.
+pub(crate) fn resolve_agent_workspace_file_path(
+    relative_path: &str,
+    agent_id: &str,
+) -> Result<PathBuf, String> {
+    if relative_path.trim().is_empty() {
+        return Err("file path is empty".into());
+    }
+    let workspace_dir = get_agent_workspace_directory(agent_id)?;
+    let canonical_workspace = workspace_dir.canonicalize().map_err(|err| {
+        format!(
+            "failed to resolve workspace directory '{}': {err}",
+            workspace_dir.display()
+        )
+    })?;
+    let target = workspace_dir.join(relative_path);
+    let canonical_target = target.canonicalize().map_err(|err| {
+        format!("failed to resolve file path '{}': {err}", target.display())
+    })?;
+    if !canonical_target.starts_with(&canonical_workspace) {
+        return Err("path traversal detected".into());
+    }
+    if !canonical_target.is_file() {
+        return Err("artifact path is not a file".into());
+    }
+    Ok(canonical_target)
+}
+
+fn get_agent_workspace_directory(agent_id: &str) -> Result<PathBuf, String> {
+    let working_dir = if let Ok(dir) = std::env::var("QWENPAW_WORKING_DIR") {
+        PathBuf::from(dir)
+    } else if let Ok(dir) = std::env::var("COPAW_WORKING_DIR") {
+        PathBuf::from(dir)
+    } else {
+        let home = dirs::home_dir().ok_or("failed to get home directory")?;
+        let legacy = home.join(".copaw");
+        if legacy.exists() {
+            legacy
+        } else {
+            home.join(".qwenpaw")
+        }
+    };
+    let config_path = working_dir.join("config.json");
+    if !config_path.exists() {
+        return Ok(working_dir.join("workspaces").join(agent_id));
+    }
+    let content = std::fs::read_to_string(&config_path)
+        .map_err(|err| format!("failed to read config.json: {err}"))?;
+    let config: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|err| format!("failed to parse config.json: {err}"))?;
+    let profile = config
+        .get("agents")
+        .and_then(|agents| agents.get("profiles"))
+        .and_then(|profiles| profiles.get(agent_id))
+        .ok_or_else(|| format!("agent '{agent_id}' not found in config"))?;
+    Ok(profile
+        .get("workspace_dir")
+        .and_then(|path| path.as_str())
+        .map(expand_tilde)
+        .unwrap_or_else(|| working_dir.join("workspaces").join(agent_id)))
 }
 
 /// Get the coding project directory from QwenPaw configuration.

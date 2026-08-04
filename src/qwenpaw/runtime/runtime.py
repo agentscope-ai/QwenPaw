@@ -53,6 +53,7 @@ class Runtime:
         """8-phase lifecycle orchestration."""
         request = self._normalize(request)
         ctx = self._build_context(request)
+        ctx.extras["turn_id"] = uuid.uuid4().hex
         hooks = self.workspace.plugins.hook_registry
 
         envelope = Envelope(session_id=ctx.session_id)
@@ -133,8 +134,26 @@ class Runtime:
                 async for ev in executor.run(ctx.input_msgs):
                     yield ev
 
+            artifact_hook = next(
+                (
+                    hook
+                    for hook in hooks.hooks_for(Phase.PRE_DISPATCH)
+                    if getattr(hook, "name", "") == "workspace_artifacts"
+                ),
+                None,
+            )
+            if artifact_hook is not None and hasattr(artifact_hook, "collect"):
+                manifest = await artifact_hook.collect(ctx)
+                if manifest is not None:
+                    ctx.extras["workspace_artifact_manifest"] = manifest
+
             # --- [phase 6] POST_RESPONSE ---
             await hooks.run(Phase.POST_RESPONSE, ctx)
+
+            manifest = ctx.extras.get("workspace_artifact_manifest")
+            if manifest is not None:
+                async for ev in envelope.append_artifact_manifest(manifest):
+                    yield ev
 
             # Finalize envelope (complete message + response).
             async for ev in envelope.finalize():

@@ -42,6 +42,8 @@ pub fn run() {
             backend::restart_backend,
             external_link::open_external_link,
             workspace::open_workspace_directory,
+            workspace::open_workspace_artifact,
+            workspace::reveal_workspace_artifact,
             updates::check_desktop_update,
             updates::install_desktop_update,
             updates::download_desktop_update,

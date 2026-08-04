@@ -329,6 +329,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 SkillEnvCleanupHook,
                 SkillEnvHook,
             )
+            from ..hooks.workspace_artifacts_hook import WorkspaceArtifactsHook
 
             # pylint: disable-next=protected-access
             workspace_registry._bootstrap_kwargs["builtin_hook_clses"] = [
@@ -344,6 +345,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 MediaProcessHook,
                 ErrorNormalizeHook,
                 CancelCleanupHook,
+                WorkspaceArtifactsHook,
             ]
 
             try:

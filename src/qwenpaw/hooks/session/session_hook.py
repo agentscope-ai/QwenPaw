@@ -19,6 +19,25 @@ from .signals import SESSION_SAVE_SUCCEEDED_KEY
 
 logger = logging.getLogger(__name__)
 
+_MAX_WORKSPACE_ARTIFACT_MANIFESTS = 200
+
+
+def _merge_workspace_artifact_manifests(
+    session_state: dict | None,
+    manifest: dict | None,
+) -> list[dict]:
+    """Preserve history and append one deduplicated bounded manifest."""
+    loaded = session_state or {}
+    prior = loaded.get("workspace_artifact_manifests", [])
+    manifests = [item for item in prior if isinstance(item, dict)]
+    if manifest is not None:
+        turn_id = manifest.get("turn_id")
+        manifests = [
+            item for item in manifests if item.get("turn_id") != turn_id
+        ]
+        manifests.append(manifest)
+    return manifests[-_MAX_WORKSPACE_ARTIFACT_MANIFESTS:]
+
 
 def _is_ephemeral_request(ctx: HookContext) -> bool:
     request = ctx.request
@@ -100,6 +119,15 @@ class SessionSaveHook(LifecycleHook):
             proxy = StateProxy()
             proxy.data = ctx.agent.state_dict()
             proxy.data["mode_state"] = ctx.mode_state
+            manifest = ctx.extras.get("workspace_artifact_manifest")
+            manifests = _merge_workspace_artifact_manifests(
+                ctx.session_state,
+                manifest,
+            )
+            if manifests:
+                proxy.data["workspace_artifact_manifests"] = manifests[
+                    -_MAX_WORKSPACE_ARTIFACT_MANIFESTS:
+                ]
             await session.save_session_state(
                 session_id=ctx.session_id,
                 user_id=user_id,

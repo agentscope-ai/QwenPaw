@@ -19,7 +19,11 @@ from .models import (
     ChatUpdate,
     ChatHistory,
 )
-from .utils import agentscope_msg_to_message, parse_legacy_memory_state
+from .utils import (
+    agentscope_msg_to_message,
+    merge_artifact_manifests,
+    parse_legacy_memory_state,
+)
 from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 
 logger = logging.getLogger(__name__)
@@ -322,6 +326,14 @@ async def get_chat(
             memories, _summary = parse_legacy_memory_state(memory_raw)
 
     messages = agentscope_msg_to_message(memories)
+    manifests = state.get("workspace_artifact_manifests", [])
+    if isinstance(manifests, list):
+        valid_manifests = [
+            manifest
+            for manifest in manifests
+            if isinstance(manifest, dict) and manifest.get("version") == 1
+        ]
+        messages = merge_artifact_manifests(messages, valid_manifests)
     return ChatHistory(messages=messages, status=status)
 
 

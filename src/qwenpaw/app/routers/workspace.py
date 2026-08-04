@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import mimetypes
 import shutil
 import stat
 import tempfile
@@ -19,7 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Request
-from fastapi.responses import ORJSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, ORJSONResponse, Response
+from fastapi.responses import StreamingResponse
 from watchfiles import awatch, Change
 from pydantic import BaseModel, Field
 
@@ -255,6 +257,7 @@ async def list_code_files(request: Request) -> list[dict]:
 
 _CODE_FILE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 _BINARY_FILE_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+_ARTIFACT_FILE_MAX_BYTES = 250 * 1024 * 1024  # 250 MB
 
 _MIME_MAP: dict[str, str] = {
     # Images
@@ -271,6 +274,22 @@ _MIME_MAP: dict[str, str] = {
     # Data
     "csv": "text/csv",
 }
+
+
+def _resolve_artifact_file(workspace_dir: Path, file_path: str) -> Path:
+    """Resolve one existing regular file inside an agent workspace."""
+    target = safe_join(workspace_dir, file_path)
+    try:
+        stat_result = target.stat()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if not stat.S_ISREG(stat_result.st_mode):
+        raise HTTPException(status_code=404, detail="File not found")
+    if stat_result.st_size > _ARTIFACT_FILE_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Artifact is too large")
+    return target
 
 
 @router.get(
@@ -325,6 +344,29 @@ async def read_binary_file(
         _iter_chunks(),
         media_type=mime,
         headers={"Content-Length": str(size)},
+    )
+
+
+@router.get(
+    "/artifacts/{file_path:path}",
+    summary="Download a workspace artifact",
+)
+async def download_artifact_file(
+    file_path: str,
+    request: Request,
+) -> FileResponse:
+    """Download one regular file from the requested agent workspace."""
+    workspace = await get_agent_for_request(request)
+    target = await asyncio.to_thread(
+        _resolve_artifact_file,
+        workspace.workspace_dir,
+        file_path,
+    )
+    return FileResponse(
+        target,
+        filename=target.name,
+        media_type=mimetypes.guess_type(target.name)[0]
+        or "application/octet-stream",
     )
 
 

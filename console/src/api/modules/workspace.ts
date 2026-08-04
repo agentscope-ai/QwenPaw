@@ -40,6 +40,10 @@ function encodePath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/");
 }
 
+function getAgentWorkspaceUrl(agentId: string, route: string): string {
+  return getApiUrl(`/agents/${encodeURIComponent(agentId)}/workspace${route}`);
+}
+
 export const workspaceApi = {
   listFiles: () =>
     request<MdFileInfo[]>("/workspace/files").then((files) =>
@@ -215,4 +219,7 @@ export const workspaceApi = {
         .map(encodeURIComponent)
         .join("/")}`,
     ),
+
+  getArtifactFileUrl: (agentId: string, filePath: string) =>
+    getAgentWorkspaceUrl(agentId, `/artifacts/${encodePath(filePath)}`),
 };

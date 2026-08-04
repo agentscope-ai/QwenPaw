@@ -90,7 +90,10 @@ function parseCsv(raw: string): string[][] {
 // command so binary previews work offline (no backend HTTP required).
 // ---------------------------------------------------------------------------
 
-function useAuthBlobUrl(filePath: string): string | null {
+function useAuthBlobUrl(
+  filePath: string,
+  artifactAgentId?: string,
+): string | null {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
 
@@ -99,13 +102,13 @@ function useAuthBlobUrl(filePath: string): string | null {
 
     const loadBlob = async (): Promise<Blob | null> => {
       // Tauri: read file directly from disk for offline support
-      if (isDesktopTauriRuntime()) {
+      if (isDesktopTauriRuntime() && !artifactAgentId) {
         try {
           const response = await invoke<ArrayBuffer | number[]>(
             "read_workspace_binary_file",
             {
               filePath,
-              agentId: selectedAgent,
+              agentId: artifactAgentId || selectedAgent,
             },
           );
           const mimeType = guessMimeType(filePath);
@@ -122,7 +125,9 @@ function useAuthBlobUrl(filePath: string): string | null {
       }
 
       // Browser / online: fetch via backend API with auth headers
-      const url = workspaceApi.getBinaryFileUrl(filePath);
+      const url = artifactAgentId
+        ? workspaceApi.getArtifactFileUrl(artifactAgentId, filePath)
+        : workspaceApi.getBinaryFileUrl(filePath);
       const res = await fetch(url, { headers: buildAuthHeaders() });
       if (!res.ok) throw new Error(`${res.status}`);
       return res.blob();
@@ -144,7 +149,7 @@ function useAuthBlobUrl(filePath: string): string | null {
         return null;
       });
     };
-  }, [filePath, selectedAgent]);
+  }, [artifactAgentId, filePath, selectedAgent]);
 
   return blobUrl;
 }
@@ -170,8 +175,14 @@ function guessMimeType(filePath: string): string {
 // Sub-renderers
 // ---------------------------------------------------------------------------
 
-function ImagePreview({ filePath }: { filePath: string }) {
-  const blobUrl = useAuthBlobUrl(filePath);
+function ImagePreview({
+  filePath,
+  artifactAgentId,
+}: {
+  filePath: string;
+  artifactAgentId?: string;
+}) {
+  const blobUrl = useAuthBlobUrl(filePath, artifactAgentId);
   if (!blobUrl) return null;
   return (
     <div className={styles.imageWrap}>
@@ -184,8 +195,14 @@ function ImagePreview({ filePath }: { filePath: string }) {
   );
 }
 
-function PdfPreview({ filePath }: { filePath: string }) {
-  const blobUrl = useAuthBlobUrl(filePath);
+function PdfPreview({
+  filePath,
+  artifactAgentId,
+}: {
+  filePath: string;
+  artifactAgentId?: string;
+}) {
+  const blobUrl = useAuthBlobUrl(filePath, artifactAgentId);
   if (!blobUrl) return null;
   return (
     <embed
@@ -297,13 +314,24 @@ export interface FilePreviewProps {
   filePath: string;
   /** Text content – used by Markdown and CSV renderers. */
   content: string;
+  artifactAgentId?: string;
 }
 
-export default function FilePreview({ filePath, content }: FilePreviewProps) {
+export default function FilePreview({
+  filePath,
+  content,
+  artifactAgentId,
+}: FilePreviewProps) {
   const type = getPreviewType(filePath);
 
-  if (type === "image") return <ImagePreview filePath={filePath} />;
-  if (type === "pdf") return <PdfPreview filePath={filePath} />;
+  if (type === "image") {
+    return (
+      <ImagePreview filePath={filePath} artifactAgentId={artifactAgentId} />
+    );
+  }
+  if (type === "pdf") {
+    return <PdfPreview filePath={filePath} artifactAgentId={artifactAgentId} />;
+  }
   if (type === "markdown") return <MarkdownPreview content={content} />;
   if (type === "csv") return <CsvPreview content={content} />;
   return null;

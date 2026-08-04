@@ -878,3 +878,71 @@ def agentscope_msg_to_message(
             results.append(current_message.completed())
 
     return results
+
+
+def artifact_manifest_to_messages(manifest: dict) -> List[Message]:
+    """Convert a stored workspace manifest to the standard tool pair."""
+    call_id = f"workspace_artifacts_{manifest.get('turn_id', '')}"
+    call = Message(
+        type=MessageType.PLUGIN_CALL,
+        role="assistant",
+        content=[
+            DataContent(
+                data=FunctionCall(
+                    call_id=call_id,
+                    name="workspace_artifacts",
+                    arguments="{}",
+                ).model_dump(),
+                delta=False,
+                index=None,
+            ),
+        ],
+    )
+    metadata = {
+        "timestamp": manifest.get("created_at"),
+        "workspace_artifact": True,
+        "agent_id": manifest.get("agent_id"),
+    }
+    call.metadata = metadata
+    result = Message(
+        type=MessageType.PLUGIN_CALL_OUTPUT,
+        role="tool",
+        content=[
+            DataContent(
+                data=FunctionCallOutput(
+                    call_id=call_id,
+                    name="workspace_artifacts",
+                    output=json.dumps(manifest, ensure_ascii=False),
+                ).model_dump(),
+                delta=False,
+                index=None,
+            ),
+        ],
+    )
+    result.metadata = metadata
+    return [call.completed(), result.completed()]
+
+
+def merge_artifact_manifests(
+    messages: List[Message],
+    manifests: list[dict],
+) -> List[Message]:
+    """Insert stored artifact tool pairs near their originating turns."""
+    merged = list(messages)
+    ordered = sorted(
+        manifests,
+        key=lambda item: str(item.get("created_at") or ""),
+    )
+    for manifest in ordered:
+        created_at = str(manifest.get("created_at") or "")
+        insert_at = len(merged)
+        if created_at:
+            for index, message in enumerate(merged):
+                metadata = message.metadata or {}
+                timestamp = str(metadata.get("timestamp") or "")
+                if timestamp and timestamp > created_at:
+                    insert_at = index
+                    break
+        pair = artifact_manifest_to_messages(manifest)
+        merged[insert_at:insert_at] = pair
+    return merged

@@ -828,6 +828,71 @@ class Envelope:
     # Finalize
     # ------------------------------------------------------------------
 
+    async def append_artifact_manifest(
+        self,
+        manifest: dict[str, Any],
+    ) -> AsyncGenerator[Any, None]:
+        """Append a completed internal tool call and result pair."""
+        from ..schemas import (
+            ContentType,
+            DataContent,
+            FunctionCall,
+            FunctionCallOutput,
+            Message,
+            MessageType,
+            Role,
+            RunStatus,
+        )
+
+        call_id = f"workspace_artifacts_{uuid.uuid4().hex}"
+        call_message = Message(
+            id=_gen_msg_id(),
+            type=MessageType.PLUGIN_CALL,
+            role=Role.ASSISTANT,
+            content=[],
+            status=RunStatus.Completed,
+        )
+        call_message.name = "assistant"
+        call_message.object = "message"
+        call_content = DataContent(
+            type=ContentType.DATA,
+            data=FunctionCall(
+                call_id=call_id,
+                name="workspace_artifacts",
+                arguments="{}",
+            ).model_dump(),
+            delta=False,
+            index=0,
+        )
+        call_content.msg_id = call_message.id
+        call_message.content.append(call_content)
+        self._response.output.append(call_message)
+        yield self._tag_seq(call_message)
+
+        output_message = Message(
+            id=_gen_msg_id(),
+            type=MessageType.PLUGIN_CALL_OUTPUT,
+            role=Role.TOOL,
+            content=[],
+            status=RunStatus.Completed,
+        )
+        output_message.name = "assistant"
+        output_message.object = "message"
+        output_content = DataContent(
+            type=ContentType.DATA,
+            data=FunctionCallOutput(
+                call_id=call_id,
+                name="workspace_artifacts",
+                output=json.dumps(manifest, ensure_ascii=False),
+            ).model_dump(),
+            delta=False,
+            index=0,
+        )
+        output_content.msg_id = output_message.id
+        output_message.content.append(output_content)
+        self._response.output.append(output_message)
+        yield self._tag_seq(output_message)
+
     async def finalize(self) -> AsyncGenerator[Any, None]:
         if self._finalized:
             return

@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use tauri_plugin_shell::ShellExt;
 
+use crate::backend_download::resolve_agent_workspace_file_path;
+
 /// Open a validated workspace directory through the operating system shell.
 #[tauri::command]
 pub(crate) fn open_workspace_directory(
@@ -27,6 +29,59 @@ pub(crate) fn open_workspace_directory(
             Err(err.to_string())
         }
     }
+}
+
+#[tauri::command]
+pub(crate) fn open_workspace_artifact(
+    app: tauri::AppHandle,
+    agent_id: String,
+    file_path: String,
+) -> Result<(), String> {
+    let artifact = resolve_agent_workspace_file_path(&file_path, &agent_id)?;
+    #[allow(deprecated)]
+    app.shell()
+        .open(artifact.to_string_lossy().into_owned(), None)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn reveal_workspace_artifact(
+    agent_id: String,
+    file_path: String,
+) -> Result<(), String> {
+    let artifact = resolve_agent_workspace_file_path(&file_path, &agent_id)?;
+    reveal_file(&artifact)
+}
+
+#[cfg(target_os = "windows")]
+fn reveal_file(path: &std::path::Path) -> Result<(), String> {
+    let mut select_argument = std::ffi::OsString::from("/select,");
+    select_argument.push(path.as_os_str());
+    std::process::Command::new("explorer.exe")
+        .arg(select_argument)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn reveal_file(path: &std::path::Path) -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg("-R")
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn reveal_file(path: &std::path::Path) -> Result<(), String> {
+    let parent = path.parent().ok_or("artifact has no parent directory")?;
+    std::process::Command::new("xdg-open")
+        .arg(parent)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| err.to_string())
 }
 
 /// Resolve a safe existing directory before passing it to the OS shell.

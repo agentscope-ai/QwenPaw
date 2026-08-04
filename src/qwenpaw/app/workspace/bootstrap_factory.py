@@ -85,6 +85,7 @@ class WorkspaceBootstrapFactory:
                 SkillEnvCleanupHook,
                 SkillEnvHook,
             )
+            from ...hooks.workspace_artifacts_hook import WorkspaceArtifactsHook
             from ...checkpoints.hooks import (
                 CheckpointAutoSnapshotHook,
                 CheckpointQueryGateHook,
@@ -106,6 +107,7 @@ class WorkspaceBootstrapFactory:
                 CancelCleanupHook,
                 CheckpointQueryGateHook,
                 CheckpointAutoSnapshotHook,
+                WorkspaceArtifactsHook,
             ]
             if extra_hook_clses:
                 hook_clses.extend(extra_hook_clses)

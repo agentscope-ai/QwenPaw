@@ -1,0 +1,119 @@
+.artifactCard {
+  display: grid;
+  gap: 12px;
+  min-width: min(520px, 78vw);
+}
+
+.artifactList {
+  display: grid;
+  gap: 8px;
+}
+
+.artifactRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.86);
+}
+
+.fileIcon {
+  color: #52616f;
+}
+
+.fileIdentity {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.fileName {
+  overflow: hidden;
+  color: #17202a;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileMeta {
+  color: #718096;
+  font-size: 12px;
+}
+
+.changeBadge {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #edf2f0;
+  color: #476056;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
+.iconButton,
+.textButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #40515f;
+  cursor: pointer;
+}
+
+.iconButton {
+  width: 32px;
+}
+
+.iconButton:hover,
+.textButton:hover {
+  background: rgba(78, 96, 108, 0.09);
+}
+
+.iconButton:focus-visible,
+.textButton:focus-visible {
+  outline: 2px solid #728e83;
+  outline-offset: 2px;
+}
+
+.footerActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.drawerBody {
+  display: grid;
+  gap: 10px;
+}
+
+.previewBody {
+  min-height: 320px;
+}
+
+.emptyState {
+  padding: 16px;
+  color: #718096;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .artifactCard {
+    min-width: 0;
+  }
+
+  .artifactRow {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .changeBadge {
+    display: none;
+  }
+}
