@@ -292,6 +292,10 @@ class ChannelError(ExternalServiceException):
         )
 
 
+class ChannelStartupError(ChannelError):
+    """Retryable failure while starting an enabled channel."""
+
+
 class AgentStateError(AgentRuntimeErrorException):
     """Exception raised for agent state and session errors."""
 

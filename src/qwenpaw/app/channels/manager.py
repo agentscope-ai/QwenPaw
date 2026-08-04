@@ -24,6 +24,7 @@ from .command_registry import CommandRegistry
 from .registry import get_channel_registry
 from .unified_queue_manager import UnifiedQueueManager
 from ...config import get_available_channels
+from ...exceptions import ChannelStartupError
 
 if TYPE_CHECKING:
     from ...config.config import Config
@@ -35,6 +36,10 @@ OnLastDispatch = Optional[Callable[[str, str, str], None]]
 
 # Default max size per channel queue
 _CHANNEL_QUEUE_MAXSIZE = 1000
+
+# Retry only failures explicitly classified as temporary by the channel.
+_CHANNEL_START_RETRY_INITIAL_DELAY = 5.0
+_CHANNEL_START_RETRY_MAX_DELAY = 60.0
 
 
 async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
@@ -449,6 +454,55 @@ class ChannelManager:
                     f"priority={priority_level}",
                 )
 
+    async def _cleanup_failed_start(self, ch: BaseChannel) -> None:
+        """Release resources left by an incomplete start attempt."""
+        try:
+            await ch.stop()
+        except Exception:
+            logger.exception(
+                "failed to clean up channel=%s after startup failure",
+                ch.channel,
+            )
+
+    async def _start_channel(self, ch: BaseChannel) -> None:
+        """Start one channel, retrying explicitly transient failures."""
+        attempt = 1
+        retry_delay = _CHANNEL_START_RETRY_INITIAL_DELAY
+
+        while True:
+            try:
+                await ch.start()
+                if attempt > 1:
+                    logger.info(
+                        "channel=%s started after %d attempts",
+                        ch.channel,
+                        attempt,
+                    )
+                return
+            except ChannelStartupError as exc:
+                await self._cleanup_failed_start(ch)
+                logger.warning(
+                    "channel=%s startup attempt=%d failed; "
+                    "retrying in %.1fs: %s",
+                    ch.channel,
+                    attempt,
+                    retry_delay,
+                    exc,
+                )
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(
+                    retry_delay * 2,
+                    _CHANNEL_START_RETRY_MAX_DELAY,
+                )
+                attempt += 1
+            except Exception:
+                logger.exception(
+                    "failed to start channel=%s; not retrying",
+                    ch.channel,
+                )
+                await self._cleanup_failed_start(ch)
+                return
+
     async def start_all(self) -> None:
         """Start all channels and queue manager."""
         self._loop = asyncio.get_running_loop()
@@ -476,16 +530,8 @@ class ChannelManager:
 
         # Fire-and-forget: channels connect in background so startup
         # is not blocked by slow network handshakes (e.g. WebSocket).
-        async def _start_channel(g):
-            try:
-                await g.start()
-            except Exception:
-                logger.exception(
-                    f"failed to start channel={g.channel}",
-                )
-
         for g in snapshot:
-            task = asyncio.create_task(_start_channel(g))
+            task = asyncio.create_task(self._start_channel(g))
             self._start_tasks.add(task)
             task.add_done_callback(self._start_tasks.discard)
 
