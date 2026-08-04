@@ -124,6 +124,7 @@ function createDebouncedStorage(delayMs: number): StateStorage {
     if (!pending) return;
     const { name, value } = pending;
     pending = null;
+    if (typeof window === "undefined") return;
     window.localStorage.setItem(name, value);
   };
   if (typeof window !== "undefined") {

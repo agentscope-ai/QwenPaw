@@ -242,6 +242,19 @@ describe("osWindowStore", () => {
     }
   });
 
+  it("ignores a delayed flush after the window environment is gone", () => {
+    vi.useFakeTimers();
+    const originalWindow = globalThis.window;
+    try {
+      s().open("core.chat", { w: 700, h: 500 });
+      vi.stubGlobal("window", undefined);
+      expect(() => vi.advanceTimersByTime(300)).not.toThrow();
+    } finally {
+      vi.stubGlobal("window", originalWindow);
+      vi.useRealTimers();
+    }
+  });
+
   it("clampToViewport pulls off-screen windows back into the work area", () => {
     s().open("core.chat", { w: 700, h: 500 });
     s().move("core.chat", 5000, -300);
