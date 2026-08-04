@@ -171,7 +171,8 @@ function AgentStatsPage() {
     ((data.total_active_sessions ?? 0) > 0 ||
       (data.total_messages ?? 0) > 0 ||
       (data.total_llm_calls ?? 0) > 0 ||
-      (data.total_tool_calls ?? 0) > 0);
+      (data.total_tool_calls ?? 0) > 0 ||
+      (data.agent_llm_calls ?? 0) > 0);
 
   const messageColumnConfig = useMemo(
     () =>
@@ -415,19 +416,19 @@ function AgentStatsPage() {
                     tooltip={t("agentStats.totalMessagesTooltip")}
                   />
                   <SummaryCard
-                    value={data.agent_prompt_tokens}
+                    value={data.agent_prompt_tokens ?? 0}
                     label={t("agentStats.promptTokens")}
                     tooltip={t("agentStats.currentAgentPromptTokensTooltip")}
                   />
                   <SummaryCard
-                    value={data.agent_completion_tokens}
+                    value={data.agent_completion_tokens ?? 0}
                     label={t("agentStats.completionTokens")}
                     tooltip={t(
                       "agentStats.currentAgentCompletionTokensTooltip",
                     )}
                   />
                   <SummaryCard
-                    value={data.agent_llm_calls}
+                    value={data.agent_llm_calls ?? 0}
                     label={t("agentStats.currentAgentLlmCalls")}
                     tooltip={t("agentStats.currentAgentLlmCallsTooltip")}
                   />

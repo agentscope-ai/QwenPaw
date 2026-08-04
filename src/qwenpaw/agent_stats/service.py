@@ -219,7 +219,7 @@ def _process_session_file(
                         tool_call_count += 1
 
     except Exception as e:
-        logger.debug("Failed to count messages in session: %s", e)
+        logger.warning("Failed to count messages in session: %s", e)
 
     if has_messages_in_range and channel in channel_stats:
         channel_stats[channel]["session_count"] += 1
