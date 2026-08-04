@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -31,6 +32,8 @@ SERVICE_WORKER = Path(
 # test_chrome_routes_asgi.py
 
 
+@pytest.mark.integration
+@pytest.mark.p1
 def test_install_status_reports_plugin_owned_installation_state() -> None:
     app = FastAPI()
     app.include_router(api_router)
@@ -49,6 +52,8 @@ TESTS_DIR = Path("tests/integration")
 # test_chrome_setup_hygiene.py
 
 
+@pytest.mark.integration
+@pytest.mark.p1
 def test_uninstall_removes_config_and_extension_dir(
     tmp_path: Path,
     isolated_home: Path,
