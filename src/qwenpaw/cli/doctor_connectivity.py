@@ -122,11 +122,13 @@ def _probe_onebot(
     cfg: OneBotConfig,
     timeout: float,
 ) -> list[str]:
-    # Mirrors OneBotChannel: a blank ws_host falls back to loopback.
-    configured_host = (cfg.ws_host or "").strip() or "127.0.0.1"
+    # Mirrors OneBotChannel: a blank ws_host falls back to loopback,
+    # IPv6 brackets are dropped, and a whitespace token counts as unset.
+    configured_host = (cfg.ws_host or "").strip().strip("[]") or "127.0.0.1"
     port = int(cfg.ws_port or 6199)
+    access_token = (cfg.access_token or "").strip()
     notes: list[str] = []
-    if not is_loopback_host(configured_host) and not cfg.access_token:
+    if not is_loopback_host(configured_host) and not access_token:
         notes.append(
             f"{agent_id}: onebot: ws_host {configured_host} is reachable "
             "from the network but access_token is empty — every "

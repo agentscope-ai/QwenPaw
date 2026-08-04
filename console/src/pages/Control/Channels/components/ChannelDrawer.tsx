@@ -1364,6 +1364,7 @@ export function ChannelDrawer({
                   ? [
                       {
                         required: true,
+                        whitespace: true,
                         message: t("channels.onebotAccessTokenRequired"),
                       },
                     ]

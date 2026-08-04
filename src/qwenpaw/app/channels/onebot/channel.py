@@ -294,10 +294,15 @@ class OneBotChannel(BaseChannel):
         self.enabled = enabled
         self.bot_prefix = bot_prefix
         # An empty host would make aiohttp bind every interface, so treat
-        # it as "unset" and fall back to the loopback default.
-        self._ws_host = ws_host.strip() or _DEFAULT_WS_HOST
+        # it as "unset" and fall back to the loopback default.  Brackets
+        # are URL notation for IPv6 literals and make getaddrinfo fail,
+        # so drop them the way ``is_loopback_host`` does.
+        self._ws_host = ws_host.strip().strip("[]") or _DEFAULT_WS_HOST
         self._ws_port = ws_port
-        self._access_token = access_token
+        # A request token is stripped before comparison, so a token made
+        # only of whitespace could never match.  Treat it as unset to get
+        # the actionable "access_token is empty" rejection instead.
+        self._access_token = access_token.strip()
         # A network-reachable listener must authenticate its clients.
         self._auth_required = not is_loopback_host(self._ws_host)
         self._share_session_in_group = share_session_in_group

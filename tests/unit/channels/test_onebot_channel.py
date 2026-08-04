@@ -1221,3 +1221,17 @@ class TestDefaultBindAddress:
 
         assert ch._ws_host == "127.0.0.1"
         assert ch._auth_required is False
+
+    def test_bracketed_ipv6_host_is_unwrapped(self):
+        """Brackets are URL notation and make getaddrinfo fail."""
+        ch = _make_channel(ws_host="[::1]")
+
+        assert ch._ws_host == "::1"
+        assert ch._auth_required is False
+
+    def test_whitespace_token_counts_as_unset(self):
+        """A whitespace token could never match a stripped request token."""
+        ch = _make_channel(ws_host="0.0.0.0", access_token="   ")
+
+        assert ch._access_token == ""
+        assert ch._auth_required is True
