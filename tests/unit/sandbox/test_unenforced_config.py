@@ -26,13 +26,21 @@ from qwenpaw.sandbox import (
 from qwenpaw.sandbox.bubblewrap_sandbox import BubblewrapSandbox
 from qwenpaw.sandbox.config import (
     _SECURITY_BOUNDARY_FIELDS,
+    NETWORK_DOMAIN_HINT,
     _requested_constraints,
     network_allow_is_absolute,
     report_unenforced_config,
 )
-from qwenpaw.sandbox.linux_sandbox import LinuxSandbox
+from qwenpaw.sandbox.linux_sandbox import (
+    LinuxSandbox,
+    _generate_sandbox_script,
+)
 from qwenpaw.sandbox.local_sandbox import LocalSandbox, NoneSandbox
 from qwenpaw.sandbox.macos_sandbox import MacOSSandbox
+from qwenpaw.sandbox.windows_elevated_sandbox import WindowsElevatedSandbox
+from qwenpaw.sandbox.windows_unelevated_sandbox import (
+    WindowsUnelevatedSandbox,
+)
 
 _CONFIG_LOGGER = "qwenpaw.sandbox.config"
 
@@ -153,12 +161,46 @@ class TestReportUnenforcedConfig:
     def test_non_security_fields_are_debug(self, caplog):
         caplog.set_level(logging.DEBUG, logger=_CONFIG_LOGGER)
         report_unenforced_config(
-            _config(env_mode="allowlist", platform_hints={"a": "b"}),
+            _config(shell_executable="/bin/zsh"),
             "FakeSandbox",
             frozenset(),
         )
         levels = {level for level, _ in _reports(caplog)}
         assert levels == {logging.DEBUG}
+
+    def test_env_mode_is_a_security_boundary(self, caplog):
+        # The unimplemented allowlist mode leaks the whole parent
+        # environment -- API keys included -- into the child. At DEBUG that
+        # is invisible under the default INFO log level, so it has to warn.
+        caplog.set_level(logging.DEBUG, logger=_CONFIG_LOGGER)
+        report_unenforced_config(
+            _config(env_mode="allowlist"),
+            "FakeSandbox",
+            frozenset(),
+        )
+        assert [level for level, _ in _reports(caplog)] == [logging.WARNING]
+        assert "env_mode=allowlist" in caplog.text
+
+    def test_platform_hints_is_a_security_boundary(self, caplog):
+        # platform_hints carries admin-authored native rules (Seatbelt deny
+        # clauses); a dropped hint weakens the sandbox like a dropped
+        # deny_path would.
+        caplog.set_level(logging.DEBUG, logger=_CONFIG_LOGGER)
+        report_unenforced_config(
+            _config(platform_hints={"seatbelt_extra_rules": "(deny ...)"}),
+            "FakeSandbox",
+            frozenset(),
+        )
+        assert [level for level, _ in _reports(caplog)] == [logging.WARNING]
+
+    @pytest.mark.parametrize(
+        "field",
+        ["env_mode", "platform_hints", "max_processes", "max_memory_mb"],
+    )
+    def test_unimplemented_fields_stay_security_classified(self, field):
+        # Guards the H3 regression: reclassifying any of these to DEBUG
+        # hides a boundary failure at the default log level.
+        assert field in _SECURITY_BOUNDARY_FIELDS
 
     def test_enforced_fields_are_silent(self, caplog):
         caplog.set_level(logging.DEBUG, logger=_CONFIG_LOGGER)
@@ -370,3 +412,173 @@ class TestLinuxReporting:
         )
         sandbox = LinuxSandbox(_config(network_allow=["github.com"]))
         assert "network_allow" not in sandbox._enforced_fields()
+
+
+# ============================================================================
+# Declaration vs. real enforcement
+#
+# A declaration is only worth logging if it matches what the backend
+# actually installs. Asserting the field set alone let three backends claim
+# constraints their own enforcement path skipped, so these compare each
+# claim against the artefact the backend really produces -- the Landlock
+# script, the Seatbelt profile, the Windows token mechanism.
+# ============================================================================
+
+
+class TestLandlockClaimMatchesScript:
+    """``network_ports`` is only real when a port rule reaches the ruleset."""
+
+    @staticmethod
+    def _build(monkeypatch, allow, abi=4):
+        monkeypatch.setattr(
+            LinuxSandbox,
+            "_detect_abi_version",
+            lambda self: abi,
+        )
+        cfg = _config(
+            network_allow=allow,
+            network_ports=[PortRule(port=443)],
+        )
+        sandbox = LinuxSandbox(cfg)
+        script = _generate_sandbox_script(cfg, "true", "/tmp/ws", abi)
+        return sandbox, script
+
+    @pytest.mark.parametrize(
+        "allow",
+        [[], ["*"], ["github.com"]],
+    )
+    def test_claim_matches_installed_port_rule(self, monkeypatch, allow):
+        sandbox, script = self._build(monkeypatch, allow)
+        claimed = "network_ports" in sandbox._enforced_fields()
+        installed = "443" in script
+        assert claimed == installed, (
+            f"network_allow={allow!r}: claimed={claimed} but the generated "
+            f"script {'has' if installed else 'lacks'} the port rule"
+        )
+
+    def test_open_network_drops_the_port_rule(self, monkeypatch):
+        # The regression: ["*"] is what ResourceGovernor compiles, and the
+        # ruleset handles no network access there, so the port rule never
+        # lands. Claiming it would silence the only warning about it.
+        sandbox, script = self._build(monkeypatch, ["*"])
+        assert "443" not in script
+        assert "network_ports" not in sandbox._enforced_fields()
+
+    def test_port_rule_is_never_claimed_below_abi_v4(self, monkeypatch):
+        sandbox, _ = self._build(monkeypatch, [], abi=3)
+        assert "network_ports" not in sandbox._enforced_fields()
+
+
+class TestWindowsClaimMatchesMechanism:
+    """Only backends with a kernel-level mechanism may claim the network."""
+
+    @staticmethod
+    def _detached(backend, **overrides):
+        # Bypass __init__: it reaches for Windows APIs, while the claim is a
+        # pure function of the config.
+        sandbox = object.__new__(backend)
+        sandbox._config = _config(mode=SandboxMode.WINDOWS, **overrides)
+        return sandbox
+
+    @pytest.mark.parametrize("allow", [[], ["*"]])
+    def test_unelevated_never_claims_the_network(self, allow):
+        # Its "block" is HTTP(S) proxy variables, which a raw socket
+        # ignores, so no posture is enforced.
+        sandbox = self._detached(
+            WindowsUnelevatedSandbox,
+            network_allow=allow,
+        )
+        assert "network_allow" not in sandbox._enforced_fields()
+
+    def test_unelevated_hint_names_the_proxy_limitation(self):
+        hint = WindowsUnelevatedSandbox._ENFORCEMENT_HINTS["network_allow"]
+        assert "proxy" in hint.lower()
+        assert "raw socket" in hint.lower()
+
+    def test_unelevated_never_claims_deny_paths(self):
+        sandbox = self._detached(WindowsUnelevatedSandbox, deny_paths=["C:/s"])
+        assert "deny_paths" not in sandbox._enforced_fields()
+
+    @pytest.mark.parametrize("allow", [[], ["*"]])
+    def test_elevated_claims_the_network_via_wfp(self, allow):
+        sandbox = self._detached(WindowsElevatedSandbox, network_allow=allow)
+        assert "network_allow" in sandbox._enforced_fields()
+
+    def test_elevated_hint_says_fail_closed_not_fail_open(self):
+        # WFP degrades a domain allowlist to blocking everything, the
+        # opposite of the shared fail-open hint the other backends use.
+        hint = WindowsElevatedSandbox._ENFORCEMENT_HINTS["network_allow"]
+        assert "blocking ALL network access" in hint
+        assert hint != NETWORK_DOMAIN_HINT
+
+
+class TestSeatbeltClaimMatchesProfile:
+    """``platform_hints`` is only real for keys the compiler reads."""
+
+    def test_supported_key_is_claimed_and_compiled(self):
+        rule = '(deny file-read* (subpath "/etc"))'
+        sandbox = MacOSSandbox(
+            _config(platform_hints={"seatbelt_extra_rules": rule}),
+        )
+        assert "platform_hints" in sandbox._enforced_fields()
+        assert rule in sandbox._compile_seatbelt_profile()
+
+    def test_typo_key_is_not_claimed_and_not_compiled(self):
+        # Singular key: silently dropped before this fix, because the field
+        # was claimed wholesale.
+        rule = '(deny file-read* (subpath "/etc"))'
+        sandbox = MacOSSandbox(
+            _config(platform_hints={"seatbelt_extra_rule": rule}),
+        )
+        assert "platform_hints" not in sandbox._enforced_fields()
+        assert rule not in sandbox._compile_seatbelt_profile()
+
+    def test_mixed_keys_are_reported(self, caplog):
+        caplog.set_level(logging.DEBUG, logger=_CONFIG_LOGGER)
+        MacOSSandbox(
+            _config(
+                platform_hints={
+                    "seatbelt_extra_rules": "(deny ...)",
+                    "unknown_key": "x",
+                },
+            ),
+        )
+        # Errs loud, and lists every key so the unknown one is findable.
+        assert "platform_hints=seatbelt_extra_rules, unknown_key" in (
+            caplog.text
+        )
+
+
+class TestNoneSandboxShellFallback:
+    """A claimed field must not degrade silently either."""
+
+    def test_missing_configured_shell_is_reported(self, caplog):
+        caplog.set_level(
+            logging.WARNING,
+            logger="qwenpaw.sandbox.local_sandbox",
+        )
+        sandbox = NoneSandbox(
+            _config(
+                shell_executable="/nonexistent/fish",
+                workspace_dir="/tmp",
+            ),
+        )
+        result = asyncio.run(sandbox.execute("true"))
+        assert result.exit_code == 0
+        assert "/nonexistent/fish" in caplog.text
+        assert "falling back" in caplog.text
+
+    @pytest.mark.skipif(
+        not os.path.exists("/bin/sh"),
+        reason="POSIX shell not available",
+    )
+    def test_existing_shell_is_not_reported(self, caplog):
+        caplog.set_level(
+            logging.WARNING,
+            logger="qwenpaw.sandbox.local_sandbox",
+        )
+        sandbox = NoneSandbox(
+            _config(shell_executable="/bin/sh", workspace_dir="/tmp"),
+        )
+        asyncio.run(sandbox.execute("true"))
+        assert "falling back" not in caplog.text

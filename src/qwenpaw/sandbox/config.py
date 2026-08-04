@@ -211,6 +211,14 @@ class SandboxCapability:
 # an operator who sets deny_paths and sees a clean log reasonably concludes
 # the path is protected. Reported at WARNING; everything else at DEBUG,
 # where being ignored is a functional nit rather than a security hole.
+#
+# ``env_mode`` belongs here even though it looks like plumbing: the whole
+# point of the (unimplemented) allowlist mode is to keep undeclared host
+# variables -- API keys, cloud credentials, tokens -- out of the sandboxed
+# child, so dropping it silently is a credential-leak boundary failure.
+# ``platform_hints`` likewise carries admin-authored native rules (e.g.
+# Seatbelt deny clauses); a hint that never reaches the profile weakens
+# the sandbox exactly as a dropped deny_path would.
 _SECURITY_BOUNDARY_FIELDS = frozenset(
     {
         "mounts",
@@ -219,6 +227,8 @@ _SECURITY_BOUNDARY_FIELDS = frozenset(
         "network_ports",
         "max_processes",
         "max_memory_mb",
+        "env_mode",
+        "platform_hints",
     },
 )
 

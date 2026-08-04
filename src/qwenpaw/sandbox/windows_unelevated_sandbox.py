@@ -1308,10 +1308,11 @@ class WindowsSandboxBase(ABC):
     Provides config storage, async context manager protocol, process
     termination, violation detection, and base environment building.
 
-    AppContainer / restricted tokens can open or close the network
-    wholesale but cannot filter by domain, and no Windows backend applies
-    the resource caps, so those constraints are reported as ignored rather
-    than silently dropped.
+    AppContainer capability SIDs and WFP rules can open or close the network
+    wholesale but cannot filter by domain, and no Windows backend applies the
+    resource caps, so those constraints are reported as ignored rather than
+    silently dropped. Subclasses without a kernel-level network mechanism
+    override ``_enforced_fields`` to stop claiming ``network_allow``.
     """
 
     # Config fields the backend actually applies; anything else the caller
@@ -2015,16 +2016,35 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
     """
 
     # Read access is unrestricted without an elevated token, so unlike the
-    # other Windows backends this one cannot honour deny_paths.
+    # other Windows backends this one cannot honour deny_paths. Its network
+    # "block" is proxy environment variables only (see ``execute``), which a
+    # raw socket ignores, so network_allow is never enforced here either --
+    # hence the ``_enforced_fields`` override below rather than a plain
+    # ``_ENFORCED_FIELDS`` narrowing.
     _ENFORCED_FIELDS = frozenset({"mounts", "shell_executable"})
 
     _ENFORCEMENT_HINTS = {
-        "network_allow": NETWORK_DOMAIN_HINT,
+        "network_allow": (
+            "Without an elevated token there is no WFP rule or capability "
+            "SID: a block-all request only sets HTTP(S) proxy variables, "
+            "which raw sockets ignore, and a domain allowlist sets nothing "
+            "at all. Run as administrator for enforced blocking."
+        ),
         "deny_paths": (
             "Sensitive paths are NOT protected from read access; run as "
             "administrator to enable full deny_paths enforcement."
         ),
     }
+
+    def _enforced_fields(self) -> frozenset:
+        """Never claim ``network_allow``, unlike the elevated backends.
+
+        Deliberately does not extend ``super()``: the base adds
+        ``network_allow`` for the absolute postures because AppContainer
+        capability SIDs and WFP rules genuinely block at kernel level. This
+        backend has neither, so every network posture is unenforced.
+        """
+        return self._ENFORCED_FIELDS
 
     def __init__(self, config: SandboxConfig):
         super().__init__(config)

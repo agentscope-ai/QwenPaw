@@ -38,6 +38,14 @@ from .config import (
 
 logger = logging.getLogger(__name__)
 
+# Why a requested port rule may never reach the ruleset. Landlock attaches
+# port rules to the same handled-access mask as the wholesale network block,
+# so with the network left open there is nothing to attach them to.
+_LANDLOCK_PORT_HINT = (
+    "Landlock port rules require ABI v4+ AND network_allow=[] (the "
+    "wholesale block); with the network open no port rule is installed."
+)
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Landlock constants and syscall numbers
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -633,7 +641,10 @@ class LinuxSandbox:
             config,
             "LinuxSandbox",
             self._enforced_fields(),
-            {"network_allow": NETWORK_DOMAIN_HINT},
+            {
+                "network_allow": NETWORK_DOMAIN_HINT,
+                "network_ports": _LANDLOCK_PORT_HINT,
+            },
         )
 
     def _enforced_fields(self) -> frozenset:
@@ -642,12 +653,18 @@ class LinuxSandbox:
         Network rules need ABI v4 (kernel 6.7+); below that the network is
         untouched. Even on v4 Landlock is port-level only, so a domain
         allowlist cannot be honoured.
+
+        Port rules ride on the same handled-access mask as the wholesale
+        block, and ``_generate_sandbox_script`` only sets that mask for the
+        block-all posture. With the network open -- including the
+        ``["*"]`` default the governor compiles -- no port rule reaches the
+        ruleset, so ``network_ports`` must not be claimed there.
         """
         enforced = {"mounts", "deny_paths"}
-        if self._abi_version >= 4:
-            enforced.add("network_ports")
-            if network_allow_is_absolute(self._config):
-                enforced.add("network_allow")
+        if self._abi_version >= 4 and network_allow_is_absolute(self._config):
+            enforced.add("network_allow")
+            if not self._config.network_allow:
+                enforced.add("network_ports")
         return frozenset(enforced)
 
     @property

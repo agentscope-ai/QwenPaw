@@ -54,6 +54,12 @@ _SEATBELT_VIOLATION_RE = re.compile(
 )
 
 
+# The only platform_hints key the Seatbelt profile compiler reads. Anything
+# else -- including a typo of this one -- is dropped, so it must not be
+# covered by a blanket "platform_hints enforced" claim.
+_SUPPORTED_HINT_KEYS = frozenset({"seatbelt_extra_rules"})
+
+
 class MacOSSandbox(LocalSandbox):
     """macOS sandbox using sandbox-exec (Seatbelt profiles).
 
@@ -74,12 +80,24 @@ class MacOSSandbox(LocalSandbox):
         {"mounts", "deny_paths", "platform_hints"},
     )
 
-    _ENFORCEMENT_HINTS = {"network_allow": NETWORK_DOMAIN_HINT}
+    _ENFORCEMENT_HINTS = {
+        "network_allow": NETWORK_DOMAIN_HINT,
+        "platform_hints": (
+            "Only 'seatbelt_extra_rules' is compiled into the Seatbelt "
+            "profile; every other key is dropped."
+        ),
+    }
 
     def _enforced_fields(self) -> frozenset:
+        enforced = set(self._ENFORCED_FIELDS)
         if network_allow_is_absolute(self._config):
-            return self._ENFORCED_FIELDS | {"network_allow"}
-        return self._ENFORCED_FIELDS
+            enforced.add("network_allow")
+        # Reported per field, not per key, so a dict mixing a supported key
+        # with an unknown one is reported wholesale. That errs loud: the
+        # message lists every key, which is what makes a typo findable.
+        if not set(self._config.platform_hints) <= _SUPPORTED_HINT_KEYS:
+            enforced.discard("platform_hints")
+        return frozenset(enforced)
 
     @staticmethod
     def _sanitize_seatbelt_path(path: str) -> str:

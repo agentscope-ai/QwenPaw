@@ -111,11 +111,18 @@ class NoneSandbox(LocalSandbox):
         cwd: Optional[str] = None,
     ) -> ExecutionResult:
         cwd = cwd or self._config.workspace_dir
-        shell: str = self._config.shell_executable or os.environ.get(
-            "SHELL",
-            "/bin/bash",
-        )
+        configured = self._config.shell_executable
+        shell: str = configured or os.environ.get("SHELL", "/bin/bash")
         if not os.path.exists(shell):
+            # This backend declares shell_executable as enforced, so a
+            # silent fall back would be the same lie the reporter exists
+            # to prevent.
+            if configured:
+                logger.warning(
+                    "NoneSandbox: shell_executable=%s does not exist; "
+                    "falling back to /bin/bash.",
+                    configured,
+                )
             shell = "/bin/bash"
 
         # Build subprocess env: inherit + apply env_vars (overrides)
