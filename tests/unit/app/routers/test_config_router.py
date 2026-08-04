@@ -142,9 +142,10 @@ def test_put_channels_saves_and_triggers_reload(
             "qwenpaw.app.routers.config.schedule_agent_reload",
         ) as reload_mock,
     ):
-        payload = ChannelConfig().model_dump()
-        payload["console"]["enabled"] = False
-        response = client.put("/api/config/channels", json=payload)
+        response = client.put(
+            "/api/config/channels",
+            json={"console": {"enabled": False}},
+        )
 
     assert response.status_code == 200, response.text
     body = response.json()

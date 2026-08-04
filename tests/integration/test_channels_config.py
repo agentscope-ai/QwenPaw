@@ -14,8 +14,8 @@ def test_agent_scoped_channels_put_get_roundtrip(app_server) -> None:
 
     Test flow:
     1. Create a dedicated test agent and read full profile channels payload.
-    2. PUT /api/agents/{agentId}/config/channels with toggled console enabled.
-    3. GET /api/agents/{agentId}/config/channels and assert value changed.
+    2. PUT /api/agents/{agentId}/config/channels with console disabled.
+    3. GET /api/agents/{agentId}/config/channels and assert it stays enabled.
     4. Restore baseline payload and delete test agent.
 
     API endpoints:
@@ -49,9 +49,7 @@ def test_agent_scoped_channels_put_get_roundtrip(app_server) -> None:
 
         updated_channels = dict(original_channels)
         updated_console = dict(updated_channels.get("console") or {})
-        updated_console["enabled"] = not bool(
-            updated_console.get("enabled", False),
-        )
+        updated_console["enabled"] = False
         updated_channels["console"] = updated_console
 
         put_resp = app_server.api_request(
@@ -60,19 +58,11 @@ def test_agent_scoped_channels_put_get_roundtrip(app_server) -> None:
             json=updated_channels,
         )
         assert put_resp.status_code == 200, app_server.logs_tail()
-        assert bool(
-            put_resp.json().get("console", {}).get("enabled", False),
-        ) == bool(
-            updated_console["enabled"],
-        )
+        assert put_resp.json()["console"]["enabled"] is True
 
         get_after = app_server.api_request("GET", channels_endpoint)
         assert get_after.status_code == 200, app_server.logs_tail()
-        assert bool(
-            get_after.json().get("console", {}).get("enabled", False),
-        ) == bool(
-            updated_console["enabled"],
-        )
+        assert get_after.json()["console"]["enabled"] is True
     finally:
         if isinstance(original_channels, dict):
             restore = app_server.api_request(
@@ -92,10 +82,10 @@ def test_agent_scoped_single_channel_put_get_roundtrip(app_server) -> None:
       deterministic readback for one channel.
 
     Test flow:
-    1. Create a dedicated test agent and choose one available channel type.
-    2. GET scoped single-channel config as baseline.
-    3. PUT scoped single-channel config with toggled enabled value.
-    4. GET again and assert value changed.
+    1. Create a dedicated test agent and select the console channel.
+    2. GET scoped console config as baseline.
+    3. PUT scoped console config with enabled set to false.
+    4. GET again and assert console stays enabled.
     5. Restore baseline and delete test agent.
 
     API endpoints:
@@ -128,9 +118,8 @@ def test_agent_scoped_single_channel_put_get_roundtrip(app_server) -> None:
         assert types_resp.status_code == 200, app_server.logs_tail()
         channel_types = types_resp.json()
         assert isinstance(channel_types, list) and channel_types
-        channel_name = (
-            "console" if "console" in channel_types else str(channel_types[0])
-        )
+        assert "console" in channel_types
+        channel_name = "console"
 
         endpoint = f"/api/agents/{agent_id}/config/channels/{channel_name}"
         get_before = app_server.api_request("GET", endpoint)
@@ -140,19 +129,15 @@ def test_agent_scoped_single_channel_put_get_roundtrip(app_server) -> None:
         assert "enabled" in baseline
 
         updated = dict(baseline)
-        updated["enabled"] = not bool(baseline.get("enabled", False))
+        updated["enabled"] = False
 
         put_resp = app_server.api_request("PUT", endpoint, json=updated)
         assert put_resp.status_code == 200, app_server.logs_tail()
-        assert bool(put_resp.json().get("enabled", False)) == bool(
-            updated["enabled"],
-        )
+        assert put_resp.json()["enabled"] is True
 
         get_after = app_server.api_request("GET", endpoint)
         assert get_after.status_code == 200, app_server.logs_tail()
-        assert bool(get_after.json().get("enabled", False)) == bool(
-            updated["enabled"],
-        )
+        assert get_after.json()["enabled"] is True
     finally:
         if channel_name and isinstance(baseline, dict):
             endpoint = f"/api/agents/{agent_id}/config/channels/{channel_name}"
@@ -171,9 +156,9 @@ def test_global_channels_put_get_roundtrip(app_server) -> None:
     Test flow:
     1. GET /api/agents/default and extract ``channels`` as a valid PUT payload.
     2. GET /api/config/channels and keep current state for later comparison.
-    3. Flip ``console.enabled`` in the payload and PUT /api/config/channels.
+    3. Set ``console.enabled`` false and PUT /api/config/channels.
     4. GET /api/config/channels and GET /api/config/channels/console to verify
-       the changed value is reflected.
+       the console channel stays enabled.
     5. PUT original channels payload back, then verify restoration.
 
     API endpoints:
@@ -197,7 +182,7 @@ def test_global_channels_put_get_roundtrip(app_server) -> None:
 
     updated_channels = dict(original_channels)
     console_cfg = dict(updated_channels.get("console") or {})
-    console_cfg["enabled"] = not bool(console_cfg.get("enabled", False))
+    console_cfg["enabled"] = False
     updated_channels["console"] = console_cfg
 
     try:
@@ -211,20 +196,14 @@ def test_global_channels_put_get_roundtrip(app_server) -> None:
 
         list_after = app_server.api_request("GET", "/api/config/channels")
         assert list_after.status_code == 200, app_server.logs_tail()
-        after_console_enabled = bool(
-            list_after.json().get("console", {}).get("enabled", False),
-        )
-        assert after_console_enabled == console_cfg["enabled"]
+        assert list_after.json()["console"]["enabled"] is True
 
         console_after = app_server.api_request(
             "GET",
             "/api/config/channels/console",
         )
         assert console_after.status_code == 200, app_server.logs_tail()
-        assert (
-            bool(console_after.json().get("enabled", False))
-            == console_cfg["enabled"]
-        )
+        assert console_after.json()["enabled"] is True
     finally:
         restore_resp = app_server.api_request(
             "PUT",
