@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..agent_context import get_agent_for_request
-from ...harnesses.base import HarnessOperationNotSupportedError
+from ...harnesses.base import HarnessAdapter, HarnessOperationNotSupportedError
 from ...harnesses.registry import get_provider
 
 router = APIRouter(prefix="/harnesses", tags=["harnesses"])
@@ -54,6 +55,17 @@ def _supported_provider(provider_id: str):
     return provider
 
 
+async def _capability_unavailable_message(
+    adapter: HarnessAdapter,
+) -> str | None:
+    """Read provider availability without blocking the event loop."""
+    return await asyncio.to_thread(
+        getattr,
+        adapter,
+        "capability_unavailable_message",
+    )
+
+
 @router.get("/{provider_id}/models")
 async def get_harness_models(
     provider_id: str,
@@ -67,7 +79,7 @@ async def get_harness_models(
         dict(config.backend_settings) if config.backend == provider_id else {}
     )
     adapter = await workspace.harness_runtime.adapter(provider_id, settings)
-    unavailable_message = adapter.capability_unavailable_message
+    unavailable_message = await _capability_unavailable_message(adapter)
     if unavailable_message:
         return {
             "models": [],
@@ -92,7 +104,7 @@ async def get_harness_mcp(
         dict(config.backend_settings) if config.backend == provider_id else {}
     )
     adapter = await workspace.harness_runtime.adapter(provider_id, settings)
-    unavailable_message = adapter.capability_unavailable_message
+    unavailable_message = await _capability_unavailable_message(adapter)
     if unavailable_message:
         return {
             "servers": [],
@@ -117,7 +129,7 @@ async def get_harness_skills(
         dict(config.backend_settings) if config.backend == provider_id else {}
     )
     adapter = await workspace.harness_runtime.adapter(provider_id, settings)
-    unavailable_message = adapter.capability_unavailable_message
+    unavailable_message = await _capability_unavailable_message(adapter)
     if unavailable_message:
         return {
             "skills": [],
