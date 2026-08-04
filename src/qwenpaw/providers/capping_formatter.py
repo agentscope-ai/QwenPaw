@@ -122,6 +122,18 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
 
     max_bytes: int = Field(default=MAX_INLINE_MEDIA_BYTES, ge=0)
     relay_reasoning_content: bool = Field(default=True)
+    force_relay_reasoning: bool = Field(
+        default=False,
+        description=(
+            "When True, reasoning_content is injected on EVERY assistant "
+            "wire message (empty string when the source has no thinking "
+            "block). DeepSeek thinking-mode APIs reject multi-turn "
+            "requests whose assistant messages omit reasoning_content - "
+            "even after context compaction strips the ThinkingBlocks. "
+            "This flag makes the relay unconditional for such providers "
+            "instead of gated on has_reasoning."
+        ),
+    )
 
     @staticmethod
     def _inline_media_size(source: Any) -> int | None:

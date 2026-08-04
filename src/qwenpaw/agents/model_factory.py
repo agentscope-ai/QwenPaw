@@ -1142,8 +1142,18 @@ def _create_file_block_support_formatter(
                         if ec:
                             tc["extra_content"] = ec
 
+            # force_relay_reasoning: DeepSeek thinking-mode APIs require
+            # ``reasoning_content`` on EVERY assistant wire message, even
+            # after context compaction strips historical ThinkingBlocks
+            # (upstream error: "The `reasoning_content` in the thinking
+            # mode must be passed back to the API.").  When set, relay
+            # unconditionally - even if has_reasoning is False because
+            # compaction already stripped the thinking blocks.
+            force_relay = bool(
+                getattr(self, "force_relay_reasoning", False),
+            )
             if (
-                has_reasoning
+                (has_reasoning or force_relay)
                 and not is_anthropic_formatter
                 and not _is_response_formatter
                 and getattr(
@@ -1171,13 +1181,17 @@ def _create_file_block_support_formatter(
                     logger.warning(
                         "Assistant message count mismatch after formatting "
                         "(%d expected survivors, %d actual). "
-                        "Skipping reasoning_content injection for this turn. "
-                        "A block type may be dropped by the base formatter "
-                        "without being handled by "
-                        "_is_block_dropped_by_formatter, "
-                        "or a new split pattern needs to be predicted.",
+                        "%s",
                         len(aligned_reasoning),
                         len(out_assistant),
+                        "Forcing empty reasoning_content on all assistant "
+                        "messages (force_relay_reasoning)."
+                        if force_relay
+                        else "Skipping reasoning_content injection for "
+                        "this turn. A block type may be dropped by the "
+                        "base formatter without being handled by "
+                        "_is_block_dropped_by_formatter, or a new split "
+                        "pattern needs to be predicted.",
                     )
                     if logger.isEnabledFor(logging.DEBUG):
                         for _i, m in enumerate(
@@ -1195,6 +1209,9 @@ def _create_file_block_support_formatter(
                                 _i,
                                 types,
                             )
+                elif force_relay:
+                    for out_msg in out_assistant:
+                        out_msg["reasoning_content"] = ""
                 else:
                     for i, out_msg in enumerate(out_assistant):
                         if aligned_reasoning[i]:

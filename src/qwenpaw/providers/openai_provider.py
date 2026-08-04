@@ -183,6 +183,20 @@ class OpenAIProvider(Provider):
         ),
     )
 
+    @staticmethod
+    def _is_deepseek_family(model_id: str) -> bool:
+        """True for DeepSeek family model ids.
+
+        DeepSeek thinking-mode APIs require ``reasoning_content`` on every
+        assistant wire message in multi-turn conversations.  QwenPaw's
+        context compaction strips historical ThinkingBlocks, which makes
+        the normal ``has_reasoning``-gated relay skip injection and the
+        upstream API reject the request with
+        "The `reasoning_content` in the thinking mode must be passed back".
+        We force unconditional relay for this family instead.
+        """
+        return "deepseek" in (model_id or "").lower()
+
     def _build_default_headers(self) -> dict:
         return dict(self.custom_headers) if self.custom_headers else {}
 
@@ -520,6 +534,7 @@ class OpenAIProvider(Provider):
             formatter=_CappingOpenAIFormatter(
                 max_bytes=self.max_inline_media_bytes,
                 relay_reasoning_content=self._get_relay_reasoning(model_id),
+                force_relay_reasoning=self._is_deepseek_family(model_id),
             ),
         )
 
