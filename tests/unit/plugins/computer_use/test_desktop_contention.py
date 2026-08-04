@@ -194,13 +194,26 @@ async def test_user_intervention_is_a_retryable_soft_refusal(
     )
 
     class _Intervene(_Transport):
+        def __init__(self) -> None:
+            super().__init__(busy_replies=0)
+            self.methods: list[str] = []
+
         async def request(self, message: dict[str, Any]) -> dict[str, Any]:
             self.attempts += 1
+            self.methods.append(message["method"])
             if self.attempts == 1:
                 raise ComputerUseProtocolError(
                     "user_intervention",
                     "Recent user input was detected; observe again.",
                 )
+            if message["method"] == "observe_window":
+                return {
+                    "protocol_version": message["protocol_version"],
+                    "request_id": message["request_id"],
+                    "ok": True,
+                    "result": {"observation_id": "observation-2"},
+                }
+            assert message["params"]["observation_id"] == "observation-2"
             return {
                 "protocol_version": message["protocol_version"],
                 "request_id": message["request_id"],
@@ -208,7 +221,7 @@ async def test_user_intervention_is_a_retryable_soft_refusal(
                 "result": {"done": True},
             }
 
-    transport = _Intervene(busy_replies=0)
+    transport = _Intervene()
     client = ComputerUseClient(
         "session-1",
         transport_factory=lambda: transport,
@@ -222,7 +235,16 @@ async def test_user_intervention_is_a_retryable_soft_refusal(
     assert transport.closed is False
     assert transport.attempts == 1
 
-    # The caller observes again and reissues on the same connection; it works.
-    result = await client.execute("click", {"observation_id": "observation-1"})
+    # The caller observes again and reissues with the fresh observation on the
+    # same connection; it works.
+    observed = await client.execute(
+        "observe_window",
+        {"window_id": "window-1"},
+    )
+    result = await client.execute(
+        "click",
+        {"observation_id": observed["observation_id"]},
+    )
     assert result == {"done": True}
-    assert transport.attempts == 2
+    assert transport.methods == ["click", "observe_window", "click"]
+    assert transport.attempts == 3

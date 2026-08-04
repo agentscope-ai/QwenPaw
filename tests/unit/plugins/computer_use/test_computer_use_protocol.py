@@ -17,7 +17,9 @@ from typing import Any
 import pytest
 
 from agentscope.message import ToolResultState
+from agentscope.tool import FunctionTool, ToolChunk
 import computer_use_tool.client as client_module
+import computer_use_tool.dispatch as dispatch_module
 from computer_use_tool.client import ComputerUseClient
 from computer_use_tool.dispatch import (
     _element_line,
@@ -25,6 +27,7 @@ from computer_use_tool.dispatch import (
     _native_request,
     _response,
     _with_compact_elements,
+    computer_use,
 )
 from computer_use_tool.protocol import ComputerUseProtocolError
 from computer_use_tool.transport.base import (
@@ -179,8 +182,48 @@ def test_screenshot_data_stays_out_of_the_text_block() -> None:
 def test_native_error_marks_the_tool_call_as_failed() -> None:
     response = _error("stale_observation", "Observe the window again.")
 
+    assert isinstance(response, ToolChunk)
     assert response.state == ToolResultState.ERROR
     assert '"ok":false' in response.content[-1].text
+
+
+@pytest.mark.asyncio
+async def test_function_tool_preserves_intervention_error_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The AgentScope boundary must not turn protocol errors into success."""
+
+    class _Enabled:
+        @staticmethod
+        def is_enabled() -> bool:
+            return True
+
+    class _IntervenedClient:
+        @staticmethod
+        async def execute(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            raise ComputerUseProtocolError(
+                "user_intervention",
+                "Recent user input was detected; observe again.",
+            )
+
+    monkeypatch.setattr(dispatch_module, "_check_rate_limit", lambda: None)
+    monkeypatch.setattr(
+        dispatch_module,
+        "get_computer_use_feature_state",
+        lambda: _Enabled(),
+    )
+    monkeypatch.setattr(
+        dispatch_module,
+        "get_computer_use_client",
+        lambda: _IntervenedClient(),
+    )
+
+    response = await FunctionTool(computer_use)(action="list_apps")
+
+    assert isinstance(response, ToolChunk)
+    assert response.is_last is True
+    assert response.state == ToolResultState.ERROR
+    assert '"code":"user_intervention"' in response.content[-1].text
 
 
 def test_uia_input_uses_observation_and_element() -> None:

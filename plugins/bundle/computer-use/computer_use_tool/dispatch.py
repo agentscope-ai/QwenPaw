@@ -15,7 +15,7 @@ import time
 from typing import Any, Mapping
 
 from agentscope.message import DataBlock, TextBlock, ToolResultState, URLSource
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
 
 from qwenpaw.runtime.tool_registry import tool_descriptor
 
@@ -130,7 +130,7 @@ def _response(
     *,
     include_images: bool = False,
     state: ToolResultState = ToolResultState.SUCCESS,
-) -> ToolResponse:
+) -> ToolChunk:
     content: list[Any] = []
     if include_images:
         for screenshot in payload.get("screenshots", []):
@@ -156,10 +156,10 @@ def _response(
             ),
         ),
     )
-    return ToolResponse(content=content, state=state)
+    return ToolChunk(content=content, state=state, is_last=True)
 
 
-def _error(code: str, message: str) -> ToolResponse:
+def _error(code: str, message: str) -> ToolChunk:
     return _response(
         {
             "ok": False,
@@ -199,7 +199,7 @@ async def computer_use(
     key: str = "",
     wait_ms: int = 500,
     timeout_ms: int = 10000,
-) -> ToolResponse:
+) -> ToolChunk:
     """Control one observed window at a time.
 
     Use ``list_apps`` or ``list_windows`` first. Observe a target with

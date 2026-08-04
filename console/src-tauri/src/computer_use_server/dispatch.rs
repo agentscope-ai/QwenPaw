@@ -205,7 +205,7 @@ pub(super) fn dispatch_request(
         let held = take_desktop()?;
         // Checked under the turn, so the machine cannot become locked, or the
         // user cannot start typing, between the check and the action.
-        enforce_input_guard()?;
+        enforce_input_guard(state)?;
         Some(held)
     } else {
         None
@@ -271,8 +271,16 @@ fn observation<'a>(
 /// click from a person genuinely taking over, which the OS idle timer cannot,
 /// so it could only be a flag that also waved real input through. Refusing and
 /// letting the caller retry keeps the guard honest and holds no state.
-fn enforce_input_guard() -> Result<(), (&'static str, String)> {
-    if desktop_locked() {
+fn enforce_input_guard(state: &mut ServerState) -> Result<(), (&'static str, String)> {
+    enforce_input_guard_with_measurements(state, desktop_locked(), last_input_age_ms())
+}
+
+fn enforce_input_guard_with_measurements(
+    state: &mut ServerState,
+    is_locked: bool,
+    last_input_age: Option<u32>,
+) -> Result<(), (&'static str, String)> {
+    if is_locked {
         return Err((
             "desktop_locked",
             "The desktop is locked; ask the user to unlock it before continuing.".to_string(),
@@ -280,7 +288,12 @@ fn enforce_input_guard() -> Result<(), (&'static str, String)> {
     }
     // An unreadable idle time is treated as idle: refusing every action because
     // the platform would not answer would strand the agent entirely.
-    if last_input_age_ms().is_some_and(|age| age < USER_INTERVENTION_GRACE_MS) {
+    if last_input_age.is_some_and(|age| age < USER_INTERVENTION_GRACE_MS) {
+        // Human input makes every point-in-time observation on this
+        // connection unsafe. Drop them before reporting the soft refusal so
+        // waiting out the grace period cannot make an old observation usable
+        // again; recovery must create a fresh one with observe_window.
+        state.observations.clear();
         return Err((
             "user_intervention",
             "Recent user input was detected; observe the window again before continuing."
@@ -318,7 +331,54 @@ fn changes_window_state(method: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::super::state::WindowInfo;
     use super::*;
+
+    fn observation(hwnd: isize) -> Observation {
+        Observation {
+            window: WindowInfo {
+                hwnd,
+                app_id: "app:test".to_string(),
+                display_name: "Test".to_string(),
+                title: String::new(),
+                class_name: String::new(),
+            },
+            bounds: [0, 0, 100, 100],
+            display_width: 100,
+            display_height: 100,
+            elements: Default::default(),
+        }
+    }
+
+    #[test]
+    fn user_intervention_invalidates_every_observation() {
+        let mut state = ServerState::default();
+        state
+            .observations
+            .insert("observation-1".to_string(), observation(1));
+        state
+            .observations
+            .insert("observation-2".to_string(), observation(2));
+
+        let error = enforce_input_guard_with_measurements(&mut state, false, Some(0))
+            .expect_err("recent input must be refused");
+
+        assert_eq!(error.0, "user_intervention");
+        assert!(state.observations.is_empty());
+    }
+
+    #[test]
+    fn an_idle_desktop_preserves_observations() {
+        let mut state = ServerState::default();
+        state
+            .observations
+            .insert("observation-1".to_string(), observation(1));
+
+        enforce_input_guard_with_measurements(&mut state, false, Some(USER_INTERVENTION_GRACE_MS))
+            .expect("input at the grace boundary is idle");
+
+        assert_eq!(state.observations.len(), 1);
+    }
 
     /// Spelled out rather than derived, so adding an action that reaches into
     /// the desktop cannot pass the guard by being forgotten: the new method has
