@@ -19,15 +19,16 @@ import type { OsAppDef } from "./osApps";
 import { useOsDock } from "./osDockStore";
 import { buttonRoleProps } from "./a11y";
 import { useOsStyles } from "./useOsStyles";
+import { useOsAppLauncher } from "./useOsAppLauncher";
 
 const DRAG_SLOP = 4;
 
 export default function Dock({ revealed = true }: { revealed?: boolean }) {
   const { styles, cx } = useOsStyles();
   const { t } = useTranslation();
-  const { open, setLauncher, close, focus } = useOsWindows(
+  const launchApp = useOsAppLauncher();
+  const { setLauncher, close, focus } = useOsWindows(
     useShallow((s) => ({
-      open: s.open,
       setLauncher: s.setLauncher,
       close: s.close,
       focus: s.focus,
@@ -81,7 +82,13 @@ export default function Dock({ revealed = true }: { revealed?: boolean }) {
     [appById, order, pinnedSet],
   );
 
-  const activate = (id: string) => (runningIds.has(id) ? focus(id) : open(id));
+  const activate = (id: string) => {
+    if (runningIds.has(id)) {
+      focus(id);
+      return;
+    }
+    void launchApp(id);
+  };
 
   const menuFor = (a: OsAppDef) => {
     const isPinned = pinnedSet.has(a.routeId);

@@ -19,19 +19,13 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { App, Dropdown, Spin, type MenuProps } from "antd";
-import {
-  ArrowDownAZ,
-  Check,
-  Grid2X2,
-  Image as ImageIcon,
-  RefreshCw,
-  Trash2,
-} from "lucide-react";
+import { Grid2X2, Image as ImageIcon, RefreshCw, Trash2 } from "lucide-react";
 import { useRoutes } from "../plugins/registry/hooks";
 import { uninstallPlugin } from "../api/modules/plugin";
 import { ChunkErrorBoundary } from "../components/ChunkErrorBoundary";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useAgentStore } from "../stores/agentStore";
+import { useSyncCodingMode } from "../stores/useSyncCodingMode";
 import { useShallow } from "zustand/react/shallow";
 import { useOsWindows } from "./osWindowStore";
 import { useOsPlugins } from "./osPluginStore";
@@ -49,7 +43,6 @@ import Dock from "./Dock";
 import SpacesPanel from "./SpacesPanel";
 import { useEdgeReveal } from "./useEdgeReveal";
 import { useOsIcons, defaultIconPos } from "./osIconStore";
-import type { IconLayout } from "./osIconStore";
 import { useOsDock } from "./osDockStore";
 import { useIconDrag } from "./useIconDrag";
 import { arrangeApps } from "./iconArrangement";
@@ -64,6 +57,7 @@ import WallpaperPicker from "./WallpaperPicker";
 import { useOsWallpaper } from "./osWallpaperStore";
 import { wallpaperBackground } from "./wallpapers";
 import { buttonRoleProps } from "./a11y";
+import { useOsAppLauncher } from "./useOsAppLauncher";
 import {
   getPawAppIdFromPath,
   setActivePawAppId,
@@ -90,6 +84,7 @@ export default function DesktopOS() {
   const { styles, cx } = useOsStyles();
   const { t, i18n } = useTranslation();
   const { message } = App.useApp();
+  const launchApp = useOsAppLauncher();
   const isMobile = useIsMobile();
   const routes = useRoutes();
   // Narrow subscription: only the fields the desktop shell renders from.
@@ -98,7 +93,6 @@ export default function DesktopOS() {
     windows,
     order,
     activeId,
-    open,
     launcherOpen,
     setLauncher,
     spaceId,
@@ -110,7 +104,6 @@ export default function DesktopOS() {
       windows: s.windows,
       order: s.order,
       activeId: s.activeId,
-      open: s.open,
       launcherOpen: s.launcherOpen,
       setLauncher: s.setLauncher,
       spaceId: s.spaceId,
@@ -121,6 +114,7 @@ export default function DesktopOS() {
   );
   const { uninstall } = useOsPlugins();
   const { selectedAgent, refreshAgents } = useAgentStore();
+  useSyncCodingMode();
   // Single app registry: desktop icons, window chrome and the launcher all
   // read from the same source (catalog + system + dynamic plugin apps).
   const { apps: visibleApps, appById } = useOsApps();
@@ -318,10 +312,6 @@ export default function DesktopOS() {
     setIconLayout("free");
     closeDesktopMenu();
   };
-  const handleIconLayout = (layout: IconLayout) => {
-    setIconLayout(layout);
-    closeDesktopMenu();
-  };
   const desktopMenuItems: MenuProps["items"] = [
     {
       key: "refresh",
@@ -335,49 +325,6 @@ export default function DesktopOS() {
       icon: <Grid2X2 size={15} />,
       label: t("os.arrangeDesktop", "Clean up"),
       onClick: handleArrangeIcons,
-    },
-    {
-      key: "sort",
-      icon: <ArrowDownAZ size={15} />,
-      label: t("os.sortBy", "Sort by"),
-      children: [
-        {
-          key: "sort-free",
-          icon: (
-            <Check
-              size={15}
-              aria-hidden
-              style={{ opacity: iconLayout === "free" ? 1 : 0 }}
-            />
-          ),
-          label: t("os.sortFree", "Free arrangement"),
-          onClick: () => handleIconLayout("free"),
-        },
-        {
-          key: "sort-name",
-          icon: (
-            <Check
-              size={15}
-              aria-hidden
-              style={{ opacity: iconLayout === "name" ? 1 : 0 }}
-            />
-          ),
-          label: t("os.sortName", "Name"),
-          onClick: () => handleIconLayout("name"),
-        },
-        {
-          key: "sort-type",
-          icon: (
-            <Check
-              size={15}
-              aria-hidden
-              style={{ opacity: iconLayout === "type" ? 1 : 0 }}
-            />
-          ),
-          label: t("os.sortType", "Type"),
-          onClick: () => handleIconLayout("type"),
-        },
-      ],
     },
     { type: "divider" },
     {
@@ -426,7 +373,7 @@ export default function DesktopOS() {
     const Icon = a.Icon;
     const uninstallable =
       Boolean(a.source) || OS_APPS.some((o) => o.routeId === a.routeId);
-    const activate = () => open(a.routeId);
+    const activate = () => void launchApp(a.routeId);
     const iconEl = (
       <div
         className={cx(

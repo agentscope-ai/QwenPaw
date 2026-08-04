@@ -6,11 +6,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Search } from "lucide-react";
-import { useShallow } from "zustand/react/shallow";
 import { useOsWindows } from "./osWindowStore";
 import type { OsAppDef } from "./osApps";
 import { buttonRoleProps } from "./a11y";
 import { useOsStyles } from "./useOsStyles";
+import { useOsAppLauncher } from "./useOsAppLauncher";
 
 interface LauncherProps {
   /** Apps to show (already filtered to installed + available). */
@@ -22,9 +22,8 @@ export default function Launcher({ apps: source }: LauncherProps) {
   const { t } = useTranslation();
   // Actions only (referentially stable) — window updates never re-render
   // the launcher grid.
-  const { open, setLauncher } = useOsWindows(
-    useShallow((s) => ({ open: s.open, setLauncher: s.setLauncher })),
-  );
+  const setLauncher = useOsWindows((s) => s.setLauncher);
+  const launchApp = useOsAppLauncher();
   const [query, setQuery] = useState("");
 
   const apps = useMemo(
@@ -37,11 +36,12 @@ export default function Launcher({ apps: source }: LauncherProps) {
   );
 
   const launch = useCallback(
-    (app: OsAppDef) => {
-      open(app.routeId);
-      setLauncher(false);
+    async (app: OsAppDef) => {
+      if (await launchApp(app.routeId)) {
+        setLauncher(false);
+      }
     },
-    [open, setLauncher],
+    [launchApp, setLauncher],
   );
 
   useEffect(() => {
@@ -54,7 +54,7 @@ export default function Launcher({ apps: source }: LauncherProps) {
         !event.isComposing &&
         apps[0]
       ) {
-        launch(apps[0]);
+        void launch(apps[0]);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -86,7 +86,7 @@ export default function Launcher({ apps: source }: LauncherProps) {
         <div className={styles.launcherGrid}>
           {apps.map((a) => {
             const Icon = a.Icon;
-            const activate = () => launch(a);
+            const activate = () => void launch(a);
             return (
               <div
                 key={a.routeId}
