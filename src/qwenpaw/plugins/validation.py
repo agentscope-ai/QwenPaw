@@ -8,8 +8,15 @@ plugins are validated under the same conditions they will run in.
 """
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
+
+from .module_isolation import (
+    build_plugin_builtins,
+    get_namespace_finder,
+    unregister_namespace,
+)
 
 
 def validate_plugin_module(
@@ -44,11 +51,19 @@ def validate_plugin_module(
     safe_id = plugin_id.replace("-", "_")
     module_name = f"_plugin_validation_{safe_id}"
     plugin_dir_str = str(plugin_path)
+    # Nested entry files (e.g. ``backend/main.py``) resolve their bare
+    # imports against the entry directory — mirror PluginLoader.
+    entry_dir_str = str(backend_path.parent)
+    search_paths = [plugin_dir_str]
+    if os.path.normcase(os.path.realpath(entry_dir_str)) != os.path.normcase(
+        os.path.realpath(plugin_dir_str),
+    ):
+        search_paths.append(entry_dir_str)
 
     spec = importlib.util.spec_from_file_location(
         module_name,
         backend_path,
-        submodule_search_locations=[plugin_dir_str],
+        submodule_search_locations=search_paths,
     )
     if not (spec and spec.loader):
         raise ImportError(
@@ -60,7 +75,12 @@ def validate_plugin_module(
     # relative imports can resolve the parent package.
     sys.modules[module_name] = module
     module.__package__ = module_name
-    module.__path__ = [plugin_dir_str]
+    module.__path__ = search_paths
+    # Same bare-import redirection as PluginLoader (#6683) so the plugin
+    # is validated under the exact conditions it will run in.
+    plugin_builtins = build_plugin_builtins(module_name, search_paths)
+    module.__dict__["__builtins__"] = plugin_builtins
+    get_namespace_finder().register(module_name, plugin_builtins)
     try:
         spec.loader.exec_module(module)
 
@@ -71,6 +91,7 @@ def validate_plugin_module(
     finally:
         # Clean up ephemeral validation modules to avoid
         # leaking into the process on repeated installs.
+        unregister_namespace(module_name)
         prefix = module_name + "."
         for key in list(sys.modules):
             if key == module_name or key.startswith(prefix):

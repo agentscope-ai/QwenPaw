@@ -23,6 +23,11 @@ from packaging.requirements import Requirement
 
 from .architecture import PluginManifest, PluginRecord
 from .api import PluginApi
+from .module_isolation import (
+    build_plugin_builtins,
+    get_namespace_finder,
+    unregister_namespace,
+)
 from .registry import PluginRegistry
 
 logger = logging.getLogger(__name__)
@@ -509,11 +514,18 @@ class PluginLoader:
         """
         module_name = f"plugin_{plugin_id.replace('-', '_')}"
         plugin_dir_str = str(source_path)
+        # Plugins with a nested entry (e.g. ``backend/main.py``) resolve
+        # their bare imports against the entry file's directory, so it
+        # must be searchable alongside the plugin root.
+        entry_dir_str = str(backend_entry_file.parent)
+        search_paths = [plugin_dir_str]
+        if _norm_realpath(entry_dir_str) != _norm_realpath(plugin_dir_str):
+            search_paths.append(entry_dir_str)
 
         spec = importlib.util.spec_from_file_location(
             module_name,
             backend_entry_file,
-            submodule_search_locations=[plugin_dir_str],
+            submodule_search_locations=search_paths,
         )
         if spec is None or spec.loader is None:
             raise ImportError(
@@ -522,10 +534,17 @@ class PluginLoader:
 
         module = importlib.util.module_from_spec(spec)
 
+        # Redirect the plugin's bare absolute imports (``import utils``)
+        # into its private ``plugin_<id>`` namespace so plugins cannot
+        # collide with each other's top-level module names (#6683).
+        plugin_builtins = build_plugin_builtins(module_name, search_paths)
+        module.__dict__["__builtins__"] = plugin_builtins
+        get_namespace_finder().register(module_name, plugin_builtins)
+
         try:
             sys.modules[module_name] = module
             module.__package__ = module_name
-            module.__path__ = [plugin_dir_str]
+            module.__path__ = search_paths
             spec.loader.exec_module(module)
 
             plugin_def = getattr(module, "plugin", None)
@@ -601,6 +620,9 @@ class PluginLoader:
             "Cleaning up failed plugin load for '%s'",
             plugin_id,
         )
+
+        # 0. Import redirection for the plugin's private namespace
+        unregister_namespace(module_name)
 
         # 1. Registry (manifest, providers, hooks, middleware, routes, …)
         self.registry.unregister_plugin(plugin_id)
@@ -1264,6 +1286,7 @@ class PluginLoader:
         # Remove Python module and all sub-modules so the next import
         # gets a fresh copy (e.g. plugin_foo.utils must not be reused).
         module_name = f"plugin_{plugin_id.replace('-', '_')}"
+        unregister_namespace(module_name)
         prefix = module_name + "."
         stale = [
             k for k in sys.modules if k == module_name or k.startswith(prefix)
