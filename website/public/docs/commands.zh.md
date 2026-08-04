@@ -94,15 +94,15 @@
 
 检查点适合频繁保存和快速回退，但它不是整机备份，也不会改写项目自身的 Git 历史。需要迁移实例、保存全局配置或密钥时，请使用[备份与恢复](./backup)。
 
-| 命令                                                  | 说明                             |
-| ----------------------------------------------------- | -------------------------------- |
-| `/checkpoint`                                         | 查看检查点命令帮助               |
-| `/checkpoint auto [on\|off]`                         | 查看或切换自动检查点状态         |
-| `/checkpoint snapshot [名称]`                         | 创建命名快照                     |
-| `/checkpoint timeline [--limit=N] [--all]`            | 查看检查点历史                   |
-| `/checkpoint restore <目标> [选项]`                   | 预览或执行恢复                   |
-| `/checkpoint gc [--all-sessions] [--compact]`         | 预览或清理旧检查点               |
-| `/checkpoint reset --confirm`                         | 重置检查点历史和配置为默认状态   |
+| 命令                                          | 说明                           |
+| --------------------------------------------- | ------------------------------ |
+| `/checkpoint`                                 | 查看检查点命令帮助             |
+| `/checkpoint auto [on\|off]`                  | 查看或切换自动检查点状态       |
+| `/checkpoint snapshot [名称]`                 | 创建命名快照                   |
+| `/checkpoint timeline [--limit=N] [--all]`    | 查看检查点历史                 |
+| `/checkpoint restore <目标> [选项]`           | 预览或执行恢复                 |
+| `/checkpoint gc [--all-sessions] [--compact]` | 预览或清理旧检查点             |
+| `/checkpoint reset --confirm`                 | 重置检查点历史和配置为默认状态 |
 
 ---
 

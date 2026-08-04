@@ -94,15 +94,15 @@ Optionally, add a one-shot instruction to guide which supported information the 
 
 Checkpoints are designed for frequent saves and quick rollbacks. They are not full-instance backups and never rewrite your project's own Git history. To migrate an instance or preserve global settings and secrets, use [Backup & Restore](./backup).
 
-| Command                                               | Description                                      |
-| ----------------------------------------------------- | ------------------------------------------------ |
-| `/checkpoint`                                         | Show checkpoint command help                     |
-| `/checkpoint auto [on\|off]`                         | View or change automatic checkpoint status       |
-| `/checkpoint snapshot [name]`                         | Create a named snapshot                          |
-| `/checkpoint timeline [--limit=N] [--all]`            | View checkpoint history                          |
-| `/checkpoint restore <target> [options]`              | Preview or apply a restore                       |
-| `/checkpoint gc [--all-sessions] [--compact]`         | Preview or clean up old checkpoints              |
-| `/checkpoint reset --confirm`                         | Reset checkpoint history and settings to defaults |
+| Command                                       | Description                                       |
+| --------------------------------------------- | ------------------------------------------------- |
+| `/checkpoint`                                 | Show checkpoint command help                      |
+| `/checkpoint auto [on\|off]`                  | View or change automatic checkpoint status        |
+| `/checkpoint snapshot [name]`                 | Create a named snapshot                           |
+| `/checkpoint timeline [--limit=N] [--all]`    | View checkpoint history                           |
+| `/checkpoint restore <target> [options]`      | Preview or apply a restore                        |
+| `/checkpoint gc [--all-sessions] [--compact]` | Preview or clean up old checkpoints               |
+| `/checkpoint reset --confirm`                 | Reset checkpoint history and settings to defaults |
 
 ---
 
