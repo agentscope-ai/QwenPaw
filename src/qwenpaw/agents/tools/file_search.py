@@ -676,6 +676,7 @@ async def grep_search(
         match_lines, status = await cancellable_wait(
             asyncio.to_thread(_worker),
             fallback_secs=_GREP_TIMEOUT,
+            as_kill_deadline=True,
         )
     except (asyncio.TimeoutError, asyncio.CancelledError):
         cancel.set()
@@ -762,6 +763,7 @@ async def glob_search(
         results, truncated = await cancellable_wait(
             asyncio.to_thread(_worker),
             fallback_secs=_GLOB_TIMEOUT,
+            as_kill_deadline=True,
         )
     except (asyncio.TimeoutError, asyncio.CancelledError):
         cancel.set()

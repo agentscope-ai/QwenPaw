@@ -106,6 +106,7 @@ def test_project_assets_scope_admits_image_asset_children(tmp_path) -> None:
         if item["function"]["name"] == "image_generation"
     )["function"]
     target = tool["parameters"]["properties"]["targetRef"]
+    image_arguments = tool["parameters"]["properties"]["arguments"]
     spec = registry.spec_for(
         SpecialistRole.VISUAL_DEVELOPMENT,
         "image_generation",
@@ -115,6 +116,8 @@ def test_project_assets_scope_admits_image_asset_children(tmp_path) -> None:
     assert "enum" not in target
     assert target["pattern"] == r"^asset:.+$"
     assert "不能直接使用 project:assets" in target["description"]
+    assert image_arguments["properties"]["variantId"]["minLength"] == 1
+    assert "多个" in image_arguments["properties"]["variantId"]["description"]
     assert spec.admits_target_ref(
         role=SpecialistRole.VISUAL_DEVELOPMENT,
         target_ref="asset:char-cat",

@@ -6,6 +6,7 @@ import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useOnboardingStore } from "@/store/onboardingStore";
 import Breadcrumb from "./Breadcrumb";
 import ModelBadges from "@/components/creator/ModelBadges";
+import logoMarkUrl from "@/assets/design/logo-mark.png";
 
 const MAIN_TABS = [
   { key: "plan", label: "视频方案", icon: LayoutList },
@@ -49,15 +50,19 @@ export default function TopNav() {
     <header className="relative z-[200] grid h-[58px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-[var(--color-border)] bg-white/88 px-3 backdrop-blur-xl dark:bg-[var(--color-bg-primary)] md:px-4">
       <div className="flex min-w-0 items-center gap-2">
         <Link
-          href="/"
+          href="/?view=projects"
           className="icon-button shrink-0"
           aria-label="返回项目列表"
         >
           <LeftOutlined className="text-xs" />
         </Link>
-        <div className="hidden h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[var(--color-text-primary)] text-xs font-black text-[var(--color-accent)] sm:flex">
-          QP
-        </div>
+        <img
+          src={logoMarkUrl}
+          alt=""
+          width={34}
+          height={34}
+          className="hidden shrink-0 sm:block"
+        />
         <div className="min-w-0">
           <div className="flex min-w-0 items-baseline gap-1.5">
             <span className="block max-w-[180px] shrink-0 truncate text-[13px] font-semibold leading-tight text-[var(--color-text-primary)] md:max-w-[240px]">

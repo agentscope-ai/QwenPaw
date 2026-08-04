@@ -8,10 +8,20 @@ from ._entry import ToolCallEntry, ToolCallStatus
 from ._hooks import ToolHookRegistry
 from ._middleware import ToolCoordinatorMiddleware
 from ._stream import ToolStream
-from ._timeout_helper import cancellable_wait, effective_timeout
+from ._timeout_helper import (
+    COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
+    MIN_BACKGROUND_WINDOW_SECS,
+    OFFLOAD_TIMEOUT_RATIO,
+    arm_kill_deadline,
+    cancellable_wait,
+    effective_timeout,
+)
 
 __all__ = [
+    "COORDINATOR_OWNED_EXEC_TIMEOUT_SECS",
     "CancelReason",
+    "MIN_BACKGROUND_WINDOW_SECS",
+    "OFFLOAD_TIMEOUT_RATIO",
     "OffloadReason",
     "ToolCallContext",
     "ToolCallEntry",
@@ -20,6 +30,7 @@ __all__ = [
     "ToolCoordinatorMiddleware",
     "ToolHookRegistry",
     "ToolStream",
+    "arm_kill_deadline",
     "cancellable_wait",
     "effective_timeout",
     "get_call_context",

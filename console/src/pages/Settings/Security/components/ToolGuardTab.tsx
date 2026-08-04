@@ -21,7 +21,6 @@ interface ToolGuardTabProps {
   setEnabled: (val: boolean) => void;
   sandboxEnabled: boolean;
   setSandboxEnabled: (val: boolean) => void;
-  sandboxEffective: boolean;
   sandboxReason: string | null;
   toolOptions: { label: string; value: string }[];
   mergedRules: MergedRule[];
@@ -42,7 +41,6 @@ export function ToolGuardTab({
   setEnabled,
   sandboxEnabled,
   setSandboxEnabled,
-  sandboxEffective,
   sandboxReason,
   toolOptions,
   mergedRules,
@@ -92,16 +90,15 @@ export function ToolGuardTab({
                 onChange={(val) => setSandboxEnabled(val)}
               />
             </Form.Item>
-            {sandboxEnabled &&
-              !sandboxEffective &&
-              sandboxReason === "not_admin" && (
-                <Alert
-                  type="warning"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                  message={t("security.sandboxDegradedWarning")}
-                />
-              )}
+            {sandboxEnabled && sandboxReason === "unelevated" && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message={t("security.sandboxUnelevatedWarning")}
+                description={t("security.sandboxUnelevatedDescription")}
+              />
+            )}
             <div className={styles.toolGuardRow}>
               <Form.Item
                 label={t("security.guardedTools")}

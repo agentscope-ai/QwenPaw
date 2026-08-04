@@ -31,14 +31,10 @@ _DEFAULT_MAX_RESULTS = 5
 _SEARCH_FALLBACK_HINT = (
     "This tool uses a free API with rate limits. "
     "Try again later, or fall back to "
-    "execute_shell_command with curl, or browser_use "
-    "with action='open' as a last resort."
+    "execute_shell_command with curl as a last resort."
 )
 
-_FETCH_FALLBACK_HINT = (
-    "Try execute_shell_command with curl, or "
-    "browser_use with action='open' as a last resort."
-)
+_FETCH_FALLBACK_HINT = "Try execute_shell_command with curl as a last resort."
 
 _FETCH_HEADERS = {
     "User-Agent": (
@@ -207,9 +203,7 @@ async def web_search(search_term: str) -> ToolChunk:
     - Current events or technology news.
     - Informational queries similar to what you might search on the web.
 
-    IMPORTANT - Prefer this tool over browser_use for simple information retrieval. browser_use should only be used when you need to interact with a page (click, fill forms, navigate through multi-step flows).
-
-    FALLBACK - This tool uses a free API with rate limits. If it returns an error due to network issues or quota limits, fall back to execute_shell_command with curl, or browser_use with action='open' as a last resort.
+    FALLBACK - This tool uses a free API with rate limits. If it returns an error due to network issues or quota limits, fall back to execute_shell_command with curl.
 
     Args:
         search_term: The search term to look up on the web. Be specific and include relevant keywords for better results. For technical queries, include version numbers or dates if relevant.
@@ -282,9 +276,7 @@ async def web_fetch(url: str) -> ToolChunk:
     - This tool does not support fetching binary content, e.g. media or PDFs.
     - For static assets and non-webpage URLs, use execute_shell_command with curl instead.
 
-    IMPORTANT - Prefer this tool over browser_use when you have a direct URL and only need to read its content. Use browser_use only when the page requires JavaScript rendering or interactive operations.
-
-    FALLBACK - If this tool returns an error or empty content, fall back to execute_shell_command with curl, or browser_use with action='open' as a last resort.
+    FALLBACK - If this tool returns an error or empty content, fall back to execute_shell_command with curl.
 
     Args:
         url: The URL to fetch. The content will be converted to a readable text format.

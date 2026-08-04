@@ -20,9 +20,10 @@ def test_codex_and_qoder_sdks_are_optional_and_in_full() -> None:
     dependencies = project["dependencies"]
     extras = project["optional-dependencies"]
 
+    assert not any("openai-codex" in item for item in dependencies)
     assert not any("qoder-agent-sdk" in item for item in dependencies)
-    assert extras["codex"] == ["openai-codex>=0.144.4,<1"]
-    assert extras["qoder"] == ["qoder-agent-sdk>=1.0.9,<2"]
+    assert extras["codex"] == ["openai-codex==0.144.4"]
+    assert extras["qoder"] == ["qoder-agent-sdk==1.0.9"]
     assert extras["full"] == ["qwenpaw[local,whisper,codex,qoder]"]
 
 

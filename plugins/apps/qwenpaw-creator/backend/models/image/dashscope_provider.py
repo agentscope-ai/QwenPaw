@@ -126,7 +126,9 @@ class DashScopeImageModel(BaseImageModel):
 
     @property
     def generation_url(self) -> str:
-        return self.base_url
+        base = self.base_url.rstrip("/")
+        suffix = "/services/aigc/multimodal-generation/generation"
+        return base if base.endswith(suffix) else f"{base}{suffix}"
 
     async def _request(
         self,

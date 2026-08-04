@@ -8,29 +8,9 @@ import {
   type MarketPluginSortBy,
 } from "@/api/modules/pluginMarket";
 import { installPlugin } from "@/api/modules/plugin";
+import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 
-/**
- * Derive a compatibility label (e.g. "2.x") from a version string.
- * Handles leading "v", pre-release suffixes, and invalid inputs gracefully.
- */
-function deriveCompatLabel(version: string): string | null {
-  const trimmed = version.trim().replace(/^v/i, "");
-  const match = trimmed.match(/^(\d+)/);
-  if (!match) return null;
-  return `${match[1]}.x`;
-}
-
-export function isMarketPluginCompatible(
-  entry: MarketPluginEntry,
-  currentVersion: string | null,
-): boolean {
-  if (!currentVersion) return true;
-  const labels = entry.qwenpaw_compat_labels;
-  if (!labels || labels.length === 0) return true;
-  const label = deriveCompatLabel(currentVersion);
-  if (!label) return true; // Cannot parse version → treat as compatible
-  return labels.includes(label);
-}
+export { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 
 interface UseMarketPluginsOptions {
   onInstalled: () => void;
@@ -72,7 +52,6 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
         if (err instanceof Error && err.name === "AbortError") {
           return;
         }
-        // eslint-disable-next-line no-console
         console.error("[useMarketPlugins] failed to fetch version:", err);
         setQwenpawVersion(null);
       });

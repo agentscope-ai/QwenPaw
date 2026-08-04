@@ -80,8 +80,7 @@ Adding skills to the pool:
 
    | Skill ID                      | Description                                                                                                                     | Source                                                         |
    | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-   | **browser_cdp**               | Connect to or launch Chrome with CDP / remote-debugging enabled. Use only when the user explicitly wants CDP mode.              | Built-in                                                       |
-   | **browser_visible**           | Launch a real, visible (headed) browser window for demos, debugging, or scenarios requiring human interaction.                  | Built-in                                                       |
+   | **browser**                   | Drive a live browser through the Unified Browser SDK with async Python and a perceive → act → verify workflow.                  | Built-in                                                       |
    | **channel_message**           | Proactively send a one-way message to a session or channel after first locating the target session.                             | Built-in                                                       |
    | **QA_source_index**           | Internal QwenPaw source/doc index skill for quickly mapping keywords to source paths and local docs.                            | Built-in                                                       |
    | **cron**                      | Scheduled jobs. Create, list, pause, resume, or delete jobs via `qwenpaw cron` or Console **Control → Cron Jobs**.              | Built-in                                                       |

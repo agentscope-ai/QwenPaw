@@ -11,12 +11,17 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 import ipaddress
+import logging
 from pathlib import Path
 import socket
 from typing import Any, Iterator
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
+
+logger = logging.getLogger(
+    "qwenpaw.creator.runtime_files.safe_remote_download",
+)
 
 
 DEFAULT_MAX_REMOTE_REDIRECTS = 5
@@ -33,8 +38,20 @@ def require_public_ip(address: str) -> None:
     try:
         parsed = ipaddress.ip_address(address.split("%", 1)[0])
     except ValueError as error:
+        logger.warning("ssrf block: invalid ip address: %s", address)
         raise SafeRemoteDownloadError("远程 URL 解析到了非法 IP") from error
     if not parsed.is_global:
+        logger.warning(
+            "ssrf block: non-global ip address: %s (%s)",
+            address,
+            "loopback"
+            if parsed.is_loopback
+            else "private"
+            if parsed.is_private
+            else "link-local"
+            if parsed.is_link_local
+            else "reserved",
+        )
         raise SafeRemoteDownloadError(
             "远程 URL 不允许访问本机、私有或保留网络",
         )

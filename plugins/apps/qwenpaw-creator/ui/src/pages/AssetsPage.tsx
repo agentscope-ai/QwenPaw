@@ -11,7 +11,6 @@ import {
   Music2,
   Paperclip,
   Search,
-  Sparkles,
   Upload,
   Wand2,
 } from "lucide-react";
@@ -32,7 +31,6 @@ import {
   useReviewFieldFocus,
   useReviewMediaFocus,
 } from "@/routing/reviewFocus";
-import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
@@ -228,7 +226,11 @@ function assetItems(project: ProjectDocument): AssetItem[] {
         stale: artifact?.stale,
         checksum: artifact?.checksum,
         ownerRef: artifact?.owner_ref,
-        provenanceRefs: [],
+        // Surface the references the generation model actually saw — e.g. the
+        // web-grounding photo a scene design was composed from. The artifact
+        // is the ground truth; the variant's reference_asset_version_ids is
+        // the configured intent, which the provenance_refs mirror at run time.
+        provenanceRefs: artifact?.provenance_refs ?? [],
         metadata: {
           kind: entity.kind,
           continuity: entity.continuity,
@@ -270,6 +272,53 @@ function displayValue(value: unknown): string {
     return String(value);
   if (value === null || value === undefined) return "—";
   return JSON.stringify(value);
+}
+
+/** Resolve a provenance/ref string to a previewable thumbnail + label. */
+function resolveProvenanceRef(
+  project: ProjectDocument,
+  ref: string,
+): { name: string; url: string; kind: "image" | "video"; ref: string } | null {
+  if (ref.startsWith("asset-version:")) {
+    const id = ref.slice("asset-version:".length);
+    const version = project.assets.source_versions_by_id[id];
+    if (!version) return null;
+    return {
+      name: version.name || id,
+      url: getAssetVersionMediaUrl(id),
+      kind: version.media_kind === "video" ? "video" : "image",
+      ref,
+    };
+  }
+  if (ref.startsWith("artifact-version:")) {
+    const id = ref.slice("artifact-version:".length);
+    const version = project.assets.artifact_versions_by_id[id];
+    if (!version) return null;
+    const media = artifactMedia(project, version);
+    if (!media) return null;
+    return {
+      name: version.name || id,
+      url: getArtifactVersionMediaUrl(id),
+      kind: media.kind === "video" ? "video" : "image",
+      ref,
+    };
+  }
+  if (ref.startsWith("visual-entity:")) {
+    const entityId = ref.slice("visual-entity:".length);
+    const entity = project.visual.entities.items[entityId];
+    const versionId = entity?.selected_artifact_version_id ?? null;
+    const version = versionId
+      ? project.assets.artifact_versions_by_id[versionId]
+      : undefined;
+    if (!version) return null;
+    return {
+      name: entity?.name || entityId,
+      url: getArtifactVersionMediaUrl(versionId!),
+      kind: "image",
+      ref,
+    };
+  }
+  return null;
 }
 
 interface PromptTarget {
@@ -472,16 +521,6 @@ export default function AssetsPage() {
         ? `/project/${id}/assets?asset=${encodeURIComponent(item.id)}`
         : `/project/${id}/assets`,
     );
-  };
-  const openAgent = (item: AssetItem) => {
-    useCreatorInteractionStore.getState().select(item.ref);
-    useAgentDockUiStore.getState().setOpen(true);
-    useAgentDockUiStore.getState().setTab("conversation");
-    useAgentDockUiStore
-      .getState()
-      .setDraft(
-        `请检查并完善「${item.name}」(${item.ref})，先读取 Project 中的现状和引用关系再行动。`,
-      );
   };
   const refreshAfterIngest = async () => {
     await Promise.allSettled([pollOnce(id), refreshTasks(id)]);
@@ -764,6 +803,58 @@ export default function AssetsPage() {
                     </div>
                   ))}
                 </dl>
+                {(() => {
+                  if (!project) return null;
+                  const resolved = selected.provenanceRefs
+                    .map((ref) => resolveProvenanceRef(project, ref))
+                    .filter(Boolean) as NonNullable<
+                    ReturnType<typeof resolveProvenanceRef>
+                  >[];
+                  if (!resolved.length) return null;
+                  return (
+                    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3">
+                      <div className="mb-2 text-[11px] font-semibold text-[var(--color-text-secondary)]">
+                        引用参考图
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {resolved.map((entry) => {
+                          const target = allItems.find(
+                            (item) => item.ref === entry.ref,
+                          );
+                          return (
+                            <button
+                              key={entry.ref}
+                              type="button"
+                              title={entry.name}
+                              onClick={() => target && selectItem(target)}
+                              className="group flex w-24 flex-col gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-1 text-left transition hover:border-[var(--color-accent)]"
+                            >
+                              <div className="aspect-video w-full overflow-hidden rounded bg-black/20">
+                                {entry.kind === "video" ? (
+                                  <video
+                                    src={entry.url}
+                                    className="h-full w-full object-cover"
+                                    muted
+                                  />
+                                ) : (
+                                  <img
+                                    src={entry.url}
+                                    alt={entry.name}
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                  />
+                                )}
+                              </div>
+                              <span className="truncate text-[10px] text-[var(--color-text-tertiary)] group-hover:text-[var(--color-accent)]">
+                                {entry.name}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {Object.keys(selected.metadata).length > 0 && (
                   <details className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3 text-xs">
                     <summary className="cursor-pointer font-semibold text-[var(--color-text-secondary)]">
@@ -869,14 +960,9 @@ export default function AssetsPage() {
                       下载
                     </Button>
                   )}
-                  <Button
-                    className="flex-1"
-                    icon={<Sparkles className="h-3.5 w-3.5" />}
-                    onClick={() => openAgent(selected)}
-                  >
-                    交给 Agent
+                  <Button className="flex-1" onClick={() => selectItem(null)}>
+                    关闭
                   </Button>
-                  <Button onClick={() => selectItem(null)}>关闭</Button>
                 </div>
               </div>
             </div>

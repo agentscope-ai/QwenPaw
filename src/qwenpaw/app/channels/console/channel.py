@@ -263,6 +263,9 @@ class ConsoleChannel(BaseChannel):
             content_parts=content_parts,
             channel_meta=meta,
         )
+        message_metadata = payload.get("message_metadata")
+        if isinstance(message_metadata, dict) and request.input:
+            request.input[0].metadata = message_metadata
         request.channel_meta = meta
         rc = meta.get("request_context")
         if isinstance(rc, dict) and rc:
@@ -523,6 +526,19 @@ class ConsoleChannel(BaseChannel):
             logger.exception("console process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
             self._print_error(err_msg)
+        finally:
+            try:
+                await self._on_response_cycle_end(session_id)
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "console response-cycle cleanup failed for session=%s",
+                    session_id[:30],
+                    exc_info=True,
+                )
+
+    async def _on_response_cycle_end(self, session_id: str) -> None:
+        """Delegate console streaming cleanup to the shared channel path."""
+        await self._finish_response_cycle(session_id)
 
     async def consume_one(self, payload: Any) -> None:
         """Process one payload; drain stream_one (queue/terminal)."""

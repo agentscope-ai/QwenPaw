@@ -108,7 +108,7 @@ _AGENT_SPECS: list[dict[str, Any]] = [
             [
                 "alicloud_cli",
                 "file_reader",
-                "browser_cdp",
+                "browser",
             ],
         ),
         "extra_tools": {
@@ -129,7 +129,7 @@ _AGENT_SPECS: list[dict[str, Any]] = [
             [
                 "alicloud_cli",
                 "file_reader",
-                "browser_cdp",
+                "browser",
             ],
         ),
         "extra_tools": {

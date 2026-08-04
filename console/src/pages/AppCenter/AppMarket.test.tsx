@@ -1,0 +1,337 @@
+// @vitest-environment jsdom
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { Modal } from "antd";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { MarketPluginEntry } from "@/api/modules/pluginMarket";
+import { invoke, isTauri } from "@/test/tauri-mock";
+import { AppMarket } from "./AppMarket";
+
+const hoisted = vi.hoisted(() => ({
+  fetchMarketPlugins: vi.fn(),
+  installPlugin: vi.fn(),
+  getVersion: vi.fn(),
+}));
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: { language: "en" },
+  }),
+}));
+
+vi.mock("@/hooks/useAppMessage", () => ({
+  useAppMessage: () => ({
+    message: { loading: vi.fn(), success: vi.fn(), error: vi.fn() },
+  }),
+}));
+
+vi.mock("@/api/modules/pluginMarket", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/api/modules/pluginMarket")
+  >("@/api/modules/pluginMarket");
+  return {
+    ...actual,
+    fetchMarketPlugins: hoisted.fetchMarketPlugins,
+  };
+});
+
+vi.mock("@/api/modules/plugin", () => ({
+  installPlugin: hoisted.installPlugin,
+}));
+
+vi.mock("@/api/modules/root", () => ({
+  rootApi: { getVersion: hoisted.getVersion },
+}));
+
+function makeEntry(
+  id: string,
+  overrides: Partial<MarketPluginEntry> = {},
+): MarketPluginEntry {
+  return {
+    id,
+    display_name: id,
+    developer: "dev",
+    owner: "owner",
+    version: "1.0.0",
+    logo_url: null,
+    downloads: 42,
+    view_count: 10,
+    details_url: null,
+    locales: { en: { description: `${id} description`, category: "app" } },
+    ...overrides,
+  };
+}
+
+describe("AppMarket", () => {
+  const windowOpen = vi.fn();
+
+  beforeEach(() => {
+    hoisted.fetchMarketPlugins.mockReset();
+    hoisted.installPlugin.mockReset();
+    hoisted.getVersion.mockReset();
+    invoke.mockReset();
+    invoke.mockResolvedValue(undefined);
+    isTauri.mockReturnValue(false);
+    windowOpen.mockReset();
+    vi.spyOn(window, "open").mockImplementation(windowOpen);
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    hoisted.fetchMarketPlugins.mockResolvedValue({ plugins: [], total: 0 });
+    hoisted.getVersion.mockResolvedValue({ version: "2.1.0" });
+  });
+
+  it("shows featured apps only in the official channel", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [
+        makeEntry("agent-kanban", { is_featured: true }),
+        makeEntry("zalo-channel", { is_featured: false }),
+      ],
+      total: 2,
+    });
+
+    render(<AppMarket channel="official" onInstalled={vi.fn()} />);
+
+    expect(await screen.findByText("agent-kanban")).toBeInTheDocument();
+    expect(screen.queryByText("zalo-channel")).not.toBeInTheDocument();
+    expect(screen.getByText("appCenter.featured")).toBeInTheDocument();
+  });
+
+  it("shows non-featured apps only in the community channel", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [
+        makeEntry("agent-kanban", { is_featured: true }),
+        makeEntry("zalo-channel", { is_featured: false }),
+        makeEntry("mahjong4"),
+      ],
+      total: 3,
+    });
+
+    render(<AppMarket onInstalled={vi.fn()} />);
+
+    expect(await screen.findByText("zalo-channel")).toBeInTheDocument();
+    expect(screen.getByText("mahjong4")).toBeInTheDocument();
+    expect(screen.queryByText("agent-kanban")).not.toBeInTheDocument();
+  });
+
+  it("loads all server pages before applying the channel filter", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) =>
+      makeEntry(`community-${index}`, { is_featured: false }),
+    );
+    hoisted.fetchMarketPlugins.mockImplementation(({ page_number }) =>
+      Promise.resolve(
+        page_number === 1
+          ? { plugins: firstPage, total: 101 }
+          : {
+              plugins: [
+                makeEntry("official-on-page-two", { is_featured: true }),
+              ],
+              total: 101,
+            },
+      ),
+    );
+
+    render(<AppMarket channel="official" onInstalled={vi.fn()} />);
+
+    expect(await screen.findByText("official-on-page-two")).toBeInTheDocument();
+    expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(2);
+    expect(hoisted.fetchMarketPlugins).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page_number: 2, page_size: 100 }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("aborts an obsolete request when a new search starts", async () => {
+    let staleSignal: AbortSignal | undefined;
+    hoisted.fetchMarketPlugins
+      .mockResolvedValueOnce({ plugins: [], total: 0 })
+      .mockImplementationOnce((_params, options) => {
+        staleSignal = options?.signal;
+        return new Promise((_resolve, reject) => {
+          staleSignal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      })
+      .mockResolvedValueOnce({
+        plugins: [makeEntry("latest-result")],
+        total: 1,
+      });
+
+    render(<AppMarket onInstalled={vi.fn()} />);
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(1),
+    );
+
+    const search = screen.getByRole("textbox", {
+      name: "appCenter.searchMarket",
+    });
+    fireEvent.change(search, { target: { value: "stale" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    await waitFor(() => expect(staleSignal).toBeDefined());
+
+    fireEvent.change(search, { target: { value: "" } });
+
+    expect(await screen.findByText("latest-result")).toBeInTheDocument();
+    expect(staleSignal?.aborted).toBe(true);
+  });
+
+  it("renders community apps in a single grid", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [
+        makeEntry("regular-app"),
+        makeEntry("another-app", { is_featured: false }),
+      ],
+      total: 2,
+    });
+
+    const { container } = render(<AppMarket onInstalled={vi.fn()} />);
+
+    await screen.findByText("regular-app");
+    const grids = container.querySelectorAll("[class*='grid']");
+    expect(grids).toHaveLength(1);
+
+    const titles = Array.from(
+      container.querySelectorAll("[class*='cardTitle']"),
+    ).map((el) => el.textContent);
+    expect(titles).toEqual(["regular-app", "another-app"]);
+  });
+
+  it("does not render the emoji download glyph", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeEntry("some-app")],
+      total: 1,
+    });
+
+    render(<AppMarket onInstalled={vi.fn()} />);
+
+    await screen.findByText("some-app");
+    expect(document.body.textContent).not.toContain("⬇");
+  });
+
+  it("installs an app and notifies the parent to refresh", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeEntry("installable")],
+      total: 1,
+    });
+    hoisted.installPlugin.mockResolvedValue({ name: "installable" });
+    const onInstalled = vi.fn();
+
+    render(<AppMarket onInstalled={onInstalled} />);
+
+    fireEvent.click(await screen.findByText("appCenter.install"));
+
+    await waitFor(() => expect(onInstalled).toHaveBeenCalledTimes(1));
+    expect(hoisted.installPlugin).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables repeat installs while an install is in flight", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeEntry("slow-install")],
+      total: 1,
+    });
+    hoisted.installPlugin.mockReturnValue(new Promise(() => {}));
+
+    render(<AppMarket onInstalled={vi.fn()} />);
+
+    const installBtn = await screen.findByText("appCenter.install");
+    fireEvent.click(installBtn);
+    await screen.findByText("appCenter.installing");
+    fireEvent.click(screen.getByText("appCenter.installing"));
+
+    expect(hoisted.installPlugin).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables other apps while an install is in flight", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeEntry("first-app"), makeEntry("second-app")],
+      total: 2,
+    });
+    hoisted.installPlugin.mockReturnValue(new Promise(() => {}));
+
+    render(<AppMarket onInstalled={vi.fn()} />);
+
+    const installButtons = await screen.findAllByRole("button", {
+      name: "appCenter.install",
+    });
+    fireEvent.click(installButtons[0]);
+
+    await waitFor(() => expect(installButtons[1]).toBeDisabled());
+    fireEvent.click(installButtons[1]);
+    expect(hoisted.installPlugin).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks for confirmation before installing an incompatible app", async () => {
+    hoisted.getVersion.mockResolvedValue({ version: "1.9.0" });
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeEntry("future-app", { qwenpaw_compat_labels: ["2.x"] })],
+      total: 1,
+    });
+    hoisted.installPlugin.mockResolvedValue({ name: "future-app" });
+    const confirmSpy = vi
+      .spyOn(Modal, "confirm")
+      .mockReturnValue({ destroy: vi.fn(), update: vi.fn() });
+
+    render(<AppMarket onInstalled={vi.fn()} />);
+
+    await waitFor(() => expect(hoisted.getVersion).toHaveBeenCalled());
+    fireEvent.click(
+      await screen.findByRole("button", { name: "appCenter.install" }),
+    );
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(hoisted.installPlugin).not.toHaveBeenCalled();
+
+    const confirmOptions = confirmSpy.mock.calls[0][0];
+    await confirmOptions.onOk?.();
+    await waitFor(() => expect(hoisted.installPlugin).toHaveBeenCalledTimes(1));
+  });
+
+  it("opens details through the shared external-link guard", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [
+        makeEntry("with-details", {
+          details_url: "https://platform.agentscope.io/apps/demo",
+        }),
+      ],
+      total: 1,
+    });
+
+    render(<AppMarket onInstalled={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("appCenter.details"));
+
+    expect(windowOpen).toHaveBeenCalledWith(
+      "https://platform.agentscope.io/apps/demo",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
+
+  it("does not open unsupported details URL schemes", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [
+        makeEntry("evil-details", { details_url: "javascript:alert(1)" }),
+      ],
+      total: 1,
+    });
+
+    render(<AppMarket onInstalled={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("appCenter.details"));
+
+    expect(windowOpen).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("shows the market error inside the market view", async () => {
+    hoisted.fetchMarketPlugins.mockRejectedValue(new Error("boom"));
+
+    render(<AppMarket onInstalled={vi.fn()} />);
+
+    expect(
+      await screen.findByText("pluginManager.marketUnavailable"),
+    ).toBeInTheDocument();
+  });
+});
