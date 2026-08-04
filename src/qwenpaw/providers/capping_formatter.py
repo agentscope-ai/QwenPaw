@@ -45,7 +45,7 @@ from agentscope.formatter import (
 )
 
 from agentscope.formatter import OpenAIResponseFormatter
-from agentscope.message import Base64Source, URLSource
+from agentscope.message import Base64Source, Msg, URLSource
 from pydantic import Field
 
 # Maximum size (in bytes) of a local media file we are willing to inline as
@@ -270,7 +270,35 @@ class _CappingOpenAIResponseFormatter(
     OpenAIResponseFormatter,
     CappingFormatterMixin,
 ):
-    """OpenAI Responses API formatter that caps oversized local media."""
+    """Responses formatter with media capping and opt-in cache boundaries."""
+
+    enable_prompt_cache_breakpoint: bool = Field(default=False)
+
+    async def format(self, msgs: list[Msg]) -> list[dict[str, Any]]:
+        """Format messages and mark the end of the stable system prefix."""
+        items = await super().format(msgs)
+        if not self.enable_prompt_cache_breakpoint:
+            return items
+
+        breakpoint_block: dict[str, Any] | None = None
+        for item in items:
+            if item.get("role") != "system":
+                break
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") == "input_text"
+                ):
+                    breakpoint_block = block
+
+        if breakpoint_block is not None:
+            breakpoint_block["prompt_cache_breakpoint"] = {
+                "mode": "explicit",
+            }
+        return items
 
     def _placeholder(self, kind: str, size: int) -> dict[str, Any]:
         # Responses API uses ``input_text`` / ``output_text`` — not the

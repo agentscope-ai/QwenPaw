@@ -241,3 +241,27 @@ Since different models and tasks may require different generation parameters (su
 After configuring, click **Save**. QwenPaw will automatically include these parameters when generating with models from this provider.
 
 ![Generation Parameters](https://img.alicdn.com/imgextra/i1/O1CN0194Bihd239bxJwoVpi_!!6000000007213-2-tps-1180-1858.png)
+
+#### Responses API Prompt Caching
+
+For GPT-5.6 or later models configured with the OpenAI Responses API provider,
+you can opt in to an explicit, reusable cache boundary through the provider or
+model generation parameters:
+
+```json
+{
+  "prompt_cache_key": "qwenpaw-agent-default-v1",
+  "prompt_cache_options": {
+    "mode": "explicit",
+    "ttl": "30m"
+  },
+  "enable_prompt_cache_breakpoint": true
+}
+```
+
+Keep `prompt_cache_key` stable for requests that share the same prompt prefix.
+When `enable_prompt_cache_breakpoint` is `true`, QwenPaw marks the end of the
+leading system prompt as an explicit cache boundary. Omit these options for
+older models or Responses-compatible services that do not support them. See
+the [OpenAI prompt caching guide](https://platform.openai.com/docs/guides/prompt-caching)
+for model support and current limits.

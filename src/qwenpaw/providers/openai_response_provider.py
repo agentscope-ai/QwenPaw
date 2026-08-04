@@ -90,6 +90,20 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         ):
             generate_kwargs["max_output_tokens"] = max_tokens
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        merged.pop("enable_prompt_cache_breakpoint", None)
+        if "prompt_cache_options" in merged:
+            prompt_cache_options = merged.pop("prompt_cache_options")
+            extra_body = merged.get("extra_body")
+            if extra_body is not None and not isinstance(extra_body, dict):
+                raise TypeError(
+                    "extra_body must be a dictionary when "
+                    "prompt_cache_options is configured",
+                )
+            # openai<=2.33 accepts newer request fields through extra_body.
+            merged["extra_body"] = {
+                **(extra_body or {}),
+                "prompt_cache_options": prompt_cache_options,
+            }
         return await super()._call_api(
             model_name,
             messages,
@@ -340,6 +354,9 @@ class OpenAIResponseProvider(OpenAIProvider):
 
         merged_headers = self._build_default_headers()
         gen_kwargs = self.get_effective_generate_kwargs(model_id)
+        enable_prompt_cache_breakpoint = bool(
+            gen_kwargs.pop("enable_prompt_cache_breakpoint", False),
+        )
         parameters = OpenAIResponseModel.Parameters(
             max_tokens=gen_kwargs.pop("max_tokens", None),
             temperature=gen_kwargs.pop("temperature", None),
@@ -359,5 +376,8 @@ class OpenAIResponseProvider(OpenAIProvider):
             extra_generate_kwargs=gen_kwargs or None,
             formatter=_CappingOpenAIResponseFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                enable_prompt_cache_breakpoint=(
+                    enable_prompt_cache_breakpoint
+                ),
             ),
         )
