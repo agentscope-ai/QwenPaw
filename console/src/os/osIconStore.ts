@@ -22,6 +22,7 @@ interface OsIconStore {
   setPosition: (id: string, x: number, y: number) => void;
   setLayout: (layout: IconLayout) => void;
   arrange: (ids: readonly string[], viewportH: number) => void;
+  reflowToViewport: (ids: readonly string[], viewportH: number) => void;
   /** Transactional cleanup: drop positions for confirmed-removed apps. */
   purge: (ids: ReadonlySet<string>) => void;
   reset: () => void;
@@ -55,6 +56,24 @@ export const useOsIcons = create<OsIconStore>()(
           ids.forEach((id, index) => {
             positions[id] = defaultIconPos(index, viewportH);
           });
+          return { positions };
+        }),
+      reflowToViewport: (ids, viewportH) =>
+        set((state) => {
+          if (state.layout !== "free") return {};
+          const positions = { ...state.positions };
+          let changed = false;
+          ids.forEach((id, index) => {
+            const next = defaultIconPos(index, viewportH);
+            const current = state.positions[id];
+            if (current?.x !== next.x || current?.y !== next.y) {
+              positions[id] = next;
+              changed = true;
+            }
+          });
+          if (!changed) {
+            return {};
+          }
           return { positions };
         }),
       purge: (ids) =>

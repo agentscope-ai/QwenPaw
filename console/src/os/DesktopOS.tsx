@@ -148,14 +148,6 @@ export default function DesktopOS() {
   // Poll approvals + unread inbox events → macOS-style notifications.
   useOsNotifyPoller();
 
-  // Viewport changed (browser resize, DPI/monitor switch): pull persisted
-  // windows back into the visible work area.
-  useEffect(() => {
-    const onResize = () => useOsWindows.getState().clampToViewport();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
   // Load agents once so Mission Control can list them as spaces.
   useEffect(() => {
     refreshAgents().catch(() => {
@@ -294,6 +286,28 @@ export default function DesktopOS() {
         : arrangeApps(visibleApps, iconLayout, t, i18n.resolvedLanguage),
     [i18n.resolvedLanguage, iconLayout, t, visibleApps],
   );
+  const visibleAppIds = useMemo(
+    () => displayedApps.map((app) => app.routeId),
+    [displayedApps],
+  );
+
+  // Viewport changed (browser zoom, resize, DPI/monitor switch): pull
+  // persisted windows into view and reflow desktop icons so newly available
+  // vertical space is used immediately. Mobile uses its own scrollable grid
+  // and must not rewrite the saved desktop layout.
+  useEffect(() => {
+    const onResize = () => {
+      useOsWindows.getState().clampToViewport();
+      if (window.innerWidth > 768) {
+        useOsIcons
+          .getState()
+          .reflowToViewport(visibleAppIds, window.innerHeight);
+      }
+    };
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [visibleAppIds]);
 
   const closeDesktopMenu = () => setCtxMenu(null);
   const handleArrangeIcons = () => {
