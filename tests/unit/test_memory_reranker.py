@@ -61,7 +61,7 @@ def _make_reme_answer(results, link_expansion=None):
         path = r.get("path", "")
         sl = r.get("start_line", 0)
         el = r.get("end_line", 0)
-        score = r.get("score", 0.0)
+        score = ReMeLightMemoryManager._extract_score(r)
         text = r.get("text", "")
         header = (
             f"========== {path}:{sl}-{el} " f"[score={score:.4f}] =========="
@@ -105,7 +105,7 @@ def _result(i, text=None):
         "path": f"memory/{i}.md",
         "start_line": 1,
         "end_line": 3,
-        "score": 0.5 - i * 0.05,
+        "scores": {"score": 0.5 - i * 0.05},
         "text": text or f"doc-{i}",
     }
 
@@ -462,8 +462,7 @@ def test_rebuild_answer_with_expansions_format():
             "path": "a.md",
             "start_line": 2,
             "end_line": 4,
-            "score": 0.1234,
-            "scores": {},
+            "scores": {"score": 0.1234},
             "text": "hello",
         },
     ]
@@ -483,8 +482,7 @@ def test_rebuild_answer_with_expansions_hybrid_scores():
             "path": "b.md",
             "start_line": 5,
             "end_line": 8,
-            "score": 0.9,
-            "scores": {"vector": 0.85, "keyword": 0.65},
+            "scores": {"score": 0.9, "vector": 0.85, "keyword": 0.65},
             "text": "hybrid",
         },
     ]

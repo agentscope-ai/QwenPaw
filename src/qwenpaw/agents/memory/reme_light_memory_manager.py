@@ -579,6 +579,22 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return " ".join(parts)
 
     @staticmethod
+    def _extract_score(result: dict) -> float:
+        """Extract the fused score from a ReMe search result dict.
+
+        ReMe's ``FileChunk.score`` is a regular property backed by
+        ``self.scores["score"]``.  When results are serialized with
+        ``model_dump(exclude_none=True, exclude={"embedding"})``, the
+        top-level ``score`` key is **not** included.  Always prefer the
+        nested ``scores["score"]`` first, then fall back to a top-level
+        ``score`` key for backward compatibility with test fixtures.
+        """
+        scores = result.get("scores", {})
+        if isinstance(scores, dict) and "score" in scores:
+            return scores["score"]
+        return result.get("score", 0.0)
+
+    @staticmethod
     def _rebuild_search_answer_with_expansions(
         results: list[dict],
         link_expansion: dict[str, dict],
@@ -598,7 +614,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             path = r.get("path", "")
             start_line = r.get("start_line", 0)
             end_line = r.get("end_line", 0)
-            score = r.get("score", 0.0)
+            score = ReMeLightMemoryManager._extract_score(r)
             scores = r.get("scores", {})
             text = r.get("text", "")
 
@@ -685,7 +701,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 # Use the shared score formatter for consistency with
                 # ``_rebuild_search_answer_with_expansions``.
                 text = r.get("text", "")
-                score = r.get("score", 0.0)
+                score = ReMeLightMemoryManager._extract_score(r)
                 scores = r.get("scores", {})
                 score_str = ReMeLightMemoryManager._format_scores_for_header(
                     score,
