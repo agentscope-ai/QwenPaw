@@ -150,9 +150,11 @@ NATIVE_HOST_PYTHON="${BINARIES_DIR}/python-runtime/python/bin/python3"
     --disable-pip-version-check \
     --no-input \
     --no-deps \
+    --only-binary=:all: \
     -r "${REPO_ROOT}/scripts/pack-tauri/native-host-requirements.txt"
-"$NATIVE_HOST_PYTHON" -c \
-    "import importlib.metadata as m; assert m.version('websockets') == '15.0.1'"
+"$NATIVE_HOST_PYTHON" \
+    "${REPO_ROOT}/plugins/bundle/chrome/assets/scripts/nm_host.py" \
+    --check-runtime
 echo ""
 
 echo "== Staging bundled Node runtime =="

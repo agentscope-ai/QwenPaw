@@ -42,6 +42,8 @@ interface ExtensionStatus {
   configured_endpoint?: string | null;
   bridge_endpoint_stale?: boolean;
   chrome_extensions_url?: string;
+  native_host_repair_required?: boolean;
+  native_host_repair_instruction?: string;
   version?: string | null;
 }
 
@@ -1092,6 +1094,16 @@ function ChromeSetupPage() {
               showIcon
               type="error"
               message={error}
+              style={{ marginTop: 16 }}
+            />
+          ) : null}
+
+          {status?.native_host_repair_required &&
+          status.native_host_repair_instruction ? (
+            <Alert
+              showIcon
+              type="error"
+              message={status.native_host_repair_instruction}
               style={{ marginTop: 16 }}
             />
           ) : null}

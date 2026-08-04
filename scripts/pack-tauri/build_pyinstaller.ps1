@@ -216,10 +216,13 @@ $NATIVE_HOST_REQUIREMENTS = Join-Path $REPO_ROOT "scripts\pack-tauri\native-host
     --disable-pip-version-check `
     --no-input `
     --no-deps `
+    --only-binary=:all: `
     -r $NATIVE_HOST_REQUIREMENTS
 Assert-LastExit "Failed to install Chrome Native Messaging host dependencies"
-& $NATIVE_HOST_PYTHON -c "import importlib.metadata as m; assert m.version('websockets') == '15.0.1'"
-Assert-LastExit "Bundled Python runtime cannot import the required websockets version"
+& $NATIVE_HOST_PYTHON `
+    (Join-Path $REPO_ROOT "plugins\bundle\chrome\assets\scripts\nm_host.py") `
+    --check-runtime
+Assert-LastExit "Bundled Python runtime cannot run the Native Messaging host"
 Write-Host ""
 
 Write-Host "== Staging bundled Node runtime ==" -ForegroundColor Yellow

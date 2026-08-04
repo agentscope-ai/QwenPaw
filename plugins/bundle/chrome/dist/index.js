@@ -178,7 +178,7 @@ const A = {
     isolated_backend_unavailable: "安装或重启隔离浏览器运行时。"
   }
 };
-function q() {
+function K() {
   var t;
   try {
     return ((t = window.localStorage) == null ? void 0 : t.getItem("language")) ?? null;
@@ -186,7 +186,7 @@ function q() {
     return null;
   }
 }
-function U(t = q()) {
+function Q(t = K()) {
   return String(t || "").trim().split("-")[0].toLowerCase() === "zh" ? "zh" : "en";
 }
 function r(t, n, o) {
@@ -196,7 +196,7 @@ function r(t, n, o) {
       l = l.split(`{${i}}`).join(String(m));
   return l;
 }
-const x = window.QwenPaw.host, e = x.React, K = x.antd, Y = x.getApiUrl, R = x.getApiToken, { Alert: J, Button: u, Collapse: Z, Space: ye, Spin: X, Typography: ee, message: C } = K, { Text: d, Title: H } = ee, te = {
+const x = window.QwenPaw.host, e = x.React, Y = x.antd, J = x.getApiUrl, R = x.getApiToken, { Alert: H, Button: u, Collapse: Z, Space: ye, Spin: X, Typography: ee, message: C } = Y, { Text: d, Title: F } = ee, te = {
   extension_bridge: "checkExtensionBridge",
   nm_host: "checkNmHost",
   extension_assets: "checkExtensionAssets",
@@ -665,7 +665,7 @@ function ae() {
   return n && (t.Authorization = `Bearer ${n}`), t;
 }
 async function S(t, n) {
-  const o = await fetch(Y(t), {
+  const o = await fetch(J(t), {
     ...n,
     headers: {
       ...(n == null ? void 0 : n.headers) || {},
@@ -725,7 +725,7 @@ function me(t, n) {
   const o = ne[n];
   return o ? r(t, o) : "";
 }
-function F({ ready: t }) {
+function N({ ready: t }) {
   const { token: n } = x.antd.theme.useToken(), o = b();
   return /* @__PURE__ */ e.createElement(
     "span",
@@ -738,7 +738,7 @@ function F({ ready: t }) {
     }
   );
 }
-function Q({ name: t, size: n }) {
+function $({ name: t, size: n }) {
   const o = b(), l = {
     fill: "none",
     stroke: "currentColor",
@@ -789,7 +789,7 @@ function T({
       title: m ? n : void 0,
       type: "text"
     },
-    /* @__PURE__ */ e.createElement(Q, { name: t, size: m ? 16 : void 0 }),
+    /* @__PURE__ */ e.createElement($, { name: t, size: m ? 16 : void 0 }),
     m ? null : n
   );
 }
@@ -835,9 +835,9 @@ function ue({
 }
 function ge() {
   var D;
-  const t = b(), n = U(), [o, l] = e.useState(null), [i, m] = e.useState(null), [p, g] = e.useState(null), [f, I] = e.useState(!0), [$, _] = e.useState(!1), [M, w] = e.useState(null), [L, j] = e.useState(!1), [W, z] = e.useState(() => he()), y = e.useCallback(
+  const t = b(), n = Q(), [o, l] = e.useState(null), [i, m] = e.useState(null), [p, g] = e.useState(null), [f, _] = e.useState(!0), [j, I] = e.useState(!1), [M, w] = e.useState(null), [L, z] = e.useState(!1), [W, G] = e.useState(() => he()), y = e.useCallback(
     async (a) => {
-      a != null && a.silent || I(!0), w(null);
+      a != null && a.silent || _(!0), w(null);
       try {
         const [c, E] = await Promise.all([
           ie(),
@@ -848,7 +848,7 @@ function ge() {
         const E = c instanceof Error ? c.message : String(c);
         return w(E), null;
       } finally {
-        a != null && a.silent || I(!1);
+        a != null && a.silent || _(!1);
       }
     },
     []
@@ -860,7 +860,7 @@ function ge() {
     async (a) => {
       if (o != null && o.extension_dir && o.installed && !(a != null && a.refresh))
         return o;
-      _(!0), w(null);
+      I(!0), w(null);
       try {
         const c = await ce({
           install_mode: "unpacked"
@@ -870,7 +870,7 @@ function ge() {
         const E = c instanceof Error ? c.message : String(c);
         return w(E), a != null && a.silent || C.error(r(n, "installFailed")), null;
       } finally {
-        _(!1);
+        I(!1);
       }
     },
     [n, o]
@@ -880,19 +880,19 @@ function ge() {
       await ((c = navigator.clipboard) == null ? void 0 : c.writeText(a)), C.success(r(n, "copied"));
     },
     [n]
-  ), G = e.useCallback(async () => {
+  ), V = e.useCallback(async () => {
     const a = await v({ refresh: !0 });
     a != null && a.extension_dir && await P(a.extension_dir);
   }, [P, v]), k = e.useCallback(async () => {
     const a = await de();
     !a.opened && a.error && C.warning(a.error);
-  }, []), V = {
+  }, []), q = {
     mac: ["shortcutMacStep1", "shortcutMacStep2"],
     windows: ["shortcutWindowsStep1", "shortcutWindowsStep2"],
     linux: ["shortcutLinuxStep1", "shortcutLinuxStep2"]
   };
   e.useEffect(() => {
-    f || L || o != null && o.extension_dir || (j(!0), v({ silent: !0 }));
+    f || L || o != null && o.extension_dir || (z(!0), v({ silent: !0 }));
   }, [f, v, L, o == null ? void 0 : o.extension_dir]);
   const h = !!(o != null && o.installed && (i != null && i.connected)), B = !!(o != null && o.installed && !(i != null && i.connected));
   return e.useEffect(() => {
@@ -915,7 +915,7 @@ function ge() {
     return () => {
       window.clearInterval(a);
     };
-  }, [h, y]), /* @__PURE__ */ e.createElement("div", { style: t.page }, /* @__PURE__ */ e.createElement("div", { style: t.shell }, /* @__PURE__ */ e.createElement("div", { style: t.panel }, /* @__PURE__ */ e.createElement("div", { style: t.statusBlock }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { style: t.header }, /* @__PURE__ */ e.createElement("div", { style: t.titleRow }, /* @__PURE__ */ e.createElement("span", { style: t.chromeIcon }), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(H, { level: 3, style: { margin: 0 } }, r(n, "pageTitle")), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, r(n, "pageSubtitle"))))), /* @__PURE__ */ e.createElement("div", { style: { marginTop: 22 } }, /* @__PURE__ */ e.createElement("div", { style: t.statusTitleRow }, h || B ? /* @__PURE__ */ e.createElement(F, { ready: h }) : null, /* @__PURE__ */ e.createElement(H, { level: 4, style: { margin: 0 } }, r(
+  }, [h, y]), /* @__PURE__ */ e.createElement("div", { style: t.page }, /* @__PURE__ */ e.createElement("div", { style: t.shell }, /* @__PURE__ */ e.createElement("div", { style: t.panel }, /* @__PURE__ */ e.createElement("div", { style: t.statusBlock }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { style: t.header }, /* @__PURE__ */ e.createElement("div", { style: t.titleRow }, /* @__PURE__ */ e.createElement("span", { style: t.chromeIcon }), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(F, { level: 3, style: { margin: 0 } }, r(n, "pageTitle")), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, r(n, "pageSubtitle"))))), /* @__PURE__ */ e.createElement("div", { style: { marginTop: 22 } }, /* @__PURE__ */ e.createElement("div", { style: t.statusTitleRow }, h || B ? /* @__PURE__ */ e.createElement(N, { ready: h }) : null, /* @__PURE__ */ e.createElement(F, { level: 4, style: { margin: 0 } }, r(
     n,
     h ? "readyTitle" : B ? "awaitingTitle" : "installTitle"
   ))), /* @__PURE__ */ e.createElement("div", { style: t.statusCopy }, h ? r(n, "readyDescription", {
@@ -947,14 +947,22 @@ function ge() {
     },
     r(n, "installedRefresh")
   ))), M ? /* @__PURE__ */ e.createElement(
-    J,
+    H,
     {
       showIcon: !0,
       type: "error",
       message: M,
       style: { marginTop: 16 }
     }
-  ) : null, h ? /* @__PURE__ */ e.createElement("div", { style: t.section }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, r(n, "checksTitle")), (D = p == null ? void 0 : p.checks) != null && D.length ? /* @__PURE__ */ e.createElement("div", { style: t.checkGrid }, p.checks.filter((a) => a.name !== "semantic_control").map((a) => /* @__PURE__ */ e.createElement("div", { key: a.name, style: t.checkTile }, /* @__PURE__ */ e.createElement("div", { style: t.checkTitle }, /* @__PURE__ */ e.createElement(F, { ready: a.passed }), /* @__PURE__ */ e.createElement(d, { strong: !0 }, r(
+  ) : null, o != null && o.native_host_repair_required && o.native_host_repair_instruction ? /* @__PURE__ */ e.createElement(
+    H,
+    {
+      showIcon: !0,
+      type: "error",
+      message: o.native_host_repair_instruction,
+      style: { marginTop: 16 }
+    }
+  ) : null, h ? /* @__PURE__ */ e.createElement("div", { style: t.section }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, r(n, "checksTitle")), (D = p == null ? void 0 : p.checks) != null && D.length ? /* @__PURE__ */ e.createElement("div", { style: t.checkGrid }, p.checks.filter((a) => a.name !== "semantic_control").map((a) => /* @__PURE__ */ e.createElement("div", { key: a.name, style: t.checkTile }, /* @__PURE__ */ e.createElement("div", { style: t.checkTitle }, /* @__PURE__ */ e.createElement(N, { ready: a.passed }), /* @__PURE__ */ e.createElement(d, { strong: !0 }, r(
     n,
     te[a.name] ?? "checkExtensionBridge"
   ))), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, a.passed ? r(n, "checkReady") : `${a.message} ${me(
@@ -966,7 +974,7 @@ function ge() {
       type: "primary",
       onClick: () => void k()
     },
-    /* @__PURE__ */ e.createElement(Q, { name: "chromeExtensions" }),
+    /* @__PURE__ */ e.createElement($, { name: "chromeExtensions" }),
     r(n, "openChromeExtensionsPage")
   )), /* @__PURE__ */ e.createElement("div", { style: t.disabledTile, "aria-disabled": "true" }, /* @__PURE__ */ e.createElement("div", { style: t.methodHeader }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, r(n, "chromeWebStoreTitle")), /* @__PURE__ */ e.createElement("span", { style: t.badge }, r(n, "comingSoon"))), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, r(n, "chromeWebStoreDescription")), /* @__PURE__ */ e.createElement(u, { disabled: !0 }, r(n, "comingSoon"))))), /* @__PURE__ */ e.createElement("div", { style: t.section }, /* @__PURE__ */ e.createElement("div", { style: t.installSupportGrid }, /* @__PURE__ */ e.createElement("div", { style: t.installBox }, /* @__PURE__ */ e.createElement("div", { style: t.installBoxHead }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, r(n, "localStepsTitle")), /* @__PURE__ */ e.createElement("span", { style: t.installBoxNote }, r(n, "localStepsOnce"))), /* @__PURE__ */ e.createElement("ol", { style: t.steps }, /* @__PURE__ */ e.createElement("li", { style: t.stepItem }, /* @__PURE__ */ e.createElement("span", { style: t.stepIndex }, "1"), /* @__PURE__ */ e.createElement("div", { style: t.stepBody }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, r(n, "openExtensionsStepTitle")), /* @__PURE__ */ e.createElement("div", { style: t.stepLine }, r(n, "openExtensionsPrefix"), /* @__PURE__ */ e.createElement(
     T,
@@ -1005,7 +1013,7 @@ function ge() {
       "button",
       {
         key: a,
-        onClick: () => z(a),
+        onClick: () => G(a),
         style: {
           ...t.osTab,
           ...W === a ? t.osTabActive : null
@@ -1018,12 +1026,12 @@ function ge() {
       {
         icon: "copy",
         label: r(n, "qwenpawExtensionPath"),
-        loading: $,
-        onClick: () => void G(),
+        loading: j,
+        onClick: () => void V(),
         tone: "blue",
         iconOnly: !0
       }
-    ), /* @__PURE__ */ e.createElement("span", null, r(n, "shortcutCopyPathSuffix")))), V[W].map(
+    ), /* @__PURE__ */ e.createElement("span", null, r(n, "shortcutCopyPathSuffix")))), q[W].map(
       (a, c) => /* @__PURE__ */ e.createElement("li", { key: a, style: t.shortcutStep }, /* @__PURE__ */ e.createElement("span", { style: t.tipDot }, c + 2), /* @__PURE__ */ e.createElement("span", null, r(n, a)))
     )))
   )))), /* @__PURE__ */ e.createElement(
@@ -1035,12 +1043,12 @@ function ge() {
     }
   )), f && !o ? /* @__PURE__ */ e.createElement(X, null) : null));
 }
-var N, O;
-(O = (N = window.QwenPaw).registerRoutes) == null || O.call(N, "chrome", [
+var O, U;
+(U = (O = window.QwenPaw).registerRoutes) == null || U.call(O, "chrome", [
   {
     path: "/plugin/chrome",
     component: ge,
-    label: r(U(), "routeLabel"),
+    label: r(Q(), "routeLabel"),
     icon: /* @__PURE__ */ e.createElement(oe, null),
     priority: 40
   }

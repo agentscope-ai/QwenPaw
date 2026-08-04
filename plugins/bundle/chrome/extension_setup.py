@@ -378,12 +378,43 @@ def _read_install_mode_state(qwenpaw_home: Path) -> str | None:
     return install_mode if install_mode in {"unpacked", "cws"} else None
 
 
+def _check_native_host_runtime(
+    launcher: Path,
+    *,
+    timeout: float = 5.0,
+) -> dict[str, str | bool] | None:
+    """Return a probe failure when the host runtime is unusable."""
+    try:
+        runtime_check = subprocess.run(
+            [str(launcher), "--check-runtime"],
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {"ok": False, "stage": "timeout", "detail": str(exc)}
+    except OSError as exc:
+        return {"ok": False, "stage": "launch", "detail": str(exc)}
+    if runtime_check.returncode != 0:
+        detail = runtime_check.stderr.decode("utf-8", "replace").strip()
+        return {
+            "ok": False,
+            "stage": "runtime",
+            "detail": detail or f"exit code {runtime_check.returncode}",
+        }
+    return None
+
+
 def _probe_native_host(
     launcher: Path,
     *,
     timeout: float = 5.0,
 ) -> dict[str, str | bool]:
-    """Start a launcher once and verify an unmodified NM frame."""
+    """Validate the host runtime, then verify an unmodified NM frame."""
+    runtime_failure = _check_native_host_runtime(launcher, timeout=timeout)
+    if runtime_failure is not None:
+        return runtime_failure
+
     payload = {"probe": "qwenpaw"}
     raw_payload = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     frame = struct.pack("<I", len(raw_payload)) + raw_payload
@@ -413,6 +444,17 @@ def _probe_native_host(
             "detail": "Native Messaging probe frame did not round-trip",
         }
     return {"ok": True, "stage": "", "detail": ""}
+
+
+def _native_host_repair_instruction(probe: dict[str, object]) -> str:
+    """Return a bounded, actionable repair message for a failed probe."""
+    stage = str(probe.get("stage") or "unknown")
+    prefix = f"Native host self-check failed during {stage}."
+    if stage == "runtime":
+        detail = " ".join(str(probe.get("detail") or "").split())[:500]
+        if detail:
+            prefix = f"{prefix} {detail}"
+    return f"{prefix} {NATIVE_HOST_REPAIR_INSTRUCTION}"
 
 
 def _read_existing_nm_token(qwenpaw_home: Path) -> str | None:
@@ -577,8 +619,7 @@ def setup_extension_files(
         "manifest_configured": True,
         "native_host_repair_required": not native_host_probe["ok"],
         "native_host_repair_instruction": (
-            "Native host self-check failed during "
-            f"{native_host_probe['stage']}. {NATIVE_HOST_REPAIR_INSTRUCTION}"
+            _native_host_repair_instruction(native_host_probe)
             if not native_host_probe["ok"]
             else ""
         ),
@@ -658,11 +699,7 @@ def extension_install_status(
     if isinstance(probe, dict) and probe.get("ok") is False:
         repair_required = True
         installed = False
-        stage = str(probe.get("stage") or "unknown")
-        repair_instruction = (
-            f"Native host self-check failed during {stage}. "
-            f"{NATIVE_HOST_REPAIR_INSTRUCTION}"
-        )
+        repair_instruction = _native_host_repair_instruction(probe)
     else:
         repair_instruction = ""
     return {
