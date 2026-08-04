@@ -67,6 +67,12 @@ async def get_harness_models(
         dict(config.backend_settings) if config.backend == provider_id else {}
     )
     adapter = await workspace.harness_runtime.adapter(provider_id, settings)
+    unavailable_message = adapter.capability_unavailable_message
+    if unavailable_message:
+        return {
+            "models": [],
+            "message": unavailable_message,
+        }
     models = await adapter.models()
     return {"models": [item.model_dump() for item in models]}
 
@@ -86,6 +92,12 @@ async def get_harness_mcp(
         dict(config.backend_settings) if config.backend == provider_id else {}
     )
     adapter = await workspace.harness_runtime.adapter(provider_id, settings)
+    unavailable_message = adapter.capability_unavailable_message
+    if unavailable_message:
+        return {
+            "servers": [],
+            "message": unavailable_message,
+        }
     servers = await adapter.discover_mcp(workspace.workspace_dir.resolve())
     return {"servers": [item.model_dump() for item in servers]}
 
@@ -105,6 +117,12 @@ async def get_harness_skills(
         dict(config.backend_settings) if config.backend == provider_id else {}
     )
     adapter = await workspace.harness_runtime.adapter(provider_id, settings)
+    unavailable_message = adapter.capability_unavailable_message
+    if unavailable_message:
+        return {
+            "skills": [],
+            "message": unavailable_message,
+        }
     skills = await adapter.discover_skills(
         workspace.workspace_dir.resolve(),
     )
