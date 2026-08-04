@@ -13,6 +13,7 @@ import {
   calculateReserveThreshold,
   usesTieredToolResultSettings,
 } from "./toolResultSettings";
+import { VisualCompactSettings } from "./VisualCompactSettings";
 import styles from "../index.module.less";
 
 interface LightContextCardProps {
@@ -414,6 +415,11 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                 )}
               </>
             ),
+          },
+          {
+            key: "visualCompact",
+            label: t("agentConfig.visualCompactCollapseLabel"),
+            children: <VisualCompactSettings />,
           },
         ]}
       />

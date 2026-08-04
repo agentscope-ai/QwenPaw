@@ -19,6 +19,7 @@
     "view": "閲覧",
     "content": "内容",
     "loading": "読み込み中...",
+    "saving": "保存中...",
     "copy": "コピー",
     "copied": "クリップボードにコピーしました",
     "copyFailed": "クリップボードへのコピーに失敗しました",
@@ -29,6 +30,17 @@
     "total": "合計 {{count}} 件",
     "clear": "クリア",
     "paste": "貼り付け"
+  },
+  "harnesses": {
+    "connected": "接続済み",
+    "disconnected": "切断済み",
+    "notConnected": "未接続",
+    "comingSoon": "近日公開",
+    "connect": "ChatGPTで接続",
+    "disconnect": "切断",
+    "apiKeyAuthenticated": "API キーで認証済み",
+    "chatGptAuthenticated": "ChatGPT に接続済み",
+    "cliAuthenticated": "{{type}} CLI 認証済み"
   },
   "desktop": {
     "closeWindow": {
@@ -109,6 +121,85 @@
     "id": "ID",
     "description": "説明",
     "workspace": "ワークスペースパス",
+    "backend": {
+      "column": "バックエンド",
+      "eyebrow": "エージェントアーキテクチャ",
+      "typeTitle": "このエージェントの動作方式を選択",
+      "typeDescription": "エージェントの種類は、Chat、Coding、Channel のすべての会話に適用されます。",
+      "nativeTitle": "QwenPaw ネイティブエージェント",
+      "nativeBadge": "ネイティブ",
+      "nativeDescription": "設定済みの LLM、Skills、ツール、メモリ、QwenPaw ランタイムを使用します。",
+      "thirdPartyTitle": "サードパーティエージェント",
+      "thirdPartyBadge": "サードパーティ",
+      "thirdPartyDescription": "QwenPaw モデルの代わりに、認証済みの外部エージェントランタイムを使用します。",
+      "providerTitle": "サードパーティエージェントを選択",
+      "providerDescription": "認証情報はこのデバイスで共有されますが、プロジェクトと会話はエージェントごとに分離されます。",
+      "codexHint": "ChatGPT OAuth · エージェントワークスペース",
+      "qoderHint": "Qoder アカウントまたは PAT · エージェントワークスペース",
+      "account": "Codex アカウント",
+      "qoderAccount": "Qoder アカウント",
+      "binary": "Codex 実行ファイル",
+      "binaryHelp": "空欄の場合は Python SDK 付属の Codex CLI を優先し、単独インストールも自動検出します。手動で指定する場合は、macOS/Linux の codex または Windows の codex.exe のフルパスを入力してください。ChatGPT App やエディター拡張機能に内蔵されたバイナリはサポートされません。QwenPaw は CODEX_BINARY とバックエンドの PATH も参照します。",
+      "binaryPlaceholder": "自動検出、または Codex 実行ファイルのパスを貼り付け",
+      "qoderBinary": "Qoder 実行ファイル",
+      "qoderBinaryHelp": "空欄の場合は Python SDK 同梱の qodercli を優先し、既存のインストールも自動検出します。手動指定では macOS/Linux の qodercli または Windows の qodercli.exe へのフルパスを入力してください。QODERCLI_PATH とバックエンドの PATH も参照します。",
+      "qoderBinaryPlaceholder": "自動検出、または qodercli のパスを貼り付け",
+      "detect": "再検出",
+      "detectedBinary": "Codex を検出しました",
+      "qoderDetectedBinary": "Qoder を検出しました",
+      "apiKeyLoginHint": "ターミナルで codex login --with-api-key を実行して認証することもできます。",
+      "qoderAuthHint": "接続すると Qoder のブラウザログインが開きます。qodercli login の実行、またはバックエンド起動前の QODER_PERSONAL_ACCESS_TOKEN 設定も利用できます。",
+      "qoderConnect": "Qoder に接続",
+      "model": "エージェントモデル",
+      "modelDefault": "エージェントのデフォルトを使用",
+      "defaultBadge": "デフォルト",
+      "reasoningEffort": "推論レベル",
+      "reasoningDefault": "モデルのデフォルトを使用",
+      "codexNotFound": "Codex runtime が見つかりません。qwenpaw[codex] をインストールするか、単独の Codex CLI を指定してください。",
+      "qoderNotFound": "Qoder runtime が見つかりません。qwenpaw[qoder] をインストールするか、qodercli を指定してください。",
+      "chatSettingsHint": "Chat ツールバーでモデル、推論レベル、実行権限を選択します。",
+      "capabilityTitle": "QwenPaw の機能",
+      "inheritedSkills": "スキル",
+      "inheritedMcp": "MCP サーバー",
+      "runtimeInherited": "実行時に継承 · 新規セッション",
+      "notSupported": "このプロバイダーでは未対応",
+      "policyCompatibility": "MCP ポリシー",
+      "toolAllowlistSupported": "ツール許可リスト対応",
+      "policyLimited": "プロバイダーの制限あり",
+      "chatModelHint": "エージェント単位の設定 · 次のターンから適用",
+      "appliesNextTurn": "次のターンから適用",
+      "approvalMode": "実行権限",
+      "approvalPresets": {
+        "ask": {
+          "name": "変更前に確認",
+          "description": "ワークスペースの変更を許可し、昇格操作の前に確認します。"
+        },
+        "read-only": {
+          "name": "読み取り専用",
+          "description": "ファイルを変更せずに確認します。"
+        },
+        "workspace": {
+          "name": "ワークスペースアクセス",
+          "description": "確認なしでワークスペースの変更を許可します。"
+        },
+        "accept-edits": {
+          "name": "編集を許可",
+          "description": "ファイル編集を許可し、その他の安全確認は維持します。"
+        },
+        "plan": {
+          "name": "計画のみ",
+          "description": "ファイルを変更せずに分析と計画を行います。"
+        },
+        "auto": {
+          "name": "自動",
+          "description": "安全な操作を Qoder が判断して実行します。"
+        },
+        "full-access": {
+          "name": "フルアクセス",
+          "description": "確認なしで無制限のローカル実行を許可します。"
+        }
+      }
+    },
     "create": "エージェントを作成",
     "createTitle": "新しいエージェントを作成",
     "createSuccess": "エージェントが正常に作成されました",
@@ -207,6 +298,88 @@
     "copySuccess": "エージェント設定のコピーに成功しました",
     "copyFailed": "エージェント設定のコピーに失敗しました"
   },
+  "checkpoints": {
+    "nav": "チェックポイント",
+    "title": "状態チェックポイント",
+    "auto": "自動",
+    "autoEnabled": "自動チェックポイントを有効にしました",
+    "autoDisabled": "自動チェックポイントを無効にしました",
+    "refresh": "更新",
+    "snapshot": "スナップショット",
+    "snapshotCreated": "スナップショットを作成しました",
+    "graph": "グラフ",
+    "checkpoint": "チェックポイント",
+    "type": "種類",
+    "commit": "コミット",
+    "createdAt": "作成日時",
+    "session": "セッション",
+    "channel": "チャンネル",
+    "parent": "親",
+    "details": "チェックポイントの詳細",
+    "search": "クエリ、名前、セッション、SHAを検索",
+    "allTypes": "すべての種類",
+    "allSessions": "すべてのセッション",
+    "showingLatest": "最新{{count}}件を表示",
+    "loadFailed": "チェックポイントを読み込めません",
+    "retry": "再試行",
+    "more": "その他の操作",
+    "noMatches": "条件に一致するチェックポイントはありません。",
+    "empty": "状態チェックポイントはまだありません。作成後、履歴がここに表示されます。",
+    "kind": {
+      "auto": "自動",
+      "snapshot": "スナップショット",
+      "safety": "安全",
+      "commit": "コミット"
+    },
+    "summary": { "total": "件" },
+    "snapshotDialog": {
+      "title": "スナップショットを作成",
+      "session": "セッション",
+      "name": "名前",
+      "placeholder": "任意の名前"
+    },
+    "gc": {
+      "settingsAction": "自動整理設定",
+      "settingsTitle": "自動整理設定",
+      "keepCount": "保持する自動チェックポイント数",
+      "keepDays": "自動チェックポイントの保持日数",
+      "preRestoreDays": "復元前スナップショットの保持日数",
+      "settingsSaved": "自動整理設定を保存しました",
+      "thoroughAction": "Thoroughly compact checkpoints",
+      "thoroughTitle": "Thoroughly compact checkpoints?",
+      "thoroughDescription": "自動チェックポイントの保持ポリシーを無視して {{count}} 件を削除します。各セッションの HEAD は保持されます。",
+      "thoroughConfirm": "Thoroughly compact",
+      "thoroughSuccess": "Removed {{count}} checkpoint(s) during thorough compaction",
+      "action": "チェックポイントを整理",
+      "title": "保持ポリシーに従ってチェックポイントを整理しますか？",
+      "description": "現在の保持ポリシーに従い、期限切れのチェックポイント {{count}} 件を削除します。各セッションの HEAD は保持されます。",
+      "confirm": "整理",
+      "success": "{{count}}件を削除しました"
+    },
+    "reset": {
+      "action": "チェックポイントをリセット",
+      "title": "すべてリセットしますか？",
+      "description": "すべてのチェックポイントを完全に削除し、自動作成を無効にします。",
+      "confirm": "リセット",
+      "success": "リセットしました"
+    },
+    "restore": {
+      "action": "復元",
+      "title": "チェックポイントを復元",
+      "preview": "復元をプレビュー",
+      "confirm": "復元",
+      "conversation": "会話",
+      "memory": "メモリ",
+      "files": "ワークスペースファイル",
+      "refreshWarning": "会話が変更されます。復元後に会話を更新してください。",
+      "selectedCount": "{{count}}ファイルを選択",
+      "selectAll": "変更ファイルをすべて選択",
+      "delete": "削除",
+      "restore": "復元",
+      "noFileChanges": "復元が必要なファイルはありません。",
+      "success": "復元しました。会話を更新して状態を読み込んでください。"
+    }
+  },
   "workspace": {
     "title": "ファイル",
     "workspacePath": "ワークスペース:",
@@ -235,6 +408,19 @@
   "skills": {
     "title": "スキル",
     "description": "エージェントのスキルと機能を管理します。",
+    "qwenpawManaged": "QwenPaw 管理",
+    "qwenpawManagedHint": "編集可能で、実行時に対応する外部エージェントへ反映されます。",
+    "providerManaged": "サードパーティエージェントのスキル",
+    "providerManagedHint": "現在のサードパーティエージェントから検出され、読み取り専用で表示されます。",
+    "providerOnly": "現在のサードパーティエージェントのみ",
+    "readOnly": "読み取り専用",
+    "noDescription": "説明はありません。",
+    "providerSkillDetails": "サードパーティエージェント Skill の詳細",
+    "providerManagedDetailHint": "この Skill はサードパーティエージェントによって管理されています。QwenPaw では表示および使用できますが、変更はできません。",
+    "provider": "サードパーティエージェント",
+    "scope": "スコープ",
+    "statusLabel": "ステータス",
+    "descriptionLabel": "説明",
     "importHub": "URL からアップロード",
     "supportedSources": "対応ソース：",
     "importSkills": "スキルをインポート",
@@ -456,6 +642,12 @@
   },
   "mcp": {
     "title": "MCPクライアント",
+    "qwenpawManaged": "QwenPaw 管理",
+    "qwenpawManagedHint": "統合コントロールプレーンで管理し、対応するサードパーティエージェントへ実行時に注入します。",
+    "providerManaged": "{{provider}} ローカル MCP",
+    "providerManagedHint": "サードパーティエージェント固有の設定から検出されます。読み取り専用で、そのエージェントだけで使用できます。",
+    "providerOnly": "サードパーティエージェント限定",
+    "readOnly": "読み取り専用",
     "create": "クライアントを作成",
     "formatSupport": "サポートされているフォーマット",
     "standardFormat": "標準（mcpServers でラップ）",
@@ -841,6 +1033,12 @@
     "toolCallMaxLength": "ツール呼び出しの最大表示長",
     "toolResultMaxLength": "ツール結果の最大表示長",
     "toolMaxLengthTooltip": "0 に設定すると省略しません",
+    "onebotMediaBase64": "ローカルメディアを Base64 で送信",
+    "onebotMediaBase64Tooltip": "メディアファイルの送信方式を選択します。無効の場合はファイルパスを送信し、有効の場合はファイルを Base64 にエンコードして送信します。リモート URL は変更されません。",
+    "onebotMediaBase64MaxMb": "Base64 ファイルサイズ上限",
+    "onebotMediaBase64MaxMbTooltip": "この上限を超えるメディアファイルは、元のファイルパスを使用して送信されます。",
+    "onebotMediaBase64MaxMbRequired": "Base64 ファイルサイズ上限を入力してください",
+    "onebotMediaBase64MaxMbMin": "Base64 ファイルサイズ上限は 1 MB 以上にしてください",
     "showThinking": "思考過程を表示",
     "showThinkingTooltip": "モデルの思考・推論内容をユーザーに表示します（オフにすると非表示）",
     "noTextDebounce": "テキストなしデバウンス",
@@ -1901,6 +2099,18 @@
     "rebuildMemoryIndexFailed": "記憶インデックスの再構築に失敗しました：{{error}}",
     "toolResultCompactRecentGtOld": "最新メッセージの閾値は古いメッセージの閾値以上である必要があります",
     "lightContextTitle": "コンテキスト管理",
+    "visualCompactCollapseLabel": "ビジュアル圧縮",
+    "visualCompactDescription": "古く長いコンテキストをビジュアルページに圧縮して入力トークンを削減します。最近の会話はテキストのまま保持されます。",
+    "visualCompactEnabled": "Visual Compact を有効にする",
+    "visualCompactEffort": "圧縮強度",
+    "visualCompactLow": "低",
+    "visualCompactMedium": "中",
+    "visualCompactHigh": "高",
+    "visualCompactLowDescription": "圧縮する内容を抑え、読みやすさを優先します。",
+    "visualCompactMediumDescription": "トークン削減と視認性のバランスを取ります。",
+    "visualCompactHighDescription": "対象コンテキストをより多く圧縮し、トークン削減を優先します。",
+    "visualCompactQualityNote": "圧縮強度を上げても、回答品質が向上するとは限りません。",
+    "visualCompactCapabilityNote": "画像入力に対応するモデルでのみ有効です。",
     "remeLightMemoryTitle": "長期記憶",
     "toolExecutionLevelTitle": "ツール実行セキュリティ",
     "toolExecutionLevel": {
@@ -1943,6 +2153,13 @@
     "asyncExecution": "非同期実行",
     "asyncExecutionEnabled": "非同期実行が有効です",
     "asyncExecutionDisabled": "非同期実行が無効です",
+    "browserUnifiedMode": "統合ブラウザー（ベータ）",
+    "browserLegacyMode": "レガシー互換モード",
+    "browserUnifiedModeButton": "新版（ベータ）",
+    "browserLegacyModeButton": "旧版（互換）",
+    "browserUnifiedDescription": "新しい統合ブラウザー機能を使用します。",
+    "browserLegacyDescription": "従来の動作が必要な場合は、元のブラウザー実装を使用します。",
+    "browserRestartPending": "サービスの再起動後に {{mode}} へ切り替わります。",
     "configure": "設定",
     "configured": "設定済み",
     "requiresConfig": "設定が必要です",
@@ -2060,6 +2277,15 @@
       },
       "skills": {
         "description": "チャットで利用可能なスキルを一覧し、明示的なスキルコマンドを表示します"
+      },
+      "agents": {
+        "description": "現在のランタイムで利用可能なエージェントを一覧表示"
+      },
+      "review": {
+        "description": "Codex で未コミットのワークスペース変更をレビュー"
+      },
+      "status": {
+        "description": "現在のエージェントアカウント、モデル、ワークスペースを表示"
       },
       "goal": {
         "description": "Goalループ — エージェントが目標に向かって継続実行し、Rubric評価で完了を自動判定"
@@ -2935,6 +3161,8 @@
     "loading": "読み込み中...",
     "inputProgress": "{{count}} 文字を受信",
     "rawInputPreview": "リアルタイムの未加工入力（末尾 4,096 文字）",
+    "largeOutputOmitted": "{{count}} 行を省略しました — 利用可能な出力をコピーするか、復元手順に従ってください",
+    "largeOutputTruncated": "表示用に出力を省略しました — 利用可能な出力をコピーするか、復元手順に従ってください",
     "browserAction": {
       "startHeaded": "ブラウザを起動（表示あり）",
       "start": "ブラウザを起動",

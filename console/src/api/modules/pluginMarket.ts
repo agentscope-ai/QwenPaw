@@ -44,6 +44,7 @@ export interface FetchMarketPluginsParams {
 
 export async function fetchMarketPlugins(
   params: FetchMarketPluginsParams,
+  options: { signal?: AbortSignal } = {},
 ): Promise<{ total: number; plugins: MarketPluginEntry[] }> {
   const url = new URL(
     getApiUrl("/plugins/market/search"),
@@ -57,6 +58,7 @@ export async function fetchMarketPlugins(
 
   const response = await fetch(url.toString(), {
     headers: buildAuthHeaders(),
+    signal: options.signal,
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));

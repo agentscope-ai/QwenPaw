@@ -7,43 +7,37 @@ addition, sandbox config compilation.
 """
 
 from __future__ import annotations
+
 import hashlib
 import logging
 from pathlib import Path
 from typing import Optional
 
+from ..constant import WORKING_DIR
+from ..sandbox import (
+    MountSpec,
+    SandboxCapability,
+    SandboxConfig,
+    detect_platform_mode,
+    probe_sandbox_support,
+)
+from ..utils.io_utils import get_sync_path_lock, run_sync_io
+from .audit import AuditLog
 from .policy import (
-    GovernancePolicy,
-    GovernanceRule,
-    GovernanceAction,
-    GovernanceDecision,
-    ToolCallSpec,
     DEFAULT_SANDBOX_DENY_PATHS,
     FILE_READ_TOOLS,
     FILE_WRITE_TOOLS,
+    GovernanceAction,
+    GovernanceDecision,
+    GovernancePolicy,
+    GovernanceRule,
+    ToolCallSpec,
+    _parse_match,
     load_governance_policy,
     save_governance_policy,
-    _parse_match,
-)
-from .audit import AuditLog
-from ..constant import WORKING_DIR
-from ..utils.io_utils import get_sync_path_lock, run_sync_io
-
-from ..sandbox import (
-    SandboxCapability,
-    SandboxConfig,
-    MountSpec,
-    probe_sandbox_support,
-    detect_platform_mode,
 )
 
 logger = logging.getLogger(__name__)
-
-
-# Module-level debounce: avoid spamming the auto-disable warning on every
-# tool-execution check.  0 = never warned; otherwise the epoch of the last
-# warning.
-_sandbox_admin_warned_at: float = 0.0
 
 
 class ResourceGovernor:
@@ -120,42 +114,16 @@ class ResourceGovernor:
         read error it returns True (fail-safe): a glitch then routes the
         command through the sandbox instead of running it unsandboxed.
 
-        On Windows, if ``sandbox_enabled`` is True but the process lacks
-        administrator privileges, the switch is treated as False for this
-        session and a warning is logged.  The config file is NOT modified
-        so the user's intent is preserved for future admin launches.
+        On Windows without administrator privileges, the unelevated sandbox
+        backend (WRITE_RESTRICTED token) is used automatically.  The sandbox
+        remains active — only the isolation level is reduced compared to the
+        elevated (admin) backend.
         """
-        global _sandbox_admin_warned_at
         try:
             from ..config import load_config
 
             config = load_config()
-            enabled = bool(config.security.sandbox_enabled)
-
-            # Runtime guard: if sandbox is enabled but we're on Windows
-            # without admin, treat as disabled for this session.
-            if enabled:
-                from ..utils.platform import is_windows_admin
-
-                if not is_windows_admin():
-                    import time as _time
-
-                    now = _time.monotonic()
-                    # Throttle: this method is called on every tool-execution
-                    # check.  Without a debounce interval the same warning
-                    # would be emitted hundreds of times per session.
-                    # 30 s keeps the user informed without flooding the log.
-                    if now - _sandbox_admin_warned_at > 30:
-                        logger.warning(
-                            "Windows sandbox inactive for this session: "
-                            "sandbox_enabled is true but the process lacks "
-                            "administrator privileges. To use the sandbox, "
-                            "restart QwenPaw as administrator.",
-                        )
-                        _sandbox_admin_warned_at = now
-                    return False
-
-            return enabled
+            return bool(config.security.sandbox_enabled)
         except Exception:
             logger.debug(
                 "ResourceGovernor: failed to read sandbox_enabled; "

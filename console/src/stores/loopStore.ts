@@ -14,6 +14,10 @@ export interface LoopModeInfo {
   slash_command: string;
   description: string;
   source: LoopModeSource;
+  /** Plugin-owned display names keyed by locale (e.g. en, zh-CN). */
+  name_i18n?: Record<string, string> | null;
+  /** Plugin-owned menu summaries keyed by locale. */
+  description_i18n?: Record<string, string> | null;
 }
 
 interface LoopModeStatusResponse {

@@ -1,5 +1,8 @@
-# Pack repo plugins (bundle/tool) and publish to the download CDN (OSS).
+# Pack repo plugins (bundle/tool/apps) and publish to the download CDN (OSS).
 # Runs on any published GitHub Release (including prereleases), same as Desktop OSS upload; also manually via Actions tab.
+# The Creator plugin is excluded here: it has its own version-driven
+# pipeline (creator-release.yml) so a main release never overwrites a
+# creator zip with mid-cycle code under the same immutable URL.
 
 name: QwenPaw Plugins Release
 
@@ -36,13 +39,35 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build app plugin frontends
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for app_dir in plugins/apps/*; do
+            if [[ "$(basename "$app_dir")" == "qwenpaw-creator" ]]; then
+              echo "Skipping ${app_dir} (released via creator-release.yml)"
+              continue
+            fi
+            if [[ -f "$app_dir/ui/package-lock.json" ]]; then
+              echo "Building ${app_dir}/ui"
+              npm --prefix "$app_dir/ui" ci
+              npm --prefix "$app_dir/ui" run build
+            fi
+          done
+
       - name: Pack plugins and build index
         run: |
           python scripts/pack/generate_plugin_metadata.py \
             --plugins-root plugins \
             --dist dist/plugins \
             --metadata-out dist/plugins/index.json \
-            --cdn-prefix /files/plugins
+            --cdn-prefix /files/plugins \
+            --exclude qwenpaw-creator
 
       - name: Install ossutil
         run: |

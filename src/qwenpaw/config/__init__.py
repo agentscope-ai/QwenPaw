@@ -13,6 +13,7 @@ from .config import (
     ActiveModelsInfo,
     ACPConfig,
     ACPAgentConfig,
+    VisualCompactConfig,
 )
 from .utils import (
     get_available_channels,
@@ -43,6 +44,7 @@ __all__ = [
     "ActiveModelsInfo",
     "ACPConfig",
     "ACPAgentConfig",
+    "VisualCompactConfig",
     "get_available_channels",
     "get_config_path",
     "get_heartbeat_config",

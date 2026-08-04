@@ -11,7 +11,10 @@ import {
 import { LoopModeSelector } from "./LoopModeSelector";
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: { language: "zh" },
+  }),
 }));
 
 const goal: LoopModeInfo = {
@@ -28,12 +31,30 @@ const custom: LoopModeInfo = {
   description: "Keep the user's original description.",
   source: "custom",
 };
+const ompUltraqa: LoopModeInfo = {
+  id: "plugin:ultraqa",
+  name: "ultraqa",
+  slash_command: "ultraqa",
+  description:
+    "**UltraQA** — automated QA cycle engine\n\n" +
+    "Usage:\n" +
+    '  `/ultraqa [--tests|--build|--lint|--typecheck|--custom "cmd"]`\n',
+  name_i18n: {
+    en: "UltraQA",
+    "zh-CN": "UltraQA",
+  },
+  description_i18n: {
+    en: "**UltraQA** — automated QA cycle engine",
+    "zh-CN": "**UltraQA** — 自动化 QA 循环引擎",
+  },
+  source: "plugin",
+};
 
 describe("LoopModeSelector", () => {
   beforeEach(() => {
     useLoopStore.setState({
       selectedModeId: "default",
-      availableModes: [DEFAULT_LOOP_MODE, goal, custom],
+      availableModes: [DEFAULT_LOOP_MODE, goal, custom, ompUltraqa],
       sessionState: "idle",
       activeMode: null,
       catalogLoading: false,
@@ -58,6 +79,15 @@ describe("LoopModeSelector", () => {
     expect(
       screen.queryByText("Backend goal description"),
     ).not.toBeInTheDocument();
+    const ultraqaLabels = screen.getAllByText("UltraQA");
+    expect(ultraqaLabels.length).toBeGreaterThanOrEqual(2);
+    expect(ultraqaLabels.some((node) => node.tagName === "STRONG")).toBe(true);
+    expect(screen.getByText(/自动化 QA 循环引擎/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/automated QA cycle engine/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/\*\*UltraQA\*\*/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/`\/ultraqa/)).not.toBeInTheDocument();
   });
 
   it("selects a custom mode from the compact menu", async () => {

@@ -19,6 +19,7 @@
     "view": "Просмотр",
     "content": "Содержимое",
     "loading": "Загрузка...",
+    "saving": "Сохранение...",
     "copy": "Копировать",
     "copied": "Скопировано в буфер обмена",
     "copyFailed": "Не удалось скопировать в буфер обмена",
@@ -29,6 +30,17 @@
     "total": "Всего {{count}}",
     "clear": "Очистить",
     "paste": "Вставить"
+  },
+  "harnesses": {
+    "connected": "Подключено",
+    "disconnected": "Отключено",
+    "notConnected": "Не подключено",
+    "comingSoon": "Скоро",
+    "connect": "Подключить через ChatGPT",
+    "disconnect": "Отключить",
+    "apiKeyAuthenticated": "Аутентификация по API-ключу",
+    "chatGptAuthenticated": "Подключено к ChatGPT",
+    "cliAuthenticated": "{{type}} CLI аутентифицирован"
   },
   "desktop": {
     "closeWindow": {
@@ -109,6 +121,85 @@
     "id": "ID",
     "description": "Описание",
     "workspace": "Путь к рабочему пространству",
+    "backend": {
+      "column": "Бэкенд",
+      "eyebrow": "Архитектура агента",
+      "typeTitle": "Выберите, как работает этот агент",
+      "typeDescription": "Тип агента определяет работу всех диалогов в Chat, Coding и Channel.",
+      "nativeTitle": "Нативный агент QwenPaw",
+      "nativeBadge": "Нативный",
+      "nativeDescription": "Использует настроенные LLM, Skills, инструменты, память и среду выполнения QwenPaw.",
+      "thirdPartyTitle": "Сторонний агент",
+      "thirdPartyBadge": "Сторонний",
+      "thirdPartyDescription": "Использует авторизованную внешнюю среду агента вместо модели QwenPaw.",
+      "providerTitle": "Выберите стороннего агента",
+      "providerDescription": "Авторизация общая для этого устройства; проекты и диалоги изолированы для каждого агента.",
+      "codexHint": "ChatGPT OAuth · Рабочая область агента",
+      "qoderHint": "Учётная запись Qoder или PAT · Рабочая область агента",
+      "account": "Учётная запись Codex",
+      "qoderAccount": "Учётная запись Qoder",
+      "binary": "Исполняемый файл Codex",
+      "binaryHelp": "Оставьте поле пустым, чтобы использовать Codex CLI из Python SDK или найти отдельную установку. При ручной настройке укажите полный путь к codex в macOS/Linux или codex.exe в Windows. Встроенные бинарные файлы приложения ChatGPT и расширений редактора не поддерживаются. QwenPaw также читает CODEX_BINARY и PATH бэкенда.",
+      "binaryPlaceholder": "Автоопределение или путь к исполняемому файлу Codex",
+      "qoderBinary": "Исполняемый файл Qoder",
+      "qoderBinaryHelp": "Оставьте поле пустым, чтобы использовать qodercli из Python SDK или найти установленную версию. При ручной настройке укажите полный путь к qodercli в macOS/Linux или qodercli.exe в Windows. QwenPaw также читает QODERCLI_PATH и PATH бэкенда.",
+      "qoderBinaryPlaceholder": "Автоопределение или путь к qodercli",
+      "detect": "Проверить",
+      "detectedBinary": "Codex обнаружен",
+      "qoderDetectedBinary": "Qoder обнаружен",
+      "apiKeyLoginHint": "Также можно выполнить аутентификацию в терминале: codex login --with-api-key",
+      "qoderAuthHint": "Подключение откроет вход Qoder в браузере. Также можно выполнить qodercli login или задать QODER_PERSONAL_ACCESS_TOKEN перед запуском бэкенда.",
+      "qoderConnect": "Подключить Qoder",
+      "model": "Модель агента",
+      "modelDefault": "Использовать модель агента по умолчанию",
+      "defaultBadge": "По умолчанию",
+      "reasoningEffort": "Уровень рассуждения",
+      "reasoningDefault": "Использовать значение модели по умолчанию",
+      "codexNotFound": "Среда выполнения Codex не найдена. Установите qwenpaw[codex] или укажите отдельный Codex CLI.",
+      "qoderNotFound": "Среда выполнения Qoder не найдена. Установите qwenpaw[qoder] или укажите qodercli.",
+      "chatSettingsHint": "Выберите модель, уровень рассуждения и разрешения на выполнение на панели Chat.",
+      "capabilityTitle": "Возможности QwenPaw",
+      "inheritedSkills": "Навыки",
+      "inheritedMcp": "Серверы MCP",
+      "runtimeInherited": "Наследуются при запуске · новые сеансы",
+      "notSupported": "Не поддерживается провайдером",
+      "policyCompatibility": "Политика MCP",
+      "toolAllowlistSupported": "Список разрешённых инструментов",
+      "policyLimited": "Действуют ограничения провайдера",
+      "chatModelHint": "Настройки агента · применяются со следующего хода",
+      "appliesNextTurn": "Применяется со следующего хода",
+      "approvalMode": "Разрешения на выполнение",
+      "approvalPresets": {
+        "ask": {
+          "name": "Спрашивать перед изменениями",
+          "description": "Разрешает изменения рабочей области и запрашивает подтверждение перед действиями с повышенными правами."
+        },
+        "read-only": {
+          "name": "Только чтение",
+          "description": "Проверяет файлы без изменений."
+        },
+        "workspace": {
+          "name": "Доступ к рабочей области",
+          "description": "Разрешает изменения рабочей области без подтверждения."
+        },
+        "accept-edits": {
+          "name": "Разрешать правки",
+          "description": "Разрешает правки файлов, сохраняя остальные проверки."
+        },
+        "plan": {
+          "name": "Только план",
+          "description": "Анализирует и планирует без изменения файлов."
+        },
+        "auto": {
+          "name": "Автоматически",
+          "description": "Qoder сам определяет безопасные действия."
+        },
+        "full-access": {
+          "name": "Полный доступ",
+          "description": "Разрешает неограниченное локальное выполнение без подтверждения."
+        }
+      }
+    },
     "create": "Создать агента",
     "createTitle": "Создать нового агента",
     "createSuccess": "Агент успешно создан",
@@ -207,6 +298,88 @@
     "copySuccess": "Конфигурация агента успешно скопирована",
     "copyFailed": "Не удалось скопировать конфигурацию агента"
   },
+  "checkpoints": {
+    "nav": "Контрольные точки",
+    "title": "Контрольные точки состояния",
+    "auto": "Автоматически",
+    "autoEnabled": "Автоматические точки включены",
+    "autoDisabled": "Автоматические точки выключены",
+    "refresh": "Обновить",
+    "snapshot": "Снимок",
+    "snapshotCreated": "Снимок создан",
+    "graph": "Граф",
+    "checkpoint": "Контрольная точка",
+    "type": "Тип",
+    "commit": "Коммит",
+    "createdAt": "Создано",
+    "session": "Сеанс",
+    "channel": "Канал",
+    "parent": "Родитель",
+    "details": "Сведения",
+    "search": "Поиск по запросу, имени, сеансу или SHA",
+    "allTypes": "Все типы",
+    "allSessions": "Все сеансы",
+    "showingLatest": "Показано последних: {{count}}",
+    "loadFailed": "Не удалось загрузить контрольные точки",
+    "retry": "Повторить",
+    "more": "Другие действия",
+    "noMatches": "Нет точек, соответствующих фильтрам.",
+    "empty": "Контрольных точек пока нет. История версий появится здесь.",
+    "kind": {
+      "auto": "Авто",
+      "snapshot": "Снимок",
+      "safety": "Защитная",
+      "commit": "Коммит"
+    },
+    "summary": { "total": "точек" },
+    "snapshotDialog": {
+      "title": "Создать снимок",
+      "session": "Сеанс",
+      "name": "Имя",
+      "placeholder": "Необязательное имя"
+    },
+    "gc": {
+      "settingsAction": "Настройки автоочистки",
+      "settingsTitle": "Настройки автоочистки",
+      "keepCount": "Количество автоматических точек",
+      "keepDays": "Хранение автоматических точек (дни)",
+      "preRestoreDays": "Хранение снимков перед восстановлением (дни)",
+      "settingsSaved": "Настройки автоочистки сохранены",
+      "thoroughAction": "Полное сжатие контрольных точек",
+      "thoroughTitle": "Полностью сжать контрольные точки?",
+      "thoroughDescription": "Удаляет контрольные точки ({{count}}), игнорируя хранение автоматических точек. HEAD каждого сеанса сохраняется.",
+      "thoroughConfirm": "Полностью сжать",
+      "thoroughSuccess": "При полном сжатии удалено контрольных точек: {{count}}",
+      "action": "Очистить точки",
+      "title": "Очистить точки согласно политике хранения?",
+      "description": "Удаляет просроченные контрольные точки ({{count}}) согласно текущей политике хранения. HEAD каждого сеанса сохраняется.",
+      "confirm": "Очистить",
+      "success": "Удалено: {{count}}"
+    },
+    "reset": {
+      "action": "Сбросить данные",
+      "title": "Сбросить все данные?",
+      "description": "Все точки будут удалены навсегда, автоматическое создание будет отключено.",
+      "confirm": "Сбросить",
+      "success": "Данные сброшены"
+    },
+    "restore": {
+      "action": "Восстановить",
+      "title": "Восстановить контрольную точку",
+      "preview": "Предпросмотр",
+      "confirm": "Восстановить",
+      "conversation": "Диалог",
+      "memory": "Память",
+      "files": "Файлы рабочей области",
+      "refreshWarning": "Диалог изменится. После восстановления обновите его.",
+      "selectedCount": "Выбрано файлов: {{count}}",
+      "selectAll": "Выбрать все изменённые файлы",
+      "delete": "Удалить",
+      "restore": "Восстановить",
+      "noFileChanges": "Изменения файлов не требуются.",
+      "success": "Точка восстановлена. Обновите диалог, чтобы загрузить состояние."
+    }
+  },
   "workspace": {
     "title": "Файлы",
     "workspacePath": "Рабочее пространство:",
@@ -235,6 +408,19 @@
   "skills": {
     "title": "Навыки",
     "description": "Управляйте навыками и возможностями агента.",
+    "qwenpawManaged": "Под управлением QwenPaw",
+    "qwenpawManagedHint": "Доступны для изменения и передаются поддерживаемым сторонним агентам при запуске.",
+    "providerManaged": "Навыки стороннего агента",
+    "providerManagedHint": "Обнаружены у текущего стороннего агента и доступны только для чтения.",
+    "providerOnly": "Только текущий сторонний агент",
+    "readOnly": "Только чтение",
+    "noDescription": "Описание отсутствует.",
+    "providerSkillDetails": "Сведения о Skill стороннего агента",
+    "providerManagedDetailHint": "Этот Skill управляется сторонним агентом. QwenPaw может отображать и использовать его, но не изменять.",
+    "provider": "Сторонний агент",
+    "scope": "Область",
+    "statusLabel": "Статус",
+    "descriptionLabel": "Описание",
     "importHub": "Загрузить по URL",
     "supportedSources": "Поддерживаемые источники:",
     "importSkills": "Импорт навыка",
@@ -456,6 +642,12 @@
   },
   "mcp": {
     "title": "MCP-клиенты",
+    "qwenpawManaged": "Под управлением QwenPaw",
+    "qwenpawManagedHint": "Общая конфигурация панели управления внедряется в поддерживаемые сторонние агенты во время выполнения.",
+    "providerManaged": "Локальные MCP {{provider}}",
+    "providerManagedHint": "Обнаружены в конфигурации стороннего агента. Доступны только для чтения и только этому агенту.",
+    "providerOnly": "Только сторонний агент",
+    "readOnly": "Только чтение",
     "create": "Создать клиент",
     "formatSupport": "Поддерживаемые форматы",
     "standardFormat": "Стандартный (обёртка mcpServers)",
@@ -841,6 +1033,12 @@
     "toolCallMaxLength": "Максимальная длина отображения вызова инструмента",
     "toolResultMaxLength": "Максимальная длина отображения результата инструмента",
     "toolMaxLengthTooltip": "Установите 0, чтобы не ограничивать длину",
+    "onebotMediaBase64": "Отправлять локальные медиа как Base64",
+    "onebotMediaBase64Tooltip": "Выберите способ отправки медиафайлов. Если параметр выключен, отправляется путь к файлу; если включён — файл кодируется в Base64. Удалённые URL остаются без изменений.",
+    "onebotMediaBase64MaxMb": "Ограничение размера файла Base64",
+    "onebotMediaBase64MaxMbTooltip": "Медиафайлы больше этого ограничения отправляются с использованием исходного пути к файлу.",
+    "onebotMediaBase64MaxMbRequired": "Введите ограничение размера файла Base64",
+    "onebotMediaBase64MaxMbMin": "Ограничение размера файла Base64 должно быть не менее 1 MB",
     "showThinking": "Показывать рассуждения",
     "showThinkingTooltip": "Показывать пользователям рассуждения модели (выключите, чтобы скрыть)",
     "noTextDebounce": "Дебаунс без текста",
@@ -1916,6 +2114,18 @@
     "rebuildMemoryIndexFailed": "Не удалось перестроить индекс памяти: {{error}}",
     "toolResultCompactRecentGtOld": "Порог для последних сообщений должен быть больше или равен порогу для старых сообщений",
     "lightContextTitle": "Управление контекстом",
+    "visualCompactCollapseLabel": "Визуальное сжатие",
+    "visualCompactDescription": "Сжимает старый и длинный контекст в визуальные страницы, сокращая входные токены. Недавний диалог остаётся текстом.",
+    "visualCompactEnabled": "Включить Visual Compact",
+    "visualCompactEffort": "Интенсивность сжатия",
+    "visualCompactLow": "Низкая",
+    "visualCompactMedium": "Средняя",
+    "visualCompactHigh": "Высокая",
+    "visualCompactLowDescription": "Сжимает меньше содержимого и отдаёт приоритет читаемости.",
+    "visualCompactMediumDescription": "Балансирует экономию токенов и визуальную читаемость.",
+    "visualCompactHighDescription": "Сжимает больше подходящего контекста и отдаёт приоритет экономии токенов.",
+    "visualCompactQualityNote": "Более сильное сжатие не обязательно повышает качество ответа.",
+    "visualCompactCapabilityNote": "Работает только с моделями, поддерживающими ввод изображений.",
     "remeLightMemoryTitle": "Долгосрочная память",
     "toolExecutionLevelTitle": "Безопасность выполнения инструментов",
     "toolExecutionLevel": {
@@ -1958,6 +2168,13 @@
     "asyncExecution": "Асинхронное выполнение",
     "asyncExecutionEnabled": "Асинхронное выполнение включено",
     "asyncExecutionDisabled": "Асинхронное выполнение отключено",
+    "browserUnifiedMode": "Унифицированный браузер (бета)",
+    "browserLegacyMode": "Режим совместимости с устаревшей версией",
+    "browserUnifiedModeButton": "Новый (бета)",
+    "browserLegacyModeButton": "Старый (совм.)",
+    "browserUnifiedDescription": "Использовать новые возможности унифицированного браузера.",
+    "browserLegacyDescription": "Использовать исходную реализацию браузера для прежнего поведения.",
+    "browserRestartPending": "После перезапуска служба переключится на: {{mode}}",
     "configure": "Настроить",
     "configured": "Настроено",
     "requiresConfig": "Требуется настройка",
@@ -2075,6 +2292,15 @@
       },
       "skills": {
         "description": "Показать доступные в чате навыки и явные команды их вызова"
+      },
+      "agents": {
+        "description": "Показать агентов, доступных в текущей среде"
+      },
+      "review": {
+        "description": "Проверить в Codex незакоммиченные изменения рабочей области"
+      },
+      "status": {
+        "description": "Показать текущую учётную запись агента, модель и рабочую область"
       },
       "goal": {
         "description": "Goal-цикл — агент непрерывно преследует цель, автоматически оценивая завершение через Rubric"
@@ -2950,6 +3176,8 @@
     "loading": "Загрузка...",
     "inputProgress": "Получено символов: {{count}}",
     "rawInputPreview": "Необработанный ввод в реальном времени (последние 4 096 символов)",
+    "largeOutputOmitted": "Пропущено строк: {{count}} — скопируйте доступный вывод или следуйте инструкциям по восстановлению",
+    "largeOutputTruncated": "Вывод усечён для отображения — скопируйте доступный вывод или следуйте инструкциям по восстановлению",
     "browserAction": {
       "startHeaded": "Запустить браузер (с интерфейсом)",
       "start": "Запустить браузер",

@@ -6,4 +6,12 @@
 
 # All platforms: Playwright drives Chromium (Legacy + Tauri Win) or
 # WebKit (Tauri macOS) for headed/headless browser automation.
-playwright>=1.40
+#
+# Upper bound: 1.62 ships WebKit 26.5, but build-tauri-macos runs on
+# macos-14, which only receives the frozen WebKit v2251 build. Against
+# that frozen browser the 1.62 driver launches fine and then blocks
+# forever on the first page operation, which timed out the macOS verify
+# step. Measured on macos-14, same script and same WebKit v2251: 1.61.0
+# finishes in 3.3s, 1.62.0 is still hung at a 150s cap. Drop the bound
+# once the runner moves to macos-15, where WebKit is not frozen.
+playwright>=1.40,<1.62

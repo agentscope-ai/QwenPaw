@@ -104,6 +104,7 @@ def test_list_agents_returns_all_profiles(client, fake_config):
         name="Bot",
         description="",
         workspace_dir="/tmp/ws/bot",
+        backend="codex",
     )
 
     def fake_load(agent_id):
@@ -128,6 +129,8 @@ def test_list_agents_returns_all_profiles(client, fake_config):
     body = response.json()
     assert {a["id"] for a in body["agents"]} == {"default", "bot"}
     assert {a["startup_status"] for a in body["agents"]} == {"running"}
+    backends = {a["id"]: a["backend"] for a in body["agents"]}
+    assert backends == {"default": "qwenpaw", "bot": "codex"}
 
 
 def test_list_agents_falls_back_to_id_when_load_fails(client, fake_config):
@@ -149,6 +152,43 @@ def test_list_agents_falls_back_to_id_when_load_fails(client, fake_config):
     names = {a["name"] for a in response.json()["agents"]}
     # Defaults: title-cased agent IDs.
     assert names == {"Default", "Bot"}
+
+
+def test_list_agents_preserves_unknown_backend(client, fake_config):
+    agent_cfg_default = AgentProfileConfig(
+        id="default",
+        name="Default",
+        workspace_dir="/tmp/ws/default",
+    )
+    agent_cfg_bot = AgentProfileConfig(
+        id="bot",
+        name="Configured Bot",
+        workspace_dir="/tmp/ws/bot",
+        backend="missing",
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            side_effect=lambda agent_id: {
+                "default": agent_cfg_default,
+                "bot": agent_cfg_bot,
+            }[agent_id],
+        ),
+    ):
+        response = client.get("/api/agents")
+
+    assert response.status_code == 200
+    bot = next(
+        item for item in response.json()["agents"] if item["id"] == "bot"
+    )
+    assert bot["name"] == "Configured Bot"
+    assert bot["backend"] == "missing"
+    assert bot["backend_capabilities"] == {}
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +214,41 @@ def test_get_agent_returns_config(client):
     assert response.json()["id"] == "bot"
 
 
+def test_update_backend_settings_from_chat(client):
+    cfg = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        workspace_dir="/tmp/ws/bot",
+        backend="codex",
+        backend_settings={"unrelated": True},
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=cfg,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.save_agent_config",
+        ) as save,
+    ):
+        response = client.patch(
+            "/api/agents/bot/backend-settings",
+            json={
+                "model": "gpt-test-codex",
+                "reasoning_effort": "high",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["backend_settings"] == {
+        "unrelated": True,
+        "model": "gpt-test-codex",
+        "reasoning_effort": "high",
+    }
+    save.assert_called_once()
+
+
 def test_get_agent_returns_404_for_missing(client):
     with patch(
         "qwenpaw.app.routers.agents.load_agent_config",
@@ -196,6 +271,28 @@ def test_get_agent_returns_404_for_app_base_exception(client):
         response = client.get("/api/agents/ghost")
 
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST /agents
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("backend", "expected_status"),
+    [("missing", 400), ("claude", 409)],
+)
+def test_create_agent_rejects_unavailable_backend(
+    client,
+    backend,
+    expected_status,
+):
+    response = client.post(
+        "/api/agents",
+        json={"name": "Invalid Agent", "backend": backend},
+    )
+
+    assert response.status_code == expected_status
 
 
 # ---------------------------------------------------------------------------

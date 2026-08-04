@@ -146,6 +146,24 @@ class TestStorage:
         save_data_sync(path, {"test": "data"})
         assert path.exists()
 
+    def test_save_data_sync_returns_false_on_oserror(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Transient atomic-write failure must report False."""
+        path = tmp_path / "token_usage.json"
+
+        def _boom(*_args, **_kwargs):
+            raise OSError("simulated replace failure")
+
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.storage.os.replace",
+            _boom,
+        )
+        assert save_data_sync(path, {"test": "data"}) is False
+        assert not path.exists()
+
 
 # =============================================================================
 # Test TokenUsageBuffer
@@ -283,10 +301,54 @@ class TestTokenUsageBuffer:
         assert written["2026-04-23"]["openai:gpt-4"]["prompt_tokens"] == 7
         assert written["2026-04-24"]["openai:gpt-4"]["prompt_tokens"] == 100
 
+    @pytest.mark.asyncio
+    async def test_flush_retries_after_transient_write_failure(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Failed flush must keep dirty so the next flush retries (#6374)."""
+        path = tmp_path / "token_usage.json"
+        buffer = TokenUsageBuffer(path, flush_interval=3600)
+        buffer._cache_loaded = True
+        buffer._disk_cache = {
+            "2026-04-24": {
+                "openai:gpt-4": {
+                    "provider_id": "openai",
+                    "model_name": "gpt-4",
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "call_count": 1,
+                },
+            },
+        }
+        buffer._dirty = True
 
-# =============================================================================
-# Test Pydantic Models
-# =============================================================================
+        real_replace = __import__("os").replace
+        calls = {"n": 0}
+
+        def _flaky_replace(src, dst, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OSError("simulated replace failure")
+            return real_replace(src, dst, *args, **kwargs)
+
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.storage.os.replace",
+            _flaky_replace,
+        )
+
+        await buffer._flush_once()
+        assert buffer._dirty is True
+        assert not path.exists()
+        assert calls["n"] == 1
+
+        await buffer._flush_once()
+        assert path.exists()
+        assert buffer._dirty is False
+        assert calls["n"] == 2
+        written = json.loads(path.read_text(encoding="utf-8"))
+        assert written["2026-04-24"]["openai:gpt-4"]["prompt_tokens"] == 100
 
 
 class TestTokenUsageStats:

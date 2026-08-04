@@ -247,8 +247,12 @@ class BubblewrapSandbox(LocalSandbox):
                 timed_out=True,
                 duration_ms=duration_ms,
             )
+        except asyncio.CancelledError:
+            await self.stop()
+            raise
         except Exception as e:
             duration_ms = int((time.monotonic() - start) * 1000)
+            await self.stop()
             return ExecutionResult(
                 exit_code=-1,
                 stdout="",

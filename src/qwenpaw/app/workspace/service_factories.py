@@ -92,6 +92,15 @@ async def create_chat_service(ws: "Workspace", service):
     # pylint: disable=protected-access
     from ..chats.manager import ChatManager
     from ..chats.repo.json_repo import JsonChatRepository
+    from ...browser.runtime.links import link_for
+    from ...browser.execution.kernel import get_default_kernel_manager
+    from ...browser.tool_entrypoint import derive_workspace_id
+
+    async def close_browser_session(session_id: str) -> None:
+        await get_default_kernel_manager().close_session(
+            derive_workspace_id(ws.workspace_dir),
+            session_id,
+        )
 
     if service is not None:
         cm = service
@@ -99,9 +108,29 @@ async def create_chat_service(ws: "Workspace", service):
     else:
         chats_path = str(ws.workspace_dir / "chats.json")
         chat_repo = JsonChatRepository(chats_path)
-        cm = ChatManager(repo=chat_repo)
+        cm = ChatManager(
+            repo=chat_repo,
+            on_session_closed=close_browser_session,
+        )
         ws._service_manager.services["chat_manager"] = cm
         logger.info(f"ChatManager created: {chats_path}")
+    cm.set_on_session_closed(close_browser_session)
+
+    async def live_session_ids() -> set[str]:
+        chats = await cm.list_chats(archived=False)
+        return {chat.session_id for chat in chats}
+
+    chrome_link = link_for("chrome")
+    register_resolver = getattr(
+        chrome_link,
+        "register_live_session_resolver",
+        None,
+    )
+    if register_resolver is not None:
+        register_resolver(
+            derive_workspace_id(ws.workspace_dir),
+            live_session_ids,
+        )
     # pylint: enable=protected-access
 
 
