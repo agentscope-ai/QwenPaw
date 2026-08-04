@@ -73,6 +73,7 @@ from ....app.channels.renderer import ChannelDisplayConfig
 from ....app.channels.base import BaseChannel
 from ....app.channels.utils import file_url_to_local_path
 from ....constant import WORKING_DIR
+from ....exceptions import ChannelError, ChannelStartupError
 
 logger = logging.getLogger("qwenpaw.channels.matrix")
 
@@ -89,6 +90,15 @@ DM_ROOM_CACHE_MAX_ENTRIES = 1_000
 ROOM_HISTORY_MAX_ROOMS = 256
 VERIFICATION_STATE_MAX_ENTRIES = 1_024
 VERIFICATION_STATE_TTL_S = 60 * 60
+
+_NON_RETRYABLE_AUTH_CODES = frozenset(
+    {
+        "M_FORBIDDEN",
+        "M_MISSING_TOKEN",
+        "M_UNKNOWN_TOKEN",
+        "M_USER_DEACTIVATED",
+    },
+)
 
 # Known QwenPaw slash commands — used to decide whether to strip
 # @mention prefix
@@ -573,6 +583,22 @@ class MatrixChannel(BaseChannel):
                     "device_id; E2EE store may not be reusable",
                 )
 
+    def _raise_if_non_retryable_auth_error(
+        self,
+        response: Any,
+        auth_step: str,
+    ) -> None:
+        """Reject credential errors that cannot recover through retries."""
+        error_code = getattr(response, "status_code", None)
+        if error_code in _NON_RETRYABLE_AUTH_CODES:
+            raise ChannelError(
+                channel_name=self.channel,
+                message=(
+                    f"Matrix {auth_step} rejected credentials "
+                    f"({error_code}): {response}"
+                ),
+            )
+
     async def _login_with_password(
         self,
         login_user: str,
@@ -593,6 +619,7 @@ class MatrixChannel(BaseChannel):
         if isinstance(resp, LoginResponse):
             self._handle_password_login_success(resp)
             return True
+        self._raise_if_non_retryable_auth_error(resp, "password login")
         logger.error("MatrixChannel: password login failed: %s", resp)
         return False
 
@@ -607,7 +634,13 @@ class MatrixChannel(BaseChannel):
                     self.matrix_user_id,
                     whoami.user_id,
                 )
-                return False
+                raise ChannelError(
+                    channel_name=self.channel,
+                    message=(
+                        "Configured Matrix user_id does not match the "
+                        "access-token owner"
+                    ),
+                )
             self._user_id = whoami.user_id
             self._client.user_id = whoami.user_id
             self._client.user = whoami.user_id
@@ -637,6 +670,7 @@ class MatrixChannel(BaseChannel):
                     )
                     self.encryption = False
             return True
+        self._raise_if_non_retryable_auth_error(whoami, "token login")
         logger.error("MatrixChannel: token login failed: %s", whoami)
         return False
 
@@ -661,6 +695,10 @@ class MatrixChannel(BaseChannel):
         if self._client.should_upload_keys:
             resp = await self._client.keys_upload()
             if not isinstance(resp, KeysUploadResponse):
+                self._raise_if_non_retryable_auth_error(
+                    resp,
+                    "E2EE key upload",
+                )
                 logger.error(
                     "MatrixChannel: E2E keys upload failed after login: %s",
                     resp,
@@ -731,17 +769,26 @@ class MatrixChannel(BaseChannel):
                 login_user,
                 resolved_device_id,
             ):
-                return
+                raise ChannelStartupError(
+                    channel_name=self.channel,
+                    message="Matrix password login failed temporarily",
+                )
         elif self.access_token:
             if not await self._login_with_access_token():
-                return
+                raise ChannelStartupError(
+                    channel_name=self.channel,
+                    message="Matrix token login failed temporarily",
+                )
         else:
             logger.error("MatrixChannel: no credentials configured")
             return
 
         self._register_plain_room_callbacks()
         if not await self._setup_e2ee_after_login():
-            return
+            raise ChannelStartupError(
+                channel_name=self.channel,
+                message="Matrix post-login setup failed temporarily",
+            )
 
         self._http_client = httpx.AsyncClient(
             follow_redirects=True,
@@ -752,17 +799,23 @@ class MatrixChannel(BaseChannel):
         logger.info("MatrixChannel: sync loop started")
 
     async def stop(self) -> None:
-        if self._sync_task:
-            self._sync_task.cancel()
+        sync_task = self._sync_task
+        self._sync_task = None
+        if sync_task:
+            sync_task.cancel()
             try:
-                await self._sync_task
+                await sync_task
             except asyncio.CancelledError:
                 logger.debug("MatrixChannel: sync task cancelled during stop")
-        if self._http_client:
-            await self._http_client.aclose()
-            self._http_client = None
-        if self._client:
-            await self._client.close()
+        http_client = self._http_client
+        self._http_client = None
+        if http_client:
+            await http_client.aclose()
+        client = self._client
+        self._client = None
+        if client:
+            await client.close()
+        self._user_id = None
         self._room_histories.clear()
         self._dm_room_cache.clear()
         self._handled_verification_requests.clear()

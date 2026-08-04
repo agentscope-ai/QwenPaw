@@ -17,7 +17,7 @@ from nio import (
     UploadError,
     UploadResponse,
 )
-from nio.responses import WhoamiResponse
+from nio.responses import LoginError, WhoamiError, WhoamiResponse
 
 from qwenpaw.schemas import (
     AgentRequest,
@@ -28,6 +28,7 @@ from qwenpaw.schemas import (
 from qwenpaw.app.channels.matrix.channel import MatrixChannel
 from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 from qwenpaw.config.config import MatrixConfig
+from qwenpaw.exceptions import ChannelError, ChannelStartupError
 
 
 @pytest.fixture
@@ -817,6 +818,81 @@ class TestMatrixChannelStartStop:
             assert matrix_channel._sync_task is not None
             assert not matrix_channel._sync_task.done()
 
+    async def test_start_signals_retryable_token_login_failure(
+        self,
+        matrix_channel,
+        mock_async_client,
+    ):
+        """Temporary homeserver failures are retried by the manager."""
+        mock_async_client.whoami.return_value = WhoamiError(
+            message="Bad gateway",
+        )
+
+        with patch(
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
+            return_value=mock_async_client,
+        ):
+            with pytest.raises(ChannelStartupError, match="token login"):
+                await matrix_channel.start()
+
+        assert matrix_channel._sync_task is None
+
+    async def test_start_signals_retryable_password_login_failure(
+        self,
+        matrix_channel,
+        mock_async_client,
+    ):
+        """Password login uses the same transient startup contract."""
+        matrix_channel.access_token = ""
+        matrix_channel.password = "test_password"
+        mock_async_client.login = AsyncMock(
+            return_value=LoginError(message="Bad gateway"),
+        )
+
+        with patch(
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
+            return_value=mock_async_client,
+        ):
+            with pytest.raises(ChannelStartupError, match="password login"):
+                await matrix_channel.start()
+
+    async def test_start_does_not_retry_invalid_access_token(
+        self,
+        matrix_channel,
+        mock_async_client,
+    ):
+        """Invalid credentials require configuration, not retries."""
+        mock_async_client.whoami.return_value = WhoamiError(
+            message="Unknown token",
+            status_code="M_UNKNOWN_TOKEN",
+        )
+
+        with patch(
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
+            return_value=mock_async_client,
+        ):
+            with pytest.raises(ChannelError) as exc_info:
+                await matrix_channel.start()
+
+        assert type(exc_info.value) is ChannelError
+
+    async def test_start_signals_retryable_post_login_failure(
+        self,
+        matrix_channel,
+        mock_async_client,
+    ):
+        """Temporary post-login setup failures are safe to retry."""
+        matrix_channel._setup_e2ee_after_login = AsyncMock(
+            return_value=False,
+        )
+
+        with patch(
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
+            return_value=mock_async_client,
+        ):
+            with pytest.raises(ChannelStartupError, match="post-login"):
+                await matrix_channel.start()
+
     async def test_stop_cancels_sync_task(
         self,
         matrix_channel,
@@ -845,6 +921,8 @@ class TestMatrixChannelStartStop:
             await matrix_channel.stop()
 
             mock_async_client.close.assert_called_once()
+            assert matrix_channel._client is None
+            assert matrix_channel._sync_task is None
 
     async def test_stop_when_not_started(self, matrix_channel):
         """Test stop when channel was never started."""
