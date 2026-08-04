@@ -37,7 +37,7 @@ export function useOsAppLauncher(): (routeId: string) => Promise<boolean> {
 
       if (modeLaunchPromise) return modeLaunchPromise;
 
-      modeLaunchPromise = (async () => {
+      const launchPromise = (async () => {
         const agentId = useAgentStore.getState().selectedAgent;
         const codingState = useCodingModeStore.getState();
         const currentMode = codingState.codingModeByAgent[agentId];
@@ -58,12 +58,17 @@ export function useOsAppLauncher(): (routeId: string) => Promise<boolean> {
               : t("os.codingModeLaunchFailed", "Failed to switch mode"),
           );
           return false;
-        } finally {
-          modeLaunchPromise = null;
         }
       })();
+      modeLaunchPromise = launchPromise;
 
-      return modeLaunchPromise;
+      try {
+        return await launchPromise;
+      } finally {
+        if (modeLaunchPromise === launchPromise) {
+          modeLaunchPromise = null;
+        }
+      }
     },
     [message, t],
   );

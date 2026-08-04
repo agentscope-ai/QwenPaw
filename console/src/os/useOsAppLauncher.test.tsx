@@ -22,9 +22,14 @@ vi.mock("react-i18next", () => ({
 function Harness() {
   const launchApp = useOsAppLauncher();
   return (
-    <button type="button" onClick={() => void launchApp("core.coding")}>
-      Open Coding
-    </button>
+    <>
+      <button type="button" onClick={() => void launchApp("core.coding")}>
+        Open Coding
+      </button>
+      <button type="button" onClick={() => void launchApp("core.chat")}>
+        Open Chat
+      </button>
+    </>
   );
 }
 
@@ -87,5 +92,50 @@ describe("useOsAppLauncher", () => {
       expect(codingModeApi.toggle).toHaveBeenCalledWith(true);
     });
     expect(useOsWindows.getState().windows["core.coding"]).toBeUndefined();
+  });
+
+  it("reopens the current mode after its window is closed", async () => {
+    useCodingModeStore.setState({
+      codingModeByAgent: { default: true },
+    });
+    renderWithProviders(<Harness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Coding" }));
+    await waitFor(() => {
+      expect(useOsWindows.getState().windows["core.coding"]).toBeDefined();
+    });
+
+    useOsWindows.getState().close("core.coding");
+    fireEvent.click(screen.getByRole("button", { name: "Open Coding" }));
+
+    await waitFor(() => {
+      expect(useOsWindows.getState().windows["core.coding"]).toBeDefined();
+    });
+    expect(codingModeApi.toggle).not.toHaveBeenCalled();
+  });
+
+  it("can switch modes and reopen after both windows were closed", async () => {
+    renderWithProviders(<Harness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Coding" }));
+    await waitFor(() => {
+      expect(useOsWindows.getState().windows["core.coding"]).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Chat" }));
+    await waitFor(() => {
+      expect(useOsWindows.getState().windows["core.coding"]).toBeUndefined();
+      expect(useOsWindows.getState().windows["core.chat"]).toBeDefined();
+    });
+
+    useOsWindows.getState().close("core.chat");
+    fireEvent.click(screen.getByRole("button", { name: "Open Coding" }));
+
+    await waitFor(() => {
+      expect(useOsWindows.getState().windows["core.coding"]).toBeDefined();
+    });
+    expect(codingModeApi.toggle).toHaveBeenNthCalledWith(1, true);
+    expect(codingModeApi.toggle).toHaveBeenNthCalledWith(2, false);
+    expect(codingModeApi.toggle).toHaveBeenNthCalledWith(3, true);
   });
 });
