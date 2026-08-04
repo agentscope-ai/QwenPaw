@@ -531,9 +531,11 @@ def agentscope_msg_to_message(
         ts_value = msg.timestamp
         if ts_value:
             try:
-                dt_obj = datetime.strptime(ts_value, "%Y-%m-%d %H:%M:%S.%f")
-                ts_value = dt_obj.replace(tzinfo=user_tz).isoformat()
-            except ValueError:
+                dt_obj = datetime.fromisoformat(ts_value)
+                if dt_obj.tzinfo is None:
+                    dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+                ts_value = dt_obj.astimezone(user_tz).isoformat()
+            except (ValueError, TypeError):
                 pass
 
         metadata = {
