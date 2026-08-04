@@ -242,6 +242,18 @@ def _tokens_match(provided: str, expected: str) -> bool:
     )
 
 
+def _log_remote(request: web.Request) -> str:
+    """Render the peer address as a single-line log field.
+
+    ``request.remote`` is the socket peer today, but aiohttp allows it to
+    be overridden via ``clone(remote=...)``, which a forwarded-header
+    middleware would do with client-controlled input.  Dropping newlines
+    keeps one rejection from ever becoming several log records.
+    """
+    remote = request.remote or "unknown"
+    return remote.replace("\r", "").replace("\n", "")
+
+
 class OneBotChannel(BaseChannel):
     """OneBot v11 channel via reverse WebSocket.
 
@@ -636,7 +648,7 @@ class OneBotChannel(BaseChannel):
                 "onebot: rejected connection from %s: ws_host=%s is not a "
                 "loopback address and access_token is empty. Set "
                 "access_token, or bind ws_host to 127.0.0.1.",
-                request.remote,
+                _log_remote(request),
                 self._ws_host,
             )
             return web.Response(status=401, text="Unauthorized")
@@ -644,7 +656,7 @@ class OneBotChannel(BaseChannel):
         if self._access_token and not self._token_authorized(request):
             logger.warning(
                 "onebot: rejected connection from %s (bad token)",
-                request.remote,
+                _log_remote(request),
             )
             if "access_token" in request.query:
                 logger.warning(
@@ -658,7 +670,10 @@ class OneBotChannel(BaseChannel):
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         self._connections.add(ws)
-        logger.info("onebot: client connected from %s", request.remote)
+        logger.info(
+            "onebot: client connected from %s",
+            _log_remote(request),
+        )
 
         try:
             async for msg in ws:
@@ -687,7 +702,10 @@ class OneBotChannel(BaseChannel):
             logger.exception("onebot: WS connection error")
         finally:
             self._connections.discard(ws)
-            logger.info("onebot: client disconnected from %s", request.remote)
+            logger.info(
+                "onebot: client disconnected from %s",
+                _log_remote(request),
+            )
 
         return ws
 

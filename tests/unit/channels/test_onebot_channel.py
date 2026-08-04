@@ -1198,6 +1198,20 @@ class TestConnectionAuth:
         request = self._request(authorization=f"Bearer {token}")
         assert ch._token_authorized(request) is True
 
+    async def test_rejection_log_stays_on_one_line(self, caplog):
+        """A forged newline must not become a second log record."""
+        ch = _make_channel(ws_host="0.0.0.0", access_token="")
+        request = self._request().clone(
+            remote="1.2.3.4\nINFO onebot: client connected from 1.2.3.4",
+        )
+
+        with caplog.at_level(logging.ERROR):
+            resp = await ch._handle_ws_connection(request)
+
+        assert resp.status == 401
+        assert len(caplog.records) == 1
+        assert "\n" not in caplog.records[0].getMessage()
+
 
 class TestDefaultBindAddress:
     """Tests for the loopback-by-default listen address."""
