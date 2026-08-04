@@ -16,6 +16,7 @@ from ..extension_setup import (
     atomic_write_json_0600,
     extension_install_status,
     BridgeEndpointUnavailable,
+    InstallModeError,
     open_chrome_extensions_page,
     open_extension_folder,
     require_bridge_endpoint,
@@ -107,6 +108,8 @@ async def extension_setup(
             install_mode=request.install_mode,
             reset=request.reset,
         )
+    except InstallModeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except BridgeEndpointUnavailable as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {**result, **await get_extension_status()}

@@ -49,6 +49,10 @@ CWS_URL = (
     "https://chromewebstore.google.com/detail/"
     f"qwenpaw-chrome/{CWS_EXTENSION_ID}"
 )
+CWS_COMING_SOON_MESSAGE = (
+    "cws install mode is coming soon and not supported in this "
+    "Developer Preview"
+)
 DEFAULT_WS_URL = "ws://127.0.0.1:8088/api/ws/chrome"
 CHROME_EXTENSIONS_URL = "chrome://extensions"
 LOCAL_BRIDGE_CONFIG_JS = "bridge_config.js"
@@ -257,6 +261,10 @@ def resolve_default_ws_url() -> str:
 
 class BridgeEndpointUnavailable(RuntimeError):
     """Raised when the local API bind cannot safely host the bridge token."""
+
+
+class InstallModeError(ValueError):
+    """Raised when the requested extension install mode cannot be used."""
 
 
 def require_bridge_endpoint() -> str:
@@ -518,6 +526,11 @@ def setup_extension_files(
     registry: object | None = None,
 ) -> dict[str, str | bool]:
     """Install extension files and Native Messaging registration."""
+    if install_mode == "cws":
+        raise InstallModeError(CWS_COMING_SOON_MESSAGE)
+    if install_mode != "unpacked":
+        raise InstallModeError("install_mode must be 'unpacked'")
+
     home = home or Path.home()
     platform = platform or sys.platform
     native_host_registry = _native_host_registry(platform, registry)
@@ -530,14 +543,6 @@ def setup_extension_files(
             platform=platform,
             registry=native_host_registry,
         )
-
-    if install_mode == "cws":
-        raise ValueError(
-            "cws install mode is coming soon and not supported in this "
-            "Developer Preview",
-        )
-    if install_mode != "unpacked":
-        raise ValueError("install_mode must be 'unpacked'")
 
     token = None if reset else _read_existing_nm_token(qwenpaw_home)
     token = token or secrets.token_urlsafe(32)
