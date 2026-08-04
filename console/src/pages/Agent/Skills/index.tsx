@@ -38,6 +38,8 @@ function SkillsPage() {
     uploading,
     importing,
     drawerOpen,
+    drawerLoading,
+    editingSkillName,
     importModalOpen,
     setImportModalOpen,
     editingSkill,
@@ -427,6 +429,9 @@ function SkillsPage() {
 
       <SkillDrawer
         open={drawerOpen}
+        editing={drawerLoading || editingSkill !== null}
+        editingName={editingSkillName}
+        loading={drawerLoading}
         editingSkill={editingSkill}
         form={form}
         availableTags={allTags}
