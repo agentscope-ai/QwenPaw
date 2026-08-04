@@ -252,7 +252,7 @@ model generation parameters:
 {
   "prompt_cache_key": "qwenpaw-agent-default-v1",
   "prompt_cache_options": {
-    "mode": "explicit",
+    "mode": "implicit",
     "ttl": "30m"
   },
   "enable_prompt_cache_breakpoint": true
@@ -261,7 +261,11 @@ model generation parameters:
 
 Keep `prompt_cache_key` stable for requests that share the same prompt prefix.
 When `enable_prompt_cache_breakpoint` is `true`, QwenPaw marks the end of the
-leading system prompt as an explicit cache boundary. Omit these options for
-older models or Responses-compatible services that do not support them. See
-the [OpenAI prompt caching guide](https://platform.openai.com/docs/guides/prompt-caching)
+leading system prompt as an explicit cache boundary. The recommended `implicit`
+mode also keeps OpenAI's automatic latest-message boundary, which improves
+reuse as agent history grows. Use `explicit` mode only when you want to disable
+that automatic boundary; QwenPaw currently adds no rolling breakpoints after
+completed turns. Omit these options for older models or Responses-compatible
+services that do not support them. See the
+[OpenAI prompt caching guide](https://platform.openai.com/docs/guides/prompt-caching)
 for model support and current limits.

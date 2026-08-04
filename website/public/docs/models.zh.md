@@ -251,7 +251,7 @@ QwenPaw 中所有提供商的配置都会保存在 `$QWENPAW_SECRET_DIR/provider
 {
   "prompt_cache_key": "qwenpaw-agent-default-v1",
   "prompt_cache_options": {
-    "mode": "explicit",
+    "mode": "implicit",
     "ttl": "30m"
   },
   "enable_prompt_cache_breakpoint": true
@@ -260,6 +260,8 @@ QwenPaw 中所有提供商的配置都会保存在 `$QWENPAW_SECRET_DIR/provider
 
 对共享同一提示词前缀的请求，应保持 `prompt_cache_key` 稳定。启用
 `enable_prompt_cache_breakpoint` 后，QwenPaw 会将前置系统提示词的末尾标记为
-显式缓存边界。旧模型或不支持这些参数的 Responses 兼容服务应省略上述配置。
-模型支持范围和当前限制请参考
+显式缓存边界。推荐的 `implicit` 模式还会保留 OpenAI 自动生成的最新消息边界，
+更适合历史持续增长的 Agent 会话。只有需要关闭自动边界时才使用 `explicit`
+模式；QwenPaw 当前不会在已完成的对话轮次后滚动添加显式断点。旧模型或不支持
+这些参数的 Responses 兼容服务应省略上述配置。模型支持范围和当前限制请参考
 [OpenAI 提示词缓存指南](https://platform.openai.com/docs/guides/prompt-caching)。
