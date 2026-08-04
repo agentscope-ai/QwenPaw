@@ -1,0 +1,306 @@
+# Pack repo plugins (bundle/tool/apps) and publish them to AgentScope Platform
+# via the official CLI: https://www.npmjs.com/package/@agentscope-ai/platform-cli
+#
+# Each plugin is zipped FROM INSIDE its own directory, so plugin.json sits at
+# the zip root. The CLI reads the manifest with `unzip -p <zip> plugin.json`,
+# so a zip that nests files under a top-level folder is rejected. This is why
+# the CDN packer (scripts/pack/generate_plugin_metadata.py, which prefixes
+# entries with the plugin directory name) is NOT reused here.
+#
+# Required repository secrets:
+#   prod: ASP_ACCOUNT / ASP_PASSWORD
+#   pre : ASP_PRE_ACCOUNT / ASP_PRE_PASSWORD
+#
+# The Creator plugin is skipped by default: it has its own version-driven
+# pipeline (creator-release.yml). Pass it explicitly in `plugins` to publish it.
+#
+# This is the single implementation of plugin publishing: release.yml and
+# creator-release.yml call it via `workflow_call` instead of duplicating the
+# pack/publish steps. `dry_run: true` packs and validates without logging in,
+# which is how release.yml gates the real publish.
+
+name: QwenPaw Plugins Platform Publish
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target platform environment (prod|pre)"
+        required: false
+        type: string
+        default: prod
+      plugins:
+        description: "Comma-separated plugin ids/dirs (empty = all)"
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Pack only, do not login or publish"
+        required: false
+        type: boolean
+        default: false
+      ref:
+        description: "Git ref to check out (default: caller ref)"
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target platform environment"
+        required: false
+        type: choice
+        default: prod
+        options:
+          - prod
+          - pre
+      plugins:
+        description: "Comma-separated plugin ids/dirs (empty = all)"
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Pack only, do not login or publish"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Resolve target environment
+        env:
+          TARGET_ENV: ${{ inputs.environment || 'prod' }}
+        run: |
+          set -euo pipefail
+          if [[ "${TARGET_ENV}" == "pre" ]]; then
+            echo "PLATFORM_ENV=pre" >> "$GITHUB_ENV"
+            echo "ASP_PLATFORM_URL=https://platform-pre.agentscope.io" \
+              >> "$GITHUB_ENV"
+          else
+            echo "PLATFORM_ENV=prod" >> "$GITHUB_ENV"
+            echo "ASP_PLATFORM_URL=https://platform.agentscope.io" \
+              >> "$GITHUB_ENV"
+          fi
+
+      - name: Build app plugin frontends
+        shell: bash
+        env:
+          SELECTED_PLUGINS: ${{ inputs.plugins || '' }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          # Normalize the selection list into a space-padded string. Empty
+          # ("  ") means build every app, matching the pack step's filter.
+          selection=" $(echo "${SELECTED_PLUGINS}" | tr ',' ' ' | xargs) "
+
+          # Build one npm project (plugin root or ui/ subdir) then drop
+          # node_modules so it is never shipped inside the plugin zip.
+          build_npm_dir() {
+            local dir="$1"
+            [[ -f "$dir/package.json" ]] || return 0
+            echo "Building frontend in ${dir}"
+            if [[ -f "$dir/package-lock.json" ]]; then
+              npm --prefix "$dir" ci
+            else
+              npm --prefix "$dir" install
+            fi
+            npm --prefix "$dir" run build
+            rm -rf "$dir/node_modules"
+          }
+
+          for app_dir in plugins/apps/*; do
+            [[ -d "$app_dir" ]] || continue
+            dir_name="$(basename "$app_dir")"
+
+            # Honor the plugin selection so a focused test only builds what
+            # it publishes. Match on dir name or plugin.json id, same as pack.
+            pid=""
+            if [[ -f "$app_dir/plugin.json" ]]; then
+              pid="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("id") or "")' "$app_dir/plugin.json")"
+            fi
+            if [[ "${selection}" != "  " \
+              && "${selection}" != *" ${pid} "* \
+              && "${selection}" != *" ${dir_name} "* ]]; then
+              continue
+            fi
+
+            # Layout A: npm project under ui/ (e.g. qwenpaw-creator).
+            build_npm_dir "$app_dir/ui"
+            # Layout B: npm project at the plugin root (e.g. hello-world-plugin).
+            build_npm_dir "$app_dir"
+          done
+
+      - name: Install AgentScope Platform CLI
+        run: |
+          set -euo pipefail
+          npm install -g @agentscope-ai/platform-cli
+          asp --version
+
+      - name: Login to platform
+        if: ${{ !inputs.dry_run }}
+        env:
+          ACCOUNT_PROD: ${{ secrets.ASP_ACCOUNT }}
+          PASSWORD_PROD: ${{ secrets.ASP_PASSWORD }}
+          ACCOUNT_PRE: ${{ secrets.ASP_PRE_ACCOUNT }}
+          PASSWORD_PRE: ${{ secrets.ASP_PRE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ "${PLATFORM_ENV}" == "pre" ]]; then
+            account="${ACCOUNT_PRE}"
+            password="${PASSWORD_PRE}"
+            secret_hint="ASP_PRE_ACCOUNT / ASP_PRE_PASSWORD"
+          else
+            account="${ACCOUNT_PROD}"
+            password="${PASSWORD_PROD}"
+            secret_hint="ASP_ACCOUNT / ASP_PASSWORD"
+          fi
+          if [[ -z "${account}" || -z "${password}" ]]; then
+            echo "Missing secrets for ${PLATFORM_ENV}: ${secret_hint}" >&2
+            exit 1
+          fi
+          asp auth login --password --account "${account}" \
+            --pass "${password}"
+          asp auth status
+
+      - name: Pack and publish plugins
+        shell: bash
+        env:
+          SELECTED_PLUGINS: ${{ inputs.plugins || '' }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+
+          dist="${GITHUB_WORKSPACE}/dist/platform"
+          rm -rf "${dist}"
+          mkdir -p "${dist}"
+
+          # Normalize the selection list into a space padded string.
+          selection=" $(echo "${SELECTED_PLUGINS}" | tr ',' ' ' | xargs) "
+
+          published=()
+          skipped=()
+          failed=()
+
+          for kind in bundle tool apps; do
+            for plugin_dir in "plugins/${kind}"/*; do
+              [[ -d "${plugin_dir}" ]] || continue
+              manifest="${plugin_dir}/plugin.json"
+              [[ -f "${manifest}" ]] || continue
+              dir_name="$(basename "${plugin_dir}")"
+
+              # Read id/version/type/publish as one TSV line.
+              meta="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); print("\t".join([str(d.get("id") or ""), str(d.get("version") or ""), str(d.get("type") or ""), "false" if d.get("publish") is False else "true"]))' "${manifest}")" || {
+                failed+=("${kind}/${dir_name} (unreadable plugin.json)")
+                continue
+              }
+
+              IFS=$'\t' read -r pid pversion ptype ppublish <<<"${meta}"
+              pid="${pid:-${dir_name}}"
+              pversion="${pversion:-0.0.0}"
+
+              if [[ "${selection}" == "  " ]]; then
+                if [[ "${dir_name}" == "qwenpaw-creator" ]]; then
+                  skipped+=("${pid} (own pipeline: creator-release.yml)")
+                  continue
+                fi
+              elif [[ "${selection}" != *" ${pid} "* \
+                && "${selection}" != *" ${dir_name} "* ]]; then
+                continue
+              fi
+
+              if [[ "${ppublish}" == "false" ]]; then
+                skipped+=("${pid} (publish=false)")
+                continue
+              fi
+
+              case "${ptype}" in
+                tool|provider|command|hook|frontend|general)
+                  category="${ptype}"
+                  ;;
+                *)
+                  # app/bundle/channel/missing are not platform categories.
+                  if [[ "${kind}" == "tool" ]]; then
+                    category="tool"
+                  else
+                    category="general"
+                  fi
+                  ;;
+              esac
+
+              zip_path="${dist}/${pid}-${pversion}.zip"
+              # Zip from inside the plugin dir: plugin.json must be at root.
+              (
+                cd "${plugin_dir}" &&
+                zip -q -r "${zip_path}" . \
+                  -x 'node_modules/*' '*/node_modules/*' \
+                     '__pycache__/*' '*/__pycache__/*' \
+                     '*.pyc' '*.pyo' '.DS_Store' '*/.DS_Store' \
+                     '.git/*' '*/.git/*' '*.log'
+              ) || {
+                failed+=("${pid} (zip failed)")
+                continue
+              }
+
+              if ! unzip -p "${zip_path}" plugin.json > /dev/null 2>&1; then
+                failed+=("${pid} (plugin.json not at zip root)")
+                continue
+              fi
+
+              echo "::group::${pid} ${pversion} (${category})"
+              echo "zip: ${zip_path}"
+              if [[ "${DRY_RUN}" == "true" ]]; then
+                unzip -l "${zip_path}" | head -20
+                skipped+=("${pid} (dry run)")
+                echo "::endgroup::"
+                continue
+              fi
+
+              if asp plugin publish "${zip_path}" --category "${category}"; then
+                published+=("${pid}@${pversion} (${category})")
+              else
+                failed+=("${pid}@${pversion}")
+              fi
+              echo "::endgroup::"
+            done
+          done
+
+          {
+            echo "## Platform publish (${PLATFORM_ENV})"
+            echo
+            echo "Published: ${#published[@]}"
+            for item in "${published[@]:-}"; do
+              [[ -n "${item}" ]] && echo "- ${item}"
+            done
+            echo
+            echo "Skipped: ${#skipped[@]}"
+            for item in "${skipped[@]:-}"; do
+              [[ -n "${item}" ]] && echo "- ${item}"
+            done
+            echo
+            echo "Failed: ${#failed[@]}"
+            for item in "${failed[@]:-}"; do
+              [[ -n "${item}" ]] && echo "- ${item}"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ ${#failed[@]} -gt 0 ]]; then
+            echo "Some plugins failed to publish: ${failed[*]}" >&2
+            exit 1
+          fi
