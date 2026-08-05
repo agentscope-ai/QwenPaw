@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
 from typing import Any
 
@@ -370,6 +371,36 @@ async def cancel_task(
     return _task_view(task)
 
 
+_logger = logging.getLogger(__name__)
+
+
+def _timeline_has_text_overlays_without_motion(
+    services: CreatorFileServices,
+    project_id: str,
+    timeline_id: str,
+) -> bool:
+    """Return True when any text overlay on the timeline lacks motion design.
+
+    The AI Editing Director is expected to call ``design_motion_overlays``
+    after creating text overlays; when it skips that step the compose pipeline
+    falls back to static bubble templates with no animation.  This check lets
+    the render route auto-trigger motion design before composing.
+    """
+    from services.project_files.models import OverlayCreation
+
+    snapshot = services.projects.read(project_id)
+    timeline = snapshot.project.timelines.items.get(timeline_id)
+    if timeline is None:
+        return False
+    return any(
+        element.enabled
+        and isinstance(element.creation, OverlayCreation)
+        and element.creation.overlay_kind in {"pet_os", "interview_summary"}
+        and element.creation.motion is None
+        for element in timeline.elements_by_id.values()
+    )
+
+
 @router.post(
     "/timelines/{timeline_id}/render",
     status_code=status.HTTP_202_ACCEPTED,
@@ -463,6 +494,31 @@ async def render_timeline(
 
         async def drive() -> None:
             try:
+                if _timeline_has_text_overlays_without_motion(
+                    services,
+                    project_id,
+                    timeline_id,
+                ):
+                    from services.media_files.motion_design import (
+                        design_motion_overlays,
+                    )
+
+                    try:
+                        await design_motion_overlays(
+                            services,
+                            project_id=project_id,
+                            target_ref=target_ref,
+                            arguments={},
+                            idempotency_key=(f"auto-motion-design:{task_id}"),
+                        )
+                    except Exception:
+                        _logger.warning(
+                            "auto design_motion_overlays failed for %s; "
+                            "compose will use fallback static templates",
+                            target_ref,
+                            exc_info=True,
+                        )
+
                 await execute_file_local_media_command(
                     services,
                     project_id=project_id,
@@ -476,6 +532,13 @@ async def render_timeline(
             except BaseException:
                 # The execution service persists terminal failure details on
                 # the durable Task; clients observe them through task polling.
+                _logger.error(
+                    "compose failed project=%s timeline=%s task=%s",
+                    project_id,
+                    timeline_id,
+                    task_id,
+                    exc_info=True,
+                )
                 return
 
         background = asyncio.create_task(

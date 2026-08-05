@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { createClientMessageId } from "../utils/clientMessageId";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,6 +38,7 @@ export interface QueueQuote {
 /** Full message body for a queued item (Phase 3 ready) */
 export interface QueueItem {
   id: string;
+  clientMessageId?: string;
   text: string;
   attachments?: QueueAttachment[];
   images?: QueueImage[];
@@ -370,6 +372,7 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
       undefined;
     const item: QueueItem = {
       id: nextQueueId(),
+      clientMessageId: createClientMessageId(),
       text: input.text,
       attachments: input.attachments,
       images: input.images,

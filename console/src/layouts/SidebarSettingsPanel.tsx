@@ -1,7 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 
-import { SunMoon } from "lucide-react";
+import { Monitor, SunMoon } from "lucide-react";
 import { Select } from "antd";
 import {
   SparkSunLine,
@@ -25,6 +25,7 @@ import {
   type CloseAction,
 } from "../tauri/closeWindowPreference";
 import styles from "./sidebarSettingsPanel.module.less";
+import { getOsRootHref } from "../utils/navigationMode";
 
 type CloseBehavior = "ask" | CloseAction;
 
@@ -178,29 +179,43 @@ export default function SidebarSettingsPanel({
         <span className={styles.label}>
           {t("sidebar.settings.mode", "Mode")}
         </span>
-        <button
-          className={`${styles.optBtn} ${styles.optBtnBlock}`}
-          onClick={() => {
-            toggleSidebarMode();
-            onClose?.();
-          }}
-        >
-          {sidebarMode === "simple" ? (
-            <>
-              <SparkFullscreenLine size={14} />
-              <span className={styles.optLabel}>
-                {t("sidebar.fullMode", "Full Mode")}
-              </span>
-            </>
-          ) : (
-            <>
-              <SparkExitFullscreenLine size={14} />
-              <span className={styles.optLabel}>
-                {t("sidebar.simpleMode", "Simple Mode")}
-              </span>
-            </>
-          )}
-        </button>
+        <div className={styles.modeActions}>
+          <button
+            className={`${styles.optBtn} ${styles.optBtnBlock}`}
+            onClick={() => {
+              toggleSidebarMode();
+              onClose?.();
+            }}
+          >
+            {sidebarMode === "simple" ? (
+              <>
+                <SparkFullscreenLine size={14} />
+                <span className={styles.optLabel}>
+                  {t("sidebar.fullMode", "Full Mode")}
+                </span>
+              </>
+            ) : (
+              <>
+                <SparkExitFullscreenLine size={14} />
+                <span className={styles.optLabel}>
+                  {t("sidebar.simpleMode", "Simple Mode")}
+                </span>
+              </>
+            )}
+          </button>
+          <button
+            className={`${styles.optBtn} ${styles.optBtnBlock} ${styles.desktopModeBtn}`}
+            onClick={() => {
+              onClose?.();
+              window.location.assign(getOsRootHref(window.location.pathname));
+            }}
+          >
+            <Monitor size={14} />
+            <span className={styles.optLabel}>
+              {t("sidebar.settings.enterDesktopMode", "Enter Desktop Mode")}
+            </span>
+          </button>
+        </div>
       </div>
     </div>
   );

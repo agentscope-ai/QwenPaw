@@ -157,9 +157,11 @@ function PlaceholderLayer({ layer }: { layer: ElementPlayback }) {
 function TextOverlayLayer({
   layer,
   stageWidth,
+  stageHeight,
 }: {
   layer: ElementPlayback;
   stageWidth: number;
+  stageHeight: number;
 }) {
   const { element } = layer;
   if (element.creation.type !== "overlay") return null;
@@ -178,7 +180,11 @@ function TextOverlayLayer({
           stageWidth={stageWidth}
         />
       ) : (
-        <InterviewSummaryBox text={element.creation.text} />
+        <InterviewSummaryBox
+          text={element.creation.text}
+          stageWidth={stageWidth}
+          stageHeight={stageHeight}
+        />
       )}
     </div>
   );
@@ -226,7 +232,7 @@ function motionPreviewDocument(
   keepInsideViewport: boolean,
 ): string {
   const safetyStyle = keepInsideViewport
-    ? `<style data-qwenpaw-viewport-safety>html{padding:5%!important;box-sizing:border-box!important;overflow:hidden!important}body{width:100%!important;height:100%!important;box-sizing:border-box!important;overflow:visible!important;transform:scale(.9)!important;transform-origin:center!important}p,[class*=text],[class*=title],[class*=caption]{max-width:100%!important;font-size:min(8vh,8vw)!important;line-height:1.15!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;letter-spacing:.02em!important;-webkit-text-stroke:0!important;text-shadow:1px 1px 0 rgba(0,0,0,.22)!important}[data-motion-motif=caption_card] [class*=text]{font-size:min(10vh,12vw)!important;line-height:1.08!important;max-height:100%!important}${pawTrailCompatibilityCss()}</style>`
+    ? `<style data-qwenpaw-viewport-safety>html{padding:5%!important;box-sizing:border-box!important;overflow:hidden!important}body{width:100%!important;height:100%!important;box-sizing:border-box!important;overflow:visible!important;transform:scale(.9)!important;transform-origin:center!important}p,[class*=text],[class*=title],[class*=caption]{max-width:100%!important;font-size:min(18vh,20vw)!important;line-height:1.15!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;letter-spacing:.02em!important;-webkit-text-stroke:0!important;text-shadow:1px 1px 0 rgba(0,0,0,.22)!important}[data-motion-motif=caption_card] [class*=text]{font-size:min(25vh,30vw)!important;line-height:1.08!important;max-height:100%!important}${pawTrailCompatibilityCss()}</style>`
     : `<style data-qwenpaw-motion-compat>${pawTrailCompatibilityCss()}</style>`;
   return /<\/head>/i.test(html)
     ? html.replace(/<\/head>/i, `${safetyStyle}</head>`)
@@ -346,6 +352,7 @@ export default function TimelineLivePreview({
   const lastEmittedTick = useRef(playheadTick);
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageWidth, setStageWidth] = useState(1280);
+  const [stageHeight, setStageHeight] = useState(720);
   const [visualRevision, setVisualRevision] = useState(0);
   const [readyMotionKeys, setReadyMotionKeys] = useState<Set<string>>(
     () => new Set(),
@@ -370,7 +377,10 @@ export default function TimelineLivePreview({
   useLayoutEffect(() => {
     const node = stageRef.current;
     if (!node) return;
-    const update = () => setStageWidth(Math.max(1, node.clientWidth));
+    const update = () => {
+      setStageWidth(Math.max(1, node.clientWidth));
+      setStageHeight(Math.max(1, node.clientHeight));
+    };
     update();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(update);
@@ -683,6 +693,7 @@ export default function TimelineLivePreview({
                 key={elementId}
                 layer={layer}
                 stageWidth={stageWidth}
+                stageHeight={stageHeight}
               />
             );
           }

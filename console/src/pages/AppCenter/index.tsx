@@ -3,8 +3,8 @@
  *
  * Lists all plugins with `meta.pawapp` from the backend. Clicking an
  * app renders its registered route component INLINE within this page
- * (no full-page navigation). The URL bar is mirrored via history.pushState
- * so path-based SDK helpers (getAppId) keep resolving.
+ * (no full-page navigation). The URL bar mirrors the app path while keeping
+ * OS-owned pages under `/os`, so refresh never falls back to the classic UI.
  */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -35,8 +35,15 @@ import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { pawappApi } from "../../api/modules/pawapp";
 import { useRoutes } from "../../plugins/registry/hooks";
+import { setActivePawAppId } from "../../plugins/pawapp-sdk/context";
 import { AppCard, type AppCardData } from "./AppCard";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
+import {
+  addRouterBasename,
+  getOsAppHref,
+  getOsRootHref,
+  isOsPath,
+} from "../../utils/navigationMode";
 import styles from "./index.module.less";
 
 // Code-split market views so their bundle + network fetch never block the
@@ -118,6 +125,11 @@ export default function AppCenterPage() {
     if (found) setActiveApp(found);
   }, [appId, apps]);
 
+  useEffect(() => {
+    setActivePawAppId(activeApp?.id ?? null);
+    return () => setActivePawAppId(null);
+  }, [activeApp?.id]);
+
   // Compute available categories
   const categories = useMemo(() => {
     const cats = new Set<string>();
@@ -151,15 +163,19 @@ export default function AppCenterPage() {
   }, [activeApp, routes]);
 
   const handleAppClick = (app: AppCardData) => {
-    // Reflect the app path in the URL bar (so path-based SDK helpers keep
-    // working) WITHOUT triggering a react-router navigation, then render the
-    // app inline within this page.
-    window.history.pushState({ pawappInline: true }, "", appTarget(app));
+    const target = appTarget(app);
+    const browserPath = isOsPath(window.location.pathname)
+      ? getOsAppHref(window.location.pathname, target)
+      : addRouterBasename(window.location.pathname, target);
+    window.history.pushState({ pawappInline: true }, "", browserPath);
     setActiveApp(app);
   };
 
   const handleBack = () => {
-    window.history.pushState({}, "", "/apps");
+    const browserPath = isOsPath(window.location.pathname)
+      ? getOsRootHref(window.location.pathname)
+      : addRouterBasename(window.location.pathname, "/apps");
+    window.history.pushState({}, "", browserPath);
     setActiveApp(null);
   };
 
@@ -195,11 +211,20 @@ export default function AppCenterPage() {
   // Keep the inline view in sync with browser back/forward.
   useEffect(() => {
     const onPop = () => {
-      if (!/\/apps\//.test(window.location.pathname)) setActiveApp(null);
+      const pathAppId =
+        window.location.pathname.match(/\/apps\/([^/?#]+)/)?.[1];
+      if (!pathAppId) {
+        setActiveApp(null);
+        return;
+      }
+      const found = apps.find((app) => app.id === pathAppId);
+      if (found) {
+        setActiveApp(found);
+      }
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, []);
+  }, [apps]);
 
   // ESC key to close app and return to list
   useEffect(() => {

@@ -1025,6 +1025,12 @@ class FileR2VExecutionService:
         )
         request = self._request_payload(base, resolved, stable)
         request_fingerprint = _fingerprint(request)
+        logger.info(
+            "r2v dispatch: project=%s task=%s target=%s",
+            project_id,
+            stable["task_id"],
+            target_ref,
+        )
         run, task = await self._admit(
             base=base,
             resolved=resolved,

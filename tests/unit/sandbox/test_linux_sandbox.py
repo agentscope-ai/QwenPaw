@@ -14,6 +14,7 @@ from qwenpaw.sandbox import (
     SandboxCapability,
     SandboxConfig,
     SandboxMode,
+    create_sandbox,
     probe_sandbox_support,
 )
 from qwenpaw.sandbox.config import (
@@ -386,3 +387,30 @@ class TestGovernanceSandboxUnavailable:
             governor.sandbox_capability.reason
             == "Kernel 5.10 < 5.13, Landlock unavailable"
         )
+
+
+# ============================================================================
+# Platform compatibility guard — cross-platform downgrade
+# ============================================================================
+
+
+class TestCreateSandboxLandlockDowngrade:
+    """Test that LANDLOCK mode downgrades on non-linux platforms."""
+
+    @patch("qwenpaw.sandbox.config.sys")
+    @patch(
+        "qwenpaw.sandbox.config.detect_platform_mode",
+        return_value=SandboxMode.NONE,
+    )
+    def test_landlock_mode_on_darwin_downgrades(self, mock_detect, mock_sys):
+        """LANDLOCK on macOS downgrades to platform default."""
+        from qwenpaw.sandbox.local_sandbox import NoneSandbox
+
+        mock_sys.platform = "darwin"
+        config = SandboxConfig(
+            mode=SandboxMode.LANDLOCK,
+            workspace_dir="/tmp/ws",
+        )
+        sb = create_sandbox(config)
+        assert isinstance(sb, NoneSandbox)
+        mock_detect.assert_called_once()

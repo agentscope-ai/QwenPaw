@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Optional
 from qwenpaw.runtime.slash_command_registry import CommandSpec
 
 from ..shared.args import split_args
+from ..shared.loop_ui_i18n import loop_command_metadata, loop_help_text
 from ..shared.mode_base import OMPModeBase, info_msg, rewrite_user_msg
 from .gate import RalphGate
 
@@ -21,13 +22,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_HELP = (
-    "**Ralph** — PRD-driven continuous implementation loop\n\n"
-    "Usage: `/ralph [--no-deslop] "
-    "[--critic=architect|critic|codex] <task>`\n\n"
-    "Creates a PRD with user stories, implements each one,\n"
-    "verifies acceptance criteria, and runs reviewer verification."
-)
+_HELP = loop_help_text("ralph")
 
 
 class RalphMode(OMPModeBase):
@@ -46,7 +41,7 @@ class RalphMode(OMPModeBase):
                 handler=self._handler,
                 category="builtin",
                 help_text=_HELP,
-                metadata={"builtin": True},
+                metadata=loop_command_metadata("ralph"),
             ),
         ]
 

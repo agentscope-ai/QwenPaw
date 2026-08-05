@@ -335,6 +335,8 @@ function SkillPoolPage() {
       <PoolSkillDrawer
         mode={pool.mode}
         activeSkill={pool.activeSkill}
+        loading={pool.detailLoading}
+        skillName={pool.detailSkillName}
         form={pool.form}
         drawerContent={pool.drawerContent}
         showMarkdown={pool.showMarkdown}

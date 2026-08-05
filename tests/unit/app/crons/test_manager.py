@@ -191,6 +191,78 @@ async def test_create_or_replace_job_registers_with_scheduler(
 
 
 # ---------------------------------------------------------------------------
+# pause_job / resume_job
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pause_job_persists_disabled_state(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    await repo.upsert_job(make_cron_job_spec(job_id="j-pause"))
+
+    await manager.pause_job("j-pause")
+
+    stored = await manager.get_job("j-pause")
+    assert stored is not None
+    assert stored.enabled is False
+    listed = await manager.list_jobs()
+    assert listed[0].enabled is False
+
+
+@pytest.mark.asyncio
+async def test_resume_job_persists_enabled_state(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    await repo.upsert_job(
+        make_cron_job_spec(job_id="j-resume", enabled=False),
+    )
+
+    await manager.resume_job("j-resume")
+
+    stored = await repo.get_job("j-resume")
+    assert stored is not None
+    assert stored.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_pause_and_resume_raise_for_missing_job(manager: CronManager):
+    with pytest.raises(KeyError, match="missing"):
+        await manager.pause_job("missing")
+    with pytest.raises(KeyError, match="missing"):
+        await manager.resume_job("missing")
+
+
+@pytest.mark.asyncio
+async def test_paused_job_remains_paused_after_restart(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    await manager.start()
+    await manager.create_or_replace_job(make_cron_job_spec(job_id="j-restart"))
+    await manager.pause_job("j-restart")
+    await manager.stop()
+
+    restarted = CronManager(
+        repo=repo,
+        workspace=MagicMock(),
+        channel_manager=AsyncMock(),
+    )
+    try:
+        await restarted.start()
+        stored = await repo.get_job("j-restart")
+        assert stored is not None
+        assert stored.enabled is False
+        aps_job = restarted._scheduler.get_job("j-restart")
+        assert aps_job is not None
+        assert aps_job.next_run_time is None
+    finally:
+        await restarted.stop()
+
+
+# ---------------------------------------------------------------------------
 # delete_job
 # ---------------------------------------------------------------------------
 

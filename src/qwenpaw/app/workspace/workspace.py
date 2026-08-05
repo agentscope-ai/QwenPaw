@@ -126,6 +126,15 @@ class Workspace:
         """Get task tracker for background chat and reconnect."""
         return self._task_tracker
 
+    def set_task_tracker(self, task_tracker: TaskTracker) -> None:
+        """Reuse an agent task tracker before this workspace starts."""
+        if self._started:
+            raise RuntimeError(
+                f"Cannot replace task tracker for started workspace "
+                f"'{self.agent_id}'",
+            )
+        self._task_tracker = task_tracker
+
     @property
     def config(self):
         """Get agent configuration."""

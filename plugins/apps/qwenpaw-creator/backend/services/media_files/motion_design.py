@@ -961,11 +961,23 @@ async def design_motion_overlays(
             creation.vibe if creation.vibe in SUPPORTED_EMOTIONS else "chill"
         )
         concept = f"可靠动态 OS 字幕卡（生成样式回退：{reason}）"
+        location = ElementLocation(
+            x=0.50,
+            y=0.88,
+            width=0.80,
+            height=0.18,
+            anchor_x=0.5,
+            anchor_y=0.5,
+        )
+        if overlay.location:
+            location = overlay.location
         motion = MotionGraphic(
             html=render_caption_template(
                 creation.text,
                 theme=theme,
                 emotion=emotion,
+                box_width=location.width,
+                box_height=location.height,
             ),
             fps=24,
             loop=False,
@@ -978,14 +990,6 @@ async def design_motion_overlays(
             entrance="pop",
             exit="soft_fade",
             intensity=0.6,
-        )
-        location = ElementLocation(
-            x=0.50,
-            y=0.88,
-            width=0.80,
-            height=0.18,
-            anchor_x=0.5,
-            anchor_y=0.5,
         )
         styled[overlay.element_id] = (motion, location)
         return {

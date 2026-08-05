@@ -159,6 +159,19 @@ class TestReadFile:
         assert text.endswith(info["notice"])
 
     @pytest.mark.asyncio
+    async def test_read_with_string_line_range(self, tmp_path):
+        f = tmp_path / "lines.txt"
+        f.write_text("line1\nline2\nline3\nline4\n", encoding="utf-8")
+
+        result = await read_file(str(f), start_line="2", end_line="3")
+
+        text = result.content[0].text
+        assert "line1" not in text
+        assert "line2" in text
+        assert "line3" in text
+        assert "line4" not in text
+
+    @pytest.mark.asyncio
     async def test_read_start_line_exceeds_file(self, tmp_path):
         f = tmp_path / "short.txt"
         f.write_text("only one line\n", encoding="utf-8")

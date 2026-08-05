@@ -373,7 +373,7 @@ describe("TimelineLivePreview", () => {
 
     expect(iframe.srcdoc).toContain("data-qwenpaw-viewport-safety");
     expect(iframe.srcdoc).toContain("-webkit-text-stroke:0!important");
-    expect(iframe.srcdoc).toContain("font-size:min(8vh,8vw)!important");
+    expect(iframe.srcdoc).toContain("font-size:min(18vh,20vw)!important");
     expect(iframe.srcdoc).toContain("line-height:1.15!important");
     expect(iframe.srcdoc).toContain("white-space:normal!important");
     expect(iframe.srcdoc).toContain("overflow:visible!important");

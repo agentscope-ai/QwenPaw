@@ -13,10 +13,12 @@ import { message } from "antd";
 import { Check, FileDiff, Undo2 } from "lucide-react";
 import type {
   FileProjectReviewOperation,
+  FileProjectReviewRejectionFeedback,
   FileProjectReviewRecord,
 } from "@/contracts/creator";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import DiffView from "./DiffView";
+import RejectionFeedbackModal from "./RejectionFeedbackModal";
 
 const MISSING = Symbol("missing");
 
@@ -131,6 +133,8 @@ export default function InlineReviewDiff({ pointer }: { pointer: string }) {
     (state) => state.decisionInFlight,
   );
   const [localBusy, setLocalBusy] = useState(false);
+  const [pendingRejection, setPendingRejection] =
+    useState<MatchedReviewOperation | null>(null);
   const matches = matchReviewOperations(reviews, pointer);
   if (!projectId || matches.length === 0) return null;
   const busy = decisionInFlight || localBusy;
@@ -138,18 +142,37 @@ export default function InlineReviewDiff({ pointer }: { pointer: string }) {
   const submit = async (
     match: MatchedReviewOperation,
     decision: "ACCEPT" | "REJECT",
-  ) => {
+    rejectionFeedback?: FileProjectReviewRejectionFeedback,
+  ): Promise<boolean> => {
     setLocalBusy(true);
     try {
-      await decide(projectId, match.review.review_id, [
+      const decisionItems = [
         {
           operation_id: match.operation.operation_id,
           decision,
         },
-      ]);
-      message.success(decision === "ACCEPT" ? "已保留该修改" : "已撤销该修改");
+      ];
+      if (rejectionFeedback) {
+        await decide(
+          projectId,
+          match.review.review_id,
+          decisionItems,
+          rejectionFeedback,
+        );
+      } else {
+        await decide(projectId, match.review.review_id, decisionItems);
+      }
+      message.success(
+        decision === "ACCEPT"
+          ? "已保留该修改"
+          : rejectionFeedback?.action === "UNDO_AND_REGENERATE"
+          ? "已撤销该修改，Agent 将按反馈重做"
+          : "已撤销该修改",
+      );
+      return true;
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setLocalBusy(false);
     }
@@ -191,7 +214,7 @@ export default function InlineReviewDiff({ pointer }: { pointer: string }) {
                 type="button"
                 aria-label="撤销该修改"
                 disabled={busy}
-                onClick={() => void submit(match, "REJECT")}
+                onClick={() => setPendingRejection(match)}
                 className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)] disabled:opacity-50"
               >
                 <Undo2 className="h-3 w-3" />
@@ -209,6 +232,23 @@ export default function InlineReviewDiff({ pointer }: { pointer: string }) {
           )}
         </div>
       ))}
+      <RejectionFeedbackModal
+        open={pendingRejection !== null}
+        busy={busy}
+        targetCount={pendingRejection ? 1 : 0}
+        onCancel={() => setPendingRejection(null)}
+        onSubmit={(feedback) => {
+          if (!pendingRejection) return;
+          void (async () => {
+            const submitted = await submit(
+              pendingRejection,
+              "REJECT",
+              feedback,
+            );
+            if (submitted) setPendingRejection(null);
+          })();
+        }}
+      />
     </div>
   );
 }

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Response, status
@@ -48,6 +49,7 @@ from services.project_files.review import (
     ReviewDecisionConflict,
     ReviewDecisionError,
     ReviewDecisionItem,
+    ReviewRejectionFeedback,
     ReviewNotFound,
 )
 from services.project_files.models import Project
@@ -85,6 +87,8 @@ router = APIRouter(
     tags=["project-files"],
     route_class=CreatorErrorRoute,
 )
+
+logger = logging.getLogger("qwenpaw.creator.api.project_file_routes")
 
 _PATCH_IDEMPOTENCY_SCOPE = "PATCH /projects/{projectId}/project"
 
@@ -132,6 +136,20 @@ class ReviewDecisionRequest(StrictModel):
     decision_id: str = Field(alias="decisionId", min_length=1, max_length=192)
     decision_token: str = Field(alias="decisionToken", min_length=1)
     decisions: list[ReviewDecisionItem] = Field(min_length=1)
+    rejection_feedback: ReviewRejectionFeedback | None = Field(
+        default=None,
+        alias="rejectionFeedback",
+    )
+
+    @model_validator(mode="after")
+    def validate_rejection_feedback(self) -> ReviewDecisionRequest:
+        if self.rejection_feedback is not None and not any(
+            item.decision == "REJECT" for item in self.decisions
+        ):
+            raise ValueError(
+                "rejectionFeedback requires at least one REJECT decision",
+            )
+        return self
 
 
 def _etag_header(etag: str) -> str:
@@ -919,6 +937,16 @@ async def decide_project_review(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     services: CreatorFileServices = Depends(project_file_services),
 ) -> dict[str, Any]:
+    decisions_summary = ",".join(
+        f"{item.operation_id}={item.decision}" for item in request.decisions
+    )
+    logger.info(
+        "review decided: project=%s review=%s decisions=%s feedback=%s",
+        project_id,
+        review_id,
+        decisions_summary,
+        "yes" if request.rejection_feedback is not None else "no",
+    )
     key = resolve_idempotency_key(
         idempotency_key,
         stable_client_id=request.decision_id,
@@ -992,97 +1020,111 @@ async def decide_project_review(
         if record.status is IdempotencyStatus.COMPLETED:
             response.headers["X-Idempotent-Replay"] = "true"
             body = _completed_idempotency_body(record)
-            notify_creator_agent_runtime(project_id)
-            return body
-        if record.status is IdempotencyStatus.FAILED:
-            _replay_failed_idempotency(record)
-        if record.record_id != operation_id:
-            raise StorageIntegrityError(
-                "Review decision IN_PROGRESS reservation 未关联确定性 operation",
-            )
+        else:
+            if record.status is IdempotencyStatus.FAILED:
+                _replay_failed_idempotency(record)
+            if record.record_id != operation_id:
+                raise StorageIntegrityError(
+                    "Review decision IN_PROGRESS reservation 未关联确定性 operation",
+                )
 
-        recovered = False
-        try:
-            # The Review service journals by decision_id.  Re-entering with
-            # the identical token/decisions either resumes PREPARED or
-            # PROJECT_APPLIED work, or returns the FINALIZED snapshot.
-            review = await services.decide_review(
-                project_id=project_id,
-                review_id=review_id,
-                decision_token=request.decision_token,
-                decisions=request.decisions,
-                decision_id=request.decision_id,
-                _lifecycle_lock_held=True,
-            )
-            body = review.model_dump(mode="json")
-        except Exception as exc:
+            recovered = False
             try:
-                # The service-level decision journal makes this an exact
-                # resume, not a second semantic operation.
-                resumed_review = await services.decide_review(
+                # The Review service journals by decision_id. Re-entering with
+                # the identical request resumes the same semantic operation.
+                review = await services.decide_review(
                     project_id=project_id,
                     review_id=review_id,
                     decision_token=request.decision_token,
                     decisions=request.decisions,
+                    rejection_feedback=request.rejection_feedback,
                     decision_id=request.decision_id,
                     _lifecycle_lock_held=True,
                 )
-                body = resumed_review.model_dump(mode="json")
-                recovered = True
-            except Exception as resume_exc:
-                journal = await asyncio.to_thread(
-                    services.reviews._decision_journal_store(
-                        runtime_root=services.projects.project_root(project_id)
-                        / "runtime",
-                        review_id=review_id,
-                        decision_id=request.decision_id,
-                    ).read_or_none,
-                )
-                if journal is not None:
-                    mapped_resume = _as_creator_error(resume_exc)
-                    if mapped_resume is resume_exc:
-                        raise
-                    raise mapped_resume from resume_exc
-                mapped = _as_creator_error(exc)
+                body = review.model_dump(mode="json")
+            except Exception as exc:
                 try:
-                    await _persist_idempotent_failure(
-                        idempotency,
+                    # The service-level decision journal makes this an exact
+                    # resume, not a second semantic operation.
+                    resumed_review = await services.decide_review(
                         project_id=project_id,
-                        scope=scope,
-                        key=key,
-                        request_hash=request_hash,
-                        error=mapped,
+                        review_id=review_id,
+                        decision_token=request.decision_token,
+                        decisions=request.decisions,
+                        rejection_feedback=request.rejection_feedback,
+                        decision_id=request.decision_id,
+                        _lifecycle_lock_held=True,
                     )
-                except Exception as persist_exc:
-                    _translate_storage_error(persist_exc)
-                    raise
-                if mapped is exc:
-                    raise
-                raise mapped from exc
+                    body = resumed_review.model_dump(mode="json")
+                    recovered = True
+                except Exception as resume_exc:
+                    journal = await asyncio.to_thread(
+                        services.reviews._decision_journal_store(
+                            runtime_root=services.projects.project_root(
+                                project_id,
+                            )
+                            / "runtime",
+                            review_id=review_id,
+                            decision_id=request.decision_id,
+                        ).read_or_none,
+                    )
+                    if journal is not None:
+                        mapped_resume = _as_creator_error(resume_exc)
+                        if mapped_resume is resume_exc:
+                            raise
+                        raise mapped_resume from resume_exc
+                    mapped = _as_creator_error(exc)
+                    try:
+                        await _persist_idempotent_failure(
+                            idempotency,
+                            project_id=project_id,
+                            scope=scope,
+                            key=key,
+                            request_hash=request_hash,
+                            error=mapped,
+                        )
+                    except Exception as persist_exc:
+                        _translate_storage_error(persist_exc)
+                        raise
+                    if mapped is exc:
+                        raise
+                    raise mapped from exc
 
-        # As with Project Patch, a response-record write failure leaves the
-        # reservation recoverable.  It is not a Review decision failure.
-        try:
-            await asyncio.to_thread(
-                idempotency.complete,
-                owner_id=project_id,
-                scope=scope,
-                idempotency_key=key,
-                request_hash=request_hash,
-                response=body,
-                response_status=200,
-            )
-        except Exception as exc:
-            _translate_storage_error(exc)
-            raise
-        if recovered or not reservation.created:
-            response.headers["X-Idempotent-Replay"] = "true"
-        # The driver performs the recoverable Session/Goal transition from
-        # PENDING_REVIEW once the Project review has no pending operations.
-        # It will acquire the lifecycle lock only after this request releases
-        # it in the finally block below.
-        notify_creator_agent_runtime(project_id)
-        return body
+            # As with Project Patch, a response-record write failure leaves
+            # the reservation recoverable. It is not a Review decision failure.
+            try:
+                await asyncio.to_thread(
+                    idempotency.complete,
+                    owner_id=project_id,
+                    scope=scope,
+                    idempotency_key=key,
+                    request_hash=request_hash,
+                    response=body,
+                    response_status=200,
+                )
+            except Exception as exc:
+                _translate_storage_error(exc)
+                raise
+            if recovered or not reservation.created:
+                response.headers["X-Idempotent-Replay"] = "true"
     finally:
         operation_lock.release()
         lifecycle_lock.release()
+
+    # Session messages use the same Project lock as lifecycle operations, so
+    # publish only after the decision boundary has released it. The journal
+    # plus deterministic clientMessageId make this safe to retry.
+    try:
+        await services.publish_review_followup(
+            project_id=project_id,
+            review_id=review_id,
+            decision_id=request.decision_id,
+        )
+    except Exception as exc:
+        _translate_storage_error(exc)
+        raise
+    # The driver converges the resolved Review projection and consumes an
+    # executable continuation only for ACCEPT or UNDO_AND_REGENERATE.
+    # UNDO_ONLY is stored as system context and cannot start a run.
+    notify_creator_agent_runtime(project_id)
+    return body

@@ -55,12 +55,16 @@ def run_scenario(name: str, **payload: object) -> dict:
     return json.loads(completed.stdout)
 
 
+@pytest.mark.integration
+@pytest.mark.p1
 def test_running_is_durable_before_the_executor_runs() -> None:
     result = run_scenario("execute_order")
     assert result["stateWhenExecutorRan"] == "RUNNING"
     assert result["states"] == ["RECEIVED", "RUNNING", "COMPLETED"]
 
 
+@pytest.mark.integration
+@pytest.mark.p2
 def test_receipts_carry_the_executor_epoch() -> None:
     first = run_scenario("epoch_present")
     second = run_scenario("epoch_present")
@@ -70,6 +74,8 @@ def test_receipts_carry_the_executor_epoch() -> None:
     )
 
 
+@pytest.mark.integration
+@pytest.mark.p2
 def test_status_query_writes_nothing_and_keeps_the_target() -> None:
     result = run_scenario("status_pure_read", queries=300)
     assert result["storageSetCalls"] == 0
@@ -89,15 +95,21 @@ def test_status_query_writes_nothing_and_keeps_the_target() -> None:
         ("absent", "UNKNOWN"),
     ],
 )
+@pytest.mark.integration
+@pytest.mark.p1
 def test_observed_state_closed_set(case, expected) -> None:
     result = run_scenario("observed_states", case=case)
     assert result["observedState"] == expected
 
 
-def test_stale_receipt_is_never_reexecuted() -> None:
-    result = run_scenario("stale_epoch_no_reexec")
-    assert result["executorCalls"] == 0
-    assert result["receiptState"] in {"RECEIVED", "RUNNING"}
+@pytest.mark.integration
+@pytest.mark.p1
+def test_stale_received_receipt_is_reexecuted() -> None:
+    # A stale RECEIVED receipt proves the executor never crossed the
+    # durable RUNNING barrier, so runReceiptCommand safely re-runs it.
+    result = run_scenario("stale_received_reexecuted")
+    assert result["executorCalls"] == 1
+    assert result["receiptState"] == "COMPLETED"
 
 
 # test_chrome_cdp_send_guard.py

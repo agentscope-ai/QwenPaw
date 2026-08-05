@@ -76,26 +76,70 @@ def _mask_html_comments(text: str) -> str:
     )
 
 
-def _strip_code_fences(text: str) -> str:
-    """Remove fenced code blocks so headings/copy-pasted template text
-    inside them do not trick the section parser."""
-    return re.sub(r"```[^\n]*\n.*?```", "", text, flags=re.DOTALL)
+_FENCE_RE = re.compile(r"^(\s{0,3})(`{3,}|~{3,})")
 
 
 def _extract_sections(body: str) -> dict[str, str]:
-    """Split a PR body into a ``{heading: body}`` mapping."""
+    """Split a PR body into a ``{heading: body}`` mapping.
+
+    Headings inside fenced code blocks are NOT treated as section
+    boundaries. Fence marker lines (``` / ~~~) are dropped so an info
+    string or a fenced heading cannot trick the parser, but the code
+    *content* between the markers is preserved — an Evidence section that
+    contains only a fenced terminal transcript still counts as authored
+    content.
+
+    This aligns the port with openclaw's upstream ``extractMarkdownSections``
+    + ``stripMarkdownFenceMarkers`` (a fence-tracking state machine) after
+    the original Python port wrongly deleted the entire fenced block via a
+    ``re.sub`` over the triple-backtick fenced-block pattern (see #6626).
+    """
     body = _normalize_line_endings(body)
     body = _mask_html_comments(body)
-    body = _strip_code_fences(body)
 
     sections: dict[str, str] = {}
-    matches = list(_SECTION_RE.finditer(body))
-    for i, match in enumerate(matches):
-        heading = match.group(1).strip().lower()
-        start = match.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
-        section_body = body[start:end].strip()
-        sections[heading] = section_body
+    current_heading: str | None = None
+    current_lines: list[str] = []
+    in_fence = False
+    fence_char: str | None = None
+
+    def _flush() -> None:
+        nonlocal current_heading, current_lines
+        if current_heading is not None:
+            sections[current_heading] = "\n".join(current_lines).strip()
+        current_heading = None
+        current_lines = []
+
+    for line in body.split("\n"):
+        fence = _FENCE_RE.match(line)
+        if fence:
+            marker = fence.group(2)
+            if not in_fence:
+                in_fence = True
+                fence_char = marker[0]
+                continue  # drop opening fence marker line
+            if marker[0] == fence_char:
+                in_fence = False
+                fence_char = None
+                continue  # drop closing fence marker line
+            # Mismatched fence char inside a block (e.g. ~~~ inside ```):
+            # treat as literal content rather than a fence boundary.
+            if current_heading is not None:
+                current_lines.append(line)
+            continue
+        if in_fence:
+            # Preserve fenced content so a transcript-only Evidence section
+            # has real content; never treat a fence-internal line as a heading.
+            if current_heading is not None:
+                current_lines.append(line)
+            continue
+        heading_match = _SECTION_RE.match(line)
+        if heading_match:
+            _flush()
+            current_heading = heading_match.group(1).strip().lower()
+        elif current_heading is not None:
+            current_lines.append(line)
+    _flush()
     return sections
 
 
