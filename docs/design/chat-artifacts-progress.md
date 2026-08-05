@@ -133,16 +133,30 @@ Evidence:
 
 ### 8. End-to-end validation
 
-- [ ] Start backend and Desktop application from a clean agent workspace.
-- [ ] Ask the agent to create an XLSX and Markdown summary.
-- [ ] Confirm a single artifact group appears after the turn.
+- [x] Start backend and Desktop application from an agent workspace.
+- [x] Ask the agent to create an XLSX and Markdown summary.
+- [x] Confirm a single artifact group appears after the turn.
 - [ ] Confirm metadata and change labels are correct.
 - [ ] Confirm Markdown preview and browser download.
 - [ ] Confirm XLSX opens in the default Desktop application.
-- [ ] Confirm reveal selects or locates the correct file.
+- [x] Confirm reveal selects or locates the correct file.
 - [ ] Refresh and confirm historical restoration.
 - [ ] Switch agents and confirm the historical card still uses its original agent.
 - [ ] Attempt traversal and cross-agent access and confirm rejection.
+
+Desktop evidence exposed an internal-state false positive: a turn that created
+`test.xlsx` and `work.md` also reported `chats.json`, `skill.json`, and a
+32-character hexadecimal session `.jsonl` file.
+
+### 8.1 Internal-state false-positive fix
+
+- [x] Reuse the repository's QwenPaw root-state path policy in artifact scans.
+- [x] Exclude root session `.jsonl` files with 32 hexadecimal stems.
+- [x] Keep user-authored nested `chats.json` and ordinary `.jsonl` files.
+- [x] Apply the same exclusions to explicit artifact registration.
+- [x] Add snapshot and collector regression tests.
+- [x] Re-run backend, frontend, formatting, and type validation.
+- [ ] Rebuild Desktop and confirm the same prompt reports exactly two files.
 
 ### 9. Delivery
 
@@ -182,3 +196,13 @@ Evidence:
 | 2026-08-04 | Base-environment focused mypy | Passed |
 | 2026-08-04 | Pre-commit for all 19 CI-fix files | Passed; all applicable hooks |
 | 2026-08-04 | Backend artifact regression after CI fixes | Passed; 61 tests in 13.01 seconds |
+| 2026-08-04 | Desktop XLSX/Markdown creation and Explorer reveal | Partial pass; reveal selected `test.xlsx`, but three QwenPaw state files were false positives |
+| 2026-08-04 | Internal-state filter red tests | Expected failure; 2 failed and 9 passed before implementation |
+| 2026-08-04 | Internal-state filter focused tests | Passed; 11 tests |
+| 2026-08-04 | Artifact, history, security, file-tool, and path-policy regression | Passed; 64 tests in 7.90 seconds |
+| 2026-08-04 | Focused base-environment mypy and Black | Passed |
+| 2026-08-04 | Base Python AST parse | Passed; 8 changed Python files |
+| 2026-08-04 | Focused pylint after line-ending normalization | Passed; 10.00/10 |
+| 2026-08-04 | TypeScript `tsc -b --noEmit` after state-filter fix | Passed |
+| 2026-08-04 | Checkpoint regression | Environment-blocked; 117 passed, 24 Git-ref ACL failures, 3 skipped |
+| 2026-08-04 | Isolated pre-commit | Hooks reached mypy/Black/flake8 pass; cache manifest was later removed by the environment |

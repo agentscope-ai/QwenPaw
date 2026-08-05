@@ -68,6 +68,34 @@ def test_collector_rejects_paths_outside_workspace(
     assert collector.register("../outside.txt") is False
 
 
+def test_collector_rejects_internal_state_but_keeps_user_jsonl(
+    tmp_path: Path,
+) -> None:
+    before = capture_workspace_snapshot(tmp_path)
+    collector = ArtifactCollector(tmp_path, before)
+    internal = tmp_path / "skill.json"
+    internal.write_text("{}", encoding="utf-8")
+    session = tmp_path / "80bb94519e1a4ccc87337a8fc3ff91bb.jsonl"
+    session.write_text("", encoding="utf-8")
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+    git_config = git_dir / "config"
+    git_config.write_text("state", encoding="utf-8")
+    user_jsonl = tmp_path / "events.jsonl"
+    user_jsonl.write_text("{}\n", encoding="utf-8")
+
+    assert collector.register(internal) is False
+    assert collector.register(session) is False
+    assert collector.register(git_config) is False
+    assert collector.register(user_jsonl) is True
+
+    result = collector.collect(capture_workspace_snapshot(tmp_path))
+
+    assert [artifact.path for artifact in result.artifacts] == [
+        "events.jsonl",
+    ]
+
+
 def test_collector_applies_artifact_limit(tmp_path: Path) -> None:
     before = capture_workspace_snapshot(tmp_path)
     for index in range(3):

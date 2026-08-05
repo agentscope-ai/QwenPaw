@@ -42,6 +42,30 @@ def test_snapshot_excludes_runtime_and_temporary_files(
     assert tuple(snapshot.files) == ("deliverable.md",)
 
 
+def test_snapshot_excludes_qwenpaw_root_state_without_hiding_user_files(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "chats.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "skill.json").write_text("{}", encoding="utf-8")
+    session_name = "80bb94519e1a4ccc87337a8fc3ff91bb.jsonl"
+    (tmp_path / session_name).write_text("", encoding="utf-8")
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    (exports / "chats.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "events.jsonl").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "test.xlsx").write_bytes(b"xlsx")
+    (tmp_path / "work.md").write_text("report", encoding="utf-8")
+
+    snapshot = capture_workspace_snapshot(tmp_path)
+
+    assert tuple(snapshot.files) == (
+        "events.jsonl",
+        "exports/chats.json",
+        "test.xlsx",
+        "work.md",
+    )
+
+
 def test_snapshot_skips_symlinks(tmp_path: Path) -> None:
     target = tmp_path / "target.txt"
     target.write_text("target", encoding="utf-8")

@@ -46,23 +46,24 @@ def capture_workspace_snapshot(
         child_directories: list[Path] = []
         for entry in entries:
             path = Path(entry.path)
+            relative_path = path.relative_to(root)
             try:
                 if entry.is_symlink():
                     continue
                 if entry.is_dir(follow_symlinks=False):
-                    if not is_excluded_directory(path):
+                    if not is_excluded_directory(relative_path):
                         child_directories.append(path)
                     continue
                 if not entry.is_file(follow_symlinks=False):
                     continue
-                if is_excluded_file(path):
+                if is_excluded_file(relative_path):
                     continue
                 stat = entry.stat(follow_symlinks=False)
             except OSError:
                 continue
 
-            relative_path = path.relative_to(root).as_posix()
-            files[relative_path] = WorkspaceFileState(
+            normalized_path = relative_path.as_posix()
+            files[normalized_path] = WorkspaceFileState(
                 size=stat.st_size,
                 modified_ns=stat.st_mtime_ns,
             )

@@ -5,6 +5,7 @@ import mimetypes
 from dataclasses import dataclass
 from pathlib import Path
 
+from .exclusions import is_excluded_file
 from .models import (
     ArtifactCollection,
     ArtifactChangeKind,
@@ -99,6 +100,8 @@ class ArtifactCollector:
         except (OSError, ValueError):
             return False
         if not resolved.is_file() or resolved.is_symlink():
+            return False
+        if is_excluded_file(relative):
             return False
         self._explicit_paths.add(relative.as_posix())
         return True

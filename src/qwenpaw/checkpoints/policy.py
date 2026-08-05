@@ -12,7 +12,25 @@ from pathlib import Path
 from typing import Any, TypeVar, cast
 
 from ..utils.io_utils import get_sync_path_lock, write_text_atomic
+from ..workspace_state import (
+    CHECKPOINT_STATE_DIRS,
+    CHECKPOINT_STATE_FILES,
+    QWENPAW_RUNTIME_STATE_DIRS,
+    QWENPAW_RUNTIME_STATE_FILES,
+    QWENPAW_STATE_SUFFIXES,
+    is_qwenpaw_state_path,
+)
 from .models import CheckpointError
+
+__all__ = [
+    "CHECKPOINT_STATE_DIRS",
+    "CHECKPOINT_STATE_FILES",
+    "CheckpointPolicy",
+    "QWENPAW_RUNTIME_STATE_DIRS",
+    "QWENPAW_RUNTIME_STATE_FILES",
+    "QWENPAW_STATE_SUFFIXES",
+    "is_qwenpaw_state_path",
+]
 
 ConfigValue = TypeVar("ConfigValue", int, float)
 
@@ -51,89 +69,6 @@ query_preview_chars = {DEFAULT_QUERY_PREVIEW_CHARS}
 [safety]
 include_memory_quiesce_timeout = {DEFAULT_MEMORY_QUIESCE_TIMEOUT}
 """
-
-# Checkpoint-owned state stays in the shadow Git tree. These paths are
-# restored by the conversation/memory flows, never by --include-files.
-CHECKPOINT_STATE_FILES = frozenset({"MEMORY.md"})
-CHECKPOINT_STATE_DIRS = (
-    "memory/",
-    "sessions/",
-)
-
-# Other QwenPaw-owned paths are runtime implementation details. Keep this
-# list aligned with workspace defaults (including Coding Mode's .gitignore),
-# while retaining checkpoint-specific paths that Coding Mode does not know.
-QWENPAW_RUNTIME_STATE_FILES = frozenset(
-    {
-        ".bootstrap_completed",
-        ".reme_store_v1",
-        ".skill.json.lock",
-        ".synced.json",
-        "access_control.json",
-        "agent.json",
-        "AGENTS.md",
-        "BOOTSTRAP.md",
-        "chats.json",
-        "copaw_file_metadata.json",
-        "credentials.yaml",
-        "dingtalk_session_webhooks.json",
-        "feishu_receive_ids.json",
-        "HEARTBEAT.md",
-        "history.db",
-        "jobs.json",
-        "matrix_auth_state.json",
-        "matrix_sync_token",
-        "memory_file_metadata.json",
-        "PROFILE.md",
-        "skill.json",
-        "SOUL.md",
-        "yuanbao_sessions.json",
-    },
-)
-
-QWENPAW_RUNTIME_STATE_DIRS = (
-    ".qwenpaw/",
-    ".scroll/",
-    ".pawgit/",
-    "active_skills/",
-    "backup/",
-    "browser/",
-    "checkpoints/",
-    "customized_skills/",
-    "dialog/",
-    "digest/",
-    "drivers/",
-    "embedding_cache/",
-    "file_store/",
-    "jobs_history/",
-    "matrix_crypto_store/",
-    "media/",
-    "mem_agent/",
-    "mem_metadata/",
-    "mem_session/",
-    "missions/",
-    "ralph_loops/",
-    "resource/",
-    "skills/",
-    "tool_result/",
-    "tool_results/",
-)
-
-QWENPAW_STATE_SUFFIXES = (
-    ".json.tmp",
-    ".lock",
-    ".weixin-migrate.bak",
-)
-
-# Public aggregate constants answer "is this QwenPaw-owned state?". They
-# deliberately include checkpoint-owned session and memory paths.
-QWENPAW_STATE_FILES = frozenset(
-    {*CHECKPOINT_STATE_FILES, *QWENPAW_RUNTIME_STATE_FILES},
-)
-QWENPAW_STATE_DIRS = (
-    *CHECKPOINT_STATE_DIRS,
-    *QWENPAW_RUNTIME_STATE_DIRS,
-)
 
 # Generic generated content follows Coding Mode's broad .gitignore
 # categories. These are not QwenPaw state, but checkpointing them would be
@@ -187,18 +122,6 @@ def ensure_git_available() -> None:
     """Raise an actionable error when Git is unavailable."""
     if shutil.which("git") is None:
         raise CheckpointError(GIT_REQUIRED_MESSAGE)
-
-
-def is_qwenpaw_state_path(rel: str) -> bool:
-    """Return whether *rel* is QwenPaw runtime state, not user content."""
-    normalized = (rel or "").replace("\\", "/").lstrip("/")
-    if not normalized:
-        return False
-    if "/" not in normalized and normalized in QWENPAW_STATE_FILES:
-        return True
-    if "/" not in normalized and normalized.endswith(QWENPAW_STATE_SUFFIXES):
-        return True
-    return any(normalized.startswith(prefix) for prefix in QWENPAW_STATE_DIRS)
 
 
 class CheckpointPolicy:

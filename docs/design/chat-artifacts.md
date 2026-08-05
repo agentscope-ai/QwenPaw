@@ -137,7 +137,14 @@ Default exclusions:
 - `.pytest_cache/` and tool-specific cache directories
 - `history.db`, `history.db-wal`, and `history.db-shm`
 - lock files, editor swap files, and incomplete temporary downloads
-- agent runtime state that is not a user-authored deliverable
+- root-level QwenPaw runtime state that is not a user-authored deliverable
+- root session `.jsonl` files whose names are 32 hexadecimal characters
+
+Root-state matching is path-scoped. For example, the workspace-owned
+`chats.json` is excluded while a user-authored `exports/chats.json` remains
+eligible. Ordinary user files such as `events.jsonl` are not excluded by file
+extension alone. Snapshot discovery and explicit file registration use the
+same path predicate so internal state cannot be reintroduced by a file tool.
 
 Limits:
 
