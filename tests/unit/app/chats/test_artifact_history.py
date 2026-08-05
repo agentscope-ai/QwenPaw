@@ -1,11 +1,32 @@
 # -*- coding: utf-8 -*-
 import json
 
+from qwenpaw.app.chats.api import _get_workspace_artifact_manifests
 from qwenpaw.app.chats.utils import (
     artifact_manifest_to_messages,
     merge_artifact_manifests,
 )
 from qwenpaw.schemas import Message, MessageType
+
+
+def test_history_reads_manifests_from_persisted_agent_state() -> None:
+    manifests = [{"version": 1, "turn_id": "turn-1"}]
+    state = {"agent": {"workspace_artifact_manifests": manifests}}
+
+    result = _get_workspace_artifact_manifests(state, state["agent"])
+
+    assert result == manifests
+
+
+def test_history_keeps_root_manifest_compatibility() -> None:
+    manifests = [{"version": 1, "turn_id": "turn-1"}]
+
+    result = _get_workspace_artifact_manifests(
+        {"workspace_artifact_manifests": manifests},
+        {},
+    )
+
+    assert result == manifests
 
 
 def test_artifact_manifest_history_uses_tool_pair() -> None:

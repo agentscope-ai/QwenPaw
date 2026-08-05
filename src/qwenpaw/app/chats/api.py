@@ -75,6 +75,17 @@ async def get_session(
     return workspace.session
 
 
+def _get_workspace_artifact_manifests(
+    state: dict,
+    agent_raw: dict,
+) -> list | object:
+    """Read manifests from the agent state with legacy root fallback."""
+    manifests = agent_raw.get("workspace_artifact_manifests")
+    if manifests is None:
+        manifests = state.get("workspace_artifact_manifests", [])
+    return manifests
+
+
 @router.get("", response_model=list[ChatSpec])
 async def list_chats(
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
@@ -326,7 +337,7 @@ async def get_chat(
             memories, _summary = parse_legacy_memory_state(memory_raw)
 
     messages = agentscope_msg_to_message(memories)
-    manifests = state.get("workspace_artifact_manifests", [])
+    manifests = _get_workspace_artifact_manifests(state, agent_raw)
     if isinstance(manifests, list):
         valid_manifests = [
             manifest

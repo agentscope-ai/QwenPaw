@@ -144,6 +144,19 @@ Evidence:
 - [ ] Switch agents and confirm the historical card still uses its original agent.
 - [ ] Attempt traversal and cross-agent access and confirm rejection.
 
+### 8.2 Historical artifact restoration fix
+
+- [x] Diagnose the missing card after chat switch, agent switch, or restart.
+- [x] Read manifests from the persisted `agent` state module.
+- [x] Keep compatibility with a legacy root-level manifest field.
+- [x] Add regression tests for both persisted layouts.
+- [ ] Re-run Desktop/source end-to-end restoration checks.
+
+Root cause: `SessionSaveHook` persists the manifest in the `agent` state
+module, while the history API previously read only the outer session object.
+The live response therefore showed a card, but history replay reconstructed no
+workspace tool pair after a chat switch or application restart.
+
 Desktop evidence exposed an internal-state false positive: a turn that created
 `test.xlsx` and `work.md` also reported `chats.json`, `skill.json`, and a
 32-character hexadecimal session `.jsonl` file.
@@ -201,6 +214,8 @@ Desktop evidence exposed an internal-state false positive: a turn that created
 | 2026-08-04 | Internal-state filter focused tests | Passed; 11 tests |
 | 2026-08-04 | Artifact, history, security, file-tool, and path-policy regression | Passed; 64 tests in 7.90 seconds |
 | 2026-08-04 | Focused base-environment mypy and Black | Passed |
+| 2026-08-05 | Historical manifest persistence regression | Passed; 7 tests in 0.64 seconds |
+| 2026-08-05 | Historical manifest API Black and mypy | Passed |
 | 2026-08-04 | Base Python AST parse | Passed; 8 changed Python files |
 | 2026-08-04 | Focused pylint after line-ending normalization | Passed; 10.00/10 |
 | 2026-08-04 | TypeScript `tsc -b --noEmit` after state-filter fix | Passed |
