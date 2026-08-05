@@ -75,3 +75,13 @@ if (typeof window !== "undefined") {
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
+
+// Remove the static loading overlay from index.html once React has rendered.
+// Use requestAnimationFrame to ensure the first paint has occurred.
+requestAnimationFrame(() => {
+  const overlay = document.getElementById("app-loading-overlay");
+  if (overlay) {
+    overlay.style.opacity = "0";
+    setTimeout(() => overlay.remove(), 300);
+  }
+});
