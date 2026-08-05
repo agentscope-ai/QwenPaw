@@ -30,6 +30,7 @@ from ..constant import (
 from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
+from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
     LOG_FILE_PATH,
     add_project_file_handler,
@@ -73,6 +74,16 @@ mimetypes.add_type("image/svg+xml", ".svg")
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.
 load_envs_into_environ()
+
+
+async def _sync_scroll_history_on_startup() -> None:
+    """Run the composed legacy-history migration outside the event loop."""
+    try:
+        from ..agents.context.scroll.sync import sync_all_scroll_agents
+
+        await run_sync_io(sync_all_scroll_agents)
+    except Exception:  # noqa: BLE001 - session sync must never block startup
+        logger.warning("session-sync: import/launch failed", exc_info=True)
 
 
 async def _browser_idle_watchdog(kernel: Any, interval: float) -> None:
@@ -170,12 +181,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     #
     # Note: being pure backfill, this could later run asynchronously (off the
     # boot path) to speed up startup.
-    try:
-        from ..agents.context.scroll.sync import sync_all_scroll_agents
-
-        sync_all_scroll_agents()
-    except Exception:  # noqa: BLE001 - session sync must never block startup
-        logger.warning("session-sync: import/launch failed", exc_info=True)
+    await _sync_scroll_history_on_startup()
 
     # Create core managers (instant — no I/O)
     provider_manager = ProviderManager.get_instance()

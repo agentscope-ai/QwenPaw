@@ -357,7 +357,7 @@ class AgentBuilder:
         offloader = self._build_offloader(ctx, agent_config)
 
         # Optional scroll context strategy (None unless strategy="scroll").
-        scroll = self._build_scroll_components(
+        scroll = await self._build_scroll_components(
             ctx,
             agent_config,
             model,
@@ -861,7 +861,7 @@ class AgentBuilder:
             return ContextConfig()
 
     @staticmethod
-    def _build_scroll_components(
+    async def _build_scroll_components(
         ctx: Any,
         agent_config: Any,
         model: Any,
@@ -892,7 +892,8 @@ class AgentBuilder:
         # history.db is shared across sessions in this workspace; rows are
         # keyed by session_id (the conversation) and agent_id (which agent
         # wrote them).
-        return build_scroll_components(
+        return await run_sync_io(
+            build_scroll_components,
             agent_config=agent_config,
             workspace_dir=workspace_dir,
             model=model,

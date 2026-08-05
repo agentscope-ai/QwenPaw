@@ -1731,7 +1731,7 @@ class ScrollContextManager:
         tail: list[Msg],
         active_ids: set[str],
     ) -> tuple[list[Msg], list[Msg]]:
-        """Avoid evicting only the user half of a completed exchange.
+        """Avoid evicting only the user boundary of a completed turn.
 
         AgentScope's token split optimizes for a recent-tail token budget, so
         it can place a user request at the end of ``middle`` while keeping the
@@ -1740,7 +1740,7 @@ class ScrollContextManager:
         index must call the model to label a user-only span, and the live
         window keeps an answer whose question was just archived. Pull the
         leading non-user reply block(s) into ``middle`` unless they belong to
-        the active turn, preserving completed exchanges as the unit of
+        the active turn, preserving completed turns as the unit of
         eviction. ``reserve`` is a soft target; semantic boundaries win.
         """
         if not middle or not tail:
