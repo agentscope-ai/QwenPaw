@@ -125,8 +125,10 @@ def _probe_python() -> Optional[str]:
 
 def _probe_env() -> Optional[str]:
     """Check the ``$TZ`` environment variable."""
-    tz = os.environ.get("TZ", "")
-    return tz if _is_iana(tz) else None
+    tz = os.environ.get("TZ", "").strip()
+    if tz.startswith(":"):
+        tz = tz[1:]
+    return tz or None
 
 
 _WIN_TO_IANA = {
