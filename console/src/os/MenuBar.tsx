@@ -24,6 +24,7 @@ import { useOsNotify } from "./osNotifyStore";
 import { resolveAppDef } from "./osAppRegistry";
 import { useOsStyles } from "./useOsStyles";
 import { getConsoleRootHref } from "../utils/navigationMode";
+import LanguageSwitcher from "../components/LanguageSwitcher";
 
 function useClock() {
   const [now, setNow] = useState(() => new Date());
@@ -145,6 +146,7 @@ export default function MenuBar({ hidden = false }: { hidden?: boolean }) {
       </div>
 
       <div className={styles.menubarRight}>
+        <LanguageSwitcher />
         <Tooltip title={notificationLabel}>
           <button
             type="button"

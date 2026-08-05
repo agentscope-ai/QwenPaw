@@ -5,6 +5,10 @@ import { useOsNotify } from "./osNotifyStore";
 import { useOsWindows } from "./osWindowStore";
 import MenuBar from "./MenuBar";
 
+vi.mock("../components/LanguageSwitcher", () => ({
+  default: () => <button type="button">Language switcher</button>,
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (
@@ -34,6 +38,14 @@ beforeEach(() => {
 });
 
 describe("MenuBar notification count", () => {
+  it("includes the shared language switcher", () => {
+    renderWithProviders(<MenuBar />);
+
+    expect(
+      screen.getByRole("button", { name: "Language switcher" }),
+    ).toBeInTheDocument();
+  });
+
   it("hides the count when there are no unread items", () => {
     renderWithProviders(<MenuBar />);
 
