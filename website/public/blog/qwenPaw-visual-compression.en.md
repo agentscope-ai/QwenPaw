@@ -37,7 +37,7 @@ What it does can be summarized as: **keep recent and current work, fold stable o
 
 - **Preserve recovery paths.** When content is too short, there are too many images, the layout is incomplete, or the visual cost is not clearly lower than the original text, it stays as text without visual rendering. Different parts are tried and abandoned independently. If an anomaly occurs—such as missing media or an out-of-control image budget—the whole request rolls back to the native original.
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/3BMqYy57824omqwZ/img/5e87d318-6eb3-4566-98a7-43d1f26b650f.png)
+![image](https://img.alicdn.com/imgextra/i1/O1CN018fyB8CrJq2H3bJe1_!!6000000002179-2-tps-1774-887.png)
 
 When actually generating images, QwenPaw does not summarize or rewrite the original text. It only tidies excess whitespace, preserves line breaks, indentation, role labels, and tool-call structure, and selects different text densities based on `low`, `medium`, or `high`. The system completes pagination and cost estimation first, and only generates images after confirming the conversion is worthwhile. Under the same content and configuration, the local rendering result can also be reused.
 
@@ -65,7 +65,7 @@ Enable Visual Compression in **Run Configuration** - **Context Management**, and
 
 - Low / Medium / High correspond to compression strength. Low is the recommended default—the compression strength is usually already sufficient.
 
-### ![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/3BMqYy57824omqwZ/img/6cb739d3-db21-465d-a7dd-927cfab7f122.png)
+### ![image](https://img.alicdn.com/imgextra/i3/O1CN018oQOki9AAeK5o1aM_!!6000000003470-2-tps-2860-1318.png)
 
 ## Observing Visual Compression Results
 

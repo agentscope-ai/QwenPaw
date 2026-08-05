@@ -34,7 +34,7 @@ Agent 场景中的上下文开销，通常并不是因为用户的问题本身�
 - **折叠稳定的旧内容。** 较早的对话、长背景和大型成功 tool result 可以被分块渲染成图片。历史消息只有在跨过新的边界时才会重新分块，避免每轮重画全部内容，也让缓存更稳定。
 - **保留回溯路径。** 内容太短、图片太多、排版不完整，或视觉成本没有明显低于原文本时，就继续使用文字而不做视觉渲染。不同部分会独立尝试、独立放弃。如果出现异常，比如媒体丢失或图片预算失控时，会整体回滚到原生请求。
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/3BMqYy57824omqwZ/img/5e87d318-6eb3-4566-98a7-43d1f26b650f.png)
+![image](https://img.alicdn.com/imgextra/i1/O1CN018fyB8CrJq2H3bJe1_!!6000000002179-2-tps-1774-887.png)
 
 真正生成图片时，QwenPaw 也不会总结或改写原文。它只整理多余空白，保留换行、缩进、角色标签和工具调用结构，再根据 `low`、`medium` 或 `high` 选择不同的文字密度。系统会先完成分页和成本估算，确认值得转换后才生成图片。相同内容和配置的情况下还可以复用本地渲染结果。
 
@@ -58,7 +58,7 @@ Agent 场景中的上下文开销，通常并不是因为用户的问题本身�
 - 模型是否具备多模态能力可以在**模型**界面检查
 - 低/中/高模式对应压缩强度，默认选择低就好，压缩强度通常也已经足够。
 
-### ![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/3BMqYy57824omqwZ/img/6cb739d3-db21-465d-a7dd-927cfab7f122.png)
+### ![image](https://img.alicdn.com/imgextra/i3/O1CN018oQOki9AAeK5o1aM_!!6000000003470-2-tps-2860-1318.png)
 
 ## 视觉压缩效果观察
 
