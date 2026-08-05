@@ -80,6 +80,30 @@ function shortLabel(node: MemoryGraphNode): string {
   return label.length > 25 ? `${label.slice(0, 22)}…` : label;
 }
 
+function nodeFileTarget(
+  node: MemoryGraphNode,
+): { section: MemorySection; path: string } | null {
+  if (!node.indexed || node.virtual) return null;
+  if (node.section && node.relative_path) {
+    return { section: node.section, path: node.relative_path };
+  }
+
+  // Older graph endpoints did not include navigation metadata. Keep the
+  // standard ReMe/QwenPaw roots openable while the backend is being upgraded.
+  const normalizedPath = node.path.replace(/\\/g, "/").replace(/^\/+/, "");
+  const conventionalRoots: Array<[MemorySection, string]> = [
+    ["digest", "digest/"],
+    ["daily", "memory/"],
+    ["daily", "daily/"],
+  ];
+  for (const [section, prefix] of conventionalRoots) {
+    if (normalizedPath.startsWith(prefix)) {
+      return { section, path: normalizedPath.slice(prefix.length) };
+    }
+  }
+  return null;
+}
+
 function graphDegrees(snapshot: MemoryGraphSnapshot): Map<string, number> {
   const degree = new Map(snapshot.nodes.map((node) => [node.id, 0]));
   snapshot.edges.forEach((edge) => {
@@ -457,6 +481,7 @@ export default function MemoryGraphView({
   }, [baseGraph, offsets]);
   const activeId = hoveredId || selectedId;
   const selected = graphSnapshot?.nodes.find((node) => node.id === selectedId);
+  const selectedFileTarget = selected ? nodeFileTarget(selected) : null;
   const inbound =
     graphSnapshot?.edges.filter((edge) => edge.target === selectedId) ?? [];
   const outbound =
@@ -836,21 +861,21 @@ export default function MemoryGraphView({
               <h2>{nodeLabel(selected)}</h2>
               <code>{selected.path}</code>
               {selected.description && <p>{selected.description}</p>}
-              {selected.indexed &&
-                !selected.virtual &&
-                selected.section &&
-                selected.relative_path && (
-                  <button
-                    type="button"
-                    className={styles.openFileButton}
-                    onClick={() =>
-                      onOpenFile(selected.section!, selected.relative_path!)
-                    }
-                  >
-                    <span>{t("files.memoryGraphOpenFile")}</span>
-                    <ExternalLink size={14} />
-                  </button>
-                )}
+              {selectedFileTarget && (
+                <button
+                  type="button"
+                  className={styles.openFileButton}
+                  onClick={() =>
+                    onOpenFile(
+                      selectedFileTarget.section,
+                      selectedFileTarget.path,
+                    )
+                  }
+                >
+                  <span>{t("files.memoryGraphOpenFile")}</span>
+                  <ExternalLink size={14} />
+                </button>
+              )}
               <div className={styles.linkSection}>
                 <strong>
                   {t("files.memoryGraphOutbound", { count: outbound.length })}

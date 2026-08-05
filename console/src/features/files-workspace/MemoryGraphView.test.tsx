@@ -127,6 +127,46 @@ describe("MemoryGraphView", () => {
     );
   });
 
+  it("opens conventional digest paths from legacy graph snapshots", async () => {
+    vi.mocked(agentsApi.getMemoryGraph).mockResolvedValueOnce({
+      version: 1,
+      nodes: [
+        {
+          id: "virtual:wiki",
+          path: "digest/wiki",
+          name: "wiki",
+          description: "",
+          indexed: false,
+          virtual: true,
+        },
+        {
+          id: "digest/wiki/legacy.md",
+          path: "digest/wiki/legacy.md",
+          name: "Legacy",
+          description: "",
+          indexed: true,
+        },
+      ],
+      edges: [
+        {
+          source: "virtual:wiki",
+          target: "digest/wiki/legacy.md",
+          target_anchor: null,
+        },
+      ],
+    });
+
+    render(
+      <MemoryGraphView agentId="agent-a" root="wiki" onOpenFile={openFile} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Legacy" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "files.memoryGraphOpenFile" }),
+    );
+
+    expect(openFile).toHaveBeenCalledWith("digest", "wiki/legacy.md");
+  });
+
   it("keeps dense graphs readable by limiting persistent labels", async () => {
     const nodes = Array.from({ length: 27 }, (_, index) => ({
       id: `memory/node-${index}.md`,
