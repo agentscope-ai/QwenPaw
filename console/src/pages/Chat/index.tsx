@@ -1015,7 +1015,6 @@ function useChatInputDraft(isChatActive: () => boolean, agentId?: string) {
         return val === prefix || val.startsWith(`${prefix} `);
       });
       if (match) useLoopStore.getState().setSelectedMode(match.id);
-      else useLoopStore.getState().setSelectedMode("default");
     };
 
     // Restore draft on mount with polling for textarea readiness
