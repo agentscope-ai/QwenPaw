@@ -99,13 +99,15 @@ def _acquire_file_lock(handle: BinaryIO, lock_path: Path) -> None:
     if os.name == "nt":
         import msvcrt
 
-        handle.seek(0)
-        if handle.read(_LOCK_REGION_SIZE) == b"":
-            handle.write(b"\0")
-            handle.flush()
-        handle.seek(0)
         while time.monotonic() < deadline:
             try:
+                st = os.fstat(handle.fileno())
+                if st.st_size == 0:
+                    handle.seek(0)
+                    handle.write(b"\0")
+                    handle.flush()
+
+                handle.seek(0)
                 msvcrt.locking(
                     handle.fileno(),
                     msvcrt.LK_NBLCK,
