@@ -17,6 +17,9 @@ const messages = {
     awaitingTitle: "Extension installed, waiting for Chrome",
     awaitingDescription:
       "The extension is installed. Keep Chrome running; the bridge will connect automatically.",
+    repairTitle: "Browser Connector needs repair",
+    repairDescription:
+      "The Native Messaging host failed its runtime check. Repair it before Chrome can connect.",
     openChrome: "Open Chrome",
     installMethodsTitle: "Install method",
     localMethodTitle: "Local install",
@@ -123,6 +126,9 @@ const messages = {
     readyDescription: "版本 {version}。连接于 {connectedSince}。",
     awaitingTitle: "扩展已安装，等待 Chrome 连接",
     awaitingDescription: "扩展已安装。保持 Chrome 运行，桥接将自动建立连接。",
+    repairTitle: "浏览器连接器需要修复",
+    repairDescription:
+      "Native Messaging Host 运行时检查失败。请先修复连接器，再连接 Chrome。",
     openChrome: "打开 Chrome",
     installMethodsTitle: "安装方式",
     localMethodTitle: "本地安装",

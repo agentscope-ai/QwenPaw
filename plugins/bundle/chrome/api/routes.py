@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +30,7 @@ api_router = APIRouter(tags=["chrome"])
 router = api_router
 DEFAULT_CONFIG_PATH = Path.home() / ".qwenpaw" / "nm-bridge.json"
 _state = get_nm_bridge_route_state()
+_SETUP_LOCK = threading.Lock()
 
 
 class ExtensionSetupRequest(BaseModel):
@@ -92,6 +95,19 @@ async def get_extension_status() -> dict[str, Any]:
     }
 
 
+def _setup_extension_files_serially(
+    *,
+    install_mode: str,
+    reset: bool,
+) -> dict[str, str | bool]:
+    """Run one local setup operation at a time within this backend process."""
+    with _SETUP_LOCK:
+        return setup_extension_files(
+            install_mode=install_mode,
+            reset=reset,
+        )
+
+
 @api_router.get("/install-status")
 async def extension_status() -> dict[str, Any]:
     """Return Chrome extension installation status."""
@@ -104,7 +120,8 @@ async def extension_setup(
 ) -> dict[str, Any]:
     """Install or repair the extension and its Native Messaging host."""
     try:
-        result = setup_extension_files(
+        result = await asyncio.to_thread(
+            _setup_extension_files_serially,
             install_mode=request.install_mode,
             reset=request.reset,
         )

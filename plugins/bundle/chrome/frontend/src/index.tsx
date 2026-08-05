@@ -1007,11 +1007,11 @@ function ChromeSetupPage() {
   }, [loading, prepareLocalFiles, silentPrepareStarted, status?.extension_dir]);
 
   const isConnected = Boolean(status?.installed && coreStatus?.connected);
-  const showRepair = Boolean(
+  const needsRepair = Boolean(
     status?.native_host_repair_required && !coreStatus?.connected,
   );
   const isAwaitingConnection = Boolean(
-    status?.installed && !coreStatus?.connected,
+    status?.installed && !needsRepair && !coreStatus?.connected,
   );
 
   React.useEffect(() => {
@@ -1071,6 +1071,8 @@ function ChromeSetupPage() {
                       locale,
                       isConnected
                         ? "readyTitle"
+                        : needsRepair
+                        ? "repairTitle"
                         : isAwaitingConnection
                         ? "awaitingTitle"
                         : "installTitle",
@@ -1078,7 +1080,9 @@ function ChromeSetupPage() {
                   </Title>
                 </div>
                 <div style={styles.statusCopy}>
-                  {isConnected
+                  {needsRepair
+                    ? translate(locale, "repairDescription")
+                    : isConnected
                     ? translate(locale, "readyDescription", {
                         version:
                           coreStatus?.extension_version ||
@@ -1111,7 +1115,7 @@ function ChromeSetupPage() {
                     {translate(locale, "openChrome")}
                   </Button>
                 </>
-              ) : showRepair ? (
+              ) : needsRepair ? (
                 <Button
                   type="primary"
                   loading={setupLoading}
@@ -1140,7 +1144,7 @@ function ChromeSetupPage() {
             />
           ) : null}
 
-          {showRepair && status?.native_host_repair_instruction ? (
+          {needsRepair && status?.native_host_repair_instruction ? (
             <Alert
               showIcon
               type="error"

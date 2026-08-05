@@ -13,6 +13,8 @@ const U = {
     readyDescription: "Version {version}. Connected {connectedSince}.",
     awaitingTitle: "Extension installed, waiting for Chrome",
     awaitingDescription: "The extension is installed. Keep Chrome running; the bridge will connect automatically.",
+    repairTitle: "Browser Connector needs repair",
+    repairDescription: "The Native Messaging host failed its runtime check. Repair it before Chrome can connect.",
     openChrome: "Open Chrome",
     installMethodsTitle: "Install method",
     localMethodTitle: "Local install",
@@ -107,6 +109,8 @@ const U = {
     readyDescription: "版本 {version}。连接于 {connectedSince}。",
     awaitingTitle: "扩展已安装，等待 Chrome 连接",
     awaitingDescription: "扩展已安装。保持 Chrome 运行，桥接将自动建立连接。",
+    repairTitle: "浏览器连接器需要修复",
+    repairDescription: "Native Messaging Host 运行时检查失败。请先修复连接器，再连接 Chrome。",
     openChrome: "打开 Chrome",
     installMethodsTitle: "安装方式",
     localMethodTitle: "本地安装",
@@ -206,7 +210,7 @@ function o(t, n, r) {
       l = l.split(`{${i}}`).join(String(m));
   return l;
 }
-const x = window.QwenPaw.host, e = x.React, J = x.antd, Z = x.getApiUrl, _ = x.getApiToken, { Alert: F, Button: u, Collapse: X, Space: Ee, Spin: ee, Typography: te, message: b } = J, { Text: d, Title: O } = te, ne = {
+const x = window.QwenPaw.host, e = x.React, J = x.antd, Z = x.getApiUrl, R = x.getApiToken, { Alert: F, Button: u, Collapse: X, Space: Ee, Spin: ee, Typography: te, message: S } = J, { Text: d, Title: N } = te, ne = {
   extension_bridge: "checkExtensionBridge",
   nm_host: "checkNmHost",
   extension_assets: "checkExtensionAssets",
@@ -645,7 +649,7 @@ function oe(t) {
     }
   };
 }
-function S() {
+function C() {
   const { token: t } = x.antd.theme.useToken();
   return e.useMemo(() => oe(t), [t]);
 }
@@ -673,7 +677,7 @@ function ae() {
   );
 }
 function ie() {
-  const t = {}, n = _ == null ? void 0 : _();
+  const t = {}, n = R == null ? void 0 : R();
   return n && (t.Authorization = `Bearer ${n}`), t;
 }
 async function v(t, n) {
@@ -744,8 +748,8 @@ function ue(t, n) {
 function ge(t) {
   return !t.passed || t.severity === "warn" || t.severity === "error";
 }
-function N({ ready: t }) {
-  const { token: n } = x.antd.theme.useToken(), r = S();
+function O({ ready: t }) {
+  const { token: n } = x.antd.theme.useToken(), r = C();
   return /* @__PURE__ */ e.createElement(
     "span",
     {
@@ -758,7 +762,7 @@ function N({ ready: t }) {
   );
 }
 function z({ name: t, size: n }) {
-  const r = S(), l = {
+  const r = C(), l = {
     fill: "none",
     stroke: "currentColor",
     strokeWidth: 2,
@@ -785,7 +789,7 @@ function z({ name: t, size: n }) {
     i[t]
   );
 }
-function T({
+function k({
   icon: t,
   label: n,
   loading: r,
@@ -793,7 +797,7 @@ function T({
   tone: i = "default",
   iconOnly: m = !1
 }) {
-  const p = S(), g = i === "primary" ? p.stepControlPrimary : i === "blue" ? p.stepControlBlue : i === "placeholder" ? p.stepControlPlaceholder : null;
+  const p = C(), g = i === "primary" ? p.stepControlPrimary : i === "blue" ? p.stepControlBlue : i === "placeholder" ? p.stepControlPlaceholder : null;
   return /* @__PURE__ */ e.createElement(
     u,
     {
@@ -822,7 +826,7 @@ function xe({
   onCopy: n,
   status: r
 }) {
-  const l = S(), i = [
+  const l = C(), i = [
     { key: "extension_dir", label: "extensionDir" },
     { key: "native_manifest_path", label: "nativeManifest" },
     { key: "native_host_path", label: "nativeHost" },
@@ -854,20 +858,20 @@ function xe({
 }
 function fe() {
   var H;
-  const t = S(), n = j(), [r, l] = e.useState(null), [i, m] = e.useState(null), [p, g] = e.useState(null), [f, R] = e.useState(!0), [I, M] = e.useState(!1), [L, C] = e.useState(null), [W, G] = e.useState(!1), [D, V] = e.useState(() => ye()), y = e.useCallback(
+  const t = C(), n = j(), [r, l] = e.useState(null), [i, m] = e.useState(null), [p, g] = e.useState(null), [f, I] = e.useState(!0), [M, L] = e.useState(!1), [D, T] = e.useState(null), [W, G] = e.useState(!1), [A, V] = e.useState(() => ye()), y = e.useCallback(
     async (a) => {
-      a != null && a.silent || R(!0), C(null);
+      a != null && a.silent || I(!0), T(null);
       try {
-        const [s, w] = await Promise.all([
+        const [s, b] = await Promise.all([
           le(),
           se()
         ]);
-        return l(s), m(w), s;
+        return l(s), m(b), s;
       } catch (s) {
-        const w = s instanceof Error ? s.message : String(s);
-        return C(w), null;
+        const b = s instanceof Error ? s.message : String(s);
+        return T(b), null;
       } finally {
-        a != null && a.silent || R(!1);
+        a != null && a.silent || I(!1);
       }
     },
     []
@@ -879,40 +883,40 @@ function fe() {
     async (a) => {
       if (r != null && r.extension_dir && r.installed && !(a != null && a.refresh))
         return r;
-      M(!0), C(null);
+      L(!0), T(null);
       try {
         const s = await de({
           install_mode: "unpacked",
           reset: !1
         });
-        return l(s), a != null && a.silent || (s.native_host_repair_required ? b.error(
+        return l(s), a != null && a.silent || (s.native_host_repair_required ? S.error(
           s.native_host_repair_instruction || o(n, "installFailed")
-        ) : b.success(
+        ) : S.success(
           o(
             n,
             r != null && r.native_host_repair_required ? "repairSuccess" : "installSuccess"
           )
         )), s;
       } catch (s) {
-        const w = s instanceof Error ? s.message : String(s);
-        return C(w), a != null && a.silent || b.error(o(n, "installFailed")), null;
+        const b = s instanceof Error ? s.message : String(s);
+        return T(b), a != null && a.silent || S.error(o(n, "installFailed")), null;
       } finally {
-        M(!1);
+        L(!1);
       }
     },
     [n, r]
-  ), k = e.useCallback(
+  ), P = e.useCallback(
     async (a) => {
       var s;
-      await ((s = navigator.clipboard) == null ? void 0 : s.writeText(a)), b.success(o(n, "copied"));
+      await ((s = navigator.clipboard) == null ? void 0 : s.writeText(a)), S.success(o(n, "copied"));
     },
     [n]
   ), q = e.useCallback(async () => {
     const a = await E({ refresh: !0 });
-    a != null && a.extension_dir && await k(a.extension_dir);
-  }, [k, E]), P = e.useCallback(async () => {
+    a != null && a.extension_dir && await P(a.extension_dir);
+  }, [P, E]), B = e.useCallback(async () => {
     const a = await pe();
-    !a.opened && a.error && b.warning(a.error);
+    !a.opened && a.error && S.warning(a.error);
   }, []), K = {
     mac: ["shortcutMacStep1", "shortcutMacStep2"],
     windows: ["shortcutWindowsStep1", "shortcutWindowsStep2"],
@@ -921,7 +925,7 @@ function fe() {
   e.useEffect(() => {
     f || W || r != null && r.extension_dir || (G(!0), E({ silent: !0 }));
   }, [f, E, W, r == null ? void 0 : r.extension_dir]);
-  const h = !!(r != null && r.installed && (i != null && i.connected)), A = !!(r != null && r.native_host_repair_required && !(i != null && i.connected)), B = !!(r != null && r.installed && !(i != null && i.connected));
+  const h = !!(r != null && r.installed && (i != null && i.connected)), w = !!(r != null && r.native_host_repair_required && !(i != null && i.connected)), _ = !!(r != null && r.installed && !w && !(i != null && i.connected));
   return e.useEffect(() => {
     if (!h) {
       g(null);
@@ -942,16 +946,16 @@ function fe() {
     return () => {
       window.clearInterval(a);
     };
-  }, [h, y]), /* @__PURE__ */ e.createElement("div", { style: t.page }, /* @__PURE__ */ e.createElement("div", { style: t.shell }, /* @__PURE__ */ e.createElement("div", { style: t.panel }, /* @__PURE__ */ e.createElement("div", { style: t.statusBlock }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { style: t.header }, /* @__PURE__ */ e.createElement("div", { style: t.titleRow }, /* @__PURE__ */ e.createElement("span", { style: t.chromeIcon }), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(O, { level: 3, style: { margin: 0 } }, o(n, "pageTitle")), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, o(n, "pageSubtitle"))))), /* @__PURE__ */ e.createElement("div", { style: { marginTop: 22 } }, /* @__PURE__ */ e.createElement("div", { style: t.statusTitleRow }, h || B ? /* @__PURE__ */ e.createElement(N, { ready: h }) : null, /* @__PURE__ */ e.createElement(O, { level: 4, style: { margin: 0 } }, o(
+  }, [h, y]), /* @__PURE__ */ e.createElement("div", { style: t.page }, /* @__PURE__ */ e.createElement("div", { style: t.shell }, /* @__PURE__ */ e.createElement("div", { style: t.panel }, /* @__PURE__ */ e.createElement("div", { style: t.statusBlock }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { style: t.header }, /* @__PURE__ */ e.createElement("div", { style: t.titleRow }, /* @__PURE__ */ e.createElement("span", { style: t.chromeIcon }), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(N, { level: 3, style: { margin: 0 } }, o(n, "pageTitle")), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, o(n, "pageSubtitle"))))), /* @__PURE__ */ e.createElement("div", { style: { marginTop: 22 } }, /* @__PURE__ */ e.createElement("div", { style: t.statusTitleRow }, h || _ ? /* @__PURE__ */ e.createElement(O, { ready: h }) : null, /* @__PURE__ */ e.createElement(N, { level: 4, style: { margin: 0 } }, o(
     n,
-    h ? "readyTitle" : B ? "awaitingTitle" : "installTitle"
-  ))), /* @__PURE__ */ e.createElement("div", { style: t.statusCopy }, h ? o(n, "readyDescription", {
+    h ? "readyTitle" : w ? "repairTitle" : _ ? "awaitingTitle" : "installTitle"
+  ))), /* @__PURE__ */ e.createElement("div", { style: t.statusCopy }, w ? o(n, "repairDescription") : h ? o(n, "readyDescription", {
     version: (i == null ? void 0 : i.extension_version) || o(n, "versionUnknown"),
     connectedSince: me(
       i == null ? void 0 : i.connected_since,
       n
     )
-  }) : B ? o(n, "awaitingDescription") : (r == null ? void 0 : r.recovery_copy) || o(n, "installDescription")))), /* @__PURE__ */ e.createElement("div", { style: t.actions }, h ? /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement(
+  }) : _ ? o(n, "awaitingDescription") : (r == null ? void 0 : r.recovery_copy) || o(n, "installDescription")))), /* @__PURE__ */ e.createElement("div", { style: t.actions }, h ? /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement(
     u,
     {
       loading: f,
@@ -962,14 +966,14 @@ function fe() {
     u,
     {
       type: "primary",
-      onClick: () => void P()
+      onClick: () => void B()
     },
     o(n, "openChrome")
-  )) : A ? /* @__PURE__ */ e.createElement(
+  )) : w ? /* @__PURE__ */ e.createElement(
     u,
     {
       type: "primary",
-      loading: I,
+      loading: M,
       onClick: () => void E({ refresh: !0 })
     },
     o(n, "repairBrowserConnector")
@@ -981,15 +985,15 @@ function fe() {
       onClick: () => void y()
     },
     o(n, "installedRefresh")
-  ))), L ? /* @__PURE__ */ e.createElement(
+  ))), D ? /* @__PURE__ */ e.createElement(
     F,
     {
       showIcon: !0,
       type: "error",
-      message: L,
+      message: D,
       style: { marginTop: 16 }
     }
-  ) : null, A && (r != null && r.native_host_repair_instruction) ? /* @__PURE__ */ e.createElement(
+  ) : null, w && (r != null && r.native_host_repair_instruction) ? /* @__PURE__ */ e.createElement(
     F,
     {
       showIcon: !0,
@@ -999,7 +1003,7 @@ function fe() {
     }
   ) : null, h ? /* @__PURE__ */ e.createElement("div", { style: t.section }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "checksTitle")), (H = p == null ? void 0 : p.checks) != null && H.length ? /* @__PURE__ */ e.createElement("div", { style: t.checkGrid }, p.checks.filter((a) => a.name !== "semantic_control").map((a) => {
     const s = ge(a);
-    return /* @__PURE__ */ e.createElement("div", { key: a.name, style: t.checkTile }, /* @__PURE__ */ e.createElement("div", { style: t.checkTitle }, /* @__PURE__ */ e.createElement(N, { ready: !s }), /* @__PURE__ */ e.createElement(d, { strong: !0 }, ue(n, a.name))), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, s ? `${a.message} ${he(
+    return /* @__PURE__ */ e.createElement("div", { key: a.name, style: t.checkTile }, /* @__PURE__ */ e.createElement("div", { style: t.checkTitle }, /* @__PURE__ */ e.createElement(O, { ready: !s }), /* @__PURE__ */ e.createElement(d, { strong: !0 }, ue(n, a.name))), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, s ? `${a.message} ${he(
       n,
       a.repair_action
     )}`.trim() : o(n, "checkReady")));
@@ -1007,27 +1011,27 @@ function fe() {
     u,
     {
       type: "primary",
-      onClick: () => void P()
+      onClick: () => void B()
     },
     /* @__PURE__ */ e.createElement(z, { name: "chromeExtensions" }),
     o(n, "openChromeExtensionsPage")
   )), /* @__PURE__ */ e.createElement("div", { style: t.disabledTile, "aria-disabled": "true" }, /* @__PURE__ */ e.createElement("div", { style: t.methodHeader }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "chromeWebStoreTitle")), /* @__PURE__ */ e.createElement("span", { style: t.badge }, o(n, "comingSoon"))), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, o(n, "chromeWebStoreDescription")), /* @__PURE__ */ e.createElement(u, { disabled: !0 }, o(n, "comingSoon"))))), /* @__PURE__ */ e.createElement("div", { style: t.section }, /* @__PURE__ */ e.createElement("div", { style: t.installSupportGrid }, /* @__PURE__ */ e.createElement("div", { style: t.installBox }, /* @__PURE__ */ e.createElement("div", { style: t.installBoxHead }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "localStepsTitle")), /* @__PURE__ */ e.createElement("span", { style: t.installBoxNote }, o(n, "localStepsOnce"))), /* @__PURE__ */ e.createElement("ol", { style: t.steps }, /* @__PURE__ */ e.createElement("li", { style: t.stepItem }, /* @__PURE__ */ e.createElement("span", { style: t.stepIndex }, "1"), /* @__PURE__ */ e.createElement("div", { style: t.stepBody }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "openExtensionsStepTitle")), /* @__PURE__ */ e.createElement("div", { style: t.stepLine }, o(n, "openExtensionsPrefix"), /* @__PURE__ */ e.createElement(
-    T,
+    k,
     {
       icon: "chromeExtensions",
       label: o(n, "openExtensionsAction"),
-      onClick: () => void P(),
+      onClick: () => void B(),
       tone: "blue"
     }
   ), o(n, "openExtensionsSuffix")))), /* @__PURE__ */ e.createElement("li", { style: t.stepItem }, /* @__PURE__ */ e.createElement("span", { style: t.stepIndex }, "2"), /* @__PURE__ */ e.createElement("div", { style: t.stepBody }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "developerModeStepTitle")), /* @__PURE__ */ e.createElement("div", { style: t.stepLine }, o(n, "developerModePrefix"), /* @__PURE__ */ e.createElement(
-    T,
+    k,
     {
       icon: "sliders",
       label: o(n, "developerModeAction"),
       tone: "placeholder"
     }
   ), o(n, "developerModeSuffix")))), /* @__PURE__ */ e.createElement("li", { style: t.stepItem }, /* @__PURE__ */ e.createElement("span", { style: t.stepIndex }, "3"), /* @__PURE__ */ e.createElement("div", { style: t.stepBody }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "loadUnpackedStepTitle")), /* @__PURE__ */ e.createElement("div", { style: t.stepLine }, o(n, "loadUnpackedPrefix"), /* @__PURE__ */ e.createElement(
-    T,
+    k,
     {
       icon: "folderPlus",
       label: o(n, "loadUnpackedAction"),
@@ -1051,29 +1055,29 @@ function fe() {
         onClick: () => V(a),
         style: {
           ...t.osTab,
-          ...D === a ? t.osTabActive : null
+          ...A === a ? t.osTabActive : null
         },
         type: "button"
       },
       s
     )))), /* @__PURE__ */ e.createElement("ol", { style: t.shortcutSteps }, /* @__PURE__ */ e.createElement("li", { style: t.shortcutStep }, /* @__PURE__ */ e.createElement("span", { style: t.tipDot }, "1"), /* @__PURE__ */ e.createElement("div", { style: t.shortcutStepCopy }, /* @__PURE__ */ e.createElement("span", null, o(n, "shortcutCopyPathPrefix")), /* @__PURE__ */ e.createElement(
-      T,
+      k,
       {
         icon: "copy",
         label: o(n, "qwenpawExtensionPath"),
-        loading: I,
+        loading: M,
         onClick: () => void q(),
         tone: "blue",
         iconOnly: !0
       }
-    ), /* @__PURE__ */ e.createElement("span", null, o(n, "shortcutCopyPathSuffix")))), K[D].map(
+    ), /* @__PURE__ */ e.createElement("span", null, o(n, "shortcutCopyPathSuffix")))), K[A].map(
       (a, s) => /* @__PURE__ */ e.createElement("li", { key: a, style: t.shortcutStep }, /* @__PURE__ */ e.createElement("span", { style: t.tipDot }, s + 2), /* @__PURE__ */ e.createElement("span", null, o(n, a)))
     )))
   )))), /* @__PURE__ */ e.createElement(
     xe,
     {
       locale: n,
-      onCopy: (a) => void k(a),
+      onCopy: (a) => void P(a),
       status: r
     }
   )), f && !r ? /* @__PURE__ */ e.createElement(ee, null) : null));

@@ -81,7 +81,7 @@ def _lock_for(dst: Path) -> threading.Lock:
 
 @contextmanager
 def restore_process_lock() -> Iterator[None]:
-    """Serialise restore work; this lock isn't re-entrant on Windows."""
+    """Serialise restore and restore-cleanup work across processes."""
     from ...constant import WORKING_DIR
 
     lock_path = WORKING_DIR / _RESTORE_LOCK_FILE
