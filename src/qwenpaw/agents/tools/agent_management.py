@@ -988,13 +988,19 @@ def _normalize_batch(
 ) -> Optional[list[Dict[str, Any]]]:
     """Normalize ``batch`` to ``list[dict]`` or ``None``.
 
-    Accepts a real list or a JSON array string.  Structural checks
-    (non-empty, per-item ``task``) remain in :func:`_spawn_batch`.
+    Accepts a real list or a JSON array string.  Empty placeholders are
+    treated as "field not supplied" so Responses-compatible models that
+    emit ``""``, ``[]``, or ``"[]"`` can still use single-task mode.
+    This compatibility rule stays batch-specific because empty values
+    have security-relevant meanings for fields such as ``allowed_tools``.
     """
     if value is None:
         return None
+    if isinstance(value, str) and not value.strip():
+        return None
     coerced = _coerce_json_list(value, "batch")
-    assert coerced is not None
+    if not coerced:
+        return None
     return coerced  # type: ignore[return-value]
 
 
