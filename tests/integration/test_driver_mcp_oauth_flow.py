@@ -17,6 +17,8 @@ from tests.integration.driver_mcp_fakes import (
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p1
 async def test_driver_mcp_oauth_access_token_flow(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -70,6 +72,8 @@ async def test_driver_mcp_oauth_access_token_flow(
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p2
 async def test_driver_mcp_http_combines_oauth_and_static_credentials(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
-# pylint: disable=too-many-branches
+# pylint: disable=too-many-branches,too-many-statements
 """Filesystem Runtime Review decisions over real Project JSON values."""
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 import secrets
-from typing import Literal
+from typing import Any, Literal, Mapping
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -50,6 +50,39 @@ from .serialization import project_etag
 
 ReviewDecisionValue = Literal["ACCEPT", "REJECT"]
 
+_FIELD_LABELS = {
+    "name": "名称",
+    "title": "标题",
+    "description": "描述",
+    "creative_brief": "创作总纲",
+    "creative_direction": "创作方向",
+    "prompt": "提示词",
+    "camera": "运镜",
+    "framing": "景别",
+    "duration_seconds": "时长",
+    "narration": "旁白",
+    "dialogue": "台词",
+}
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _nonempty_string(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _pointer_label(pointer: str | None) -> str | None:
+    if not pointer:
+        return None
+    token = pointer.rstrip("/").rsplit("/", 1)[-1]
+    token = token.replace("~1", "/").replace("~0", "~")
+    return _FIELD_LABELS.get(token, token or None)
+
 
 class ReviewDecisionError(RuntimeError):
     pass
@@ -70,6 +103,63 @@ class ReviewDecisionItem(BaseModel):
     decision: ReviewDecisionValue
 
 
+class ReviewRejectionAction(StrEnum):
+    """User intent after rejecting one or more Review operations."""
+
+    UNDO_ONLY = "UNDO_ONLY"
+    UNDO_AND_REGENERATE = "UNDO_AND_REGENERATE"
+
+
+class ReviewRejectionFeedback(BaseModel):
+    """Structured user feedback attached to one rejection decision."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    action: ReviewRejectionAction
+    feedback_note: str | None = Field(
+        default=None,
+        alias="feedbackNote",
+        max_length=2000,
+    )
+    # Legacy fields remain readable so existing decision journals and older
+    # portal clients continue to replay deterministically.
+    problem_note: str | None = Field(
+        default=None,
+        alias="problemNote",
+        max_length=2000,
+    )
+    regeneration_instruction: str | None = Field(
+        default=None,
+        alias="regenerationInstruction",
+        max_length=2000,
+    )
+
+    @model_validator(mode="after")
+    def normalize_notes(self) -> ReviewRejectionFeedback:
+        for field_name in (
+            "feedback_note",
+            "problem_note",
+            "regeneration_instruction",
+        ):
+            value = getattr(self, field_name)
+            normalized = value.strip() if value is not None else None
+            object.__setattr__(self, field_name, normalized or None)
+        return self
+
+
+class ReviewRejectionTarget(BaseModel):
+    """One logical user-facing target covered by rejected JSON operations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    target_ref: str | None = None
+    variant_id: str | None = None
+    artifact_version_id: str | None = None
+    json_pointers: list[str] = Field(default_factory=list)
+
+
 class ReviewDecisionEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -77,6 +167,10 @@ class ReviewDecisionEvent(BaseModel):
     review_id: str
     decision_token: str
     decisions: list[ReviewDecisionItem]
+    rejection_feedback: ReviewRejectionFeedback | None = None
+    rejection_targets: list[ReviewRejectionTarget] = Field(
+        default_factory=list,
+    )
     resulting_generation: int
     resulting_etag: str
     created_at: datetime
@@ -159,6 +253,11 @@ class ReviewDecisionJournal(BaseModel):
     review_id: str = Field(min_length=1)
     decision_token: str = Field(min_length=1)
     decisions: list[ReviewDecisionItem] = Field(min_length=1)
+    rejection_feedback: ReviewRejectionFeedback | None = None
+    rejection_targets: list[ReviewRejectionTarget] = Field(
+        default_factory=list,
+    )
+    runtime_feedback_message: str | None = None
     state: ReviewDecisionJournalState
     review_before: ReviewRecord
     project_before_generation: int = Field(ge=0)
@@ -175,6 +274,24 @@ class ReviewDecisionJournal(BaseModel):
 
     @model_validator(mode="after")
     def validate_phase(self) -> ReviewDecisionJournal:
+        has_rejection = any(
+            item.decision == "REJECT" for item in self.decisions
+        )
+        if self.rejection_feedback is not None and not has_rejection:
+            raise ValueError(
+                "rejection feedback requires at least one rejected operation",
+            )
+        if self.rejection_targets and not has_rejection:
+            raise ValueError(
+                "rejection targets require at least one rejected operation",
+            )
+        if self.runtime_feedback_message is not None and (
+            self.rejection_feedback is None
+            or not self.runtime_feedback_message.strip()
+        ):
+            raise ValueError(
+                "a Runtime feedback message requires rejection feedback",
+            )
         if self.compensation_required and (
             self.compensation_transaction_id is None
             or self.compensation_round_id is None
@@ -199,6 +316,62 @@ class ReviewDecisionJournal(BaseModel):
                 "an applied Review decision needs its durable result",
             )
         return self
+
+
+def render_rejection_feedback_message(
+    journal: ReviewDecisionJournal,
+) -> str | None:
+    """Render the durable decision facts into one deterministic Agent input."""
+
+    if journal.runtime_feedback_message is not None:
+        return journal.runtime_feedback_message
+    feedback = journal.rejection_feedback
+    if feedback is None:
+        return None
+    return _render_rejection_feedback(feedback, journal.rejection_targets)
+
+
+def _render_rejection_feedback(
+    feedback: ReviewRejectionFeedback,
+    targets: list[ReviewRejectionTarget],
+) -> str:
+    target_lines: list[str] = []
+    for target in targets:
+        identifiers = [
+            value
+            for value in (
+                target.target_ref,
+                f"variant:{target.variant_id}" if target.variant_id else None,
+                target.artifact_version_id,
+            )
+            if value
+        ]
+        suffix = f"（{' · '.join(identifiers)}）" if identifiers else ""
+        target_lines.append(f"- {target.label}{suffix}")
+    if not target_lines:
+        target_lines.append("- 本次审阅中被撤销的修改")
+
+    if feedback.action is ReviewRejectionAction.UNDO_AND_REGENERATE:
+        lines = [
+            "【系统自动消息 · 用户审阅反馈】",
+            "用户已撤销以下产出，并明确要求重新生成。请只重做列出的逻辑目标，" + "不要恢复被撤销的版本，也不要重复生成其他已接受目标。",
+            "目标：",
+            *target_lines,
+        ]
+    else:
+        lines = [
+            "【系统记录 · 用户审阅反馈】",
+            "用户已移除以下产出，但没有要求重做。不要自行重新生成这些目标；" + "只有用户后续明确提出时才能重做。",
+            "目标：",
+            *target_lines,
+        ]
+    if feedback.feedback_note:
+        lines.extend(("用户反馈与调整要求：", feedback.feedback_note))
+    if feedback.problem_note:
+        lines.extend(("用户指出的问题：", feedback.problem_note))
+    if feedback.regeneration_instruction:
+        lines.extend(("用户给出的重做要求：", feedback.regeneration_instruction))
+    return "\n".join(lines)
 
 
 class ProjectReviewService:
@@ -232,6 +405,75 @@ class ProjectReviewService:
         if review is None:
             raise ReviewNotFound(f"Review not found: {review_id}")
         return review
+
+    def get_decision_journal(
+        self,
+        project_id: str,
+        review_id: str,
+        decision_id: str,
+    ) -> ReviewDecisionJournal:
+        """Read one decision journal without trusting opaque client IDs."""
+
+        self.store.read(project_id)
+        try:
+            safe_review_id = require_safe_runtime_segment(
+                review_id,
+                label="Review id",
+            )
+        except RuntimeFileValidationError as exc:
+            raise ReviewDecisionError(str(exc)) from exc
+        if (
+            not isinstance(decision_id, str)
+            or not decision_id
+            or decision_id != decision_id.strip()
+            or len(decision_id) > 192
+        ):
+            raise ReviewDecisionError(
+                "decision id must contain 1 to 192 characters",
+            )
+        runtime_root = self.store.project_root(project_id) / "runtime"
+        journal = self._decision_journal_store(
+            runtime_root=runtime_root,
+            review_id=safe_review_id,
+            decision_id=decision_id,
+        ).read_or_none()
+        if journal is None:
+            raise ReviewDecisionError(
+                f"Review decision journal not found: {decision_id}",
+            )
+        if (
+            journal.project_id != project_id
+            or journal.review_id != safe_review_id
+            or journal.decision_id != decision_id
+        ):
+            raise ReviewDecisionConflict(
+                "Review decision journal identity is inconsistent",
+            )
+        return journal
+
+    def finalized_rejection_feedback_journals(
+        self,
+        project_id: str,
+    ) -> list[ReviewDecisionJournal]:
+        """Return valid finalized decisions that carry Runtime feedback."""
+
+        self.store.read(project_id)
+        journals, _integrity_outcomes = self._discover_decision_journals(
+            project_id,
+        )
+        return sorted(
+            (
+                journal
+                for _store, journal in journals
+                if journal.state is ReviewDecisionJournalState.FINALIZED
+                and journal.rejection_feedback is not None
+            ),
+            key=lambda item: (
+                item.created_at,
+                item.review_id,
+                item.decision_id,
+            ),
+        )
 
     def recover_project(
         self,
@@ -282,6 +524,7 @@ class ProjectReviewService:
                         review_id=journal.review_id,
                         decision_token=journal.decision_token,
                         decisions=journal.decisions,
+                        rejection_feedback=journal.rejection_feedback,
                         decision_id=journal.decision_id,
                         _lifecycle_lock_held=True,
                     )
@@ -493,6 +736,7 @@ class ProjectReviewService:
         review_id: str,
         decision_token: str,
         decisions: list[ReviewDecisionItem],
+        rejection_feedback: ReviewRejectionFeedback | None = None,
         decision_id: str | None = None,
         _lifecycle_lock_held: bool = False,
     ) -> ReviewRecord:
@@ -512,6 +756,17 @@ class ProjectReviewService:
             (ReviewDecisionItem.model_validate(item) for item in decisions),
             key=lambda item: item.operation_id,
         )
+        normalized_feedback = (
+            ReviewRejectionFeedback.model_validate(rejection_feedback)
+            if rejection_feedback is not None
+            else None
+        )
+        if normalized_feedback is not None and not any(
+            item.decision == "REJECT" for item in canonical_decisions
+        ):
+            raise ReviewDecisionError(
+                "rejection feedback requires at least one rejected operation",
+            )
         try:
             review_id = require_safe_runtime_segment(
                 review_id,
@@ -558,6 +813,7 @@ class ProjectReviewService:
                     review_id=review_id,
                     decision_token=decision_token,
                     decisions=canonical_decisions,
+                    rejection_feedback=normalized_feedback,
                     decision_id=decision_id,
                     runtime_root=runtime_root,
                 )
@@ -569,6 +825,7 @@ class ProjectReviewService:
         review_id: str,
         decision_token: str,
         decisions: list[ReviewDecisionItem],
+        rejection_feedback: ReviewRejectionFeedback | None,
         decision_id: str,
         runtime_root: Path,
     ) -> ReviewRecord:
@@ -586,6 +843,7 @@ class ProjectReviewService:
                 review_id=review_id,
                 decision_token=decision_token,
                 decisions=decisions,
+                rejection_feedback=rejection_feedback,
             )
             if journal.state is ReviewDecisionJournalState.FINALIZED:
                 if (
@@ -648,12 +906,26 @@ class ProjectReviewService:
             )
             compensation_required = bool(rejection_changes)
             timestamp = datetime.now(UTC)
+            rejection_targets = self._rejection_targets(
+                review=review,
+                decisions=decisions,
+            )
             journal = ReviewDecisionJournal(
                 decision_id=decision_id,
                 project_id=project_id,
                 review_id=review_id,
                 decision_token=decision_token,
                 decisions=decisions,
+                rejection_feedback=rejection_feedback,
+                rejection_targets=rejection_targets,
+                runtime_feedback_message=(
+                    _render_rejection_feedback(
+                        rejection_feedback,
+                        rejection_targets,
+                    )
+                    if rejection_feedback is not None
+                    else None
+                ),
                 state=ReviewDecisionJournalState.PREPARED,
                 review_before=review,
                 project_before_generation=current.generation,
@@ -833,6 +1105,8 @@ class ProjectReviewService:
                 review_id=journal.review_id,
                 decision_token=journal.decision_token,
                 decisions=journal.decisions,
+                rejection_feedback=journal.rejection_feedback,
+                rejection_targets=journal.rejection_targets,
                 resulting_generation=resulting.generation,
                 resulting_etag=resulting.etag,
                 created_at=timestamp,
@@ -949,6 +1223,7 @@ class ProjectReviewService:
         review_id: str,
         decision_token: str,
         decisions: list[ReviewDecisionItem],
+        rejection_feedback: ReviewRejectionFeedback | None,
     ) -> None:
         if (
             journal.project_id != project_id
@@ -958,10 +1233,112 @@ class ProjectReviewService:
                 decision_token,
             )
             or journal.decisions != decisions
+            or journal.rejection_feedback != rejection_feedback
         ):
             raise ReviewDecisionConflict(
                 "decision id was already used with a different Review request",
             )
+
+    @staticmethod
+    def _rejection_targets(
+        *,
+        review: ReviewRecord,
+        decisions: list[ReviewDecisionItem],
+    ) -> list[ReviewRejectionTarget]:
+        """Collapse low-level rejected operations into logical user targets."""
+
+        rejected = {
+            item.operation_id
+            for item in decisions
+            if item.decision == "REJECT"
+        }
+        grouped: dict[str, dict[str, Any]] = {}
+        for operation in review.operations:
+            if operation.operation_id not in rejected:
+                continue
+            locator = _mapping(operation.ui_locator)
+            after = _mapping(operation.after)
+            metadata = _mapping(after.get("metadata"))
+            artifact_version_id = _nonempty_string(
+                locator.get("artifactVersionId"),
+            ) or _nonempty_string(after.get("version_id"))
+            target_ref = (
+                _nonempty_string(metadata.get("targetRef"))
+                or _nonempty_string(after.get("owner_ref"))
+                or _nonempty_string(operation.target_ref)
+            )
+            variant_id = _nonempty_string(metadata.get("variantId"))
+            element_id = _nonempty_string(locator.get("elementId"))
+            asset_id = _nonempty_string(locator.get("assetId"))
+            pointer = operation.json_pointer
+
+            if artifact_version_id:
+                key = f"artifact-version:{artifact_version_id}"
+            elif target_ref:
+                key = f"target:{target_ref}|variant:{variant_id or ''}"
+            elif element_id:
+                key = f"element:{element_id}|variant:{variant_id or ''}"
+            elif asset_id:
+                key = f"asset:{asset_id}|variant:{variant_id or ''}"
+            else:
+                key = f"operation:{pointer or operation.operation_id}"
+
+            version_name = _nonempty_string(after.get("name"))
+            field_label = _pointer_label(pointer)
+            if version_name:
+                label = version_name
+                label_priority = 3
+            elif element_id:
+                label = f"内容 {element_id}"
+                if field_label:
+                    label += f" · {field_label}"
+                label_priority = 2
+            elif asset_id:
+                label = f"资产 {asset_id}"
+                if field_label:
+                    label += f" · {field_label}"
+                label_priority = 2
+            elif target_ref:
+                label = target_ref
+                label_priority = 1
+            else:
+                label = field_label or pointer or operation.operation_id
+                label_priority = 0
+
+            current = grouped.get(key)
+            if current is None:
+                current = {
+                    "key": key,
+                    "label": label,
+                    "label_priority": label_priority,
+                    "target_ref": target_ref,
+                    "variant_id": variant_id,
+                    "artifact_version_id": artifact_version_id,
+                    "json_pointers": [],
+                }
+                grouped[key] = current
+            else:
+                if label_priority > current["label_priority"]:
+                    current["label"] = label
+                    current["label_priority"] = label_priority
+                current["target_ref"] = current["target_ref"] or target_ref
+                current["variant_id"] = current["variant_id"] or variant_id
+                current["artifact_version_id"] = (
+                    current["artifact_version_id"] or artifact_version_id
+                )
+            if pointer and pointer not in current["json_pointers"]:
+                current["json_pointers"].append(pointer)
+
+        return [
+            ReviewRejectionTarget.model_validate(
+                {
+                    key: value
+                    for key, value in item.items()
+                    if key != "label_priority"
+                },
+            )
+            for item in grouped.values()
+        ]
 
     @staticmethod
     def _rejection_changes(
@@ -1417,5 +1794,9 @@ __all__ = [
     "ReviewDecisionItem",
     "ReviewDecisionRecoveryAction",
     "ReviewDecisionRecoveryOutcome",
+    "ReviewRejectionAction",
+    "ReviewRejectionFeedback",
+    "ReviewRejectionTarget",
     "ReviewNotFound",
+    "render_rejection_feedback_message",
 ]

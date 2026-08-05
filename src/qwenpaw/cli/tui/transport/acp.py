@@ -83,7 +83,7 @@ def _open_agent_stderr_log() -> tuple[int | None, str | None]:
     """Open a file to receive the agent subprocess's stderr.
 
     ``spawn_agent_process`` defaults the child's stderr to an *unread* PIPE.
-    Chatty tools (Chromium via ``browser_use``) flood it, fill the 64 KB pipe
+    Chatty subprocess tools can flood it, fill the 64 KB pipe
     buffer, block the agent, and the JSON-RPC stream dies ("Connection
     closed"). Draining stderr to a file avoids the deadlock and keeps the logs
     for debugging. Falls back to ``DEVNULL`` if the file can't be opened.

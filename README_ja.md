@@ -33,7 +33,7 @@
 
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **忘れない**                               | 3 層メモリ — ライブな作業コンテキスト、完全な逐語履歴、蒸留された知識。古いターンは退避されるが必要に応じていつでも呼び出し可能。要約で失われることはなく、情報は失われない。                                                                           |
+| **忘れない**                               | 3 層メモリ — ライブな作業コンテキスト、完全な逐語履歴、そして [ReMe](https://github.com/agentscope-ai/ReMe) による自己進化型パーソナルナレッジベース。会話と資料を、読み取り・編集・検索が可能で相互にリンクされた Markdown メモリへ継続的に変換。 |
 | **ローカルもクラウドも、自由に動く**        | QwenPaw-Flash モデル（2B / 4B / 9B）— エージェントタスク向けに訓練。内蔵 QwenPaw Local ランタイム — API キー不要、クラウド依存なし。Ollama、LM Studio、14+ クラウドプロバイダーにも対応。                  |
 | **セキュリティ内蔵**                         | カーネルレベルの Sandbox、Tool Guard、File Guard、Skill Scanner。危険なコマンドは実行前にブロック。                                                                                    |
 | **マルチエージェント＆並列**                | 独自のメモリとスキルを持つ独立エージェントを生成。実行時のサブエージェント。Agent Communication Protocol（ACP）によるクロスシステム編成。                                                                         |
@@ -60,9 +60,9 @@
 
 ## ニュース
 
-- [2026-07-24] **v2.0.1** | PawApp ミニアプリプラットフォーム、ユーザー編集可能な Agent Mode、Oh-My-Paw plugins、ReMe メモリ強化、デスクトップ UX 改善など。[v2.0.1 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+- [2026-07-24] **v2.0.1** | PawApp ミニアプリプラットフォーム、ユーザー編集可能な Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) メモリ強化、デスクトップ UX 改善など。[v2.0.1 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式リリース** 🎉 | AgentScope 2.0 ベースの全面リライト：Agent OS アーキテクチャ、Loop Engineering、Scroll Context、ReMe v0.4.0 Long-term Memory、組み込み TUI を提供。
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式リリース** 🎉 | AgentScope 2.0 ベースの全面リライト：Agent OS アーキテクチャ、Loop Engineering、Scroll Context、[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自己進化型パーソナルナレッジベース、組み込み TUI を提供。
 
   | ハイライト | 内容 |
   |-----------|------|
@@ -70,7 +70,7 @@
   | **Agent OS — Drivers** | プロトコル中立な MCP / A2A / ACP コネクタ層、暗号化資格情報と呼び出しごとのポリシーゲート付き。 |
   | **Loop Engineering** | 高度なエージェントループテンプレート（Coding Mode、Mission Mode、今後さらに追加予定）と組み合わせ可能な承認ゲート。 |
   | **Scroll Context** | 全ターンを永続化；退去ターンはインデックス付きでオンデマンド再生 — 要約なし、情報欠落なし。 |
-  | **ReMe v0.4.0 Long-term Memory** | ターンベースの自動追跡、利用感知型検索、バックエンド固有の埋め込み。 |
+  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自己進化型パーソナルナレッジベース** | 会話と資料を、読み取り・編集・検索が可能で相互にリンクされた Markdown メモリへ継続的に変換。 |
   | **Terminal UI (TUI)** | フルスクリーンターミナルチャット — Console やチャネルと同一のエージェント・記憶・セッション。 |
 
   Agent OS をベースに、すぐに使える QwenPaw アプリケーション — **QwenPaw Creator**、**QwenPaw Insight** など — を順次リリース予定です。 [v2.0.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
@@ -411,7 +411,8 @@ QwenPaw には 4 つのコアセキュリティレイヤーが含まれていま
 | [プラグイン](https://qwenpaw.agentscope.io/docs/plugins)                    | プラグインシステムと Plugin Market                  |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                            | MCP クライアントの管理                               |
 | [Persona](https://qwenpaw.agentscope.io/docs/persona)                   | エージェントのパーソナリティカスタマイズ（SOUL / PROFILE）  |
-| [メモリ](https://qwenpaw.agentscope.io/docs/memory)                     | 長期セマンティックメモリ（ReMe）                 |
+| [メモリ](https://qwenpaw.agentscope.io/docs/memory)                     | ローカルで編集・検索可能かつ相互にリンクされた Markdown メモリによる自己進化型パーソナルナレッジベース。[ReMe](https://github.com/agentscope-ai/ReMe) を採用 |
+| [ReMe ドキュメント](https://docs.agentscope.io/reme/latest/en/overview) | ReMe の公式概要とドキュメント                    |
 | [記憶進化 & プロアクティブ](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | エージェントの記憶進化とプロアクティブインタラクション |
 | [コンテキスト](https://qwenpaw.agentscope.io/docs/context)                   | Scroll ベースのコンテキスト管理                  |
 | [魔法コマンド](https://qwenpaw.agentscope.io/docs/commands)           | AI の応答を待たずに会話状態を制御 |

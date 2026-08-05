@@ -178,6 +178,7 @@ export function ChannelDrawer({
   const feishuDomain = (Form.useWatch("domain", form) as string) || "feishu";
   const showToolCalls = Form.useWatch("show_tool_calls", form) ?? true;
   const showToolResults = Form.useWatch("show_tool_results", form) ?? true;
+  const onebotMediaBase64 = Form.useWatch("media_base64", form) ?? false;
 
   // Parent calls form.setFieldsValue() before the Form mounts, which wins over
   // initialValues. Re-apply auth_method after open so the dropdown is correct.
@@ -1351,6 +1352,39 @@ export function ChannelDrawer({
             <Form.Item name="access_token" label="Access Token">
               <Input.Password placeholder="Access token for authentication" />
             </Form.Item>
+            <Form.Item
+              name="media_base64"
+              label={t("channels.onebotMediaBase64")}
+              valuePropName="checked"
+              tooltip={t("channels.onebotMediaBase64Tooltip")}
+            >
+              <Switch />
+            </Form.Item>
+            {onebotMediaBase64 && (
+              <Form.Item
+                name="media_base64_max_mb"
+                label={t("channels.onebotMediaBase64MaxMb")}
+                tooltip={t("channels.onebotMediaBase64MaxMbTooltip")}
+                rules={[
+                  {
+                    required: true,
+                    message: t("channels.onebotMediaBase64MaxMbRequired"),
+                  },
+                  {
+                    type: "number",
+                    min: 1,
+                    message: t("channels.onebotMediaBase64MaxMbMin"),
+                  },
+                ]}
+              >
+                <InputNumber
+                  min={1}
+                  precision={0}
+                  style={{ width: "100%" }}
+                  addonAfter="MB"
+                />
+              </Form.Item>
+            )}
             <Form.Item
               name="share_session_in_group"
               label={t("channels.shareSessionInGroup")}

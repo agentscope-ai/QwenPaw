@@ -13,6 +13,7 @@ import pytest
 from PIL import Image
 
 from api.file_asset_routes import _AssetInput, _ingest_many_sync
+from domain.errors import ReviewPendingError
 from schemas.assets import SourceMediaMetadata, SourceModelRunRef
 from services.file_agent_runtime import (
     AgentModelConfigurationError,
@@ -21,6 +22,13 @@ from services.file_agent_runtime import (
     AgentToolCall,
     CallbackAgentChatClient,
     FileCreatorAgentRuntime,
+)
+from services.file_agent_runtime.driver import (
+    MalformedJqProjectArguments,
+    _apply_review_feedback_to_tool_arguments,
+    _jq_project_argument_diagnosis,
+    _review_feedback_target_refs,
+    _specialist_tool_recovery,
 )
 from services.file_agent_runtime.prompts import render_creator_system_prompt
 from services.observability import read_trace_records
@@ -50,6 +58,211 @@ PROJECT_ID = "project-1"
 SESSION_ID = "session-1"
 CONVERSATION_ID = "conversation-1"
 GOAL_ID = "goal-1"
+
+
+def test_rejection_feedback_is_fenced_and_injected_into_media_prompt() -> None:
+    request = CreatorMessageRecord(
+        message_id="message-review-feedback",
+        project_id=PROJECT_ID,
+        creator_session_id=SESSION_ID,
+        conversation_id=CONVERSATION_ID,
+        message_seq=3,
+        role="user",
+        content_parts=[{"type": "text", "text": "请按反馈重做"}],
+        source="review_rejection_feedback",
+        channel=MessageChannel.AGENTDOCK,
+        classification=MessageClassification.REVIEW_REVISE,
+        metadata={
+            "decisionId": "decision-dramatic",
+            "rejectionFeedback": {
+                "action": "UNDO_AND_REGENERATE",
+                "problemNote": "画面张力不足",
+                "regenerationInstruction": "更加 dramatic",
+            },
+            "targets": [{"target_ref": "element:ep22"}],
+        },
+    )
+    arguments = {
+        "projectId": PROJECT_ID,
+        "targetRef": "element:ep22",
+        "arguments": {"prompt": "原始分镜 prompt"},
+    }
+
+    enriched, applied = _apply_review_feedback_to_tool_arguments(
+        request,
+        name="image_generation",
+        arguments=arguments,
+    )
+
+    assert _review_feedback_target_refs(request) == {"element:ep22"}
+    assert applied is True
+    assert arguments["arguments"]["prompt"] == "原始分镜 prompt"
+    prompt = enriched["arguments"]["prompt"]
+    assert "[review-decision:decision-dramatic]" in prompt
+    assert "画面张力不足" in prompt
+    assert "更加 dramatic" in prompt
+
+
+def test_unified_rejection_feedback_is_injected_into_media_prompt() -> None:
+    request = CreatorMessageRecord(
+        message_id="message-review-feedback-unified",
+        project_id=PROJECT_ID,
+        creator_session_id=SESSION_ID,
+        conversation_id=CONVERSATION_ID,
+        message_seq=4,
+        role="user",
+        content_parts=[{"type": "text", "text": "请按反馈重做"}],
+        source="review_rejection_feedback",
+        channel=MessageChannel.AGENTDOCK,
+        classification=MessageClassification.REVIEW_REVISE,
+        metadata={
+            "decisionId": "decision-unified",
+            "rejectionFeedback": {
+                "action": "UNDO_AND_REGENERATE",
+                "feedbackNote": ("人物仍像巅峰时期；保持身份一致，改成落魄时期"),
+            },
+            "targets": [{"target_ref": "element:ep22"}],
+        },
+    )
+    arguments = {
+        "projectId": PROJECT_ID,
+        "targetRef": "element:ep22",
+        "arguments": {"prompt": "原始分镜 prompt"},
+    }
+
+    enriched, applied = _apply_review_feedback_to_tool_arguments(
+        request,
+        name="image_generation",
+        arguments=arguments,
+    )
+
+    assert applied is True
+    prompt = enriched["arguments"]["prompt"]
+    assert "必须吸收的用户反馈" in prompt
+    assert "保持身份一致，改成落魄时期" in prompt
+
+
+def test_stale_project_snapshots_are_elided_from_the_continuation() -> None:
+    """Only the newest runtime project echo survives prompt assembly.
+
+    A 50-element production run accumulated 18 full project.json echoes
+    (2.09MB) in one Conversation and every model call failed with an
+    input-length 400. Older echoes carry no information the model cannot
+    get from read_project, so they collapse to a one-line stub; durable
+    history keeps every byte.
+    """
+
+    from services.file_agent_runtime.driver import (
+        _continuation_message_text,
+    )
+
+    def message(seq: int, *, role: str, source: str, text: str):
+        return CreatorMessageRecord(
+            message_id=f"message-{seq}",
+            project_id=PROJECT_ID,
+            creator_session_id=SESSION_ID,
+            conversation_id=CONVERSATION_ID,
+            message_seq=seq,
+            role=role,
+            content_parts=[{"type": "text", "text": text}],
+            source=source,
+            channel=MessageChannel.RUNTIME,
+        )
+
+    old_snapshot = json.dumps(
+        {"project": {"generation": 11, "padding": "x" * 8000}},
+    )
+    new_snapshot = json.dumps(
+        {"project": {"generation": 113, "padding": "y" * 8000}},
+    )
+    prior = [
+        message(1, role="user", source="user", text="把故事写完"),
+        message(
+            2,
+            role="tool",
+            source="runtime_action_result",
+            text=old_snapshot,
+        ),
+        message(3, role="assistant", source="creator_agent", text="写好了"),
+        message(
+            4,
+            role="tool",
+            source="runtime_action_result",
+            text=new_snapshot,
+        ),
+    ]
+    request = message(5, role="user", source="user", text="继续")
+
+    rendered = _continuation_message_text(request, prior)
+
+    # The stale echo is gone, replaced by a stub that names its vintage.
+    assert "x" * 100 not in rendered
+    assert "generation 11 时点" in rendered
+    assert "read_project" in rendered
+    # The newest echo and ordinary messages survive verbatim.
+    assert "y" * 100 in rendered
+    assert "把故事写完" in rendered
+    assert "写好了" in rendered
+
+
+def test_small_runtime_results_are_never_elided() -> None:
+    from services.file_agent_runtime.driver import (
+        _continuation_message_text,
+    )
+
+    def message(seq: int, *, role: str, source: str, text: str):
+        return CreatorMessageRecord(
+            message_id=f"message-{seq}",
+            project_id=PROJECT_ID,
+            creator_session_id=SESSION_ID,
+            conversation_id=CONVERSATION_ID,
+            message_seq=seq,
+            role=role,
+            content_parts=[{"type": "text", "text": text}],
+            source=source,
+            channel=MessageChannel.RUNTIME,
+        )
+
+    prior = [
+        message(
+            1,
+            role="tool",
+            source="runtime_action_result",
+            text='{"ok": true, "taskId": "task-1"}',
+        ),
+        message(
+            2,
+            role="tool",
+            source="runtime_action_result",
+            text='{"ok": true, "taskId": "task-2"}',
+        ),
+    ]
+    request = message(3, role="user", source="user", text="继续")
+
+    rendered = _continuation_message_text(request, prior)
+
+    assert "task-1" in rendered
+    assert "task-2" in rendered
+    assert "已省略" not in rendered
+
+
+def test_grounding_tool_is_absent_when_grounding_is_disabled(
+    monkeypatch,
+) -> None:
+    from services.file_agent_runtime import driver as driver_module
+
+    monkeypatch.setattr(
+        driver_module,
+        "get_web_grounding_enabled",
+        lambda: False,
+    )
+
+    names = {
+        item["function"]["name"]
+        for item in driver_module._creator_agent_tool_manifest()
+    }
+
+    assert "ground_prompt_context" not in names
 
 
 def test_message_text_includes_exact_project_json_selection_locator() -> None:
@@ -92,7 +305,6 @@ def test_message_text_includes_exact_project_json_selection_locator() -> None:
 
 def test_ai_edit_idempotency_can_be_scoped_to_one_model_tool_call() -> None:
     from services.file_agent_runtime.driver import (
-        _specialist_tool_recovery,
         _specialist_tool_invocation_id,
     )
 
@@ -216,6 +428,475 @@ def _edit_client(*, description: str):
     return CallbackAgentChatClient(callback)
 
 
+def _corrupted_jq_call(*, call_id: str, etag: str) -> AgentToolCall:
+    """Mirror a syntax-repaired call whose program drifted into jsonArgs."""
+
+    return AgentToolCall(
+        call_id=call_id,
+        name="jq_project",
+        arguments={
+            "projectId": PROJECT_ID,
+            "baseEtag": etag,
+            "jsonArgs": {
+                "timeline_elements": {
+                    "elem-01": {
+                        "program": ".description = $description",
+                    },
+                },
+            },
+        },
+        raw_arguments_bytes=18_522,
+        arguments_repaired=True,
+        strict_json_error="Unterminated string at EOF",
+    )
+
+
+def test_malformed_jq_project_arguments_recover_with_a_fresh_small_call(
+    tmp_path,
+) -> None:
+    turn = 0
+
+    async def callback(messages, _tools):
+        nonlocal turn
+        turn += 1
+        if turn == 1:
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="read-before-corruption",
+                        name="read_project",
+                        arguments={"projectId": PROJECT_ID},
+                    ),
+                ),
+            )
+        if turn == 2:
+            observed = json.loads(messages[-1]["content"])
+            return AgentModelTurn(
+                tool_calls=(
+                    _corrupted_jq_call(
+                        call_id="malformed-write",
+                        etag=observed["etag"],
+                    ),
+                ),
+            )
+        if turn == 3:
+            rejected = json.loads(messages[-1]["content"])
+            assert rejected["error"]["type"] == ("MalformedJqProjectArguments")
+            assert rejected["error"]["retry"] == {
+                "attempt": 1,
+                "retriesRemaining": 2,
+                "samePayload": False,
+            }
+            assert rejected["error"]["details"]["missingTopLevel"] == [
+                "program",
+            ]
+            assert rejected["error"]["details"]["nestedRequiredPaths"] == [
+                "$.jsonArgs.timeline_elements.elem-01.program",
+            ]
+            assert "Split bulk work" in rejected["error"]["recovery"]
+            assert "ValidationError" not in messages[-1]["content"]
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="reread-after-corruption",
+                        name="read_project",
+                        arguments={"projectId": PROJECT_ID},
+                    ),
+                ),
+            )
+        if turn == 4:
+            observed = json.loads(messages[-1]["content"])
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="small-replacement-write",
+                        name="jq_project",
+                        arguments={
+                            "projectId": PROJECT_ID,
+                            "baseEtag": observed["etag"],
+                            "program": ".description = $description",
+                            "stringArgs": {
+                                "description": "recovered in a small commit",
+                            },
+                        },
+                    ),
+                ),
+            )
+        return AgentModelTurn(content="Recovered and completed.")
+
+    async def scenario():
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="Create the project plan",
+        )
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
+        )
+        await driver.wait_until_idle(PROJECT_ID)
+        project = services.projects.read(PROJECT_ID)
+        session = services.sessions.get_project_session(PROJECT_ID)
+        events = services.sessions.list_events(PROJECT_ID, SESSION_ID)
+        messages = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
+        await driver.stop()
+        return project, session, events, messages
+
+    project, session, events, messages = asyncio.run(scenario())
+
+    assert project.project.description == "recovered in a small commit"
+    assert project.generation == 1
+    assert session.error is None
+    assert turn == 5
+    checks = [
+        event
+        for event in events
+        if event.event_type == "agent.tool_arguments_checked"
+    ]
+    assert len(checks) == 2
+    assert checks[0].payload["rawArgumentsBytes"] == 18_522
+    assert checks[0].payload["jsonRepairApplied"] is True
+    assert checks[0].payload["schemaValid"] is False
+    assert checks[1].payload["schemaValid"] is True
+    malformed_results = [
+        json.loads(message.content_parts[0].text or "{}")
+        for message in messages
+        if message.role == "tool"
+        and message.metadata.get("toolCallId") == "malformed-write"
+    ]
+    assert malformed_results[0]["error"]["type"] == (
+        "MalformedJqProjectArguments"
+    )
+
+
+def test_stale_snapshot_and_quarantine_replays_get_targeted_recovery() -> None:
+    """Quarantined/stale media tasks tell the model to re-admit fresh.
+
+    Replaying the identical call can only hit the same terminated Task;
+    without this guidance the model burned its remaining turns retrying.
+    """
+
+    stale = _specialist_tool_recovery(
+        "r2v_generation",
+        "Task task-1 ended as QUARANTINED: {'code': "
+        "'PROJECT_INPUT_SNAPSHOT_STALE', 'message': "
+        "'PROJECT_INPUT_SNAPSHOT_STALE'}",
+    )
+    assert "quarantined" in stale
+    assert "read_project" in stale
+    assert "fresh r2v_generation call" in stale
+
+    replay = _specialist_tool_recovery(
+        "image_generation",
+        "图片 Task 已终止: QUARANTINED",
+    )
+    assert "fresh image_generation call" in replay
+
+    # Unrelated failures keep their existing guidance.
+    generic = _specialist_tool_recovery(
+        "r2v_generation",
+        "Task task-2 ended as FAILED: provider timeout",
+    )
+    assert "quarantined" not in generic
+
+
+def test_r2v_real_face_rejection_gets_targeted_recovery() -> None:
+    """The provider face-moderation error names the exact repair steps.
+
+    A non-retryable real-face rejection can never succeed with the same
+    references; the recovery must say to drop source-photo references and
+    keep generated artifact references instead of the generic retry text.
+    """
+
+    targeted = _specialist_tool_recovery(
+        "r2v_generation",
+        "Task task-1 ended as FAILED: {'code': 'R2V_PROVIDER_FAILED', "
+        "'message': 'The input content is suspected to include real "
+        "human faces.', 'retryable': False}",
+    )
+    assert "real human faces" in targeted
+    assert "video_reference_version_ids" in targeted
+    assert "artifact-version" in targeted
+    assert "do not resubmit the same references" in targeted.casefold()
+
+    # Other r2v failures keep the generic guidance.
+    generic = _specialist_tool_recovery(
+        "r2v_generation",
+        "Task task-2 ended as FAILED: provider timeout",
+    )
+    assert "video_reference_version_ids" not in generic
+
+
+def test_extra_data_recovery_names_the_premature_close() -> None:
+    """An "Extra data" strict error gets the premature-close hint.
+
+    The model closed the root object early and kept streaming entries;
+    the recovery must name that mistake with the byte offset instead of
+    only suggesting smaller batches.
+    """
+
+    diagnosis = _jq_project_argument_diagnosis(
+        AgentToolCall(
+            call_id="extra-data-write",
+            name="jq_project",
+            arguments={
+                "projectId": PROJECT_ID,
+                "program": ".description = $description",
+                "stringArgs": {"description": "partial"},
+            },
+            raw_arguments_bytes=9_364,
+            arguments_repaired=True,
+            strict_json_error=(
+                "JSONDecodeError: Extra data: line 1 column 5757 (char 5756)"
+            ),
+        ),
+    )
+    assert diagnosis.schema_valid is True
+    assert diagnosis.safe_to_execute is False
+
+    recovery = MalformedJqProjectArguments(
+        diagnosis,
+        attempt=1,
+        repeated_payload=False,
+    ).tool_result()["error"]["recovery"]
+
+    assert "closed the top-level JSON object too early" in recovery
+    assert "char 5756" in recovery
+    assert "one jq_project call per timeline" in recovery
+
+
+def test_repaired_jq_project_arguments_never_execute_even_when_schema_valid(
+    tmp_path,
+) -> None:
+    """A truncated-then-repaired payload with intact top-level keys is not run.
+
+    json_repair can close a truncated stream so the object still carries
+    projectId/program; jq must not execute such a payload because argument
+    values may have silently lost their tails.
+    """
+
+    turn = 0
+
+    async def callback(messages, _tools):
+        nonlocal turn
+        turn += 1
+        if turn == 1:
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="read-before-truncation",
+                        name="read_project",
+                        arguments={"projectId": PROJECT_ID},
+                    ),
+                ),
+            )
+        if turn == 2:
+            observed = json.loads(messages[-1]["content"])
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="repaired-write",
+                        name="jq_project",
+                        arguments={
+                            "projectId": PROJECT_ID,
+                            "baseEtag": observed["etag"],
+                            "program": ".description = $description",
+                            "stringArgs": {
+                                "description": "truncated mid-sentence descri",
+                            },
+                        },
+                        raw_arguments_bytes=18_522,
+                        arguments_repaired=True,
+                        strict_json_error="Unterminated string at EOF",
+                    ),
+                ),
+            )
+        if turn == 3:
+            rejected = json.loads(messages[-1]["content"])
+            assert rejected["error"]["type"] == ("MalformedJqProjectArguments")
+            assert "json_repair" in rejected["error"]["message"]
+            assert rejected["error"]["details"]["schemaValid"] is True
+            assert rejected["error"]["details"]["safeToExecute"] is False
+            assert rejected["error"]["details"]["jsonRepairApplied"] is True
+            assert rejected["error"]["retry"]["attempt"] == 1
+            # The truncation-specific hint names the cause and forces
+            # one entry per call instead of generic "smaller batches".
+            recovery = rejected["error"]["recovery"]
+            assert "cut off" in recovery
+            assert "Unterminated string at EOF" in recovery
+            assert "one jq_project call per timeline" in recovery
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="reread-after-truncation",
+                        name="read_project",
+                        arguments={"projectId": PROJECT_ID},
+                    ),
+                ),
+            )
+        if turn == 4:
+            observed = json.loads(messages[-1]["content"])
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="clean-replacement-write",
+                        name="jq_project",
+                        arguments={
+                            "projectId": PROJECT_ID,
+                            "baseEtag": observed["etag"],
+                            "program": ".description = $description",
+                            "stringArgs": {
+                                "description": "full description, resent",
+                            },
+                        },
+                    ),
+                ),
+            )
+        return AgentModelTurn(content="Resent the full commit.")
+
+    async def scenario():
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="Create the project plan",
+        )
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
+        )
+        await driver.wait_until_idle(PROJECT_ID)
+        project = services.projects.read(PROJECT_ID)
+        session = services.sessions.get_project_session(PROJECT_ID)
+        events = services.sessions.list_events(PROJECT_ID, SESSION_ID)
+        await driver.stop()
+        return project, session, events
+
+    project, session, events = asyncio.run(scenario())
+
+    # The repaired payload never reached jq: only the clean resend committed.
+    assert project.project.description == "full description, resent"
+    assert project.generation == 1
+    assert session.error is None
+    assert turn == 5
+    checks = [
+        event
+        for event in events
+        if event.event_type == "agent.tool_arguments_checked"
+    ]
+    assert len(checks) == 2
+    assert checks[0].payload["jsonRepairApplied"] is True
+    assert checks[0].payload["schemaValid"] is True
+    assert checks[0].payload["safeToExecute"] is False
+    assert checks[1].payload["safeToExecute"] is True
+
+
+def test_repeated_malformed_jq_project_arguments_stop_after_two_retries(
+    tmp_path,
+) -> None:
+    turn = 0
+    etag = ""
+
+    async def callback(messages, _tools):
+        nonlocal turn, etag
+        turn += 1
+        if turn == 1:
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="read-before-repeats",
+                        name="read_project",
+                        arguments={"projectId": PROJECT_ID},
+                    ),
+                ),
+            )
+        if turn == 2:
+            etag = json.loads(messages[-1]["content"])["etag"]
+        return AgentModelTurn(
+            tool_calls=(
+                _corrupted_jq_call(
+                    call_id=f"malformed-repeat-{turn}",
+                    etag=etag,
+                ),
+            ),
+        )
+
+    async def scenario():
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="Create the project plan",
+        )
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).status.value
+                == "ERROR"
+            ),
+        )
+        await driver.wait_until_idle(PROJECT_ID)
+        project = services.projects.read(PROJECT_ID)
+        session = services.sessions.get_project_session(PROJECT_ID)
+        messages = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
+        await driver.stop()
+        return project, session, messages
+
+    project, session, messages = asyncio.run(scenario())
+
+    assert project.generation == 0
+    assert turn == 4
+    assert session.error is not None
+    assert session.error["code"] == "MODEL_REQUEST_FAILED"
+    assert session.error["retryable"] is True
+    assert "after 2 bounded retries" in session.error["message"]
+    errors = [
+        json.loads(message.content_parts[0].text or "{}")["error"]
+        for message in messages
+        if message.role == "tool"
+        and str(message.metadata.get("toolCallId") or "").startswith(
+            "malformed-repeat-",
+        )
+    ]
+    assert [item["retry"]["attempt"] for item in errors] == [1, 2, 3]
+    assert [item["retry"]["retriesRemaining"] for item in errors] == [
+        2,
+        1,
+        0,
+    ]
+    assert [item["retry"]["samePayload"] for item in errors] == [
+        False,
+        True,
+        True,
+    ]
+    assert "Do not resend it" in errors[-1]["recovery"]
+
+
 async def _wait_for(predicate, *, timeout: float = 5.0) -> None:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
@@ -241,10 +922,12 @@ def test_initial_creation_runs_auto_fix_tool_loop_without_review(
         await driver.start()
         driver.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).last_consumed_message_seq
-            == 1,
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
             timeout=15.0,
         )
         await driver.wait_until_idle(PROJECT_ID)
@@ -333,6 +1016,10 @@ def test_creator_agent_can_call_ground_prompt_context_tool(
         assert prompt == "哈兰德参加偶像练习生"
         assert kwargs["queries"] == ["Erling Haaland visual reference"]
         assert kwargs["include_visuals"] is True
+        assert kwargs["timeout"] == 60.0
+        assert kwargs["visual_search_timeout"] == 120.0
+        assert kwargs["image_download_timeout"] == 30.0
+        assert kwargs["verification_timeout"] == 120.0
         return {
             "ok": True,
             "status": "success",
@@ -406,10 +1093,12 @@ def test_creator_agent_can_call_ground_prompt_context_tool(
         await runtime.start()
         runtime.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).last_consumed_message_seq
-            == 1,
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
         )
         await runtime.wait_until_idle(PROJECT_ID)
         messages = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
@@ -530,10 +1219,12 @@ def test_stream_persistence_failure_is_not_reported_as_a_model_failure(
         await driver.start()
         driver.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).status.value
-            == "ERROR",
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).status.value
+                == "ERROR"
+            ),
         )
         await driver.wait_until_idle(PROJECT_ID)
         session = services.sessions.get_project_session(PROJECT_ID)
@@ -669,10 +1360,12 @@ def test_parent_authors_timeline_elements_without_planning_specialists(
         await driver.start()
         driver.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).last_consumed_message_seq
-            == 1,
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
         )
         await driver.wait_until_idle(PROJECT_ID)
         project = services.projects.read(PROJECT_ID)
@@ -778,10 +1471,12 @@ def test_source_intelligence_receives_every_user_media_part_directly(
         await driver.start()
         driver.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).last_consumed_message_seq
-            == message.message_seq,
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == message.message_seq
+            ),
         )
         await driver.wait_until_idle(PROJECT_ID)
         specialist_runs = driver.executions.list_specialist_runs(PROJECT_ID)
@@ -1167,10 +1862,12 @@ def test_parent_reads_persisted_source_intelligence_and_links_project_structure(
         await driver.start()
         driver.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).last_consumed_message_seq
-            == message.message_seq,
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == message.message_seq
+            ),
         )
         await driver.wait_until_idle(PROJECT_ID)
         project = services.projects.read(PROJECT_ID).project
@@ -1268,10 +1965,12 @@ def test_agentdock_boundary_is_carried_into_run_and_creates_review(
         await driver.start()
         driver.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).last_consumed_message_seq
-            == admitted.message.message_seq,
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == admitted.message.message_seq
+            ),
         )
         await driver.wait_until_idle(PROJECT_ID)
         runs = driver.runs.list(PROJECT_ID)
@@ -1293,10 +1992,12 @@ def test_agentdock_boundary_is_carried_into_run_and_creates_review(
         assert resolved.status.value == "RESOLVED"
         driver.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).status.value
-            == "IDLE",
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).status.value
+                == "IDLE"
+            ),
         )
         session = services.sessions.get_project_session(PROJECT_ID)
         goal = services.sessions.get_goal(PROJECT_ID, GOAL_ID)
@@ -1443,6 +2144,26 @@ def test_intervention_completion_queues_mainline_resume(tmp_path) -> None:
 
         await _wait_for(lambda: len(_resume_messages()) == 1)
         resume = _resume_messages()[0]
+        await asyncio.sleep(0.05)
+        assert not any(
+            run.caused_by_message_seq == resume.message_seq
+            for run in driver.runs.list(PROJECT_ID)
+        ), "mainline resumed before the intervention Review was accepted"
+        review = services.reviews.active(PROJECT_ID)
+        assert review is not None
+        services.reviews.decide(
+            project_id=PROJECT_ID,
+            review_id=review.review_id,
+            decision_token=review.decision_token,
+            decisions=[
+                ReviewDecisionItem(
+                    operation_id=operation.operation_id,
+                    decision="ACCEPT",
+                )
+                for operation in review.operations
+            ],
+        )
+        driver.notify(PROJECT_ID)
         await _wait_for(
             lambda: any(
                 run.caused_by_message_seq == resume.message_seq
@@ -1655,12 +2376,21 @@ def test_specialist_cancel_while_waiting_runtime_emits_terminal_event(
     was still missing.  Locks in that the event fires on this path too.
     """
     import services.file_agent_runtime.driver as driver_module
-    from models.config import EXECUTION_AUTHORIZATION_ALLOW_ALL
+    from models.config import (
+        CREATION_CHECKPOINT_SKIP,
+        EXECUTION_AUTHORIZATION_ALLOW_ALL,
+    )
 
     monkeypatch.setattr(
         driver_module,
         "get_execution_authorization_mode",
         lambda: EXECUTION_AUTHORIZATION_ALLOW_ALL,
+    )
+    # This test owns cancel-while-waiting, not the creation pit stops.
+    monkeypatch.setattr(
+        driver_module,
+        "get_creation_checkpoint_mode",
+        lambda: CREATION_CHECKPOINT_SKIP,
     )
 
     async def scenario():
@@ -1823,10 +2553,12 @@ def test_redundant_supersede_preserves_pending_replacement_message(
         await driver.start()
         driver.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).last_consumed_message_seq
-            == admitted.message.message_seq,
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == admitted.message.message_seq
+            ),
         )
         await driver.wait_until_idle(PROJECT_ID)
         session = services.sessions.get_project_session(PROJECT_ID)
@@ -1913,10 +2645,12 @@ def test_agentdock_message_after_interrupt_reuses_goal_and_conversation_context(
         )
         driver.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).last_consumed_message_seq
-            == admitted.message.message_seq,
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == admitted.message.message_seq
+            ),
         )
         await driver.wait_until_idle(PROJECT_ID)
 
@@ -2019,10 +2753,12 @@ def test_durable_interrupt_stops_remote_owner_without_restarting_message(
         await asyncio.wait_for(cancelled.wait(), timeout=2.0)
         await owner.wait_until_idle(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).status.value
-            == "CANCELLED",
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).status.value
+                == "CANCELLED"
+            ),
         )
         session = services.sessions.get_project_session(PROJECT_ID)
         runs = owner.runs.list(PROJECT_ID)
@@ -2055,10 +2791,12 @@ def test_missing_model_configuration_persists_session_error(tmp_path) -> None:
         await driver.start()
         driver.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).status.value
-            == "ERROR",
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).status.value
+                == "ERROR"
+            ),
         )
         session = services.sessions.get_project_session(PROJECT_ID)
         goal = services.sessions.get_goal(PROJECT_ID, GOAL_ID)
@@ -2106,10 +2844,12 @@ def test_failed_run_is_not_relaunched_after_restart_or_notify(
         await first.start()
         first.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).status.value
-            == "ERROR",
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).status.value
+                == "ERROR"
+            ),
         )
         await first.wait_until_idle(PROJECT_ID)
         failed_session = services.sessions.get_project_session(PROJECT_ID)
@@ -2175,10 +2915,12 @@ def test_legacy_unconsumed_failed_head_is_consumed_instead_of_relaunched(
         await first.start()
         first.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).status.value
-            == "ERROR",
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).status.value
+                == "ERROR"
+            ),
         )
         await first.wait_until_idle(PROJECT_ID)
         await first.stop()
@@ -2192,10 +2934,12 @@ def test_legacy_unconsumed_failed_head_is_consumed_instead_of_relaunched(
         await second.start()
         second.notify(PROJECT_ID)
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).last_consumed_message_seq
-            == 1,
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
         )
         await second.wait_until_idle(PROJECT_ID)
         runs = second.runs.list(PROJECT_ID)
@@ -2219,6 +2963,13 @@ def test_costly_specialist_tool_waits_for_file_authorization(
         driver_module,
         "get_execution_authorization_mode",
         lambda: "required",
+    )
+    # This test owns the per-execution authorization gate; the creation
+    # pit stops are covered by test_creation_checkpoints.py.
+    monkeypatch.setattr(
+        driver_module,
+        "get_creation_checkpoint_mode",
+        lambda: "skip",
     )
     parent_turn = 0
     specialist_turn = 0
@@ -2289,11 +3040,13 @@ def test_costly_specialist_tool_waits_for_file_authorization(
             PROJECT_ID,
         )[0]
         await _wait_for(
-            lambda: driver.executions.get_specialist_run(
-                PROJECT_ID,
-                authorization.run_id,
-            ).status.value
-            == "WAITING_AUTHORIZATION",
+            lambda: (
+                driver.executions.get_specialist_run(
+                    PROJECT_ID,
+                    authorization.run_id,
+                ).status.value
+                == "WAITING_AUTHORIZATION"
+            ),
         )
         waiting_run = driver.executions.get_specialist_run(
             PROJECT_ID,
@@ -2312,10 +3065,12 @@ def test_costly_specialist_tool_waits_for_file_authorization(
             },
         )
         await _wait_for(
-            lambda: services.sessions.get_project_session(
-                PROJECT_ID,
-            ).last_consumed_message_seq
-            == 1,
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
         )
         await driver.wait_until_idle(PROJECT_ID)
         completed_run = driver.executions.get_specialist_run(
@@ -2333,3 +3088,247 @@ def test_costly_specialist_tool_waits_for_file_authorization(
     event_types = {item.event_type for item in events}
     assert "execution.authorization_required" in event_types
     assert "execution.authorization_decided" in event_types
+
+
+def test_review_pending_is_a_neutral_specialist_pause(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import services.file_agent_runtime.driver as driver_module
+    from models.config import (
+        CREATION_CHECKPOINT_SKIP,
+        EXECUTION_AUTHORIZATION_ALLOW_ALL,
+    )
+
+    monkeypatch.setattr(
+        driver_module,
+        "get_execution_authorization_mode",
+        lambda: EXECUTION_AUTHORIZATION_ALLOW_ALL,
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "get_creation_checkpoint_mode",
+        lambda: CREATION_CHECKPOINT_SKIP,
+    )
+    parent_turn = 0
+
+    async def callback(_messages, tools):
+        nonlocal parent_turn
+        names = {item["function"]["name"] for item in tools}
+        if "r2v_generation" in names:
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="generate-ep22-video",
+                        name="r2v_generation",
+                        arguments={
+                            "projectId": PROJECT_ID,
+                            "targetRef": "element:ep22",
+                            "arguments": {"prompt": "ep22 video"},
+                        },
+                    ),
+                ),
+            )
+        parent_turn += 1
+        if parent_turn == 1:
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="delegate-ep22-video",
+                        name="delegate_to_agent",
+                        arguments={
+                            "role": "r2v_generation_director",
+                            "target_refs": ["element:ep22"],
+                            "task": "生成 ep22 视频",
+                        },
+                    ),
+                ),
+            )
+        assert json.loads(_messages[-1]["content"])["status"] == (
+            "WAITING_REVIEW"
+        )
+        return AgentModelTurn(content="等待审阅通过后自动继续。")
+
+    async def scenario():
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="生成 ep22 视频",
+        )
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+
+        async def pending_review(**_kwargs):
+            raise ReviewPendingError(
+                "storyboard is waiting for review",
+                details={
+                    "reason": "INPUT_PENDING_REVIEW",
+                    "reviewId": "review-ep22",
+                    "artifactVersionId": "artifact-version-ep22",
+                    "targetRef": "element:ep22",
+                    "commandType": "GENERATE_R2V_VIDEO",
+                },
+            )
+
+        driver.specialist_tools.invoke = pending_review  # type: ignore[method-assign]
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
+        )
+        await driver.wait_until_idle(PROJECT_ID)
+        specialist = driver.executions.list_specialist_runs(PROJECT_ID)[0]
+        events = services.sessions.list_events(PROJECT_ID, SESSION_ID)
+        await driver.stop()
+        return specialist, events
+
+    specialist, events = asyncio.run(scenario())
+    assert specialist.status.value == "BLOCKED"
+    assert specialist.metadata["waitingReview"] is True
+    assert "视频尚未开始" in (specialist.final_summary_text or "")
+    blocked = [
+        item for item in events if item.event_type == "subagent.blocked"
+    ]
+    assert len(blocked) == 1
+    assert blocked[0].payload["waitingReview"] is True
+    assert not [
+        item for item in events if item.event_type == "subagent.failed"
+    ]
+
+
+def test_model_blocked_with_its_pending_review_is_a_neutral_pause(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A specialist may stop after creating a review without calling downstream."""
+
+    parent_turn = 0
+    specialist_turn = 0
+
+    async def callback(messages, tools):
+        nonlocal parent_turn, specialist_turn
+        names = {item["function"]["name"] for item in tools}
+        if "image_generation" in names:
+            specialist_turn += 1
+            if specialist_turn == 1:
+                return AgentModelTurn(
+                    tool_calls=(
+                        AgentToolCall(
+                            call_id="read-after-storyboard",
+                            name="read_project",
+                            arguments={"projectId": PROJECT_ID},
+                        ),
+                    ),
+                )
+            return AgentModelTurn(
+                content=("[BLOCKED] element:ep22 分镜图已生成，等待用户审阅后生成视频。"),
+            )
+
+        parent_turn += 1
+        if parent_turn == 1:
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="delegate-ep22-storyboard",
+                        name="delegate_to_agent",
+                        arguments={
+                            "role": "r2v_generation_director",
+                            "target_refs": ["element:ep22"],
+                            "task": "生成 ep22 分镜图，等待审阅后再生成视频",
+                        },
+                    ),
+                ),
+            )
+        delegated = json.loads(messages[-1]["content"])
+        assert delegated["status"] == "WAITING_REVIEW"
+        assert delegated["waitingReview"] is True
+        return AgentModelTurn(
+            content=("ep22 分镜图等待审阅。审阅通过后告诉我“继续”，我会接着生成视频。"),
+        )
+
+    async def scenario():
+        services, snapshot = _create_project(
+            tmp_path,
+            initial_goal="生成 ep22 分镜图和视频",
+        )
+
+        class PendingReview:
+            review_id = "review-ep22-storyboard"
+
+        monkeypatch.setattr(
+            services.reviews,
+            "all_pending",
+            lambda _project_id: [PendingReview()],
+        )
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+
+        async def reviewed_read(**_kwargs):
+            return SpecialistToolResult(
+                payload={
+                    "ok": True,
+                    "reviewId": "review-ep22-storyboard",
+                    "generation": snapshot.generation,
+                    "etag": snapshot.etag,
+                },
+            )
+
+        driver.specialist_tools.invoke = reviewed_read  # type: ignore[method-assign]
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
+        )
+        await driver.wait_until_idle(PROJECT_ID)
+        specialist = driver.executions.list_specialist_runs(PROJECT_ID)[0]
+        events = services.sessions.list_events(PROJECT_ID, SESSION_ID)
+        session = services.sessions.get_project_session(PROJECT_ID)
+        run = driver.runs.list(PROJECT_ID)[0]
+        messages = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
+        await driver.stop()
+        return specialist, events, session, run, messages
+
+    specialist, events, session, run, messages = asyncio.run(scenario())
+    assert specialist.status.value == "BLOCKED"
+    assert specialist.metadata["waitingReview"] is True
+    assert specialist.metadata["waitingReviewId"] == "review-ep22-storyboard"
+    waiting_summary = "element:ep22 的分镜图已生成，视频尚未开始。请先审阅分镜图；审阅通过后将自动继续生成视频。"
+    assert specialist.final_summary_text == waiting_summary
+    blocked = [
+        item for item in events if item.event_type == "subagent.blocked"
+    ]
+    assert len(blocked) == 1
+    assert blocked[0].payload["waitingReview"] is True
+    assert blocked[0].payload["reviewId"] == "review-ep22-storyboard"
+    assert session.status.value == "PENDING_REVIEW"
+    expected_final_summary = f"{waiting_summary}\n\n无需另行发送消息。"
+    assert run.final_summary == expected_final_summary
+    assert messages[-1].content_parts[0].text == expected_final_summary
+    assert "告诉我" not in (run.final_summary or "")
+    completed = [
+        item for item in events if item.event_type == "agent.run.completed"
+    ]
+    assert completed[-1].payload["summary"] == expected_final_summary
+    streamed_text = "".join(
+        str(item.payload.get("delta") or "")
+        for item in events
+        if item.event_type == "agent.message_delta"
+        and item.payload.get("streamKind") == "text"
+    )
+    assert "告诉我" not in streamed_text
+    assert expected_final_summary in streamed_text

@@ -16,6 +16,7 @@ from .context.scroll.continuation_summary import (
     ContinuationSummary,
     redact_secrets,
 )
+from .middlewares import manual_compact_memory_by_handler
 from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
@@ -322,7 +323,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             return None
         return HintBlock(hint=safe_hint, source="user")
 
-    async def _process_compact(
+    async def _process_compact(  # pylint: disable=too-many-statements
         self,
         messages: list[Msg],
         args: str = "",
@@ -401,10 +402,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 finally:
                     scroll_mgr.close()
             else:
-                await agent.compress_context(
-                    forced_cfg,
-                    instructions=instructions,
-                )
+                with manual_compact_memory_by_handler():
+                    await agent.compress_context(
+                        forced_cfg,
+                        instructions=instructions,
+                    )
                 index_text = self._scroll_index_text(agent)
                 continuation_text = self._scroll_summary_text(agent)
                 cm = getattr(agent, "_context_manager", None)
@@ -429,6 +431,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 messages=messages,
                 session_id=self._current_session_id(),
             )
+            self._discard_submitted_pending_markers(messages)
 
         summary = self._get_summary()
         folded = int(compress_stats.get("folded", 0) or 0)
@@ -470,6 +473,27 @@ class CommandHandler(ConversationCommandHandlerMixin):
             f"{folded_line}"
             f"{detail}",
         )
+
+    def _discard_submitted_pending_markers(
+        self,
+        messages: list[Msg],
+    ) -> None:
+        """Remove pending turns covered by the manual compact task."""
+        getter = getattr(
+            self.memory_manager,
+            "get_auto_memory_turn_state",
+            None,
+        )
+        if not callable(getter):
+            return
+        state = getter(  # pylint: disable=not-callable
+            self._current_session_id(),
+        )
+        pending = state.get("pending") if isinstance(state, dict) else None
+        if not isinstance(pending, list):
+            return
+        submitted = {msg.id for msg in messages if msg.id}
+        pending[:] = [marker for marker in pending if marker not in submitted]
 
     @staticmethod
     def _scroll_index_text(agent: "Agent") -> str:
@@ -1242,7 +1266,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
         parts = query.strip().lstrip("/").split(" ", maxsplit=1)
         command = parts[0]
         args = parts[1] if len(parts) > 1 else ""
-        logger.info(f"Processing command: {command}, args: {args}")
+        # Command arguments are user-controlled and may contain credentials
+        # (for example, a /compact hint containing an API key).  Do not log
+        # them: downstream handlers sanitize values for their own use, but
+        # logging happens before that handler-specific processing.
+        logger.info("Processing command: %s", command)
 
         handler = getattr(self, f"_process_{command}", None)
         if handler is None:

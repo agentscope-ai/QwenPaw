@@ -866,11 +866,15 @@ html.dark-mode
   padding-bottom: env(safe-area-inset-bottom, 0px) !important;
 }
 
-/* When the virtual keyboard is open (supported browsers), shrink viewport */
+/* When the virtual keyboard is open (supported browsers), shrink viewport.
+   Touch devices only: on desktop the chat sits below the header, so
+   forcing 100dvh overflows the container and hides the sender. */
 @supports (height: 100dvh) {
-  .qwenpaw-chat-anywhere-chat,
-  [class*="chat-anywhere-chat"] {
-    height: 100dvh;
+  @media (hover: none) and (pointer: coarse) {
+    .qwenpaw-chat-anywhere-chat,
+    [class*="chat-anywhere-chat"] {
+      height: 100dvh;
+    }
   }
 }
 

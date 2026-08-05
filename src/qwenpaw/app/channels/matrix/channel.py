@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import html
-import importlib
 import inspect
 import io
 import logging
@@ -51,6 +50,7 @@ from nio import (
     ToDeviceError,
     UploadResponse,
 )
+from nio.crypto import ENCRYPTION_ENABLED
 from nio.event_builders.direct_messages import ToDeviceMessage
 from nio.events.to_device import RoomKeyRequest, RoomKeyRequestCancellation
 from nio.responses import (
@@ -424,20 +424,23 @@ class MatrixChannel(BaseChannel):
         )
 
     def _preflight_e2ee_dependencies(self) -> None:
-        """Probe olm before creating AsyncClientConfig;
-        disable E2EE if absent."""
+        """Disable E2EE when matrix-nio has no crypto backend.
+
+        Checks ``nio.crypto.ENCRYPTION_ENABLED`` — the same flag
+        ``AsyncClientConfig`` validates — instead of probing backend
+        module names, which are version-dependent (#6476).
+        """
         if not self.encryption:
             return
-        try:
-            importlib.import_module("olm")
-        except ImportError:
-            logger.error(
-                "MatrixChannel: olm not installed — falling back to "
-                "non-encrypted mode. "
-                "To enable E2EE: pip install matrix-nio[e2e] && "
-                "apt/dnf install libolm-dev",
-            )
-            self.encryption = False
+        if ENCRYPTION_ENABLED:
+            return
+        logger.error(
+            "MatrixChannel: matrix-nio has no E2EE backend available "
+            "— falling back to non-encrypted mode. To enable E2EE: "
+            "pip install 'matrix-nio[e2e]' (matrix-nio >= 0.26 on "
+            "Python 3.12+).",
+        )
+        self.encryption = False
 
     def _init_async_client(self, resolved_device_id: str) -> None:
         # E2EE: when encryption is enabled, provide store_path so matrix-nio

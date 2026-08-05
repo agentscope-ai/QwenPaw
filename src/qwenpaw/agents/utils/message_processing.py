@@ -13,12 +13,20 @@ import urllib.parse
 from pathlib import Path
 from typing import Optional
 
-from agentscope.message import Msg, TextBlock
+from agentscope.message import Msg, TextBlock, URLSource
 
+from ...app.channels.utils import file_url_to_local_path
 from ...config import load_config
 from .file_handling import download_file_from_base64, download_file_from_url
 
 logger = logging.getLogger(__name__)
+
+
+def _audio_text_block(block, text: str):
+    """Build a text replacement matching the input block representation."""
+    if isinstance(block, dict):
+        return {"type": "text", "text": text}
+    return TextBlock(type="text", text=text)
 
 
 async def _process_single_file_block(
@@ -230,7 +238,7 @@ async def _process_audio_block(
     message_content: list,
     index: int,
     local_path: str,
-    block: dict,
+    block,
 ) -> bool:
     """Handle an audio block according to the configured audio_mode.
 
@@ -269,36 +277,67 @@ async def _process_audio_block(
         else:
             # Unsupported format and conversion failed — show placeholder
             # instead of sending an unsupported audio block to the model.
-            message_content[index] = {
-                "type": "text",
-                "text": (
+            message_content[index] = _audio_text_block(
+                block,
+                (
                     "[Voice message]: (audio conversion failed, "
                     "install ffmpeg to enable native audio)"
                 ),
-            }
+            )
             return True
-        block["source"] = {
+        source = {
             "type": "url",
             "url": _local_file_url(audio_path),
             "media_type": _media_type_from_path(audio_path),
         }
+        if isinstance(block, dict):
+            block["source"] = source
+        else:
+            block.source = URLSource(**source)
         return True
 
     # "auto": attempt transcription.
     text = await transcribe_audio(local_path)
     if text:
-        message_content[index] = {
-            "type": "text",
-            "text": f"[Voice message]: {text}",
-        }
+        message_content[index] = _audio_text_block(
+            block,
+            f"[Voice message]: {text}",
+        )
         return True
 
     # Transcription failed — show file-uploaded placeholder.
-    message_content[index] = {
-        "type": "text",
-        "text": "[Voice message]: (audio file received)",
-    }
+    message_content[index] = _audio_text_block(
+        block,
+        "[Voice message]: (audio file received)",
+    )
     return False
+
+
+async def _process_local_data_block(
+    message_content: list,
+    index: int,
+    block,
+) -> Optional[str]:
+    """Process a local AgentScope DataBlock and return its file path."""
+    source = getattr(block, "source", None)
+    url = str(getattr(source, "url", "")) if source else ""
+    if not url.startswith("file://"):
+        return None
+
+    local_path = file_url_to_local_path(url)
+    if not local_path:
+        return None
+    media_type = getattr(source, "media_type", "") or ""
+    if media_type.startswith("audio/"):
+        handled = await _process_audio_block(
+            message_content,
+            index,
+            local_path,
+            block,
+        )
+        if handled:
+            return None
+    return local_path
 
 
 async def _process_single_block(
@@ -458,16 +497,16 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
         for i, block in enumerate(message.content):
             # === 2.0 Pydantic DataBlock fast-path ===
             # Console uploads land as ``DataBlock(URLSource(url=file:///..))``
-            # already pointing at ``media_dir``.  Skip the dict-based
-            # download / mutation entirely (it would replace the Pydantic
-            # block with a dict and break ``msg.has_content_blocks(...)``
-            # in agentscope ``_handle_incoming_messages``).  We only need
-            # the local path for the sibling-text-block injection below.
+            # already pointing at ``media_dir``.  Preserve the Pydantic block
+            # type; local audio is handled in-place for transcription/native
+            # delivery, while other media only needs a path hint.
             if not isinstance(block, dict):
-                source = getattr(block, "source", None)
-                url = str(getattr(source, "url", "")) if source else ""
-                if url.startswith("file://"):
-                    local_path = url.removeprefix("file://")
+                local_path = await _process_local_data_block(
+                    message.content,
+                    i,
+                    block,
+                )
+                if local_path:
                     downloaded_files.append((i, local_path))
                 # Remote URL or no URL on a Pydantic block: skip silently.
                 # Adding remote-download for Pydantic DataBlock is a

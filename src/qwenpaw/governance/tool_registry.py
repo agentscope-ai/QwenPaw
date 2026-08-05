@@ -431,6 +431,16 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
         policy_name="MemorySearch",
         owner="builtin",
     )
+    # Visual compact recovery is feature-scoped and collected by AgentBuilder,
+    # so it stays out of the global @tool_descriptor builtin set.
+    register_tool_governance(
+        registry,
+        python_name="recover_visual_context",
+        tool_type="internal",
+        target_param="",
+        policy_name="RecoverVisualContext",
+        owner="builtin",
+    )
 
 
 def _collect_governance_gaps(registry: ToolRegistry) -> list[str]:

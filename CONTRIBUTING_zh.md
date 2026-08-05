@@ -176,7 +176,7 @@ description: "Use this skill whenever user wants to [主要功能]. Trigger espe
 
 - **Skills Hub：** QwenPaw 支持从社区 hub（如 ClawHub）导入 skills。如果你希望你的 skill 可以通过 hub 安装，请遵循相同的 `SKILL.md` + `references/`/`scripts/` 布局和 hub 的打包格式。
 
-仓库内基础 skills 的示例：**cron**、**file_reader**、**news**、**pdf**、**docx**、**pptx**、**xlsx**、**browser_visible**。贡献新的基础 skill 通常意味着：在 `agents/skills/` 下添加目录，在文档中添加简短条目（如 `website/public/docs/skills.*.md` 中的 Skills 表），并确保它正确同步到工作目录。
+仓库内基础 skills 的示例：**cron**、**file_reader**、**news**、**pdf**、**docx**、**pptx**、**xlsx**、**browser**。贡献新的基础 skill 通常意味着：在 `agents/skills/` 下添加目录，在文档中添加简短条目（如 `website/public/docs/skills.*.md` 中的 Skills 表），并确保它正确同步到工作目录。
 
 ---
 

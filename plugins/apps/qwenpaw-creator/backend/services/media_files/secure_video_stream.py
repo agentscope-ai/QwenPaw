@@ -21,6 +21,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 import hashlib
 import ipaddress
+import logging
 import os
 from pathlib import Path
 import re
@@ -35,6 +36,8 @@ from uuid import uuid4
 import httpx
 
 from domain.errors import StorageIntegrityError, ValidationError
+
+logger = logging.getLogger("qwenpaw.creator.media_files.secure_video_stream")
 
 
 DEFAULT_MAX_VIDEO_BYTES = 256 * 1024 * 1024
@@ -745,6 +748,13 @@ class SecureR2VVideoMaterializer:
             project_id=project_id,
             task_id=task_id,
         )
+        source_kind = "local" if relative_parts is not None else "remote"
+        logger.info(
+            "video materialize start: project=%s task=%s source=%s",
+            project_id,
+            task_id,
+            source_kind,
+        )
         deadline = self.monotonic() + self.total_timeout_seconds
         acquired = False
         temporary_name: str | None = None
@@ -803,6 +813,15 @@ class SecureR2VVideoMaterializer:
                     destination_fd = -1
                     path = scratch.finish(temporary_name, detected.suffix)
                     temporary_name = None
+                    logger.info(
+                        "video materialize complete: project=%s task=%s "
+                        "size=%d sha256=%s container=%s",
+                        project_id,
+                        task_id,
+                        size_bytes,
+                        checksum[:16],
+                        detected.container,
+                    )
                     return MaterializedVideo(
                         path=path,
                         sha256=checksum,

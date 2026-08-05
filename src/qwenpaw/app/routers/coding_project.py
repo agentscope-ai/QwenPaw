@@ -323,6 +323,127 @@ class ImportLocalRequest(BaseModel):
     name: str | None = None  # override destination folder name
 
 
+# Import-specific sensitive directory names (case-insensitive).
+# Checked against every path component and every entry during
+# copy so that ``~/backup/.ssh`` is caught regardless of where
+# it appears.  Intentionally separate from sandbox deny-list
+# because security semantics differ: sandbox controls runtime
+# permissions; this list prevents data exfiltration via import.
+_SENSITIVE_DIR_NAMES: frozenset[str] = frozenset(
+    {
+        ".ssh",
+        ".aws",
+        ".gnupg",
+        ".kube",
+        ".docker",
+        ".azure",
+        ".claude",
+        ".password-store",
+    },
+)
+
+# Sensitive file basenames (case-insensitive).  Skipped during
+# copy so files like ``.netrc`` inside a project are never
+# exfiltrated.
+_SENSITIVE_FILE_NAMES: frozenset[str] = frozenset(
+    {
+        ".env",
+        ".netrc",
+        ".npmrc",
+        ".yarnrc",
+        ".pypirc",
+        ".gitconfig",
+        ".git-credentials",
+        ".terraformrc",
+        ".vault-token",
+    },
+)
+
+# Multi-component sensitive directory sequences (lowercase).
+# Matched anywhere in the path using a sliding window so that
+# ``~/backup/.config/gh`` is caught even though the source is
+# ``~/backup``.
+_SENSITIVE_DIR_SEQUENCES: tuple[tuple[str, ...], ...] = (
+    (".config", "gcloud"),
+    (".config", "nix"),
+    (".config", "gh"),
+    # macOS paths
+    ("library", "keychains"),
+    ("library", "cookies"),
+    ("library", "application support", "google", "chrome"),
+    ("library", "application support", "firefox"),
+    # Windows AppData paths (also covers WSL mounts)
+    ("appdata", "roaming", "gcloud"),
+    ("appdata", "roaming", "github cli"),
+    ("appdata", "local", "google", "chrome", "user data"),
+    ("appdata", "roaming", "mozilla", "firefox"),
+)
+
+
+def _match_dir_sequence(
+    parts: tuple[str, ...],
+    seq: tuple[str, ...],
+) -> bool:
+    """Check if *seq* appears as a contiguous subsequence in *parts*.
+
+    Both *parts* and *seq* must already be lowercased.
+    """
+    seq_len = len(seq)
+    for i in range(len(parts) - seq_len + 1):
+        if parts[i : i + seq_len] == seq:
+            return True
+    return False
+
+
+def _is_sensitive_name(name: str) -> bool:
+    """Check if a single path component is a sensitive name."""
+    low = name.lower()
+    return low in _SENSITIVE_DIR_NAMES or low in _SENSITIVE_FILE_NAMES
+
+
+def _validate_import_source(source: Path) -> None:
+    """Reject source paths outside home or inside sensitive dirs.
+
+    Raises HTTPException(403) when:
+    - *source* is not under the user's home directory.
+    - *source* equals the home directory itself.
+    - *source* path contains a sensitive component name.
+    - *source* path contains a sensitive directory sequence.
+    """
+    home = Path.home().resolve()
+    if not source.is_relative_to(home):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Source must be under home directory: {home}",
+        )
+
+    if source == home:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot import the entire home directory",
+        )
+
+    rel = source.relative_to(home)
+
+    for part in rel.parts:
+        if _is_sensitive_name(part):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Path contains sensitive " f"component: {part}",
+            )
+
+    low_parts = tuple(p.lower() for p in rel.parts)
+    for seq in _SENSITIVE_DIR_SEQUENCES:
+        if _match_dir_sequence(low_parts, seq):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Path contains sensitive directory "
+                    f"sequence: {'/'.join(seq)}"
+                ),
+            )
+
+
 @router.post(
     "/import-local",
     summary="Copy a local directory into coding projects",
@@ -350,15 +471,17 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
             detail=f"Not a directory: {source}",
         )
 
+    _validate_import_source(source)
+
     dest_name = body.name.strip() if body.name else source.name
     base = _projects_base(workspace.workspace_dir)
     dest = safe_project_dest(base, dest_name)
 
     def _copy() -> Path:
         import shutil
+        import stat
 
-        base.mkdir(parents=True, exist_ok=True)
-        ignore = shutil.ignore_patterns(
+        _pattern_ignore = shutil.ignore_patterns(
             "node_modules",
             ".next",
             "dist",
@@ -371,10 +494,69 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
             ".mypy_cache",
             ".tox",
         )
+
+        def _is_link_or_junction(p: Path) -> bool:
+            """Detect symlinks and Windows junctions."""
+            if p.is_symlink():
+                return True
+            if sys.platform == "win32":
+                try:
+                    st = p.lstat()
+                    attrs = getattr(
+                        st,
+                        "st_file_attributes",
+                        0,
+                    )
+                    reparse = getattr(
+                        stat,
+                        "FILE_ATTRIBUTE_REPARSE_POINT",
+                        0x400,
+                    )
+                    if attrs & reparse:
+                        return True
+                except OSError:
+                    pass
+            return False
+
+        def _dir_parts_lower(dirpath: str) -> tuple[str, ...]:
+            """Return lowercased path components of *dirpath*."""
+            return tuple(p.lower() for p in Path(dirpath).parts)
+
+        def _ignore(directory, contents):
+            """Skip artifacts, symlinks, sensitive entries.
+
+            Apply security checks during the copy walk instead of
+            performing a separate pre-scan.
+            """
+            ignored = _pattern_ignore(directory, contents)
+            d = Path(directory)
+            # Skip symlinks and Windows junctions.
+            ignored |= {c for c in contents if _is_link_or_junction(d / c)}
+            # Skip sensitive directory and file names.
+            ignored |= {
+                c
+                for c in contents
+                if c.lower() in _SENSITIVE_DIR_NAMES
+                or c.lower() in _SENSITIVE_FILE_NAMES
+            }
+            # Skip entries that complete a sensitive
+            # multi-component directory sequence.
+            dir_low = _dir_parts_lower(directory)
+            for c in contents:
+                if c in ignored:
+                    continue
+                full = dir_low + (c.lower(),)
+                for seq in _SENSITIVE_DIR_SEQUENCES:
+                    if _match_dir_sequence(full, seq):
+                        ignored.add(c)
+                        break
+            return ignored
+
+        base.mkdir(parents=True, exist_ok=True)
         shutil.copytree(
             str(source),
             str(dest),
-            ignore=ignore,
+            ignore=_ignore,
             dirs_exist_ok=True,
         )
         return dest

@@ -121,6 +121,11 @@ if [ ! -d "${APP_PATH}" ]; then
     echo "ERROR: No Tauri macOS app found at ${APP_PATH}"
     exit 1
 fi
+HELPER_PATH="${APP_PATH}/Contents/MacOS/qwenpaw-computer-use-helper"
+if [ ! -x "${HELPER_PATH}" ]; then
+    echo "ERROR: Computer Use helper was not bundled at ${HELPER_PATH}"
+    exit 1
+fi
 
 echo "== Step 3b: Signing Final macOS App =="
 bash "${SIGN_MACOS_BUNDLE}" \
