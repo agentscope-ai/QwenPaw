@@ -14,12 +14,17 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
+from qwenpaw.browser.control_link.chrome.bridge import (
+    NMBridgeError,
+    get_nm_bridge,
+)
+
 from ..extension_setup import (
+    CHROME_EXTENSIONS_URL,
     atomic_write_json_0600,
     extension_install_status,
     BridgeEndpointUnavailable,
     InstallModeError,
-    open_chrome_extensions_page,
     open_extension_folder,
     require_bridge_endpoint,
     setup_extension_files,
@@ -133,9 +138,33 @@ async def extension_setup(
 
 
 @api_router.post("/open-chrome-extensions")
-async def open_chrome_extensions() -> dict[str, str | bool]:
-    """Open Chrome's extensions management page."""
-    return open_chrome_extensions_page()
+async def open_chrome_extensions() -> dict[str, str | bool | None]:
+    """Ask the connected extension to open Chrome's extensions manager."""
+    bridge = get_nm_bridge()
+    if not bridge.is_connected():
+        return {
+            "opened": False,
+            "url": CHROME_EXTENSIONS_URL,
+            "error": "Chrome extension is not connected.",
+        }
+    try:
+        result = await bridge.request(
+            "extension.open_extensions_manager",
+            timeout=5.0,
+        )
+    except NMBridgeError:
+        return {
+            "opened": False,
+            "url": CHROME_EXTENSIONS_URL,
+            "error": "Chrome extension could not open the extensions page.",
+        }
+    if not isinstance(result, dict) or result.get("opened") is not True:
+        return {
+            "opened": False,
+            "url": CHROME_EXTENSIONS_URL,
+            "error": "Chrome extension could not open the extensions page.",
+        }
+    return {"opened": True, "url": CHROME_EXTENSIONS_URL, "error": None}
 
 
 @api_router.post("/open-extension-folder")

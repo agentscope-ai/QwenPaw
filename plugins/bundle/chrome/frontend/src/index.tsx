@@ -970,9 +970,18 @@ function ChromeSetupPage() {
   );
 
   const copyValue = React.useCallback(
-    async (value: string) => {
-      await navigator.clipboard?.writeText(value);
-      message.success(translate(locale, "copied"));
+    async (value: string, feedback: MessageKey = "copied") => {
+      try {
+        if (!navigator.clipboard?.writeText) {
+          throw new Error("clipboard API is unavailable");
+        }
+        await navigator.clipboard.writeText(value);
+        message.success(translate(locale, feedback));
+        return true;
+      } catch {
+        message.error(translate(locale, "copyFailed"));
+        return false;
+      }
     },
     [locale],
   );
@@ -984,12 +993,26 @@ function ChromeSetupPage() {
     }
   }, [copyValue, prepareLocalFiles]);
 
+  const copyChromeExtensionsUrl = React.useCallback(
+    async (fallback = false) =>
+      copyValue(
+        status?.chrome_extensions_url ?? "chrome://extensions",
+        fallback ? "chromeExtensionsCopiedFallback" : "chromeExtensionsCopied",
+      ),
+    [copyValue, status?.chrome_extensions_url],
+  );
+
   const handleOpenChrome = React.useCallback(async () => {
-    const result = await openChromeExtensionsPage();
-    if (!result.opened && result.error) {
-      message.warning(result.error);
+    try {
+      const result = await openChromeExtensionsPage();
+      if (result.opened) {
+        return;
+      }
+    } catch {
+      // The copied address is the safe fallback if the local backend is gone.
     }
-  }, []);
+    await copyChromeExtensionsUrl(true);
+  }, [copyChromeExtensionsUrl]);
 
   const shortcutTipsSteps: Record<ShortcutPlatform, [MessageKey, MessageKey]> =
     {
@@ -1205,10 +1228,10 @@ function ChromeSetupPage() {
                     </Text>
                     <Button
                       type="primary"
-                      onClick={() => void handleOpenChrome()}
+                      onClick={() => void copyChromeExtensionsUrl()}
                     >
-                      <InlineIcon name="chromeExtensions" />
-                      {translate(locale, "openChromeExtensionsPage")}
+                      <InlineIcon name="copy" />
+                      {translate(locale, "copyChromeExtensionsPage")}
                     </Button>
                   </div>
                   <div style={styles.disabledTile} aria-disabled="true">
@@ -1247,9 +1270,9 @@ function ChromeSetupPage() {
                           <div style={styles.stepLine}>
                             {translate(locale, "openExtensionsPrefix")}
                             <StepControl
-                              icon="chromeExtensions"
+                              icon="copy"
                               label={translate(locale, "openExtensionsAction")}
-                              onClick={() => void handleOpenChrome()}
+                              onClick={() => void copyChromeExtensionsUrl()}
                               tone="blue"
                             />
                             {translate(locale, "openExtensionsSuffix")}
