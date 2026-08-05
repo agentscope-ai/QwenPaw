@@ -46,15 +46,15 @@ per-file record.
 
 ## 2026-08
 
-- **`tests/unit/tauri/test_entry.py`**: the CORS-preservation test now clears
+- **`tests/unit/tauri/test_entry.py`** — *resolved, no longer a fork
+  modification.* The CORS-preservation test was briefly patched here to clear
   `qwenpaw.app._app` from `sys.modules` before calling
-  `_install_desktop_runtime()`. Upstream's
+  `_install_desktop_runtime()`: upstream's
   `tests/unit/app/test_scroll_startup_io.py` (added in agentscope-ai/QwenPaw
-  #6237) imports that module and leaves it loaded, which trips the
-  `_ensure_qwenpaw_app_not_loaded()` guard for every later test in the process;
-  because `tests/unit/app/` collects before `tests/unit/tauri/`, the failure is
-  deterministic on all runners. This makes the test's clean-import
-  precondition explicit instead of depending on collection order. Revert if
-  upstream fixes the leak in the test that causes it.
+  #6237) imports that module and leaves it loaded, which tripped the
+  `_ensure_qwenpaw_app_not_loaded()` guard for every later test in the process,
+  deterministically, since `tests/unit/app/` collects before
+  `tests/unit/tauri/`. Upstream subsequently applied the identical fix, so this
+  file is byte-identical to upstream again and carries no fork divergence.
 
 Subsequent modifications will be appended to this file.
