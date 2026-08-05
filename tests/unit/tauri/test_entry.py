@@ -15,6 +15,10 @@ from qwenpaw.tauri.env import DESKTOP_CORS_ORIGINS_ENV, DESKTOP_READY_PREFIX
 
 
 def test_install_desktop_runtime_preserves_existing_cors_values(monkeypatch):
+    # Other unit tests import qwenpaw.app._app, which leaves it in sys.modules
+    # and trips the guard inside _install_desktop_runtime.  State the clean
+    # import precondition explicitly rather than relying on collection order.
+    monkeypatch.delitem(sys.modules, "qwenpaw.app._app", raising=False)
     monkeypatch.setenv(
         DESKTOP_CORS_ORIGINS_ENV,
         "https://example.test,tauri://localhost",

@@ -609,7 +609,7 @@ async def test_compress_keeps_active_turn_live(store: HistoryStore):
     assert names.index("memory") < live_ids.index(cur_u.id)
 
 
-async def test_compress_does_not_evict_user_only_exchange_boundary(
+async def test_compress_does_not_evict_user_only_turn_boundary(
     store: HistoryStore,
 ):
     """If the split lands between an old user request and its assistant

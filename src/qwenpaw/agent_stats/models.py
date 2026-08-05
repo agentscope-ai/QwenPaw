@@ -25,6 +25,9 @@ class DailyStats(BaseModel):
     completion_tokens: int
     llm_calls: int
     tool_calls: int
+    # Current-agent daily token totals (independent of global overlay).
+    agent_prompt_tokens: int = 0
+    agent_completion_tokens: int = 0
 
 
 class AgentStatsSummary(BaseModel):
@@ -40,3 +43,8 @@ class AgentStatsSummary(BaseModel):
     channel_stats: list[ChannelStats]
     start_date: str
     end_date: str
+    # Current-agent token totals from per-turn message metadata
+    # (independent of the global total_*_tokens / by_date overlay).
+    agent_prompt_tokens: int = 0
+    agent_completion_tokens: int = 0
+    agent_llm_calls: int = 0
