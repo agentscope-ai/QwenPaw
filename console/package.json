@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "postinstall": "patch-package",
     "build": "tsc -b && vite build",
     "build:prod": "tsc -b && vite build --mode production",
     "build:tauri-bootstrap": "tsc -b && vite build --mode tauri --config src-tauri/vite.bootstrap.config.ts && node ../scripts/pack-tauri/finalize_tauri_bootstrap.mjs",
@@ -21,7 +20,7 @@
     "test:coverage": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --coverage"
   },
   "dependencies": {
-    "@agentscope-ai/chat": "1.1.72-beta.1783494781362",
+    "@agentscope-ai/chat": "1.1.73-beta.1785913513600",
     "@agentscope-ai/design": "^1.0.14",
     "@agentscope-ai/icons": "^1.0.67",
     "@ant-design/icons": "^5.0.1",
@@ -82,7 +81,6 @@
     "globals": "^16.0.0",
     "jsdom": "^29.0.2",
     "less": "^4.5.1",
-    "patch-package": "8.0.1",
     "prettier": "3.0.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
