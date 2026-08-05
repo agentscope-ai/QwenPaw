@@ -1004,6 +1004,18 @@ function useChatInputDraft(isChatActive: () => boolean, agentId?: string) {
       saveTimer = setTimeout(() => {
         saveDraft(target as HTMLTextAreaElement);
       }, 300);
+
+      // Minimal loop mode detection: sync indicator with availableModes
+      const val = (target as HTMLTextAreaElement).value.trimStart();
+      const modes = useLoopStore.getState().availableModes;
+      const match = modes.find((m) => {
+        if (!m.slash_command) return false;
+        const prefix = `/${m.slash_command}`;
+        // Match "/cmd" or "/cmd " exactly, avoid "/cmdxxx"
+        return val === prefix || val.startsWith(`${prefix} `);
+      });
+      if (match) useLoopStore.getState().setSelectedMode(match.id);
+      else useLoopStore.getState().setSelectedMode("default");
     };
 
     // Restore draft on mount with polling for textarea readiness
