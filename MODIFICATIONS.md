@@ -44,4 +44,17 @@ per-file record.
   above every assistant response) and the Voice/SIP `welcome_greeting` defaults
   read `NousAIPaw`, matching the already-rebranded channel documentation.
 
+## 2026-08
+
+- **`tests/unit/tauri/test_entry.py`**: the CORS-preservation test now clears
+  `qwenpaw.app._app` from `sys.modules` before calling
+  `_install_desktop_runtime()`. Upstream's
+  `tests/unit/app/test_scroll_startup_io.py` (added in agentscope-ai/QwenPaw
+  #6237) imports that module and leaves it loaded, which trips the
+  `_ensure_qwenpaw_app_not_loaded()` guard for every later test in the process;
+  because `tests/unit/app/` collects before `tests/unit/tauri/`, the failure is
+  deterministic on all runners. This makes the test's clean-import
+  precondition explicit instead of depending on collection order. Revert if
+  upstream fixes the leak in the test that causes it.
+
 Subsequent modifications will be appended to this file.
