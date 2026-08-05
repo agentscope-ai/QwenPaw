@@ -156,7 +156,7 @@ const messages = {
     developerModeSuffix: "开关。",
     loadUnpackedStepTitle: "点击加载按钮",
     loadUnpackedPrefix: "点击 Chrome 页面里的",
-    loadUnpackedAction: "加载已解压的扩展程序",
+    loadUnpackedAction: "加载未打包的扩展程序",
     loadUnpackedSuffix: "。",
     pastePathStepTitle: "粘贴路径并打开",
     pastePathGuide:
@@ -174,7 +174,7 @@ const messages = {
     shortcutLinuxStep1: "按 Ctrl + L，粘贴路径并回车。",
     shortcutLinuxStep2: "确认定位到目录后，点击“打开”。",
     stepOpen: "打开 chrome://extensions，并启用开发者模式。",
-    stepLoad: "选择“加载已解压的扩展程序”，并选择 QwenPaw 扩展目录。",
+    stepLoad: "选择“加载未打包的扩展程序”，并选择 QwenPaw 扩展目录。",
     stepVerify: "回到此页面并刷新状态。",
     directoryLabel: "QwenPaw 自带扩展目录",
     directoryHint: "完整路径可通过复制或高级信息查看。",
@@ -198,7 +198,7 @@ const messages = {
     checksPending: "连接检查结果暂不可用，请刷新重试。",
     repairReinstallNmHost: "重新安装 Native Messaging 宿主。",
     repairReloadUnpackedExtension:
-      "在 chrome://extensions 重新加载已解压的扩展。",
+      "在 chrome://extensions 重新加载未打包的扩展。",
     repairWaitOrRestartChrome: "稍候片刻或重启 Chrome。",
     repairReloadExtension: "重新加载扩展。",
     repairReloadOrUpdateExtension: "重新加载或更新扩展。",
