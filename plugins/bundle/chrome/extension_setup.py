@@ -781,6 +781,50 @@ def open_extension_folder(
     return {"opened": False, "path": str(target), "error": last_error}
 
 
+def _find_windows_chrome_executable() -> Path | None:
+    """Return a registered or standard-install Google Chrome executable."""
+    candidates: list[Path] = []
+    try:
+        import winreg
+    except ImportError:
+        winreg = None
+
+    if winreg is not None:
+        app_paths_key = (
+            r"Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe"
+        )
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                with winreg.OpenKey(hive, app_paths_key) as key:
+                    value, _ = winreg.QueryValueEx(key, "")
+            except OSError:
+                continue
+            candidate = str(value).strip().strip('"')
+            if candidate:
+                candidates.append(Path(candidate))
+
+    for env_name in ("LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"):
+        root = os.environ.get(env_name)
+        if root:
+            candidates.append(
+                Path(root)
+                / "Google"
+                / "Chrome"
+                / "Application"
+                / "chrome.exe",
+            )
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = os.path.normcase(str(candidate))
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def open_chrome_extensions_page(
     *,
     platform: str | None = None,
@@ -792,9 +836,26 @@ def open_chrome_extensions_page(
     if platform == "darwin":
         commands.append(["open", "-a", "Google Chrome", CHROME_EXTENSIONS_URL])
     elif platform == "win32":
-        commands.append(
-            ["cmd", "/c", "start", "", "chrome", CHROME_EXTENSIONS_URL],
-        )
+        chrome_executable = _find_windows_chrome_executable()
+        if chrome_executable is None:
+            return {
+                "opened": False,
+                "url": CHROME_EXTENSIONS_URL,
+                "error": "Google Chrome executable was not found.",
+            }
+        try:
+            subprocess.Popen(  # pylint: disable=consider-using-with
+                [str(chrome_executable), CHROME_EXTENSIONS_URL],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            return {
+                "opened": False,
+                "url": CHROME_EXTENSIONS_URL,
+                "error": f"Could not start Google Chrome: {exc}",
+            }
+        return {"opened": True, "url": CHROME_EXTENSIONS_URL}
     else:
         commands.extend(
             [
