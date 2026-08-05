@@ -55,7 +55,7 @@ export default function BootScreen({
     <div className={cx(styles.boot, exiting && styles.bootExit)}>
       <div className={styles.bootBrand}>
         <Command size={54} strokeWidth={1.6} />
-        <div className={styles.bootName}>QwenPaw OS</div>
+        <div className={styles.bootName}>NousAIPaw OS</div>
       </div>
       <div className={styles.bootBar}>
         <div className={styles.bootBarFill} style={{ width: `${progress}%` }} />

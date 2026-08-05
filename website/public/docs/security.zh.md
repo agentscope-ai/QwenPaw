@@ -458,7 +458,7 @@ NousAIPaw 在启动时自动检测最佳可用的沙箱后端：
 - **`env_mode="allowlist"`**：未实现。所有后端的行为都等同于 `"inject"`——继承当前环境后再应用 `env_vars`。由于 allowlist 的目的正是防止未声明的宿主变量（API key、云凭据、token）进入沙箱子进程，请求该模式会以 `WARNING` 上报。
 - **`shell_executable`**：Windows 后端和 `mode=none` 会遵循该设置；bubblewrap / Seatbelt / Landlock 后端固定使用自己的 shell。`mode=none` 下若配置的 shell 无法解析，会上报并回退到**平台默认 shell**（Windows 为 `COMSPEC` / cmd.exe，其余为 `SHELL` / `/bin/bash`）；命令参数随 shell 而定，cmd.exe 用 `/c`、PowerShell 用 `-Command`、POSIX shell 用 `-c`。
 - **`platform_hints`**：仅 `seatbelt_extra_rules`（macOS）被消费。其余任何键（包括该键的拼写错误）都会被丢弃；由于这些 hint 可能携带 admin 手写的 deny 规则，此时整个字段会以 `WARNING` 上报。
-- **`mode=none` 不强制任何约束**：直通后端只应用 `timeout_seconds`、`env_vars` 和 `shell_executable`，所有隔离类约束都被忽略。这是容器环境下的常见情形——没有可用的内核后端时 QwenPaw 会回退到 `mode=none`。
+- **`mode=none` 不强制任何约束**：直通后端只应用 `timeout_seconds`、`env_vars` 和 `shell_executable`，所有隔离类约束都被忽略。这是容器环境下的常见情形——没有可用的内核后端时 NousAIPaw 会回退到 `mode=none`。
 - **未生效的约束会被记录，绝不静默丢弃**：每个后端都声明自己真正应用的字段，其余你配置过的内容会在沙箱创建时上报——构成安全边界的约束记为 `WARNING`，其余记为 `DEBUG`。看到 `NoneSandbox does not enforce deny_paths=~/.ssh; the constraint is IGNORED.` 就意味着这些路径确实可读。请把这类日志当作安全发现而非噪音处理。
 - **Windows AppContainer**（`allow_read_all=False`）：首次 ACL 设置需要管理员权限。AppContainer profile 会被保留以供相同配置的后续调用复用。
 - **Windows AppContainer 文件删除受限**（`allow_read_all=False`）：在 AppContainer 模式下，沙箱内的进程可能无法删除工作区中的文件。此问题不影响 `allow_read_all=True`（Restricted_token）模式。我们正在研究解决方案。

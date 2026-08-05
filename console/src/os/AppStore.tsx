@@ -167,7 +167,7 @@ export default function AppStore() {
       title: t("pluginManager.compatWarningTitle", "Compatibility Warning"),
       content: t("pluginManager.compatWarningContent", {
         defaultValue:
-          "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Continue?",
+          "This plugin is labeled for NousAIPaw {{labels}}. Your NousAIPaw version is {{version}}. Installing it may cause errors. Continue?",
         labels: entry.qwenpaw_compat_labels?.join(", ") ?? "unknown",
         version: qwenpawVersion ?? "unknown",
       }),
@@ -438,7 +438,7 @@ export default function AppStore() {
                             color={isCompatible(entry) ? "green" : "orange"}
                             style={{ marginLeft: 6, fontSize: 10 }}
                           >
-                            {`QwenPaw ${entry.qwenpaw_compat_labels!.join(
+                            {`NousAIPaw ${entry.qwenpaw_compat_labels!.join(
                               ", ",
                             )}`}
                           </Tag>
@@ -479,7 +479,7 @@ export default function AppStore() {
                         !isCompatible(entry)
                           ? t("pluginManager.compatUnverified", {
                               defaultValue:
-                                "Compatibility with your QwenPaw version is unverified.",
+                                "Compatibility with your NousAIPaw version is unverified.",
                             })
                           : undefined
                       }
