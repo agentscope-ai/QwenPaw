@@ -7,6 +7,7 @@ import type {
   ChatDeleteResponse,
   ChatUpdateRequest,
   BatchArchiveResult,
+  ForkChatResponse,
   Session,
 } from "../types";
 
@@ -126,6 +127,15 @@ export const chatApi = {
     request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {
       method: "POST",
     }),
+
+  forkChat: (chatId: string, name?: string) =>
+    request<ForkChatResponse>(
+      `/chats/${encodeURIComponent(chatId)}/fork`,
+      {
+        method: "POST",
+        body: name ? JSON.stringify({ name }) : undefined,
+      },
+    ),
 };
 
 export const sessionApi = {

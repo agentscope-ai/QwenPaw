@@ -471,3 +471,107 @@ class SafeJSONSession:
                 f"because it does not exist"
             ),
         )
+
+    async def clone_session_state(
+        self,
+        *,
+        src_session_id: str,
+        dst_session_id: str,
+        user_id: str = "",
+        channel: str = "",
+        allow_missing_source: bool = False,
+    ) -> bool:
+        """Copy session state from src to dst at the raw JSON level.
+
+        Reads the full source session dict under path lock, then writes it
+        atomically to a new destination file under path lock.
+
+        When *allow_missing_source* is True and the source file does not
+        exist, writes an empty dict ``{}`` to the destination instead of
+        raising. This preserves the invariant that the destination file
+        exists before any ChatSpec references it.
+
+        Returns True if the source was missing and ``allow_missing_source``
+        was True (caller can warn the user). Returns False otherwise.
+
+        Raises FileNotFoundError when *allow_missing_source* is False
+        (the default) and the source file is missing.
+        """
+        source_missing = False
+        # 1. Read source file under path lock
+        src_path = await run_sync_io(
+            self._get_save_path,
+            src_session_id,
+            user_id,
+            channel,
+        )
+        async with get_path_lock(src_path):
+            try:
+                src_state = await run_sync_io(_read_session_json, src_path)
+            except FileNotFoundError:
+                if allow_missing_source:
+                    logger.warning(
+                        "Source session file missing for %s, "
+                        "cloning empty state to %s.",
+                        src_session_id,
+                        dst_session_id,
+                    )
+                    src_state = {}
+                    source_missing = True
+                else:
+                    raise
+
+        # 2. Write to destination file (path lock + atomic write)
+        dst_path = await run_sync_io(
+            self._get_save_path,
+            dst_session_id,
+            user_id,
+            channel,
+        )
+        async with get_path_lock(dst_path):
+            await write_json_atomic_async(
+                dst_path,
+                src_state,
+                indent=None,
+            )
+
+        logger.info(
+            "Cloned session state %s -> %s (%d top-level keys)",
+            src_session_id,
+            dst_session_id,
+            len(src_state),
+        )
+        return source_missing
+
+    async def delete_session_state(
+        self,
+        *,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+    ) -> bool:
+        """Delete a session state file. Best-effort; never raises.
+
+        Returns True if the file was deleted, False if it didn't exist.
+        Uses run_sync_io to avoid blocking the async event loop.
+        """
+        path = await run_sync_io(
+            self._get_save_path,
+            session_id,
+            user_id,
+            channel,
+        )
+        async with get_path_lock(path):
+            try:
+                await run_sync_io(os.remove, path)
+                logger.info("Deleted orphan session file: %s", path)
+                return True
+            except FileNotFoundError:
+                return False
+            except OSError as exc:
+                logger.warning(
+                    "Failed to delete orphan session file %s: %s",
+                    path,
+                    exc,
+                )
+                return False

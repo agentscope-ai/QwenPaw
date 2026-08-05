@@ -2947,8 +2947,14 @@
       "rename": "Rename",
       "pin": "Pin",
       "unpin": "Unpin",
+      "fork": "Fork",
       "delete": "Delete"
     },
+    "forkSuccess": "Session forked",
+    "forkEmptySource": "Source context unavailable; created an empty session.",
+    "forkRunning": "Session is still generating. Wait for it to finish.",
+    "forkFailed": "Fork failed",
+    "forkUnavailable": "Send a message first",
     "queue": {
       "title": "Message Queue",
       "paused": "Paused",

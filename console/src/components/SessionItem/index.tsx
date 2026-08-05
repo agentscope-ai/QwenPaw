@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Dropdown, Input } from "antd";
 import type { InputRef } from "antd";
 import { useTranslation } from "react-i18next";
+import { GitFork } from "lucide-react";
 import {
   SparkMoreLine,
   SparkDeleteLine,
@@ -41,6 +42,8 @@ export interface SessionItemProps {
   onDelete?: (sessionId: string) => void;
   onPin?: (sessionId: string) => void;
   onArchive?: (sessionId: string) => void;
+  onFork?: (sessionId: string) => void;
+  forkDisabled?: boolean;
   onEditChange?: (value: string) => void;
   onEditSubmit?: () => void;
   onEditCancel?: () => void;
@@ -66,6 +69,8 @@ const SessionItem: React.FC<SessionItemProps> = ({
   onDelete,
   onPin,
   onArchive,
+  onFork,
+  forkDisabled,
   onEditChange,
   onEditSubmit,
   onEditCancel,
@@ -128,6 +133,13 @@ const SessionItem: React.FC<SessionItemProps> = ({
           : t("sessions.archive.action", "Archive"),
         onClick: () => onArchive?.(sessionId),
       },
+      {
+        key: "fork",
+        icon: <GitFork size={14} />,
+        label: t("chat.contextMenu.fork", "Fork"),
+        disabled: forkDisabled,
+        onClick: () => onFork?.(sessionId),
+      },
       { type: "divider" as const },
       {
         key: "delete",
@@ -144,6 +156,8 @@ const SessionItem: React.FC<SessionItemProps> = ({
       t,
       onPin,
       onArchive,
+      onFork,
+      forkDisabled,
       onDelete,
       handleStartEdit,
     ],

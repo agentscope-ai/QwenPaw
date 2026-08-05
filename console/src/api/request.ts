@@ -2,6 +2,16 @@ import { getApiUrl, clearAuthToken } from "./config";
 import { buildAuthHeaders } from "./authHeaders";
 import { getLoginHref, isLoginPath } from "../utils/navigationMode";
 
+/** HTTP error with status code, so callers can distinguish 409 vs 500 etc. */
+export class HttpError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+  }
+}
+
 function getErrorMessageFromBody(
   text: string,
   contentType: string,
@@ -138,7 +148,7 @@ export async function request<T = unknown>(
           ? `${errorMessage} - ${text}`
           : `Request failed: ${response.status} ${response.statusText}`;
 
-        throw new Error(finalMessage);
+        throw new HttpError(response.status, finalMessage);
       }
 
       if (response.status === 204) {

@@ -21,6 +21,8 @@ from .models import (
     ChatSpec,
     ChatUpdate,
     ChatHistory,
+    ForkChatRequest,
+    ForkChatResponse,
 )
 from .utils import agentscope_msg_to_message, parse_legacy_memory_state
 from ...services.project_directory import (
@@ -325,6 +327,115 @@ async def clear_chat_project_dir(
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
     return await _project_directory_response(chat, workspace)
+
+
+# ----- Fork endpoint -----
+
+
+@router.post(
+    "/{chat_id}/fork",
+    response_model=ForkChatResponse,
+    status_code=201,
+)
+async def fork_chat(
+    chat_id: str,
+    body: ForkChatRequest = ForkChatRequest(),
+    mgr: ChatManager = Depends(get_chat_manager),
+    session: SafeJSONSession = Depends(get_session),
+    workspace=Depends(get_workspace),
+):
+    """Fork a chat: create a full snapshot in a new independent session.
+
+    201 on success.
+    404 if the source chat does not exist.
+    409 if the source chat is currently running (best-effort guard;
+         a TOCTOU window exists — see the design doc).
+    500 on I/O or persistence failures.
+    """
+    # 1. Validate source exists
+    source = await mgr.get_chat(chat_id)
+    if source is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+
+    # 2. Best-effort guard: reject if currently running
+    tracker = workspace.task_tracker
+    status = await tracker.get_status(chat_id)
+    if status == "running":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Source chat is still generating. "
+                "Wait for it to finish before forking."
+            ),
+        )
+
+    # 3. Generate new session_id
+    fork_uuid = str(uuid4())[:8]
+    new_session_id = f"{source.session_id}:fork-{fork_uuid}"
+
+    # 4. Clone session state file (BEFORE creating ChatSpec).
+    #    allow_missing_source=True: if source file was manually deleted,
+    #    write {} to preserve the invariant that the session file exists
+    #    before any ChatSpec references it.
+    source_missing = False
+    try:
+        source_missing = await session.clone_session_state(
+            src_session_id=source.session_id,
+            dst_session_id=new_session_id,
+            user_id=source.user_id,
+            channel=source.channel,
+            allow_missing_source=True,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Failed to clone session state for chat %s",
+            chat_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to copy session state.",
+        ) from exc
+
+    # 5. Create ChatSpec (best-effort cleanup on failure)
+    fork_name = body.name or f"Fork of {source.name}"
+    try:
+        new_spec = await mgr.fork_chat(
+            source_chat_id=chat_id,
+            new_session_id=new_session_id,
+            name=fork_name,
+        )
+    except Exception as exc:
+        # Best-effort cleanup of now-orphan session file
+        deleted = await session.delete_session_state(
+            session_id=new_session_id,
+            user_id=source.user_id,
+            channel=source.channel,
+        )
+        if not deleted:
+            logger.warning(
+                "ChatSpec creation failed; orphan session file could "
+                "not be deleted: %s",
+                new_session_id,
+            )
+        logger.exception(
+            "Failed to create forked chat for source %s",
+            chat_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create forked chat.",
+        ) from exc
+
+    return ForkChatResponse(
+        chat_id=new_spec.id,
+        session_id=new_spec.session_id,
+        name=new_spec.name,
+        created_at=new_spec.created_at,
+        source_state="empty" if source_missing else "ok",
+    )
 
 
 # ----- Existing CRUD endpoints -----

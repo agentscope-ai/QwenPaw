@@ -45,5 +45,13 @@ export interface BatchArchiveResult {
   }>;
 }
 
+export interface ForkChatResponse {
+  chat_id: string;
+  session_id: string;
+  name: string;
+  created_at: string;
+  source_state: "ok" | "empty";
+}
+
 // Legacy Session type alias for backward compatibility
 export type Session = ChatSpec;

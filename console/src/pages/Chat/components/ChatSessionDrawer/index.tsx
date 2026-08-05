@@ -26,6 +26,7 @@ import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import SessionItem from "../../../../components/SessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
 import { chatApi } from "../../../../api/modules/chat";
+import { HttpError } from "../../../../api/request";
 import sessionApi from "../../sessionApi";
 import { useMessageQueueStore } from "../../../../stores/messageQueueStore";
 import {
@@ -75,6 +76,7 @@ interface VirtualRowData {
   handleDelete: (sessionId: string) => void;
   handlePinToggle: (sessionId: string) => void;
   handleArchiveToggle: (sessionId: string) => void;
+  handleFork: (sessionId: string) => void;
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
@@ -148,6 +150,8 @@ const VirtualRow = React.memo(function VirtualRow({
         onDelete={data.handleDelete}
         onPin={data.handlePinToggle}
         onArchive={data.handleArchiveToggle}
+        onFork={data.handleFork}
+        forkDisabled={!getBackendId(session)}
         onEditChange={data.handleEditChange}
         onEditSubmit={data.handleEditSubmit}
         onEditCancel={data.handleEditCancel}
@@ -613,6 +617,67 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     [sessions, refreshSessions, location.pathname, message, t],
   );
 
+  const forkingRef = useRef(new Set<string>());
+
+  /** Fork the session: create a snapshot in a new independent chat */
+  const handleFork = useCallback(
+    async (sessionId: string) => {
+      // Prevent duplicate requests
+      if (forkingRef.current.has(sessionId)) return;
+
+      const session = sessions.find((s) => s.id === sessionId) as
+        | ExtendedChatSession
+        | undefined;
+      const backendId = session ? getBackendId(session) : null;
+      if (!backendId) {
+        message.warning(
+          t("chat.forkUnavailable", "Send a message first"),
+        );
+        return;
+      }
+
+      forkingRef.current.add(sessionId);
+
+      let result: Awaited<ReturnType<typeof chatApi.forkChat>>;
+      try {
+        result = await chatApi.forkChat(backendId);
+      } catch (err) {
+        forkingRef.current.delete(sessionId);
+        if (err instanceof HttpError && err.status === 409) {
+          message.warning(
+            t(
+              "chat.forkRunning",
+              "Session is still generating. Wait for it to finish.",
+            ),
+          );
+        } else {
+          message.error(t("chat.forkFailed", "Fork failed"));
+        }
+        return;
+      }
+
+      if (result.source_state === "empty") {
+        message.warning(
+          t(
+            "chat.forkEmptySource",
+            "Source context unavailable; created an empty session.",
+          ),
+        );
+      } else {
+        message.success(t("chat.forkSuccess", "Session forked"));
+      }
+
+      try {
+        await refreshSessions();
+      } catch {
+        console.warn("Fork succeeded but session refresh failed");
+      }
+      handleSessionClick(result.chat_id);
+      forkingRef.current.delete(sessionId);
+    },
+    [sessions, handleSessionClick, refreshSessions, t, message],
+  );
+
   /** Filter sessions by search query */
   const filteredSessions = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -741,6 +806,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       handleDelete,
       handlePinToggle,
       handleArchiveToggle,
+      handleFork,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
@@ -758,6 +824,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       handleDelete,
       handlePinToggle,
       handleArchiveToggle,
+      handleFork,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
