@@ -6,6 +6,7 @@ import {
   buildMarketDownloadUrl,
   type MarketPluginEntry,
   type MarketPluginSortBy,
+  isMarketPluginApp,
 } from "@/api/modules/pluginMarket";
 import { installPlugin } from "@/api/modules/plugin";
 import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
@@ -14,9 +15,22 @@ export { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 
 interface UseMarketPluginsOptions {
   onInstalled: () => void;
+  /** Restrict this market instance to one category, such as `app`. */
+  fixedCategory?: string;
+  /** Translation key used for market load failures. */
+  unavailableKey?: string;
+  /** Translation keys used for install feedback. */
+  installSuccessKey?: string;
+  installFailedKey?: string;
 }
 
-export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
+export function useMarketPlugins({
+  onInstalled,
+  fixedCategory,
+  unavailableKey = "pluginManager.marketUnavailable",
+  installSuccessKey = "pluginManager.installSuccess",
+  installFailedKey = "pluginManager.installFailed",
+}: UseMarketPluginsOptions) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const tRef = useRef(t);
@@ -29,7 +43,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<string | undefined>(undefined);
+  const [category, setCategory] = useState<string | undefined>(fixedCategory);
   const [sortBy, setSortBy] = useState<MarketPluginSortBy>("downloads");
   const [installingId, setInstallingId] = useState<string | null>(null);
   const [qwenpawVersion, setQwenpawVersion] = useState<string | null>(null);
@@ -77,17 +91,20 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
           category: cat || undefined,
           sort_by: sort,
         });
-        setPlugins(data.plugins ?? []);
+        const entries = data.plugins ?? [];
+        setPlugins(
+          fixedCategory === "app" ? entries.filter(isMarketPluginApp) : entries,
+        );
         setTotal(data.total);
       } catch {
-        setError(tRef.current("pluginManager.marketUnavailable"));
+        setError(tRef.current(unavailableKey));
         setPlugins([]);
         setTotal(0);
       } finally {
         setLoading(false);
       }
     },
-    [pageSize],
+    [fixedCategory, pageSize, unavailableKey],
   );
 
   useEffect(() => {
@@ -100,9 +117,10 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
   }, []);
 
   const handleCategoryChange = useCallback((cat: string | undefined) => {
+    if (fixedCategory) return;
     setCategory(cat);
     setPage(1);
-  }, []);
+  }, [fixedCategory]);
 
   const handleSortChange = useCallback((sort: MarketPluginSortBy) => {
     setSortBy(sort);
@@ -130,7 +148,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
         const downloadUrl = buildMarketDownloadUrl(entry);
         const result = await installPlugin(downloadUrl, { force: true });
         message.success(
-          `${tRef.current("pluginManager.installSuccess")}: ${result.name}`,
+          `${tRef.current(installSuccessKey)}: ${result.name}`,
         );
         onInstalled();
         setTimeout(() => window.location.reload(), 800);
@@ -138,13 +156,13 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
         const msg =
           err instanceof Error
             ? err.message
-            : tRef.current("pluginManager.installFailed");
+            : tRef.current(installFailedKey);
         message.error(msg);
       } finally {
         setInstallingId(null);
       }
     },
-    [message, onInstalled],
+    [installFailedKey, installSuccessKey, message, onInstalled],
   );
 
   return {
