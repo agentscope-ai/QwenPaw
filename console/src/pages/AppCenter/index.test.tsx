@@ -122,6 +122,56 @@ describe("AppCenterPage", () => {
     expect(hoisted.fetchMarketPlugins).not.toHaveBeenCalled();
   });
 
+  it("enters the official view and loads featured apps lazily", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [
+        {
+          id: "agent-kanban",
+          display_name: "Agent Kanban",
+          developer: "zhijianma",
+          owner: "zhijianma",
+          version: "0.1.0",
+          logo_url: null,
+          downloads: 1536,
+          view_count: 1266,
+          details_url: null,
+          locales: { en: { description: "Kanban", category: "App" } },
+          is_featured: true,
+        },
+      ],
+      total: 1,
+    });
+    renderPage();
+    await screen.findByText("alpha-app");
+
+    fireEvent.click(
+      screen.getByRole("tab", { name: /appCenter.officialApps/ }),
+    );
+
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/apps?view=official",
+    );
+    expect(await screen.findByText("Agent Kanban")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(1),
+    );
+    expect(screen.queryByText("alpha-app")).not.toBeInTheDocument();
+  });
+
+  it("shows the official view when visiting /apps?view=official directly", async () => {
+    renderPage(["/apps?view=official"]);
+
+    expect(
+      await screen.findByLabelText("appCenter.searchOfficial"),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("appCenter.officialAppsEmpty"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(1),
+    );
+  });
+
   it("falls back to installed apps for unknown view values", async () => {
     renderPage(["/apps?view=bogus"]);
 
@@ -172,21 +222,24 @@ describe("AppCenterPage", () => {
     expect(await screen.findByText("alpha-app")).toBeInTheDocument();
   });
 
-  it("offers the app market entry point when no apps are installed", async () => {
+  it("offers official and market entry points when no apps are installed", async () => {
     hoisted.listApps.mockResolvedValue({ apps: [], total: 0 });
     renderPage();
 
-    const goToMarket = await screen.findByRole("button", {
-      name: /appCenter.browseMarket/,
+    const goToOfficial = await screen.findByRole("button", {
+      name: /appCenter.browseOfficialApps/,
     });
+    expect(
+      screen.getByRole("button", { name: /appCenter.browseMarket/ }),
+    ).toBeInTheDocument();
 
-    fireEvent.click(goToMarket);
+    fireEvent.click(goToOfficial);
 
     expect(screen.getByTestId("location")).toHaveTextContent(
-      "/apps?view=market",
+      "/apps?view=official",
     );
     expect(
-      await screen.findByText("appCenter.marketEmpty"),
+      await screen.findByText("appCenter.officialAppsEmpty"),
     ).toBeInTheDocument();
   });
 

@@ -1,8 +1,10 @@
 /**
- * AppMarket.tsx — App marketplace view for the App Center.
+ * AppMarket.tsx — Official/community market views for the App Center.
  *
  * Reuses the existing plugin-market proxy (`/plugins/market/search`) and the
- * `installPlugin` flow, filtered to entries in the `app` category.
+ * `installPlugin` flow, filtered to UI extensions (category "app") so the
+ * market surfaces installable PawApps. The current market contract uses
+ * `is_featured` to separate official apps from community apps.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,13 +23,13 @@ import {
   Download,
   ExternalLink,
   Search,
+  Sparkles,
 } from "lucide-react";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { openExternalLink } from "@/utils/openExternalLink";
 import {
   buildMarketDownloadUrl,
   fetchMarketPlugins,
-  isMarketPluginApp,
   type MarketPluginEntry,
 } from "@/api/modules/pluginMarket";
 import { installPlugin } from "@/api/modules/plugin";
@@ -54,9 +56,13 @@ function pickDescription(entry: MarketPluginEntry, language: string): string {
 
 interface AppMarketProps {
   onInstalled: () => void | Promise<void>;
+  channel?: "official" | "community";
 }
 
-export function AppMarket({ onInstalled }: AppMarketProps) {
+export function AppMarket({
+  onInstalled,
+  channel = "community",
+}: AppMarketProps) {
   const { t, i18n } = useTranslation();
   const { message } = useAppMessage();
   const tRef = useRef(t);
@@ -99,7 +105,13 @@ export function AppMarket({ onInstalled }: AppMarketProps) {
         } while (entries.length < total);
 
         if (signal.aborted) return;
-        setPlugins(entries.filter(isMarketPluginApp));
+        setPlugins(
+          entries.filter((entry) =>
+            channel === "official"
+              ? entry.is_featured === true
+              : entry.is_featured !== true,
+          ),
+        );
       } catch (err) {
         if (
           signal.aborted ||
@@ -109,7 +121,7 @@ export function AppMarket({ onInstalled }: AppMarketProps) {
         }
         setError(
           tRef.current(
-            "appCenter.marketUnavailable",
+            "pluginManager.marketUnavailable",
             "App market is currently unavailable.",
           ),
         );
@@ -118,7 +130,7 @@ export function AppMarket({ onInstalled }: AppMarketProps) {
         if (!signal.aborted) setLoading(false);
       }
     },
-    [],
+    [channel],
   );
 
   useEffect(() => {
@@ -196,17 +208,17 @@ export function AppMarket({ onInstalled }: AppMarketProps) {
 
       Modal.confirm({
         title: tRef.current(
-          "appCenter.compatibilityWarningTitle",
-          "App Compatibility Warning",
+          "pluginManager.compatWarningTitle",
+          "Compatibility Warning",
         ),
-        content: tRef.current("appCenter.compatibilityWarningContent", {
+        content: tRef.current("pluginManager.compatWarningContent", {
           defaultValue:
-            "This app is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Continue?",
+            "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
           labels: entry.qwenpaw_compat_labels?.join(", ") ?? "unknown",
           version: qwenpawVersion ?? "unknown",
         }),
         okText: tRef.current(
-          "appCenter.compatibilityWarningConfirm",
+          "pluginManager.compatWarningConfirm",
           "Install anyway",
         ),
         cancelText: tRef.current("common.cancel", "Cancel"),
@@ -218,7 +230,10 @@ export function AppMarket({ onInstalled }: AppMarketProps) {
 
   const lang = i18n.language;
 
-  const searchLabel = t("appCenter.searchMarket", "Search app market...");
+  const isOfficial = channel === "official";
+  const searchLabel = isOfficial
+    ? t("appCenter.searchOfficial", "Search official apps...")
+    : t("appCenter.searchMarket", "Search app market...");
 
   return (
     <div>
@@ -251,7 +266,11 @@ export function AppMarket({ onInstalled }: AppMarketProps) {
         {!loading && plugins.length === 0 && !error ? (
           <Empty
             image={<AppWindow size={44} strokeWidth={1} />}
-            description={t("appCenter.marketEmpty", "No apps found")}
+            description={
+              isOfficial
+                ? t("appCenter.officialAppsEmpty", "No official apps found")
+                : t("appCenter.marketEmpty", "No apps found")
+            }
             className={styles.stateBlock}
           />
         ) : (
@@ -274,6 +293,12 @@ export function AppMarket({ onInstalled }: AppMarketProps) {
                     <Text strong className={styles.cardTitle} ellipsis>
                       {entry.display_name}
                     </Text>
+                    {isOfficial && (
+                      <span className={styles.featuredTag}>
+                        <Sparkles size={11} strokeWidth={2} />
+                        {t("appCenter.featured", "精选")}
+                      </span>
+                    )}
                   </div>
                   <Paragraph
                     type="secondary"

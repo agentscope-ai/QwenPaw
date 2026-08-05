@@ -80,41 +80,42 @@ describe("AppMarket", () => {
     hoisted.getVersion.mockResolvedValue({ version: "2.1.0" });
   });
 
-  it("shows all app entries in one market", async () => {
+  it("shows featured apps only in the official channel", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [
-        makeEntry("agent-kanban"),
-        makeEntry("zalo-channel"),
+        makeEntry("agent-kanban", { is_featured: true }),
+        makeEntry("zalo-channel", { is_featured: false }),
       ],
       total: 2,
     });
 
-    render(<AppMarket onInstalled={vi.fn()} />);
+    render(<AppMarket channel="official" onInstalled={vi.fn()} />);
 
     expect(await screen.findByText("agent-kanban")).toBeInTheDocument();
-    expect(screen.getByText("zalo-channel")).toBeInTheDocument();
+    expect(screen.queryByText("zalo-channel")).not.toBeInTheDocument();
+    expect(screen.getByText("appCenter.featured")).toBeInTheDocument();
   });
 
-  it("filters non-app entries even when the server response is mixed", async () => {
+  it("shows non-featured apps only in the community channel", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [
-        makeEntry("agent-kanban"),
-        makeEntry("not-an-app", {
-          locales: { en: { description: "Plugin", category: "provider" } },
-        }),
+        makeEntry("agent-kanban", { is_featured: true }),
+        makeEntry("zalo-channel", { is_featured: false }),
+        makeEntry("mahjong4"),
       ],
-      total: 2,
+      total: 3,
     });
 
     render(<AppMarket onInstalled={vi.fn()} />);
 
-    expect(await screen.findByText("agent-kanban")).toBeInTheDocument();
-    expect(screen.queryByText("not-an-app")).not.toBeInTheDocument();
+    expect(await screen.findByText("zalo-channel")).toBeInTheDocument();
+    expect(screen.getByText("mahjong4")).toBeInTheDocument();
+    expect(screen.queryByText("agent-kanban")).not.toBeInTheDocument();
   });
 
-  it("loads all server pages before applying the app filter", async () => {
+  it("loads all server pages before applying the channel filter", async () => {
     const firstPage = Array.from({ length: 100 }, (_, index) =>
-      makeEntry(`app-${index}`),
+      makeEntry(`community-${index}`, { is_featured: false }),
     );
     hoisted.fetchMarketPlugins.mockImplementation(({ page_number }) =>
       Promise.resolve(
@@ -122,16 +123,16 @@ describe("AppMarket", () => {
           ? { plugins: firstPage, total: 101 }
           : {
               plugins: [
-                makeEntry("app-on-page-two"),
+                makeEntry("official-on-page-two", { is_featured: true }),
               ],
               total: 101,
             },
       ),
     );
 
-    render(<AppMarket onInstalled={vi.fn()} />);
+    render(<AppMarket channel="official" onInstalled={vi.fn()} />);
 
-    expect(await screen.findByText("app-on-page-two")).toBeInTheDocument();
+    expect(await screen.findByText("official-on-page-two")).toBeInTheDocument();
     expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(2);
     expect(hoisted.fetchMarketPlugins).toHaveBeenLastCalledWith(
       expect.objectContaining({ page_number: 2, page_size: 100 }),
@@ -176,11 +177,11 @@ describe("AppMarket", () => {
     expect(staleSignal?.aborted).toBe(true);
   });
 
-  it("renders all apps in a single grid", async () => {
+  it("renders community apps in a single grid", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [
         makeEntry("regular-app"),
-        makeEntry("another-app"),
+        makeEntry("another-app", { is_featured: false }),
       ],
       total: 2,
     });
@@ -324,13 +325,13 @@ describe("AppMarket", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("shows the app market error inside the market view", async () => {
+  it("shows the market error inside the market view", async () => {
     hoisted.fetchMarketPlugins.mockRejectedValue(new Error("boom"));
 
     render(<AppMarket onInstalled={vi.fn()} />);
 
     expect(
-      await screen.findByText("appCenter.marketUnavailable"),
+      await screen.findByText("pluginManager.marketUnavailable"),
     ).toBeInTheDocument();
   });
 });

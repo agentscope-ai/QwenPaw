@@ -22,6 +22,7 @@ import {
 import type { MenuProps } from "antd";
 import {
   AppWindow,
+  BadgeCheck,
   LayoutGrid,
   Search,
   RefreshCw,
@@ -54,7 +55,7 @@ const AppMarket = lazy(() =>
 const { Option } = Select;
 
 /** URL-persisted App Center views; unknown values fall back to installed. */
-type AppCenterView = "installed" | "market";
+type AppCenterView = "installed" | "official" | "market";
 
 export default function AppCenterPage() {
   const { t } = useTranslation();
@@ -72,7 +73,10 @@ export default function AppCenterPage() {
   // View state is URL-driven so refresh / back / forward keep working.
   // Unknown `view` values safely fall back to the installed-apps view.
   const viewParam = searchParams.get("view");
-  const view: AppCenterView = viewParam === "market" ? "market" : "installed";
+  const view: AppCenterView =
+    viewParam === "official" || viewParam === "market"
+      ? viewParam
+      : "installed";
 
   const switchView = (next: AppCenterView) => {
     const params = new URLSearchParams(searchParams);
@@ -429,6 +433,12 @@ export default function AppCenterPage() {
           <div className={styles.emptyActions}>
             <Button
               type="primary"
+              icon={<BadgeCheck size={14} />}
+              onClick={() => switchView("official")}
+            >
+              {t("appCenter.browseOfficialApps", "浏览官方应用")}
+            </Button>
+            <Button
               icon={<Store size={14} />}
               onClick={() => switchView("market")}
             >
@@ -472,11 +482,13 @@ export default function AppCenterPage() {
           <p className={styles.subtitle}>
             {t(
               "appCenter.subtitle",
-              "管理已安装的应用，或从应用市场扩展工作空间。",
+              "管理已安装的应用，或从官方与社区渠道扩展工作空间。",
             )}
           </p>
 
-          {/* Tabs act purely as the accessible view switcher. */}
+          {/* Tabs act purely as the accessible view switcher; content is
+              rendered in mutually exclusive branches below so official /
+              market data components are only mounted while active. */}
           <Tabs
             activeKey={view}
             onChange={(key) => switchView(key as AppCenterView)}
@@ -503,6 +515,15 @@ export default function AppCenterPage() {
                 ),
               },
               {
+                key: "official",
+                label: (
+                  <span className={styles.tabLabel}>
+                    <BadgeCheck size={15} />
+                    {t("appCenter.officialApps", "官方应用")}
+                  </span>
+                ),
+              },
+              {
                 key: "market",
                 label: (
                   <span className={styles.tabLabel}>
@@ -516,7 +537,17 @@ export default function AppCenterPage() {
 
           {/* External-data views are mounted (chunk + request) only while
               the user is actually on the corresponding tab. */}
-          {view === "market" ? (
+          {view === "official" ? (
+            <Suspense
+              fallback={
+                <div className={styles.stateBlock}>
+                  <Spin />
+                </div>
+              }
+            >
+              <AppMarket channel="official" onInstalled={fetchApps} />
+            </Suspense>
+          ) : view === "market" ? (
             <Suspense
               fallback={
                 <div className={styles.stateBlock}>
