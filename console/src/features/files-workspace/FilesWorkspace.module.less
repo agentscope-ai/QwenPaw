@@ -637,7 +637,7 @@
   .memoryDirectoryGraphButton {
     color: #557766;
     opacity: 1;
-    background: color-mix(in srgb, #557766 12%, var(--files-bg));
+    background: transparent;
     transform: translateY(-50%) scale(1);
   }
 }
@@ -654,9 +654,9 @@
   justify-content: center;
   gap: 5px;
   color: #557766;
-  border: 1px solid color-mix(in srgb, #557766 22%, var(--files-line));
+  border: 0;
   border-radius: 7px;
-  background: color-mix(in srgb, #557766 7%, var(--files-bg));
+  background: transparent;
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
@@ -670,8 +670,7 @@
 
   &:hover {
     color: #557766;
-    border-color: color-mix(in srgb, #557766 42%, var(--files-line));
-    background: color-mix(in srgb, #557766 14%, var(--files-bg));
+    background: color-mix(in srgb, #557766 8%, transparent);
     transform: translateY(-50%) translateY(-1px);
   }
 
