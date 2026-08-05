@@ -69,6 +69,25 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
             resource_dir.to_string_lossy().to_string(),
         );
     let mut command = apply_contributed_environment(app, command);
+    if let Some(playwright_browsers) =
+        packaged_playwright_browsers(&resource_dir)
+    {
+        log::info!(
+            "[backend] bundled Playwright browsers: {}",
+            playwright_browsers.display()
+        );
+        command = command
+            .env(
+                "PLAYWRIGHT_BROWSERS_PATH",
+                playwright_browsers.to_string_lossy().to_string(),
+            )
+            .env("QWENPAW_DESKTOP_BUNDLED_PLAYWRIGHT", "1");
+    } else {
+        log::warn!(
+            "[backend] bundled Playwright browsers not found; \
+             falling back to the system browser"
+        );
+    }
     // Bundled standalone Python used by the backend to install third-party
     // plugin dependencies (sys.executable is the frozen backend, not Python).
     if let Some(python) = packaged_python_runtime(app) {
@@ -93,6 +112,12 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
         log::warn!("[backend] bundled node runtime not found");
     }
     Ok(command)
+}
+
+#[cfg(not(debug_assertions))]
+fn packaged_playwright_browsers(resource_dir: &Path) -> Option<PathBuf> {
+    let browsers = resource_dir.join("binaries").join("playwright-browsers");
+    browsers.is_dir().then_some(browsers)
 }
 
 #[cfg(not(debug_assertions))]
