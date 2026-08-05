@@ -43,8 +43,7 @@
     "resources": [
       "binaries/qwenpaw-backend",
       "binaries/python-runtime",
-      "binaries/node-runtime",
-      "binaries/playwright-browsers"
+      "binaries/node-runtime"
     ],
     "windows": {
       "webviewInstallMode": {

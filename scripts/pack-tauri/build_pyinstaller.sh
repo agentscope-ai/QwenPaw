@@ -128,10 +128,6 @@ echo "== Copying to Tauri binaries directory =="
 BINARIES_DIR="${REPO_ROOT}/console/src-tauri/binaries"
 mkdir -p "${BINARIES_DIR}"
 
-echo "== Staging bundled Playwright Chromium =="
-"$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/stage_playwright_chromium.py" \
-    --dest "${BINARIES_DIR}/playwright-browsers"
-
 DEST="${BINARIES_DIR}/qwenpaw-backend"
 rm -rf "${DEST}"
 mkdir -p "${DEST}"

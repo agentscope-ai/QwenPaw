@@ -194,11 +194,6 @@ Write-Host "== Copying to Tauri binaries directory ==" -ForegroundColor Yellow
 $BINARIES_DIR = Join-Path $REPO_ROOT "console\src-tauri\binaries"
 New-Item -ItemType Directory -Force -Path $BINARIES_DIR | Out-Null
 
-Write-Host "== Staging bundled Playwright Chromium ==" -ForegroundColor Yellow
-& $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_playwright_chromium.py") `
-    --dest (Join-Path $BINARIES_DIR "playwright-browsers")
-Assert-LastExit "Failed to stage and verify Playwright Chromium"
-
 $DEST = Join-Path $BINARIES_DIR "qwenpaw-backend"
 New-Item -ItemType Directory -Force -Path $DEST | Out-Null
 Get-ChildItem -LiteralPath $DEST -Force | Remove-Item -Recurse -Force

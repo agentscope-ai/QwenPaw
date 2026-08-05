@@ -93,6 +93,12 @@ def _persist_browser_experimental(config: dict[str, Any]) -> None:
     application_config = load_config()
     application_config.browser.experimental = experimental
     save_config(application_config)
+    if experimental:
+        from ...browser.runtime.managed_playwright import (
+            start_managed_chromium_download,
+        )
+
+        start_managed_chromium_download()
 
 
 def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:

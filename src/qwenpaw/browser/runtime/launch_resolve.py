@@ -33,9 +33,9 @@ def resolve_launch(
     elif config.channel:
         engine = "chromium" if engine == "auto" else engine
     elif prefer_desktop_bundle:
-        # Tauri packages ship the Playwright browser revision that matches the
-        # bundled driver. Leave the executable unset so Playwright resolves it
-        # from PLAYWRIGHT_BROWSERS_PATH instead of an arbitrary system browser.
+        # Windows Tauri uses a QwenPaw-managed Playwright cache. Leave the
+        # executable unset so Playwright selects the exact driver-matched
+        # Chromium revision instead of an arbitrary system browser.
         engine = "chromium" if engine == "auto" else engine
     elif engine == "auto":
         if (
@@ -83,7 +83,7 @@ def resolve_launch_env(config: Any) -> dict[str, Any]:
 
     in_container = is_running_in_container()
     prefer_desktop_bundle = (
-        os.environ.get("QWENPAW_DESKTOP_BUNDLED_PLAYWRIGHT") == "1"
+        os.environ.get("QWENPAW_DESKTOP_MANAGED_PLAYWRIGHT") == "1"
     )
     return resolve_launch(
         config,
