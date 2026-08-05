@@ -8,6 +8,7 @@ from .proactive_types import (
 )
 from .proactive_trigger import (
     enable_proactive_for_session,
+    disable_proactive_for_session,
     proactive_trigger_loop,
     proactive_tasks,
     proactive_configs,
@@ -20,6 +21,7 @@ __all__ = [
     "ProactiveTask",
     "ProactiveQueryResult",
     "enable_proactive_for_session",
+    "disable_proactive_for_session",
     "proactive_trigger_loop",
     "proactive_tasks",
     "proactive_configs",

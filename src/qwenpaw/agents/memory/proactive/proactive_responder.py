@@ -10,7 +10,9 @@ from typing import TYPE_CHECKING, Optional, List, Dict
 import aiohttp
 
 from agentscope.agent import Agent, ReActConfig
-from agentscope.message import Msg
+from agentscope.message import Msg, TextBlock
+from agentscope.permission import PermissionContext, PermissionMode
+from agentscope.state import AgentState
 from agentscope.tool import FunctionTool, Toolkit
 
 from ....config.config import load_agent_config
@@ -136,6 +138,9 @@ async def _initialize_single_proactive_agent(
         if hasattr(innermost, "formatter"):
             innermost.formatter = formatter
 
+    state = AgentState(
+        permission_context=PermissionContext(mode=PermissionMode.BYPASS),
+    )
     agent = Agent(
         name="ProactiveAssistant",
         model=model,
@@ -145,6 +150,7 @@ async def _initialize_single_proactive_agent(
         ),
         toolkit=toolkit,
         react_config=ReActConfig(max_iters=_PROACTIVE_MAX_ITERS),
+        state=state,
     )
 
     return agent
@@ -156,7 +162,7 @@ async def _extract_tasks_from_memory(
 ) -> List[ProactiveTask]:
     """Extract likely user tasks from memory context."""
     prompt = f"{PROACTIVE_TASK_EXTRACTION_PROMPT}\n#Contexts: {memory_context}"
-    response = await agent.reply(Msg(name="User", role="user", content=prompt))
+    response = await agent.reply(Msg(name="User", role="user", content=[TextBlock(type="text", text=prompt)]))
 
     if not response or not response.content:
         return []
@@ -208,7 +214,7 @@ async def _execute_query(
         "No trailing text."
     )
 
-    response = await agent.reply(Msg(name="User", role="user", content=prompt))
+    response = await agent.reply(Msg(name="User", role="user", content=[TextBlock(type="text", text=prompt)]))
 
     success = False
     response_content = response.get_text_content()
