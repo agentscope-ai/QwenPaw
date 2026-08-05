@@ -37,7 +37,7 @@ Codex supports ChatGPT OAuth, an API key, or an existing Codex CLI session. Qode
 
 ![Create a third-party agent and connect Codex](https://img.alicdn.com/imgextra/i4/O1CN01Rag1j315f8J7Nxgw_!!6000000005570-2-tps-3638-1716.png)
 
-*Figure 1: Create a third-party agent, select Codex or Qoder, and complete runtime detection and account connection.*
+_Figure 1: Create a third-party agent, select Codex or Qoder, and complete runtime detection and account connection._
 
 Once saved, the Codex or Qoder agent appears in the sidebar like any other QwenPaw agent. You do not need to open another terminal or leave the QwenPaw Console.
 
@@ -71,7 +71,7 @@ Even though different harnesses run underneath, the same interface lets you:
 
 ![A Codex agent calls tools in Console Chat](https://img.alicdn.com/imgextra/i3/O1CN01ZjX2eRKfZ3L7MS2A_!!6000000001323-2-tps-3626-1708.png)
 
-*Figure 2: A Codex agent calls Web Search in Console Chat while QwenPaw streams the execution process and result.*
+_Figure 2: A Codex agent calls Web Search in Console Chat while QwenPaw streams the execution process and result._
 
 This is more than starting another process in the backend. It brings the execution of different agents back into the same Agent OS, with a shared agent model, session system, and interaction surface.
 
@@ -83,11 +83,11 @@ After you enable multi-agent collaboration for a QwenPaw agent, it can discover 
 
 For example, create three agents with distinct responsibilities:
 
-| Agent | Execution backend | Responsibility |
-| --- | --- | --- |
-| Project lead | QwenPaw Runtime | Understand requirements, delegate work, and consolidate results |
-| Implementer | Codex | Read the project, modify code, and run tests |
-| Reviewer | Qoder | Independently inspect the implementation, risks, and omissions |
+| Agent        | Execution backend | Responsibility                                                  |
+| ------------ | ----------------- | --------------------------------------------------------------- |
+| Project lead | QwenPaw Runtime   | Understand requirements, delegate work, and consolidate results |
+| Implementer  | Codex             | Read the project, modify code, and run tests                    |
+| Reviewer     | Qoder             | Independently inspect the implementation, risks, and omissions  |
 
 The user only needs to tell the project lead:
 
@@ -119,26 +119,26 @@ Execution permissions are also presented according to native harness capabilitie
 
 Typical Codex presets include:
 
-| Permission mode | Best for |
-| --- | --- |
-| Read only | Analyze files without modifying them |
-| Ask before changes | Allow workspace changes and ask before elevated operations |
-| Workspace access | Modify the workspace without repeated prompts for ordinary actions |
-| Full access | Unrestricted local execution in a trusted workspace |
+| Permission mode    | Best for                                                           |
+| ------------------ | ------------------------------------------------------------------ |
+| Read only          | Analyze files without modifying them                               |
+| Ask before changes | Allow workspace changes and ask before elevated operations         |
+| Workspace access   | Modify the workspace without repeated prompts for ordinary actions |
+| Full access        | Unrestricted local execution in a trusted workspace                |
 
 Typical Qoder presets include:
 
-| Permission mode | Best for |
-| --- | --- |
-| Plan only | Analyze and plan without changing files |
-| Ask before actions | Ask before file changes and command execution |
-| Accept edits | Allow file edits while preserving other safeguards |
-| Automatic | Let Qoder decide which safe actions can run directly |
-| Full access | Skip permission checks in a trusted workspace |
+| Permission mode    | Best for                                             |
+| ------------------ | ---------------------------------------------------- |
+| Plan only          | Analyze and plan without changing files              |
+| Ask before actions | Ask before file changes and command execution        |
+| Accept edits       | Allow file edits while preserving other safeguards   |
+| Automatic          | Let Qoder decide which safe actions can run directly |
+| Full access        | Skip permission checks in a trusted workspace        |
 
 ![Set the model and reasoning effort for a Codex agent](https://img.alicdn.com/imgextra/i2/O1CN01Yhm4xHtnZWK7MCQW_!!6000000006357-2-tps-3624-1716.png)
 
-*Figure 3: Select the model and reasoning effort for a Codex agent in Console Chat; the settings apply on the next turn.*
+_Figure 3: Select the model and reasoning effort for a Codex agent in Console Chat; the settings apply on the next turn._
 
 QwenPaw provides a unified management surface without inventing a false universal permission model. Users see the capabilities each harness actually supports.
 
@@ -166,7 +166,7 @@ Provider-native Skills remain owned by the provider. They are not automatically 
 
 ![QwenPaw-managed and third-party agent Skills](https://img.alicdn.com/imgextra/i4/O1CN016OT2kxnylGI7NCrU_!!6000000000211-2-tps-3632-1708.png)
 
-*Figure 4: The Skills page separates editable QwenPaw-managed capabilities from read-only Skills exposed by the third-party agent.*
+_Figure 4: The Skills page separates editable QwenPaw-managed capabilities from read-only Skills exposed by the third-party agent._
 
 ### MCP Configuration Can Follow the Agent Too
 
@@ -176,34 +176,34 @@ An MCP server configured and enabled in QwenPaw can be converted into the native
 
 At the same time, QwenPaw clearly distinguishes capability ownership:
 
-| MCP source | Management | Scope |
-| --- | --- | --- |
-| QwenPaw managed | Editable and configurable | Projected into supported third-party agents |
-| Codex local configuration | Read-only discovery | Codex only |
-| Qoder local configuration | Depends on provider discovery support | Qoder only |
+| MCP source                | Management                            | Scope                                       |
+| ------------------------- | ------------------------------------- | ------------------------------------------- |
+| QwenPaw managed           | Editable and configurable             | Projected into supported third-party agents |
+| Codex local configuration | Read-only discovery                   | Codex only                                  |
+| Qoder local configuration | Depends on provider discovery support | Qoder only                                  |
 
 QwenPaw-managed MCP is shareable. Provider-local MCP remains private to that provider. Both can appear on one page without being treated as the same thing.
 
 ![QwenPaw-managed and Codex-local MCP](https://img.alicdn.com/imgextra/i4/O1CN01qN3RSJOwRfE7Mhe4_!!6000000002101-2-tps-3628-1716.png)
 
-*Figure 5: The MCP page separates centrally managed QwenPaw configuration from read-only Codex-local MCP and makes their scopes explicit.*
+_Figure 5: The MCP page separates centrally managed QwenPaw configuration from read-only Codex-local MCP and makes their scopes explicit._
 
 ### Choose an Agent Without Rebuilding the Environment
 
 The immediate result of cross-harness support is summarized below:
 
-| Capability | QwenPaw native | Codex | Qoder |
-| --- | --- | --- | --- |
-| QwenPaw Chat | Supported | Supported | Supported |
-| Isolated agent workspace | Supported | Supported | Supported |
-| Model selection | Supported | Supported | Supported |
-| Reasoning stream | Supported | Supported | Supported |
-| Tool-event stream | Supported | Supported | Supported |
-| Session resume | Supported | Supported | Supported |
-| QwenPaw Skills | Native | Runtime inheritance | Runtime inheritance |
-| QwenPaw MCP | Native | Runtime inheritance | Runtime inheritance |
-| Execution permissions | QwenPaw governance | Codex-native policy | Qoder-native policy |
-| Callable by another QwenPaw agent | Supported | Supported | Supported |
+| Capability                        | QwenPaw native     | Codex               | Qoder               |
+| --------------------------------- | ------------------ | ------------------- | ------------------- |
+| QwenPaw Chat                      | Supported          | Supported           | Supported           |
+| Isolated agent workspace          | Supported          | Supported           | Supported           |
+| Model selection                   | Supported          | Supported           | Supported           |
+| Reasoning stream                  | Supported          | Supported           | Supported           |
+| Tool-event stream                 | Supported          | Supported           | Supported           |
+| Session resume                    | Supported          | Supported           | Supported           |
+| QwenPaw Skills                    | Native             | Runtime inheritance | Runtime inheritance |
+| QwenPaw MCP                       | Native             | Runtime inheritance | Runtime inheritance |
+| Execution permissions             | QwenPaw governance | Codex-native policy | Qoder-native policy |
+| Callable by another QwenPaw agent | Supported          | Supported           | Supported           |
 
 Users can choose a different agent for each task without finding another interface, creating another workspace, or rebuilding common capabilities.
 
