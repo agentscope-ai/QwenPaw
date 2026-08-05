@@ -199,6 +199,16 @@ def _resolve_host_interpreter() -> str:
     )
 
 
+def _windows_batch_path_literal(value: str) -> str:
+    """Return a cmd.exe-safe literal path for a generated batch file."""
+    normalized = value
+    if value.upper().startswith("\\\\?\\UNC\\"):
+        normalized = "\\\\" + value[len("\\\\?\\UNC\\") :]
+    elif value.startswith("\\\\?\\"):
+        normalized = value[len("\\\\?\\") :]
+    return normalized.replace("%", "%%")
+
+
 def native_host_launcher_path(
     qwenpaw_home: Path,
     *,
@@ -494,12 +504,14 @@ def _write_host(
     host = native_host_launcher_path(qwenpaw_home, platform=platform)
     interpreter = _resolve_host_interpreter()
     if platform == "win32":
+        interpreter = _windows_batch_path_literal(interpreter)
+        host_impl_literal = _windows_batch_path_literal(str(host_impl))
         # cmd.exe reads batch files through the current OEM code page. This
         # ASCII-only line switches decoding to UTF-8 before paths are read.
         host.write_text(
             "@echo off\n"
             "chcp 65001 >nul\n"
-            f'"{interpreter}" "{host_impl}" %*\n',
+            f'"{interpreter}" "{host_impl_literal}" %*\n',
             encoding="utf-8",
         )
     else:
@@ -698,7 +710,6 @@ def extension_install_status(
     )
     if isinstance(probe, dict) and probe.get("ok") is False:
         repair_required = True
-        installed = False
         repair_instruction = _native_host_repair_instruction(probe)
     else:
         repair_instruction = ""

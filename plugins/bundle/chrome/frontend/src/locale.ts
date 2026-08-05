@@ -93,6 +93,9 @@ const messages = {
     hoursAgo: "{count} hours ago",
     installSuccess: "Extension files ready",
     installFailed: "Extension setup failed",
+    repairBrowserConnector: "Repair Browser Connector",
+    repairSuccess:
+      "Browser Connector repaired. Waiting for Chrome to reconnect.",
     copied: "Copied",
     chrome_disconnected:
       "Reload the extension or reopen the target browser tab.",
@@ -188,6 +191,8 @@ const messages = {
     hoursAgo: "{count} 小时前",
     installSuccess: "扩展文件已准备好",
     installFailed: "扩展设置失败",
+    repairBrowserConnector: "修复浏览器连接器",
+    repairSuccess: "浏览器连接器已修复，正在等待 Chrome 重新连接。",
     copied: "已复制",
     chrome_disconnected: "重载扩展，或重新打开目标浏览器标签页。",
     browser_backend_unavailable: "后端可用后刷新状态。",

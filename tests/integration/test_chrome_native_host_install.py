@@ -59,7 +59,7 @@ def test_broken_launcher_reports_failure_without_raising(
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_recorded_probe_failure_blocks_installed(
+def test_recorded_probe_failure_is_diagnostic_only(
     isolated_home: Path,
     monkeypatch,
 ) -> None:
@@ -76,7 +76,7 @@ def test_recorded_probe_failure_blocks_installed(
 
     status = extension_setup.extension_install_status(home=isolated_home)
 
-    assert status["installed"] is False
+    assert status["installed"] is True
     assert status["native_host_repair_required"] is True
     assert status["native_host_repair_instruction"]
 
@@ -98,6 +98,75 @@ def test_successful_install_records_a_passing_probe(
     state = json.loads(state_path.read_text(encoding="utf-8"))
     assert state["native_host_probe"]["ok"] is True
     assert result["installed"] is True
+
+
+def test_non_reset_repair_preserves_existing_bridge_token(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_DESKTOP_PY_RUNTIME", sys.executable)
+    extension_setup.setup_extension_files(home=isolated_home)
+    config_path = isolated_home / ".qwenpaw" / "nm-bridge.json"
+    original_token = json.loads(config_path.read_text(encoding="utf-8"))[
+        "token"
+    ]
+
+    extension_setup.setup_extension_files(home=isolated_home, reset=False)
+    repaired_token = json.loads(config_path.read_text(encoding="utf-8"))[
+        "token"
+    ]
+
+    assert repaired_token == original_token
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            r"\\?\D:\Programs\QwenPaw Desktop\python.exe",
+            r"D:\Programs\QwenPaw Desktop\python.exe",
+        ),
+        (
+            r"\\?\UNC\server\share\python.exe",
+            r"\\server\share\python.exe",
+        ),
+        (
+            r"D:\Programs\QwenPaw Desktop\python.exe",
+            r"D:\Programs\QwenPaw Desktop\python.exe",
+        ),
+        (
+            r"D:\Programs\100% QwenPaw\python.exe",
+            r"D:\Programs\100%% QwenPaw\python.exe",
+        ),
+    ],
+)
+def test_windows_batch_path_literal_normalizes_and_escapes(
+    source: str,
+    expected: str,
+) -> None:
+    assert extension_setup._windows_batch_path_literal(source) == expected
+
+
+def test_windows_launcher_uses_cmd_safe_path_literals(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    interpreter = r"\\?\D:\Programs\100% QwenPaw\python.exe"
+    monkeypatch.setattr(
+        extension_setup,
+        "_resolve_host_interpreter",
+        lambda: interpreter,
+    )
+
+    launcher = extension_setup._write_host(
+        isolated_home / ".qwenpaw",
+        platform="win32",
+    )
+    launcher_text = launcher.read_text(encoding="utf-8")
+
+    assert "\\\\?\\" not in launcher_text
+    assert '"D:\\Programs\\100%% QwenPaw\\python.exe"' in launcher_text
+    assert launcher_text.endswith('" %*\n')
 
 
 # test_chrome_install_boundary.py

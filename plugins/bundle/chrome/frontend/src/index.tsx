@@ -918,10 +918,25 @@ function ChromeSetupPage() {
       try {
         const next = await setupExtension({
           install_mode: "unpacked",
+          reset: false,
         });
         setStatus(next);
         if (!options?.silent) {
-          message.success(translate(locale, "installSuccess"));
+          if (next.native_host_repair_required) {
+            message.error(
+              next.native_host_repair_instruction ||
+                translate(locale, "installFailed"),
+            );
+          } else {
+            message.success(
+              translate(
+                locale,
+                status?.native_host_repair_required
+                  ? "repairSuccess"
+                  : "installSuccess",
+              ),
+            );
+          }
         }
         return next;
       } catch (err) {
@@ -976,6 +991,9 @@ function ChromeSetupPage() {
   }, [loading, prepareLocalFiles, silentPrepareStarted, status?.extension_dir]);
 
   const isConnected = Boolean(status?.installed && coreStatus?.connected);
+  const showRepair = Boolean(
+    status?.native_host_repair_required && !coreStatus?.connected,
+  );
   const isAwaitingConnection = Boolean(
     status?.installed && !coreStatus?.connected,
   );
@@ -1077,6 +1095,14 @@ function ChromeSetupPage() {
                     {translate(locale, "openChrome")}
                   </Button>
                 </>
+              ) : showRepair ? (
+                <Button
+                  type="primary"
+                  loading={setupLoading}
+                  onClick={() => void prepareLocalFiles({ refresh: true })}
+                >
+                  {translate(locale, "repairBrowserConnector")}
+                </Button>
               ) : (
                 <Button
                   type="primary"
@@ -1098,12 +1124,11 @@ function ChromeSetupPage() {
             />
           ) : null}
 
-          {status?.native_host_repair_required &&
-          status.native_host_repair_instruction ? (
+          {showRepair && status?.native_host_repair_instruction ? (
             <Alert
               showIcon
               type="error"
-              message={status.native_host_repair_instruction}
+              message={status?.native_host_repair_instruction}
               style={{ marginTop: 16 }}
             />
           ) : null}
