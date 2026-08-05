@@ -209,6 +209,81 @@ async def test_search_filters_and_displays_created_at(tool):
     assert "RESULT-FULL" in _text(date_only)
 
 
+async def test_date_search_renders_safe_blocks_only_turn(tmp_path: Path):
+    db_path = tmp_path / "blocks-only.db"
+    history = HistoryStore(db_path)
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="structured",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content=None,
+            blocks=[
+                {"type": "text", "text": "structured history"},
+                {
+                    "type": "tool_call",
+                    "id": "call-structured",
+                    "name": "lookup",
+                    "input": {"topic": "launch"},
+                },
+                {
+                    "type": "data",
+                    "name": "diagram.png",
+                    "source": {
+                        "type": "url",
+                        "media_type": "image/png",
+                        "url": "https://example.invalid/diagram.png",
+                    },
+                },
+                {
+                    "type": "data",
+                    "name": "embedded.png",
+                    "source": {
+                        "type": "url",
+                        "media_type": "image/png",
+                        "url": "data:image/png;base64,DO-NOT-RENDER",
+                    },
+                },
+            ],
+            created_at="2024-11-05T08:00:00Z",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="next-day",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="next boundary",
+            created_at="2024-11-06T08:00:00Z",
+        ),
+    )
+    history.close()
+    recall = make_recall_history(
+        history_db_path=str(db_path),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    chunk = await recall(
+        op="search",
+        query="",
+        created_on="2024-11-05",
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "structured history" in text
+    assert "[tool_call name=lookup id=call-structured]" in text
+    assert 'input={"topic":"launch"}' in text
+    assert "[image: diagram.png — https://example.invalid/diagram.png]" in text
+    assert "[image: embedded.png — <image/png>]" in text
+    assert "DO-NOT-RENDER" not in text
+
+
 async def test_search_rejects_invalid_created_at_filters(tool):
     invalid = await tool(
         op="search",
@@ -417,6 +492,57 @@ async def test_concurrent_duplicate_recall_executes_query_once(
     assert "already running" in _text(duplicate)
     assert completed_duplicate.state == ToolResultState.ERROR
     assert calls == 1
+
+
+async def test_cancelled_recall_keeps_claim_until_worker_finishes(
+    history_db: Path,
+    monkeypatch,
+):
+    guard = RecallLoopGuard()
+    guard.begin_turn("user-1")
+    guarded_tool = make_recall_history(
+        history_db_path=str(history_db),
+        session_id="s1",
+        agent_id="ag1",
+        loop_guard=guard,
+    )
+    started = threading.Event()
+    release = threading.Event()
+    calls = 0
+    original_expand = MemorySpace.expand
+
+    def blocking_first_expand(self, lo, hi):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            assert release.wait(timeout=5)
+        return original_expand(self, lo, hi)
+
+    monkeypatch.setattr(MemorySpace, "expand", blocking_first_expand)
+    first_task = asyncio.create_task(
+        guarded_tool(op="expand", lo=1, hi=3),
+    )
+    assert await asyncio.to_thread(started.wait, 5)
+
+    first_task.cancel()
+    await asyncio.sleep(0)
+    try:
+        duplicate = await guarded_tool(op="expand", lo=1, hi=3)
+
+        assert duplicate.state == ToolResultState.ERROR
+        assert "already running" in _text(duplicate)
+        assert calls == 1
+        assert not first_task.done()
+    finally:
+        release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await first_task
+
+    retry = await guarded_tool(op="expand", lo=1, hi=3)
+    assert retry.state == ToolResultState.SUCCESS
+    assert calls == 2
 
 
 async def test_large_recall_is_cursor_paginated(

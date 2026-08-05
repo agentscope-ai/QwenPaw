@@ -1052,6 +1052,7 @@ def test_date_only_search_keeps_null_content_rows(tmp_path: Path):
     assert len(turns) == 1
     assert turns[0]["turn_start_seq"] == target_seq
     assert turns[0]["turn"][0]["content"] is None
+    assert "structured history" in turns[0]["turn"][0]["blocks"]
     assert all(row["kind"] != "_notice" for row in turns)
 
 

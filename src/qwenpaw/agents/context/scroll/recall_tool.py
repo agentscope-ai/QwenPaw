@@ -21,7 +21,6 @@ re-read path works everywhere.
 # NOTE: no ``from __future__ import annotations`` here — FunctionTool builds
 # the model-facing JSON schema from the wrapped function's runtime
 # annotations, and stringified ones fail pydantic's resolution.
-import asyncio
 import base64
 import binascii
 import hashlib
@@ -34,8 +33,9 @@ from typing import Any, Optional
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
-from ...tools.utils import DEFAULT_MAX_BYTES
 from ....runtime.tool_registry import ToolDescriptor
+from ....utils.io_utils import run_sync_io
+from ...tools.utils import DEFAULT_MAX_BYTES
 
 logger = logging.getLogger(__name__)
 
@@ -328,6 +328,125 @@ _ROW_META_KEYS = (
     "created_at",
 )
 
+_STRUCTURED_FIELD_MAX_BYTES = 4096
+_MEDIA_REF_MAX_BYTES = 2048
+
+
+def _parse_row_blocks(value: Any) -> list[dict[str, Any]]:
+    """Decode one durable blocks payload without exposing malformed data."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            return []
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _bounded_structured_value(value: Any) -> str:
+    """Render a structured scalar under a per-field safety bound."""
+    if isinstance(value, str):
+        rendered = value
+    else:
+        try:
+            rendered = json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+        except (TypeError, ValueError):
+            rendered = str(value)
+    if len(rendered.encode("utf-8")) <= _STRUCTURED_FIELD_MAX_BYTES:
+        return rendered
+    prefix, _ = _utf8_prefix(rendered, _STRUCTURED_FIELD_MAX_BYTES - 3)
+    return prefix + "..."
+
+
+def _safe_media_ref(block: dict[str, Any]) -> str | None:
+    """Return a compact media reference without ever inlining binary data."""
+    if block.get("type") != "data":
+        return None
+    source = block.get("source")
+    source = source if isinstance(source, dict) else {}
+    media_type = str(source.get("media_type") or "")
+    kind = media_type.split("/", 1)[0] if "/" in media_type else "file"
+    if kind not in ("image", "audio", "video"):
+        kind = "file"
+    name = _bounded_structured_value(block.get("name") or "")
+    raw_url = source.get("url") if source.get("type") == "url" else None
+    if raw_url and not str(raw_url).lower().startswith("data:"):
+        ref = str(raw_url)
+        if len(ref.encode("utf-8")) > _MEDIA_REF_MAX_BYTES:
+            ref, _ = _utf8_prefix(ref, _MEDIA_REF_MAX_BYTES - 3)
+            ref += "..."
+    else:
+        ref = f"<{media_type or 'binary'}>"
+    return f"[{kind}: {name} — {ref}]" if name else f"[{kind}: {ref}]"
+
+
+def _render_tool_result_output(output: Any) -> str:
+    """Flatten safe result text/media without serializing opaque payloads."""
+    if isinstance(output, str):
+        return _bounded_structured_value(output)
+    if not isinstance(output, list):
+        return ""
+    parts: list[str] = []
+    for item in output:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "text" and item.get("text"):
+            parts.append(_bounded_structured_value(item["text"]))
+            continue
+        media_ref = _safe_media_ref(item)
+        if media_ref:
+            parts.append(media_ref)
+    return "\n".join(parts)
+
+
+def _render_row_blocks(row: dict[str, Any], body: str) -> list[str]:
+    """Render useful structured context omitted from flattened content."""
+    rendered: list[str] = []
+    for block in _parse_row_blocks(row.get("blocks")):
+        block_type = block.get("type")
+        if block_type == "text":
+            text = str(block.get("text") or "").rstrip()
+            if text and not body:
+                rendered.append(text)
+            continue
+        if block_type == "tool_call":
+            fields = " ".join(
+                f"{key}={block[key]}"
+                for key in ("name", "id")
+                if block.get(key) not in (None, "")
+            )
+            call = "[tool_call" + (f" {fields}" if fields else "") + "]"
+            if block.get("input") is not None:
+                call += "\ninput=" + _bounded_structured_value(
+                    block["input"],
+                )
+            rendered.append(call)
+            continue
+        if block_type == "tool_result":
+            fields = " ".join(
+                f"{key}={block[key]}"
+                for key in ("name", "id", "state")
+                if block.get(key) not in (None, "")
+            )
+            result = "[tool_result" + (f" {fields}" if fields else "") + "]"
+            if not body and block.get("output") is not None:
+                output = _render_tool_result_output(block["output"])
+                if output:
+                    result += "\n" + output
+            rendered.append(result)
+            continue
+        media_ref = _safe_media_ref(block)
+        if media_ref and media_ref not in body:
+            rendered.append(media_ref)
+    return rendered
+
 
 def _render_rows(rows: list[dict]) -> str:
     """Rows → readable text; the caller applies the global output bound."""
@@ -393,6 +512,7 @@ def _render_rows(rows: list[dict]) -> str:
         row_parts = [head]
         if body:
             row_parts.append(body)
+        row_parts.extend(_render_row_blocks(row, body))
         parts.append("\n".join(row_parts))
     return "\n\n".join(parts)
 
@@ -853,7 +973,7 @@ def make_recall_history(
         block_target = False
         try:
             try:
-                text, ok, page = await asyncio.to_thread(
+                text, ok, page = await run_sync_io(
                     _run,
                     op,
                     lo,

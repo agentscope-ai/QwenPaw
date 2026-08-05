@@ -394,8 +394,8 @@ class MemorySpace:
             where.append("(agent_id = ? OR agent_id IS NULL)")
             params.append(self._agent_id)
         return self._select(
-            "SELECT seq, kind, role, name, content, headline, metadata, "
-            "created_at "
+            "SELECT seq, kind, role, name, content, headline, blocks, "
+            "metadata, created_at "
             "FROM hist.conversation_history "
             "WHERE " + " AND ".join(where) + " ORDER BY seq",
             tuple(params),
@@ -421,7 +421,7 @@ class MemorySpace:
             params.append(self._agent_id)
         rows = self._select(
             "SELECT seq, kind, role, name, tool_input, tool_state, content, "
-            "metadata, created_at "
+            "blocks, metadata, created_at "
             "FROM hist.conversation_history "
             "WHERE " + " AND ".join(where) + " ORDER BY seq",
             tuple(params),
@@ -1094,8 +1094,8 @@ class MemorySpace:
         lineage_params: list = [session_id, agent_id]
         select_columns = (
             "seq, session_id, agent_id, kind, role, name, headline, "
-            "content, tool_call_id, tool_input, tool_state, metadata, "
-            "created_at"
+            "content, blocks, tool_call_id, tool_input, tool_state, "
+            "metadata, created_at"
         )
 
         if start_seq is None:
