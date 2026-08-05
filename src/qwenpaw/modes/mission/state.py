@@ -141,10 +141,17 @@ async def detect_git_context(workspace_dir: Path) -> dict[str, Any]:
 def create_loop_dir(workspace_dir: Path) -> Path:
     """Create a new mission directory and return its path."""
     loop_id = f"mission-{_ts()}"
-    loop_dir = workspace_dir / "missions" / loop_id
-    loop_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("Created mission dir: %s", loop_dir)
-    return loop_dir
+    suffix = 0
+    while True:
+        suffix_text = f"-{suffix:04d}" if suffix else ""
+        loop_dir = workspace_dir / "missions" / f"{loop_id}{suffix_text}"
+        try:
+            loop_dir.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            suffix += 1
+            continue
+        logger.info("Created mission dir: %s", loop_dir)
+        return loop_dir
 
 
 def write_loop_config(loop_dir: Path, config: dict[str, Any]) -> Path:

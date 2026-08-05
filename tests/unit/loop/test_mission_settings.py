@@ -13,7 +13,10 @@ from qwenpaw.modes.mission.handler import (
     start_mission,
 )
 from qwenpaw.modes.mission.prompts import build_master_prompt
-from qwenpaw.modes.mission.state import read_loop_config
+from qwenpaw.modes.mission.state import (
+    create_loop_dir,
+    read_loop_config,
+)
 
 
 def test_mission_config_defaults_and_bounds() -> None:
@@ -73,6 +76,25 @@ def test_master_prompt_includes_verification_instructions() -> None:
 
     assert "Check Windows path handling" in prompt
     assert "**Verify command**: pytest -q" in prompt
+
+
+def test_create_loop_dir_distinguishes_same_second_missions(
+    tmp_path,
+) -> None:
+    """Mission state remains isolated when starts share a timestamp."""
+    timestamp = "20260722-200000"
+    with patch(
+        "qwenpaw.modes.mission.state._ts",
+        return_value=timestamp,
+    ):
+        first = create_loop_dir(tmp_path)
+        second = create_loop_dir(tmp_path)
+
+    assert first.name == f"mission-{timestamp}"
+    assert second.name == f"mission-{timestamp}-0001"
+    assert first != second
+    assert first.is_dir()
+    assert second.is_dir()
 
 
 @pytest.mark.asyncio
