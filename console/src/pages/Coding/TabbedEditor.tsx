@@ -30,7 +30,7 @@ import {
   Save,
   X,
 } from "lucide-react";
-import { Tooltip } from "antd";
+import { Dropdown, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import FilePreview, { isPreviewable } from "./FilePreview";
 import { workspaceApi } from "../../api/modules/workspace";
@@ -63,6 +63,7 @@ interface TabbedEditorProps {
   scopeKey: string;
   onTabSelect: (path: string) => void;
   onTabClose: (path: string) => void;
+  onCloseOtherTabs: (path: string) => void;
   onTabDirtyChange: (path: string, dirty: boolean) => void;
   onTabContentChange: (path: string, content: string) => void;
   onFileSaved?: (path: string) => void;
@@ -175,6 +176,7 @@ export default function TabbedEditor({
   scopeKey,
   onTabSelect,
   onTabClose,
+  onCloseOtherTabs,
   onTabDirtyChange,
   onTabContentChange,
   onFileSaved,
@@ -911,37 +913,56 @@ export default function TabbedEditor({
           const active = tab.path === activeTabPath;
           const hasDiff = Boolean(pendingDiffs[tab.path]);
           return (
-            <div
+            <Dropdown
               key={tab.path}
-              className={`${styles.tab} ${active ? styles.tabActive : ""} ${
-                hasDiff ? styles.tabDiff : ""
-              }`}
-              onClick={() => onTabSelect(tab.path)}
-              role="tab"
-              tabIndex={0}
-              onKeyDown={(e) => e.key === "Enter" && onTabSelect(tab.path)}
-              title={tab.displayPath ?? visibleEditorPath(tab.path)}
+              trigger={["contextMenu"]}
+              menu={{
+                items: [
+                  {
+                    key: "close",
+                    label: t("files.closeTab"),
+                    onClick: () => onTabClose(tab.path),
+                  },
+                  {
+                    key: "closeOthers",
+                    label: t("files.closeOtherTabs"),
+                    disabled: tabs.length <= 1,
+                    onClick: () => onCloseOtherTabs(tab.path),
+                  },
+                ],
+              }}
             >
-              {hasDiff ? (
-                <GitCompareArrows size={11} className={styles.diffDot} />
-              ) : tab.dirty ? (
-                <span className={styles.dirtyDot} />
-              ) : null}
-              <span className={styles.tabName}>
-                {shortPath(tab.displayPath ?? tab.path)}
-              </span>
-              <button
-                type="button"
-                className={styles.closeBtn}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTabClose(tab.path);
-                }}
-                aria-label={t("files.closeTab")}
+              <div
+                className={`${styles.tab} ${active ? styles.tabActive : ""} ${
+                  hasDiff ? styles.tabDiff : ""
+                }`}
+                onClick={() => onTabSelect(tab.path)}
+                role="tab"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && onTabSelect(tab.path)}
+                title={tab.displayPath ?? visibleEditorPath(tab.path)}
               >
-                <X size={11} />
-              </button>
-            </div>
+                {hasDiff ? (
+                  <GitCompareArrows size={11} className={styles.diffDot} />
+                ) : tab.dirty ? (
+                  <span className={styles.dirtyDot} />
+                ) : null}
+                <span className={styles.tabName}>
+                  {shortPath(tab.displayPath ?? tab.path)}
+                </span>
+                <button
+                  type="button"
+                  className={styles.closeBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTabClose(tab.path);
+                  }}
+                  aria-label={t("files.closeTab")}
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            </Dropdown>
           );
         })}
       </div>

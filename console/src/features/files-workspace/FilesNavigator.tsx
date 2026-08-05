@@ -25,6 +25,7 @@ import {
   FolderOpen,
   GripVertical,
   LoaderCircle,
+  Network,
   Settings2,
   RefreshCw,
   Upload,
@@ -38,14 +39,16 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import SessionProjectDirectory from "../project-directory/SessionProjectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
 import { directoriesMatch, workspaceRoots } from "./directorySources";
+import { isDefaultWorkspaceMarkdown } from "./defaultWorkspaceMarkdown";
 import {
   filesWorkspaceScopeKey,
   type FilesWorkspaceScope,
 } from "./filesWorkspaceScope";
+import { buildMemoryTree, type MemoryTreeEntry } from "./memoryTree";
 import type {
   DirectoryEntry,
-  FileSource,
   FileTarget,
+  MemoryGraphRoot,
   WorkspaceRoot,
 } from "./types";
 import styles from "./FilesWorkspace.module.less";
@@ -67,6 +70,8 @@ interface ProfileFileRowProps {
   onSelect: () => void;
   onToggle: () => void;
 }
+
+type NavigatorSource = "workspace" | "profile" | "daily" | "digest";
 
 function FileGlyph({ name }: { name: string }) {
   const extension = name.split(".").pop()?.toLowerCase();
@@ -253,15 +258,118 @@ function DirectoryNode({
   );
 }
 
+function MemoryDirectoryNode({
+  entry,
+  selectedPath,
+  onSelect,
+  depth,
+  source,
+  activeGraphRoot,
+  onShowGraph,
+}: {
+  entry: MemoryTreeEntry;
+  selectedPath: string;
+  onSelect: (target: FileTarget) => void;
+  depth: number;
+  source: "daily" | "digest";
+  activeGraphRoot: MemoryGraphRoot | null;
+  onShowGraph: (root: MemoryGraphRoot) => void;
+}) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const graphRoot =
+    source === "digest" &&
+    depth === 0 &&
+    (["wiki", "procedure", "personal"] as string[]).includes(entry.name)
+      ? (entry.name as MemoryGraphRoot)
+      : null;
+
+  return (
+    <>
+      <div
+        className={`${styles.memoryDirectoryRow} ${
+          graphRoot && graphRoot === activeGraphRoot
+            ? styles.memoryDirectoryGraphActive
+            : ""
+        }`}
+      >
+        <button
+          type="button"
+          className={styles.treeRow}
+          style={{ paddingInlineStart: 12 + depth * 16 }}
+          onClick={() => setExpanded((current) => !current)}
+          aria-expanded={expanded}
+        >
+          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          {expanded ? <FolderOpen size={15} /> : <Folder size={15} />}
+          <span>{entry.name}</span>
+        </button>
+        {graphRoot && (
+          <button
+            type="button"
+            className={styles.memoryDirectoryGraphButton}
+            onClick={() => onShowGraph(graphRoot)}
+            aria-label={`${t("files.memoryGraph")} · ${entry.name}`}
+            title={`${t("files.memoryGraph")} · ${entry.name}`}
+            aria-pressed={graphRoot === activeGraphRoot}
+          >
+            <Network size={14} />
+            <span>{t("files.memoryGraphShort")}</span>
+          </button>
+        )}
+      </div>
+      {expanded &&
+        entry.children?.map((child) =>
+          child.kind === "directory" ? (
+            <MemoryDirectoryNode
+              key={child.path}
+              entry={child}
+              selectedPath={selectedPath}
+              onSelect={onSelect}
+              depth={depth + 1}
+              source={source}
+              activeGraphRoot={activeGraphRoot}
+              onShowGraph={onShowGraph}
+            />
+          ) : (
+            <button
+              type="button"
+              key={child.path}
+              className={`${styles.treeRow} ${
+                child.path === selectedPath ? styles.treeRowSelected : ""
+              }`}
+              style={{ paddingInlineStart: 29 + (depth + 1) * 16 }}
+              onClick={() =>
+                onSelect({
+                  source,
+                  path: child.path,
+                })
+              }
+            >
+              <FileGlyph name={child.name} />
+              <span>{child.name}</span>
+            </button>
+          ),
+        )}
+    </>
+  );
+}
+
 interface FilesNavigatorProps {
   selectedPath: string;
   onSelect: (target: FileTarget) => void;
+  activeMemoryGraphRoot: MemoryGraphRoot | null;
+  onShowMemoryGraph: (root: MemoryGraphRoot) => void;
+  onShowFiles: () => void;
   scope: FilesWorkspaceScope;
 }
 
 export default function FilesNavigator({
   selectedPath,
   onSelect,
+  activeMemoryGraphRoot,
+  onShowMemoryGraph,
+  onShowFiles,
   scope,
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
@@ -278,7 +386,8 @@ export default function FilesNavigator({
   const scopeKey = filesWorkspaceScopeKey(scope);
   const [entries, setEntries] = useState<DirectoryEntry[]>([]);
   const [profileFiles, setProfileFiles] = useState<DirectoryEntry[]>([]);
-  const [memoryFiles, setMemoryFiles] = useState<DirectoryEntry[]>([]);
+  const [dailyFiles, setDailyFiles] = useState<MemoryTreeEntry[]>([]);
+  const [digestFiles, setDigestFiles] = useState<MemoryTreeEntry[]>([]);
   const [enabledFiles, setEnabledFiles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -286,7 +395,7 @@ export default function FilesNavigator({
   const [uploading, setUploading] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<File[] | null>(null);
   const [conflictingNames, setConflictingNames] = useState<string[]>([]);
-  const [source, setSource] = useState<FileSource>("workspace");
+  const [source, setSource] = useState<NavigatorSource>("workspace");
   const [projectDirectory, setProjectDirectory] = useState("");
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
@@ -383,6 +492,7 @@ export default function FilesNavigator({
       setEnabledFiles(order);
       setProfileFiles(
         files
+          .filter((file) => isDefaultWorkspaceMarkdown(file.filename))
           .map((file) => ({
             name: file.filename.split("/").pop() ?? file.filename,
             path: file.filename,
@@ -407,11 +517,11 @@ export default function FilesNavigator({
     }
   }, []);
 
-  const loadMemory = useCallback(async () => {
+  const loadMemory = useCallback(async (section: "daily" | "digest") => {
     setLoading(true);
     try {
-      const files = await workspaceApi.listDailyMemory();
-      setMemoryFiles(
+      const files = await workspaceApi.listMemoryFiles(section);
+      const tree = buildMemoryTree(
         files.map((file) => ({
           name: file.filename.split("/").pop() ?? file.filename,
           path: file.filename,
@@ -421,6 +531,8 @@ export default function FilesNavigator({
           preview_kind: "text" as const,
         })),
       );
+      if (section === "daily") setDailyFiles(tree);
+      else setDigestFiles(tree);
     } finally {
       setLoading(false);
     }
@@ -436,12 +548,12 @@ export default function FilesNavigator({
 
   useEffect(() => {
     if (source === "profile") void loadProfile();
-    if (source === "memory") void loadMemory();
+    if (source === "daily" || source === "digest") void loadMemory(source);
   }, [loadMemory, loadProfile, source]);
 
   const refreshCurrent = async () => {
-    if (source === "memory") {
-      await loadMemory();
+    if (source === "daily" || source === "digest") {
+      await loadMemory(source);
       return;
     }
     if (source === "profile") {
@@ -509,107 +621,72 @@ export default function FilesNavigator({
   };
 
   const displayEntries = useMemo(() => {
-    if (source === "memory") return memoryFiles;
+    if (source === "daily") return dailyFiles;
+    if (source === "digest") return digestFiles;
     if (source === "profile") return profileFiles;
     if (source === "workspace") return entries;
     return [];
-  }, [entries, memoryFiles, profileFiles, source]);
-
-  const canUpload = source === "workspace";
+  }, [dailyFiles, digestFiles, entries, profileFiles, source]);
 
   return (
     <aside
       className={styles.navigator}
       data-source={source}
-      data-root={source === "workspace" ? workspaceRoot : undefined}
+      data-root={workspaceRoot}
       aria-label={t("files.navigator")}
     >
-      <header
-        className={`${styles.navigatorHeader} ${
-          source === "workspace" ? "" : styles.navigatorHeaderCompact
-        }`}
-      >
-        {source === "workspace" ? (
-          <div className={styles.directoryToolbar}>
-            <div className={styles.directoryContext} data-root={workspaceRoot}>
-              <span className={styles.directoryContextIcon}>
-                {workspaceRoot === "project" ? (
-                  <FolderOpen size={15} />
-                ) : (
-                  <Settings2 size={15} />
-                )}
+      <header className={styles.navigatorHeader}>
+        <div className={styles.directoryToolbar}>
+          <div className={styles.directoryContext} data-root={workspaceRoot}>
+            <span className={styles.directoryContextIcon}>
+              {workspaceRoot === "project" ? (
+                <FolderOpen size={15} />
+              ) : (
+                <Settings2 size={15} />
+              )}
+            </span>
+            <div className={styles.directoryContextBody}>
+              <span className={styles.directoryContextLabel}>
+                {t(`files.${workspaceRoot}Directory`)}
               </span>
-              <div className={styles.directoryContextBody}>
-                <span className={styles.directoryContextLabel}>
-                  {t(`files.${workspaceRoot}Directory`)}
-                </span>
-                {workspaceRoot === "project" ? (
-                  <SessionProjectDirectory
-                    scope={scope}
-                    showFullPath
-                    beforeChange={confirmDirectoryChange}
-                    onChanged={handleDirectoryChanged}
-                  />
-                ) : (
-                  <span className={styles.directoryIdentity}>
-                    <span className={styles.directoryIdentityText}>
-                      <strong>
-                        {workspaceDirectory
-                          .replace(/[\\/]+$/, "")
-                          .split(/[\\/]/)
-                          .pop() || t("files.workspaceDirectory")}
-                      </strong>
-                      <span title={workspaceDirectory}>
-                        {workspaceDirectory}
-                      </span>
-                    </span>
+              {workspaceRoot === "project" ? (
+                <SessionProjectDirectory
+                  scope={scope}
+                  showFullPath
+                  beforeChange={confirmDirectoryChange}
+                  onChanged={handleDirectoryChanged}
+                />
+              ) : (
+                <span className={styles.directoryIdentity}>
+                  <span className={styles.directoryIdentityText}>
+                    <strong>
+                      {workspaceDirectory
+                        .replace(/[\\/]+$/, "")
+                        .split(/[\\/]/)
+                        .pop() || t("files.workspaceDirectory")}
+                    </strong>
+                    <span title={workspaceDirectory}>{workspaceDirectory}</span>
                   </span>
-                )}
-              </div>
-              {roots.length > 1 && (
-                <button
-                  type="button"
-                  className={styles.directorySwitch}
-                  onClick={() =>
-                    setWorkspaceRoot((current) =>
-                      current === "project" ? "workspace" : "project",
-                    )
-                  }
-                  aria-label={t("files.switchDirectory")}
-                  title={t("files.switchDirectory")}
-                >
-                  <ArrowLeftRight size={14} />
-                </button>
+                </span>
               )}
             </div>
-            <div className={styles.directoryTools}>
+            {roots.length > 1 && (
               <button
                 type="button"
-                className={styles.iconButton}
-                onClick={() => void refreshCurrent()}
-                aria-label={t("common.refresh")}
+                className={styles.directorySwitch}
+                onClick={() =>
+                  setWorkspaceRoot((current) =>
+                    current === "project" ? "workspace" : "project",
+                  )
+                }
+                aria-label={t("files.switchDirectory")}
+                title={t("files.switchDirectory")}
               >
-                <RefreshCw size={15} />
+                <ArrowLeftRight size={14} />
               </button>
-              {canUpload && (
-                <button
-                  type="button"
-                  className={styles.iconButton}
-                  onClick={() => uploadRef.current?.click()}
-                  aria-label={t("files.upload")}
-                  disabled={uploading}
-                >
-                  {uploading ? (
-                    <LoaderCircle className={styles.spin} size={15} />
-                  ) : (
-                    <Upload size={15} />
-                  )}
-                </button>
-              )}
-            </div>
+            )}
           </div>
-        ) : (
-          <div className={styles.navigatorActions}>
+          <div className={styles.directoryTools}>
             <button
               type="button"
               className={styles.iconButton}
@@ -618,38 +695,54 @@ export default function FilesNavigator({
             >
               <RefreshCw size={15} />
             </button>
+            <button
+              type="button"
+              className={styles.iconButton}
+              onClick={() => uploadRef.current?.click()}
+              aria-label={t("files.upload")}
+              disabled={uploading}
+            >
+              {uploading ? (
+                <LoaderCircle className={styles.spin} size={15} />
+              ) : (
+                <Upload size={15} />
+              )}
+            </button>
           </div>
-        )}
-        {canUpload && (
-          <input
-            ref={uploadRef}
-            type="file"
-            multiple
-            hidden
-            onChange={(event) => {
-              const files = Array.from(event.target.files ?? []);
-              event.target.value = "";
-              if (files.length > 0) void runUpload(files);
-            }}
-          />
-        )}
+        </div>
+        <input
+          ref={uploadRef}
+          type="file"
+          multiple
+          hidden
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            event.target.value = "";
+            if (files.length > 0) void runUpload(files);
+          }}
+        />
       </header>
       <div className={styles.sourceTabs} role="tablist">
-        {(["workspace", "profile", "memory"] as FileSource[]).map((item) => (
-          <button
-            type="button"
-            role="tab"
-            aria-selected={source === item}
-            key={item}
-            className={`${styles.sourceTab} ${
-              source === item ? styles.sourceTabActive : ""
-            }`}
-            data-source={item}
-            onClick={() => setSource(item)}
-          >
-            {t(`files.${item}`)}
-          </button>
-        ))}
+        {(["workspace", "profile", "daily", "digest"] as NavigatorSource[]).map(
+          (item) => (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={source === item}
+              key={item}
+              className={`${styles.sourceTab} ${
+                source === item ? styles.sourceTabActive : ""
+              }`}
+              data-source={item}
+              onClick={() => {
+                setSource(item);
+                onShowFiles();
+              }}
+            >
+              {t(`files.${item}`)}
+            </button>
+          ),
+        )}
       </div>
       <DndContext
         sensors={sensors}
@@ -669,6 +762,20 @@ export default function FilesNavigator({
             ) : (
               displayEntries.map((entry) => {
                 if (entry.kind === "directory") {
+                  if (source === "daily" || source === "digest") {
+                    return (
+                      <MemoryDirectoryNode
+                        key={entry.path}
+                        entry={entry}
+                        selectedPath={selectedPath}
+                        onSelect={onSelect}
+                        depth={0}
+                        source={source}
+                        activeGraphRoot={activeMemoryGraphRoot}
+                        onShowGraph={onShowMemoryGraph}
+                      />
+                    );
+                  }
                   return (
                     <DirectoryNode
                       key={entry.path}
@@ -707,7 +814,7 @@ export default function FilesNavigator({
                     }`}
                     onClick={() =>
                       onSelect({
-                        source: source === "memory" ? "memory" : "workspace",
+                        source,
                         path: entry.path,
                         root:
                           source === "workspace" ? workspaceRoot : undefined,

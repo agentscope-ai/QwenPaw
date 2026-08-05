@@ -20,7 +20,7 @@ import unicodedata
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Literal
 
 from fastapi import (
     APIRouter,
@@ -1034,6 +1034,7 @@ async def workspace_watch_events(
 )
 async def list_memory_files(
     request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
 ) -> list[MdFileInfo]:
     """List memory directory markdown files."""
     try:
@@ -1042,7 +1043,10 @@ async def list_memory_files(
             str(workspace.workspace_dir),
             agent_id=workspace.agent_id,
         )
-        raw_files = await asyncio.to_thread(workspace_manager.list_memory_mds)
+        raw_files = await asyncio.to_thread(
+            workspace_manager.list_memory_mds,
+            section,
+        )
         files = [MdFileInfo.model_validate(file) for file in raw_files]
         return files
     except Exception as exc:
@@ -1058,6 +1062,7 @@ async def list_memory_files(
 async def read_memory_file(
     md_path: str,
     request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
 ) -> MdFileContent:
     """Read a memory directory markdown file."""
     try:
@@ -1069,6 +1074,7 @@ async def read_memory_file(
         content = await asyncio.to_thread(
             workspace_manager.read_memory_md,
             md_path,
+            section,
         )
         return MdFileContent(content=content)
     except FileNotFoundError as exc:
@@ -1087,6 +1093,7 @@ async def write_memory_file(
     md_path: str,
     body: MdFileContent,
     request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
 ) -> dict:
     """Write a memory directory markdown file."""
     try:
@@ -1099,6 +1106,7 @@ async def write_memory_file(
             workspace_manager.write_memory_md,
             md_path,
             body.content,
+            section,
         )
         return {"written": True}
     except Exception as exc:

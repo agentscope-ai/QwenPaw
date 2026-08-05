@@ -19,7 +19,10 @@ import {
   persist,
   type StateStorage,
 } from "zustand/middleware";
-import type { WorkspaceRoot } from "../features/files-workspace/types";
+import type {
+  FileSource,
+  WorkspaceRoot,
+} from "../features/files-workspace/types";
 
 export const ORIGINAL_DIFF_SIZE_LIMIT = 256 * 1024;
 export const AGENT_FILES_TABS_STORAGE_KEY = "qwenpaw-agent-files-tabs";
@@ -32,7 +35,7 @@ export interface EditorTab {
   displayPath?: string;
   content: string;
   dirty: boolean;
-  source?: "workspace" | "attachment" | "profile" | "memory";
+  source?: FileSource;
   workspaceRoot?: WorkspaceRoot;
   artifactUrl?: string;
   previewKind?: "text" | "image" | "pdf" | "csv" | "binary";

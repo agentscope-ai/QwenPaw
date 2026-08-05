@@ -179,8 +179,13 @@ export default function FilesDrawer({
           },
           content: file.content,
         }))
-      : target.source === "memory"
-      ? workspaceApi.loadDailyMemory(target.path).then((file) => ({
+      : target.source === "memory" ||
+        target.source === "daily" ||
+        target.source === "digest"
+      ? (target.source === "daily" || target.source === "digest"
+          ? workspaceApi.loadMemoryFile(target.path, target.source)
+          : workspaceApi.loadDailyMemory(target.path)
+        ).then((file) => ({
           metadata: {
             path: target.path,
             size: new Blob([file.content]).size,

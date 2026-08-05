@@ -1,5 +1,12 @@
-export type FileSource = "workspace" | "attachment" | "profile" | "memory";
+export type FileSource =
+  | "workspace"
+  | "attachment"
+  | "profile"
+  | "memory"
+  | "daily"
+  | "digest";
 export type WorkspaceRoot = "project" | "workspace";
+export type MemoryGraphRoot = "wiki" | "procedure" | "personal";
 
 export interface FileTarget {
   source: FileSource;

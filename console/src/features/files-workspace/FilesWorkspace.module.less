@@ -266,22 +266,10 @@
   align-items: stretch;
 }
 
-.navigatorHeaderCompact {
-  padding-bottom: 4px;
-}
-
 .directoryToolbar {
   display: flex;
   align-items: stretch;
   gap: 6px;
-}
-
-.navigatorActions {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 5px;
 }
 
 .directoryTools {
@@ -422,9 +410,14 @@
     --source-soft: #efebfb;
   }
 
-  &[data-source="memory"] {
+  &[data-source="daily"] {
     --source-color: #65758b;
     --source-soft: #edf1f5;
+  }
+
+  &[data-source="digest"] {
+    --source-color: #557766;
+    --source-soft: #eaf2ed;
   }
 }
 
@@ -628,6 +621,66 @@
   background: var(--files-accent-soft);
 }
 
+.memoryDirectoryRow {
+  position: relative;
+  border-radius: 7px;
+  transition:
+    background 150ms ease,
+    box-shadow 180ms ease;
+
+  .treeRow {
+    padding-right: 72px;
+  }
+}
+
+.memoryDirectoryGraphActive {
+  .memoryDirectoryGraphButton {
+    color: #557766;
+    opacity: 1;
+    background: color-mix(in srgb, #557766 12%, var(--files-bg));
+    transform: translateY(-50%) scale(1);
+  }
+}
+
+.memoryDirectoryGraphButton {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  min-width: 58px;
+  height: 26px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: #557766;
+  border: 1px solid color-mix(in srgb, #557766 22%, var(--files-line));
+  border-radius: 7px;
+  background: color-mix(in srgb, #557766 7%, var(--files-bg));
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+
+  &:hover {
+    color: #557766;
+    border-color: color-mix(in srgb, #557766 42%, var(--files-line));
+    background: color-mix(in srgb, #557766 14%, var(--files-bg));
+    transform: translateY(-50%) translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, #557766 38%, transparent);
+    outline-offset: 2px;
+  }
+}
+
 .loadMore {
   width: calc(100% - 12px);
   height: 30px;
@@ -719,9 +772,14 @@
       --source-soft: #302946;
     }
 
-    &[data-source="memory"] {
+    &[data-source="daily"] {
       --source-color: #b7c3d1;
       --source-soft: #293039;
+    }
+
+    &[data-source="digest"] {
+      --source-color: #a9cbb9;
+      --source-soft: #26352e;
     }
   }
 

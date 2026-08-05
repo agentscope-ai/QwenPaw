@@ -175,6 +175,38 @@
   }
 }
 
+.frontmatter {
+  margin: 0 0 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-radius: 8px;
+  background: var(--table-header-bg, rgba(0, 0, 0, 0.025));
+}
+
+.frontmatterRow {
+  display: grid;
+  grid-template-columns: minmax(88px, max-content) minmax(0, 1fr);
+  gap: 16px;
+
+  & + & {
+    margin-top: 8px;
+  }
+}
+
+.frontmatterKey {
+  color: var(--text-secondary, rgba(0, 0, 0, 0.52));
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.frontmatterValue {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 // ---- CSV ------------------------------------------------------------------
 
 .csvWrap {

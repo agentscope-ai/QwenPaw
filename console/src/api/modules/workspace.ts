@@ -3,7 +3,12 @@ import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import { useCodeFileCacheStore } from "../../stores/codeFileCacheStore";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
-import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types";
+import type {
+  MdFileInfo,
+  MdFileContent,
+  DailyMemoryFile,
+  MemorySection,
+} from "../types";
 import type {
   DirectoryPage,
   FileMetadata,
@@ -314,6 +319,32 @@ export const workspaceApi = {
     return await response.json();
   },
 
+  listMemoryFiles: (section: MemorySection) =>
+    request<MdFileInfo[]>(workspaceQuery("/workspace/memory", { section })),
+
+  loadMemoryFile: (memoryPath: string, section: MemorySection) =>
+    request<MdFileContent>(
+      workspaceQuery(`/workspace/memory/${encodePath(memoryPath)}`, {
+        section,
+      }),
+    ),
+
+  saveMemoryFile: (
+    memoryPath: string,
+    content: string,
+    section: MemorySection,
+  ) =>
+    request<Record<string, unknown>>(
+      workspaceQuery(`/workspace/memory/${encodePath(memoryPath)}`, {
+        section,
+      }),
+      {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+      },
+    ),
+
+  // Legacy helpers retained for persisted tabs and older callers.
   listDailyMemory: () =>
     request<MdFileInfo[]>("/workspace/memory").then((files) =>
       files.map((file) => {

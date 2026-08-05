@@ -56,6 +56,21 @@ def test_status_job_reports_reme_memory_usage() -> None:
     }
 
 
+def test_graph_snapshot_job_exposes_complete_wikilink_graph() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    assert "traverse" not in cfg["jobs"]
+    assert cfg["jobs"]["graph_snapshot"] == {
+        "backend": "base",
+        "description": (
+            "Return the complete indexed wikilink "
+            "graph for frontend rendering."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+        "steps": [{"backend": "graph_snapshot_step"}],
+    }
+
+
 def test_openai_compatible_embedding_requires_api_key() -> None:
     cfg = _config_for_embedding(
         EmbeddingModelConfig(

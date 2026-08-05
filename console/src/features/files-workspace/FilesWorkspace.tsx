@@ -17,13 +17,19 @@ import {
 import { useCodingMode } from "../../stores/codingModeStore";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import FilesNavigator from "./FilesNavigator";
+import MemoryGraphView from "./MemoryGraphView";
 import { directoriesMatch } from "./directorySources";
 import {
   filesWorkspaceScopeKey,
   type FilesWorkspaceScope,
 } from "./filesWorkspaceScope";
 import { toProjectRelativePath } from "./internalFileLinks";
-import type { FileMetadata, FileTarget, WorkspaceRoot } from "./types";
+import type {
+  FileMetadata,
+  FileTarget,
+  MemoryGraphRoot,
+  WorkspaceRoot,
+} from "./types";
 import styles from "./FilesWorkspace.module.less";
 
 interface FilesWorkspaceProps {
@@ -83,6 +89,8 @@ export default function FilesWorkspace({
   const targetsByTab = useRef(new Map<string, FileTarget>());
   const navigationSequence = useRef(0);
   const [loadError, setLoadError] = useState("");
+  const [memoryGraphRoot, setMemoryGraphRoot] =
+    useState<MemoryGraphRoot | null>(null);
   const [activity, setActivity] = useState<"files" | "git">("files");
   const [directoryRevision, setDirectoryRevision] = useState(0);
   const [editorNavigation, setEditorNavigation] = useState<{
@@ -187,9 +195,21 @@ export default function FilesWorkspace({
           etag: "",
         };
       }
-      if (target.source === "memory") {
+      if (
+        target.source === "memory" ||
+        target.source === "daily" ||
+        target.source === "digest"
+      ) {
+        const section =
+          target.source === "daily" || target.source === "digest"
+            ? target.source
+            : undefined;
         return {
-          content: (await workspaceApi.loadDailyMemory(target.path)).content,
+          content: (
+            await (section
+              ? workspaceApi.loadMemoryFile(target.path, section)
+              : workspaceApi.loadDailyMemory(target.path))
+          ).content,
           previewKind: "text" as const,
           readOnly: false,
           etag: "",
@@ -355,10 +375,17 @@ export default function FilesWorkspace({
     }
   };
 
+  const handleCloseOthers = (path: string) => {
+    tabs.forEach((tab) => {
+      if (tab.path !== path) closeTab(scopeKey, tab.path);
+    });
+    setActiveTab(scopeKey, path);
+  };
+
   return (
     <div
       className={`${styles.workspace} ${
-        tabs.length === 0 ? styles.workspaceEmpty : ""
+        tabs.length === 0 && !memoryGraphRoot ? styles.workspaceEmpty : ""
       }`}
     >
       {codingMode && (
@@ -391,7 +418,13 @@ export default function FilesWorkspace({
             tabs.find((tab) => tab.path === activeTabPath)?.displayPath ??
             activeTabPath
           }
-          onSelect={(target) => void openTarget(target)}
+          onSelect={(target) => {
+            setMemoryGraphRoot(null);
+            void openTarget(target);
+          }}
+          activeMemoryGraphRoot={memoryGraphRoot}
+          onShowMemoryGraph={(root) => setMemoryGraphRoot(root)}
+          onShowFiles={() => setMemoryGraphRoot(null)}
         />
       ) : (
         <aside className={styles.sourcePanel}>
@@ -409,88 +442,107 @@ export default function FilesWorkspace({
             <span>{loadError}</span>
           </div>
         )}
-        <TabbedEditor
-          key={`${scopeKey}:${directoryRevision}`}
-          tabs={tabs}
-          activeTabPath={activeTabPath}
-          scopeKey={scopeKey}
-          onTabSelect={(path) => setActiveTab(scopeKey, path)}
-          onTabClose={handleClose}
-          onTabDirtyChange={(path, dirty) => setTabDirty(scopeKey, path, dirty)}
-          onTabContentChange={(path, content) =>
-            setTabContent(scopeKey, path, content)
-          }
-          onLoadFile={loadTabContent}
-          chatId={chatId}
-          projectDirOverride={projectDirOverride}
-          navigation={editorNavigation}
-          onDownloadFile={async (path) => {
-            const tab = tabsRef.current.find((item) => item.path === path);
-            const separator = path.indexOf("::");
-            const sourcePath =
-              tab?.displayPath ??
-              (separator < 0 ? path : path.slice(separator + 2));
-            const filename = sourcePath.split("/").pop() ?? sourcePath;
-            if (tab?.artifactUrl) {
-              await downloadFileFromUrl(tab.artifactUrl, filename, {
-                headers: buildAuthHeaders(),
-                errorMessage: t("files.downloadFailed"),
-              });
-              return;
+        {memoryGraphRoot ? (
+          <MemoryGraphView
+            agentId={scope.agentId}
+            root={memoryGraphRoot}
+            onOpenFile={(source, path) => {
+              setMemoryGraphRoot(null);
+              void openTarget({ source, path });
+            }}
+          />
+        ) : (
+          <TabbedEditor
+            key={`${scopeKey}:${directoryRevision}`}
+            tabs={tabs}
+            activeTabPath={activeTabPath}
+            scopeKey={scopeKey}
+            onTabSelect={(path) => setActiveTab(scopeKey, path)}
+            onTabClose={handleClose}
+            onCloseOtherTabs={handleCloseOthers}
+            onTabDirtyChange={(path, dirty) =>
+              setTabDirty(scopeKey, path, dirty)
             }
-            if ((tab?.source ?? "workspace") === "workspace") {
-              await downloadFileFromUrl(
-                workspaceApi.getFileDownloadUrl(sourcePath, tab?.workspaceRoot),
-                filename,
-                {
-                  headers: {
-                    ...buildAuthHeaders(),
-                    ...(chatId ? { "X-Chat-Id": chatId } : {}),
-                    ...(!chatId && projectDirOverride
-                      ? {
-                          "X-Session-Project-Dir": projectDirOverride,
-                        }
-                      : {}),
-                  },
+            onTabContentChange={(path, content) =>
+              setTabContent(scopeKey, path, content)
+            }
+            onLoadFile={loadTabContent}
+            chatId={chatId}
+            projectDirOverride={projectDirOverride}
+            navigation={editorNavigation}
+            onDownloadFile={async (path) => {
+              const tab = tabsRef.current.find((item) => item.path === path);
+              const separator = path.indexOf("::");
+              const sourcePath =
+                tab?.displayPath ??
+                (separator < 0 ? path : path.slice(separator + 2));
+              const filename = sourcePath.split("/").pop() ?? sourcePath;
+              if (tab?.artifactUrl) {
+                await downloadFileFromUrl(tab.artifactUrl, filename, {
+                  headers: buildAuthHeaders(),
                   errorMessage: t("files.downloadFailed"),
-                },
-              );
-              return;
-            }
-            const blob = new Blob([tab?.content ?? ""], {
-              type: "text/plain;charset=utf-8",
-            });
-            const url = URL.createObjectURL(blob);
-            const anchor = document.createElement("a");
-            anchor.href = url;
-            anchor.download = filename;
-            anchor.click();
-            URL.revokeObjectURL(url);
-          }}
-          onSaveFile={async (path, content) => {
-            const tab = tabsRef.current.find((item) => item.path === path);
-            const separator = path.indexOf("::");
-            if ((tab?.source ?? "workspace") === "workspace") {
-              const saved = await workspaceApi.saveFileContent(
-                tab?.displayPath ?? path,
-                content,
-                tab?.etag,
-                chatId,
-                tab?.workspaceRoot,
-                projectDirOverride,
-              );
-              setTabEtag(scopeKey, path, saved.etag);
-              return;
-            }
-            const source = path.slice(0, separator);
-            const sourcePath = path.slice(separator + 2);
-            if (source === "profile") {
-              await workspaceApi.saveFile(sourcePath, content);
-            } else if (source === "memory") {
-              await workspaceApi.saveDailyMemory(sourcePath, content);
-            }
-          }}
-        />
+                });
+                return;
+              }
+              if ((tab?.source ?? "workspace") === "workspace") {
+                await downloadFileFromUrl(
+                  workspaceApi.getFileDownloadUrl(
+                    sourcePath,
+                    tab?.workspaceRoot,
+                  ),
+                  filename,
+                  {
+                    headers: {
+                      ...buildAuthHeaders(),
+                      ...(chatId ? { "X-Chat-Id": chatId } : {}),
+                      ...(!chatId && projectDirOverride
+                        ? {
+                            "X-Session-Project-Dir": projectDirOverride,
+                          }
+                        : {}),
+                    },
+                    errorMessage: t("files.downloadFailed"),
+                  },
+                );
+                return;
+              }
+              const blob = new Blob([tab?.content ?? ""], {
+                type: "text/plain;charset=utf-8",
+              });
+              const url = URL.createObjectURL(blob);
+              const anchor = document.createElement("a");
+              anchor.href = url;
+              anchor.download = filename;
+              anchor.click();
+              URL.revokeObjectURL(url);
+            }}
+            onSaveFile={async (path, content) => {
+              const tab = tabsRef.current.find((item) => item.path === path);
+              const separator = path.indexOf("::");
+              if ((tab?.source ?? "workspace") === "workspace") {
+                const saved = await workspaceApi.saveFileContent(
+                  tab?.displayPath ?? path,
+                  content,
+                  tab?.etag,
+                  chatId,
+                  tab?.workspaceRoot,
+                  projectDirOverride,
+                );
+                setTabEtag(scopeKey, path, saved.etag);
+                return;
+              }
+              const source = path.slice(0, separator);
+              const sourcePath = path.slice(separator + 2);
+              if (source === "profile") {
+                await workspaceApi.saveFile(sourcePath, content);
+              } else if (source === "daily" || source === "digest") {
+                await workspaceApi.saveMemoryFile(sourcePath, content, source);
+              } else if (source === "memory") {
+                await workspaceApi.saveDailyMemory(sourcePath, content);
+              }
+            }}
+          />
+        )}
       </main>
     </div>
   );
