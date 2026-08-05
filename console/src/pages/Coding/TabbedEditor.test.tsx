@@ -51,6 +51,12 @@ function Harness({
       scopeKey={SCOPE_KEY}
       onTabSelect={(path) => store.setActiveTab(SCOPE_KEY, path)}
       onTabClose={(path) => store.closeTab(SCOPE_KEY, path)}
+      onCloseOtherTabs={(path) => {
+        tabs.forEach((tab) => {
+          if (tab.path !== path) store.closeTab(SCOPE_KEY, tab.path);
+        });
+        store.setActiveTab(SCOPE_KEY, path);
+      }}
       onTabDirtyChange={(path, dirty) =>
         store.setTabDirty(SCOPE_KEY, path, dirty)
       }
@@ -100,5 +106,58 @@ describe("TabbedEditor diff resolution", () => {
       expect(onSaveFile).toHaveBeenLastCalledWith("hello.txt", "original");
     });
     expect(onSaveFile).not.toHaveBeenCalledWith("hello.txt", "");
+  });
+});
+
+describe("TabbedEditor tab context menu", () => {
+  beforeEach(() => {
+    useCodingTabsStore.setState({
+      tabsByAgent: {
+        [SCOPE_KEY]: [
+          { path: "one.txt", content: "one", dirty: false },
+          { path: "two.txt", content: "two", dirty: false },
+          { path: "three.txt", content: "three", dirty: false },
+        ],
+      },
+      activeTabByAgent: { [SCOPE_KEY]: "one.txt" },
+      diffsByAgent: { [SCOPE_KEY]: {} },
+    });
+  });
+
+  it("closes the tab that was right-clicked", async () => {
+    render(<Harness onSaveFile={vi.fn(async () => undefined)} />);
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /two\.txt/i }));
+    fireEvent.click(await screen.findByText(/closeTab|关闭标签页/i));
+
+    await waitFor(() => {
+      expect(
+        useCodingTabsStore
+          .getState()
+          .tabsByAgent[SCOPE_KEY].map((tab) => tab.path),
+      ).toEqual(["one.txt", "three.txt"]);
+      expect(useCodingTabsStore.getState().activeTabByAgent[SCOPE_KEY]).toBe(
+        "one.txt",
+      );
+    });
+  });
+
+  it("keeps and activates the tab used to close the others", async () => {
+    render(<Harness onSaveFile={vi.fn(async () => undefined)} />);
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /two\.txt/i }));
+    fireEvent.click(await screen.findByText(/closeOtherTabs|关闭其他标签页/i));
+
+    await waitFor(() => {
+      expect(useCodingTabsStore.getState().tabsByAgent[SCOPE_KEY]).toHaveLength(
+        1,
+      );
+      expect(useCodingTabsStore.getState().tabsByAgent[SCOPE_KEY][0].path).toBe(
+        "two.txt",
+      );
+      expect(useCodingTabsStore.getState().activeTabByAgent[SCOPE_KEY]).toBe(
+        "two.txt",
+      );
+    });
   });
 });

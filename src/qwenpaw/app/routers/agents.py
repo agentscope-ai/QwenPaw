@@ -65,6 +65,33 @@ class AgentListResponse(BaseModel):
     agents: list[AgentSummary]
 
 
+class MemoryGraphNode(BaseModel):
+    """One category root, indexed memory file, or unresolved target."""
+
+    id: str
+    path: str
+    name: str = ""
+    description: str = ""
+    indexed: bool
+    virtual: bool = False
+
+
+class MemoryGraphEdge(BaseModel):
+    """One directed wikilink in the memory graph."""
+
+    source: str
+    target: str
+    target_anchor: str | None = None
+
+
+class MemoryGraphSnapshot(BaseModel):
+    """Complete graph snapshot returned by embedded ReMe."""
+
+    version: Literal[1] = 1
+    nodes: list[MemoryGraphNode]
+    edges: list[MemoryGraphEdge]
+
+
 class ReorderAgentsRequest(BaseModel):
     """Request model for persisting agent order."""
 
@@ -808,6 +835,52 @@ async def rebuild_agent_memory_index(
         raise HTTPException(status_code=500, detail=str(response.answer))
 
     return {"status": "completed"}
+
+
+@router.get(
+    "/{agentId}/memory/graph",
+    response_model=MemoryGraphSnapshot,
+    summary="Get agent memory graph",
+    description="Return the category-rooted ReMe wikilink graph",
+)
+async def get_agent_memory_graph(
+    agentId: str = PathParam(...),
+    request: Request = None,
+) -> MemoryGraphSnapshot:
+    """Return a frontend-ready graph snapshot from embedded ReMe."""
+    config = load_config()
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    agent_config = load_agent_config(agentId)
+    if agent_config.running.memory_manager_backend != "remelight":
+        raise HTTPException(
+            status_code=400,
+            detail="Memory graph is only supported by ReMe Light",
+        )
+
+    manager = _get_multi_agent_manager(request)
+    workspace = await manager.get_agent(agentId)
+    memory_manager = workspace.memory_manager
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory manager is not available",
+        )
+
+    response = await memory_manager.graph_snapshot()
+    if response is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ReMe is not started or the graph snapshot job failed",
+        )
+    if not response.success:
+        raise HTTPException(status_code=500, detail=str(response.answer))
+
+    return MemoryGraphSnapshot.model_validate(response.answer)
 
 
 @router.delete(

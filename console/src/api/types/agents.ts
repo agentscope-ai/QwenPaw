@@ -36,6 +36,27 @@ export interface ReorderAgentsResponse {
   agent_ids: string[];
 }
 
+export interface MemoryGraphNode {
+  id: string;
+  path: string;
+  name: string;
+  description: string;
+  indexed: boolean;
+  virtual?: boolean;
+}
+
+export interface MemoryGraphEdge {
+  source: string;
+  target: string;
+  target_anchor: string | null;
+}
+
+export interface MemoryGraphSnapshot {
+  version: 1;
+  nodes: MemoryGraphNode[];
+  edges: MemoryGraphEdge[];
+}
+
 export interface AgentProfileConfig {
   id: string;
   name: string;

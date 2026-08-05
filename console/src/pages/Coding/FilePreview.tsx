@@ -20,6 +20,7 @@ import { buildAuthHeaders } from "../../api/authHeaders";
 import type { WorkspaceRoot } from "../../features/files-workspace/types";
 import { ExternalMarkdownLink } from "../../components/Markdown/externalLinkComponents";
 import { useAgentStore } from "../../stores/agentStore";
+import { parseMarkdownFrontmatter } from "../../utils/markdown";
 import styles from "./FilePreview.module.less";
 
 // ---------------------------------------------------------------------------
@@ -297,13 +298,28 @@ const markdownComponents = {
 };
 
 function MarkdownPreview({ content }: { content: string }) {
+  const { body, entries } = useMemo(
+    () => parseMarkdownFrontmatter(content),
+    [content],
+  );
+
   return (
     <div className={styles.markdownWrap}>
+      {entries.length > 0 && (
+        <dl className={styles.frontmatter} aria-label="Front matter">
+          {entries.map(({ key, value }, index) => (
+            <div className={styles.frontmatterRow} key={`${key}:${index}`}>
+              <dt className={styles.frontmatterKey}>{key}</dt>
+              <dd className={styles.frontmatterValue}>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={markdownComponents}
       >
-        {content}
+        {body}
       </ReactMarkdown>
     </div>
   );

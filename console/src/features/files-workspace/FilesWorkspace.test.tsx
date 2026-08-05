@@ -1,4 +1,4 @@
-import { act, render } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FilesWorkspace from "./FilesWorkspace";
@@ -6,12 +6,18 @@ import { notifyProjectDirectoryChanged } from "../project-directory/projectDirec
 
 const lifecycle = vi.hoisted(() => ({
   clearProjectTabs: vi.fn(),
+  closeTab: vi.fn(),
   editorMounted: vi.fn(),
   editorUnmounted: vi.fn(),
   navigatorMounted: vi.fn(),
   navigatorUnmounted: vi.fn(),
+  navigatorProps: null as {
+    onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
+    onShowFiles: () => void;
+  } | null,
   saveFileContent: vi.fn(),
   setTabEtag: vi.fn(),
+  setActiveTab: vi.fn(),
   tabs: [] as Array<{
     path: string;
     displayPath?: string;
@@ -22,6 +28,7 @@ const lifecycle = vi.hoisted(() => ({
   }>,
   activeTabPath: "",
   editorProps: null as {
+    onCloseOtherTabs: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
   } | null,
 }));
@@ -35,9 +42,9 @@ vi.mock("../../stores/codingTabsStore", () => ({
   useActiveTabPathForScope: () => lifecycle.activeTabPath,
   useCodingTabsStore: () => ({
     clearProjectTabs: lifecycle.clearProjectTabs,
-    closeTab: vi.fn(),
+    closeTab: lifecycle.closeTab,
     openTab: vi.fn(),
-    setActiveTab: vi.fn(),
+    setActiveTab: lifecycle.setActiveTab,
     setTabContent: vi.fn(),
     setTabDirty: vi.fn(),
     setTabEtag: lifecycle.setTabEtag,
@@ -51,7 +58,11 @@ vi.mock("../../api/modules/workspace", () => ({
 }));
 
 vi.mock("./FilesNavigator", () => ({
-  default: function MockFilesNavigator() {
+  default: function MockFilesNavigator(props: {
+    onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
+    onShowFiles: () => void;
+  }) {
+    lifecycle.navigatorProps = props;
     useEffect(() => {
       lifecycle.navigatorMounted();
       return () => lifecycle.navigatorUnmounted();
@@ -60,8 +71,17 @@ vi.mock("./FilesNavigator", () => ({
   },
 }));
 
+vi.mock("./MemoryGraphView", () => ({
+  default: ({ agentId, root }: { agentId: string; root: string }) => (
+    <div>
+      memory-graph:{agentId}:{root}
+    </div>
+  ),
+}));
+
 vi.mock("../../pages/Coding/TabbedEditor", () => ({
   default: function MockTabbedEditor(props: {
+    onCloseOtherTabs: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
   }) {
     lifecycle.editorProps = props;
@@ -83,6 +103,7 @@ describe("FilesWorkspace directory changes", () => {
     lifecycle.tabs = [];
     lifecycle.activeTabPath = "";
     lifecycle.editorProps = null;
+    lifecycle.navigatorProps = null;
   });
 
   it("rebuilds the Session navigator and editor watch host", () => {
@@ -144,5 +165,37 @@ describe("FilesWorkspace directory changes", () => {
       "notes.md",
       "v2",
     );
+  });
+
+  it("closes every other tab and activates the tab used for the action", () => {
+    lifecycle.tabs = [
+      { path: "one.md", content: "", dirty: false },
+      { path: "two.md", content: "", dirty: false },
+      { path: "three.md", content: "", dirty: false },
+    ];
+    lifecycle.activeTabPath = "one.md";
+
+    render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+    act(() => lifecycle.editorProps?.onCloseOtherTabs("two.md"));
+
+    expect(lifecycle.closeTab.mock.calls).toEqual([
+      ["agent:agent-a", "one.md"],
+      ["agent:agent-a", "three.md"],
+    ]);
+    expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+      "agent:agent-a",
+      "two.md",
+    );
+  });
+
+  it("switches between the editor and the memory graph", () => {
+    render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+
+    act(() => lifecycle.navigatorProps?.onShowMemoryGraph("wiki"));
+    expect(screen.getByText("memory-graph:agent-a:wiki")).toBeInTheDocument();
+    expect(screen.queryByText("editor")).not.toBeInTheDocument();
+
+    act(() => lifecycle.navigatorProps?.onShowFiles());
+    expect(screen.getByText("editor")).toBeInTheDocument();
   });
 });

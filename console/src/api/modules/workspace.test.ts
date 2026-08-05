@@ -396,6 +396,36 @@ describe("workspaceApi.listDailyMemory", () => {
   });
 });
 
+describe("workspaceApi sectioned memory files", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("lists files from the selected memory section", async () => {
+    vi.mocked(request).mockResolvedValue([]);
+    await workspaceApi.listMemoryFiles("digest");
+    expect(request).toHaveBeenCalledWith("/workspace/memory?section=digest");
+  });
+
+  it("loads a nested file from the selected memory section", async () => {
+    vi.mocked(request).mockResolvedValue({ content: "knowledge" });
+    await workspaceApi.loadMemoryFile("wiki/topic.md", "digest");
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/memory/wiki/topic.md?section=digest",
+    );
+  });
+
+  it("saves a nested file to the selected memory section", async () => {
+    vi.mocked(request).mockResolvedValue({});
+    await workspaceApi.saveMemoryFile("2026/08/05.md", "today", "daily");
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/memory/2026/08/05.md?section=daily",
+      {
+        method: "PUT",
+        body: JSON.stringify({ content: "today" }),
+      },
+    );
+  });
+});
+
 describe("workspaceApi.loadDailyMemory", () => {
   afterEach(() => vi.clearAllMocks());
 
