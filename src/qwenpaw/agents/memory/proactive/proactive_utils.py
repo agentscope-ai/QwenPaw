@@ -266,7 +266,7 @@ async def _analyze_screen_activity(
             # content may be [DataBlock, TextBlock] - find the TextBlock
             result_text = ""
             for block in content:
-                if hasattr(block, 'text'):
+                if hasattr(block, "text"):
                     result_text = block.text
                     break
         else:

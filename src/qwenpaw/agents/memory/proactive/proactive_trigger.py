@@ -44,7 +44,7 @@ def enable_proactive_for_session(
     if workspace is None:
         raise ValueError(
             "workspace must be provided to enable_proactive_for_session. "
-            "Pass the current HookContext.workspace from the command handler."
+            "Pass the current HookContext.workspace from the command handler.",
         )
 
     # Store the workspace reference for the trigger loop to use
