@@ -116,11 +116,14 @@ export function useMarketPlugins({
     setPage(1);
   }, []);
 
-  const handleCategoryChange = useCallback((cat: string | undefined) => {
-    if (fixedCategory) return;
-    setCategory(cat);
-    setPage(1);
-  }, [fixedCategory]);
+  const handleCategoryChange = useCallback(
+    (cat: string | undefined) => {
+      if (fixedCategory) return;
+      setCategory(cat);
+      setPage(1);
+    },
+    [fixedCategory],
+  );
 
   const handleSortChange = useCallback((sort: MarketPluginSortBy) => {
     setSortBy(sort);
@@ -147,16 +150,12 @@ export function useMarketPlugins({
       try {
         const downloadUrl = buildMarketDownloadUrl(entry);
         const result = await installPlugin(downloadUrl, { force: true });
-        message.success(
-          `${tRef.current(installSuccessKey)}: ${result.name}`,
-        );
+        message.success(`${tRef.current(installSuccessKey)}: ${result.name}`);
         onInstalled();
         setTimeout(() => window.location.reload(), 800);
       } catch (err) {
         const msg =
-          err instanceof Error
-            ? err.message
-            : tRef.current(installFailedKey);
+          err instanceof Error ? err.message : tRef.current(installFailedKey);
         message.error(msg);
       } finally {
         setInstallingId(null);

@@ -426,10 +426,9 @@ export default function AppStore() {
                         }`
                       : ""}
                     {entry.downloads != null
-                      ? ` · ${t(
-                          "os.appMarketDownloads",
-                          "Downloads",
-                        )}: ${entry.downloads}`
+                      ? ` · ${t("os.appMarketDownloads", "Downloads")}: ${
+                          entry.downloads
+                        }`
                       : ""}
                   </div>
 
