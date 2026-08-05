@@ -1600,7 +1600,7 @@
     "source": "ソース",
     "workspace": "ワークスペース",
     "profile": "プロフィール",
-    "memory": "メモリ",
+    "memory": "長期記憶",
     "projectDirectory": "プロジェクトディレクトリ",
     "workspaceDirectory": "設定ディレクトリ",
     "sourceEmpty": "このソースにはまだファイルがありません。",

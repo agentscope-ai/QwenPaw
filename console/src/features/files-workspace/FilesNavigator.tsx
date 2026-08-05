@@ -38,6 +38,7 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import SessionProjectDirectory from "../project-directory/SessionProjectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
 import { directoriesMatch, workspaceRoots } from "./directorySources";
+import { isDefaultWorkspaceMarkdown } from "./defaultWorkspaceMarkdown";
 import {
   filesWorkspaceScopeKey,
   type FilesWorkspaceScope,
@@ -383,6 +384,7 @@ export default function FilesNavigator({
       setEnabledFiles(order);
       setProfileFiles(
         files
+          .filter((file) => isDefaultWorkspaceMarkdown(file.filename))
           .map((file) => ({
             name: file.filename.split("/").pop() ?? file.filename,
             path: file.filename,
@@ -515,101 +517,65 @@ export default function FilesNavigator({
     return [];
   }, [entries, memoryFiles, profileFiles, source]);
 
-  const canUpload = source === "workspace";
-
   return (
     <aside
       className={styles.navigator}
       data-source={source}
-      data-root={source === "workspace" ? workspaceRoot : undefined}
+      data-root={workspaceRoot}
       aria-label={t("files.navigator")}
     >
-      <header
-        className={`${styles.navigatorHeader} ${
-          source === "workspace" ? "" : styles.navigatorHeaderCompact
-        }`}
-      >
-        {source === "workspace" ? (
-          <div className={styles.directoryToolbar}>
-            <div className={styles.directoryContext} data-root={workspaceRoot}>
-              <span className={styles.directoryContextIcon}>
-                {workspaceRoot === "project" ? (
-                  <FolderOpen size={15} />
-                ) : (
-                  <Settings2 size={15} />
-                )}
+      <header className={styles.navigatorHeader}>
+        <div className={styles.directoryToolbar}>
+          <div className={styles.directoryContext} data-root={workspaceRoot}>
+            <span className={styles.directoryContextIcon}>
+              {workspaceRoot === "project" ? (
+                <FolderOpen size={15} />
+              ) : (
+                <Settings2 size={15} />
+              )}
+            </span>
+            <div className={styles.directoryContextBody}>
+              <span className={styles.directoryContextLabel}>
+                {t(`files.${workspaceRoot}Directory`)}
               </span>
-              <div className={styles.directoryContextBody}>
-                <span className={styles.directoryContextLabel}>
-                  {t(`files.${workspaceRoot}Directory`)}
-                </span>
-                {workspaceRoot === "project" ? (
-                  <SessionProjectDirectory
-                    scope={scope}
-                    showFullPath
-                    beforeChange={confirmDirectoryChange}
-                    onChanged={handleDirectoryChanged}
-                  />
-                ) : (
-                  <span className={styles.directoryIdentity}>
-                    <span className={styles.directoryIdentityText}>
-                      <strong>
-                        {workspaceDirectory
-                          .replace(/[\\/]+$/, "")
-                          .split(/[\\/]/)
-                          .pop() || t("files.workspaceDirectory")}
-                      </strong>
-                      <span title={workspaceDirectory}>
-                        {workspaceDirectory}
-                      </span>
-                    </span>
+              {workspaceRoot === "project" ? (
+                <SessionProjectDirectory
+                  scope={scope}
+                  showFullPath
+                  beforeChange={confirmDirectoryChange}
+                  onChanged={handleDirectoryChanged}
+                />
+              ) : (
+                <span className={styles.directoryIdentity}>
+                  <span className={styles.directoryIdentityText}>
+                    <strong>
+                      {workspaceDirectory
+                        .replace(/[\\/]+$/, "")
+                        .split(/[\\/]/)
+                        .pop() || t("files.workspaceDirectory")}
+                    </strong>
+                    <span title={workspaceDirectory}>{workspaceDirectory}</span>
                   </span>
-                )}
-              </div>
-              {roots.length > 1 && (
-                <button
-                  type="button"
-                  className={styles.directorySwitch}
-                  onClick={() =>
-                    setWorkspaceRoot((current) =>
-                      current === "project" ? "workspace" : "project",
-                    )
-                  }
-                  aria-label={t("files.switchDirectory")}
-                  title={t("files.switchDirectory")}
-                >
-                  <ArrowLeftRight size={14} />
-                </button>
+                </span>
               )}
             </div>
-            <div className={styles.directoryTools}>
+            {roots.length > 1 && (
               <button
                 type="button"
-                className={styles.iconButton}
-                onClick={() => void refreshCurrent()}
-                aria-label={t("common.refresh")}
+                className={styles.directorySwitch}
+                onClick={() =>
+                  setWorkspaceRoot((current) =>
+                    current === "project" ? "workspace" : "project",
+                  )
+                }
+                aria-label={t("files.switchDirectory")}
+                title={t("files.switchDirectory")}
               >
-                <RefreshCw size={15} />
+                <ArrowLeftRight size={14} />
               </button>
-              {canUpload && (
-                <button
-                  type="button"
-                  className={styles.iconButton}
-                  onClick={() => uploadRef.current?.click()}
-                  aria-label={t("files.upload")}
-                  disabled={uploading}
-                >
-                  {uploading ? (
-                    <LoaderCircle className={styles.spin} size={15} />
-                  ) : (
-                    <Upload size={15} />
-                  )}
-                </button>
-              )}
-            </div>
+            )}
           </div>
-        ) : (
-          <div className={styles.navigatorActions}>
+          <div className={styles.directoryTools}>
             <button
               type="button"
               className={styles.iconButton}
@@ -618,21 +584,32 @@ export default function FilesNavigator({
             >
               <RefreshCw size={15} />
             </button>
+            <button
+              type="button"
+              className={styles.iconButton}
+              onClick={() => uploadRef.current?.click()}
+              aria-label={t("files.upload")}
+              disabled={uploading}
+            >
+              {uploading ? (
+                <LoaderCircle className={styles.spin} size={15} />
+              ) : (
+                <Upload size={15} />
+              )}
+            </button>
           </div>
-        )}
-        {canUpload && (
-          <input
-            ref={uploadRef}
-            type="file"
-            multiple
-            hidden
-            onChange={(event) => {
-              const files = Array.from(event.target.files ?? []);
-              event.target.value = "";
-              if (files.length > 0) void runUpload(files);
-            }}
-          />
-        )}
+        </div>
+        <input
+          ref={uploadRef}
+          type="file"
+          multiple
+          hidden
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            event.target.value = "";
+            if (files.length > 0) void runUpload(files);
+          }}
+        />
       </header>
       <div className={styles.sourceTabs} role="tablist">
         {(["workspace", "profile", "memory"] as FileSource[]).map((item) => (

@@ -1885,7 +1885,7 @@
     "workspace": "工作区",
     "agentWorkspace": "Agent 工作区",
     "profile": "档案",
-    "memory": "记忆",
+    "memory": "长期记忆",
     "projectDirectory": "项目目录",
     "workspaceDirectory": "配置目录",
     "switchDirectory": "切换目录来源",

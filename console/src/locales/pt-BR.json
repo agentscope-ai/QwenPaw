@@ -1837,7 +1837,7 @@
     "source": "Fonte",
     "workspace": "Workspace",
     "profile": "Perfil",
-    "memory": "Memória",
+    "memory": "Memória de Longo Prazo",
     "projectDirectory": "Diretório do projeto",
     "workspaceDirectory": "Diretório de configuração",
     "sourceEmpty": "Ainda não há arquivos nesta fonte.",

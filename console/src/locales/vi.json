@@ -915,7 +915,7 @@
     "source": "Nguồn",
     "workspace": "Workspace",
     "profile": "Hồ sơ",
-    "memory": "Bộ nhớ",
+    "memory": "Bộ nhớ dài hạn",
     "projectDirectory": "Thư mục dự án",
     "workspaceDirectory": "Thư mục cấu hình",
     "sourceEmpty": "Nguồn này chưa có tệp.",

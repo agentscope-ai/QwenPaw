@@ -2037,7 +2037,7 @@
     "source": "Sumber",
     "workspace": "Workspace",
     "profile": "Profil",
-    "memory": "Memori",
+    "memory": "Memori Jangka Panjang",
     "projectDirectory": "Direktori proyek",
     "workspaceDirectory": "Direktori konfigurasi",
     "sourceEmpty": "Belum ada file di sumber ini.",

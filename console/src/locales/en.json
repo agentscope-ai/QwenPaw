@@ -2026,7 +2026,7 @@
     "workspace": "Workspace",
     "agentWorkspace": "Agent workspace",
     "profile": "Profile",
-    "memory": "Memory",
+    "memory": "Long-term Memory",
     "projectDirectory": "Project directory",
     "workspaceDirectory": "Configuration directory",
     "switchDirectory": "Switch directory source",
