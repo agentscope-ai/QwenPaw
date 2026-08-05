@@ -174,12 +174,12 @@ class MemoryMiddleware(MiddlewareBase):
             return
 
         try:
-            cfg = self._memory_config()
+            # Auto-Memory durability is independent of whether compression
+            # also produces a human-readable continuation summary.
             pending_markers = self._auto_memory_turn_state(agent)["pending"]
-            if (
-                getattr(cfg, "summarize_when_compact", False)
-                and pending_markers
-                and await self._will_compress_context(agent, input_kwargs)
+            if pending_markers and await self._will_compress_context(
+                agent,
+                input_kwargs,
             ):
                 await self._flush_auto_memory(agent)
         except Exception:

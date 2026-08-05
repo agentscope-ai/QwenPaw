@@ -400,16 +400,9 @@ class TestOnCompressContextAutomationSkip:
 
         with patch.object(
             MemoryMiddleware,
-            "_memory_config",
-        ) as mock_cfg, patch.object(
-            MemoryMiddleware,
             "_will_compress_context",
             return_value=True,
         ) as mock_wc:
-            cfg = MagicMock()
-            cfg.summarize_when_compact = True
-            mock_cfg.return_value = cfg
-
             agent.state.context = [_user_msg()]
 
             await mw.on_compress_context(agent, {}, next_handler)
@@ -421,7 +414,6 @@ class TestOnCompressContextAutomationSkip:
     @pytest.mark.parametrize(
         "failing_step",
         [
-            "memory_config",
             "turn_state",
             "will_compress",
             "flush",
@@ -437,12 +429,7 @@ class TestOnCompressContextAutomationSkip:
         agent = _make_agent(source="user")
         next_handler = AsyncMock()
 
-        if failing_step == "memory_config":
-            mm.get_memory_config.side_effect = RuntimeError(
-                "memory config unavailable",
-            )
-        else:
-            _auto_memory_turn_state(mm)["pending"] = ["m1"]
+        _auto_memory_turn_state(mm)["pending"] = ["m1"]
 
         if failing_step == "turn_state":
             mm.get_auto_memory_turn_state.side_effect = RuntimeError(
@@ -553,3 +540,87 @@ class TestFlushAutoMemoryDefensiveGuard:
         await mw._flush_auto_memory(agent)
 
         mm.auto_memory.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Issue #6555: always flush pending before compress, independent of
+# summarize_when_compact.
+# ---------------------------------------------------------------------------
+
+
+class TestPreCompressFlushNotGatedBySummaryFlag:
+    """Issue #6555 regression tests: pending markers always flush pre-compress.
+
+    ``summarize_when_compact`` controls whether a HUMAN SUMMARY of the
+    evicted content is generated, not whether the turns are durably
+    persisted to the daily memory note. Previously they were coupled, which
+    caused early-session turns to be lost whenever the default
+    ``summarize_when_compact=False`` was in effect and scroll compaction
+    evicted those messages before the auto-memory cadence fired.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("summary_enabled", [False, True])
+    async def test_summary_setting_does_not_gate_flush(
+        self,
+        summary_enabled,
+    ):
+        mm = _make_memory_manager()
+        mm.get_memory_config.return_value = SimpleNamespace(
+            summarize_when_compact=summary_enabled,
+        )
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        _auto_memory_turn_state(mm)["pending"] = ["turn-1"]
+        agent.state.context = [_user_msg()]
+        next_handler = AsyncMock()
+
+        with patch.object(
+            MemoryMiddleware,
+            "_will_compress_context",
+            return_value=True,
+        ):
+            await mw.on_compress_context(agent, {}, next_handler)
+
+        next_handler.assert_awaited_once()
+        mm.auto_memory.assert_awaited_once()
+        assert not _auto_memory_turn_state(mm)["pending"]
+        mm.get_memory_config.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_pending_no_flush_even_above_trigger(self):
+        """No pending markers → no work done, still invokes compress."""
+        mm = _make_memory_manager()
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        next_handler = AsyncMock()
+
+        with patch.object(
+            MemoryMiddleware,
+            "_will_compress_context",
+            return_value=True,
+        ):
+            await mw.on_compress_context(agent, {}, next_handler)
+
+        next_handler.assert_awaited_once()
+        mm.auto_memory.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_below_trigger_no_flush(self):
+        """Under the token threshold → no flush; compress still runs."""
+        mm = _make_memory_manager()
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        _auto_memory_turn_state(mm)["pending"] = ["turn-1"]
+        agent.state.context = [_user_msg()]
+        next_handler = AsyncMock()
+
+        with patch.object(
+            MemoryMiddleware,
+            "_will_compress_context",
+            return_value=False,
+        ):
+            await mw.on_compress_context(agent, {}, next_handler)
+
+        next_handler.assert_awaited_once()
+        mm.auto_memory.assert_not_awaited()
