@@ -284,6 +284,15 @@ _DINGTALK_PENDING_STATUSES = (
 _DINGTALK_FAILED_STATUSES = ("FAIL", "EXPIRED")
 
 
+def _clean_str(value: Any) -> str:
+    """Return a stripped string only for real string values.
+
+    JSON ``null`` (``None``) and non-string types are treated as absent so
+    that e.g. ``client_id: null`` never turns into the literal ``"None"``.
+    """
+    return value.strip() if isinstance(value, str) else ""
+
+
 class DingtalkQRCodeAuthHandler(QRCodeAuthHandler):
     """QR code auth handler for DingTalk bot registration via Device Flow.
 
@@ -392,9 +401,9 @@ class DingtalkQRCodeAuthHandler(QRCodeAuthHandler):
                 detail=f"DingTalk status check failed: {exc}",
             ) from exc
 
-        status = str(data.get("status", "")).strip().upper()
-        client_id = str(data.get("client_id", "")).strip()
-        client_secret = str(data.get("client_secret", "")).strip()
+        status = _clean_str(data.get("status")).upper()
+        client_id = _clean_str(data.get("client_id"))
+        client_secret = _clean_str(data.get("client_secret"))
 
         if client_id and client_secret:
             logger.info(
@@ -410,7 +419,7 @@ class DingtalkQRCodeAuthHandler(QRCodeAuthHandler):
             )
 
         if status in _DINGTALK_FAILED_STATUSES:
-            fail_reason = str(data.get("fail_reason", "")).strip()
+            fail_reason = _clean_str(data.get("fail_reason"))
             logger.warning(
                 f"dingtalk registration poll: status={status} "
                 f"errcode={data.get('errcode')} "

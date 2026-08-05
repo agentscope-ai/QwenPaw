@@ -313,6 +313,33 @@ class TestDingtalkQRCodeAuthHandler:
         assert result.credentials == {}
 
     @pytest.mark.asyncio
+    async def test_poll_status_null_credentials_keeps_waiting(
+        self,
+        dingtalk_handler,
+        mock_request,
+        mock_httpx_client,
+    ):
+        """JSON null must not become the literal string "None"."""
+        response = _mock_response(
+            {
+                "errcode": 0,
+                "errmsg": "ok",
+                "status": "WAITING",
+                "client_id": None,
+                "client_secret": None,
+            },
+        )
+
+        with patch("httpx.AsyncClient", mock_httpx_client(response)):
+            result = await dingtalk_handler.poll_status(
+                "device_123",
+                mock_request,
+            )
+
+        assert result.status == "waiting"
+        assert result.credentials == {}
+
+    @pytest.mark.asyncio
     async def test_poll_status_partial_credentials_keeps_waiting(
         self,
         dingtalk_handler,
