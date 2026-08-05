@@ -387,6 +387,14 @@ _PROJECT_SCHEMA_HINTS: tuple[tuple[tuple[str, ...], str], ...] = (
         "variants 定义在 visual.entities.items[<entityId>].variants 之下，"
         "visual 顶层没有 variants 字段",
     ),
+    (
+        ("creation", "overlay"),
+        "Overlay creation 的动效字段（emotion、entrance、exit、"
+        "intensity、theme、variant、motif、html、fps、loop、"
+        "design_notes）必须放在 creation.motion 子对象内，"
+        "不得直接写在 creation 上；"
+        "overlay_kind=motion 或 media 的 Overlay 必须携带非空 prompt",
+    ),
 )
 _MAX_SCHEMA_ERROR_LINES = 8
 
@@ -401,7 +409,10 @@ def _translate_project_schema_error(error: ValidationError) -> str:
         path = ".".join(loc) or "$"
         hint = ""
         for prefix, text in _PROJECT_SCHEMA_HINTS:
-            if loc[: len(prefix)] == prefix:
+            if loc[: len(prefix)] == prefix or any(
+                loc[index : index + len(prefix)] == prefix
+                for index in range(len(loc) - len(prefix) + 1)
+            ):
                 hint = f"（{text}）"
                 break
         else:

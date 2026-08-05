@@ -22,10 +22,19 @@ export function useSyncCodingMode(): void {
   useEffect(() => {
     if (!selectedAgent) return;
     let cancelled = false;
+    const startRevision =
+      useCodingModeStore.getState().codingModeRevisionByAgent[selectedAgent] ??
+      0;
     void Promise.all([codingModeApi.get(), projectDirectoryApi.get()])
       .then(([mode, project]) => {
         if (cancelled) return;
-        setCodingMode(selectedAgent, mode.enabled);
+        const currentRevision =
+          useCodingModeStore.getState().codingModeRevisionByAgent[
+            selectedAgent
+          ] ?? 0;
+        if (currentRevision === startRevision) {
+          setCodingMode(selectedAgent, mode.enabled);
+        }
         setProjectDir(
           selectedAgent,
           project.is_workspace_default ? null : project.path,
@@ -38,7 +47,13 @@ export function useSyncCodingMode(): void {
         // Agent configuration stays disabled
         // forever on any GET failure.
         console.warn("Failed to sync coding mode state:", err);
-        setCodingMode(selectedAgent, false);
+        const currentRevision =
+          useCodingModeStore.getState().codingModeRevisionByAgent[
+            selectedAgent
+          ] ?? 0;
+        if (currentRevision === startRevision) {
+          setCodingMode(selectedAgent, false);
+        }
         setProjectDir(selectedAgent, null);
       });
     return () => {

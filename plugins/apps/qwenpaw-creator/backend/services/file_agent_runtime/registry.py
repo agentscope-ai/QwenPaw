@@ -74,6 +74,7 @@ async def interrupt_creator_agent_runtime(
     *,
     superseded: bool = False,
     reason: str = "user_interrupt",
+    expected_run_id: str | None = None,
 ) -> bool:
     current = get_creator_agent_runtime()
     if current is None:
@@ -82,6 +83,7 @@ async def interrupt_creator_agent_runtime(
         project_id,
         superseded=superseded,
         reason=reason,
+        expected_run_id=expected_run_id,
     )
 
 

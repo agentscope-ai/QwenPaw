@@ -12,12 +12,59 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 from ..agents.acp.meta import ACP_CODING_PROJECT_META_KEY
 from ..utils.io_utils import run_sync_io
 
+if TYPE_CHECKING:
+    from ..agents.context.visual_compression.runtime.recovery import (
+        TurnRecoveryStore,
+    )
+
 _logger = logging.getLogger(__name__)
+
+
+def _descriptor_for(tool: Any) -> Any | None:
+    """Return the descriptor from a tool or its common wrapper attributes."""
+    for candidate in (
+        tool,
+        getattr(tool, "func", None),
+        getattr(tool, "_func", None),
+    ):
+        descriptor = getattr(candidate, "_tool_descriptor", None)
+        if descriptor is not None:
+            return descriptor
+    return None
+
+
+def _bound_skill_loader_dirs(tools: Iterable[Any]) -> list[str]:
+    """Resolve descriptor-declared skill directories with language variants."""
+    from ..agents.skill_system.registry import (
+        get_builtin_skill_language_preference,
+    )
+
+    language = get_builtin_skill_language_preference()
+    dirs: list[str] = []
+    for tool in tools:
+        metadata = getattr(_descriptor_for(tool), "metadata", None) or {}
+        names = metadata.get("bound_skills") or ()
+        root = metadata.get("bound_skills_root")
+        if not names or not root:
+            continue
+        for name in names:
+            preferred = Path(root) / f"{name}-{language}"
+            fallback = Path(root) / f"{name}-en"
+            chosen = preferred if preferred.is_dir() else fallback
+            if (chosen / "SKILL.md").exists():
+                dirs.append(str(chosen))
+            else:
+                _logger.warning(
+                    "bound skill %r has no SKILL.md under %s; not injected",
+                    name,
+                    root,
+                )
+    return dirs
 
 
 class AgentBuilder:
@@ -99,6 +146,9 @@ class AgentBuilder:
             effective_skills,
             workspace_dir,
         )
+        for extra in _bound_skill_loader_dirs(tools):
+            if extra not in skill_dirs:
+                skill_dirs.append(extra)
 
         return Toolkit(tools=tools, skills_or_loaders=skill_dirs)
 
@@ -256,12 +306,26 @@ class AgentBuilder:
             local_ws.set_governor(governor)
 
         # Toolkit.
+        from ..agents.context.visual_compression.runtime.recovery import (
+            TurnRecoveryStore,
+        )
+
+        visual_recovery_store = TurnRecoveryStore()
         extra_tools = self._collect_coding_mode_tools(
             agent_config,
             workspace_dir,
             agent_id,
             request_context,
             governor,
+        )
+        extra_tools.extend(
+            self._collect_visual_compression_tools(
+                agent_config,
+                agent_id,
+                request_context,
+                governor,
+                visual_recovery_store,
+            ),
         )
         (
             driver_tools,
@@ -288,7 +352,7 @@ class AgentBuilder:
         offloader = self._build_offloader(ctx, agent_config)
 
         # Optional scroll context strategy (None unless strategy="scroll").
-        scroll = self._build_scroll_components(
+        scroll = await self._build_scroll_components(
             ctx,
             agent_config,
             model,
@@ -335,7 +399,11 @@ class AgentBuilder:
         # System prompt.
         sys_prompt = self.build_prompt(ctx, agent_config)
 
-        middlewares = self._build_middlewares(ctx, agent_config)
+        middlewares = self._build_middlewares(
+            ctx,
+            agent_config,
+            visual_recovery_store,
+        )
 
         running_config = agent_config.running
 
@@ -683,6 +751,41 @@ class AgentBuilder:
         )
 
     @staticmethod
+    def _collect_visual_compression_tools(
+        agent_config: Any,
+        agent_id: str,
+        request_context: dict[str, Any],
+        governor: Any = None,
+        recovery_store: TurnRecoveryStore | None = None,
+    ) -> list[Any]:
+        """Collect the optional visual-context recovery tool."""
+        config = (
+            agent_config.running.light_context_config.visual_compact_config
+        )
+        if not config.enabled:
+            return []
+
+        from ..agents.context.visual_compression.runtime.recovery import (
+            TurnRecoveryStore,
+            make_recover_visual_context_tool,
+        )
+
+        store = (
+            recovery_store
+            if recovery_store is not None
+            else TurnRecoveryStore()
+        )
+        recover_visual_context = make_recover_visual_context_tool(store)
+        return [
+            AgentBuilder._wrap_tool(
+                recover_visual_context,
+                agent_id,
+                request_context,
+                governor,
+            ),
+        ]
+
+    @staticmethod
     def _get_driver_prompt_hints(ctx: Any) -> list[str]:
         extras = getattr(ctx, "extras", {}) or {}
         hints = extras.get("driver_prompt_hints") or []
@@ -748,7 +851,7 @@ class AgentBuilder:
             return ContextConfig()
 
     @staticmethod
-    def _build_scroll_components(
+    async def _build_scroll_components(
         ctx: Any,
         agent_config: Any,
         model: Any,
@@ -779,7 +882,8 @@ class AgentBuilder:
         # history.db is shared across sessions in this workspace; rows are
         # keyed by session_id (the conversation) and agent_id (which agent
         # wrote them).
-        return build_scroll_components(
+        return await run_sync_io(
+            build_scroll_components,
             agent_config=agent_config,
             workspace_dir=workspace_dir,
             model=model,
@@ -1011,6 +1115,7 @@ class AgentBuilder:
     def _build_middlewares(
         ctx: Any,
         agent_config: Any,
+        visual_recovery_store: TurnRecoveryStore | None = None,
     ) -> list[Any]:
         """Build middleware list.
 
@@ -1018,6 +1123,7 @@ class AgentBuilder:
         1. ToolResultPruningMiddleware — tiered tool result pruning
         2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
+        4. VisualCompressionMiddleware — innermost pre-provider transform
         """
         mws: list[Any] = []
 
@@ -1104,6 +1210,22 @@ class AgentBuilder:
                     reg.plugin_id,
                     exc_info=True,
                 )
+
+        # Visual compression is a request-boundary middleware. It reads the
+        # validated per-agent config and does not mutate it.
+        from ..agents.context.visual_compression.runtime.middleware import (
+            VisualCompressionMiddleware,
+        )
+
+        visual_config = (
+            agent_config.running.light_context_config.visual_compact_config
+        )
+        mws.append(
+            VisualCompressionMiddleware(
+                visual_config,
+                visual_recovery_store,
+            ),
+        )
 
         return mws
 

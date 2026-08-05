@@ -2,11 +2,19 @@
 // Extracted from ChatV2 MessageList.module.less so plugin cards
 // have zero dependencies on files outside ToolCards/.
 
+.toolCallContainer {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
 // Tool call — compact single-line (click to expand)
 .toolCallCompact {
   margin: 2px 0;
   display: block;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
 
   &.toolCallCompactLoading {
     .toolCallLabel {
@@ -30,7 +38,10 @@
   user-select: none;
   list-style: none;
   padding: 2px 0;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
+  box-sizing: border-box;
 
   &::-webkit-details-marker {
     display: none;
@@ -78,6 +89,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
 
   &:hover {
     color: var(--ant-color-primary, #1677ff);

@@ -31,11 +31,15 @@ const AgentConfigPage = lazyImportWithRetry("../../pages/Agent/Config");
 const SkillsPage = lazyImportWithRetry("../../pages/Agent/Skills");
 const SkillPoolPage = lazyImportWithRetry("../../pages/Settings/SkillPool");
 const ToolsPage = lazyImportWithRetry("../../pages/Agent/Tools");
+const CheckpointsPage = lazyImportWithRetry("../../pages/Agent/Checkpoints");
 const MCPPage = lazyImportWithRetry("../../pages/Agent/MCP");
 const ACPPage = lazyImportWithRetry("../../pages/Agent/ACP");
 const ModelsPage = lazyImportWithRetry("../../pages/Settings/Models");
 const EnvironmentsPage = lazyImportWithRetry(
   "../../pages/Settings/Environments",
+);
+const OffloadPolicyPage = lazyImportWithRetry(
+  "../../pages/Settings/OffloadPolicy",
 );
 const SecurityPage = lazyImportWithRetry("../../pages/Settings/Security");
 const TokenUsagePage = lazyImportWithRetry("../../pages/Settings/TokenUsage");
@@ -79,12 +83,18 @@ export const BUILTIN_ROUTES: Route[] = [
   { id: "core.mcp", path: "/mcp", component: MCPPage },
   { id: "core.acp", path: "/acp", component: ACPPage },
   { id: "core.acp-alias", path: "/ACP", component: ACPRedirect },
+  { id: "core.checkpoints", path: "/checkpoints", component: CheckpointsPage },
   { id: "core.agents", path: "/agents", component: AgentsPage },
   { id: "core.models", path: "/models", component: ModelsPage },
   {
     id: "core.environments",
     path: "/environments",
     component: EnvironmentsPage,
+  },
+  {
+    id: "core.offload-policy",
+    path: "/offload-policy",
+    component: OffloadPolicyPage,
   },
   {
     id: "core.agent-config",

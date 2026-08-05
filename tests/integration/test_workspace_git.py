@@ -196,16 +196,6 @@ def test_unstage_reverts_staging(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p0
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Product bug Aone #84580657: git.py:469 commit endpoint omits the "
-        "-c user.email/user.name identity injection that init-commit and "
-        "revert use, so on hosts without a global git identity (CI runners, "
-        "Docker) commit returns 400 'empty ident name'. Remove this marker "
-        "once the upstream fix lands."
-    ),
-)
 def test_stage_commit_roundtrip(app_server) -> None:
     """Seed -> stage -> commit produces a commit visible in the log.
 
@@ -319,16 +309,6 @@ def test_diff_staged_shows_content(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Product bug Aone #84580657: this test needs a successful commit, "
-        "but git.py:469 commit endpoint omits identity injection, so on "
-        "hosts without a global git identity (CI runners, Docker) commit "
-        "returns 400 'empty ident name'. Remove this marker once the "
-        "upstream fix lands."
-    ),
-)
 def test_commit_diff_by_hash(app_server) -> None:
     """GET /commit-diff returns the patch for a known commit.
 

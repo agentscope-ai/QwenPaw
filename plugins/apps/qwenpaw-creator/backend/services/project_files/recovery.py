@@ -17,6 +17,7 @@ import copy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+import logging
 from pathlib import Path
 import secrets
 import stat
@@ -57,6 +58,8 @@ from .json_pointer import JsonChange, diff_json, pointers_overlap
 from .models import Project
 from .serialization import project_etag
 from .store import ProjectSnapshot, ProjectStore
+
+logger = logging.getLogger("qwenpaw.creator.project_files.recovery")
 
 
 class RecoveryAction(StrEnum):
@@ -247,6 +250,12 @@ class ProjectCommitRecoveryCoordinator:
             try:
                 reports.append(self.recover_project(project_id))
             except Exception as exc:
+                logger.error(
+                    "recovery failed for project %s: %s: %s",
+                    project_id,
+                    type(exc).__name__,
+                    exc,
+                )
                 reports.append(
                     ProjectRecoveryReport(
                         project_id=project_id,
@@ -261,7 +270,13 @@ class ProjectCommitRecoveryCoordinator:
                         ),
                     ),
                 )
-        return CreatorRecoveryReport(projects=tuple(reports))
+        report = CreatorRecoveryReport(projects=tuple(reports))
+        logger.info(
+            "recovery complete: %d projects scanned, %d integrity errors",
+            len(reports),
+            len(report.integrity_errors),
+        )
+        return report
 
     def _recover_entry(
         self,

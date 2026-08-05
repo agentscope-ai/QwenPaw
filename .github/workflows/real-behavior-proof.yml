@@ -44,7 +44,12 @@ jobs:
         run: python scripts/github/real_behavior_proof_check.py
 
       - name: Add needs-context label on failure
-        if: failure()
+        # Fork PRs do not have permission to write labels on the target
+        # repository, so label manipulation is restricted to same-repo PRs.
+        # The proof check itself still runs for fork PRs.
+        if: |
+          failure() &&
+          github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v7
         with:
           github-token: ${{ github.token }}
@@ -65,7 +70,11 @@ jobs:
             }
 
       - name: Remove needs-context label on success
-        if: success()
+        # Same restriction as the add-label step above: fork PRs cannot
+        # write labels on the target repository.
+        if: |
+          success() &&
+          github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v7
         with:
           github-token: ${{ github.token }}

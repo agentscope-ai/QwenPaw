@@ -11,6 +11,7 @@ import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from agentscope.message import (
@@ -22,6 +23,7 @@ from agentscope.message import (
 )
 from agentscope.model import ChatResponse
 
+from qwenpaw.agents.context.base import ContextManager
 from qwenpaw.agents.context.scroll import manager as scroll_manager_module
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
@@ -607,7 +609,7 @@ async def test_compress_keeps_active_turn_live(store: HistoryStore):
     assert names.index("memory") < live_ids.index(cur_u.id)
 
 
-async def test_compress_does_not_evict_user_only_exchange_boundary(
+async def test_compress_does_not_evict_user_only_turn_boundary(
     store: HistoryStore,
 ):
     """If the split lands between an old user request and its assistant
@@ -742,6 +744,15 @@ def _completed_tool_history(
 class _RealisticScrollConfig:
     trigger_ratio = 0.8
     reserve_ratio = 0.1
+
+
+class _CopyableScrollConfig(_RealisticScrollConfig):
+    def model_copy(self, *, update):
+        """Return a config clone with the requested field updates."""
+        return SimpleNamespace(
+            trigger_ratio=update.get("trigger_ratio", self.trigger_ratio),
+            reserve_ratio=update.get("reserve_ratio", self.reserve_ratio),
+        )
 
 
 _VALID_CONTINUATION_SUMMARY = """## Active Task
@@ -1385,6 +1396,38 @@ async def test_manual_compact_skips_pretrim_and_performs_eviction(
     assert mgr.last_compress["pre_folded"] == 0
     assert mgr.last_compress["evicted"] == 4
     assert agent.state.context[-1].id == current.id
+
+
+@pytest.mark.parametrize(
+    ("compress_stats", "expected"),
+    [
+        ({"evicted": 1, "folded": 0}, True),
+        ({"evicted": 0, "folded": 1}, True),
+        ({"evicted": 0, "folded": 0}, False),
+    ],
+)
+async def test_overflow_recovery_forces_compaction_and_reports_change(
+    store: HistoryStore,
+    compress_stats: dict[str, int],
+    expected: bool,
+):
+    """Overflow recovery owns its force config and reports effective work."""
+    mgr = make_manager(store)
+    agent = FakeAgent([user("current")])
+    agent.context_config = _CopyableScrollConfig()
+
+    async def fake_compress(actual_agent, context_config):
+        assert actual_agent is agent
+        mgr.last_compress.update(compress_stats)
+
+    mgr.compress = AsyncMock(side_effect=fake_compress)
+
+    assert isinstance(mgr, ContextManager)
+    assert await mgr.recover_from_context_overflow(agent) is expected
+    mgr.compress.assert_awaited_once()
+    forced_config = mgr.compress.await_args.args[1]
+    assert forced_config.trigger_ratio == pytest.approx(1e-6)
+    assert forced_config.reserve_ratio == pytest.approx(0.1)
 
 
 async def test_fold_not_triggered_between_reserve_and_trigger(

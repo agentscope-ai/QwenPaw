@@ -30,6 +30,7 @@ from ..constant import (
 from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
+from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
     LOG_FILE_PATH,
     add_project_file_handler,
@@ -73,6 +74,52 @@ mimetypes.add_type("image/svg+xml", ".svg")
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.
 load_envs_into_environ()
+
+
+async def _sync_scroll_history_on_startup() -> None:
+    """Run the composed legacy-history migration outside the event loop."""
+    try:
+        from ..agents.context.scroll.sync import sync_all_scroll_agents
+
+        await run_sync_io(sync_all_scroll_agents)
+    except Exception:  # noqa: BLE001 - session sync must never block startup
+        logger.warning("session-sync: import/launch failed", exc_info=True)
+
+
+async def _browser_idle_watchdog(kernel: Any, interval: float) -> None:
+    """Periodically reclaim idle browser workers for this app process."""
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await kernel.discard_idle_workers()
+            await kernel.sweep_idle_sessions()
+            await kernel.sweep_wire_spill()
+        # intentional boundary: watchdog failures must not kill the app.
+        except Exception:
+            logger.warning("Browser idle watchdog failed", exc_info=True)
+
+
+def _start_browser_runtime(app: FastAPI, kernel: Any, interval: float) -> None:
+    """Attach browser worker housekeeping to this app's lifespan."""
+    app.state.browser_kernel = kernel
+    app.state.browser_watchdog = asyncio.create_task(
+        _browser_idle_watchdog(kernel, interval),
+    )
+
+
+async def _stop_browser_runtime(app: FastAPI) -> None:
+    """Cancel browser housekeeping and reclaim all browser workers."""
+    browser_watchdog = getattr(app.state, "browser_watchdog", None)
+    if browser_watchdog is not None:
+        browser_watchdog.cancel()
+        with suppress(asyncio.CancelledError):
+            await browser_watchdog
+    browser_kernel = getattr(app.state, "browser_kernel", None)
+    if browser_kernel is not None:
+        try:
+            await browser_kernel.discard_all_workers()
+        except Exception:
+            logger.error("Error shutting down browser workers", exc_info=True)
 
 
 @asynccontextmanager
@@ -134,12 +181,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     #
     # Note: being pure backfill, this could later run asynchronously (off the
     # boot path) to speed up startup.
-    try:
-        from ..agents.context.scroll.sync import sync_all_scroll_agents
-
-        sync_all_scroll_agents()
-    except Exception:  # noqa: BLE001 - session sync must never block startup
-        logger.warning("session-sync: import/launch failed", exc_info=True)
+    await _sync_scroll_history_on_startup()
 
     # Create core managers (instant — no I/O)
     provider_manager = ProviderManager.get_instance()
@@ -283,6 +325,20 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     app.state.startup_ready = asyncio.Event()
     app.state.startup_time = startup_start_time
+    from ..browser.execution.kernel import get_default_kernel_manager
+
+    browser_config = load_config(get_config_path()).browser
+    _start_browser_runtime(
+        app,
+        get_default_kernel_manager(),
+        max(0.1, browser_config.idle_ttl_seconds),
+    )
+    try:
+        from ..browser.control_link.chrome.ws_handler import prime_bridge_token
+
+        prime_bridge_token()
+    except Exception:
+        logger.warning("Bridge token priming failed", exc_info=True)
 
     fast_elapsed = time.time() - startup_start_time
     logger.info(
@@ -503,6 +559,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             with suppress(asyncio.CancelledError):
                 await _bg_task
 
+        await _stop_browser_runtime(app)
+        from ..agents.tools import shutdown_browser_runtime
+
+        await shutdown_browser_runtime()
+
         # ==================== Execute Shutdown Hooks ====================
         plugin_registry = getattr(app.state, "plugin_registry", None)
         if plugin_registry is not None:
@@ -566,7 +627,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         # These three cleanup tasks are independent; run in parallel.
         from ..agents.skill_system.hub import aclose_hub_client
-        from ..agents.tools.browser_control import stop_all_browsers
 
         async def _stop_token_usage():
             logger.info("Stopping TokenUsageManager...")
@@ -575,14 +635,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             except Exception as e:
                 logger.error(
                     f"Error stopping TokenUsageManager: {e}",
-                )
-
-        async def _stop_browsers():
-            try:
-                await stop_all_browsers()
-            except Exception as e:
-                logger.error(
-                    f"Error stopping browsers: {e}",
                 )
 
         async def _close_hub():
@@ -595,7 +647,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         await asyncio.gather(
             _stop_token_usage(),
-            _stop_browsers(),
             _close_hub(),
         )
 
@@ -764,6 +815,26 @@ async def post_desktop_shutdown(
 
 
 app.include_router(api_router, prefix="/api")
+
+# These registrations require the fully constructed application instance.
+# pylint: disable-next=wrong-import-position,wrong-import-order
+from qwenpaw.browser.control_link import (  # noqa: E402
+    register_builtin_control_links,
+)
+
+# pylint: disable-next=wrong-import-position,wrong-import-order
+from qwenpaw.browser.control_link.chrome.ws_handler import (  # noqa: E402
+    ws_router as browser_chrome_ws_router,
+)
+
+# pylint: disable-next=wrong-import-position,wrong-import-order
+from qwenpaw.browser.control_link.chrome.observe import (  # noqa: E402
+    status_router as browser_chrome_status_router,
+)
+
+app.include_router(browser_chrome_ws_router, prefix="/api")
+app.include_router(browser_chrome_status_router, prefix="/api")
+register_builtin_control_links()
 
 app.include_router(healthz_router, prefix="/api")
 

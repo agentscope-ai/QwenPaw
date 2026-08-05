@@ -45,6 +45,7 @@ import {
   SparkVoiceChat01Line,
   SparkWifiLine,
 } from "@agentscope-ai/icons";
+import { GitBranch } from "lucide-react";
 import i18next from "i18next";
 import { Files } from "lucide-react";
 import { menuRegistry } from "../../plugins/registry/store";
@@ -190,6 +191,15 @@ export const BUILTIN_MENU: MenuItem[] = [
     route: "core.agent-stats",
     order: 70,
   },
+  {
+    id: "core.checkpoints",
+    location: "primary.agentScoped",
+    parentId: "core.agent-group",
+    label: navLabel("checkpoints.nav"),
+    icon: GitBranch,
+    route: "core.checkpoints",
+    order: 80,
+  },
 
   // ── Settings (Sidebar Menu #2) ───────────────────────────────────────────
   {
@@ -234,6 +244,15 @@ export const BUILTIN_MENU: MenuItem[] = [
     icon: SparkInternetLine,
     route: "core.environments",
     order: 50,
+  },
+  {
+    id: "core.offload-policy",
+    location: "primary.settings",
+    parentId: "core.settings-group",
+    label: navLabel("nav.offloadPolicy", "Tool Offload"),
+    icon: SparkDateLine,
+    route: "core.offload-policy",
+    order: 55,
   },
   {
     id: "core.security",

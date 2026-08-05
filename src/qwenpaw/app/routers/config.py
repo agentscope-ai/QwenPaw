@@ -15,18 +15,21 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
-from ..utils import schedule_agent_reload
+from ...agents.acp.core import ACPAgentConfig, ACPConfig
+from ...agents.acp.node_runtime import (
+    ACPNodeRuntimeStatus,
+    get_node_runtime_status,
+    resolve_node_runtime,
+)
 from ...config import (
-    load_config,
-    save_config,
     ChannelConfig,
     ChannelConfigUnion,
-    get_available_channels,
     ToolGuardConfig,
     ToolGuardRuleConfig,
+    get_available_channels,
+    load_config,
+    save_config,
 )
-from ..channels.registry import BUILTIN_CHANNEL_KEYS
-from ...config.timezone import normalize_tz
 from ...config.config import (
     AgentsLLMRoutingConfig,
     ConsoleConfig,
@@ -46,21 +49,17 @@ from ...config.config import (
     VoiceChannelConfig,
     WecomConfig,
 )
-from ...agents.acp.core import ACPConfig, ACPAgentConfig
-from ...agents.acp.node_runtime import (
-    ACPNodeRuntimeStatus,
-    get_node_runtime_status,
-    resolve_node_runtime,
+from ...config.timezone import normalize_tz
+from ..channels.qrcode_auth_handler import (
+    QRCODE_AUTH_HANDLERS,
+    generate_qrcode_image,
 )
-
+from ..channels.registry import BUILTIN_CHANNEL_KEYS
+from ..utils import schedule_agent_reload
 from .schemas_config import (
     ChannelHealthResponse,
     ChannelRestartResponse,
     HeartbeatBody,
-)
-from ..channels.qrcode_auth_handler import (
-    QRCODE_AUTH_HANDLERS,
-    generate_qrcode_image,
 )
 
 router = APIRouter(prefix="/config", tags=["config"])
@@ -184,8 +183,8 @@ async def put_channels(
     ),
 ) -> ChannelConfig:
     """Update all channel configs."""
-    from ..agent_context import get_agent_for_request
     from ...config.config import save_agent_config
+    from ..agent_context import get_agent_for_request
 
     agent = await get_agent_for_request(request)
     agent.config.channels = channels_config
@@ -262,7 +261,7 @@ async def get_channel_health(
     response_model=ChannelRestartResponse,
     summary="Restart a channel",
     description=(
-        "Stop and re-start a specific channel" " without restarting the agent"
+        "Stop and re-start a specific channel without restarting the agent"
     ),
 )
 async def restart_channel(
@@ -289,7 +288,7 @@ async def restart_channel(
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=(f"Failed to restart channel" f" '{channel_name}': {exc}"),
+            detail=(f"Failed to restart channel '{channel_name}': {exc}"),
         ) from exc
 
 
@@ -402,8 +401,8 @@ async def put_channel(
     ),
 ) -> ChannelConfigUnion:
     """Update a specific channel config by name."""
-    from ..agent_context import get_agent_for_request
     from ...config.config import save_agent_config
+    from ..agent_context import get_agent_for_request
 
     available = get_available_channels()
     if channel_name not in available:
@@ -463,8 +462,8 @@ async def put_acp_config(
     ),
 ) -> ACPConfig:
     """Update ACP config for the current agent."""
-    from ..agent_context import get_agent_for_request
     from ...config.config import save_agent_config
+    from ..agent_context import get_agent_for_request
 
     agent = await get_agent_for_request(request)
     agent.config.acp = acp_config
@@ -563,8 +562,8 @@ async def put_acp_agent_config(
     ),
 ) -> ACPAgentConfig:
     """Update config for one ACP agent."""
-    from ..agent_context import get_agent_for_request
     from ...config.config import save_agent_config
+    from ..agent_context import get_agent_for_request
 
     if acp_agent_config.tool_parse_mode not in _ALLOWED_ACP_TOOL_PARSE_MODES:
         raise HTTPException(
@@ -599,8 +598,8 @@ async def put_acp_agent_config(
 )
 async def get_heartbeat(request: Request) -> Any:
     """Return effective heartbeat config (from file or default)."""
-    from ..agent_context import get_agent_for_request
     from ...config.config import HeartbeatConfig as HeartbeatConfigModel
+    from ..agent_context import get_agent_for_request
 
     agent = await get_agent_for_request(request)
     hb = agent.config.heartbeat
@@ -620,8 +619,8 @@ async def put_heartbeat(
     body: HeartbeatBody = Body(..., description="Heartbeat configuration"),
 ) -> Any:
     """Update heartbeat config and reschedule the heartbeat job."""
-    from ..agent_context import get_agent_for_request
     from ...config.config import save_agent_config
+    from ..agent_context import get_agent_for_request
 
     agent = await get_agent_for_request(request)
     hb = HeartbeatConfig(
@@ -658,9 +657,10 @@ async def put_heartbeat(
 )
 async def run_heartbeat_now(request: Request) -> Any:
     """Trigger one heartbeat run in background for quick testing."""
+    import logging
+
     from ..agent_context import get_agent_for_request
     from ..crons.heartbeat import run_heartbeat_once
-    import logging
 
     workspace = await get_agent_for_request(request)
 
@@ -856,12 +856,6 @@ async def _sandbox_effective_status(
     if not enabled:
         return False, None
 
-    # Check platform-level permissions
-    from ...utils.platform import is_windows_admin
-
-    if not is_windows_admin():
-        return False, "not_admin"
-
     # Check if sandbox backend is actually available on this platform.
     # probe_sandbox_support() is lru_cache'd; the first call may block
     # (subprocess.run on Linux), so we offload it to a thread.
@@ -870,6 +864,14 @@ async def _sandbox_effective_status(
     capability = await asyncio.to_thread(probe_sandbox_support)
     if not capability.supported:
         return False, "unsupported"
+
+    # Check platform-level permissions — on Windows, an unelevated
+    # sandbox is available but offers weaker isolation than the
+    # elevated (admin) sandbox.
+    from ...utils.platform import is_windows_admin
+
+    if not is_windows_admin():
+        return True, "unelevated"
 
     return True, None
 
@@ -922,25 +924,6 @@ async def put_sandbox_setting(
             enabled=body.enabled,
             effective=effective,
             reason=reason,
-        )
-
-    # Guard: enabling sandbox on Windows requires admin privileges.
-    # Refuse early with a clear, actionable message rather than letting
-    # the user flip the switch and hit cryptic ACL failures later.
-    from ...utils.platform import is_windows_admin
-
-    if body.enabled and not is_windows_admin():
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Sandbox requires administrator privileges on Windows.\n\n"
-                "To enable the sandbox, restart QwenPaw with administrator "
-                "privileges:\n"
-                "  - Desktop: right-click the shortcut "
-                "\u2192 Run as administrator\n"
-                "  - CLI: open an elevated terminal, then run `qwenpaw app`\n"
-                "Then come back to Settings and re-enable the sandbox."
-            ),
         )
 
     config.security.sandbox_enabled = body.enabled

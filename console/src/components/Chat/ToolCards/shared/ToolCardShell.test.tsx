@@ -1,23 +1,46 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import ToolCardShell from "./ToolCardShell";
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
+
+vi.mock("./ToolCallSessionContext", () => ({
+  useToolCallSessionId: () => "",
+}));
+
+vi.mock("../../../../hooks/useToolCallControl", () => ({
+  useToolCallControl: () => ({
+    bannerVisible: false,
+    offloadRemaining: null,
+    killRemaining: null,
+    defaultPolicy: "keep_foreground",
+    maxInternalTimeoutSecs: null,
+    elapsed: 0,
+    toggleBanner: vi.fn(),
+    closeBanner: vi.fn(),
+    updateRemaining: vi.fn(),
   }),
 }));
 
-const content = {
-  type: "tool_call" as const,
-  id: "file-tool-1",
-  name: "send_file_to_user",
+vi.mock("./ToolCallControlPopover", () => ({
+  OffloadBanner: () => null,
+}));
+
+import ToolCardShell from "./ToolCardShell";
+import type { ToolCallContent } from "./types";
+
+const content: ToolCallContent = {
+  type: "tool_call",
+  id: "call-1",
+  name: "execute_shell_command",
   params: {},
-  status: "done" as const,
+  result: "output",
+  status: "done",
 };
 
-describe("ToolCardShell", () => {
+describe("ToolCardShell lazy body", () => {
   it("opens file-facing results by default when requested", () => {
     render(
       <ToolCardShell
@@ -34,19 +57,19 @@ describe("ToolCardShell", () => {
     expect(details).toHaveAttribute("open");
   });
 
-  it("keeps ordinary tool details collapsed", () => {
-    render(
+  it("keeps ordinary tool details collapsed and unmounted", () => {
+    const { container } = render(
       <ToolCardShell content={content} icon={<span />} title="Ordinary tool">
         <div>raw output</div>
       </ToolCardShell>,
     );
 
-    const details = screen.getByText("raw output").closest("details");
-    expect(details).not.toHaveAttribute("open");
+    expect(container.querySelector("details")).not.toHaveAttribute("open");
+    expect(screen.queryByText("raw output")).not.toBeInTheDocument();
   });
 
   it("does not toggle the tool when its summary action is clicked", () => {
-    render(
+    const { container } = render(
       <ToolCardShell
         content={content}
         icon={<span />}
@@ -62,13 +85,44 @@ describe("ToolCardShell", () => {
             Preview
           </button>
         }
-      >
-        <div>raw output</div>
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    expect(container.querySelector("details")).not.toHaveAttribute("open");
+  });
+
+  it("keeps the full tool title available when the label is truncated", () => {
+    const title = `Run ${"long-command-argument ".repeat(40)}`;
+
+    const { container } = render(
+      <ToolCardShell content={content} icon={<span />} title={title} />,
+    );
+    const label = container.querySelector(`[title]`);
+
+    expect(label).not.toBeNull();
+    expect(label).toHaveAttribute("title", title);
+    expect(label).toHaveTextContent(title.trim());
+  });
+
+  it("mounts the body only after the first expansion", () => {
+    const { container } = render(
+      <ToolCardShell content={content} icon={<span />} title="Shell">
+        <div>Expensive output</div>
       </ToolCardShell>,
     );
 
-    const details = screen.getByText("raw output").closest("details");
-    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
-    expect(details).not.toHaveAttribute("open");
+    expect(screen.queryByText("Expensive output")).not.toBeInTheDocument();
+
+    const details = container.querySelector("details");
+    expect(details).not.toBeNull();
+    details!.open = true;
+    fireEvent(details!, new Event("toggle"));
+
+    expect(screen.getByText("Expensive output")).toBeInTheDocument();
+
+    details!.open = false;
+    fireEvent(details!, new Event("toggle"));
+    expect(screen.getByText("Expensive output")).toBeInTheDocument();
   });
 });

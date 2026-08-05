@@ -265,10 +265,10 @@ in sequence** should go into the batch.
 
   `${steps.<index>.<path>}` is not limited to script calls — any tool's
   arguments can reference previous steps' output. For example, pass
-  `read_file` results to `write_file`, or feed a `browser_use` snapshot
+  `read_file` results to `write_file`, or feed a `web_fetch` result
   into `execute_shell_command`.
 
-  Example — take a browser snapshot, extract keyword-matching content
+  Example — fetch a web page, extract keyword-matching content
   with a standalone Python script, and write the result to a file.
   `${args.keyword}` etc. are runtime variables passed in via the `args`
   parameter when calling `run_tool_batch`, substituted before execution.
@@ -295,8 +295,8 @@ in sequence** should go into the batch.
   ```json
   [
     {
-      "tool_name": "browser_use",
-      "arguments": {"action": "snapshot"}
+      "tool_name": "web_fetch",
+      "arguments": {"url": "${args.url}"}
     },
     {
       "tool_name": "write_file",

@@ -7,12 +7,11 @@
 import { hostFetch } from "../hostSdk/fetch";
 import type { PawRequestOptions, PawTaskHandle } from "./types";
 import { createPawTask } from "./task";
+import { getActivePawAppId } from "./context";
 
 /** Get the current PawApp ID from page context. */
 function getAppId(): string {
-  // Extract app_id from URL: /apps/{app_id}/...
-  const match = window.location.pathname.match(/\/apps\/([^/]+)/);
-  return match?.[1] ?? "";
+  return getActivePawAppId();
 }
 
 /** Build the full API path for a PawApp endpoint. */

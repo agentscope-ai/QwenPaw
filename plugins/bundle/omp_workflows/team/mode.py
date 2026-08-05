@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Optional
 from qwenpaw.runtime.slash_command_registry import CommandSpec
 
 from ..shared.args import split_args
+from ..shared.loop_ui_i18n import loop_command_metadata, loop_help_text
 from ..shared.mode_base import OMPModeBase, info_msg, rewrite_user_msg
 from ..shared.role_prompts import resolve_role
 from .gate import TeamPipelineGate
@@ -23,14 +24,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_HELP = (
-    "**Team** — multi-agent collaboration pipeline\n\n"
-    "Usage: `/team [N:role] <task>`\n\n"
-    "Examples:\n"
-    "  `/team 3:executor Implement authentication`\n"
-    "  `/team ralph Build the REST API`\n\n"
-    "Phases: plan -> prd -> exec -> verify -> fix (retry)"
-)
+_HELP = loop_help_text("team")
 
 
 class TeamMode(OMPModeBase):
@@ -49,7 +43,7 @@ class TeamMode(OMPModeBase):
                 handler=self._handler,
                 category="builtin",
                 help_text=_HELP,
-                metadata={"builtin": True},
+                metadata=loop_command_metadata("team"),
             ),
         ]
 

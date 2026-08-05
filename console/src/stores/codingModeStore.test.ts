@@ -4,7 +4,10 @@ import { useCodingModeStore, useCodingMode } from "./codingModeStore";
 import { useAgentStore } from "./agentStore";
 
 beforeEach(() => {
-  useCodingModeStore.setState({ codingModeByAgent: {} });
+  useCodingModeStore.setState({
+    codingModeByAgent: {},
+    codingModeRevisionByAgent: {},
+  });
   useAgentStore.setState({ selectedAgent: "test-agent", agents: [] });
 });
 
@@ -47,6 +50,7 @@ describe("codingModeStore", () => {
     useAgentStore.setState({ selectedAgent: "a1", agents: [] });
     useCodingModeStore.setState({
       codingModeByAgent: { a1: false },
+      codingModeRevisionByAgent: {},
     });
     const { result } = renderHook(() => useCodingMode());
     expect(result.current.codingMode).toBe(false);

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
+import logging
 import mimetypes
 import os
 from pathlib import Path, PurePosixPath
@@ -89,6 +90,8 @@ from .dependencies import (
     project_file_services,
     resolve_idempotency_key,
 )
+
+logger = logging.getLogger("qwenpaw.creator.api.file_asset_routes")
 
 
 router = APIRouter(
@@ -1316,6 +1319,12 @@ async def ingest_asset(
     finally:
         await _abandon_staged_uploads(upload_store, staged_uploads)
     item = result["items"][0]
+    logger.info(
+        "asset ingested: project=%s asset=%s status=%s",
+        project_id,
+        item["assetId"],
+        result["status"],
+    )
     return {
         "assetId": item["assetId"],
         "taskId": result["taskId"],
@@ -1433,6 +1442,12 @@ async def import_assets(
             AssetImportRecord,
         ).write,
         record,
+    )
+    logger.info(
+        "asset import started: project=%s import=%s files=%d",
+        project_id,
+        import_id,
+        len(uploads),
     )
     return {"importId": import_id, "taskId": result["taskId"], "eventSeq": 0}
 

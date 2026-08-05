@@ -1,0 +1,17 @@
+{
+  "id": "chrome",
+  "name": "Chrome",
+  "version": "0.1.0",
+  "type": "general",
+  "description": "Connect QwenPaw to this Chrome browser.",
+  "description_i18n": {
+    "zh-CN": "将 QwenPaw 连接到当前 Chrome 浏览器。",
+    "en-US": "Connect QwenPaw to this Chrome browser."
+  },
+  "author": "QwenPaw",
+  "icon": "Chrome",
+  "qwenpaw_version": {"min": "2.0.0"},
+  "capabilities": [{"id": "chrome", "name": "Chrome", "description": "Use QwenPaw with this Chrome browser."}],
+  "entry": {"backend": "plugin.py", "frontend": "dist/index.js"},
+  "dependencies": []
+}

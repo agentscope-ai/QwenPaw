@@ -1,26 +1,46 @@
 /**
- * AppMarket.tsx — "应用市场" tab for the App Center.
+ * AppMarket.tsx — Official/community market views for the App Center.
  *
  * Reuses the existing plugin-market proxy (`/plugins/market/search`) and the
- * `installPlugin` flow, filtered to UI extensions (category "frontend") so the
- * market surfaces installable PawApps. Mirrors the Plugin Market UX.
+ * `installPlugin` flow, filtered to UI extensions (category "app") so the
+ * market surfaces installable PawApps. The current market contract uses
+ * `is_featured` to separate official apps from community apps.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Card, Empty, Input, Spin, Typography } from "antd";
-import { AppWindow, Download, ExternalLink, Search, Star } from "lucide-react";
+import {
+  Alert,
+  Button,
+  Card,
+  Empty,
+  Input,
+  Modal,
+  Spin,
+  Typography,
+} from "antd";
+import {
+  AppWindow,
+  Download,
+  ExternalLink,
+  Search,
+  Sparkles,
+} from "lucide-react";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { openExternalLink } from "@/utils/openExternalLink";
 import {
   buildMarketDownloadUrl,
   fetchMarketPlugins,
   type MarketPluginEntry,
 } from "@/api/modules/pluginMarket";
 import { installPlugin } from "@/api/modules/plugin";
+import { rootApi } from "@/api/modules/root";
+import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 import styles from "./index.module.less";
 
 const { Text, Paragraph } = Typography;
 
 const APP_CATEGORY = "app";
+const MARKET_PAGE_SIZE = 100;
 
 function pickDescription(entry: MarketPluginEntry, language: string): string {
   const locales = entry.locales;
@@ -35,10 +55,14 @@ function pickDescription(entry: MarketPluginEntry, language: string): string {
 }
 
 interface AppMarketProps {
-  onInstalled: () => void;
+  onInstalled: () => void | Promise<void>;
+  channel?: "official" | "community";
 }
 
-export function AppMarket({ onInstalled }: AppMarketProps) {
+export function AppMarket({
+  onInstalled,
+  channel = "community",
+}: AppMarketProps) {
   const { t, i18n } = useTranslation();
   const { message } = useAppMessage();
   const tRef = useRef(t);
@@ -50,37 +74,91 @@ export function AppMarket({ onInstalled }: AppMarketProps) {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [installingId, setInstallingId] = useState<string | null>(null);
+  const [qwenpawVersion, setQwenpawVersion] = useState<string | null>(null);
+  const [versionChecked, setVersionChecked] = useState(false);
+  const installingIdRef = useRef<string | null>(null);
 
-  const load = useCallback(async (keyword: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchMarketPlugins({
-        page_number: 1,
-        page_size: 30,
-        search: keyword || undefined,
-        category: keyword ? undefined : APP_CATEGORY,
-      });
-      setPlugins(data.plugins ?? []);
-    } catch {
-      setError(
-        tRef.current(
-          "pluginManager.marketUnavailable",
-          "App market is currently unavailable.",
-        ),
-      );
-      setPlugins([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (keyword: string, signal: AbortSignal) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const entries: MarketPluginEntry[] = [];
+        let pageNumber = 1;
+        let total = 0;
+
+        do {
+          const data = await fetchMarketPlugins(
+            {
+              page_number: pageNumber,
+              page_size: MARKET_PAGE_SIZE,
+              search: keyword || undefined,
+              category: APP_CATEGORY,
+            },
+            { signal },
+          );
+          const pageEntries = data.plugins ?? [];
+          entries.push(...pageEntries);
+          total = data.total;
+          pageNumber += 1;
+          if (pageEntries.length === 0) break;
+        } while (entries.length < total);
+
+        if (signal.aborted) return;
+        setPlugins(
+          entries.filter((entry) =>
+            channel === "official"
+              ? entry.is_featured === true
+              : entry.is_featured !== true,
+          ),
+        );
+      } catch (err) {
+        if (
+          signal.aborted ||
+          (err instanceof DOMException && err.name === "AbortError")
+        ) {
+          return;
+        }
+        setError(
+          tRef.current(
+            "pluginManager.marketUnavailable",
+            "App market is currently unavailable.",
+          ),
+        );
+        setPlugins([]);
+      } finally {
+        if (!signal.aborted) setLoading(false);
+      }
+    },
+    [channel],
+  );
 
   useEffect(() => {
-    void load(search);
+    const controller = new AbortController();
+    void load(search, controller.signal);
+    return () => controller.abort();
   }, [search, load]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void rootApi
+      .getVersion(controller.signal)
+      .then(({ version }) => setQwenpawVersion(version))
+      .catch((err) => {
+        if (!(err instanceof DOMException && err.name === "AbortError")) {
+          setQwenpawVersion(null);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setVersionChecked(true);
+      });
+    return () => controller.abort();
+  }, []);
+
   const handleInstall = useCallback(
-    (entry: MarketPluginEntry) => {
+    async (entry: MarketPluginEntry) => {
+      if (installingIdRef.current !== null) return;
+      installingIdRef.current = entry.id;
       setInstallingId(entry.id);
 
       // Show loading message
@@ -93,61 +171,77 @@ export function AppMarket({ onInstalled }: AppMarketProps) {
         duration: 0,
       });
 
-      // Non-blocking async installation
-      const performInstall = async () => {
-        try {
-          const result = await installPlugin(buildMarketDownloadUrl(entry), {
-            force: true,
-          });
-          message.success({
-            content: `${tRef.current(
-              "appCenter.installSuccess",
-              "安装成功",
-            )}: ${result.name}`,
-            key: loadingKey,
-          });
-          // Refresh app list in background
-          onInstalled();
-        } catch (err) {
-          message.error({
-            content:
-              err instanceof Error
-                ? err.message
-                : tRef.current("appCenter.installFailed", "安装失败"),
-            key: loadingKey,
-          });
-        } finally {
-          setInstallingId(null);
-        }
-      };
-
-      // Execute asynchronously without blocking
-      void performInstall();
+      try {
+        const result = await installPlugin(buildMarketDownloadUrl(entry), {
+          force: true,
+        });
+        message.success({
+          content: `${tRef.current("appCenter.installSuccess", "安装成功")}: ${
+            result.name
+          }`,
+          key: loadingKey,
+        });
+        await onInstalled();
+      } catch (err) {
+        message.error({
+          content:
+            err instanceof Error
+              ? err.message
+              : tRef.current("appCenter.installFailed", "安装失败"),
+          key: loadingKey,
+        });
+      } finally {
+        installingIdRef.current = null;
+        setInstallingId(null);
+      }
     },
     [message, onInstalled],
   );
 
+  const requestInstall = useCallback(
+    (entry: MarketPluginEntry) => {
+      if (installingIdRef.current !== null) return;
+      if (isMarketPluginCompatible(entry, qwenpawVersion)) {
+        void handleInstall(entry);
+        return;
+      }
+
+      Modal.confirm({
+        title: tRef.current(
+          "pluginManager.compatWarningTitle",
+          "Compatibility Warning",
+        ),
+        content: tRef.current("pluginManager.compatWarningContent", {
+          defaultValue:
+            "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
+          labels: entry.qwenpaw_compat_labels?.join(", ") ?? "unknown",
+          version: qwenpawVersion ?? "unknown",
+        }),
+        okText: tRef.current(
+          "pluginManager.compatWarningConfirm",
+          "Install anyway",
+        ),
+        cancelText: tRef.current("common.cancel", "Cancel"),
+        onOk: () => handleInstall(entry),
+      });
+    },
+    [handleInstall, qwenpawVersion],
+  );
+
   const lang = i18n.language;
 
-  // Sort plugins: featured first, then others
-  const sortedPlugins = [...plugins].sort((a, b) => {
-    const aFeatured = a.is_featured === true;
-    const bFeatured = b.is_featured === true;
-    if (aFeatured && !bFeatured) return -1;
-    if (!aFeatured && bFeatured) return 1;
-    return 0;
-  });
-
-  // Split into featured and other apps
-  const featuredApps = sortedPlugins.filter((p) => p.is_featured === true);
-  const otherApps = sortedPlugins.filter((p) => p.is_featured !== true);
+  const isOfficial = channel === "official";
+  const searchLabel = isOfficial
+    ? t("appCenter.searchOfficial", "Search official apps...")
+    : t("appCenter.searchMarket", "Search app market...");
 
   return (
     <div>
-      <div className={styles.marketToolbar}>
+      <div className={styles.toolbar}>
         <Input
           prefix={<Search size={14} />}
-          placeholder={t("appCenter.searchMarket", "Search app market...")}
+          placeholder={searchLabel}
+          aria-label={searchLabel}
           value={searchInput}
           onChange={(e) => {
             setSearchInput(e.target.value);
@@ -169,166 +263,91 @@ export function AppMarket({ onInstalled }: AppMarketProps) {
       )}
 
       <Spin spinning={loading}>
-        {!loading && sortedPlugins.length === 0 && !error ? (
+        {!loading && plugins.length === 0 && !error ? (
           <Empty
-            image={<AppWindow size={80} strokeWidth={1} />}
-            description={t("appCenter.marketEmpty", "No apps found")}
-            style={{ marginTop: 60, fontSize: 16 }}
+            image={<AppWindow size={44} strokeWidth={1} />}
+            description={
+              isOfficial
+                ? t("appCenter.officialAppsEmpty", "No official apps found")
+                : t("appCenter.marketEmpty", "No apps found")
+            }
+            className={styles.stateBlock}
           />
         ) : (
-          <>
-            {/* Featured Apps Section */}
-            {featuredApps.length > 0 && (
-              <>
-                <div className={styles.sectionHeader}>
-                  <Star size={20} strokeWidth={2.5} />
-                  <h3 className={styles.sectionTitle}>
-                    {t("appCenter.featuredApps", "Featured")}
-                  </h3>
+          <div className={styles.grid}>
+            {plugins.map((entry) => (
+              <Card key={entry.id} className={styles.appCard}>
+                <div className={styles.cardIcon}>
+                  {entry.logo_url ? (
+                    <img
+                      src={entry.logo_url}
+                      alt=""
+                      className={styles.marketLogo}
+                    />
+                  ) : (
+                    <AppWindow size={22} strokeWidth={1.75} />
+                  )}
                 </div>
-                <div className={styles.gridLarge}>
-                  {featuredApps.map((entry) => (
-                    <Card
-                      key={entry.id}
-                      className={styles.appCardLarge}
-                      hoverable
-                    >
-                      <div className={styles.appCardIconLarge}>
-                        {entry.logo_url ? (
-                          <img
-                            src={entry.logo_url}
-                            alt=""
-                            className={styles.marketLogo}
-                          />
-                        ) : (
-                          <AppWindow size={48} strokeWidth={1.5} />
-                        )}
-                      </div>
-                      <div className={styles.marketCardBody}>
-                        <Text strong className={styles.appCardTitleLarge}>
-                          {entry.display_name}
-                        </Text>
-                        <Paragraph
-                          type="secondary"
-                          className={styles.appCardDescLarge}
-                          ellipsis={{ rows: 2 }}
-                        >
-                          {pickDescription(entry, lang) || "No description"}
-                        </Paragraph>
-                        <span className={styles.marketMeta}>
-                          v{entry.version}
-                          {entry.developer ? ` · ${entry.developer}` : ""}
-                          {entry.downloads != null
-                            ? ` · ⬇ ${entry.downloads}`
-                            : ""}
-                        </span>
-                        <div className={styles.marketActions}>
-                          <Button
-                            type="primary"
-                            size="small"
-                            icon={<Download size={14} />}
-                            loading={installingId === entry.id}
-                            onClick={() => handleInstall(entry)}
-                          >
-                            {installingId === entry.id
-                              ? t("appCenter.installing", "安装中...")
-                              : t("appCenter.install", "安装")}
-                          </Button>
-                          {entry.details_url && (
-                            <Button
-                              size="small"
-                              icon={<ExternalLink size={14} />}
-                              onClick={() =>
-                                window.open(entry.details_url!, "_blank")
-                              }
-                            >
-                              {t("appCenter.details", "详情")}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {/* Other Apps Section */}
-            {otherApps.length > 0 && (
-              <div
-                className={featuredApps.length > 0 ? styles.marketSection : ""}
-              >
-                {featuredApps.length > 0 && (
-                  <div className={styles.sectionHeader}>
-                    <AppWindow size={20} strokeWidth={2.5} />
-                    <h3 className={styles.sectionTitle}>
-                      {t("appCenter.allApps", "All Apps")}
-                    </h3>
+                <div className={styles.cardBody}>
+                  <div className={styles.cardHeader}>
+                    <Text strong className={styles.cardTitle} ellipsis>
+                      {entry.display_name}
+                    </Text>
+                    {isOfficial && (
+                      <span className={styles.featuredTag}>
+                        <Sparkles size={11} strokeWidth={2} />
+                        {t("appCenter.featured", "精选")}
+                      </span>
+                    )}
                   </div>
-                )}
-                <div className={styles.grid}>
-                  {otherApps.map((entry) => (
-                    <Card key={entry.id} className={styles.appCard} hoverable>
-                      <div className={styles.appCardIcon}>
-                        {entry.logo_url ? (
-                          <img
-                            src={entry.logo_url}
-                            alt=""
-                            className={styles.marketLogo}
-                          />
-                        ) : (
-                          <AppWindow size={48} strokeWidth={1.5} />
-                        )}
-                      </div>
-                      <div className={styles.marketCardBody}>
-                        <Text strong className={styles.appCardTitle}>
-                          {entry.display_name}
-                        </Text>
-                        <Paragraph
-                          type="secondary"
-                          className={styles.appCardDesc}
-                          ellipsis={{ rows: 2 }}
-                        >
-                          {pickDescription(entry, lang) || "No description"}
-                        </Paragraph>
-                        <span className={styles.marketMeta}>
-                          v{entry.version}
-                          {entry.developer ? ` · ${entry.developer}` : ""}
-                          {entry.downloads != null
-                            ? ` · ⬇ ${entry.downloads}`
-                            : ""}
-                        </span>
-                        <div className={styles.marketActions}>
-                          <Button
-                            type="primary"
-                            size="small"
-                            icon={<Download size={14} />}
-                            loading={installingId === entry.id}
-                            onClick={() => handleInstall(entry)}
-                          >
-                            {installingId === entry.id
-                              ? t("appCenter.installing", "安装中...")
-                              : t("appCenter.install", "安装")}
-                          </Button>
-                          {entry.details_url && (
-                            <Button
-                              size="small"
-                              icon={<ExternalLink size={14} />}
-                              onClick={() =>
-                                window.open(entry.details_url!, "_blank")
-                              }
-                            >
-                              {t("appCenter.details", "详情")}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
+                  <Paragraph
+                    type="secondary"
+                    className={styles.cardDesc}
+                    ellipsis={{ rows: 2 }}
+                  >
+                    {pickDescription(entry, lang) ||
+                      t("appCenter.noDescription", "No description")}
+                  </Paragraph>
+                  <span className={styles.cardMeta}>
+                    v{entry.version}
+                    {entry.developer ? ` · ${entry.developer}` : ""}
+                    {entry.downloads != null && (
+                      <span className={styles.metaDownloads}>
+                        <Download size={12} strokeWidth={2} />
+                        {entry.downloads}
+                      </span>
+                    )}
+                  </span>
+                  <div className={styles.cardActions}>
+                    <Button
+                      type="primary"
+                      size="small"
+                      icon={<Download size={14} />}
+                      loading={installingId === entry.id}
+                      disabled={
+                        !versionChecked ||
+                        (installingId !== null && installingId !== entry.id)
+                      }
+                      onClick={() => requestInstall(entry)}
+                    >
+                      {installingId === entry.id
+                        ? t("appCenter.installing", "安装中...")
+                        : t("appCenter.install", "安装")}
+                    </Button>
+                    {entry.details_url && (
+                      <Button
+                        size="small"
+                        icon={<ExternalLink size={14} />}
+                        onClick={() => openExternalLink(entry.details_url!)}
+                      >
+                        {t("appCenter.details", "详情")}
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-          </>
+              </Card>
+            ))}
+          </div>
         )}
       </Spin>
     </div>

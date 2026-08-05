@@ -7,6 +7,8 @@ interface CodingModeState {
    * fetched from backend (UI should treat as loading).
    */
   codingModeByAgent: Record<string, boolean>;
+  /** Monotonic local-write version used to ignore stale sync responses. */
+  codingModeRevisionByAgent: Record<string, number>;
   setCodingMode: (agentId: string, enabled: boolean) => void;
 }
 
@@ -16,10 +18,15 @@ interface CodingModeState {
 // real backend state across tabs / sessions.
 export const useCodingModeStore = create<CodingModeState>((set) => ({
   codingModeByAgent: {},
+  codingModeRevisionByAgent: {},
 
   setCodingMode: (agentId: string, enabled: boolean) =>
     set((state: CodingModeState) => ({
       codingModeByAgent: { ...state.codingModeByAgent, [agentId]: enabled },
+      codingModeRevisionByAgent: {
+        ...state.codingModeRevisionByAgent,
+        [agentId]: (state.codingModeRevisionByAgent[agentId] ?? 0) + 1,
+      },
     })),
 }));
 

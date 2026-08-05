@@ -21,7 +21,12 @@ import {
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../stores/sessionListStore";
-import { type DateGroup, groupSessions } from "../utils/sessionGrouping";
+import {
+  type DateGroup,
+  groupSessions,
+  findSessionRowIndex,
+} from "../utils/sessionGrouping";
+import { useCollapsedSessionGroups } from "../hooks/useCollapsedSessionGroups";
 import SessionItem from "../components/SessionItem";
 import styles from "./sidebarSessionList.module.less";
 
@@ -147,10 +152,9 @@ export default function SidebarSessionList({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
-  /** Collapsed date groups — default: "month" and "older" are collapsed */
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<DateGroup>>(
-    () => new Set<DateGroup>(["month", "older"]),
-  );
+  /** Collapsed date groups — persisted so remounts keep the user's state */
+  const { collapsedGroups, toggleGroup, expandGroupForSession } =
+    useCollapsedSessionGroups();
 
   const storeSessionsRaw = useSessionListStore((s) => s.sessions);
   const storeSessions = storeSessionsRaw as ExtendedChatSession[];
@@ -219,14 +223,15 @@ export default function SidebarSessionList({
     [sortedSessions, searchQuery, t],
   );
 
-  const toggleGroup = useCallback((key: DateGroup) => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  // Keep the active conversation reachable: expand the (possibly
+  // collapsed) date group that contains it whenever it changes.
+  useEffect(() => {
+    if (!currentSessionId) return;
+    const active = sortedSessions.find(
+      (s) => s.id === currentSessionId || s.realId === currentSessionId,
+    );
+    if (active) expandGroupForSession(active);
+  }, [currentSessionId, sortedSessions, expandGroupForSession]);
 
   /** Flatten groups into a single array of rows for virtual list */
   const flatRows = useMemo<FlatRow[]>(() => {
@@ -277,6 +282,19 @@ export default function SidebarSessionList({
   useEffect(() => {
     listRef.current?.resetAfterIndex(0);
   }, [flatRows]);
+
+  // Bring the active conversation into view once its row is visible
+  // (group expanded + list measured). Guarded by the last-scrolled id so
+  // background polling doesn't keep yanking the scroll position.
+  const lastScrolledSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentSessionId) return;
+    if (lastScrolledSessionRef.current === currentSessionId) return;
+    const index = findSessionRowIndex(flatRows, currentSessionId);
+    if (index < 0) return;
+    lastScrolledSessionRef.current = currentSessionId;
+    listRef.current?.scrollToItem(index, "smart");
+  }, [currentSessionId, flatRows, listHeight]);
 
   /** Callback ref: attach a ResizeObserver to measure list container height */
   const listWrapperRef = useCallback((node: HTMLDivElement | null) => {

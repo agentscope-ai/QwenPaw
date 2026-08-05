@@ -1,5 +1,6 @@
 export { default as ToolCardShell } from "./ToolCardShell";
 export type { ToolCardShellProps } from "./ToolCardShell";
+export { useToolCallSessionId } from "./ToolCallSessionContext";
 export { default as DefaultBlock } from "./DefaultBlock";
 export type { DefaultBlockProps } from "./DefaultBlock";
 export { default as MediaPreview } from "./MediaPreview";

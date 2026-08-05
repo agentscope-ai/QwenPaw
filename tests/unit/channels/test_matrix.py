@@ -70,6 +70,36 @@ def matrix_channel(mock_process):
     )
 
 
+def test_preflight_keeps_encryption_when_nio_has_backend(matrix_channel):
+    """E2EE stays enabled when matrix-nio reports a crypto backend.
+
+    Guards #6476: the preflight checks ``nio.crypto.ENCRYPTION_ENABLED``
+    (the flag ``AsyncClientConfig`` validates against) rather than
+    probing module names, so it tracks matrix-nio's version-dependent
+    backend detection.
+    """
+    matrix_channel.encryption = True
+    with patch(
+        "qwenpaw.app.channels.matrix.channel.ENCRYPTION_ENABLED",
+        True,
+    ):
+        matrix_channel._preflight_e2ee_dependencies()
+    assert matrix_channel.encryption is True
+
+
+def test_preflight_disables_encryption_when_no_nio_backend(
+    matrix_channel,
+):
+    """No matrix-nio crypto backend -> E2EE disabled with a clear error."""
+    matrix_channel.encryption = True
+    with patch(
+        "qwenpaw.app.channels.matrix.channel.ENCRYPTION_ENABLED",
+        False,
+    ):
+        matrix_channel._preflight_e2ee_dependencies()
+    assert matrix_channel.encryption is False
+
+
 @pytest.fixture
 def mock_async_client():
     """Create mock AsyncClient for nio."""

@@ -1,25 +1,29 @@
 /// <reference types="vitest" />
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-// Transform dependency CSS imports that are not required at runtime into
-// stubs. Monaco is excluded because its layout, gutter, and hidden input layer
-// depend on editor.main.css in the production bundle.
-const cssStubPlugin = {
+// Vitest-only plugin: transforms .css imports inside node_modules to empty
+// stubs. This prevents errors from packages like @agentscope-ai/icons that
+// import CSS.
+//
+// It must never run for real builds: stubbing node_modules CSS also strips
+// monaco-editor's stylesheet, which makes the hidden `.monaco-editor
+// .inputarea` textarea render with browser default styles (a big white box
+// over the code) and breaks cursor positioning in Coding Mode (issue #6547).
+const cssStubPlugin: Plugin = {
   name: "css-stub",
   transform(_code: string, id: string) {
-    if (
-      id.includes("node_modules") &&
-      id.endsWith(".css") &&
-      !id.includes("monaco-editor")
-    ) {
+    if (id.includes("node_modules") && id.endsWith(".css")) {
       return { code: "export default {}" };
     }
   },
 };
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
+  // Vitest resolves the config as a dev server (`serve`) with mode "test",
+  // while `vite build --mode test` is a real build that needs real CSS.
+  const isVitest = command === "serve" && mode === "test";
   const env = loadEnv(mode, process.cwd(), "");
   // Empty = same-origin; frontend and backend served together, no hardcoded host.
   // Use a dedicated Vite-prefixed key so unrelated shell BASE_URL values don't leak into the build.
@@ -31,7 +35,7 @@ export default defineConfig(({ mode }) => {
       TOKEN: JSON.stringify(env.TOKEN || ""),
       MOBILE: false,
     },
-    plugins: [react(), cssStubPlugin],
+    plugins: [react(), ...(isVitest ? [cssStubPlugin] : [])],
     css: {
       modules: {
         localsConvention: "camelCase",

@@ -144,7 +144,7 @@ def build_transition_filter_chain(
         filters.append(
             f"[{i}:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
-            f"fps={fps:g},format=yuv420p,setpts=PTS-STARTPTS[v{i}]",
+            f"fps={fps:g},settb=AVTB,format=yuv420p,setpts=PTS-STARTPTS[v{i}]",
         )
         if clip.has_audio:
             filters.append(

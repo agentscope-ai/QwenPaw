@@ -107,6 +107,7 @@ describe("messageQueueStore", () => {
     const queue = useMessageQueueStore.getState().getQueue(SESSION_ID);
     expect(queue).toHaveLength(1);
     expect(queue[0].text).toBe("hello");
+    expect(queue[0].clientMessageId).toBeTruthy();
     expect(queue[0].status).toBe("pending");
     expect(queue[0].retryCount).toBe(0);
     expect(queue[0].createdAt).toBeGreaterThan(0);

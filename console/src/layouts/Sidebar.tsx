@@ -8,7 +8,9 @@ import {
   Tooltip,
   Badge,
   Popover,
+  Tour,
 } from "antd";
+import type { TourProps } from "antd";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -53,6 +55,10 @@ import type { FlatMenuEntry } from "./registry/adapter";
 import { filterMenuForAgentCapabilities } from "./registry/capabilities";
 import type { MenuItem } from "../plugins/registry/types";
 import type { ReactNode } from "react";
+import {
+  dismissDesktopModeHint,
+  shouldShowDesktopModeHint,
+} from "../utils/desktopModeHint";
 
 // ── Layout ────────────────────────────────────────────────────────────────
 
@@ -74,6 +80,7 @@ const INBOX_BADGE_POLLING_MS = 6000;
 const SIMPLE_MODE_WHITELIST = new Set([
   "core.files",
   "core.inbox",
+  "core.app-center",
   "core.cron-jobs",
   "core.agent-config",
   "core.models",
@@ -126,6 +133,8 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   // the main content on narrow viewports.
   const [collapsed, setCollapsed] = useState(isMobileSidebarViewport);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const [desktopModeHintOpen, setDesktopModeHintOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [hasPendingApprovals, setHasPendingApprovals] = useState(false);
@@ -138,15 +147,19 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const { mode: sidebarMode } = useSidebarModeStore();
   const { selectedAgent, agents } = useAgentStore();
   const currentAgent = agents.find((agent) => agent.id === selectedAgent);
-  const backendCapabilities = currentAgent
-    ? {
-        ...currentAgent.backend_capabilities,
-        workspace_ui:
-          currentAgent.backend === "qwenpaw"
-            ? currentAgent.backend_capabilities?.workspace_ui ?? true
-            : false,
-      }
-    : undefined;
+  const backendCapabilities = useMemo(
+    () =>
+      currentAgent
+        ? {
+            ...currentAgent.backend_capabilities,
+            workspace_ui:
+              currentAgent.backend === "qwenpaw"
+                ? currentAgent.backend_capabilities?.workspace_ui ?? true
+                : false,
+          }
+        : undefined,
+    [currentAgent],
+  );
 
   // Menu + route snapshots from registry (builtin + plugin registrations merged).
   const rawAgentMenu = useMenuItems("primary.agentScoped");
@@ -188,6 +201,35 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       .then((res) => setAuthEnabled(res.enabled))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!isMobile && shouldShowDesktopModeHint(window.localStorage)) {
+      setDesktopModeHintOpen(true);
+    }
+  }, [isMobile]);
+
+  const dismissDesktopHint = useCallback(() => {
+    dismissDesktopModeHint(window.localStorage);
+    setDesktopModeHintOpen(false);
+  }, []);
+
+  const desktopModeHintSteps = useMemo<TourProps["steps"]>(
+    () => [
+      {
+        title: t("sidebar.desktopModeHint.title", "Try Desktop Mode"),
+        description: t(
+          "sidebar.desktopModeHint.description",
+          "Open quick settings here, then choose Desktop Mode for a window-based workspace.",
+        ),
+        target: () => settingsButtonRef.current as HTMLButtonElement,
+        placement: "rightBottom",
+        nextButtonProps: {
+          children: t("sidebar.desktopModeHint.gotIt", "Got it"),
+        },
+      },
+    ],
+    [t],
+  );
 
   useEffect(() => {
     if (
@@ -708,6 +750,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           }
         >
           <Button
+            ref={settingsButtonRef}
             type="text"
             icon={<SparkSettingLine size={18} />}
             className={styles.collapseToggle}
@@ -726,6 +769,14 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           className={styles.collapseToggle}
         />
       </div>
+
+      <Tour
+        open={desktopModeHintOpen}
+        steps={desktopModeHintSteps}
+        onClose={dismissDesktopHint}
+        onFinish={dismissDesktopHint}
+        mask={{ color: "rgba(9, 9, 11, 0.2)" }}
+      />
 
       <Modal
         open={accountModalOpen}
