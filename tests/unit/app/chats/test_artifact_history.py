@@ -74,3 +74,65 @@ def test_merge_artifact_manifests_preserves_turn_order() -> None:
         "plugin_call_output",
         "message",
     ]
+
+
+def test_merge_artifact_manifests_normalizes_timezones() -> None:
+    before = Message(type=MessageType.MESSAGE, role="assistant")
+    before.metadata = {"timestamp": "2026-08-03T14:00:00+08:00"}
+    after = Message(type=MessageType.MESSAGE, role="assistant")
+    after.metadata = {"timestamp": "2026-08-03T15:00:00+08:00"}
+    manifest = {
+        "version": 1,
+        "agent_id": "analyst",
+        "chat_id": "chat-1",
+        "turn_id": "turn-2",
+        "created_at": "2026-08-03T06:30:00+00:00",
+        "artifacts": [],
+        "changes": [],
+        "truncated": False,
+    }
+
+    merged = merge_artifact_manifests([before, after], [manifest])
+
+    assert [message.type.value for message in merged] == [
+        "message",
+        "plugin_call",
+        "plugin_call_output",
+        "message",
+    ]
+
+
+def test_merge_artifact_manifests_keeps_multiple_cards_in_order() -> None:
+    message = Message(type=MessageType.MESSAGE, role="assistant")
+    message.metadata = {"timestamp": "2026-08-03T12:00:00+00:00"}
+    manifests = [
+        {
+            "version": 1,
+            "agent_id": "analyst",
+            "chat_id": "chat-1",
+            "turn_id": "turn-2",
+            "created_at": "2026-08-03T12:30:00+00:00",
+            "artifacts": [],
+            "changes": [],
+            "truncated": False,
+        },
+        {
+            "version": 1,
+            "agent_id": "analyst",
+            "chat_id": "chat-1",
+            "turn_id": "turn-1",
+            "created_at": "2026-08-03T12:15:00+00:00",
+            "artifacts": [],
+            "changes": [],
+            "truncated": False,
+        },
+    ]
+
+    merged = merge_artifact_manifests([message], manifests)
+
+    turn_ids = [
+        json.loads(item.content[0].data["output"])["turn_id"]
+        for item in merged
+        if item.type == MessageType.PLUGIN_CALL_OUTPUT
+    ]
+    assert turn_ids == ["turn-1", "turn-2"]

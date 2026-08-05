@@ -157,6 +157,17 @@ module, while the history API previously read only the outer session object.
 The live response therefore showed a card, but history replay reconstructed no
 workspace tool pair after a chat switch or application restart.
 
+### 8.3 Historical artifact ordering fix
+
+- [x] Diagnose cards moving to the top after chat history replay.
+- [x] Normalize manifest and message timestamps to UTC before comparison.
+- [x] Add cross-timezone and multi-card ordering regression tests.
+- [ ] Re-run Desktop/source end-to-end ordering checks.
+
+Root cause: history replay compared ISO timestamp strings directly. Manifest
+timestamps are UTC while restored messages can carry a local offset, so lexical
+comparison inserted valid cards at the beginning of the transcript.
+
 Desktop evidence exposed an internal-state false positive: a turn that created
 `test.xlsx` and `work.md` also reported `chats.json`, `skill.json`, and a
 32-character hexadecimal session `.jsonl` file.
