@@ -446,18 +446,9 @@ export default function FilesWorkspace({
           <MemoryGraphView
             agentId={scope.agentId}
             root={memoryGraphRoot}
-            onOpenFile={(path, categoryPath) => {
-              const digestRoot = categoryPath.split("/").slice(0, -1).join("/");
-              const digestPrefix = `${digestRoot}/`;
-              const isDigest =
-                Boolean(digestRoot) && path.startsWith(digestPrefix);
-              const source = isDigest ? "digest" : "daily";
-              const sectionPrefix = isDigest ? digestRoot : path.split("/")[0];
-              const relativePath = path.startsWith(`${sectionPrefix}/`)
-                ? path.slice(sectionPrefix.length + 1)
-                : path;
+            onOpenFile={(source, path) => {
               setMemoryGraphRoot(null);
-              void openTarget({ source, path: relativePath });
+              void openTarget({ source, path });
             }}
           />
         ) : (

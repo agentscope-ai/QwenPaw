@@ -422,16 +422,74 @@ def test_get_memory_graph_returns_reme_snapshot(
             {
                 **graph_response.answer["nodes"][0],
                 "virtual": False,
+                "section": "daily",
+                "relative_path": "a.md",
             },
             {
                 **graph_response.answer["nodes"][1],
                 "name": "",
                 "description": "",
                 "virtual": False,
+                "section": None,
+                "relative_path": None,
             },
         ],
     }
     memory_manager.graph_snapshot.assert_awaited_once_with()
+
+
+def test_get_memory_graph_maps_nested_memory_roots(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    reme_config = agent_config.running.reme_light_memory_config
+    reme_config.daily_dir = "notes/daily"
+    reme_config.digest_dir = "notes/digest"
+    graph_response = MagicMock(
+        success=True,
+        answer={
+            "version": 1,
+            "nodes": [
+                {
+                    "id": "notes/daily/a.md",
+                    "path": "notes/daily/a.md",
+                    "indexed": True,
+                },
+                {
+                    "id": "notes/digest/wiki/topic.md",
+                    "path": "notes/digest/wiki/topic.md",
+                    "indexed": True,
+                },
+            ],
+            "edges": [],
+        },
+    )
+    memory_manager = MagicMock()
+    memory_manager.graph_snapshot = AsyncMock(return_value=graph_response)
+    manager_mock.get_agent = AsyncMock(
+        return_value=MagicMock(memory_manager=memory_manager),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.get("/api/agents/bot/memory/graph")
+
+    assert response.status_code == 200
+    nodes = response.json()["nodes"]
+    assert [(node["section"], node["relative_path"]) for node in nodes] == [
+        ("daily", "a.md"),
+        ("digest", "wiki/topic.md"),
+    ]
 
 
 def test_get_memory_graph_reports_unavailable_reme(

@@ -43,6 +43,8 @@ export interface MemoryGraphNode {
   description: string;
   indexed: boolean;
   virtual?: boolean;
+  section?: "daily" | "digest" | null;
+  relative_path?: string | null;
 }
 
 export interface MemoryGraphEdge {

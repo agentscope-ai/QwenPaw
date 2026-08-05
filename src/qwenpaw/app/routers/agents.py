@@ -74,6 +74,8 @@ class MemoryGraphNode(BaseModel):
     description: str = ""
     indexed: bool
     virtual: bool = False
+    section: Literal["daily", "digest"] | None = None
+    relative_path: str | None = None
 
 
 class MemoryGraphEdge(BaseModel):
@@ -880,7 +882,29 @@ async def get_agent_memory_graph(
     if not response.success:
         raise HTTPException(status_code=500, detail=str(response.answer))
 
-    return MemoryGraphSnapshot.model_validate(response.answer)
+    snapshot = MemoryGraphSnapshot.model_validate(response.answer)
+    reme_config = agent_config.running.reme_light_memory_config
+    roots = sorted(
+        (
+            ("daily", reme_config.daily_dir),
+            ("digest", reme_config.digest_dir),
+        ),
+        key=lambda item: len(item[1].replace("\\", "/").strip("/").split("/")),
+        reverse=True,
+    )
+    for node in snapshot.nodes:
+        if not node.indexed or node.virtual:
+            continue
+        node_path = node.path.replace("\\", "/").strip("/")
+        for section, configured_root in roots:
+            root = configured_root.replace("\\", "/").strip("/")
+            prefix = f"{root}/"
+            if root and node_path.startswith(prefix):
+                node.section = section
+                node.relative_path = node_path[len(prefix) :]
+                break
+
+    return snapshot
 
 
 @router.delete(

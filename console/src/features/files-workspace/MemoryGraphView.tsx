@@ -23,6 +23,7 @@ import type {
   MemoryGraphNode,
   MemoryGraphSnapshot,
 } from "../../api/types";
+import type { MemorySection } from "../../api/types/workspace";
 import type { MemoryGraphRoot } from "./types";
 import styles from "./MemoryGraphView.module.less";
 
@@ -364,10 +365,11 @@ export default function MemoryGraphView({
 }: {
   agentId: string;
   root: MemoryGraphRoot;
-  onOpenFile: (path: string, categoryPath: string) => void;
+  onOpenFile: (section: MemorySection, path: string) => void;
 }) {
   const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<MemoryGraphSnapshot | null>(null);
+  const [snapshotAgentId, setSnapshotAgentId] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [hoveredId, setHoveredId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -378,30 +380,46 @@ export default function MemoryGraphView({
   const [draggedIds, setDraggedIds] = useState<string[]>([]);
   const dragSession = useRef<DragSession | null>(null);
   const didDrag = useRef(false);
+  const requestSequence = useRef(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(false);
-    setOffsets({});
-    setZoom(1);
-    setDraggingId("");
-    setDraggedIds([]);
-    dragSession.current = null;
-    try {
-      const next = await agentsApi.getMemoryGraph(agentId);
-      setSnapshot(next);
-      setSelectedId((current) =>
-        next.nodes.some((node) => node.id === current) ? current : "",
-      );
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [agentId]);
+  const load = useCallback(
+    async (clearSnapshot = false) => {
+      const sequence = ++requestSequence.current;
+      setLoading(true);
+      setError(false);
+      if (clearSnapshot) {
+        setSnapshot(null);
+        setSnapshotAgentId("");
+      }
+      setSelectedId("");
+      setOffsets({});
+      setZoom(1);
+      setDraggingId("");
+      setDraggedIds([]);
+      dragSession.current = null;
+      try {
+        const next = await agentsApi.getMemoryGraph(agentId);
+        if (sequence !== requestSequence.current) return;
+        setSnapshot(next);
+        setSnapshotAgentId(agentId);
+        setSelectedId((current) =>
+          next.nodes.some((node) => node.id === current) ? current : "",
+        );
+      } catch {
+        if (sequence !== requestSequence.current) return;
+        setError(true);
+      } finally {
+        if (sequence === requestSequence.current) setLoading(false);
+      }
+    },
+    [agentId],
+  );
 
   useEffect(() => {
-    void load();
+    void load(true);
+    return () => {
+      requestSequence.current += 1;
+    };
   }, [load]);
 
   useEffect(() => {
@@ -411,9 +429,10 @@ export default function MemoryGraphView({
     setZoom(1);
   }, [root]);
 
+  const currentSnapshot = snapshotAgentId === agentId ? snapshot : null;
   const graphSnapshot = useMemo(
-    () => (snapshot ? graphBelowRoot(snapshot, root) : null),
-    [root, snapshot],
+    () => (currentSnapshot ? graphBelowRoot(currentSnapshot, root) : null),
+    [currentSnapshot, root],
   );
 
   const baseGraph = useMemo(
@@ -438,7 +457,6 @@ export default function MemoryGraphView({
   }, [baseGraph, offsets]);
   const activeId = hoveredId || selectedId;
   const selected = graphSnapshot?.nodes.find((node) => node.id === selectedId);
-  const categoryPath = graphSnapshot?.nodes.find((node) => node.virtual)?.path;
   const inbound =
     graphSnapshot?.edges.filter((edge) => edge.target === selectedId) ?? [];
   const outbound =
@@ -510,7 +528,7 @@ export default function MemoryGraphView({
     setDraggedIds([]);
   };
 
-  if (loading && !snapshot) {
+  if (loading && !currentSnapshot) {
     return (
       <div className={styles.state} aria-label={t("files.memoryGraphLoading")}>
         <LoaderCircle className={styles.spin} size={20} />
@@ -519,7 +537,7 @@ export default function MemoryGraphView({
     );
   }
 
-  if (error && !snapshot) {
+  if (error && !currentSnapshot) {
     return (
       <div className={styles.state} role="alert">
         <CircleAlert size={20} />
@@ -818,16 +836,21 @@ export default function MemoryGraphView({
               <h2>{nodeLabel(selected)}</h2>
               <code>{selected.path}</code>
               {selected.description && <p>{selected.description}</p>}
-              {selected.indexed && !selected.virtual && categoryPath && (
-                <button
-                  type="button"
-                  className={styles.openFileButton}
-                  onClick={() => onOpenFile(selected.path, categoryPath)}
-                >
-                  <span>{t("files.memoryGraphOpenFile")}</span>
-                  <ExternalLink size={14} />
-                </button>
-              )}
+              {selected.indexed &&
+                !selected.virtual &&
+                selected.section &&
+                selected.relative_path && (
+                  <button
+                    type="button"
+                    className={styles.openFileButton}
+                    onClick={() =>
+                      onOpenFile(selected.section!, selected.relative_path!)
+                    }
+                  >
+                    <span>{t("files.memoryGraphOpenFile")}</span>
+                    <ExternalLink size={14} />
+                  </button>
+                )}
               <div className={styles.linkSection}>
                 <strong>
                   {t("files.memoryGraphOutbound", { count: outbound.length })}

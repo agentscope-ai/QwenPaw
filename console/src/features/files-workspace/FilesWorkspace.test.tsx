@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FilesWorkspace from "./FilesWorkspace";
@@ -14,6 +14,9 @@ const lifecycle = vi.hoisted(() => ({
   navigatorProps: null as {
     onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
     onShowFiles: () => void;
+  } | null,
+  memoryGraphProps: null as {
+    onOpenFile: (section: "daily" | "digest", path: string) => void;
   } | null,
   saveFileContent: vi.fn(),
   setTabEtag: vi.fn(),
@@ -72,11 +75,18 @@ vi.mock("./FilesNavigator", () => ({
 }));
 
 vi.mock("./MemoryGraphView", () => ({
-  default: ({ agentId, root }: { agentId: string; root: string }) => (
-    <div>
-      memory-graph:{agentId}:{root}
-    </div>
-  ),
+  default: (props: {
+    agentId: string;
+    root: string;
+    onOpenFile: (section: "daily" | "digest", path: string) => void;
+  }) => {
+    lifecycle.memoryGraphProps = props;
+    return (
+      <div>
+        memory-graph:{props.agentId}:{props.root}
+      </div>
+    );
+  },
 }));
 
 vi.mock("../../pages/Coding/TabbedEditor", () => ({
@@ -104,6 +114,7 @@ describe("FilesWorkspace directory changes", () => {
     lifecycle.activeTabPath = "";
     lifecycle.editorProps = null;
     lifecycle.navigatorProps = null;
+    lifecycle.memoryGraphProps = null;
   });
 
   it("rebuilds the Session navigator and editor watch host", () => {
@@ -197,5 +208,23 @@ describe("FilesWorkspace directory changes", () => {
 
     act(() => lifecycle.navigatorProps?.onShowFiles());
     expect(screen.getByText("editor")).toBeInTheDocument();
+  });
+
+  it("opens the section-relative path supplied by the memory graph", async () => {
+    lifecycle.tabs = [{ path: "daily::a.md", content: "", dirty: false }];
+    render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+
+    act(() => lifecycle.navigatorProps?.onShowMemoryGraph("wiki"));
+    await act(async () => {
+      lifecycle.memoryGraphProps?.onOpenFile("daily", "a.md");
+    });
+
+    expect(screen.getByText("editor")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+        "agent:agent-a",
+        "daily::a.md",
+      ),
+    );
   });
 });

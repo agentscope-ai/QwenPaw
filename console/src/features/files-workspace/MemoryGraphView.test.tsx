@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { agentsApi } from "../../api/modules/agents";
 import MemoryGraphView from "./MemoryGraphView";
@@ -36,6 +42,8 @@ describe("MemoryGraphView", () => {
           name: "Alpha",
           description: "Root note",
           indexed: true,
+          section: "daily",
+          relative_path: "a.md",
         },
         {
           id: "missing.md",
@@ -110,7 +118,7 @@ describe("MemoryGraphView", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "files.memoryGraphOpenFile" }),
     );
-    expect(openFile).toHaveBeenCalledWith("memory/a.md", "digest/wiki");
+    expect(openFile).toHaveBeenCalledWith("daily", "a.md");
 
     fireEvent.click(screen.getByRole("button", { name: "missing" }));
     expect(screen.getAllByText("missing.md")).not.toHaveLength(0);
@@ -208,5 +216,82 @@ describe("MemoryGraphView", () => {
     );
     expect(parent.style.transform).toBe(parentStart);
     expect(child.style.transform).toBe(childStart);
+  });
+
+  it("discards an older agent request that resolves after the current one", async () => {
+    const resolvers = new Map<
+      string,
+      (snapshot: Awaited<ReturnType<typeof agentsApi.getMemoryGraph>>) => void
+    >();
+    vi.mocked(agentsApi.getMemoryGraph).mockImplementation(
+      (agentId) =>
+        new Promise((resolve) => {
+          resolvers.set(agentId, resolve);
+        }),
+    );
+    const snapshotFor = (agentId: string) => ({
+      version: 1 as const,
+      nodes: [
+        {
+          id: "virtual:wiki",
+          path: "digest/wiki",
+          name: "wiki",
+          description: "",
+          indexed: false,
+          virtual: true,
+        },
+        {
+          id: `${agentId}.md`,
+          path: `memory/${agentId}.md`,
+          name: agentId,
+          description: "",
+          indexed: true,
+          section: "daily" as const,
+          relative_path: `${agentId}.md`,
+        },
+      ],
+      edges: [
+        {
+          source: "virtual:wiki",
+          target: `${agentId}.md`,
+          target_anchor: null,
+        },
+      ],
+    });
+
+    const { rerender } = render(
+      <MemoryGraphView agentId="agent-a" root="wiki" onOpenFile={openFile} />,
+    );
+    await waitFor(() => expect(resolvers.has("agent-a")).toBe(true));
+    rerender(
+      <MemoryGraphView agentId="agent-b" root="wiki" onOpenFile={openFile} />,
+    );
+    await waitFor(() => expect(resolvers.has("agent-b")).toBe(true));
+
+    await act(async () => resolvers.get("agent-b")?.(snapshotFor("agent-b")));
+    expect(
+      await screen.findByRole("button", { name: "agent-b" }),
+    ).toBeVisible();
+    await act(async () => resolvers.get("agent-a")?.(snapshotFor("agent-a")));
+    expect(screen.queryByRole("button", { name: "agent-a" })).toBeNull();
+    expect(screen.getByRole("button", { name: "agent-b" })).toBeVisible();
+  });
+
+  it("clears the previous graph and reports an agent load failure", async () => {
+    const { rerender } = render(
+      <MemoryGraphView agentId="agent-a" root="wiki" onOpenFile={openFile} />,
+    );
+    expect(await screen.findByRole("button", { name: "Alpha" })).toBeVisible();
+    vi.mocked(agentsApi.getMemoryGraph).mockRejectedValueOnce(
+      new Error("boom"),
+    );
+
+    rerender(
+      <MemoryGraphView agentId="agent-b" root="wiki" onOpenFile={openFile} />,
+    );
+    expect(screen.queryByRole("button", { name: "Alpha" })).toBeNull();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "files.memoryGraphLoadFailed",
+    );
   });
 });
