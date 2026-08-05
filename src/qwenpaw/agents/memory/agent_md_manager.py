@@ -220,7 +220,9 @@ class AgentMdManager:
         }
 
     @staticmethod
-    def _nested_root_to_exclude(root_dir: Path, other_dir: Path) -> Path | None:
+    def _nested_root_to_exclude(
+        root_dir: Path, other_dir: Path
+    ) -> Path | None:
         """Return *other_dir* when it is strictly nested under *root_dir*."""
         resolved_root = root_dir.resolve()
         resolved_other = other_dir.resolve()

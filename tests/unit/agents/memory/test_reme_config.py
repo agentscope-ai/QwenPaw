@@ -63,7 +63,8 @@ def test_graph_snapshot_job_exposes_complete_wikilink_graph() -> None:
     assert cfg["jobs"]["graph_snapshot"] == {
         "backend": "base",
         "description": (
-            "Return the complete indexed wikilink graph for frontend rendering."
+            "Return the complete indexed wikilink "
+            "graph for frontend rendering."
         ),
         "parameters": {"type": "object", "properties": {}},
         "steps": [{"backend": "graph_snapshot_step"}],

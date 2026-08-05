@@ -267,7 +267,6 @@ class TestAgentMdManagerListMemoryMds:
     def test_daily_section_excludes_nested_digest_directory(
         self,
         manager,
-        tmp_path,
     ):
         manager.digest_dir = manager.memory_dir / "digest"
         manager.digest_dir.mkdir()
