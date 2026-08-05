@@ -1,4 +1,4 @@
-const F = {
+const U = {
   en: {
     routeLabel: "Chrome",
     pageTitle: "Chrome",
@@ -68,6 +68,8 @@ const F = {
     checkNmHost: "Native Messaging host",
     checkExtensionAssets: "Extension assets",
     checkBridgeLifecycle: "Bridge lifecycle",
+    checkContractDrift: "Extension compatibility",
+    checkUnknown: "Unknown check: {name}",
     checkReady: "Ready",
     checkFailed: "Needs attention",
     checksPending: "Connection checks are not available yet. Refresh to retry.",
@@ -75,6 +77,7 @@ const F = {
     repairReloadUnpackedExtension: "Reload the unpacked extension in chrome://extensions.",
     repairWaitOrRestartChrome: "Wait a moment or restart Chrome.",
     repairReloadExtension: "Reload the extension.",
+    repairReloadOrUpdateExtension: "Reload or update the extension.",
     version: "Extension version",
     connected: "Connected",
     justNow: "just now",
@@ -159,6 +162,8 @@ const F = {
     checkNmHost: "Native Messaging 宿主",
     checkExtensionAssets: "扩展资产",
     checkBridgeLifecycle: "桥接生命周期",
+    checkContractDrift: "扩展兼容性",
+    checkUnknown: "未知检查：{name}",
     checkReady: "就绪",
     checkFailed: "需要处理",
     checksPending: "连接检查结果暂不可用，请刷新重试。",
@@ -166,6 +171,7 @@ const F = {
     repairReloadUnpackedExtension: "在 chrome://extensions 重新加载已解压的扩展。",
     repairWaitOrRestartChrome: "稍候片刻或重启 Chrome。",
     repairReloadExtension: "重新加载扩展。",
+    repairReloadOrUpdateExtension: "重新加载或更新扩展。",
     version: "扩展版本",
     connected: "连接时间",
     justNow: "刚刚",
@@ -194,22 +200,24 @@ function j(t = Y()) {
   return String(t || "").trim().split("-")[0].toLowerCase() === "zh" ? "zh" : "en";
 }
 function o(t, n, r) {
-  let l = F[t][n] ?? F.en[n];
+  let l = U[t][n] ?? U.en[n];
   if (r)
     for (const [i, m] of Object.entries(r))
       l = l.split(`{${i}}`).join(String(m));
   return l;
 }
-const x = window.QwenPaw.host, e = x.React, J = x.antd, Z = x.getApiUrl, _ = x.getApiToken, { Alert: N, Button: u, Collapse: X, Space: xe, Spin: ee, Typography: te, message: b } = J, { Text: d, Title: O } = te, ne = {
+const x = window.QwenPaw.host, e = x.React, J = x.antd, Z = x.getApiUrl, _ = x.getApiToken, { Alert: F, Button: u, Collapse: X, Space: Ee, Spin: ee, Typography: te, message: b } = J, { Text: d, Title: O } = te, ne = {
   extension_bridge: "checkExtensionBridge",
   nm_host: "checkNmHost",
   extension_assets: "checkExtensionAssets",
-  bridge_lifecycle: "checkBridgeLifecycle"
+  bridge_lifecycle: "checkBridgeLifecycle",
+  contract_drift: "checkContractDrift"
 }, re = {
   reinstall_nm_host: "repairReinstallNmHost",
   reload_unpacked_extension: "repairReloadUnpackedExtension",
   wait_or_restart_chrome: "repairWaitOrRestartChrome",
-  reload_extension: "repairReloadExtension"
+  reload_extension: "repairReloadExtension",
+  reload_or_update_extension: "repairReloadOrUpdateExtension"
 }, c = {
   page: {
     minHeight: "100%",
@@ -729,7 +737,14 @@ function he(t, n) {
   const r = re[n];
   return r ? o(t, r) : "";
 }
-function U({ ready: t }) {
+function ue(t, n) {
+  const r = ne[n];
+  return r ? o(t, r) : o(t, "checkUnknown", { name: n });
+}
+function ge(t) {
+  return !t.passed || t.severity === "warn" || t.severity === "error";
+}
+function N({ ready: t }) {
   const { token: n } = x.antd.theme.useToken(), r = S();
   return /* @__PURE__ */ e.createElement(
     "span",
@@ -797,12 +812,12 @@ function T({
     m ? null : n
   );
 }
-function ue() {
+function ye() {
   var l, i;
   const t = ((l = window.navigator) == null ? void 0 : l.platform) || "", n = ((i = window.navigator) == null ? void 0 : i.userAgent) || "", r = `${t} ${n}`.toLowerCase();
   return r.includes("mac") ? "mac" : r.includes("win") ? "windows" : "linux";
 }
-function ge({
+function xe({
   locale: t,
   onCopy: n,
   status: r
@@ -837,9 +852,9 @@ function ge({
     }
   );
 }
-function ye() {
+function fe() {
   var H;
-  const t = S(), n = j(), [r, l] = e.useState(null), [i, m] = e.useState(null), [p, g] = e.useState(null), [f, R] = e.useState(!0), [I, M] = e.useState(!1), [L, C] = e.useState(null), [W, G] = e.useState(!1), [D, V] = e.useState(() => ue()), y = e.useCallback(
+  const t = S(), n = j(), [r, l] = e.useState(null), [i, m] = e.useState(null), [p, g] = e.useState(null), [f, R] = e.useState(!0), [I, M] = e.useState(!1), [L, C] = e.useState(null), [W, G] = e.useState(!1), [D, V] = e.useState(() => ye()), y = e.useCallback(
     async (a) => {
       a != null && a.silent || R(!0), C(null);
       try {
@@ -886,7 +901,7 @@ function ye() {
       }
     },
     [n, r]
-  ), P = e.useCallback(
+  ), k = e.useCallback(
     async (a) => {
       var s;
       await ((s = navigator.clipboard) == null ? void 0 : s.writeText(a)), b.success(o(n, "copied"));
@@ -894,8 +909,8 @@ function ye() {
     [n]
   ), q = e.useCallback(async () => {
     const a = await E({ refresh: !0 });
-    a != null && a.extension_dir && await P(a.extension_dir);
-  }, [P, E]), k = e.useCallback(async () => {
+    a != null && a.extension_dir && await k(a.extension_dir);
+  }, [k, E]), P = e.useCallback(async () => {
     const a = await pe();
     !a.opened && a.error && b.warning(a.error);
   }, []), K = {
@@ -927,7 +942,7 @@ function ye() {
     return () => {
       window.clearInterval(a);
     };
-  }, [h, y]), /* @__PURE__ */ e.createElement("div", { style: t.page }, /* @__PURE__ */ e.createElement("div", { style: t.shell }, /* @__PURE__ */ e.createElement("div", { style: t.panel }, /* @__PURE__ */ e.createElement("div", { style: t.statusBlock }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { style: t.header }, /* @__PURE__ */ e.createElement("div", { style: t.titleRow }, /* @__PURE__ */ e.createElement("span", { style: t.chromeIcon }), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(O, { level: 3, style: { margin: 0 } }, o(n, "pageTitle")), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, o(n, "pageSubtitle"))))), /* @__PURE__ */ e.createElement("div", { style: { marginTop: 22 } }, /* @__PURE__ */ e.createElement("div", { style: t.statusTitleRow }, h || B ? /* @__PURE__ */ e.createElement(U, { ready: h }) : null, /* @__PURE__ */ e.createElement(O, { level: 4, style: { margin: 0 } }, o(
+  }, [h, y]), /* @__PURE__ */ e.createElement("div", { style: t.page }, /* @__PURE__ */ e.createElement("div", { style: t.shell }, /* @__PURE__ */ e.createElement("div", { style: t.panel }, /* @__PURE__ */ e.createElement("div", { style: t.statusBlock }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { style: t.header }, /* @__PURE__ */ e.createElement("div", { style: t.titleRow }, /* @__PURE__ */ e.createElement("span", { style: t.chromeIcon }), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(O, { level: 3, style: { margin: 0 } }, o(n, "pageTitle")), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, o(n, "pageSubtitle"))))), /* @__PURE__ */ e.createElement("div", { style: { marginTop: 22 } }, /* @__PURE__ */ e.createElement("div", { style: t.statusTitleRow }, h || B ? /* @__PURE__ */ e.createElement(N, { ready: h }) : null, /* @__PURE__ */ e.createElement(O, { level: 4, style: { margin: 0 } }, o(
     n,
     h ? "readyTitle" : B ? "awaitingTitle" : "installTitle"
   ))), /* @__PURE__ */ e.createElement("div", { style: t.statusCopy }, h ? o(n, "readyDescription", {
@@ -947,7 +962,7 @@ function ye() {
     u,
     {
       type: "primary",
-      onClick: () => void k()
+      onClick: () => void P()
     },
     o(n, "openChrome")
   )) : A ? /* @__PURE__ */ e.createElement(
@@ -967,7 +982,7 @@ function ye() {
     },
     o(n, "installedRefresh")
   ))), L ? /* @__PURE__ */ e.createElement(
-    N,
+    F,
     {
       showIcon: !0,
       type: "error",
@@ -975,24 +990,24 @@ function ye() {
       style: { marginTop: 16 }
     }
   ) : null, A && (r != null && r.native_host_repair_instruction) ? /* @__PURE__ */ e.createElement(
-    N,
+    F,
     {
       showIcon: !0,
       type: "error",
       message: r == null ? void 0 : r.native_host_repair_instruction,
       style: { marginTop: 16 }
     }
-  ) : null, h ? /* @__PURE__ */ e.createElement("div", { style: t.section }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "checksTitle")), (H = p == null ? void 0 : p.checks) != null && H.length ? /* @__PURE__ */ e.createElement("div", { style: t.checkGrid }, p.checks.filter((a) => a.name !== "semantic_control").map((a) => /* @__PURE__ */ e.createElement("div", { key: a.name, style: t.checkTile }, /* @__PURE__ */ e.createElement("div", { style: t.checkTitle }, /* @__PURE__ */ e.createElement(U, { ready: a.passed }), /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(
-    n,
-    ne[a.name] ?? "checkExtensionBridge"
-  ))), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, a.passed ? o(n, "checkReady") : `${a.message} ${he(
-    n,
-    a.repair_action
-  )}`.trim())))) : /* @__PURE__ */ e.createElement(d, { type: "secondary" }, o(n, "checksPending"))) : /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement("div", { style: t.section }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "installMethodsTitle")), /* @__PURE__ */ e.createElement("div", { style: t.methodGrid }, /* @__PURE__ */ e.createElement("div", { style: t.methodTile }, /* @__PURE__ */ e.createElement("div", { style: t.methodHeader }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "localMethodTitle")), /* @__PURE__ */ e.createElement("span", { style: t.badge }, o(n, "recommendedBadge"))), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, o(n, "localMethodDescription")), /* @__PURE__ */ e.createElement(
+  ) : null, h ? /* @__PURE__ */ e.createElement("div", { style: t.section }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "checksTitle")), (H = p == null ? void 0 : p.checks) != null && H.length ? /* @__PURE__ */ e.createElement("div", { style: t.checkGrid }, p.checks.filter((a) => a.name !== "semantic_control").map((a) => {
+    const s = ge(a);
+    return /* @__PURE__ */ e.createElement("div", { key: a.name, style: t.checkTile }, /* @__PURE__ */ e.createElement("div", { style: t.checkTitle }, /* @__PURE__ */ e.createElement(N, { ready: !s }), /* @__PURE__ */ e.createElement(d, { strong: !0 }, ue(n, a.name))), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, s ? `${a.message} ${he(
+      n,
+      a.repair_action
+    )}`.trim() : o(n, "checkReady")));
+  })) : /* @__PURE__ */ e.createElement(d, { type: "secondary" }, o(n, "checksPending"))) : /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement("div", { style: t.section }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "installMethodsTitle")), /* @__PURE__ */ e.createElement("div", { style: t.methodGrid }, /* @__PURE__ */ e.createElement("div", { style: t.methodTile }, /* @__PURE__ */ e.createElement("div", { style: t.methodHeader }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "localMethodTitle")), /* @__PURE__ */ e.createElement("span", { style: t.badge }, o(n, "recommendedBadge"))), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, o(n, "localMethodDescription")), /* @__PURE__ */ e.createElement(
     u,
     {
       type: "primary",
-      onClick: () => void k()
+      onClick: () => void P()
     },
     /* @__PURE__ */ e.createElement(z, { name: "chromeExtensions" }),
     o(n, "openChromeExtensionsPage")
@@ -1001,7 +1016,7 @@ function ye() {
     {
       icon: "chromeExtensions",
       label: o(n, "openExtensionsAction"),
-      onClick: () => void k(),
+      onClick: () => void P(),
       tone: "blue"
     }
   ), o(n, "openExtensionsSuffix")))), /* @__PURE__ */ e.createElement("li", { style: t.stepItem }, /* @__PURE__ */ e.createElement("span", { style: t.stepIndex }, "2"), /* @__PURE__ */ e.createElement("div", { style: t.stepBody }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "developerModeStepTitle")), /* @__PURE__ */ e.createElement("div", { style: t.stepLine }, o(n, "developerModePrefix"), /* @__PURE__ */ e.createElement(
@@ -1055,10 +1070,10 @@ function ye() {
       (a, s) => /* @__PURE__ */ e.createElement("li", { key: a, style: t.shortcutStep }, /* @__PURE__ */ e.createElement("span", { style: t.tipDot }, s + 2), /* @__PURE__ */ e.createElement("span", null, o(n, a)))
     )))
   )))), /* @__PURE__ */ e.createElement(
-    ge,
+    xe,
     {
       locale: n,
-      onCopy: (a) => void P(a),
+      onCopy: (a) => void k(a),
       status: r
     }
   )), f && !r ? /* @__PURE__ */ e.createElement(ee, null) : null));
@@ -1067,7 +1082,7 @@ var Q, $;
 ($ = (Q = window.QwenPaw).registerRoutes) == null || $.call(Q, "chrome", [
   {
     path: "/plugin/chrome",
-    component: ye,
+    component: fe,
     label: o(j(), "routeLabel"),
     icon: /* @__PURE__ */ e.createElement(ae, null),
     priority: 40

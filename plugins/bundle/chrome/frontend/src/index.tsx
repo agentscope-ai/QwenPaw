@@ -51,6 +51,7 @@ interface SelfTestCheck {
   name: string;
   passed: boolean;
   status: string;
+  severity?: "none" | "warn" | "error";
   code: string;
   message: string;
   repair_action: string;
@@ -96,6 +97,7 @@ const PROBE_LABEL_KEYS: Record<string, MessageKey> = {
   nm_host: "checkNmHost",
   extension_assets: "checkExtensionAssets",
   bridge_lifecycle: "checkBridgeLifecycle",
+  contract_drift: "checkContractDrift",
 };
 
 const REPAIR_KEYS: Record<string, MessageKey> = {
@@ -103,6 +105,7 @@ const REPAIR_KEYS: Record<string, MessageKey> = {
   reload_unpacked_extension: "repairReloadUnpackedExtension",
   wait_or_restart_chrome: "repairWaitOrRestartChrome",
   reload_extension: "repairReloadExtension",
+  reload_or_update_extension: "repairReloadOrUpdateExtension",
 };
 
 const baseStyles: Record<string, ReactNS.CSSProperties> = {
@@ -672,6 +675,19 @@ function repairText(locale: ChromeLocale, action: string): string {
   return key ? translate(locale, key) : "";
 }
 
+function probeLabel(locale: ChromeLocale, name: string): string {
+  const key = PROBE_LABEL_KEYS[name];
+  return key
+    ? translate(locale, key)
+    : translate(locale, "checkUnknown", { name });
+}
+
+function checkNeedsAttention(check: SelfTestCheck): boolean {
+  return (
+    !check.passed || check.severity === "warn" || check.severity === "error"
+  );
+}
+
 function StatusDot({ ready }: { ready: boolean }) {
   const { token } = host.antd.theme.useToken();
   const styles = useChromeStyles();
@@ -1140,28 +1156,25 @@ function ChromeSetupPage() {
                 <div style={styles.checkGrid}>
                   {selfTest.checks
                     .filter((check) => check.name !== "semantic_control")
-                    .map((check) => (
-                      <div key={check.name} style={styles.checkTile}>
-                        <div style={styles.checkTitle}>
-                          <StatusDot ready={check.passed} />
-                          <Text strong>
-                            {translate(
-                              locale,
-                              PROBE_LABEL_KEYS[check.name] ??
-                                "checkExtensionBridge",
-                            )}
+                    .map((check) => {
+                      const needsAttention = checkNeedsAttention(check);
+                      return (
+                        <div key={check.name} style={styles.checkTile}>
+                          <div style={styles.checkTitle}>
+                            <StatusDot ready={!needsAttention} />
+                            <Text strong>{probeLabel(locale, check.name)}</Text>
+                          </div>
+                          <Text type="secondary">
+                            {needsAttention
+                              ? `${check.message} ${repairText(
+                                  locale,
+                                  check.repair_action,
+                                )}`.trim()
+                              : translate(locale, "checkReady")}
                           </Text>
                         </div>
-                        <Text type="secondary">
-                          {check.passed
-                            ? translate(locale, "checkReady")
-                            : `${check.message} ${repairText(
-                                locale,
-                                check.repair_action,
-                              )}`.trim()}
-                        </Text>
-                      </div>
-                    ))}
+                      );
+                    })}
                 </div>
               ) : (
                 <Text type="secondary">
