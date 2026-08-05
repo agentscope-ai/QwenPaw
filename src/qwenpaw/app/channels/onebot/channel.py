@@ -717,9 +717,11 @@ class OneBotChannel(BaseChannel):
             "bot_mentioned": bot_mentioned,
         }
 
-        # Mention check (group messages may require @bot)
+        # Avoid remote media I/O for group messages ignored by mention policy.
         if not self._check_group_mention(is_group, meta):
             return
+
+        content_parts = await self._inline_remote_images(content_parts)
 
         native = {
             "channel_id": self.channel,
@@ -889,6 +891,110 @@ class OneBotChannel(BaseChannel):
                 resolved.append(part)
 
         return resolved
+
+    async def _inline_remote_images(self, content_parts: list) -> list:
+        """Inline remote OneBot images when base64 media mode is enabled."""
+        if not self._media_base64:
+            return content_parts
+
+        remote_images = [
+            part
+            for part in content_parts
+            if getattr(part, "type", None) == ContentType.IMAGE
+            and str(getattr(part, "image_url", "") or "").startswith(
+                ("http://", "https://"),
+            )
+        ]
+        if not remote_images:
+            return content_parts
+
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(
+            timeout=timeout,
+            trust_env=False,
+        ) as session:
+            resolved: list = []
+            for part in content_parts:
+                image_url = str(getattr(part, "image_url", "") or "")
+                if part not in remote_images:
+                    resolved.append(part)
+                    continue
+                data_url = await self._download_image_data_url(
+                    session,
+                    image_url,
+                )
+                if data_url:
+                    resolved.append(
+                        ImageContent(
+                            type=ContentType.IMAGE,
+                            image_url=data_url,
+                        ),
+                    )
+                else:
+                    resolved.append(
+                        TextContent(
+                            type=ContentType.TEXT,
+                            text="[image: download failed]",
+                        ),
+                    )
+            return resolved
+
+    async def _download_image_data_url(
+        self,
+        session: aiohttp.ClientSession,
+        url: str,
+    ) -> str | None:
+        """Download one image into a size-limited data URL."""
+        try:
+            async with session.get(
+                url,
+                allow_redirects=True,
+                max_redirects=3,
+            ) as response:
+                response.raise_for_status()
+                content_length = response.content_length
+                if (
+                    content_length is not None
+                    and content_length > self._media_base64_max_bytes
+                ):
+                    logger.warning(
+                        "onebot: remote image exceeds base64 limit: %s bytes",
+                        content_length,
+                    )
+                    return None
+
+                data = bytearray()
+                async for chunk in response.content.iter_chunked(64 * 1024):
+                    data.extend(chunk)
+                    if len(data) > self._media_base64_max_bytes:
+                        logger.warning(
+                            "onebot: remote image download exceeded "
+                            "base64 limit",
+                        )
+                        return None
+                if not data:
+                    return None
+
+                raw_media_type = response.headers.get("Content-Type", "")
+                media_type = raw_media_type.split(";", 1)[0].strip().lower()
+                if media_type and not media_type.startswith("image/"):
+                    logger.warning(
+                        "onebot: remote image returned non-image "
+                        "content type: %s",
+                        media_type,
+                    )
+                    return None
+                if not media_type:
+                    media_type = "image/jpeg"
+                encoded = base64.b64encode(data).decode("ascii")
+                return f"data:{media_type};base64,{encoded}"
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+            logger.warning(
+                "onebot: failed to download remote image %s",
+                url,
+                exc_info=True,
+            )
+            return None
 
     # ------------------------------------------------------------------
     # Build AgentRequest

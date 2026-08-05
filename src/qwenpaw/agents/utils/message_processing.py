@@ -254,10 +254,11 @@ async def _process_audio_block(
         placeholder is shown instead.
 
     Returns:
-        True if the audio was fully handled (transcribed or sent natively)
-        — the "file downloaded" notification will be suppressed.
-        False if transcription failed — the notification is kept so the
-        LLM knows the file path.
+        True if the audio was fully handled (transcribed or sent natively).
+        False if auto-mode transcription failed and the audio block was
+        replaced with a text placeholder.  Callers should avoid exposing the
+        downloaded audio path for this fallback unless they intentionally want
+        the LLM to inspect the raw file.
     """
     from .audio_transcription import transcribe_audio
 
@@ -313,30 +314,60 @@ async def _process_audio_block(
     return False
 
 
-async def _process_local_data_block(
+async def _process_data_block(
     message_content: list,
     index: int,
     block,
 ) -> Optional[str]:
-    """Process a local AgentScope DataBlock and return its file path."""
+    """Process an AgentScope DataBlock and return its local file path."""
     source = getattr(block, "source", None)
     url = str(getattr(source, "url", "")) if source else ""
-    if not url.startswith("file://"):
+    if not url:
         return None
 
-    local_path = file_url_to_local_path(url)
+    media_type = getattr(source, "media_type", "") or ""
+    if url.startswith("file://"):
+        local_path = file_url_to_local_path(url)
+    elif media_type.startswith("audio/"):
+        parsed = urllib.parse.urlparse(url)
+        filename = os.path.basename(parsed.path) or "audio.file"
+        if not Path(filename).suffix:
+            filename = f"{filename}.file"
+        try:
+            local_path = await download_file_from_url(url, filename)
+        except Exception:
+            logger.warning(
+                "Failed to download remote audio block: %s",
+                url,
+                exc_info=True,
+            )
+            message_content[index] = _audio_text_block(
+                block,
+                "[Voice message]: (audio download failed)",
+            )
+            return None
+    else:
+        return None
+
     if not local_path:
         return None
-    media_type = getattr(source, "media_type", "") or ""
     if media_type.startswith("audio/"):
-        handled = await _process_audio_block(
+        block.source = URLSource(
+            url=_local_file_url(local_path),
+            media_type=_media_type_from_path(local_path),
+        )
+        await _process_audio_block(
             message_content,
             index,
             local_path,
             block,
         )
-        if handled:
-            return None
+        # Audio blocks are represented in-place after processing: either as
+        # transcribed text, native audio, or a clear placeholder when
+        # transcription fails. Do not append the downloaded file path because
+        # exposing opaque audio payloads makes the LLM treat them as generic
+        # files and can lead to tool-only turns without a channel reply.
+        return None
     return local_path
 
 
@@ -498,21 +529,20 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
             # === 2.0 Pydantic DataBlock fast-path ===
             # Console uploads land as ``DataBlock(URLSource(url=file:///..))``
             # already pointing at ``media_dir``.  Preserve the Pydantic block
-            # type; local audio is handled in-place for transcription/native
-            # delivery, while other media only needs a path hint.
+            # type; local and remote audio are handled in-place for
+            # transcription/native delivery, while other media only needs a
+            # path hint.
             if not isinstance(block, dict):
-                local_path = await _process_local_data_block(
+                local_path = await _process_data_block(
                     message.content,
                     i,
                     block,
                 )
                 if local_path:
                     downloaded_files.append((i, local_path))
-                # Remote URL or no URL on a Pydantic block: skip silently.
-                # Adding remote-download for Pydantic DataBlock is a
-                # separate feature (would need to also convert the dict
-                # result back into a DataBlock to preserve the array
-                # type homogeneity that 2.0 expects).
+                # Remote non-audio URL or no URL on a Pydantic block: skip
+                # silently. Remote audio is downloaded above so it can use the
+                # same transcription/native path as local voice messages.
                 continue
 
             # === 1.x legacy dict path ===

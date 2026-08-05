@@ -5,13 +5,19 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+import aiohttp
+from aiohttp.web import TCPSite
 import pytest
 from pydantic import ValidationError
 from qwenpaw.config.config import OneBotConfig
 from qwenpaw.schemas import (
+    AudioContent,
     ContentType,
+    FileContent,
+    ImageContent,
     TextContent,
+    VideoContent,
 )
 
 from qwenpaw.app.channels.onebot.channel import (
@@ -227,6 +233,205 @@ class TestParseMessageSegments:
         assert len(parts) == 0
 
 
+class TestInlineRemoteImages:
+    async def test_disabled_keeps_remote_url(self):
+        ch = _make_channel(media_base64=False)
+        part = ImageContent(
+            type=ContentType.IMAGE,
+            image_url="https://img.example.com/pic.png",
+        )
+
+        resolved = await ch._inline_remote_images([part])
+
+        assert resolved == [part]
+
+    async def test_enabled_replaces_remote_url_with_data_url(self):
+        ch = _make_channel(media_base64=True)
+        part = ImageContent(
+            type=ContentType.IMAGE,
+            image_url="https://img.example.com/pic.png",
+        )
+        ch._download_image_data_url = AsyncMock(
+            return_value="data:image/png;base64,aW1hZ2U=",
+        )
+
+        with patch(
+            "qwenpaw.app.channels.onebot.channel.aiohttp.ClientSession",
+        ) as session_cls:
+            session = MagicMock()
+            session_cls.return_value.__aenter__ = AsyncMock(
+                return_value=session,
+            )
+            session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+            resolved = await ch._inline_remote_images([part])
+
+        assert resolved[0].image_url == "data:image/png;base64,aW1hZ2U="
+        ch._download_image_data_url.assert_awaited_once_with(
+            session,
+            "https://img.example.com/pic.png",
+        )
+
+    async def test_download_builds_data_url(self):
+        ch = _make_channel(media_base64=True)
+        response = MagicMock()
+        response.content_length = 5
+        response.headers = {"Content-Type": "image/png; charset=binary"}
+        response.raise_for_status = MagicMock()
+
+        async def _chunks():
+            yield b"image"
+
+        response.content.iter_chunked.return_value = _chunks()
+        request_context = MagicMock()
+        request_context.__aenter__ = AsyncMock(return_value=response)
+        request_context.__aexit__ = AsyncMock(return_value=None)
+        session = MagicMock()
+        session.get.return_value = request_context
+
+        result = await ch._download_image_data_url(
+            session,
+            "https://img.example.com/pic.png",
+        )
+
+        assert result == "data:image/png;base64,aW1hZ2U="
+        session.get.assert_called_once_with(
+            "https://img.example.com/pic.png",
+            allow_redirects=True,
+            max_redirects=3,
+        )
+
+    async def test_download_rejects_oversized_content_length(self):
+        ch = _make_channel(media_base64=True, media_base64_max_mb=1)
+        response = MagicMock()
+        response.content_length = ch._media_base64_max_bytes + 1
+        response.headers = {"Content-Type": "image/png"}
+        response.raise_for_status = MagicMock()
+        request_context = MagicMock()
+        request_context.__aenter__ = AsyncMock(return_value=response)
+        request_context.__aexit__ = AsyncMock(return_value=None)
+        session = MagicMock()
+        session.get.return_value = request_context
+
+        result = await ch._download_image_data_url(
+            session,
+            "https://img.example.com/huge.png",
+        )
+
+        assert result is None
+
+    async def test_download_rejects_non_image_content_type(self):
+        ch = _make_channel(media_base64=True)
+        response = MagicMock()
+        response.content_length = 4
+        response.headers = {"Content-Type": "text/html"}
+        response.raise_for_status = MagicMock()
+
+        async def _chunks():
+            yield b"html"
+
+        response.content.iter_chunked.return_value = _chunks()
+        request_context = MagicMock()
+        request_context.__aenter__ = AsyncMock(return_value=response)
+        request_context.__aexit__ = AsyncMock(return_value=None)
+        session = MagicMock()
+        session.get.return_value = request_context
+
+        result = await ch._download_image_data_url(
+            session,
+            "https://img.example.com/not-image",
+        )
+
+        assert result is None
+
+    async def test_download_rejects_oversized_chunked_body(self):
+        ch = _make_channel(media_base64=True, media_base64_max_mb=1)
+        response = MagicMock()
+        response.content_length = None
+        response.headers = {"Content-Type": "image/png"}
+        response.raise_for_status = MagicMock()
+
+        async def _chunks():
+            yield b"x" * (ch._media_base64_max_bytes + 1)
+
+        response.content.iter_chunked.return_value = _chunks()
+        request_context = MagicMock()
+        request_context.__aenter__ = AsyncMock(return_value=response)
+        request_context.__aexit__ = AsyncMock(return_value=None)
+        session = MagicMock()
+        session.get.return_value = request_context
+
+        result = await ch._download_image_data_url(
+            session,
+            "https://img.example.com/chunked.png",
+        )
+
+        assert result is None
+
+    async def test_download_rejects_empty_body(self):
+        ch = _make_channel(media_base64=True)
+        response = MagicMock()
+        response.content_length = 0
+        response.headers = {"Content-Type": "image/png"}
+        response.raise_for_status = MagicMock()
+
+        async def _chunks():
+            for chunk in ():
+                yield chunk
+
+        response.content.iter_chunked.return_value = _chunks()
+        request_context = MagicMock()
+        request_context.__aenter__ = AsyncMock(return_value=response)
+        request_context.__aexit__ = AsyncMock(return_value=None)
+        session = MagicMock()
+        session.get.return_value = request_context
+
+        result = await ch._download_image_data_url(
+            session,
+            "https://img.example.com/empty.png",
+        )
+
+        assert result is None
+
+    async def test_download_http_error_returns_none(self):
+        ch = _make_channel(media_base64=True)
+        request_context = MagicMock()
+        request_context.__aenter__ = AsyncMock(
+            side_effect=aiohttp.ClientError("boom"),
+        )
+        request_context.__aexit__ = AsyncMock(return_value=None)
+        session = MagicMock()
+        session.get.return_value = request_context
+
+        result = await ch._download_image_data_url(
+            session,
+            "https://img.example.com/error.png",
+        )
+
+        assert result is None
+
+    async def test_inline_download_failure_becomes_text(self):
+        ch = _make_channel(media_base64=True)
+        part = ImageContent(
+            type=ContentType.IMAGE,
+            image_url="https://img.example.com/missing.png",
+        )
+        ch._download_image_data_url = AsyncMock(return_value=None)
+
+        with patch(
+            "qwenpaw.app.channels.onebot.channel.aiohttp.ClientSession",
+        ) as session_cls:
+            session = MagicMock()
+            session_cls.return_value.__aenter__ = AsyncMock(
+                return_value=session,
+            )
+            session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+            resolved = await ch._inline_remote_images([part])
+
+        assert len(resolved) == 1
+        assert resolved[0].type == ContentType.TEXT
+        assert resolved[0].text == "[image: download failed]"
+
+
 # ===================================================================
 # Message event handling
 # ===================================================================
@@ -319,6 +524,30 @@ class TestHandleMessageEvent:
         )
         await ch._handle_message_event(event)
         assert len(enqueued) == 0
+
+    async def test_require_mention_blocks_before_remote_image_download(self):
+        ch = _make_channel(require_mention=True, media_base64=True)
+        ch._self_id = 99999
+        ch._download_image_data_url = AsyncMock(
+            return_value="data:image/png;base64,aW1hZ2U=",
+        )
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {
+                    "type": "image",
+                    "data": {"url": "https://img.example.com/pic.png"},
+                },
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        assert len(enqueued) == 0
+        ch._download_image_data_url.assert_not_called()
 
     async def test_require_mention_allows_with_at(self):
         ch = _make_channel(require_mention=True)
@@ -508,10 +737,6 @@ class TestSend:
 
 class TestSendMedia:
     async def test_send_image(self):
-        from qwenpaw.schemas import (
-            ImageContent,
-        )
-
         ch = _make_channel()
         ch._call_api = AsyncMock(return_value={"retcode": 0})
         part = ImageContent(
@@ -525,10 +750,6 @@ class TestSendMedia:
         assert args[1]["message"][0]["type"] == "image"
 
     async def test_send_audio(self):
-        from qwenpaw.schemas import (
-            AudioContent,
-        )
-
         ch = _make_channel()
         ch._call_api = AsyncMock(return_value={"retcode": 0})
         part = AudioContent(type=ContentType.AUDIO, data="https://a.com/v.mp3")
@@ -538,10 +759,6 @@ class TestSendMedia:
         assert args[1]["message"][0]["type"] == "record"
 
     async def test_send_video(self):
-        from qwenpaw.schemas import (
-            VideoContent,
-        )
-
         ch = _make_channel()
         ch._call_api = AsyncMock(return_value={"retcode": 0})
         part = VideoContent(
@@ -554,10 +771,6 @@ class TestSendMedia:
         assert args[1]["message"][0]["type"] == "video"
 
     async def test_send_file_private(self):
-        from qwenpaw.schemas import (
-            FileContent,
-        )
-
         ch = _make_channel()
         ch._call_api = AsyncMock(return_value={"retcode": 0})
         part = FileContent(
@@ -576,10 +789,6 @@ class TestSendMedia:
         )
 
     async def test_send_file_to_group(self):
-        from qwenpaw.schemas import (
-            FileContent,
-        )
-
         ch = _make_channel()
         ch._call_api = AsyncMock(return_value={"retcode": 0})
         part = FileContent(
@@ -602,8 +811,6 @@ class TestSendMedia:
         )
 
     async def test_send_file_converts_local_path_when_enabled(self, tmp_path):
-        from qwenpaw.schemas import FileContent
-
         file_path = tmp_path / "report.txt"
         file_path.write_bytes(b"fake")
         ch = _make_channel(media_base64=True)
@@ -618,10 +825,6 @@ class TestSendMedia:
         assert ch._call_api.call_args.args[1]["file"] == "base64://ZmFrZQ=="
 
     async def test_send_file_no_url_noop(self):
-        from qwenpaw.schemas import (
-            FileContent,
-        )
-
         ch = _make_channel()
         ch._call_api = AsyncMock()
         part = FileContent(type=ContentType.FILE, file_url="")
@@ -629,10 +832,6 @@ class TestSendMedia:
         ch._call_api.assert_not_called()
 
     async def test_send_image_to_group(self):
-        from qwenpaw.schemas import (
-            ImageContent,
-        )
-
         ch = _make_channel()
         ch._call_api = AsyncMock(return_value={"retcode": 0})
         part = ImageContent(
@@ -649,8 +848,6 @@ class TestSendMedia:
         assert args[1]["group_id"] == 67890
 
     async def test_send_content_parts_preserves_order_and_prefix(self):
-        from qwenpaw.schemas import ImageContent
-
         ch = _make_channel()
         ch._call_api = AsyncMock(return_value={"retcode": 0})
 
@@ -991,10 +1188,6 @@ class TestPreviewText:
         assert OneBotChannel._preview_text(parts) == "hello world"
 
     def test_non_text_content(self):
-        from qwenpaw.schemas import (
-            ImageContent,
-        )
-
         parts = [
             ImageContent(
                 type=ContentType.IMAGE,
@@ -1023,9 +1216,6 @@ class TestPortBindGracefulDegradation:
         """
         ch = _make_channel(ws_port=0)
 
-        from unittest.mock import patch
-        from aiohttp.web import TCPSite
-
         async def always_fail(self_site):
             raise OSError(98, "address already in use")
 
@@ -1042,9 +1232,6 @@ class TestPortBindGracefulDegradation:
         """Watchdog should recover the server after initial port conflict."""
         ch = _make_channel(ws_port=0)
         ch._watchdog_interval = 0.05
-
-        from unittest.mock import patch
-        from aiohttp.web import TCPSite
 
         fail_count = 1
         original_tcp_start = TCPSite.start
@@ -1070,9 +1257,6 @@ class TestPortBindGracefulDegradation:
     async def test_non_oserror_still_raises(self):
         """Non-OSError exceptions should propagate normally."""
         ch = _make_channel(ws_port=0)
-
-        from unittest.mock import patch
-        from aiohttp.web import TCPSite
 
         async def fail_with_runtime_error(self_site):
             raise RuntimeError("unexpected error")
