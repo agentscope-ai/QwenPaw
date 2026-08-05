@@ -18,7 +18,7 @@ def _default_state_path() -> Path:
     return (
         Path(WORKING_DIR)
         / "plugin_runtime"
-        / "computer-use-tool"
+        / "computer-use"
         / "feature_state.json"
     )
 

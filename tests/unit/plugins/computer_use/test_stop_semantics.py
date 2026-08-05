@@ -19,9 +19,9 @@ from typing import Any
 
 import pytest
 
-from computer_use_tool.client import ComputerUseClient
-from computer_use_tool.protocol import ComputerUseProtocolError
-from computer_use_tool.transport import (
+from computer_use.client import ComputerUseClient
+from computer_use.protocol import ComputerUseProtocolError
+from computer_use.transport import (
     ComputerUseTransport,
     ReverseRequestHandler,
 )

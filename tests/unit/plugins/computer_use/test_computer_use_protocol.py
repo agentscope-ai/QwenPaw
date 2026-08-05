@@ -18,10 +18,10 @@ import pytest
 
 from agentscope.message import ToolResultState
 from agentscope.tool import FunctionTool, ToolChunk
-import computer_use_tool.client as client_module
-import computer_use_tool.dispatch as dispatch_module
-from computer_use_tool.client import ComputerUseClient
-from computer_use_tool.dispatch import (
+import computer_use.client as client_module
+import computer_use.dispatch as dispatch_module
+from computer_use.client import ComputerUseClient
+from computer_use.dispatch import (
     _element_line,
     _error,
     _native_request,
@@ -29,8 +29,8 @@ from computer_use_tool.dispatch import (
     _with_compact_elements,
     computer_use,
 )
-from computer_use_tool.protocol import ComputerUseProtocolError
-from computer_use_tool.transport.base import (
+from computer_use.protocol import ComputerUseProtocolError
+from computer_use.transport.base import (
     ComputerUseTransport,
     ReverseRequestHandler,
 )

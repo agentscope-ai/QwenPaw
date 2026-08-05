@@ -479,14 +479,14 @@ function ComputerUsePage() {
 }
 
 window.QwenPaw.chat?.approval.render(
-  "computer-use-tool",
+  "computer-use",
   "computer_use_app_access",
   ComputerUseApprovalCard,
 );
 
-window.QwenPaw.registerRoutes?.("computer-use-tool", [
+window.QwenPaw.registerRoutes?.("computer-use", [
   {
-    path: "/plugin/computer-use-tool",
+    path: "/plugin/computer-use",
     component: ComputerUsePage,
     label: t(storedLocale(), "routeLabel"),
     icon: "🖥️",

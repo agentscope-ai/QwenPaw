@@ -506,7 +506,7 @@ def _run_io(
             if deadline is not None and time.monotonic() >= deadline:
                 _cancel_and_drain(kernel32, handle, overlapped)
                 raise TimeoutError("Computer Use pipe I/O timed out")
-    transferred = wintypes.DWORD()
+    transferred = wintypes.DWORD(0)
     if not kernel32.GetOverlappedResult(
         handle,
         ctypes.byref(overlapped),
@@ -524,7 +524,7 @@ def _cancel_and_drain(
 ) -> None:
     """Cancel and drain the pending operation before buffers are freed."""
     kernel32.CancelIoEx(handle, ctypes.byref(overlapped))
-    drained = wintypes.DWORD()
+    drained = wintypes.DWORD(0)
     kernel32.GetOverlappedResult(
         handle,
         ctypes.byref(overlapped),

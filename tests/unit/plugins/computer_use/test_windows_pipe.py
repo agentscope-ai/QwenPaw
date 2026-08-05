@@ -25,8 +25,8 @@ from typing import Any
 
 import pytest
 
-from computer_use_tool.protocol import ComputerUseProtocolError
-from computer_use_tool.transport.windows_pipe import (
+from computer_use.protocol import ComputerUseProtocolError
+from computer_use.transport.windows_pipe import (
     WindowsPipeTransport,
     _kernel32,
 )
@@ -169,7 +169,7 @@ class _MockHelper:
         remaining = size
         while remaining:
             buffer = ctypes.create_string_buffer(remaining)
-            read = wintypes.DWORD()
+            read = wintypes.DWORD(0)
             ok = kernel32.ReadFile(
                 hpipe,
                 buffer,
@@ -194,7 +194,7 @@ class _MockHelper:
     def _write_frame(kernel32, hpipe, message: dict) -> None:
         payload = json.dumps(message, separators=(",", ":")).encode("utf-8")
         data = struct.pack("<I", len(payload)) + payload
-        written = wintypes.DWORD()
+        written = wintypes.DWORD(0)
         kernel32.WriteFile(hpipe, data, len(data), ctypes.byref(written), None)
 
 
