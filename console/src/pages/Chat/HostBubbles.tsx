@@ -49,6 +49,9 @@ import type {
   ChatRequestData,
   ChatResponseData,
 } from "../../plugins/registry/types";
+import { getContainedSelectionText } from "./HostBubblesSelection";
+import { copyText } from "./utils";
+import styles from "./index.module.less";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
@@ -201,6 +204,42 @@ function DefaultHostResponseCard({
   );
 }
 
+function SelectableMessageCard(props: { children: React.ReactNode }) {
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const lastCopiedTextRef = React.useRef("");
+
+  const copySelection = React.useCallback(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const selectedText = getContainedSelectionText(root, window.getSelection());
+    if (!selectedText || selectedText === lastCopiedTextRef.current) {
+      return;
+    }
+    lastCopiedTextRef.current = selectedText;
+    void copyText(selectedText).catch(() => {
+      lastCopiedTextRef.current = "";
+    });
+  }, []);
+
+  const handleMouseUp = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      copySelection();
+    },
+    [copySelection],
+  );
+
+  return (
+    <div
+      ref={rootRef}
+      className={styles.selectableMessageCard}
+      onMouseUp={handleMouseUp}
+    >
+      {props.children}
+    </div>
+  );
+}
+
 export function HostRequestCard(props: { data: ChatRequestData }) {
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
@@ -242,11 +281,13 @@ export function HostRequestCard(props: { data: ChatRequestData }) {
     );
 
   const fallback = () => (
-    <VendorRequestCard
-      data={props.data as AnyCardProps}
-      contentPrepend={contentPrepend as AnyCardProps}
-      contentAppend={contentAppend as AnyCardProps}
-    />
+    <SelectableMessageCard>
+      <VendorRequestCard
+        data={props.data as AnyCardProps}
+        contentPrepend={contentPrepend as AnyCardProps}
+        contentAppend={contentAppend as AnyCardProps}
+      />
+    </SelectableMessageCard>
   );
 
   if (renderFn) {
@@ -309,12 +350,14 @@ export function HostResponseCard(props: {
     );
 
   const fallback = () => (
-    <DefaultHostResponseCard
-      data={props.data as unknown as IAgentScopeRuntimeResponse}
-      isLast={props.isLast}
-      contentPrepend={contentPrepend}
-      contentAppend={contentAppend}
-    />
+    <SelectableMessageCard>
+      <DefaultHostResponseCard
+        data={props.data as unknown as IAgentScopeRuntimeResponse}
+        isLast={props.isLast}
+        contentPrepend={contentPrepend}
+        contentAppend={contentAppend}
+      />
+    </SelectableMessageCard>
   );
 
   if (renderFn) {

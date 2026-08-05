@@ -378,6 +378,14 @@
 }
 /* End #6583 */
 
+.selectableMessageCard {
+  user-select: text;
+
+  :global(*) {
+    user-select: text;
+  }
+}
+
 /* ---- Rate-limit guidance banner ---- */
 .rateLimitBanner {
   display: flex;
