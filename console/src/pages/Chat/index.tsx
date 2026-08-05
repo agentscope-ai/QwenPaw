@@ -3,7 +3,7 @@ import {
   IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { useIsMobile } from "../../hooks/useIsMobile";
@@ -26,7 +26,9 @@ import { skillApi } from "../../api/modules/skill";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
+import { workspaceApi } from "../../api/modules/workspace";
 import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
+import { File, Folder } from "lucide-react";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
@@ -81,6 +83,19 @@ import {
   type HeadlineStreamFilterState,
   stripScrollHeadlineTextBlocks,
 } from "./headlineFilter";
+import {
+  buildWorkspacePathMentionItems,
+  extractWorkspacePathMentions,
+  formatWorkspacePathMention,
+} from "./pathMentions";
+import { type MentionPayloadItem, withMentionPayload } from "./mentionPayload";
+
+const RichFileReferenceInput = lazy(() => import("./RichFileReferenceInput"));
+
+interface ComposerSubmission {
+  query: string;
+  mentions?: MentionPayloadItem[];
+}
 
 interface ApprovalMessageData {
   requestId: string;
@@ -116,6 +131,8 @@ import {
   normalizeContentUrls,
   extractUserMessageText,
   extractTextFromMessage,
+  getActiveSenderTextarea,
+  getSenderTextareaFromTarget,
   setTextareaValue,
   formatMessageTime,
   type CopyableResponse,
@@ -262,7 +279,7 @@ function clearSenderAttachments(): void {
   setTimeout(() => {
     const senderRoot = document
       .querySelector('[class*="sender-header"] [class*="attachment-list-card"]')
-      ?.closest('[class*="sender"]');
+      ?.closest('[data-sender-root="true"]');
     if (senderRoot) {
       const removeBtns = senderRoot.querySelectorAll<HTMLButtonElement>(
         'button[class*="attachment-list-card-remove"]',
@@ -367,24 +384,29 @@ async function startBackgroundQueue(
             "Content-Type": "application/json",
             ...authHeaders,
           },
-          body: JSON.stringify({
-            input: [
+          body: JSON.stringify(
+            withMentionPayload(
               {
-                role: "user",
-                metadata: {
-                  [QWENPAW_CLIENT_MESSAGE_ID_KEY]: clientMessageId,
-                },
-                content: [
-                  { type: "text", text: item.text },
-                  ...buildAttachmentContentItems(item.attachments),
+                input: [
+                  {
+                    role: "user",
+                    metadata: {
+                      [QWENPAW_CLIENT_MESSAGE_ID_KEY]: clientMessageId,
+                    },
+                    content: [
+                      { type: "text", text: item.text },
+                      ...buildAttachmentContentItems(item.attachments),
+                    ],
+                  },
                 ],
+                session_id: item.backendSessionId || backendSessionId,
+                user_id: item.userId || DEFAULT_USER_ID,
+                channel: item.channel || DEFAULT_CHANNEL,
+                stream: true,
               },
-            ],
-            session_id: item.backendSessionId || backendSessionId,
-            user_id: item.userId || DEFAULT_USER_ID,
-            channel: item.channel || DEFAULT_CHANNEL,
-            stream: true,
-          }),
+              item.mentions,
+            ),
+          ),
         });
 
         if (!res.ok) {
@@ -646,8 +668,11 @@ function useIMEComposition(isChatActive: () => boolean) {
 
     const suppressImeEnter = (e: KeyboardEvent) => {
       if (!isChatActive()) return;
-      const target = e.target as HTMLElement;
-      if (target?.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) {
+      if (
+        getSenderTextareaFromTarget(e.target) &&
+        e.key === "Enter" &&
+        !e.shiftKey
+      ) {
         // e.isComposing is the standard flag; isComposingRef covers the
         // post-compositionend grace period needed by Safari.
         if (isComposingRef.current || (e as any).isComposing) {
@@ -865,16 +890,11 @@ function useMessageHistoryNavigation(
       if (!isChatActive()) return;
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
 
-      const target = e.target as HTMLElement;
-      const isChatSender =
-        target?.tagName === "TEXTAREA" &&
-        target?.closest('[class*="sender"]') !== null;
-
-      if (!isChatSender) return;
+      const textarea = getSenderTextareaFromTarget(e.target);
+      if (!textarea) return;
       if (isComposingRef.current || (e as any).isComposing) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-      const textarea = target as HTMLTextAreaElement;
       const hasSelection = textarea.selectionStart !== textarea.selectionEnd;
       if (hasSelection) return;
 
@@ -929,12 +949,7 @@ function useMessageHistoryNavigation(
     };
 
     const handleFocus = (e: FocusEvent) => {
-      const target = e.target as HTMLElement;
-      const isChatSender =
-        target?.tagName === "TEXTAREA" &&
-        target?.closest('[class*="sender"]') !== null;
-
-      if (isChatSender) {
+      if (getSenderTextareaFromTarget(e.target)) {
         historyIndexRef.current = -1;
         draftRef.current = "";
       }
@@ -978,8 +993,9 @@ function useChatInputDraft(isChatActive: () => boolean, agentId?: string) {
     let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
     const getTextarea = (): HTMLTextAreaElement | null => {
-      const sender = document.querySelector('[class*="sender"]');
-      return sender?.querySelector("textarea") as HTMLTextAreaElement | null;
+      return document.querySelector<HTMLTextAreaElement>(
+        '[data-sender-root="true"] [data-sender-input="true"]',
+      );
     };
 
     const saveDraft = (textarea: HTMLTextAreaElement) => {
@@ -998,7 +1014,7 @@ function useChatInputDraft(isChatActive: () => boolean, agentId?: string) {
     const handleInput = (e: Event) => {
       const target = e.target as HTMLElement;
       if (target?.tagName !== "TEXTAREA") return;
-      if (!target?.closest('[class*="sender"]')) return;
+      if (target.dataset.senderInput !== "true") return;
 
       if (saveTimer) clearTimeout(saveTimer);
       saveTimer = setTimeout(() => {
@@ -1074,7 +1090,7 @@ function useChatPasteFromEditor() {
     const handlePaste = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (!target || target.tagName !== "TEXTAREA") return;
-      if (!target.closest('[class*="sender"]')) return;
+      if (target.dataset.senderInput !== "true") return;
 
       const last = getLastEditorCopy();
       if (!last) return;
@@ -1442,6 +1458,7 @@ export default function ChatPage() {
         chatRef.current?.input.submit({
           query: beginLoopModeSubmission(next.text),
           fileList: buildFileList(next),
+          mentions: next.mentions,
         });
       });
     }, 500);
@@ -1567,9 +1584,8 @@ export default function ChatPage() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Tab" || !isChatActive()) return;
-      const textarea = event.target;
-      if (!(textarea instanceof HTMLTextAreaElement)) return;
-      if (!textarea.closest('[class*="sender"]')) return;
+      const textarea = getSenderTextareaFromTarget(event.target);
+      if (!textarea) return;
       if (
         !textarea.value.startsWith("/") ||
         /\s/.test(textarea.value.slice(1))
@@ -1820,10 +1836,7 @@ export default function ChatPage() {
   }, []);
 
   const handleWhisperTranscription = useCallback((text: string) => {
-    const senderContainer = document.querySelector('[class*="sender"]');
-    const textarea = senderContainer?.querySelector(
-      "textarea",
-    ) as HTMLTextAreaElement | null;
+    const textarea = getActiveSenderTextarea();
     if (textarea) {
       const currentValue = textarea.value || "";
       const newValue = currentValue ? `${currentValue} ${text}` : text;
@@ -1930,13 +1943,8 @@ export default function ChatPage() {
       if (!hasCtrl && e.altKey) return;
       if (isComposingRef.current || (e as any).isComposing) return;
       const textarea = hasCtrl
-        ? (document
-            .querySelector('[class*="sender"]')
-            ?.querySelector("textarea") as HTMLTextAreaElement | null)
-        : e.target instanceof HTMLTextAreaElement &&
-          e.target.closest('[class*="sender"]')
-        ? e.target
-        : null;
+        ? getActiveSenderTextarea()
+        : getSenderTextareaFromTarget(e.target);
       if (!textarea) return;
       const val = textarea.value.trim();
       if (!val) return;
@@ -1960,6 +1968,7 @@ export default function ChatPage() {
                 size: f.size,
               }))
             : undefined,
+        mentions: extractWorkspacePathMentions(val),
         userId: enqueueIdentity.userId,
         channel: enqueueIdentity.channel,
       });
@@ -2408,6 +2417,7 @@ export default function ChatPage() {
     async (data: {
       input?: Array<Record<string, unknown>>;
       biz_params?: Record<string, unknown>;
+      mentions?: ComposerSubmission["mentions"];
       signal?: AbortSignal;
     }): Promise<Response> => {
       const headers: Record<string, string> = {
@@ -2434,7 +2444,7 @@ export default function ChatPage() {
         }
       }
 
-      const { input = [], biz_params } = data;
+      const { input = [], biz_params, mentions } = data;
       const session: SessionInfo = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
@@ -2458,14 +2468,17 @@ export default function ChatPage() {
           : [];
 
       const identity = sessionApi.getSessionIdentity();
-      let requestBody: Record<string, unknown> = {
-        input: rewrittenInput,
-        session_id: identity.sessionId || session?.session_id || "",
-        user_id: identity.userId || session?.user_id || DEFAULT_USER_ID,
-        channel: identity.channel || session?.channel || DEFAULT_CHANNEL,
-        stream: true,
-        ...biz_params,
-      };
+      let requestBody: Record<string, unknown> = withMentionPayload(
+        {
+          input: rewrittenInput,
+          session_id: identity.sessionId || session?.session_id || "",
+          user_id: identity.userId || session?.user_id || DEFAULT_USER_ID,
+          channel: identity.channel || session?.channel || DEFAULT_CHANNEL,
+          stream: true,
+          ...biz_params,
+        },
+        mentions,
+      );
 
       for (const entry of sortByOrder(
         extLists[ChatList.requestPayloadTransforms],
@@ -2622,6 +2635,42 @@ export default function ChatPage() {
     [multimodalCaps, t, usesQwenPawBackend],
   );
 
+  const workspaceMentionCacheRef = useRef(
+    new Map<
+      string,
+      {
+        expiresAt: number;
+        items: ReturnType<typeof buildWorkspacePathMentionItems>;
+      }
+    >(),
+  );
+  const loadWorkspacePathMentions = useCallback(
+    async (context?: { signal: AbortSignal }) => {
+      if (!selectedAgent || context?.signal.aborted) return [];
+
+      const cached = workspaceMentionCacheRef.current.get(selectedAgent);
+      if (cached && cached.expiresAt > Date.now()) return cached.items;
+
+      const files = await workspaceApi.listCodeFiles();
+      if (context?.signal.aborted) return [];
+      const items = buildWorkspacePathMentionItems(files).map((item) => ({
+        ...item,
+        icon:
+          item.type === "folder" ? (
+            <Folder aria-hidden size={14} />
+          ) : (
+            <File aria-hidden size={14} />
+          ),
+      }));
+      workspaceMentionCacheRef.current.set(selectedAgent, {
+        expiresAt: Date.now() + 10_000,
+        items,
+      });
+      return items;
+    },
+    [selectedAgent],
+  );
+
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
     const hostCommands: CommandSuggestion[] = [
@@ -2687,17 +2736,14 @@ export default function ChatPage() {
         value: skill.name,
         description: "",
       }));
-    const handleBeforeSubmit = async () => {
+    const handleBeforeSubmit = async (submission: ComposerSubmission) => {
       if (isComposingRef.current) return false;
       // Single-tab ownership: non-owner tabs are queue-only. Re-route every
       // submit (Enter / send button / programmatic) to the shared queue and
       // abort the actual SDK send. The owner tab will pick the item up via
       // cross-tab broadcast and send it.
       if (!isOwnerRef.current) {
-        const textarea = document
-          .querySelector('[class*="sender"]')
-          ?.querySelector("textarea") as HTMLTextAreaElement | null;
-        const val = textarea?.value.trim() ?? "";
+        const val = submission.query.trim();
         if (!val) return false;
         const currentQ = useMessageQueueStore
           .getState()
@@ -2721,35 +2767,26 @@ export default function ChatPage() {
                   size: f.size,
                 }))
               : undefined,
+          mentions: submission.mentions,
           userId: enqueueIdentity.userId,
           channel: enqueueIdentity.channel,
         });
         pendingFileListRef.current = [];
-        if (textarea) setTextareaValue(textarea, "");
         // Clear sender attachment preview (deferred to next tick)
         clearSenderAttachments();
         localStorage.removeItem(getDraftStorageKey(selectedAgent));
         draftSuppressed = true;
-        return false;
+        return { proceed: false, clear: true };
       }
       localStorage.removeItem(getDraftStorageKey(selectedAgent));
       draftSuppressed = true;
       // Clear pending attachments when sending directly (not through queue)
       pendingFileListRef.current = [];
 
-      const textarea = document
-        .querySelector('[class*="sender"]')
-        ?.querySelector("textarea") as HTMLTextAreaElement | null;
-      if (textarea) {
-        const prepared = usesQwenPawBackend
-          ? beginLoopModeSubmission(textarea.value)
-          : textarea.value;
-        if (prepared !== textarea.value) {
-          setTextareaValue(textarea, prepared);
-        }
-      }
-
-      return true;
+      const query = usesQwenPawBackend
+        ? beginLoopModeSubmission(submission.query)
+        : submission.query;
+      return { proceed: true, query };
     };
 
     // ── Resolve plugin extension snapshots ────────────────────────────────
@@ -2992,6 +3029,11 @@ export default function ChatPage() {
       },
       sender: {
         ...(i18nConfig as any)?.sender,
+        components: usesQwenPawBackend
+          ? {
+              input: RichFileReferenceInput,
+            }
+          : undefined,
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: whisperChecked && !whisperEnabled,
         beforeUI: showSenderBeforeUI ? (
@@ -3109,6 +3151,18 @@ export default function ChatPage() {
               },
             }
           : {}),
+        mentions: usesQwenPawBackend
+          ? {
+              trigger: "@",
+              items: loadWorkspacePathMentions,
+              displayMode: "inline",
+              getInsertText: formatWorkspacePathMention,
+              allowDuplicates: true,
+              cacheItems: false,
+              emptyText: t("chat.pathMentions.empty"),
+              loadingText: t("chat.pathMentions.loading"),
+            }
+          : undefined,
         placeholder: extPlaceholder ?? t("chat.inputPlaceholder"),
         ...(extDisclaimer !== undefined ? { disclaimer: extDisclaimer } : {}),
         suggestions: [...baseSuggestions, ...activePluginSuggestions],
@@ -3294,6 +3348,7 @@ export default function ChatPage() {
     customFetch,
     copyResponse,
     handleFileUpload,
+    loadWorkspacePathMentions,
     t,
     i18n.language,
     isDark,

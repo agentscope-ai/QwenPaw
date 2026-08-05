@@ -192,10 +192,60 @@ export function toDisplayUrl(url: string | undefined): string {
 // DOM utilities
 // ---------------------------------------------------------------------------
 
+/** Return the sender textarea that owns the focused input surface. */
+export function getActiveSenderTextarea(): HTMLTextAreaElement | null {
+  const focusedSender =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement.closest('[data-sender-root="true"]')
+      : null;
+  const focusedTextarea = focusedSender?.querySelector(
+    '[data-sender-input="true"]',
+  );
+  if (focusedTextarea instanceof HTMLTextAreaElement) {
+    return focusedTextarea;
+  }
+
+  const candidates = Array.from(
+    document.querySelectorAll<HTMLTextAreaElement>(
+      '[data-sender-root="true"] [data-sender-input="true"]',
+    ),
+  );
+  return (
+    candidates.find((textarea) => textarea.offsetParent !== null) ??
+    candidates[candidates.length - 1] ??
+    null
+  );
+}
+
+/** Resolve the hidden state textarea from either textarea or rich editor events. */
+export function getSenderTextareaFromTarget(
+  target: EventTarget | null,
+): HTMLTextAreaElement | null {
+  if (!(target instanceof HTMLElement)) return null;
+  const sender = target.closest('[data-sender-root="true"]');
+  if (!sender) return null;
+  if (
+    target instanceof HTMLTextAreaElement &&
+    target.dataset.senderInput === "true"
+  ) {
+    return target;
+  }
+
+  const isRichEditor = target.closest('[data-sender-editor="true"]') !== null;
+  if (!isRichEditor) return null;
+  const textarea = sender.querySelector('[data-sender-input="true"]');
+  return textarea instanceof HTMLTextAreaElement ? textarea : null;
+}
+
 /** Set textarea value and trigger input event for React state sync.
  * Uses native value setter to bypass React's internal value tracker.
  */
-export function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
+export function setTextareaValue(
+  textarea: HTMLTextAreaElement,
+  value: string,
+  selectionStart = value.length,
+  selectionEnd = selectionStart,
+) {
   const nativeValueSetter = Object.getOwnPropertyDescriptor(
     HTMLTextAreaElement.prototype,
     "value",
@@ -205,7 +255,8 @@ export function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   } else {
     textarea.value = value;
   }
-  textarea.selectionStart = textarea.selectionEnd = value.length;
+  textarea.selectionStart = selectionStart;
+  textarea.selectionEnd = selectionEnd;
   const event = new Event("input", { bubbles: true });
   textarea.dispatchEvent(event);
 }
