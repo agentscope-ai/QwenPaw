@@ -86,9 +86,10 @@ def test_probe_onebot_stays_quiet_when_safe(
     [
         ("0.0.0.0", "127.0.0.1"),
         ("", "127.0.0.1"),
-        # A server bound to :: is not reachable over IPv4, so the
-        # unspecified IPv6 address must be probed as-is.
-        ("::", "::"),
+        # Winsock rejects a wildcard connect target, so :: must be
+        # probed via the loopback address of its own family.
+        ("::", "::1"),
+        ("[::1]", "::1"),
     ],
 )
 def test_probe_onebot_probe_target(

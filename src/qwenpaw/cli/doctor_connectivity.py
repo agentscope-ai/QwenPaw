@@ -30,7 +30,7 @@ from ..config.config import (
     XiaoYiConfig,
     WeChatConfig,
 )
-from ..utils.http import is_loopback_host
+from ..utils.http import is_loopback_host, probe_host_for_bind_host
 from .doctor_checks import _effective_channels_mcp, _read_workspace_agent_json
 
 ChannelProbe = Callable[[str, Any, float], list[str]]
@@ -135,10 +135,9 @@ def _probe_onebot(
             "connection is rejected. Set access_token, or bind ws_host "
             "to 127.0.0.1.",
         )
-    # 0.0.0.0 is not a connectable target; probe loopback instead.
-    host = configured_host
-    if host == "0.0.0.0":
-        host = "127.0.0.1"
+    # A wildcard bind address is not a connectable target; probe the
+    # loopback address of the same family instead.
+    host = probe_host_for_bind_host(configured_host)
     err = _tcp_check(host, port, timeout)
     if err:
         notes.append(

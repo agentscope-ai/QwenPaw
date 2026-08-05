@@ -37,7 +37,7 @@ from qwenpaw.schemas import (
 )
 
 from ....config.config import OneBotConfig as OneBotChannelConfig
-from ....utils.http import is_loopback_host
+from ....utils.http import is_loopback_host, probe_host_for_bind_host
 from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
@@ -603,9 +603,7 @@ class OneBotChannel(BaseChannel):
         """
         if self._site is None:
             return False
-        probe_host = (
-            "127.0.0.1" if self._ws_host == "0.0.0.0" else self._ws_host
-        )
+        probe_host = probe_host_for_bind_host(self._ws_host)
         probe_port = self._get_listen_port()
         try:
             _, writer = await asyncio.wait_for(
