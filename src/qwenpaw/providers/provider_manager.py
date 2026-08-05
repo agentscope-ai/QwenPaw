@@ -1672,6 +1672,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         )
         self.save_active_model(self.active_model)
 
+        # Stale capability findings (e.g. rejects_media from a transient
+        # upstream failure) no longer apply after a model switch.
+        from .model_capability_cache import get_capability_cache
+
+        get_capability_cache().clear()
+
         self.maybe_probe_multimodal(provider_id, model_id)
 
     def maybe_probe_multimodal(self, provider_id: str, model_id: str) -> None:

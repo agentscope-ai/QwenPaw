@@ -930,3 +930,43 @@ async def test_update_config_persists_api_key_prefixes(
     assert provider.api_key_prefixes == ["ghp_", "github_pat_"]
     info = await provider.get_info()
     assert info.api_key_prefixes == ["ghp_", "github_pat_"]
+
+
+async def test_activate_model_clears_capability_cache(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    """Switching the active model must discard stale capability findings."""
+    from qwenpaw.providers.model_capability_cache import (
+        ModelCapabilityCache,
+        get_capability_cache,
+    )
+    from qwenpaw.providers.openai_provider import OpenAIProvider
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            return SimpleNamespace(id="ok", request=kwargs)
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions()),
+    )
+    monkeypatch.setattr(
+        OpenAIProvider,
+        "_client",
+        lambda self, timeout=5: fake_client,
+    )
+
+    # Replace the global singleton with a fresh instance so prior tests
+    # cannot leak state into this assertion.
+    fresh = ModelCapabilityCache()
+    monkeypatch.setattr(
+        ModelCapabilityCache, "_instance", fresh
+    )
+    cache = get_capability_cache()
+    cache.learn("openai:gpt-5", "rejects_media", True)
+    assert cache.get("openai:gpt-5", "rejects_media", False) is True
+
+    manager = ProviderManager()
+    await manager.activate_model("openai", "gpt-5")
+
+    assert cache.get("openai:gpt-5", "rejects_media", False) is False
