@@ -25,13 +25,13 @@ import marketStyles from "./MarketPluginList.module.less";
 const { Text } = Typography;
 
 const PLUGIN_CATEGORIES = [
-  { code: "app", zh: "应用", en: "App" },
-  { code: "agent-tool", zh: "Agent 工具", en: "Agent Tool" },
-  { code: "provider", zh: "模型接入", en: "Provider" },
-  { code: "command", zh: "Slash 命令", en: "Slash Command" },
-  { code: "hook", zh: "生命周期 Hook", en: "Lifecycle Hook" },
-  { code: "frontend", zh: "UI 扩展", en: "UI Extension" },
-  { code: "general", zh: "通用插件", en: "General" },
+  { code: "app", zh: "应用", zhTW: "應用", en: "App" },
+  { code: "agent-tool", zh: "Agent 工具", zhTW: "Agent 工具", en: "Agent Tool" },
+  { code: "provider", zh: "模型接入", zhTW: "模型接入", en: "Provider" },
+  { code: "command", zh: "Slash 命令", zhTW: "Slash 命令", en: "Slash Command" },
+  { code: "hook", zh: "生命周期 Hook", zhTW: "生命週期 Hook", en: "Lifecycle Hook" },
+  { code: "frontend", zh: "UI 扩展", zhTW: "UI 擴展", en: "UI Extension" },
+  { code: "general", zh: "通用插件", zhTW: "通用插件", en: "General" },
 ];
 
 const MARKET_SORT_OPTIONS: Array<{
@@ -129,7 +129,11 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
                 }`}
                 onClick={() => onCategoryClick(cat.code)}
               >
-                {lang === "zh" ? cat.zh : cat.en}
+                {lang !== "zh"
+                  ? cat.en
+                  : i18n.language === "zh-TW"
+                    ? cat.zhTW
+                    : cat.zh}
               </span>
             ))}
           </div>
