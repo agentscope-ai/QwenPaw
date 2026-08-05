@@ -4,6 +4,7 @@
 This module handles system commands like /compact, /new, /clear, etc.
 """
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -21,6 +22,7 @@ from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
 from ..loop.gates.runner import clear_pending_gate_state
+from ..utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
@@ -379,7 +381,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
             # native, so under the scroll strategy we drive the scroll manager
             # directly here. Native sessions fall through untouched.
             scroll_mgr = (
-                self._build_standalone_scroll_manager()
+                await run_sync_io(
+                    self._build_standalone_scroll_manager,
+                )
                 if self._agent is None
                 else None
             )
@@ -1262,7 +1266,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
         parts = query.strip().lstrip("/").split(" ", maxsplit=1)
         command = parts[0]
         args = parts[1] if len(parts) > 1 else ""
-        logger.info(f"Processing command: {command}, args: {args}")
+        # Command arguments are user-controlled and may contain credentials
+        # (for example, a /compact hint containing an API key).  Do not log
+        # them: downstream handlers sanitize values for their own use, but
+        # logging happens before that handler-specific processing.
+        logger.info("Processing command: %s", command)
 
         handler = getattr(self, f"_process_{command}", None)
         if handler is None:
@@ -1396,7 +1404,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         elif args == "off":
             try:
-                import asyncio
                 from .memory import proactive_tasks
 
                 if self.agent_name in proactive_tasks:

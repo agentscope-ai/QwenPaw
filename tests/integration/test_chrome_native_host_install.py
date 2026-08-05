@@ -24,6 +24,8 @@ SETUP_SOURCE = Path("plugins/bundle/chrome/extension_setup.py")
 # pylint: disable=protected-access,unused-argument
 
 
+@pytest.mark.integration
+@pytest.mark.p1
 def test_probe_round_trips_through_the_real_launcher(
     isolated_home: Path,
     monkeypatch,
@@ -39,6 +41,8 @@ def test_probe_round_trips_through_the_real_launcher(
     assert outcome["ok"] is True
 
 
+@pytest.mark.integration
+@pytest.mark.p2
 def test_broken_launcher_reports_failure_without_raising(
     tmp_path: Path,
     isolated_home: Path,
@@ -53,6 +57,8 @@ def test_broken_launcher_reports_failure_without_raising(
     assert outcome["stage"]
 
 
+@pytest.mark.integration
+@pytest.mark.p2
 def test_recorded_probe_failure_blocks_installed(
     isolated_home: Path,
     monkeypatch,
@@ -75,6 +81,8 @@ def test_recorded_probe_failure_blocks_installed(
     assert status["native_host_repair_instruction"]
 
 
+@pytest.mark.integration
+@pytest.mark.p1
 def test_successful_install_records_a_passing_probe(
     isolated_home: Path,
     monkeypatch,

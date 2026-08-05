@@ -25,3 +25,26 @@ describe("Chat message markdown layout styles", () => {
     expect(rule).toMatch(/max-width:\s*100%/);
   });
 });
+
+describe("Chat attachment preview styles", () => {
+  it("wraps attachment cards within a bounded scrollable preview", () => {
+    const marker = "Fix #6583";
+    const markerIndex = stylesSource.indexOf(marker);
+    const rule = stylesSource.slice(
+      markerIndex,
+      stylesSource.indexOf("/* End #6583 */", markerIndex),
+    );
+
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    expect(rule).toContain(".qwenpaw-sender-header");
+    expect(rule).toContain(".qwenpaw-attachment-list");
+    expect(rule).toMatch(/flex-wrap:\s*wrap/);
+    expect(rule).toMatch(/max-height:\s*\d+px/);
+    expect(rule).toMatch(/overflow-y:\s*auto/);
+    expect(rule).toMatch(/overflow-x:\s*hidden/);
+    expect(rule).not.toContain(".qwenpaw-attachment-list-card-type-overview");
+    expect(rule).toMatch(/@media\s*\(max-width:\s*600px\)/);
+    expect(rule).toMatch(/column-gap:\s*8px/);
+    expect(rule).toMatch(/padding-inline:\s*6px/);
+  });
+});
