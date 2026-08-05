@@ -578,6 +578,7 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     if excluded_sensitive:
+        excluded_sensitive = sorted(set(excluded_sensitive))
         logger.info(
             "import-local excluded sensitive entries: %s",
             ", ".join(excluded_sensitive),
