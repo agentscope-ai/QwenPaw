@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """Stage and verify the Playwright Chromium revision for Tauri packages."""
 
 from __future__ import annotations
@@ -32,10 +33,14 @@ async def _smoke_test() -> None:
         browser = await playwright.chromium.launch(headless=True)
         try:
             page = await browser.new_page()
-            await page.goto("data:text/html,<title>qwenpaw-browser-smoke</title>")
+            await page.goto(
+                "data:text/html,<title>qwenpaw-browser-smoke</title>",
+            )
             title = await page.title()
             if title != "qwenpaw-browser-smoke":
-                raise RuntimeError(f"unexpected Playwright smoke-test title: {title}")
+                raise RuntimeError(
+                    f"unexpected Playwright smoke-test title: {title}",
+                )
         finally:
             await browser.close()
 
