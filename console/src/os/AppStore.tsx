@@ -5,7 +5,7 @@
  *   1. Desktop apps  — the curated OS_APPS catalog. Install / uninstall toggles
  *      whether they appear on the desktop + launcher (osPluginStore, local).
  *   2. Installed PawApps — app-type plugins loaded from the backend.
- *   3. App Market — sourced from the real marketplace via useMarketPlugins.
+ *   3. App Market — sourced from the real marketplace via useOsAppMarket.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -20,7 +20,6 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useRoutes } from "../plugins/registry/hooks";
-import { useMarketPlugins } from "../pages/Settings/PluginManager/hooks/useMarketPlugins";
 import type { MarketPluginEntry } from "../api/modules/pluginMarket";
 import { openExternalLink } from "../utils/openExternalLink";
 import {
@@ -33,6 +32,7 @@ import { useOsPlugins } from "./osPluginStore";
 import { purgeAppState, purgePluginAppState } from "./osCleanup";
 import { useOsModal } from "./useOsModal";
 import { useOsStyles } from "./useOsStyles";
+import { useOsAppMarket } from "./useOsAppMarket";
 
 /** Pick the description for the active language, with graceful fallbacks. */
 function localizedDescription(
@@ -91,12 +91,8 @@ export default function AppStore() {
     handleInstall,
     // onInstalled: refresh the installed-apps section after a market
     // install/update so the new PawApp shows up without a full page reload.
-  } = useMarketPlugins({
+  } = useOsAppMarket({
     onInstalled: refreshInstalledApps,
-    fixedCategory: "app",
-    unavailableKey: "os.appMarketUnavailable",
-    installSuccessKey: "os.appInstalled",
-    installFailedKey: "os.appInstallFailed",
   });
 
   const [searchInput, setSearchInput] = useState("");
