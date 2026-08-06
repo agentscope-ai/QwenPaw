@@ -58,6 +58,7 @@ def test_build_acp_mcp_driver_cards_normalizes_all_transports() -> None:
                 headers=[HttpHeader(name="Authorization", value="token")],
             ),
         ],
+        session_cwd="/workspace",
     )
 
     assert [card.endpoint["transport"] for card in cards] == [
@@ -66,6 +67,7 @@ def test_build_acp_mcp_driver_cards_normalizes_all_transports() -> None:
         "streamable_http",
     ]
     assert cards[0].endpoint["env"] == {"TOKEN": "secret"}
+    assert cards[0].endpoint["cwd"] == "/workspace"
     assert cards[1].endpoint["headers"] == {"X-Test": "sse"}
     assert cards[2].endpoint["headers"] == {
         "Authorization": "token",
@@ -82,6 +84,7 @@ def test_build_acp_mcp_driver_cards_rejects_duplicate_names() -> None:
         build_acp_mcp_driver_cards(
             "session-1",
             [_stdio_server(), _stdio_server()],
+            session_cwd="/workspace",
         )
 
 
@@ -97,7 +100,30 @@ def test_build_acp_mcp_driver_cards_rejects_duplicate_headers() -> None:
     )
 
     with pytest.raises(ValueError, match="Duplicate ACP MCP HTTP header"):
-        build_acp_mcp_driver_cards("session-1", [server])
+        build_acp_mcp_driver_cards(
+            "session-1",
+            [server],
+            session_cwd="/workspace",
+        )
+
+
+def test_build_acp_mcp_driver_cards_rejects_duplicate_environment() -> None:
+    server = McpServerStdio(
+        name="tools",
+        command="python",
+        args=["server.py"],
+        env=[
+            EnvVariable(name="PATH", value="one"),
+            EnvVariable(name="Path", value="two"),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="Duplicate ACP MCP environment"):
+        build_acp_mcp_driver_cards(
+            "session-1",
+            [server],
+            session_cwd="/workspace",
+        )
 
 
 async def test_acp_advertises_supported_remote_mcp_transports() -> None:
@@ -167,6 +193,10 @@ async def test_acp_session_mcp_lifecycle_and_request_scope(tmp_path) -> None:
     workspace = _FakeWorkspace()
     agent = _TestACPAgent(workspace)
     agent.on_connect(_FakeConn())
+    load_cwd = tmp_path / "loaded"
+    resume_cwd = tmp_path / "resumed"
+    load_cwd.mkdir()
+    resume_cwd.mkdir()
 
     response = await agent.new_session(
         cwd=str(tmp_path),
@@ -176,6 +206,27 @@ async def test_acp_session_mcp_lifecycle_and_request_scope(tmp_path) -> None:
 
     assert workspace.driver_manager.replacements[0][0] == scope_id
     assert len(workspace.driver_manager.replacements[0][1]) == 1
+    assert workspace.driver_manager.replacements[0][1][0].endpoint[
+        "cwd"
+    ] == str(tmp_path)
+
+    await agent.load_session(
+        cwd=str(load_cwd),
+        session_id=response.session_id,
+        mcp_servers=[_stdio_server()],
+    )
+    assert workspace.driver_manager.replacements[-1][1][0].endpoint[
+        "cwd"
+    ] == str(load_cwd)
+
+    await agent.resume_session(
+        cwd=str(resume_cwd),
+        session_id=response.session_id,
+        mcp_servers=[_stdio_server()],
+    )
+    assert workspace.driver_manager.replacements[-1][1][0].endpoint[
+        "cwd"
+    ] == str(resume_cwd)
 
     await agent.prompt(
         prompt=[text_block("hello")],
@@ -185,7 +236,7 @@ async def test_acp_session_mcp_lifecycle_and_request_scope(tmp_path) -> None:
     assert request_context[DRIVER_SCOPE_CONTEXT_KEY] == scope_id
 
     await agent.resume_session(
-        cwd=str(tmp_path),
+        cwd=str(resume_cwd),
         session_id=response.session_id,
         mcp_servers=[],
     )

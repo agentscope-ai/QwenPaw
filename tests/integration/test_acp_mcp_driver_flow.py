@@ -72,6 +72,7 @@ async def test_acp_mcp_card_discovers_approves_and_invokes_tool(
                 ],
             ),
         ],
+        session_cwd=str(tmp_path),
     )
 
     await manager.replace_transient_drivers(scope_id, cards)
@@ -133,6 +134,7 @@ async def test_acp_mcp_tool_cannot_be_invoked_without_session_scope(
                 env=[],
             ),
         ],
+        session_cwd=str(tmp_path),
     )
     await manager.replace_transient_drivers(scope_id, cards)
     capability = (

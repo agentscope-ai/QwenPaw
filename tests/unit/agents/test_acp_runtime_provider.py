@@ -111,7 +111,7 @@ def test_runtime_provider_builds_openai_provider():
     assert provider.has_model("policy")
 
 
-def test_runtime_provider_is_registered_only_in_memory(monkeypatch):
+async def test_runtime_provider_is_registered_only_in_memory(monkeypatch):
     manager = _FakeManager()
     original_model = manager.active_model
     agent = QwenPawACPAgent(
@@ -123,7 +123,7 @@ def test_runtime_provider_is_registered_only_in_memory(monkeypatch):
         lambda: manager,
     )
 
-    agent._install_runtime_provider()
+    await agent._install_runtime_provider()
 
     provider = manager.custom_providers[RUNTIME_OPENAI_PROVIDER_ID]
     assert provider.api_key == "execution-secret"
@@ -135,7 +135,36 @@ def test_runtime_provider_is_registered_only_in_memory(monkeypatch):
     assert manager.active_model is original_model
 
 
-def test_runtime_provider_credentials_are_not_persisted(
+async def test_runtime_provider_initialization_uses_sync_io(monkeypatch):
+    manager = _FakeManager()
+    operations = []
+    agent = QwenPawACPAgent(
+        agent_id="default",
+        runtime_provider=_config(),
+    )
+
+    def get_manager():
+        return manager
+
+    async def fake_run_sync_io(operation):
+        operations.append(operation)
+        return operation()
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.acp.server.ProviderManager.get_instance",
+        get_manager,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.acp.server.run_sync_io",
+        fake_run_sync_io,
+    )
+
+    await agent._install_runtime_provider()
+
+    assert operations == [get_manager]
+
+
+async def test_runtime_provider_credentials_are_not_persisted(
     isolated_secret_dir,
 ):
     agent = QwenPawACPAgent(
@@ -143,7 +172,7 @@ def test_runtime_provider_credentials_are_not_persisted(
         runtime_provider=_config(),
     )
 
-    agent._install_runtime_provider()
+    await agent._install_runtime_provider()
 
     stored_text = "\n".join(
         path.read_text(encoding="utf-8")
@@ -173,7 +202,7 @@ async def test_runtime_provider_forces_model_override(monkeypatch):
         return workspace
 
     monkeypatch.setattr(agent, "_ensure_workspace", _fake_workspace)
-    agent._install_runtime_provider()
+    await agent._install_runtime_provider()
     response = await agent.new_session(cwd="/task")
 
     await agent.set_session_model(
@@ -199,14 +228,14 @@ async def test_runtime_provider_is_advertised_as_current_model(monkeypatch):
         "qwenpaw.agents.acp.server.ProviderManager.get_instance",
         lambda: manager,
     )
-    agent._install_runtime_provider()
+    await agent._install_runtime_provider()
 
     model_state = await agent._build_model_state()
 
     assert model_state is not None
     assert model_state.current_model_id == "runtime-openai:policy"
     assert [model.model_id for model in model_state.available_models] == [
-        "runtime-openai:policy"
+        "runtime-openai:policy",
     ]
 
 

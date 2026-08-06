@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
-from ..agents.acp.meta import ACP_CODING_PROJECT_META_KEY
+from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from ..utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
@@ -628,7 +628,7 @@ class AgentBuilder:
         if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
             raw_project_dir = request_context.get("project_dir")
         if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
-            raw_project_dir = request_context.get(ACP_CODING_PROJECT_META_KEY)
+            raw_project_dir = request_context.get(ACP_PROJECT_DIR_META_KEY)
         fork_raw = request_context.get("fork_project_dir")
         if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
             # spawn_subagent(fork=True) places the worktree here.
@@ -636,7 +636,7 @@ class AgentBuilder:
         if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
             return agent_config
 
-        # When fork_project_dir is present, the final coding project MUST be
+        # When fork_project_dir is present, the final project directory MUST be
         # the validated worktree — never fall through to an unchecked ACP path.
         if isinstance(fork_raw, str) and fork_raw.strip():
             existing_pd = getattr(agent_config, "project_dir", None)

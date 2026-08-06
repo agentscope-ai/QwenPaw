@@ -27,6 +27,8 @@ def acp_mcp_scope_id(session_id: str) -> str:
 def build_acp_mcp_driver_cards(
     session_id: str,
     mcp_servers: list[ACP_MCP_SERVER_TYPES] | None,
+    *,
+    session_cwd: str,
 ) -> list[DriverCard]:
     """Convert ACP MCP records into non-persistent QwenPaw DriverCards."""
     cards: list[DriverCard] = []
@@ -44,7 +46,12 @@ def build_acp_mcp_driver_cards(
                 "transport": "stdio",
                 "command": _required_text(server, "command"),
                 "args": [str(item) for item in server.args],
-                "env": _named_values(server.env, label="environment"),
+                "cwd": _required_session_cwd(session_cwd),
+                "env": _named_values(
+                    server.env,
+                    label="environment",
+                    case_insensitive=True,
+                ),
             }
         elif isinstance(server, SseMcpServer):
             endpoint = {
@@ -116,7 +123,7 @@ def _named_values(
     seen: set[str] = set()
     for item in values:
         name = _required_text(item, "name")
-        compare_name = name.lower() if case_insensitive else name
+        compare_name = name.casefold() if case_insensitive else name
         if compare_name in seen:
             raise ValueError(f"Duplicate ACP MCP {label}: {name}")
         seen.add(compare_name)
@@ -128,6 +135,12 @@ def _named_values(
             raise ValueError(f"ACP MCP {label} '{name}' has no value")
         result[name] = str(raw_value)
     return result
+
+
+def _required_session_cwd(value: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("ACP session cwd must be non-empty")
+    return value.strip()
 
 
 __all__ = [

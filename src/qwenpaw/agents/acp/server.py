@@ -78,6 +78,7 @@ from ...config.config import ModelSlotConfig, load_agent_config
 from ...drivers.constants import DRIVER_SCOPE_CONTEXT_KEY
 from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
+from ...utils.io_utils import run_sync_io
 from .meta import (
     ACP_APPROVAL_EXPIRES_AT_META_KEY,
     ACP_EPHEMERAL_META_KEY,
@@ -350,14 +351,14 @@ class QwenPawACPAgent(Agent):
             ] = self._runtime_provider.model_slot
         return info
 
-    def _install_runtime_provider(self) -> None:
+    async def _install_runtime_provider(self) -> None:
         """Register the process-scoped provider without persisting it."""
         if self._runtime_provider is None:
             return
         if self._runtime_provider_manager is not None:
             return
 
-        manager = ProviderManager.get_instance()
+        manager = await run_sync_io(ProviderManager.get_instance)
         if manager.get_provider(RUNTIME_OPENAI_PROVIDER_ID) is not None:
             raise RuntimeError(
                 f"Provider {RUNTIME_OPENAI_PROVIDER_ID!r} already exists",
@@ -907,7 +908,18 @@ class QwenPawACPAgent(Agent):
         if session_info is not None:
             session_info[DRIVER_SCOPE_CONTEXT_KEY] = scope_id
 
-        cards = build_acp_mcp_driver_cards(session_id, mcp_servers)
+        if session_info is None:
+            raise RuntimeError(
+                f"ACP session {session_id!r} is not registered",
+            )
+        session_cwd = session_info.get("cwd")
+        if not isinstance(session_cwd, str):
+            raise ValueError("ACP session cwd must be a string")
+        cards = build_acp_mcp_driver_cards(
+            session_id,
+            mcp_servers,
+            session_cwd=session_cwd,
+        )
         if not cards and self._workspace is None:
             return
 
@@ -1561,7 +1573,8 @@ async def run_qwenpaw_agent(
         runtime_provider=runtime_provider,
     )
     try:
-        agent._install_runtime_provider()  # pylint: disable=protected-access
+        # pylint: disable=protected-access
+        await agent._install_runtime_provider()
         await run_agent(agent, use_unstable_protocol=True)
     finally:
         await agent._shutdown_workspace()  # pylint: disable=protected-access
