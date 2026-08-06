@@ -51,6 +51,7 @@ def _build_app_info(
         "author": manifest.get("author", ""),
         "category": pawapp_meta.get("category", ""),
         "icon": pawapp_meta.get("icon", ""),
+        "icon_url": pawapp_meta.get("icon_url", ""),
         "entry_page": pawapp_meta.get("entry_page", ""),
         "launch_scope": pawapp_meta.get(
             "launch_scope",

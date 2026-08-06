@@ -40,6 +40,23 @@ export interface ProjectSummary {
   contentType?: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Version id of the media the backend picked as the project preview. */
+  coverVersionId?: string | null;
+  /**
+   * Which media route serves the cover: the version bytes themselves for
+   * images, or an extracted keyframe when only a video exists.
+   */
+  coverVersionSource?:
+    | "artifact"
+    | "source"
+    | "artifact_frame"
+    | "source_frame"
+    | null;
+  /**
+   * Newest rendered final cut, when the Project has one; drives the card
+   * preview button on the home page.
+   */
+  finalVideoVersionId?: string | null;
 }
 
 export interface ProjectListResponse {

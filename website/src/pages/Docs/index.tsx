@@ -15,6 +15,7 @@ import {
   DOC_GROUPS,
   ALL_SLUGS,
   DOC_BANNER_BY_SLUG,
+  CREATOR_BANNER_BY_LANG,
   FALLBACK_DOC_BANNER,
   fetchDocContent,
 } from "./navigation";
@@ -46,8 +47,11 @@ export default function Docs() {
     typeof setTimeout
   > | null>(null);
   const titleBannerSrc = useMemo(
-    () => DOC_BANNER_BY_SLUG.get(activeSlug) ?? FALLBACK_DOC_BANNER,
-    [activeSlug],
+    () =>
+      activeSlug === "creator"
+        ? CREATOR_BANNER_BY_LANG[lang]
+        : DOC_BANNER_BY_SLUG.get(activeSlug) ?? FALLBACK_DOC_BANNER,
+    [activeSlug, lang],
   );
   const mobileBreadcrumb = useMemo<{ parent?: string; current: string }>(() => {
     const currentEntry = DOC_GROUPS.flatMap((g) => g.children).find(
@@ -350,7 +354,11 @@ export default function Docs() {
                   <FaqArticle content={content} bannerSrc={titleBannerSrc} />
                 )}
                 {activeSlug !== "faq" && activeSlug !== "functiondemo" && (
-                  <DocMarkdown content={content} bannerSrc={titleBannerSrc} />
+                  <DocMarkdown
+                    content={content}
+                    bannerSrc={titleBannerSrc}
+                    isCreatorBanner={activeSlug === "creator"}
+                  />
                 )}
 
                 {(prevDoc || nextDoc) && (

@@ -33,7 +33,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Không bao giờ quên**                       | Bộ nhớ ba lớp — ngữ cảnh làm việc trực tiếp, lịch sử nguyên văn đầy đủ và tri thức đã chưng cất. Các lượt cũ bị loại khỏi cửa sổ nhưng vẫn truy xuất theo yêu cầu; không bị tóm tắt hay mất mát.     |
+| **Không bao giờ quên**                       | Bộ nhớ ba lớp — ngữ cảnh làm việc trực tiếp, lịch sử nguyên văn đầy đủ và cơ sở tri thức cá nhân tự tiến hóa được vận hành bởi [ReMe](https://github.com/agentscope-ai/ReMe). Hội thoại và tài liệu liên tục được chuyển thành bộ nhớ Markdown dễ đọc, chỉnh sửa, tìm kiếm và liên kết với nhau. |
 | **Cục bộ hoặc đám mây, chạy tự do**          | Mô hình QwenPaw-Flash (2B / 4B / 9B) huấn luyện cho tác vụ tác nhân. Runtime QwenPaw Local tích hợp sẵn — không cần API key, không phụ thuộc đám mây. Cũng hỗ trợ Ollama, LM Studio hoặc 14+ nhà cung cấp đám mây.   |
 | **Bảo mật tích hợp sẵn**                     | Sandbox cấp kernel, Tool Guard, File Guard và Skill Scanner. Lệnh nguy hiểm bị chặn trước khi chạy.                                            |
 | **Đa tác nhân & song song**                  | Tạo tác nhân độc lập với bộ nhớ và Skills riêng. Tác nhân con lúc chạy. Agent Communication Protocol (ACP) để điều phối liên hệ thống.                               |
@@ -60,9 +60,9 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 ## Tin Tức
 
-- [2026-07-24] **v2.0.1** | Nền tảng mini-app PawApp, Agent Mode do người dùng chỉnh sửa, Oh-My-Paw plugins, nâng cấp bộ nhớ ReMe, cải thiện UX desktop v.v. [Ghi chú phát hành v2.0.1 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+- [2026-07-24] **v2.0.1** | Nền tảng mini-app PawApp, Agent Mode do người dùng chỉnh sửa, Oh-My-Paw plugins, nâng cấp bộ nhớ [ReMe](https://github.com/agentscope-ai/ReMe), cải thiện UX desktop v.v. [Ghi chú phát hành v2.0.1 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory và TUI tích hợp.
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, cơ sở tri thức cá nhân tự tiến hóa [ReMe](https://github.com/agentscope-ai/ReMe) v0.4 và TUI tích hợp.
 
   | Nổi bật | Nội dung mới |
   |-----------|------------|
@@ -70,7 +70,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
   | **Agent OS — Drivers** | Lớp connector trung lập giao thức MCP / A2A / ACP với credentials mã hóa và policy gate mỗi lần gọi. |
   | **Loop Engineering** | Mẫu vòng lặp agent nâng cao (Coding Mode, Mission Mode, thêm nhiều sắp tới) với cổng phê duyệt kết hợp. |
   | **Scroll Context** | Mọi lượt được lưu trữ; lượt bị đẩy ra có chỉ mục, recall theo yêu cầu — không tóm tắt, không mất. |
-  | **ReMe v0.4.0 Long-term Memory** | Theo dõi tự động theo lượt, tìm kiếm nhận biết mức sử dụng, embedding riêng backend. |
+  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 — Cơ sở tri thức cá nhân tự tiến hóa** | Liên tục chuyển hội thoại và tài liệu thành bộ nhớ Markdown dễ đọc, chỉnh sửa, tìm kiếm và liên kết với nhau. |
   | **Terminal UI (TUI)** | Chat terminal toàn màn hình — cùng agent, bộ nhớ và phiên với Console và kênh. |
 
   Dựa trên Agent OS, chúng tôi sẽ ra mắt các ứng dụng QwenPaw sẵn sàng sử dụng — như **QwenPaw Creator** và **QwenPaw Insight** — hãy theo dõi. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
@@ -411,7 +411,8 @@ Xem [Bảo mật](https://qwenpaw.agentscope.io/docs/security) để biết chi 
 | [Plugins](https://qwenpaw.agentscope.io/docs/plugins)                    | Hệ thống plugin và Chợ Plugin                  |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                         | Quản lý máy khách MCP                                 |
 | [Persona](https://qwenpaw.agentscope.io/docs/persona)                   | Tùy chỉnh tính cách tác nhân (SOUL / PROFILE)  |
-| [Bộ nhớ](https://qwenpaw.agentscope.io/docs/memory)                   | Bộ nhớ ngữ nghĩa dài hạn (ReMe)                 |
+| [Bộ nhớ](https://qwenpaw.agentscope.io/docs/memory)                   | Cơ sở tri thức cá nhân tự tiến hóa dựa trên bộ nhớ Markdown cục bộ, có thể chỉnh sửa, tìm kiếm và liên kết với nhau, được vận hành bởi [ReMe](https://github.com/agentscope-ai/ReMe) |
+| [Tài liệu ReMe](https://docs.agentscope.io/reme/latest/en/overview)   | Tổng quan và tài liệu chính thức của ReMe         |
 | [Bộ nhớ tiến hóa & Chủ động](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | Tác nhân tiến hóa bộ nhớ và tương tác chủ động       |
 | [Ngữ cảnh](https://qwenpaw.agentscope.io/docs/context)               | Quản lý ngữ cảnh dựa trên cuộn (scroll)                  |
 | [Lệnh ma thuật](https://qwenpaw.agentscope.io/docs/commands)         | Điều khiển trạng thái hội thoại mà không cần đợi AI   |

@@ -12,6 +12,7 @@ import type {
   FileProjectReviewDecision,
   FileProjectReviewOperation,
   FileProjectReviewOperationDecision,
+  FileProjectReviewRejectionFeedback,
   FileProjectReviewRecord,
 } from "@/contracts/creator";
 import { getArtifactVersionMediaUrl } from "@/api/creator";
@@ -21,6 +22,7 @@ import OnboardingHint from "@/components/onboarding/OnboardingHint";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { selectPrimaryTimeline } from "@/selectors/timelineElementSelectors";
 import DiffView from "./DiffView";
+import RejectionFeedbackModal from "./RejectionFeedbackModal";
 
 const DECISION_LABELS: Record<FileProjectReviewOperationDecision, string> = {
   PENDING: "待审",
@@ -164,6 +166,9 @@ export default function FileProjectReviewPanel({
   const decide = useFileProjectReviewStore((state) => state.decide);
   const project = useProjectSnapshotStore((state) => state.project);
   const [localBusy, setLocalBusy] = useState(false);
+  const [rejectionOperations, setRejectionOperations] = useState<
+    FileProjectReviewOperation[]
+  >([]);
 
   const elementNames = (() => {
     const timeline = selectPrimaryTimeline(project);
@@ -201,25 +206,37 @@ export default function FileProjectReviewPanel({
   const submit = async (
     operations: FileProjectReviewOperation[],
     decision: FileProjectReviewDecision,
-  ) => {
-    if (operations.length === 0) return;
+    rejectionFeedback?: FileProjectReviewRejectionFeedback,
+  ): Promise<boolean> => {
+    if (operations.length === 0) return false;
+    const affectedUnits = mediaLocator ? 1 : operations.length;
     setLocalBusy(true);
     try {
-      await decide(
-        projectId,
-        review.review_id,
-        operations.map((operation) => ({
-          operation_id: operation.operation_id,
-          decision,
-        })),
-      );
+      const decisionItems = operations.map((operation) => ({
+        operation_id: operation.operation_id,
+        decision,
+      }));
+      if (rejectionFeedback) {
+        await decide(
+          projectId,
+          review.review_id,
+          decisionItems,
+          rejectionFeedback,
+        );
+      } else {
+        await decide(projectId, review.review_id, decisionItems);
+      }
       message.success(
         decision === "ACCEPT"
-          ? `已保留 ${operations.length} 处修改`
-          : `已撤销 ${operations.length} 处修改`,
+          ? `已保留 ${affectedUnits} 项内容`
+          : rejectionFeedback?.action === "UNDO_AND_REGENERATE"
+          ? `已撤销 ${affectedUnits} 项内容，Agent 将按反馈重做`
+          : `已撤销 ${affectedUnits} 项内容`,
       );
+      return true;
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setLocalBusy(false);
     }
@@ -284,7 +301,7 @@ export default function FileProjectReviewPanel({
           <button
             type="button"
             disabled={busy || pending.length === 0}
-            onClick={() => void submit(pending, "REJECT")}
+            onClick={() => setRejectionOperations(pending)}
             className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[10px] font-medium text-[var(--color-text-secondary)] disabled:opacity-50"
           >
             {mediaLocator ? "撤销" : "全部撤销"}
@@ -372,7 +389,7 @@ export default function FileProjectReviewPanel({
                           type="button"
                           aria-label={`撤销 ${location}`}
                           disabled={busy}
-                          onClick={() => void submit([operation], "REJECT")}
+                          onClick={() => setRejectionOperations([operation])}
                           className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)] disabled:opacity-50"
                         >
                           <Undo2 className="h-3 w-3" />
@@ -397,6 +414,22 @@ export default function FileProjectReviewPanel({
           })}
         </ul>
       )}
+      <RejectionFeedbackModal
+        open={rejectionOperations.length > 0}
+        busy={busy}
+        targetCount={mediaLocator ? 1 : rejectionOperations.length}
+        onCancel={() => setRejectionOperations([])}
+        onSubmit={(feedback) => {
+          void (async () => {
+            const submitted = await submit(
+              rejectionOperations,
+              "REJECT",
+              feedback,
+            );
+            if (submitted) setRejectionOperations([]);
+          })();
+        }}
+      />
     </section>
   );
 }

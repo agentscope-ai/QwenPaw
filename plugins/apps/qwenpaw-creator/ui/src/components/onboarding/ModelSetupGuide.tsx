@@ -119,7 +119,7 @@ export default function ModelSetupGuide() {
           ))}
         </ul>
         <p className="mt-1.5 text-[11px] text-[var(--color-text-tertiary)]">
-          在顶栏模型徽标的设置入口中填写 Base URL、API Key
+          在「模型配置」中填写 Base URL、API Key
           与模型名称，并通过「测试连通性」后启用；VLM 可直接复用支持多模态的 LLM
           配置。
         </p>

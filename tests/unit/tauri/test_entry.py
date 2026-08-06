@@ -15,6 +15,7 @@ from qwenpaw.tauri.env import DESKTOP_CORS_ORIGINS_ENV, DESKTOP_READY_PREFIX
 
 
 def test_install_desktop_runtime_preserves_existing_cors_values(monkeypatch):
+    monkeypatch.delitem(sys.modules, "qwenpaw.app._app", raising=False)
     monkeypatch.setenv(
         DESKTOP_CORS_ORIGINS_ENV,
         "https://example.test,tauri://localhost",
@@ -157,7 +158,7 @@ def test_main_supports_frozen_entry_without_package_context(
     monkeypatch.setattr(entry, "_run_backend_server", calls.append)
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path)
     monkeypatch.setattr(
-        "qwenpaw.utils.platform.auto_disable_sandbox_on_windows",
+        "qwenpaw.utils.platform.warn_unelevated_sandbox",
         lambda: calls.append("sandbox-check"),
     )
     monkeypatch.delenv("QWENPAW_LOG_LEVEL", raising=False)

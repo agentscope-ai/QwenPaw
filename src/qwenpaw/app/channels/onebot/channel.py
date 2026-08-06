@@ -14,10 +14,14 @@ Message flow:
 from __future__ import annotations
 
 import asyncio
+import base64
+import hmac
 import json
 import logging
 import os
+import re
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 import aiohttp
@@ -33,6 +37,7 @@ from qwenpaw.schemas import (
 )
 
 from ....config.config import OneBotConfig as OneBotChannelConfig
+from ....utils.http import is_loopback_host, probe_host_for_bind_host
 from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
@@ -40,12 +45,213 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
-from ..utils import split_text
+from ..utils import file_url_to_local_path, split_text
 
 logger = logging.getLogger(__name__)
 
 # Hard cap on concurrently-tracked event handlers (flood protection).
 _EVENT_TASK_HARD_CAP = 500
+_DEFAULT_MEDIA_BASE64_MAX_MB = 10
+_DEFAULT_WS_HOST = "127.0.0.1"
+# OneBot v11 defines the "Bearer" scheme; "Token" is an ecosystem
+# convention popularised by NoneBot.  Matching is case-insensitive per
+# RFC 7235.
+_AUTH_SCHEMES = frozenset({"bearer", "token"})
+_CODE_FENCE_RE = re.compile(r"^[ \t]{0,3}(?P<mark>`{3,}|~{3,})")
+_MARKDOWN_LINK_RE = re.compile(
+    r"\[(?P<label>[^\]\n]+)\]"
+    r"\((?P<url>https?://(?:[^\s()]|\([^\s()]*\))+)\)",
+)
+_WRAPPED_URL_RE = re.compile(
+    r"(?P<mark>\*\*|__)(?P<url>https?://\S+?)(?P=mark)",
+)
+
+
+def _clean_links(text: str) -> str:
+    """Convert supported Markdown links to readable plain text."""
+    text = _MARKDOWN_LINK_RE.sub(
+        lambda match: f"{match.group('label')}: {match.group('url')}",
+        text,
+    )
+    return _WRAPPED_URL_RE.sub(lambda match: match.group("url"), text)
+
+
+def _clean_inline_text(text: str) -> str:
+    """Clean links outside inline code spans."""
+    result: list[str] = []
+    cursor = 0
+    while cursor < len(text):
+        opening = text.find("`", cursor)
+        if opening < 0:
+            result.append(_clean_links(text[cursor:]))
+            break
+
+        result.append(_clean_links(text[cursor:opening]))
+        run_end = opening
+        while run_end < len(text) and text[run_end] == "`":
+            run_end += 1
+        marker = text[opening:run_end]
+        closing = text.find(marker, run_end)
+        if closing < 0:
+            result.append(text[opening:])
+            break
+
+        closing_end = closing + len(marker)
+        result.append(text[opening:closing_end])
+        cursor = closing_end
+    return "".join(result)
+
+
+def _clean_onebot_plain_text(text: str) -> str:
+    """Clean link formatting for OneBot/QQ plain-text delivery.
+
+    OneBot text segments are rendered by QQ as plain text. Keep links as bare
+    URLs so the client can auto-link them without changing non-link markup.
+    """
+    if not text:
+        return text
+
+    result: list[str] = []
+    outside_fence: list[str] = []
+    fence_mark = ""
+
+    def _flush_outside_fence() -> None:
+        if outside_fence:
+            result.append(_clean_inline_text("".join(outside_fence)))
+            outside_fence.clear()
+
+    for line in text.splitlines(keepends=True):
+        match = _CODE_FENCE_RE.match(line)
+        if fence_mark:
+            result.append(line)
+            if (
+                match
+                and match.group("mark")[0] == fence_mark[0]
+                and len(
+                    match.group("mark"),
+                )
+                >= len(fence_mark)
+            ):
+                fence_mark = ""
+            continue
+        if match:
+            _flush_outside_fence()
+            fence_mark = match.group("mark")
+            result.append(line)
+            continue
+        outside_fence.append(line)
+
+    _flush_outside_fence()
+    return "".join(result)
+
+
+def _local_path_from_media_ref(ref: str) -> Path | None:
+    """Resolve a local filesystem path from a media reference if possible."""
+    path_text = file_url_to_local_path(ref)
+    if not path_text:
+        return None
+    path = Path(path_text).expanduser()
+    try:
+        if path.is_file():
+            return path
+    except OSError:
+        return None
+    return None
+
+
+def _local_media_base64_ref(
+    ref: str,
+    path: Path,
+    media_base64_max_bytes: int,
+) -> str:
+    """Convert a local OneBot media file to base64 when safe."""
+    try:
+        size = path.stat().st_size
+        if size > media_base64_max_bytes:
+            logger.warning(
+                "onebot: local media file %s is %s bytes, exceeds "
+                "media_base64_max_bytes=%s; sending path instead",
+                path,
+                size,
+                media_base64_max_bytes,
+            )
+            return ref
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
+    except OSError:
+        logger.warning("onebot: failed to read local media file %s", path)
+        return ref
+    return "base64://" + data
+
+
+def _normalize_media_ref_sync(
+    ref: str,
+    *,
+    media_base64: bool = False,
+    media_base64_max_bytes: int,
+) -> str:
+    """Normalize media references for OneBot clients."""
+    if not ref or ref.startswith("base64://"):
+        return ref
+    if ref.startswith("data:") and ";base64," in ref:
+        return "base64://" + ref.split(";base64,", 1)[1]
+
+    path = _local_path_from_media_ref(ref) if media_base64 else None
+    if path is None:
+        return ref
+    return _local_media_base64_ref(ref, path, media_base64_max_bytes)
+
+
+async def _normalize_media_ref(
+    ref: str,
+    *,
+    media_base64: bool = False,
+    media_base64_max_bytes: int,
+) -> str:
+    """Normalize a media reference without blocking the event loop."""
+    if not media_base64 or ref.startswith(("base64://", "data:")):
+        return _normalize_media_ref_sync(
+            ref,
+            media_base64=media_base64,
+            media_base64_max_bytes=media_base64_max_bytes,
+        )
+    return await asyncio.to_thread(
+        _normalize_media_ref_sync,
+        ref,
+        media_base64=media_base64,
+        media_base64_max_bytes=media_base64_max_bytes,
+    )
+
+
+def _extract_auth_token(auth_header: str) -> str:
+    """Extract the token from an ``Authorization`` header value.
+
+    Returns an empty string when the scheme is unsupported or the header
+    carries no token.
+    """
+    scheme, _, token = auth_header.strip().partition(" ")
+    if scheme.lower() not in _AUTH_SCHEMES:
+        return ""
+    return token.strip()
+
+
+def _tokens_match(provided: str, expected: str) -> bool:
+    """Compare two access tokens in constant time."""
+    return hmac.compare_digest(
+        provided.encode("utf-8"),
+        expected.encode("utf-8"),
+    )
+
+
+def _log_remote(request: web.Request) -> str:
+    """Render the peer address as a single-line log field.
+
+    ``request.remote`` is the socket peer today, but aiohttp allows it to
+    be overridden via ``clone(remote=...)``, which a forwarded-header
+    middleware would do with client-controlled input.  Dropping newlines
+    keeps one rejection from ever becoming several log records.
+    """
+    remote = request.remote or "unknown"
+    return remote.replace("\r", "").replace("\n", "")
 
 
 class OneBotChannel(BaseChannel):
@@ -53,6 +259,10 @@ class OneBotChannel(BaseChannel):
 
     Acts as a WebSocket server; NapCat (or compatible) connects
     as a client to ``ws://<host>:<port>/ws``.
+
+    The server binds loopback by default.  When bound to a
+    network-reachable address, ``access_token`` becomes mandatory and
+    every connection is rejected until it is set.
     """
 
     channel = "onebot"
@@ -62,7 +272,7 @@ class OneBotChannel(BaseChannel):
         self,
         process: ProcessHandler,
         enabled: bool,
-        ws_host: str = "0.0.0.0",
+        ws_host: str = _DEFAULT_WS_HOST,
         ws_port: int = 6199,
         access_token: str = "",
         bot_prefix: str = "",
@@ -77,6 +287,8 @@ class OneBotChannel(BaseChannel):
         share_session_in_group: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
+        media_base64: bool = False,
+        media_base64_max_mb: int = _DEFAULT_MEDIA_BASE64_MAX_MB,
     ):
         super().__init__(
             process,
@@ -93,10 +305,26 @@ class OneBotChannel(BaseChannel):
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
-        self._ws_host = ws_host
+        # An empty host would make aiohttp bind every interface, so treat
+        # it as "unset" and fall back to the loopback default.  Brackets
+        # are URL notation for IPv6 literals and make getaddrinfo fail,
+        # so drop them the way ``is_loopback_host`` does.
+        self._ws_host = ws_host.strip().strip("[]") or _DEFAULT_WS_HOST
         self._ws_port = ws_port
-        self._access_token = access_token
+        # A request token is stripped before comparison, so a token made
+        # only of whitespace could never match.  Treat it as unset to get
+        # the actionable "access_token is empty" rejection instead.
+        self._access_token = access_token.strip()
+        # A network-reachable listener must authenticate its clients.
+        self._auth_required = not is_loopback_host(self._ws_host)
         self._share_session_in_group = share_session_in_group
+        self._media_base64 = media_base64
+        max_mb = (
+            media_base64_max_mb
+            if media_base64_max_mb > 0
+            else _DEFAULT_MEDIA_BASE64_MAX_MB
+        )
+        self._media_base64_max_bytes = max_mb * 1_000_000
 
         # WebSocket server state
         self._app: Optional[web.Application] = None
@@ -131,7 +359,7 @@ class OneBotChannel(BaseChannel):
         return cls(
             process=process,
             enabled=os.getenv("ONEBOT_CHANNEL_ENABLED", "0") == "1",
-            ws_host=os.getenv("ONEBOT_WS_HOST", "0.0.0.0"),
+            ws_host=os.getenv("ONEBOT_WS_HOST", _DEFAULT_WS_HOST),
             ws_port=int(os.getenv("ONEBOT_WS_PORT", "6199")),
             access_token=os.getenv("ONEBOT_ACCESS_TOKEN", ""),
             bot_prefix=os.getenv("ONEBOT_BOT_PREFIX", ""),
@@ -148,6 +376,13 @@ class OneBotChannel(BaseChannel):
             share_session_in_group=(
                 os.getenv("ONEBOT_SHARE_SESSION_IN_GROUP", "0") == "1"
             ),
+            media_base64=(os.getenv("ONEBOT_MEDIA_BASE64", "0") == "1"),
+            media_base64_max_mb=int(
+                os.getenv(
+                    "ONEBOT_MEDIA_BASE64_MAX_MB",
+                    str(_DEFAULT_MEDIA_BASE64_MAX_MB),
+                ),
+            ),
         )
 
     @classmethod
@@ -162,7 +397,7 @@ class OneBotChannel(BaseChannel):
         return cls(
             process=process,
             enabled=config.enabled,
-            ws_host=config.ws_host or "0.0.0.0",
+            ws_host=config.ws_host or _DEFAULT_WS_HOST,
             ws_port=config.ws_port or 6199,
             access_token=config.access_token or "",
             bot_prefix=config.bot_prefix or "",
@@ -186,6 +421,8 @@ class OneBotChannel(BaseChannel):
             access_control_group=bool(
                 getattr(config, "access_control_group", False),
             ),
+            media_base64=config.media_base64,
+            media_base64_max_mb=config.media_base64_max_mb,
         )
 
     # ------------------------------------------------------------------
@@ -366,9 +603,7 @@ class OneBotChannel(BaseChannel):
         """
         if self._site is None:
             return False
-        probe_host = (
-            "127.0.0.1" if self._ws_host == "0.0.0.0" else self._ws_host
-        )
+        probe_host = probe_host_for_bind_host(self._ws_host)
         probe_port = self._get_listen_port()
         try:
             _, writer = await asyncio.wait_for(
@@ -385,31 +620,58 @@ class OneBotChannel(BaseChannel):
     # WebSocket connection handling
     # ------------------------------------------------------------------
 
+    def _token_authorized(self, request: web.Request) -> bool:
+        """Check the ``Authorization`` header against the access token.
+
+        Only the header is accepted: the OneBot v11 reverse WebSocket
+        spec defines no query-parameter fallback, and a token placed in a
+        query string leaks into proxy and container access logs.
+        """
+        provided = _extract_auth_token(
+            request.headers.get("Authorization", ""),
+        )
+        if not provided:
+            return False
+        return _tokens_match(provided, self._access_token)
+
     async def _handle_ws_connection(
         self,
         request: web.Request,
     ) -> web.WebSocketResponse:
         """Handle incoming WebSocket connection from NapCat."""
-        # Token authentication
-        if self._access_token:
-            auth_header = request.headers.get("Authorization", "")
-            query_token = request.query.get("access_token", "")
-            valid = (
-                auth_header == f"Bearer {self._access_token}"
-                or auth_header == f"Token {self._access_token}"
-                or query_token == self._access_token
+        # A network-reachable listener without a token would accept
+        # events from anyone, so refuse every connection instead.
+        if self._auth_required and not self._access_token:
+            logger.error(
+                "onebot: rejected connection from %s: ws_host=%s is not a "
+                "loopback address and access_token is empty. Set "
+                "access_token, or bind ws_host to 127.0.0.1.",
+                _log_remote(request),
+                self._ws_host,
             )
-            if not valid:
+            return web.Response(status=401, text="Unauthorized")
+
+        if self._access_token and not self._token_authorized(request):
+            logger.warning(
+                "onebot: rejected connection from %s (bad token)",
+                _log_remote(request),
+            )
+            if "access_token" in request.query:
                 logger.warning(
-                    "onebot: rejected connection from %s (bad token)",
-                    request.remote,
+                    "onebot: access_token was supplied as a query "
+                    "parameter; OneBot v11 reverse WebSocket expects the "
+                    "Authorization header instead (e.g. 'Bearer <token>'). "
+                    "Configure the token field of the OneBot client.",
                 )
-                return web.Response(status=401, text="Unauthorized")
+            return web.Response(status=401, text="Unauthorized")
 
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         self._connections.add(ws)
-        logger.info("onebot: client connected from %s", request.remote)
+        logger.info(
+            "onebot: client connected from %s",
+            _log_remote(request),
+        )
 
         try:
             async for msg in ws:
@@ -438,7 +700,10 @@ class OneBotChannel(BaseChannel):
             logger.exception("onebot: WS connection error")
         finally:
             self._connections.discard(ws)
-            logger.info("onebot: client disconnected from %s", request.remote)
+            logger.info(
+                "onebot: client disconnected from %s",
+                _log_remote(request),
+            )
 
         return ws
 
@@ -762,25 +1027,62 @@ class OneBotChannel(BaseChannel):
     ) -> None:
         if not self.enabled or not text.strip():
             return
-        meta = meta or {}
-        is_group = meta.get("is_group", False) or to_handle.startswith(
-            "group:",
-        )
+
+        text = await asyncio.to_thread(_clean_onebot_plain_text, text)
+        if not text.strip():
+            return
 
         for chunk in split_text(text):
             segments = [{"type": "text", "data": {"text": chunk}}]
-            if is_group:
-                gid = meta.get("group_id") or to_handle.removeprefix("group:")
-                await self._call_api(
-                    "send_group_msg",
-                    {"group_id": int(gid), "message": segments},
-                )
-            else:
-                uid = meta.get("sender_id") or to_handle
-                await self._call_api(
-                    "send_private_msg",
-                    {"user_id": int(uid), "message": segments},
-                )
+            await self._send_segments(to_handle, segments, meta)
+
+    async def send_content_parts(
+        self,
+        to_handle: str,
+        parts: List[OutgoingContentPart],
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Send text and media in their original order."""
+        if not self.enabled:
+            return
+
+        text_parts: List[str] = []
+        prefix = (meta or {}).get("bot_prefix", "") or ""
+        prefix_pending = bool(prefix)
+
+        async def _flush_text() -> None:
+            nonlocal prefix_pending
+            if not text_parts:
+                return
+            body = "\n".join(text_parts).strip()
+            text_parts.clear()
+            if not body:
+                return
+            if prefix_pending:
+                body = f"{prefix}  {body}"
+                prefix_pending = False
+            await self.send(to_handle, body, meta)
+
+        for part in parts:
+            part_type = getattr(part, "type", None)
+            if part_type == ContentType.TEXT and getattr(part, "text", None):
+                text_parts.append(part.text or "")
+            elif part_type == ContentType.REFUSAL and getattr(
+                part,
+                "refusal",
+                None,
+            ):
+                text_parts.append(part.refusal or "")
+            elif part_type in (
+                ContentType.IMAGE,
+                ContentType.VIDEO,
+                ContentType.AUDIO,
+                ContentType.FILE,
+            ):
+                await _flush_text()
+                await self.send_media(to_handle, part, meta)
+
+        await _flush_text()
 
     async def send_media(
         self,
@@ -792,23 +1094,25 @@ class OneBotChannel(BaseChannel):
 
         Supports image, audio (record), and video segments.
         """
-        meta = meta or {}
         t = getattr(part, "type", None)
 
         if t == ContentType.IMAGE:
             url = getattr(part, "image_url", "")
             if not url:
                 return
+            url = await self._apply_media_ref_policy(str(url))
             segments = [{"type": "image", "data": {"file": url}}]
         elif t == ContentType.AUDIO:
             url = getattr(part, "data", "")
             if not url:
                 return
+            url = await self._apply_media_ref_policy(str(url))
             segments = [{"type": "record", "data": {"file": url}}]
         elif t == ContentType.VIDEO:
             url = getattr(part, "video_url", "")
             if not url:
                 return
+            url = await self._apply_media_ref_policy(str(url))
             segments = [{"type": "video", "data": {"file": url}}]
         elif t == ContentType.FILE:
             url = getattr(part, "file_url", "") or getattr(
@@ -819,25 +1123,68 @@ class OneBotChannel(BaseChannel):
             name = getattr(part, "filename", "") or "file"
             if not url:
                 return
-            return await self._send_file(to_handle, url, name, meta)
+            url = await self._apply_media_ref_policy(str(url))
+            await self._send_file(to_handle, url, name, meta)
+            return
         else:
             return
 
+        await self._send_segments(to_handle, segments, meta)
+
+    async def _apply_media_ref_policy(self, ref: str) -> str:
+        """Apply the configured OneBot media reference policy."""
+        return await _normalize_media_ref(
+            ref,
+            media_base64=self._media_base64,
+            media_base64_max_bytes=self._media_base64_max_bytes,
+        )
+
+    @staticmethod
+    def _resolve_target(
+        to_handle: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> tuple[bool, Optional[int]]:
+        """Resolve a OneBot group/private target."""
+        meta = meta or {}
         is_group = meta.get("is_group", False) or to_handle.startswith(
             "group:",
         )
         if is_group:
-            gid = meta.get("group_id") or to_handle.removeprefix("group:")
+            target = meta.get("group_id") or to_handle.removeprefix("group:")
+        else:
+            target = meta.get("sender_id") or to_handle
+        try:
+            target_id = int(target)
+        except (TypeError, ValueError):
+            logger.warning(
+                "onebot: invalid target %r (to_handle=%r), "
+                "dropping message",
+                target,
+                to_handle,
+            )
+            return is_group, None
+        return is_group, target_id
+
+    async def _send_segments(
+        self,
+        to_handle: str,
+        segments: List[Dict[str, Any]],
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Send OneBot message segments to a private or group target."""
+        is_group, target = self._resolve_target(to_handle, meta)
+        if target is None:
+            return
+        if is_group:
             await self._call_api(
                 "send_group_msg",
-                {"group_id": int(gid), "message": segments},
+                {"group_id": target, "message": segments},
             )
-        else:
-            uid = meta.get("sender_id") or to_handle
-            await self._call_api(
-                "send_private_msg",
-                {"user_id": int(uid), "message": segments},
-            )
+            return
+        await self._call_api(
+            "send_private_msg",
+            {"user_id": target, "message": segments},
+        )
 
     async def _send_file(
         self,
@@ -847,22 +1194,19 @@ class OneBotChannel(BaseChannel):
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Send a file via NapCat upload_group_file / upload_private_file."""
-        meta = meta or {}
-        is_group = meta.get("is_group", False) or to_handle.startswith(
-            "group:",
-        )
+        is_group, target = self._resolve_target(to_handle, meta)
+        if target is None:
+            return
         if is_group:
-            gid = meta.get("group_id") or to_handle.removeprefix("group:")
             await self._call_api(
                 "upload_group_file",
-                {"group_id": int(gid), "file": file, "name": name},
+                {"group_id": target, "file": file, "name": name},
             )
-        else:
-            uid = meta.get("sender_id") or to_handle
-            await self._call_api(
-                "upload_private_file",
-                {"user_id": int(uid), "file": file, "name": name},
-            )
+            return
+        await self._call_api(
+            "upload_private_file",
+            {"user_id": target, "file": file, "name": name},
+        )
 
     # ------------------------------------------------------------------
     # OneBot v11 API calls (echo-based RPC)

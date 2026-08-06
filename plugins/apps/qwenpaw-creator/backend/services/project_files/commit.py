@@ -17,6 +17,7 @@ import copy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+import logging
 import os
 from pathlib import Path
 import re
@@ -67,6 +68,8 @@ from .locator_map import derive_ui_locator
 from .models import Project
 from .serialization import project_etag
 from .store import ProjectSnapshot, ProjectStore
+
+logger = logging.getLogger("qwenpaw.creator.project_files.commit")
 
 
 class ProjectCommitError(RuntimeError):
@@ -728,6 +731,12 @@ class ProjectCommitBoundary:
                         "updated_at": _now(),
                     },
                 ),
+            )
+            logger.info(
+                "project committed: project=%s transaction=%s status=%s",
+                project_id,
+                transaction_id,
+                terminal_status.value,
             )
             return ProjectCommitResult(
                 snapshot=snapshot,

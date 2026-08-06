@@ -77,9 +77,9 @@ const STEPS: TourStepBlueprint[] = [
   },
   {
     selectors: ["[data-download-render]"],
-    title: "成片下载",
+    title: "成片下载与项目导出",
     description:
-      "时间轴上的内容全部就绪后会自动合成成片；合成进度显示在按钮上，完成后点击即可下载视频文件。",
+      "时间轴上的内容全部就绪后会自动合成成片；合成进度显示在按钮上。点开菜单可下载成片视频，也可将整个项目导出为归档。",
   },
   {
     selectors: ['[data-onboarding-id="assets-tab"]'],

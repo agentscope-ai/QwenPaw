@@ -7,6 +7,7 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
     "agentscope==2.0.4.post1",
     "httpx>=0.27.0",
+    "websockets>=15.0.1,<16",
     "packaging>=24.0",
     "discord-py>=2.3",
     "dingtalk-stream>=0.24.3",
@@ -95,10 +96,12 @@ include-package-data = true
     "agents/context/visual_compression/assets/JETBRAINS_MONO_LICENSE.txt",
     "agents/context/visual_compression/assets/UNIFONT_LICENSE.txt",
     "agents/context/visual_compression/assets/SPLEEN_LICENSE.txt",
+    "agents/tools/deprecated_browser/skills/**",
     "tokenizer/**",
     "security/tool_guard/rules/**",
     "security/skill_scanner/rules/**",
     "security/skill_scanner/data/**",
+    "browser/control_link/injected/*.js",
     "docs/*.md",
     "app/channels/yuanbao/proto/**",
 ]

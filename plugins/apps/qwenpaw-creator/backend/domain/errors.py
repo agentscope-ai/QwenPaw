@@ -26,6 +26,13 @@ class ConflictError(CreatorError):
     retryable = True
 
 
+class ReviewPendingError(ConflictError):
+    """Normal pause while a generated artifact awaits user review."""
+
+    code = "WAITING_REVIEW"
+    retryable = False
+
+
 class PhaseConflictError(ConflictError):
     code = "PHASE_CONFLICT"
 

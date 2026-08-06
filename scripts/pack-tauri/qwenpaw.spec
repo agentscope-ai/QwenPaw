@@ -62,6 +62,12 @@ datas = [
     (str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()
 ]
 datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
+datas.append(
+    (
+        str(SRC / "browser/control_link/injected/engine.js"),
+        "qwenpaw/browser/control_link/injected",
+    ),
+)
 
 # Include reme package data files (configs, tool yamls, etc.)
 datas += collect_data_files("reme")

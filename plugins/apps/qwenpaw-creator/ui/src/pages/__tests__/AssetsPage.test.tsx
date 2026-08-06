@@ -127,7 +127,7 @@ describe("AssetsPage schema-v2 Project projection", () => {
     expect(screen.getByText("测试项目最终成片")).toBeInTheDocument();
   });
 
-  it("selects an immutable version, shows its canonical ref and carries that ref into AgentDock", () => {
+  it("selects an immutable version and shows its canonical ref", () => {
     renderPage();
     fireEvent.click(screen.getByText("测试项目最终成片"));
 
@@ -135,9 +135,10 @@ describe("AssetsPage schema-v2 Project projection", () => {
     expect(useCreatorInteractionStore.getState().selectedRef).toBe(
       "artifact-version:final-v1",
     );
-    fireEvent.click(screen.getByRole("button", { name: "交给 Agent" }));
-    expect(useAgentDockUiStore.getState().draft).toContain("测试项目最终成片");
-    expect(useAgentDockUiStore.getState().open).toBe(true);
+    // The hand-off button was removed; the detail keeps read-only actions only.
+    expect(
+      screen.queryByRole("button", { name: "交给 Agent" }),
+    ).not.toBeInTheDocument();
   });
 
   it("uploads a file through the retained ingest endpoint and refreshes Project plus durable Tasks", async () => {

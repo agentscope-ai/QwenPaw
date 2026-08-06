@@ -9,35 +9,23 @@ from playwright.sync_api import Locator, Page
 
 
 class ComposerModal:
-    """Drive the 720px origin Composer while preserving the new ingest API."""
+    """Drive the hero composer card on the redesigned "开始创作" view."""
 
     def __init__(self, page: Page):
         self.page = page
 
     @property
     def root(self) -> Locator:
-        return (
-            self.page.locator(".ant-modal")
-            .filter(
-                has=self.page.get_by_role(
-                    "heading",
-                    name="把目标、素材和限制交给 Agent",
-                    exact=True,
-                ),
-            )
-            .last
-        )
+        return self.page.locator('[data-onboarding-id="create-project"]')
 
     def wait_visible(self):
-        self.page.get_by_role(
-            "heading",
-            name="把目标、素材和限制交给 Agent",
-            exact=True,
-        ).wait_for()
+        self.root.wait_for()
         return self
 
     def fill_name(self, name: str):
-        self.root.get_by_placeholder("项目名称", exact=True).fill(name)
+        self.root.get_by_placeholder(
+            re.compile(r"^请输入项目名称"),
+        ).fill(name)
         return self
 
     def fill_goal(self, goal: str):
@@ -45,18 +33,20 @@ class ComposerModal:
         return self
 
     def add_url(self, url: str):
-        box = self.root.get_by_placeholder("粘贴 URL 后回车", exact=True)
+        # The URL input only appears after toggling the add-link button.
+        self.root.get_by_role("button", name="添加链接", exact=True).click()
+        box = self.root.get_by_placeholder("粘贴 URL 后回车添加", exact=True)
         box.fill(url)
         box.press("Enter")
         return self
 
     def select_scenario(self, label: str):
-        self.root.get_by_role("button", name=label, exact=True).click()
+        self.root.get_by_role("radio", name=label, exact=True).click()
         return self
 
     def select_content_type(self, label: str):
-        self.root.get_by_text("内容类型", exact=False).wait_for()
-        self.root.get_by_role("button", name=label, exact=True).click()
+        self.root.get_by_label("内容类型").click()
+        self.page.get_by_role("option", name=label, exact=True).click()
         return self
 
     def set_resolution(self, label: str):

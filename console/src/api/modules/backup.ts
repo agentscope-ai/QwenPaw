@@ -17,6 +17,13 @@ import type {
   DeleteBackupsResponse,
 } from "../types/backup";
 
+/**
+ * Restore rewrites workspaces and global configuration synchronously before
+ * the backend can return. It can legitimately outlive the general API
+ * timeout, especially for large archives or slow disks.
+ */
+export const RESTORE_BACKUP_TIMEOUT_MS = 5 * 60 * 1000;
+
 export const backupApi = {
   listBackups: () => request<BackupMeta[]>("/backups"),
 
@@ -67,6 +74,7 @@ export const backupApi = {
     request<RestoreBackupResponse>(`/backups/${id}/restore`, {
       method: "POST",
       body: JSON.stringify(data),
+      timeout: RESTORE_BACKUP_TIMEOUT_MS,
     }),
 
   deleteBackups: (ids: string[]) =>

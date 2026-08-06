@@ -6,13 +6,15 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   CircleCheck,
+  Clock3,
   Eraser,
   Info,
   Loader2,
   PanelRightClose,
   PanelRightOpen,
-  Sparkles,
+  RotateCcw,
   Square,
+  Undo2,
   XCircle,
 } from "lucide-react";
 import {
@@ -27,6 +29,8 @@ import type {
   RefSearchItem,
 } from "@/contracts/creator";
 import { useParams } from "@/routing/navigation";
+import logoGlyphOrange from "@/assets/design/logo-glyph-orange.png";
+import logoGlyphWhite from "@/assets/design/logo-mark-plain.png";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import {
@@ -54,6 +58,8 @@ import {
   actionEnvelopeFromStreamText,
   conversationContent,
   creatorActionEnvelope,
+  deduplicateReviewFeedbackMessages,
+  isReviewFeedbackMessage,
   shouldRenderConversationMessage,
   toolCallPresentations,
   type CreatorActionEnvelope,
@@ -538,6 +544,9 @@ function ActionDisclosure({
 }
 
 function ConversationMessage({ item }: { item: CreatorMessage }) {
+  if (isReviewFeedbackMessage(item)) {
+    return <ReviewFeedbackCard item={item} />;
+  }
   const envelope =
     item.role === "assistant" ? creatorActionEnvelope(item) : null;
   const content =
@@ -552,10 +561,11 @@ function ConversationMessage({ item }: { item: CreatorMessage }) {
   if (content.length === 0 && !thinking && !envelope) return null;
   if (item.role === "user") {
     return (
-      <div data-agent-message className="space-y-2">
-        <div className="ml-auto w-fit max-w-[85%] rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[11px] leading-[1.5] text-white">
-          <MessageParts parts={content} />
-        </div>
+      <div
+        data-agent-message
+        className="ml-auto w-fit max-w-[85%] rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[11px] leading-[1.5] text-white"
+      >
+        <MessageParts parts={content} />
       </div>
     );
   }
@@ -605,6 +615,81 @@ function ConversationMessage({ item }: { item: CreatorMessage }) {
           envelope.action === "complete_current_change") && (
           <ActionDisclosure envelope={envelope} active={streaming} />
         )}
+    </div>
+  );
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function feedbackText(feedback: Record<string, unknown>): string {
+  const unified = feedback.feedbackNote ?? feedback.feedback_note;
+  if (typeof unified === "string" && unified.trim()) return unified.trim();
+  return [
+    feedback.problemNote ?? feedback.problem_note,
+    feedback.regenerationInstruction ?? feedback.regeneration_instruction,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .join("；");
+}
+
+function ReviewFeedbackCard({ item }: { item: CreatorMessage }) {
+  const feedback = recordValue(item.metadata.rejectionFeedback) ?? {};
+  const regenerate = feedback.action === "UNDO_AND_REGENERATE";
+  const note = feedbackText(feedback);
+  const targets = Array.isArray(item.metadata.targets)
+    ? item.metadata.targets
+        .map(recordValue)
+        .filter((target): target is Record<string, unknown> => target !== null)
+    : [];
+  const targetLabels = targets
+    .map((target) => target.label ?? target.target_ref ?? target.targetRef)
+    .filter((value): value is string => typeof value === "string" && !!value);
+
+  return (
+    <div
+      data-agent-message
+      data-agent-review-feedback
+      data-review-action={regenerate ? "regenerate" : "undo"}
+      className="rounded-xl border border-[var(--color-accent)]/25 bg-[var(--color-accent-soft)] px-3 py-2.5 text-[11px] text-[var(--color-text-secondary)]"
+    >
+      <div className="flex min-w-0 items-start gap-2.5">
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-bg-card)] text-[var(--color-accent)]">
+          {regenerate ? (
+            <RotateCcw className="h-3.5 w-3.5" />
+          ) : (
+            <Undo2 className="h-3.5 w-3.5" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-medium leading-5 text-[var(--color-text-primary)]">
+            {regenerate ? "已撤销并安排重做" : "已撤销"}
+          </div>
+          <div className="leading-4 text-[var(--color-text-tertiary)]">
+            {regenerate
+              ? "Agent 将按反馈重新生成，不会恢复被撤销的版本。"
+              : "内容已移除，Agent 不会自行重新生成。"}
+          </div>
+        </div>
+      </div>
+      {targetLabels.length > 0 && (
+        <div className="mt-2 truncate text-[10px] text-[var(--color-text-tertiary)]">
+          对象：{targetLabels.join("、")}
+        </div>
+      )}
+      {note && (
+        <div className="mt-2 rounded-lg bg-[var(--color-bg-card)] px-2.5 py-2 leading-4 text-[var(--color-text-secondary)]">
+          <span className="font-medium text-[var(--color-text-primary)]">
+            反馈：
+          </span>
+          {note}
+        </div>
+      )}
     </div>
   );
 }
@@ -665,6 +750,10 @@ function subagentMessageText(item: SubagentStreamMessage): string {
     .sort(([left], [right]) => Number(left) - Number(right))
     .map(([, delta]) => delta)
     .join("");
+}
+
+function withoutSpecialistOutcomeMarker(text: string): string {
+  return text.replace(/^\s*\[(?:SUCCESS|BLOCKED|FAILED)\]\s*/u, "");
 }
 
 function orderedDeltas(deltas: Record<number, string>): string {
@@ -902,7 +991,12 @@ function SubagentActivityBubble({ activity }: { activity: SubagentActivity }) {
   const terminal = activity.terminalKind
     ? SUBAGENT_TERMINAL_META[activity.terminalKind]
     : null;
-  const activityStatus = terminal ?? SUBAGENT_RUNNING_META;
+  const activityStatus = activity.waitingReview
+    ? {
+        label: "等待审阅",
+        tone: "bg-[var(--color-accent-soft)] text-[var(--color-accent)]",
+      }
+    : terminal ?? SUBAGENT_RUNNING_META;
   return (
     <div
       data-subagent-activity={activity.parentActionId}
@@ -1032,8 +1126,10 @@ function ToolCallCard({ data }: { data: ToolCallPresentation }) {
   const effectiveStatus =
     delegated && activity
       ? activity.completed
-        ? activity.terminalKind === "FAILED" ||
-          activity.terminalKind === "BLOCKED"
+        ? activity.waitingReview
+          ? "waiting_review"
+          : activity.terminalKind === "FAILED" ||
+            activity.terminalKind === "BLOCKED"
           ? "failed"
           : activity.terminalKind === "CANCELLED" ||
             activity.terminalKind === "STALE"
@@ -1057,6 +1153,8 @@ function ToolCallCard({ data }: { data: ToolCallPresentation }) {
       ? "text-[var(--color-danger)]"
       : resolvedStatus === "cancelled"
       ? "text-[var(--color-text-tertiary)]"
+      : resolvedStatus === "waiting_review"
+      ? "text-[var(--color-accent)]"
       : "text-[var(--color-text-secondary)]";
 
   let displayLabel: string;
@@ -1074,8 +1172,13 @@ function ToolCallCard({ data }: { data: ToolCallPresentation }) {
   }
 
   const estimatedDuration = active ? getEstimatedDuration(tool) : null;
-  const rawError = delegated ? activity?.summaryText || "" : data.error || "";
-  const errorMessage = simplifyErrorMessage(rawError);
+  const rawStatusMessage = delegated
+    ? activity?.summaryText || ""
+    : data.error || "";
+  const statusMessage =
+    resolvedStatus === "waiting_review"
+      ? withoutSpecialistOutcomeMarker(rawStatusMessage)
+      : simplifyErrorMessage(rawStatusMessage);
 
   return (
     <div
@@ -1091,6 +1194,8 @@ function ToolCallCard({ data }: { data: ToolCallPresentation }) {
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : resolvedStatus === "succeeded" ? (
             <CircleCheck className="h-3.5 w-3.5" />
+          ) : resolvedStatus === "waiting_review" ? (
+            <Clock3 className="h-3.5 w-3.5" />
           ) : resolvedStatus === "cancelled" ? (
             <XCircle className="h-3.5 w-3.5 opacity-50" />
           ) : (
@@ -1106,6 +1211,8 @@ function ToolCallCard({ data }: { data: ToolCallPresentation }) {
               ? "完成"
               : resolvedStatus === "cancelled"
               ? "已中止"
+              : resolvedStatus === "waiting_review"
+              ? " · 等待审阅"
               : "失败"}
           </span>
           {subLabel && active && (
@@ -1128,9 +1235,17 @@ function ToolCallCard({ data }: { data: ToolCallPresentation }) {
           </button>
         )}
       </div>
-      {resolvedStatus === "failed" && errorMessage && (
+      {resolvedStatus === "failed" && statusMessage && (
         <div className="mt-1 rounded-md bg-[var(--color-danger-soft)] px-2 py-1.5 text-[10px] text-[var(--color-danger)]">
-          {errorMessage}
+          {statusMessage}
+        </div>
+      )}
+      {resolvedStatus === "waiting_review" && statusMessage && (
+        <div
+          data-agent-waiting-review
+          className="mt-1 rounded-md border border-[var(--color-accent)]/25 bg-[var(--color-accent-soft)] px-2 py-1.5 text-[10px] leading-4 text-[var(--color-text-secondary)]"
+        >
+          {statusMessage}
         </div>
       )}
       {expanded && (
@@ -1614,7 +1729,10 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
         },
         createdAt: item.createdAt,
       }));
-    return [...messages, ...streamingMessages]
+    return deduplicateReviewFeedbackMessages([
+      ...messages,
+      ...streamingMessages,
+    ])
       .filter(shouldRenderConversationMessage)
       .sort((left, right) => left.messageSeq - right.messageSeq);
   }, [messages, streamingAssistantMessages]);
@@ -2046,9 +2164,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           onClick={() => setOpen(true)}
           data-agent-dock-handle
           data-state={liveStatus.state}
-          className={`fixed right-0 top-1/2 z-40 flex ${
+          className={`fixed right-0 top-20 z-40 flex ${
             decisionCount > 0 ? "h-[96px]" : "h-[76px]"
-          } w-7 -translate-y-1/2 flex-col items-center justify-center rounded-l-xl border border-r-0 border-[var(--color-border)] bg-[var(--color-bg-card)]/92 text-[var(--color-text-tertiary)] shadow-lg backdrop-blur-xl transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]`}
+          } w-7 flex-col items-center justify-center rounded-l-xl border border-r-0 border-[var(--color-border)] bg-[var(--color-bg-card)]/92 text-[var(--color-text-tertiary)] shadow-lg backdrop-blur-xl transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]`}
           aria-label="打开 Agent"
           title={
             decisionCount > 0
@@ -2133,7 +2251,17 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
 
           <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-[18px]">
             <div className="flex min-w-0 items-center gap-2">
-              <Sparkles className="h-4 w-4 shrink-0 text-[var(--color-accent)]" />
+              {/* Transparent brand glyph, swapped per theme. */}
+              <img
+                src={logoGlyphOrange}
+                alt=""
+                className="h-5 w-5 shrink-0 object-contain dark:hidden"
+              />
+              <img
+                src={logoGlyphWhite}
+                alt=""
+                className="hidden h-5 w-5 shrink-0 object-contain dark:block"
+              />
               <div className="min-w-0">
                 <b className="block truncate text-sm font-medium text-[var(--color-text-primary)]">
                   创作助手
@@ -2229,12 +2357,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                       data-agent-turn
                       className="space-y-2"
                     >
-                      <div
-                        data-agent-message
-                        className="ml-auto w-fit max-w-[85%] rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[11px] leading-[1.5] text-white"
-                      >
-                        <MessageParts parts={conversationContent(turn.user)} />
-                      </div>
+                      <ConversationMessage item={turn.user} />
                       <div data-agent-response-flow className="space-y-2">
                         {turn.responses.map((item) => (
                           <Fragment key={item.messageId}>

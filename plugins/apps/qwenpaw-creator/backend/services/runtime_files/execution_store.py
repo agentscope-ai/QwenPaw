@@ -17,6 +17,7 @@ from collections.abc import Collection, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
+import logging
 import os
 from pathlib import Path
 import secrets
@@ -50,6 +51,8 @@ from .jsonl_store import DurableJsonlStore
 from .locking import CrossProcessFileLock
 from .models import ReviewPolicy, utc_now
 from .path_safety import require_safe_runtime_segment
+
+logger = logging.getLogger("qwenpaw.creator.runtime_files.execution_store")
 
 
 class ExecutionStoreError(RuntimeFileError):
@@ -651,10 +654,23 @@ class ProjectExecutionStore:
             store = self._task_store(project_id, task_id)
             created = store.try_create(candidate)
             if created is not None:
+                logger.info(
+                    "task created: project=%s task=%s kind=%s run=%s status=%s",
+                    project_id,
+                    task_id,
+                    candidate.kind.value,
+                    candidate.run_id,
+                    candidate.status.value,
+                )
                 return created.value
             existing = store.read()
             self._assert_task_identity(existing, project_id, task_id)
             if self._equivalent(existing, candidate):
+                logger.debug(
+                    "task already exists (idempotent): project=%s task=%s",
+                    project_id,
+                    task_id,
+                )
                 return existing
             raise ExecutionPayloadConflict(
                 f"Task already exists with different payload: {task_id}",
@@ -1440,11 +1456,21 @@ class ProjectExecutionStore:
         )
         candidate = TaskRecord.model_validate(dumped)
         checksum = expected_checksum or snapshot.checksum
-        return (
+        result = (
             self._task_store(project_id, task_id)
             .compare_and_swap(expected_checksum=checksum, value=candidate)
             .value
         )
+        logger.info(
+            "task transition: project=%s task=%s kind=%s run=%s %s -> %s",
+            project_id,
+            task_id,
+            candidate.kind.value,
+            candidate.run_id,
+            current.status.value,
+            target.value,
+        )
+        return result
 
     # -- validation and paths -------------------------------------------
 

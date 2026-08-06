@@ -1,5 +1,6 @@
-ui/node_modules/
-# 构建产物暂不入库，安装前在 ui/ 目录 npm run build 生成
+# no trailing slash so the dev-install symlink form is ignored too
+ui/node_modules
+# build output stays out of git; run `npm run build` in ui/ before installing
 ui/dist/
 .env
 __pycache__/

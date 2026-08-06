@@ -492,13 +492,21 @@ describe("PlanPage Timeline/Element frontend", () => {
       screen.queryByRole("button", { name: "继续制作" }),
     ).not.toBeInTheDocument();
 
-    // Fixture already has a fresh final render → no re-compose; the button downloads the file directly.
-    const downloadButton = screen.getByRole("button", { name: "下载成片" });
-    expect(downloadButton).toBeEnabled();
+    // Fixture already has a fresh final render → no re-compose; the merged
+    // entry opens a menu whose download item saves the file directly.
+    const trigger = screen.getByRole("button", { name: "下载 / 导出" });
+    fireEvent.click(trigger);
+    const downloadItem = await screen.findByRole("menuitem", {
+      name: /下载成片/,
+    });
+    expect(downloadItem).not.toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("menuitem", { name: /导出项目/ }),
+    ).toBeInTheDocument();
     const clickSpy = vi
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => undefined);
-    fireEvent.click(downloadButton);
+    fireEvent.click(downloadItem);
     await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
     clickSpy.mockRestore();
     expect(calls.some((call) => call.url.includes("/render"))).toBe(false);
@@ -552,7 +560,9 @@ describe("PlanPage Timeline/Element frontend", () => {
       renderPage();
 
       // All main-track elements ready and no final render → deterministic compose auto-triggers after a short debounce.
-      expect(screen.getByRole("button", { name: "下载成片" })).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "下载 / 导出" }),
+      ).toHaveAttribute("title", "等待成片合成");
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1600);
       });
@@ -606,7 +616,7 @@ describe("PlanPage Timeline/Element frontend", () => {
 
     expect(
       screen.getByRole("button", { name: "合成中 · 4/10" }),
-    ).toBeDisabled();
+    ).toBeInTheDocument();
     expect(container.querySelector("[data-compose-progress]")).toHaveStyle({
       width: "40%",
     });
@@ -632,7 +642,7 @@ describe("PlanPage Timeline/Element frontend", () => {
     });
     expect(
       screen.getByRole("button", { name: "合成中 · 7/10" }),
-    ).toBeDisabled();
+    ).toBeInTheDocument();
     expect(container.querySelector("[data-compose-progress]")).toHaveStyle({
       width: "70%",
     });
@@ -658,7 +668,7 @@ describe("PlanPage Timeline/Element frontend", () => {
 
     expect(
       screen.getByRole("button", { name: "合成中 · 0/10" }),
-    ).toBeDisabled();
+    ).toBeInTheDocument();
     expect(container.querySelector("[data-compose-progress]")).toHaveStyle({
       width: "0%",
     });
@@ -666,7 +676,7 @@ describe("PlanPage Timeline/Element frontend", () => {
     unmount();
   });
 
-  it("keeps download disabled while any compose element is still not ready", () => {
+  it("keeps download disabled while any compose element is still not ready", async () => {
     const project = cloneProject();
     project.assets.artifact_slots_by_id[
       "element:r2v-window:video"
@@ -677,12 +687,20 @@ describe("PlanPage Timeline/Element frontend", () => {
     const { calls } = installMockFetch([]);
     renderPage();
 
-    const downloadButton = screen.getByRole("button", { name: "下载成片" });
-    expect(downloadButton).toBeDisabled();
-    expect(downloadButton).toHaveAttribute(
+    const trigger = screen.getByRole("button", { name: "下载 / 导出" });
+    expect(trigger).toHaveAttribute(
       "title",
       expect.stringContaining("项内容生成中"),
     );
+    // Only the download menu item is gated; export stays available.
+    fireEvent.click(trigger);
+    const downloadItem = await screen.findByRole("menuitem", {
+      name: /下载成片/,
+    });
+    expect(downloadItem).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("menuitem", { name: /导出项目/ }),
+    ).not.toHaveAttribute("aria-disabled", "true");
     expect(calls.some((call) => call.url.includes("/render"))).toBe(false);
   });
 

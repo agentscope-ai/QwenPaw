@@ -567,7 +567,7 @@ export default function TimelineCanvas({
             {tracks.length} 轨{scrollable ? " · 可上下滚动" : ""}
           </span>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2 pr-3">
           <div className="hidden flex-wrap items-center gap-2 xl:flex">
             {tracks.map((track) => (
               <span key={track.type} className="whitespace-nowrap">

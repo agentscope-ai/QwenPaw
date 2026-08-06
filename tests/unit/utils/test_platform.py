@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for qwenpaw.utils.platform helpers."""
+
 from __future__ import annotations
 
 import logging
@@ -9,8 +10,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from qwenpaw.utils.platform import (
-    auto_disable_sandbox_on_windows,
     is_windows_admin,
+    warn_unelevated_sandbox,
 )
 
 
@@ -82,18 +83,17 @@ class TestIsWindowsAdmin:
 
 
 # ---------------------------------------------------------------------------
-# auto_disable_sandbox_on_windows
+# warn_unelevated_sandbox
 # ---------------------------------------------------------------------------
 
 
-class TestAutoDisableSandboxOnWindows:
-    """Tests for auto_disable_sandbox_on_windows()."""
+class TestWarnUnelevatedSandbox:
+    """Tests for warn_unelevated_sandbox()."""
 
     def test_non_windows_is_noop(self) -> None:
         """On non-Windows platforms, function returns immediately."""
         with patch.object(sys, "platform", "linux"):
-            # Should not raise or call load_config
-            auto_disable_sandbox_on_windows()
+            warn_unelevated_sandbox()
 
     def test_windows_admin_is_noop(self) -> None:
         """Admin on Windows: no warning logged."""
@@ -104,7 +104,7 @@ class TestAutoDisableSandboxOnWindows:
                 return_value=True,
             ),
         ):
-            auto_disable_sandbox_on_windows()
+            warn_unelevated_sandbox()
 
     def test_windows_non_admin_sandbox_disabled_logs_warning(
         self,
@@ -126,7 +126,7 @@ class TestAutoDisableSandboxOnWindows:
                 return_value=mock_config,
             ),
         ):
-            auto_disable_sandbox_on_windows()
+            warn_unelevated_sandbox()
 
         assert any(
             "sandbox downgraded" in record.message for record in caplog.records
@@ -152,7 +152,7 @@ class TestAutoDisableSandboxOnWindows:
                 return_value=mock_config,
             ),
         ):
-            auto_disable_sandbox_on_windows()
+            warn_unelevated_sandbox()
 
         assert not any(
             "sandbox downgraded" in record.message for record in caplog.records
@@ -175,9 +175,9 @@ class TestAutoDisableSandboxOnWindows:
                 side_effect=RuntimeError("config broken"),
             ),
         ):
-            auto_disable_sandbox_on_windows()
+            warn_unelevated_sandbox()
 
         assert any(
-            "auto-disable check failed" in record.message
+            "unelevated sandbox check failed" in record.message
             for record in caplog.records
         )

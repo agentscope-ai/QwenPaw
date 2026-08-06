@@ -64,6 +64,7 @@ from services.media_files.element_adapter import (
     selected_element_output,
     target_element_id,
 )
+from services.media_files.review_admission import assert_media_review_admission
 from services.project_files.remote_cache import public_source_url
 from services.project_files.store import ProjectSnapshot
 from services.runtime_files.atomic_store import (
@@ -241,16 +242,30 @@ def _variant_for(
 ) -> VisualVariant | None:
     if not entity.variants.order:
         return None
+    raw_variant_id = arguments.get("variantId")
     raw_index = arguments.get("promptIndex")
+    if raw_variant_id is not None and raw_index is not None:
+        raise ValidationError("variantId 与 promptIndex 不能同时提供")
+    if raw_variant_id is not None:
+        if not isinstance(raw_variant_id, str):
+            raise ValidationError("variantId 必须是字符串")
+        variant_id = raw_variant_id.strip()
+        if not variant_id:
+            raise ValidationError("variantId 不能为空")
+        variant = entity.variants.items.get(variant_id)
+        if variant is None or variant_id not in entity.variants.order:
+            raise ValidationError("variantId 不在视觉变体范围内")
+        return variant
     if raw_index is None:
-        index = 0
-    elif isinstance(raw_index, bool):
+        if len(entity.variants.order) > 1:
+            raise ValidationError("目标包含多个视觉变体，必须提供 variantId")
+        return entity.variants.items[entity.variants.order[0]]
+    if isinstance(raw_index, bool):
         raise ValidationError("promptIndex 必须是整数")
-    else:
-        try:
-            index = int(raw_index)
-        except (TypeError, ValueError) as exc:
-            raise ValidationError("promptIndex 必须是整数") from exc
+    try:
+        index = int(raw_index)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("promptIndex 必须是整数") from exc
     if index < 0 or index >= len(entity.variants.order):
         raise ValidationError("promptIndex 超出视觉变体范围")
     return entity.variants.items[entity.variants.order[index]]
@@ -468,7 +483,15 @@ def _resolve_request(
             slot_id=f"asset:{entity_id}:image",
             slot_kind="visual_asset_image",
             owner_ref=f"asset:{entity_id}",
-            artifact_name=f"{entity.name} 视觉图",
+            # Stage variants of one entity share the slot; without the
+            # variant id in the name the UI reference picker shows
+            # indistinguishable duplicate titles.
+            artifact_name=(
+                f"{entity.name}"
+                f"（{variant.variant_id.removeprefix('var:')}）视觉图"
+                if variant
+                else f"{entity.name} 视觉图"
+            ),
             role=SpecialistRole.VISUAL_DEVELOPMENT,
             target_id=entity_id,
             variant_id=variant.variant_id if variant else None,
@@ -796,6 +819,17 @@ class FileImageExecutionService:
                 "inputEtag": base.etag,
             },
         )
+        reviews = await asyncio.to_thread(
+            self.services.reviews.all_pending,
+            project_id,
+        )
+        assert_media_review_admission(
+            reviews=reviews,
+            command_type=command_value.value,
+            target_ref=resolved.target_ref,
+            variant_id=resolved.variant_id,
+            reference_version_ids=resolved.reference_version_ids,
+        )
         run, task = await self._admit(
             base=base,
             resolved=resolved,
@@ -973,6 +1007,7 @@ class FileImageExecutionService:
             metadata={
                 "commandType": resolved.command.value,
                 "targetRef": resolved.target_ref,
+                "variantId": resolved.variant_id,
                 "commandRequestHash": command_request_hash,
             },
         )
@@ -1012,6 +1047,7 @@ class FileImageExecutionService:
             metadata={
                 "commandType": resolved.command.value,
                 "targetRef": resolved.target_ref,
+                "variantId": resolved.variant_id,
                 "commandRequestHash": command_request_hash,
                 "slotId": resolved.slot_id,
                 "artifactVersionId": ids["artifact_version_id"],
@@ -1131,6 +1167,7 @@ class FileImageExecutionService:
                         resolved.reference_version_ids,
                     ),
                     "referenceChecksums": list(resolved.reference_checksums),
+                    "variantId": resolved.variant_id,
                     "artifactVersionId": ids["artifact_version_id"],
                 },
             )
@@ -1200,6 +1237,8 @@ class FileImageExecutionService:
                 "taskId": task.task_id,
                 "runId": task.run_id,
                 "commandType": resolved.command.value,
+                "targetRef": resolved.target_ref,
+                "variantId": resolved.variant_id,
                 "provider": _json_mapping(output.get("metadata")),
             },
         )

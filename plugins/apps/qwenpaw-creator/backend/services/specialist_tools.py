@@ -182,6 +182,14 @@ _IMAGE_ARGUMENTS = _arguments_schema(
             "maxItems": 5,
             "uniqueItems": True,
         },
+        "variantId": {
+            "type": "string",
+            "minLength": 1,
+            "description": (
+                "生成视觉资产时指定稳定的 VisualVariant ID；目标实体包含多个 "
+                "Variant 时必填。分镜图生成不使用此字段。"
+            ),
+        },
     },
     ("prompt",),
 )
