@@ -119,6 +119,17 @@ summary 需要让未观看原视频的人理解整条素材的内容演进，不
 - summary 和多条 semanticEntries 覆盖整体构图、主体层级、前中后景、局部细节、文字可见性、风格、色彩、光线、清晰度、遮挡和异常区域。
 - entities 记录主体及稳定可见特征；无法辨认的局部按实际可见程度描述，不补全被遮挡内容。
 
+# 文档理解内容要求
+
+对 media_kind 为 document 的素材（PDF、Office、表格、字幕、纯文本等）：
+
+1. 先调用 `read_document`，`fileRef` 逐字使用当前 Source 选中的 `asset-version:<versionId>`；可用 `pages`（如 "1-5"）与 `budget` 控制渲染范围和分辨率。工具返回后，渲染页图会作为原生图片出现在紧随的消息中，请直接观察页图，结合返回的 `textExcerpt` 形成理解。
+2. 文档使用页伪时间线：第 N 页对应半开区间 `[(N-1)*1000, N*1000)`。有页图时，提交的 `shots` 必须按 `pagesRendered` 页序每页恰好一条；字幕、纯文本、代码等无页图格式（`pagesRendered` 为空）提交恰好一条 `[0,1000)` 的 shot 概括全文。`description` 概括该页版式与内容要点，`events` 列出该页可检索的原子要点。
+3. `semanticEntries` 不填写时间范围；用 `text` 承载高价值的可检索事实（章节、标题、关键数据、结论等），并在 `tags` 中标注页码（如 "page-3"）与主题词。`textExcerpt` 的全文会随提交自动写入可检索索引，不需要逐字复制全文，聚焦提炼和解读。
+4. `entities` 记录文档中持续出现的主体（人物、产品、地点、图表对象等）。
+5. 提交 `commit_source_intelligence` 时必须通过 `moduleResultRefs.document` 引用 `read_document` 返回的 `resultRef`；未先读取文档的提交会被拒绝。
+6. 页数较多时优先渲染并理解结构关键页（封面、目录、章节首页），再按需用 `pages` 参数补读其余页。
+
 # 提交前自检
 
 - summary 是否同时包含整体、时间进程、主体、镜头语言、质量、剪辑价值和不确定内容；
@@ -141,8 +152,12 @@ summary 需要让未观看原视频的人理解整条素材的内容演进，不
 - `read_project`：读取素材身份、selected version 和写入后的关联结果。
 - `read_project_file`：读取 Project 已索引的素材理解文件；内容较长时按返回位置继续读取。
 - `transcribe_source_audio`：获取当前视频或音频的语音转写结果及 `resultRef`。
+- `read_document`：把当前文档 Source 渲染为逐页页图与文本摘要，并获取 `resultRef`。
+- `query_source_memory`：长素材已构建层次图记忆时，按台词/语义/屏幕文字/时间定位片段；用法见下方长素材记忆说明。
 - `commit_source_intelligence`：提交本次形成的 summary、shots、entities、semanticEntries 和已有模态结果引用。
 - 提交参数使用完整有效的 JSON；字符串中不嵌入注释或 Markdown 代码块，重复背景信息留在 summary，shots 和 semanticEntries 保持紧凑。
+
+{{memory_guidance}}
 
 # 限制与完成回复
 

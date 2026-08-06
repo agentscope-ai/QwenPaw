@@ -8,6 +8,7 @@ import pytest
 
 from services.project_files import jq_transform as jq_transform_module
 from services.project_files.jq_transform import (
+    JqLimits,
     JqProjectTransformer,
     JqTransformError,
 )
@@ -92,6 +93,21 @@ def test_jq_exposes_aggregate_argument_objects() -> None:
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="jq is not installed")
+def test_jq_explains_from_entries_object_misuse() -> None:
+    with pytest.raises(JqTransformError) as caught:
+        JqProjectTransformer().transform(
+            {"items": {}},
+            ".items = ($jsonArgs.elements | from_entries)",
+            json_args={"elements": {"element-1": {"label": "one"}}},
+        )
+
+    assert caught.value.code == "JQ_ARGUMENT_TYPE_MISMATCH"
+    assert caught.value.retryable is False
+    assert caught.value.details["operation"] == "from_entries"
+    assert "a jsonArgs object is already a jq object" in str(caught.value)
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is not installed")
 def test_jq_does_not_depend_on_a_mutable_sidecar_path(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -149,7 +165,30 @@ def test_jq_process_starts_at_the_system_executable(
     ]
 
 
+def test_jq_timeout_is_structured_and_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def run(command: list[str], **_kwargs):
+        raise subprocess.TimeoutExpired(command, 0.01)
+
+    monkeypatch.setattr(jq_transform_module.subprocess, "run", run)
+    transformer = JqProjectTransformer(
+        executable="/opt/tools/bin/jq",
+        limits=JqLimits(timeout_seconds=0.01),
+    )
+
+    with pytest.raises(JqTransformError) as caught:
+        transformer.transform({"name": "before"}, '.name = "after"')
+
+    assert caught.value.code == "JQ_TIMEOUT"
+    assert caught.value.retryable is True
+    assert caught.value.details == {"timeoutSeconds": 0.01}
+
+
 @pytest.mark.skipif(shutil.which("jq") is None, reason="jq is not installed")
 def test_jq_rejects_multiple_outputs() -> None:
-    with pytest.raises(JqTransformError, match="exactly one"):
+    with pytest.raises(JqTransformError, match="exactly one") as caught:
         JqProjectTransformer().transform({"name": "x"}, "., .")
+
+    assert caught.value.code == "JQ_RESULT_NOT_PROJECT_ROOT"
+    assert caught.value.details["resultCount"] == 2

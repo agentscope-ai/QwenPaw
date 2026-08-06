@@ -2,7 +2,6 @@ import { request } from "../request";
 
 export interface CodingModeState {
   enabled: boolean;
-  project_dir: string | null;
   agent_id: string;
 }
 
@@ -12,7 +11,7 @@ export interface CodingModeToggleResponse {
 }
 
 export const codingModeApi = {
-  /** Read Coding Mode state (enabled + project_dir) from agent.json. */
+  /** Read the mode-independent Coding tools capability state. */
   get: () => request<CodingModeState>("/coding-mode"),
 
   /** Enable or disable Coding Mode; backend reloads the agent. */

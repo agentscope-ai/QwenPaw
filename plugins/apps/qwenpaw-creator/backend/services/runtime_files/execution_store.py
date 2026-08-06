@@ -55,6 +55,11 @@ from .path_safety import require_safe_runtime_segment
 logger = logging.getLogger("qwenpaw.creator.runtime_files.execution_store")
 
 
+def _log_safe(value: object) -> str:
+    """Neutralise CR/LF so identifier values cannot forge log lines."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
+
 class ExecutionStoreError(RuntimeFileError):
     """Base error for the file-native execution aggregate."""
 
@@ -997,7 +1002,13 @@ class ProjectExecutionStore:
                 project_id,
                 authorization_id,
             )
-            if self._equivalent(existing, candidate):
+            # authorization_id is derived deterministically from the
+            # request, so identical retries replay the durable record:
+            # compare the request signature, which ignores the per-call
+            # random token and the decision lifecycle fields.
+            if self._authorization_request_signature(
+                existing,
+            ) == self._authorization_request_signature(candidate):
                 return existing
             raise ExecutionPayloadConflict(
                 "authorization_id was reused with a different request",
@@ -1463,10 +1474,10 @@ class ProjectExecutionStore:
         )
         logger.info(
             "task transition: project=%s task=%s kind=%s run=%s %s -> %s",
-            project_id,
-            task_id,
+            _log_safe(project_id),
+            _log_safe(task_id),
             candidate.kind.value,
-            candidate.run_id,
+            _log_safe(candidate.run_id),
             current.status.value,
             target.value,
         )

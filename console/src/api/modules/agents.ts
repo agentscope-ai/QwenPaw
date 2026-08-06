@@ -5,6 +5,7 @@ import type {
   CreateAgentRequest,
   CopyAgentRequest,
   AgentProfileRef,
+  MemoryGraphSnapshot,
   ReorderAgentsResponse,
 } from "../types/agents";
 
@@ -72,6 +73,9 @@ export const agentsApi = {
       ? request<ReMeMemoryStatusResponse>(path, { signal })
       : request<ReMeMemoryStatusResponse>(path);
   },
+
+  getMemoryGraph: (agentId: string) =>
+    request<MemoryGraphSnapshot>(`/agents/${agentId}/memory/graph`),
 
   // Delete agent
   deleteAgent: (agentId: string) =>

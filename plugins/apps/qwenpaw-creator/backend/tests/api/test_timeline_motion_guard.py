@@ -25,13 +25,11 @@ def _services_and_project(tmp_path):
 
 def _text_overlay(
     element_id: str,
-    overlay_kind: str = "pet_os",
     *,
     motion: dict | None = None,
     enabled: bool = True,
 ) -> TimelineElement:
     creation = OverlayCreation(
-        overlay_kind=overlay_kind,
         text="测试文案",
         motion=motion,
     )
@@ -138,10 +136,10 @@ def test_disabled_overlay_is_ignored(tmp_path) -> None:
     )
 
 
-def test_motion_kind_overlay_is_ignored(tmp_path) -> None:
+def test_decoration_overlay_is_ignored(tmp_path) -> None:
     services, snapshot = _services_and_project(tmp_path)
+    # Text-free decoration overlays never require a caption motion design.
     creation = OverlayCreation(
-        overlay_kind="motion",
         text="",
         prompt="decoration",
     )

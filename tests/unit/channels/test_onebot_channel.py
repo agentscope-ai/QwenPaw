@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 import pytest
+from aiohttp import web
+from aiohttp.test_utils import make_mocked_request
 from pydantic import ValidationError
 from qwenpaw.config.config import OneBotConfig
 from qwenpaw.schemas import (
@@ -34,7 +37,7 @@ def _make_channel(**overrides: Any) -> OneBotChannel:
     defaults = {
         "process": _noop_process,
         "enabled": True,
-        "ws_host": "0.0.0.0",
+        "ws_host": "127.0.0.1",
         "ws_port": 6199,
         "access_token": "",
         "bot_prefix": "",
@@ -1083,3 +1086,166 @@ class TestPortBindGracefulDegradation:
                 assert False, "Should have raised RuntimeError"
             except RuntimeError:
                 pass
+
+
+class _ReachedAccept(Exception):
+    """Sentinel proving a handshake passed every authentication guard."""
+
+
+class TestConnectionAuth:
+    """Tests for reverse WebSocket handshake authentication."""
+
+    @staticmethod
+    def _request(path: str = "/ws", authorization: str | None = None):
+        headers = (
+            {} if authorization is None else {"Authorization": authorization}
+        )
+        return make_mocked_request("GET", path, headers=headers)
+
+    @staticmethod
+    def _sentinel_prepare():
+        """Patch ``prepare`` so reaching it raises :class:`_ReachedAccept`.
+
+        ``prepare`` runs right after the authentication guards, so the
+        sentinel distinguishes "accepted" from "rejected" without a real
+        WebSocket upgrade.
+        """
+        from unittest.mock import patch
+
+        async def _prepare(_self, _request):
+            raise _ReachedAccept
+
+        return patch.object(web.WebSocketResponse, "prepare", _prepare)
+
+    async def test_non_loopback_without_token_rejects_connection(
+        self,
+        caplog,
+    ):
+        """The server keeps listening but refuses every client."""
+        ch = _make_channel(ws_host="0.0.0.0", access_token="")
+
+        with caplog.at_level(logging.ERROR):
+            resp = await ch._handle_ws_connection(self._request())
+
+        assert resp.status == 401
+        assert not ch._connections
+        assert "access_token is empty" in caplog.text
+
+    async def test_loopback_without_token_accepts_connection(self):
+        """Existing local setups keep working without a token."""
+        ch = _make_channel(ws_host="127.0.0.1", access_token="")
+
+        with self._sentinel_prepare():
+            with pytest.raises(_ReachedAccept):
+                await ch._handle_ws_connection(self._request())
+
+    async def test_non_loopback_with_valid_token_accepts_connection(self):
+        """Exposing the port is allowed once a token is configured."""
+        ch = _make_channel(ws_host="0.0.0.0", access_token="s3cret-token")
+        request = self._request(authorization="Bearer s3cret-token")
+
+        with self._sentinel_prepare():
+            with pytest.raises(_ReachedAccept):
+                await ch._handle_ws_connection(request)
+
+    @pytest.mark.parametrize(
+        "authorization",
+        [
+            "Bearer s3cret-token",
+            "Token s3cret-token",
+            "bearer s3cret-token",
+        ],
+    )
+    def test_accepted_authorization_schemes(self, authorization: str):
+        """Bearer and Token are accepted, case-insensitively."""
+        ch = _make_channel(access_token="s3cret-token")
+        request = self._request(authorization=authorization)
+        assert ch._token_authorized(request) is True
+
+    @pytest.mark.parametrize(
+        "authorization",
+        [
+            "Bearer wrong-token",
+            "Basic s3cret-token",
+            "s3cret-token",
+            "Bearer",
+            "",
+        ],
+    )
+    def test_rejected_authorization_headers(self, authorization: str):
+        ch = _make_channel(access_token="s3cret-token")
+        request = self._request(authorization=authorization)
+        assert ch._token_authorized(request) is False
+
+    async def test_query_parameter_rejection_logs_migration_hint(
+        self,
+        caplog,
+    ):
+        """Query tokens are not accepted; the log explains the migration."""
+        ch = _make_channel(ws_host="0.0.0.0", access_token="s3cret-token")
+        request = self._request(path="/ws?access_token=s3cret-token")
+
+        with caplog.at_level(logging.WARNING):
+            resp = await ch._handle_ws_connection(request)
+
+        assert resp.status == 401
+        assert "Authorization header" in caplog.text
+
+    def test_non_ascii_token_is_supported(self):
+        """compare_digest requires bytes for non-ASCII tokens."""
+        token = "密钥-abc"
+        ch = _make_channel(access_token=token)
+        request = self._request(authorization=f"Bearer {token}")
+        assert ch._token_authorized(request) is True
+
+    async def test_rejection_log_stays_on_one_line(self, caplog):
+        """A forged newline must not become a second log record."""
+        ch = _make_channel(ws_host="0.0.0.0", access_token="")
+        request = self._request().clone(
+            remote="1.2.3.4\nINFO onebot: client connected from 1.2.3.4",
+        )
+
+        with caplog.at_level(logging.ERROR):
+            resp = await ch._handle_ws_connection(request)
+
+        assert resp.status == 401
+        assert len(caplog.records) == 1
+        assert "\n" not in caplog.records[0].getMessage()
+
+
+class TestDefaultBindAddress:
+    """Tests for the loopback-by-default listen address."""
+
+    def test_config_default_is_loopback(self):
+        assert OneBotConfig().ws_host == "127.0.0.1"
+
+    def test_channel_default_is_loopback(self):
+        async def _noop_process(_request):
+            yield  # pragma: no cover
+
+        ch = OneBotChannel(process=_noop_process, enabled=True)
+
+        assert ch._ws_host == "127.0.0.1"
+        assert ch._auth_required is False
+
+    @pytest.mark.parametrize("ws_host", ["", "   "])
+    def test_blank_host_normalizes_to_loopback(self, ws_host: str):
+        """A blank host must not fall through to every interface."""
+        ch = _make_channel(ws_host=ws_host)
+
+        assert ch._ws_host == "127.0.0.1"
+        assert ch._auth_required is False
+
+    def test_bracketed_ipv6_host_is_unwrapped(self):
+        """Brackets are URL notation and make getaddrinfo fail."""
+        ch = _make_channel(ws_host="[::1]")
+
+        assert ch._ws_host == "::1"
+        assert ch._auth_required is False
+
+    def test_whitespace_token_counts_as_unset(self):
+        """A whitespace token could never match a stripped request token."""
+        ch = _make_channel(ws_host="0.0.0.0", access_token="   ")
+
+        assert ch._access_token == ""
+        assert ch._auth_required is True

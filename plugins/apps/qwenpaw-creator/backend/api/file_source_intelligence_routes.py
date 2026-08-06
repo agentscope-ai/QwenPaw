@@ -4,14 +4,18 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from pydantic import Field
 
+from domain.errors import NotFoundError
 from schemas.assets import SourceIndexQueryResult, SourceIntelligenceIndex
 from schemas.common import StrictModel
 from services.project_files.facade import CreatorFileServices
 from services.source_analysis import source_analysis_service
+from services.source_analysis.service import document_page_path
 
 from .dependencies import (
     CreatorErrorRoute,
@@ -95,6 +99,35 @@ async def query_source_index(
         project_id,
         asset_id,
         query,
+    )
+
+
+_DOC_PAGE_CHECKSUM = re.compile(r"^[0-9a-f]{64}$")
+
+
+@router.get("/doc-pages/{checksum}/{page}")
+async def document_page_image(
+    project_id: str,
+    checksum: str,
+    page: int,
+    services: CreatorFileServices = Depends(project_file_services),
+) -> FileResponse:
+    """Serve one rendered document page image (doc-page:// evidence ref)."""
+    if not _DOC_PAGE_CHECKSUM.fullmatch(checksum) or not 1 <= page <= 9999:
+        raise NotFoundError("文档页图引用非法")
+    # Assert the Project exists before touching its Runtime directory.
+    await asyncio.to_thread(services.projects.read, project_id)
+    target = document_page_path(
+        services.projects.project_root(project_id),
+        checksum,
+        page,
+    )
+    if not target.is_file():
+        raise NotFoundError("文档页图不存在")
+    return FileResponse(
+        target,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
 
 

@@ -49,7 +49,8 @@
 .viewTabs {
   margin-bottom: 4px;
 
-  :global(.ant-tabs-nav) {
+  :global(.ant-tabs-nav),
+  :global(.qwenpaw-tabs-nav) {
     margin-bottom: 20px;
 
     &::before {
@@ -59,7 +60,8 @@
 
   // Narrow screens: tabs stay reachable via horizontal scroll (antd default)
   // without shrinking below a comfortable touch size.
-  :global(.ant-tabs-tab) {
+  :global(.ant-tabs-tab),
+  :global(.qwenpaw-tabs-tab) {
     padding: 8px 4px;
 
     @media (max-width: 639px) {
@@ -151,6 +153,18 @@
   }
 }
 
+// Larger grid for the official-apps channel: wide, landscape cards (usually
+// two per row) so full descriptions fit without truncation.
+.gridLarge {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
+  gap: 20px;
+
+  @media (max-width: 767px) {
+    grid-template-columns: 1fr;
+  }
+}
+
 .appCard {
   position: relative;
   border-radius: 12px;
@@ -168,7 +182,10 @@
     transform: translateY(-2px);
   }
 
-  :global(.ant-card-body) {
+  // The app configures antd with prefixCls="qwenpaw"; keep the ant-* alias
+  // for safety in tests/storybook-like environments.
+  :global(.ant-card-body),
+  :global(.qwenpaw-card-body) {
     height: 100%;
     padding: 18px;
     display: flex;
@@ -179,6 +196,144 @@
 
 .appCardClickable {
   cursor: pointer;
+}
+
+// Official-channel market cards: landscape layout (icon left, content right)
+// with enlarged icon and typography. Text is never truncated — cards in the
+// same grid row share their height and the actions row is pinned to the
+// bottom so install buttons stay aligned across cards.
+.appCardLarge {
+  border-radius: 16px;
+
+  :global(.ant-card-body),
+  :global(.qwenpaw-card-body) {
+    padding: 24px;
+    flex-direction: row;
+    gap: 20px;
+  }
+
+  .cardIcon {
+    width: 72px;
+    height: 72px;
+    border-radius: 18px;
+    align-self: flex-start;
+  }
+
+  .marketLogo {
+    width: 100%;
+    height: 100%;
+    border-radius: 18px;
+  }
+
+  .cardTitle {
+    font-size: 18px;
+  }
+
+  .cardDesc {
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .cardMeta {
+    font-size: 13px;
+  }
+
+  .featuredTag {
+    font-size: 12px;
+    line-height: 20px;
+    padding: 2px 10px;
+  }
+
+  .cardActions {
+    padding-top: 12px;
+  }
+
+  @media (max-width: 639px) {
+    :global(.ant-card-body),
+    :global(.qwenpaw-card-body) {
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .cardIcon {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+    }
+
+    .marketLogo {
+      border-radius: 14px;
+    }
+  }
+}
+
+// Installed apps share the official-channel landscape card look: icon left,
+// content right, enlarged typography, no text truncation. The layout lives on
+// .cardOpenButton because the card body's only flow child is that wrapper.
+.appCardInstalled {
+  border-radius: 16px;
+
+  :global(.ant-card-body),
+  :global(.qwenpaw-card-body) {
+    padding: 24px;
+  }
+
+  .cardOpenButton {
+    flex-direction: row;
+    gap: 20px;
+  }
+
+  .cardIcon {
+    width: 72px;
+    height: 72px;
+    border-radius: 18px;
+    align-self: flex-start;
+  }
+
+  .cardIconImage {
+    border-radius: 18px;
+  }
+
+  .cardBody {
+    gap: 8px;
+  }
+
+  .cardTitle {
+    font-size: 18px;
+    // Keep the title clear of the absolutely-positioned more-actions button.
+    padding-right: 28px;
+  }
+
+  .cardMeta {
+    font-size: 13px;
+  }
+
+  .cardDesc {
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .moreBtn {
+    top: 16px;
+    right: 16px;
+  }
+
+  @media (max-width: 639px) {
+    .cardOpenButton {
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .cardIcon {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+    }
+
+    .cardIconImage {
+      border-radius: 14px;
+    }
+  }
 }
 
 .cardOpenButton {
@@ -215,6 +370,12 @@
   object-fit: contain;
 }
 
+/* Emoji icons from plugin.json render as plain glyphs inside the slot. */
+.cardIconEmoji {
+  font-size: 34px;
+  line-height: 1;
+}
+
 .marketLogo {
   width: 34px;
   height: 34px;
@@ -241,14 +402,7 @@
   font-size: 15px;
   line-height: 1.4;
   font-weight: 600;
-}
-
-.cardVersion {
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--app-text-secondary);
-  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .cardDesc {
@@ -256,6 +410,7 @@
   font-size: 13px;
   line-height: 1.5;
   color: var(--app-text-secondary);
+  overflow-wrap: anywhere;
 }
 
 .cardMeta {
@@ -266,6 +421,15 @@
   font-size: 12px;
   color: var(--app-text-secondary);
   font-variant-numeric: tabular-nums;
+}
+
+// Bottom row of installed cards: version + category tag share one line.
+.cardFooter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 2px;
 }
 
 .metaDownloads {
@@ -313,12 +477,14 @@
   margin-top: auto;
   padding-top: 6px;
 
-  :global(.ant-btn) {
+  :global(.ant-btn),
+  :global(.qwenpaw-btn) {
     border-radius: 8px;
   }
 
   @media (max-width: 639px) {
-    :global(.ant-btn) {
+    :global(.ant-btn),
+    :global(.qwenpaw-btn) {
       min-height: 40px;
     }
   }

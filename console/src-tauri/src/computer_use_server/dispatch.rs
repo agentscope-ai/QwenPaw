@@ -13,17 +13,17 @@ use std::sync::Mutex;
 
 use super::app_identity::{launch_at, resolve_launch_target};
 use super::approval::request_approval;
-use super::state::{Observation, ServerState};
+use super::state::{Observation, PendingAction, ServerState, WindowInfo, INPUT_GUARD_GRACE_MS};
+#[cfg(target_os = "macos")]
+use super::target_is_frontmost;
 use super::{
     click, close_window, desktop_locked, drag, ensure_permissions, invoke_element,
     last_input_age_ms, list_apps, list_windows, observe_window, press_key, resolve_window, scroll,
-    set_value, type_text, PROTOCOL_VERSION,
+    set_value, type_text, validate_observation, PROTOCOL_VERSION,
 };
 
 /// How recently a person must have used the keyboard or mouse for an action to
 /// be refused as racing them.
-const USER_INTERVENTION_GRACE_MS: u32 = 750;
-
 /// Every method this helper serves.
 ///
 /// Load-bearing rather than documentation: a request naming anything outside
@@ -151,13 +151,22 @@ pub(super) fn dispatch_request(
         "end_turn" => {
             // The turn is over, so its screenshots and accessibility handles
             // can never be acted on again.
-            state.observations.clear();
+            state.clear_turn();
             return Ok(json!({}));
         }
         "list_apps" => return Ok(json!({"apps": list_apps()})),
-        "list_windows" => return Ok(json!({"windows": list_windows()})),
+        "list_windows" => {
+            let app = params
+                .get("app")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            return Ok(json!({"windows": list_windows(app)}));
+        }
         _ => {}
     }
+
+    enforce_pending_action(state, method)?;
 
     // A launch names an application rather than a window. Observation creates
     // a context from a listed window. Every other action resolves the target
@@ -182,7 +191,8 @@ pub(super) fn dispatch_request(
             ))?;
         let observed = state.observations.get(id).ok_or((
             "stale_observation",
-            "Observation is no longer available; observe the window again.".to_string(),
+            "Observation is stale or already consumed; observe the window again and use its new observation_id."
+                .to_string(),
         ))?;
         let current = resolve_window(&observed.window.hwnd.to_string())?;
         if current.app_id != observed.window.app_id {
@@ -196,45 +206,56 @@ pub(super) fn dispatch_request(
     let window = target;
     request_approval(connection, &window, &meta)?;
     ensure_permissions(method)?;
-    // One session at a time may disturb the desktop, and it holds that right
-    // from the guard through to the end of the action. There is one keyboard,
-    // one pointer and one foreground window, so two sessions interleaving here
-    // would land a session's keystrokes in whatever the other one had just
-    // focused. Observation is left out: it reads the screen without moving it.
+    // Mutations are serialized across agent sessions. Human input is a
+    // separate concern: this lock cannot prevent it, so only operations that
+    // actually require foreground input apply the recent-input guard below.
     let _desktop = if changes_window_state(method) {
         let held = take_desktop()?;
-        // Checked under the turn, so the machine cannot become locked, or the
-        // user cannot start typing, between the check and the action.
-        enforce_input_guard()?;
+        if requires_user_idle(method, &window) {
+            enforce_input_guard(state)?;
+        }
         Some(held)
     } else {
         None
     };
+    // Approval may wait for user input, so freshness must be checked only
+    // after approval and the desktop guard, immediately before the action.
+    if requires_stable_observation(method) {
+        validate_observation(observation(state, observation_id)?)?;
+    }
     if let Some(path) = launch_path {
         launch_at(&path)?;
-        return Ok(json!({"launched": true, "app_id": window.app_id}));
+        state.note_global_action();
+        return Ok(json!({
+            "launched": true,
+            "app_id": window.app_id,
+            "requires_observe": true,
+        }));
     }
-    match method {
-        "observe_window" => observe_window(state, &window),
-        "close_window" => {
-            let result = close_window(&window)?;
-            if result.get("closed").and_then(Value::as_bool) == Some(true) {
-                // Observations of a closed window can never be acted on
-                // again; drop them so a later action fails fast as stale
-                // instead of pointing at a dead handle.
-                state
-                    .observations
-                    .retain(|_, observation| observation.window.hwnd != window.hwnd);
-            }
-            Ok(result)
+    let mut pending_action: Option<PendingAction> = None;
+    let mut completed_pending_action = false;
+    let mut result = match method {
+        "observe_window" => {
+            state.settle_before_observe(window.hwnd);
+            observe_window(state, &window)
         }
+        "close_window" => close_window(&window),
         "click" => click(observation(state, observation_id)?, &params),
         "scroll" => scroll(observation(state, observation_id)?, &params),
         "drag" => drag(observation(state, observation_id)?, &params),
         "press_key" => press_key(observation(state, observation_id)?, &params),
         "type_text" => type_text(observation(state, observation_id)?, &params),
-        "invoke_element" => invoke_element(observation(state, observation_id)?, &params),
-        "set_value" => set_value(observation(state, observation_id)?, &params),
+        "invoke_element" => {
+            let pending = state.pending_action();
+            let result = invoke_element(observation(state, observation_id)?, &params, pending);
+            completed_pending_action = result.is_ok() && pending.is_some();
+            result
+        }
+        "set_value" => {
+            let (result, pending) = set_value(observation(state, observation_id)?, &params)?;
+            pending_action = pending;
+            Ok(result)
+        }
         "perform_secondary_action" => Err((
             "unsupported_operation",
             format!("{method} is not available in this helper build."),
@@ -243,7 +264,116 @@ pub(super) fn dispatch_request(
             "unsupported_operation",
             format!("Unsupported method: {method}"),
         )),
+    }?;
+    if method == "observe_window" {
+        if let Some(pending) = state
+            .pending_action()
+            .filter(|pending| pending.hwnd == window.hwnd)
+        {
+            attach_pending_action(&mut result, pending);
+        }
     }
+    if !changes_window_state(method) {
+        return Ok(result);
+    }
+    state.note_action(window.hwnd);
+    if completed_pending_action {
+        state.clear_pending_action();
+    }
+    if let Some(pending) = pending_action {
+        state.set_pending_action(pending);
+    }
+    // Keep the safety boundary -- the input observation has already been
+    // consumed -- but make the normal action cycle atomic for the caller. A
+    // successful mutation is followed by a settled observation of the same
+    // window, so the response itself carries the only identifier valid for
+    // the next action. If the action removed or replaced that window, retain
+    // the dispatch receipt and direct the caller to discover the new target.
+    let refreshed = refresh_after_action(state, &window);
+    let has_refreshed_observation = refreshed.is_some();
+    let mut response = action_receipt(result, refreshed);
+    if let Some(pending) = state.pending_action().filter(|pending| {
+        should_attach_pending_action(has_refreshed_observation, pending.hwnd, window.hwnd)
+    }) {
+        attach_pending_action(&mut response, pending);
+    }
+    Ok(response)
+}
+
+/// Observe the action's target without turning an already-dispatched action
+/// into a failure when the application replaced or closed that window.
+fn refresh_after_action(state: &mut ServerState, previous: &WindowInfo) -> Option<Value> {
+    let current = resolve_window(&previous.hwnd.to_string()).ok()?;
+    if current.app_id != previous.app_id {
+        return None;
+    }
+    state.settle_before_observe(current.hwnd);
+    observe_window(state, &current).ok()
+}
+
+/// Keep an incomplete native edit from being crossed with another mutation.
+///
+/// Observation remains available so the caller can locate the fresh element.
+/// Only the semantic completion action may mutate the desktop until the native
+/// adapter confirms that it targeted the same element and value.
+fn enforce_pending_action(state: &ServerState, method: &str) -> Result<(), (&'static str, String)> {
+    if state.pending_action().is_some()
+        && changes_window_state(method)
+        && method != "invoke_element"
+    {
+        return Err((
+            "pending_action",
+            "The previous edit still requires semantic completion. Observe its window and use the invoke action on the matching element before starting another desktop-changing action."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn attach_pending_action(result: &mut Value, pending: &PendingAction) {
+    if let Some(object) = result.as_object_mut() {
+        object.insert("pending_action".to_string(), pending.to_json());
+        object.insert("next_action".to_string(), json!("invoke"));
+    }
+}
+
+fn should_attach_pending_action(
+    has_refreshed_observation: bool,
+    pending_hwnd: isize,
+    window_hwnd: isize,
+) -> bool {
+    has_refreshed_observation && pending_hwnd == window_hwnd
+}
+
+/// Combine the dispatch result with the post-action observation when the
+/// original window remains available. The old observation is never restored:
+/// only the new identifier in this response can authorize the next action.
+fn action_receipt(mut result: Value, refreshed: Option<Value>) -> Value {
+    let Some(mut observation) = refreshed else {
+        if let Some(object) = result.as_object_mut() {
+            if object.remove("applied").is_some() {
+                object.insert("dispatched".to_string(), json!(true));
+            }
+            object.insert("requires_observe".to_string(), json!(true));
+            object.insert("next_action".to_string(), json!("list_windows"));
+        }
+        return result;
+    };
+
+    let Some(action) = result.as_object_mut() else {
+        return observation;
+    };
+    if action.remove("applied").is_some() {
+        action.insert("dispatched".to_string(), json!(true));
+    }
+    // Native actions used to point to an explicit observe call. The fresh
+    // observation above has already completed that step; a pending semantic
+    // completion, if any, is attached by the caller afterwards.
+    action.remove("next_action");
+    if let Some(response) = observation.as_object_mut() {
+        response.extend(std::mem::take(action));
+    }
+    observation
 }
 
 fn observation<'a>(
@@ -253,7 +383,8 @@ fn observation<'a>(
     let id = id.ok_or(("invalid_request", "observation_id is required.".to_string()))?;
     state.observations.get(id).ok_or((
         "stale_observation",
-        "Observation is no longer available; observe the window again.".to_string(),
+        "Observation is stale or already consumed; observe the window again and use its new observation_id."
+            .to_string(),
     ))
 }
 
@@ -263,16 +394,20 @@ fn observation<'a>(
 /// desktop must not be locked, and the keyboard and mouse must have been idle
 /// long enough that the action is not racing someone.
 ///
-/// There is deliberately no post-approval exemption. The click that answers an
-/// approval prompt is itself recent input, so an action issued right on its
-/// heels is refused here as `user_intervention` -- a retryable outcome the
-/// caller recovers from by observing again and reissuing, by which point the
-/// grace has passed. An exemption would have to distinguish that approving
-/// click from a person genuinely taking over, which the OS idle timer cannot,
-/// so it could only be a flag that also waved real input through. Refusing and
-/// letting the caller retry keeps the guard honest and holds no state.
-fn enforce_input_guard() -> Result<(), (&'static str, String)> {
-    if desktop_locked() {
+/// There is deliberately no post-approval exemption. The host lets a newly
+/// approved request settle before replying, but the guard remains authoritative
+/// here: any input still inside the grace window is refused rather than waved
+/// through by client-held state.
+fn enforce_input_guard(state: &mut ServerState) -> Result<(), (&'static str, String)> {
+    enforce_input_guard_with_measurements(state, desktop_locked(), last_input_age_ms())
+}
+
+fn enforce_input_guard_with_measurements(
+    state: &mut ServerState,
+    is_locked: bool,
+    last_input_age: Option<u32>,
+) -> Result<(), (&'static str, String)> {
+    if is_locked {
         return Err((
             "desktop_locked",
             "The desktop is locked; ask the user to unlock it before continuing.".to_string(),
@@ -280,11 +415,15 @@ fn enforce_input_guard() -> Result<(), (&'static str, String)> {
     }
     // An unreadable idle time is treated as idle: refusing every action because
     // the platform would not answer would strand the agent entirely.
-    if last_input_age_ms().is_some_and(|age| age < USER_INTERVENTION_GRACE_MS) {
+    if last_input_age.is_some_and(|age| age < INPUT_GUARD_GRACE_MS) {
+        // Human input makes every point-in-time observation on this
+        // connection unsafe. Drop them before reporting the soft refusal so
+        // recovery must create a fresh observation rather than replaying an
+        // action whose outcome is unknown.
+        state.invalidate_observations();
         return Err((
             "user_intervention",
-            "Recent user input was detected; observe the window again before continuing."
-                .to_string(),
+            "Recent user input was detected; observe again before continuing.".to_string(),
         ));
     }
     Ok(())
@@ -316,9 +455,118 @@ fn changes_window_state(method: &str) -> bool {
     )
 }
 
+/// Semantic AX/UIA mutations can run without pointer input, but only while the
+/// exact accessibility surface the model observed is still current.
+fn requires_stable_observation(method: &str) -> bool {
+    matches!(method, "invoke_element" | "set_value" | "close_window")
+}
+
+/// Whether this platform must take foreground input for the method.
+///
+/// macOS accessibility actions can address a specific element without moving
+/// the pointer or keyboard focus, so unrelated user activity does not block
+/// `invoke_element` or `set_value`. Windows keeps the conservative active-
+/// desktop guard for every mutation; this is an internal safety boundary, not
+/// a product-facing platform promise.
+fn requires_user_idle(method: &str, window: &WindowInfo) -> bool {
+    #[cfg(windows)]
+    {
+        let _ = window;
+        changes_window_state(method)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        requires_user_idle_on_mac(method, target_is_frontmost(window))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn requires_user_idle_on_mac(method: &str, target_is_frontmost: bool) -> bool {
+    matches!(
+        method,
+        "click" | "scroll" | "drag" | "press_key" | "type_text" | "launch_app"
+    ) || (matches!(method, "invoke_element" | "set_value" | "close_window") && target_is_frontmost)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::super::state::WindowInfo;
     use super::*;
+
+    fn observation(hwnd: isize) -> Observation {
+        Observation {
+            window: WindowInfo {
+                hwnd,
+                #[cfg(target_os = "macos")]
+                owner_pid: 1,
+                app_id: "app:test".to_string(),
+                display_name: "Test".to_string(),
+                title: String::new(),
+                class_name: String::new(),
+            },
+            bounds: [0, 0, 100, 100],
+            display_width: 100,
+            display_height: 100,
+            accessibility_revision: None,
+            elements: Default::default(),
+        }
+    }
+
+    #[test]
+    fn an_action_without_a_refresh_requires_window_discovery() {
+        let result = action_receipt(json!({"applied": true}), None);
+
+        assert_eq!(result.get("dispatched"), Some(&json!(true)));
+        assert_eq!(result.get("requires_observe"), Some(&json!(true)));
+        assert_eq!(result.get("next_action"), Some(&json!("list_windows")));
+    }
+
+    #[test]
+    fn pending_action_requires_a_refreshed_observation_of_its_window() {
+        assert!(!should_attach_pending_action(false, 7, 7));
+        assert!(!should_attach_pending_action(true, 7, 8));
+        assert!(should_attach_pending_action(true, 7, 7));
+    }
+
+    #[test]
+    fn user_intervention_invalidates_every_observation() {
+        let mut state = ServerState::default();
+        state
+            .observations
+            .insert("observation-1".to_string(), observation(1));
+        state
+            .observations
+            .insert("observation-2".to_string(), observation(2));
+
+        let error = enforce_input_guard_with_measurements(&mut state, false, Some(0))
+            .expect_err("recent input must be refused");
+
+        assert_eq!(error.0, "user_intervention");
+        assert!(state.observations.is_empty());
+    }
+
+    #[test]
+    fn an_idle_desktop_preserves_observations() {
+        let mut state = ServerState::default();
+        state
+            .observations
+            .insert("observation-1".to_string(), observation(1));
+
+        enforce_input_guard_with_measurements(&mut state, false, Some(INPUT_GUARD_GRACE_MS))
+            .expect("input at the grace boundary is idle");
+
+        assert_eq!(state.observations.len(), 1);
+    }
+
+    #[test]
+    fn user_intervention_refuses_only_the_current_action() {
+        let mut state = ServerState::default();
+        enforce_input_guard_with_measurements(&mut state, false, Some(0))
+            .expect_err("recent input must refuse the action");
+
+        enforce_input_guard_with_measurements(&mut state, false, Some(INPUT_GUARD_GRACE_MS))
+            .expect("a later action may proceed after a fresh observation");
+    }
 
     /// Spelled out rather than derived, so adding an action that reaches into
     /// the desktop cannot pass the guard by being forgotten: the new method has
@@ -359,6 +607,28 @@ mod tests {
         // running, so it can take the focus another session's keystrokes were
         // aimed at -- and it can do it to a person who is mid-sentence.
         assert!(changes_window_state("launch_app"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn semantic_actions_are_guarded_only_when_the_target_is_frontmost() {
+        for method in ["invoke_element", "set_value", "close_window"] {
+            assert!(changes_window_state(method));
+            assert!(
+                !requires_user_idle_on_mac(method, false),
+                "{method} should remain addressable while the user works elsewhere"
+            );
+            assert!(
+                requires_user_idle_on_mac(method, true),
+                "{method} must not race a user in the target app"
+            );
+        }
+        for method in ["click", "drag", "type_text", "press_key", "launch_app"] {
+            assert!(
+                requires_user_idle_on_mac(method, false),
+                "{method} must guard its foreground input"
+            );
+        }
     }
 
     /// Taken by any test that touches the desktop turn.

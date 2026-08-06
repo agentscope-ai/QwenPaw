@@ -202,6 +202,23 @@ def _compact_context_for_detector(
     return compact
 
 
+def _entity_reference_fields(item: dict[str, Any]) -> dict[str, Any]:
+    reference_image = str(
+        item.get("reference_image") or item.get("referenceImage") or "",
+    ).strip()
+    if not reference_image:
+        return {}
+    fields: dict[str, Any] = {"reference_image": reference_image[:2048]}
+    reference_bbox = (
+        item.get("reference_bbox")
+        or item.get("referenceBbox")
+        or item.get("bbox")
+    )
+    if isinstance(reference_bbox, (list, tuple)):
+        fields["reference_bbox"] = list(reference_bbox)
+    return fields
+
+
 def _normalize_entities(value: Any) -> list[dict[str, Any]]:
     entities: list[dict[str, Any]] = []
     if isinstance(value, list):
@@ -256,6 +273,8 @@ def _normalize_entities(value: Any) -> list[dict[str, Any]]:
                     )
                     if description:
                         normalized["description"] = description
+                    # A caller-provided reference unlocks Lens for this job.
+                    normalized.update(_entity_reference_fields(item))
                     entities.append(normalized)
             else:
                 text = _clean_text(item, max_chars=120)
@@ -330,7 +349,10 @@ def _infer_grounding_domain(
         text,
     ):
         return "sports"
-    if re.search("\\b(brand|logo|product|company)\\b|品牌|产品|公司|标志|logo", text):
+    if re.search(
+        "\\b(brand|logo|product|company)\\b|品牌|产品|公司|标志|logo",
+        text,
+    ):
         return "brand_product"
     if re.search(
         "\\b(place|venue|city|country|stadium|event)\\b|地点|城市|国家|场馆|赛事",
@@ -569,7 +591,10 @@ def detect_grounding_needs(
     if isinstance(context, dict) and context.get("requiresGrounding"):
         reasons.append("context_requires_grounding")
     pure_fiction = bool(
-        re.search("fictional|imaginary|invent|fantasy|虚构|架空|编一个|想象", lower),
+        re.search(
+            "fictional|imaginary|invent|fantasy|虚构|架空|编一个|想象",
+            lower,
+        ),
     )
     if pure_fiction and (
         not set(reasons)
@@ -764,9 +789,11 @@ async def triage_grounding_request(
         "reasons": list(
             dict.fromkeys((str(reason) for reason in reasons if reason)),
         ),
-        "queries": list(analysis.get("queries") or [])[:max_queries]
-        if needs_grounding
-        else [],
+        "queries": (
+            list(analysis.get("queries") or [])[:max_queries]
+            if needs_grounding
+            else []
+        ),
         "entities": entities,
         "detector": analysis.get("detector") or _detector_mode(detector),
         "detector_issues": list(analysis.get("detector_issues") or []),

@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from computer_use_tool.protocol import (
+from computer_use.protocol import (
     NATIVE_METHODS,
     PROTOCOL_VERSION,
     ComputerUseProtocolError,
