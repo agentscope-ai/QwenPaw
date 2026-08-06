@@ -6,8 +6,10 @@ import hashlib
 import json
 import logging
 import re
+import shutil
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union, Dict, List, Literal, Any, Set, Tuple
@@ -41,7 +43,12 @@ from ..constant import (
     LLM_RATE_LIMIT_PAUSE,
     WORKING_DIR,
 )
-from ..utils.io_utils import write_json_atomic
+from ..utils.io_utils import (
+    FileFingerprint,
+    get_file_fingerprint,
+    read_bytes_snapshot,
+    write_json_atomic,
+)
 from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
@@ -53,18 +60,6 @@ logger = logging.getLogger(__name__)
 _legacy_scroll_tool_cap_warned = False
 
 _AGENT_CONFIG_CACHE_VERIFY_SECONDS = 5.0
-_AGENT_CONFIG_READ_RETRIES = 3
-
-
-@dataclass(frozen=True)
-class _AgentConfigFingerprint:
-    """Filesystem identity used for fast agent config cache validation."""
-
-    device: int
-    inode: int
-    size: int
-    mtime_ns: int
-    ctime_ns: int
 
 
 @dataclass(frozen=True)
@@ -73,34 +68,24 @@ class _AgentConfigCacheEntry:
 
     path: Path
     config: Any
-    fingerprint: _AgentConfigFingerprint
+    fingerprint: FileFingerprint
     digest: bytes
     verified_at: float
 
 
-def _agent_config_fingerprint(path: Path) -> _AgentConfigFingerprint:
-    """Build a high-resolution identity for one agent config file."""
-    stat_result = path.stat()
-    return _AgentConfigFingerprint(
-        device=stat_result.st_dev,
-        inode=stat_result.st_ino,
-        size=stat_result.st_size,
-        mtime_ns=stat_result.st_mtime_ns,
-        ctime_ns=stat_result.st_ctime_ns,
-    )
+_agent_config_fingerprint = get_file_fingerprint
+_read_agent_config_snapshot = read_bytes_snapshot
 
 
-def _read_agent_config_snapshot(
-    path: Path,
-) -> tuple[bytes, _AgentConfigFingerprint]:
-    """Read a stable complete snapshot, retrying concurrent replacements."""
-    for _attempt in range(_AGENT_CONFIG_READ_RETRIES):
-        before = _agent_config_fingerprint(path)
-        content = path.read_bytes()
-        after = _agent_config_fingerprint(path)
-        if before == after:
-            return content, after
-    raise OSError(f"Agent config changed repeatedly while reading {path}")
+def _json_payload_digest(payload: Any) -> bytes:
+    """Return the digest produced by the default atomic JSON serializer."""
+    content = json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=False,
+    ).encode("utf-8")
+    return hashlib.sha256(content).digest()
 
 
 # ============================================================================
@@ -1773,6 +1758,10 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Heartbeat configuration for this agent",
     )
+    last_dispatch: Optional[LastDispatchConfig] = Field(
+        default=None,
+        description="Deprecated dispatch state retained for downgrade",
+    )
     running: AgentsRunningConfig = Field(
         default_factory=AgentsRunningConfig,
         description="Runtime configuration",
@@ -2871,7 +2860,6 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
 
         data = json.loads(raw_content)
 
-        last_dispatch_migrated = False
         if "last_dispatch" in data:
             try:
                 _migrate_last_dispatch_state(
@@ -2884,8 +2872,6 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                     f"{agent_id}",
                 )
                 raise
-            data.pop("last_dispatch")
-            last_dispatch_migrated = True
 
         # Match the existing migration behavior: migrate this workspace only
         # when its agent configuration is loaded.
@@ -2907,25 +2893,17 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             access_control_migrated = False
 
         migration_write_failed = False
-        if (
-            weixin_migrated
-            or display_migrated
-            or access_control_migrated
-            or last_dispatch_migrated
-        ):
+        if weixin_migrated or display_migrated or access_control_migrated:
             try:
                 if weixin_migrated or display_migrated:
-                    import uuid as _uuid
-                    import shutil as _shutil
-
                     migration_name = (
                         "channel-display" if display_migrated else "weixin"
                     )
                     backup_path = agent_config_path.with_suffix(
-                        f".{_uuid.uuid4().hex[:8]}."
+                        f".{uuid.uuid4().hex[:8]}."
                         f"{migration_name}-migrate.bak",
                     )
-                    _shutil.copy2(agent_config_path, backup_path)
+                    shutil.copy2(agent_config_path, backup_path)
                 write_json_atomic(
                     agent_config_path,
                     data,
@@ -2934,6 +2912,14 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                     agent_config_path,
                 )
                 content_digest = hashlib.sha256(raw_content).digest()
+                if content_digest != _json_payload_digest(data):
+                    raise ConfigurationException(
+                        config_key="agent",
+                        message=(
+                            f"Agent '{agent_id}' changed while migrating; "
+                            f"reload it before continuing"
+                        ),
+                    )
             except OSError:
                 migration_write_failed = True
                 logger.exception(
@@ -3032,17 +3018,23 @@ def save_agent_config(
                         f"before saving"
                     ),
                 )
-        write_json_atomic(
-            agent_config_path,
-            agent_config.model_dump(exclude_none=True),
-        )
+        payload = agent_config.model_dump(exclude_none=True)
+        expected_digest = _json_payload_digest(payload)
+        write_json_atomic(agent_config_path, payload)
+        _agent_config_cache.pop(agent_id, None)
         saved_content, _fingerprint = _read_agent_config_snapshot(
             agent_config_path,
         )
-        agent_config.record_source_digest(
-            hashlib.sha256(saved_content).digest(),
-        )
-        _agent_config_cache.pop(agent_id, None)
+        saved_digest = hashlib.sha256(saved_content).digest()
+        if saved_digest != expected_digest:
+            raise ConfigurationException(
+                config_key="agent",
+                message=(
+                    f"Agent '{agent_id}' changed while saving; reload it "
+                    f"before continuing"
+                ),
+            )
+        agent_config.record_source_digest(saved_digest)
 
 
 def migrate_legacy_config_to_multi_agent() -> bool:
@@ -3143,8 +3135,6 @@ def migrate_legacy_config_to_multi_agent() -> bool:
         if old_path.exists():
             new_path = default_workspace / item_name
             if not new_path.exists():
-                import shutil
-
                 if old_path.is_dir():
                     shutil.copytree(old_path, new_path)
                 else:
@@ -3157,8 +3147,6 @@ def migrate_legacy_config_to_multi_agent() -> bool:
         if old_md.exists():
             new_md = default_workspace / md_file
             if not new_md.exists():
-                import shutil
-
                 shutil.copy2(old_md, new_md)
                 print(f"  Migrated {md_file} to default workspace")
 

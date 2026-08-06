@@ -36,6 +36,7 @@ from ..inbox_trace_store import (
     read_session_messages,
 )
 from ..crons.models import _crontab_dow_to_name
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -195,8 +196,8 @@ async def run_heartbeat_once(
     """Run one heartbeat: read HEARTBEAT.md, run agent, optionally
     dispatch to last channel (target=last).
     """
-    hb = get_heartbeat_config(agent_id)
-    if not _in_active_hours(hb.active_hours):
+    hb = await run_sync_io(get_heartbeat_config, agent_id)
+    if not await run_sync_io(_in_active_hours, hb.active_hours):
         logger.debug("heartbeat skipped: outside active hours")
         return
     timeout_seconds = hb.timeout_seconds
@@ -207,11 +208,13 @@ async def run_heartbeat_once(
     else:
         path = get_heartbeat_query_path()
 
-    if not path.is_file():
+    if not await run_sync_io(path.is_file):
         logger.debug("heartbeat skipped: no file at %s", path)
         return
 
-    query_text = read_text_file_with_encoding_fallback(path).strip()
+    query_text = (
+        await run_sync_io(read_text_file_with_encoding_fallback, path)
+    ).strip()
     if not query_text:
         logger.debug("heartbeat skipped: empty query file")
         return
@@ -233,10 +236,10 @@ async def run_heartbeat_once(
     # Get last_dispatch from per-agent runtime state if agent_id is provided.
     last_dispatch = None
     if agent_id:
-        last_dispatch = read_last_dispatch(agent_id)
+        last_dispatch = await run_sync_io(read_last_dispatch, agent_id)
     else:
         # Legacy: try root config
-        config = load_config()
+        config = await run_sync_io(load_config)
         last_dispatch = config.last_dispatch
 
     target = (hb.target or "").strip().lower()

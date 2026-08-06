@@ -7,6 +7,7 @@ Base Channel: bound to AgentRequest/AgentResponse, unified by process.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import time
@@ -21,6 +22,7 @@ from typing import (
     AsyncIterator,
     AsyncGenerator,
     Callable,
+    Awaitable,
     TYPE_CHECKING,
 )
 
@@ -40,12 +42,13 @@ from .renderer import ChannelDisplayConfig, MessageRenderer, RenderStyle
 from .schema import ChannelType
 from .access_control import get_access_control_store
 from ...config.utils import load_config
+from ...utils.io_utils import run_sync_io
 
 # Optional callback to enqueue payload (set by manager)
 EnqueueCallback = Optional[Callable[[Any], None]]
 
 # Called when a user-originated reply was sent (channel, user_id, session_id)
-OnReplySent = Optional[Callable[[str, str, str], None]]
+OnReplySent = Optional[Callable[[str, str, str], None | Awaitable[None]]]
 
 logger = logging.getLogger(__name__)
 
@@ -403,21 +406,20 @@ class BaseChannel(ABC):
         store = self._get_acl_store()
         channel_key = self.channel
 
-        # ── Whitelist / blacklist / pending decision ────────────────────
-        if store.is_whitelisted(channel_key, sender_id):
+        first_message = self._extract_query_from_payload(payload)
+        username = meta.get("user_name") or ""
+        decision = await run_sync_io(
+            store.check_access,
+            channel_key,
+            sender_id,
+            first_message,
+            username,
+        )
+        if decision == "allow":
             return False  # allowed
-
-        if store.is_blacklisted(channel_key, sender_id):
+        if decision == "blocked":
             deny_msg = self._acl_msg("blocked")
         else:
-            first_message = self._extract_query_from_payload(payload)
-            username = meta.get("user_name") or ""
-            store.add_pending(
-                channel_key,
-                sender_id,
-                first_message,
-                username=username,
-            )
             deny_msg = self._acl_msg("pending", sender_id=sender_id)
 
         # ── Send deny message back via the channel's own send() ─────────
@@ -481,6 +483,14 @@ class BaseChannel(ABC):
         """
         self._workspace = workspace
         self._command_registry = command_registry
+
+    async def _notify_reply_sent(self, *args: str) -> None:
+        """Invoke the optional reply callback without blocking async flows."""
+        if self._on_reply_sent is None:
+            return
+        result = self._on_reply_sent(self.channel, *args)
+        if inspect.isawaitable(result):
+            await result
 
     def _extract_chat_name(self, payload: Any) -> str:
         """Extract chat name from payload for chat creation.
@@ -1012,7 +1022,7 @@ class BaseChannel(ABC):
 
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
-                self._on_reply_sent(self.channel, *args)
+                await self._notify_reply_sent(*args)
 
         except asyncio.CancelledError:
             logger.info(
@@ -1589,7 +1599,7 @@ class BaseChannel(ABC):
                 )
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
-                self._on_reply_sent(self.channel, *args)
+                await self._notify_reply_sent(*args)
         except asyncio.CancelledError:
             logger.info(
                 "channel task cancelled: session=%s",

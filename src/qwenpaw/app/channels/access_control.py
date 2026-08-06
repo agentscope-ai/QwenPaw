@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from ...constant import WORKING_DIR
-from ...utils.io_utils import write_json_atomic
+from ...utils.io_utils import (
+    FileFingerprint,
+    get_file_fingerprint,
+    read_bytes_snapshot,
+    write_json_atomic,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +167,7 @@ class AccessControlStore:
         self._path = path or WORKING_DIR / ACCESS_CONTROL_FILE
         self._lock = threading.Lock()
         self._data: Dict[str, ChannelACL] = {}
-        self._last_mtime: float = 0.0
+        self._fingerprint: Optional[FileFingerprint] = None
         self._load()
 
     # ── Persistence ─────────────────────────────────────────────────────
@@ -171,9 +176,10 @@ class AccessControlStore:
         if not self._path.exists():
             return
         try:
-            self._last_mtime = self._path.stat().st_mtime
-            raw = json.loads(self._path.read_text(encoding="utf-8"))
+            content, fingerprint = read_bytes_snapshot(self._path)
+            raw = json.loads(content)
             self._data = {k: ChannelACL.from_dict(v) for k, v in raw.items()}
+            self._fingerprint = fingerprint
         except Exception:
             logger.exception(
                 "Failed to load access control data from %s",
@@ -189,8 +195,8 @@ class AccessControlStore:
         try:
             if not self._path.exists():
                 return
-            current_mtime = self._path.stat().st_mtime
-            if current_mtime > self._last_mtime:
+            current_fingerprint = get_file_fingerprint(self._path)
+            if current_fingerprint != self._fingerprint:
                 self._load()
         except OSError:
             pass
@@ -199,7 +205,7 @@ class AccessControlStore:
         try:
             payload = {k: v.to_dict() for k, v in self._data.items()}
             write_json_atomic(self._path, payload)
-            self._last_mtime = self._path.stat().st_mtime
+            self._fingerprint = get_file_fingerprint(self._path)
             return True
         except Exception:
             logger.exception(
@@ -235,6 +241,37 @@ class AccessControlStore:
             self._reload_if_stale()
             return {k: v.to_dict() for k, v in self._data.items()}
 
+    def check_access(
+        self,
+        channel: str,
+        user_id: str,
+        first_message: str = "",
+        username: str = "",
+    ) -> str:
+        """Return allow, blocked, or pending and persist new pending users."""
+        with self._lock:
+            self._reload_if_stale()
+            acl = self._acl(channel)
+            if user_id in acl.whitelist:
+                return "allow"
+            if user_id in acl.blacklist:
+                return "blocked"
+            if not any(
+                entry.user_id == user_id and entry.channel == channel
+                for entry in acl.pending
+            ):
+                acl.pending.append(
+                    PendingEntry(
+                        user_id=user_id,
+                        channel=channel,
+                        timestamp=time.time(),
+                        first_message=first_message[:200],
+                        username=username,
+                    ),
+                )
+                self._save()
+            return "pending"
+
     # ── Whitelist ───────────────────────────────────────────────────────
 
     def add_to_whitelist(
@@ -245,6 +282,7 @@ class AccessControlStore:
         username: str = "",
     ) -> None:
         with self._lock:
+            self._reload_if_stale()
             acl = self._acl(channel)
             existing = acl.whitelist.get(user_id)
             acl.whitelist[user_id] = UserInfo(
@@ -261,11 +299,13 @@ class AccessControlStore:
 
     def remove_from_whitelist(self, channel: str, user_id: str) -> None:
         with self._lock:
+            self._reload_if_stale()
             self._acl(channel).whitelist.pop(user_id, None)
             self._save()
 
     def set_whitelist(self, channel: str, user_ids: List[str]) -> None:
         with self._lock:
+            self._reload_if_stale()
             acl = self._acl(channel)
             new_wl = {
                 uid: acl.whitelist.get(uid, UserInfo()) for uid in user_ids
@@ -281,6 +321,7 @@ class AccessControlStore:
     ) -> bool:
         """Update the remark for a user in whitelist or blacklist."""
         with self._lock:
+            self._reload_if_stale()
             acl = self._acl(channel)
             if user_id in acl.whitelist:
                 acl.whitelist[user_id].remark = remark
@@ -300,6 +341,7 @@ class AccessControlStore:
     ) -> bool:
         """Update the username for a user (whitelist, blacklist or pending)."""
         with self._lock:
+            self._reload_if_stale()
             acl = self._acl(channel)
             found = False
             if user_id in acl.whitelist:
@@ -327,6 +369,7 @@ class AccessControlStore:
         username: str = "",
     ) -> None:
         with self._lock:
+            self._reload_if_stale()
             acl = self._acl(channel)
             existing = acl.blacklist.get(user_id)
             acl.blacklist[user_id] = UserInfo(
@@ -343,11 +386,13 @@ class AccessControlStore:
 
     def remove_from_blacklist(self, channel: str, user_id: str) -> None:
         with self._lock:
+            self._reload_if_stale()
             self._acl(channel).blacklist.pop(user_id, None)
             self._save()
 
     def set_blacklist(self, channel: str, user_ids: List[str]) -> None:
         with self._lock:
+            self._reload_if_stale()
             acl = self._acl(channel)
             new_bl = {
                 uid: acl.blacklist.get(uid, UserInfo()) for uid in user_ids
@@ -365,6 +410,7 @@ class AccessControlStore:
         username: str = "",
     ) -> None:
         with self._lock:
+            self._reload_if_stale()
             acl = self._acl(channel)
             for existing in acl.pending:
                 if existing.user_id == user_id and existing.channel == channel:
@@ -382,6 +428,7 @@ class AccessControlStore:
 
     def get_all_pending(self) -> List[Dict[str, Any]]:
         with self._lock:
+            self._reload_if_stale()
             result: List[Dict[str, Any]] = []
             for acl in self._data.values():
                 result.extend(p.to_dict() for p in acl.pending)
@@ -396,6 +443,7 @@ class AccessControlStore:
     ) -> bool:
         """Update the remark on a pending entry. Returns True if found."""
         with self._lock:
+            self._reload_if_stale()
             acl = self._acl(channel)
             for entry in acl.pending:
                 if entry.user_id == user_id and entry.channel == channel:
@@ -416,6 +464,7 @@ class AccessControlStore:
         Username is always carried over from the pending entry.
         """
         with self._lock:
+            self._reload_if_stale()
             acl = self._acl(channel)
             effective_remark = remark
             username = ""
@@ -450,6 +499,7 @@ class AccessControlStore:
         Username is always carried over from the pending entry.
         """
         with self._lock:
+            self._reload_if_stale()
             acl = self._acl(channel)
             effective_remark = remark
             username = ""
@@ -475,6 +525,7 @@ class AccessControlStore:
     def dismiss_pending(self, channel: str, user_id: str) -> bool:
         """Remove from pending without adding to any list."""
         with self._lock:
+            self._reload_if_stale()
             acl = self._acl(channel)
             before = len(acl.pending)
             acl.pending = [
@@ -502,6 +553,7 @@ class AccessControlStore:
         if not allow_from:
             return
         with self._lock:
+            self._reload_if_stale()
             acl = self._acl(channel)
             for uid in allow_from:
                 if uid not in acl.whitelist:

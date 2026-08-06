@@ -58,11 +58,11 @@ def _prepare_agent(
     return agent_config_path, raw
 
 
-def test_last_dispatch_migration_is_atomic_and_removes_legacy_field(
+def test_last_dispatch_migration_is_atomic_and_keeps_legacy_field(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    """Legacy state is published before it is removed from agent.json."""
+    """Legacy state is published without breaking downgrade compatibility."""
     agent_path, raw = _prepare_agent(tmp_path, monkeypatch)
     raw["last_dispatch"] = {
         "channel": "telegram",
@@ -84,8 +84,8 @@ def test_last_dispatch_migration_is_atomic_and_removes_legacy_field(
     persisted = json.loads(agent_path.read_text(encoding="utf-8"))
     state_path = agent_path.parent / "state" / "last_dispatch.json"
     assert loaded.name == "Old"
-    assert "last_dispatch" not in persisted
-    assert agent_path in writes
+    assert persisted["last_dispatch"]["channel"] == "telegram"
+    assert agent_path not in writes
     assert json.loads(state_path.read_text(encoding="utf-8")) == {
         "channel": "telegram",
         "user_id": "user-1",
@@ -121,9 +121,48 @@ def test_last_dispatch_migration_preserves_newer_state(
     assert dispatch is not None
     assert dispatch.channel == "current"
     assert dispatch.user_id == "new-user"
-    assert "last_dispatch" not in json.loads(
-        agent_path.read_text(encoding="utf-8"),
-    )
+    persisted = json.loads(agent_path.read_text(encoding="utf-8"))
+    assert persisted["last_dispatch"]["channel"] == "legacy"
+
+
+def test_read_last_dispatch_falls_back_to_legacy_field(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Legacy state remains readable when the new state file is absent."""
+    agent_path, raw = _prepare_agent(tmp_path, monkeypatch)
+    raw["last_dispatch"] = {
+        "channel": "telegram",
+        "user_id": "user-1",
+        "session_id": "session-1",
+    }
+    agent_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    dispatch = read_last_dispatch("agent")
+
+    assert dispatch is not None
+    assert dispatch.channel == "telegram"
+
+
+def test_agent_save_preserves_legacy_last_dispatch(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Unrelated config saves keep the downgrade compatibility field."""
+    agent_path, raw = _prepare_agent(tmp_path, monkeypatch)
+    raw["last_dispatch"] = {
+        "channel": "telegram",
+        "user_id": "user-1",
+        "session_id": "session-1",
+    }
+    agent_path.write_text(json.dumps(raw), encoding="utf-8")
+    loaded = load_agent_config("agent")
+    loaded.description = "updated"
+
+    config_module.save_agent_config("agent", loaded)
+
+    persisted = json.loads(agent_path.read_text(encoding="utf-8"))
+    assert persisted["last_dispatch"]["channel"] == "telegram"
 
 
 def test_last_dispatch_migration_failure_keeps_legacy_field(
@@ -332,3 +371,32 @@ def test_loaded_config_cannot_recreate_externally_deleted_file(
         config_module.save_agent_config("agent", stale)
 
     assert not agent_path.exists()
+
+
+def test_external_update_after_save_is_not_adopted_by_stale_model(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A post-write replacement cannot become a stale model's version."""
+    agent_path, raw = _prepare_agent(tmp_path, monkeypatch)
+    loaded = load_agent_config("agent")
+    loaded.description = "local update"
+    original_write = config_module.write_json_atomic
+
+    def replace_after_write(path, payload, **kwargs):
+        original_write(path, payload, **kwargs)
+        external = dict(raw)
+        external["name"] = "External"
+        original_write(path, external, **kwargs)
+
+    monkeypatch.setattr(
+        config_module,
+        "write_json_atomic",
+        replace_after_write,
+    )
+
+    with pytest.raises(ConfigurationException, match="changed while saving"):
+        config_module.save_agent_config("agent", loaded)
+
+    persisted = json.loads(agent_path.read_text(encoding="utf-8"))
+    assert persisted["name"] == "External"

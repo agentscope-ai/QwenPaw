@@ -6,6 +6,7 @@ from __future__ import annotations
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import  # noqa: E501
 
 import json
+import os
 import time
 from pathlib import Path
 
@@ -384,9 +385,7 @@ class TestAccessControlStore:  # pylint: disable=too-many-public-methods
     ):
         path = tmp_path / ACCESS_CONTROL_FILE
         store = AccessControlStore(path)
-        # At init, file does not exist → _last_mtime stays 0.0
-        assert store._last_mtime == 0.0
-        # External write bumps mtime to "now" — definitely > 0
+        assert store._fingerprint is None
         path.write_text(
             json.dumps(
                 {
@@ -399,8 +398,43 @@ class TestAccessControlStore:  # pylint: disable=too-many-public-methods
             ),
             encoding="utf-8",
         )
-        assert path.stat().st_mtime > 0
         assert store.is_whitelisted("console", "u1")
+
+    def test_mutation_merges_same_mtime_external_replacement(
+        self,
+        tmp_path: Path,
+    ):
+        path = tmp_path / ACCESS_CONTROL_FILE
+        store = AccessControlStore(path)
+        store.add_to_whitelist("console", "u1")
+        old_stat = path.stat()
+        replacement = path.with_name("replacement.json")
+        replacement.write_text(
+            json.dumps(
+                {
+                    "console": {
+                        "whitelist": {
+                            "u1": {"remark": "", "username": ""},
+                            "u3": {"remark": "", "username": ""},
+                        },
+                        "blacklist": {},
+                        "pending": [],
+                    },
+                },
+            ),
+            encoding="utf-8",
+        )
+        os.utime(
+            replacement,
+            ns=(old_stat.st_atime_ns, old_stat.st_mtime_ns),
+        )
+        os.replace(replacement, path)
+
+        store.add_to_whitelist("console", "u2")
+
+        persisted = json.loads(path.read_text(encoding="utf-8"))
+        whitelist = persisted["console"]["whitelist"]
+        assert set(whitelist) == {"u1", "u2", "u3"}
 
     def test_corrupt_file_does_not_crash(self, tmp_path: Path):
         path = tmp_path / ACCESS_CONTROL_FILE

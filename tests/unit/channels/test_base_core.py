@@ -119,6 +119,34 @@ def content_builder():
 # =============================================================================
 
 
+class TestReplySentCallback:
+    @pytest.mark.asyncio
+    async def test_async_callback_is_awaited(self, base_channel):
+        calls = []
+
+        async def callback(channel, user_id, session_id):
+            calls.append((channel, user_id, session_id))
+
+        base_channel._on_reply_sent = callback
+
+        await base_channel._notify_reply_sent("user-1", "session-1")
+
+        assert calls == [("console", "user-1", "session-1")]
+
+    @pytest.mark.asyncio
+    async def test_sync_callback_remains_supported(self, base_channel):
+        calls = []
+
+        def callback(channel, user_id, session_id):
+            calls.append((channel, user_id, session_id))
+
+        base_channel._on_reply_sent = callback
+
+        await base_channel._notify_reply_sent("user-1", "session-1")
+
+        assert calls == [("console", "user-1", "session-1")]
+
+
 class TestResolveSessionIdCore:
     """
     Session ID resolution core logic tests.

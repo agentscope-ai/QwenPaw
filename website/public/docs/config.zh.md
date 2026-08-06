@@ -132,15 +132,15 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 
 **全局 config.json 字段说明：**
 
-| 字段                  | 类型           | 默认值         | 说明                                             |
-| --------------------- | -------------- | -------------- | ------------------------------------------------ |
-| `agents.active_agent` | string         | `"default"`    | 当前激活的智能体 ID                              |
-| `agents.profiles`     | object         | `{}`           | 智能体配置引用字典（key 为 agent_id）            |
-| `last_api.host`       | string \| null | `null`         | 上次 `qwenpaw app` 启动的主机地址                |
-| `last_api.port`       | int \| null    | `null`         | 上次 `qwenpaw app` 启动的端口                    |
-| `show_tool_details`   | bool           | `true`         | 是否在频道消息中显示工具调用/返回详情            |
-| `user_timezone`       | string         | _（系统时区）_ | IANA 时区名称（如 `"Asia/Shanghai"`）            |
-| `last_dispatch`       | object \| null | `null`         | 旧版单智能体的最近消息分发目标                    |
+| 字段                  | 类型           | 默认值         | 说明                                  |
+| --------------------- | -------------- | -------------- | ------------------------------------- |
+| `agents.active_agent` | string         | `"default"`    | 当前激活的智能体 ID                   |
+| `agents.profiles`     | object         | `{}`           | 智能体配置引用字典（key 为 agent_id） |
+| `last_api.host`       | string \| null | `null`         | 上次 `qwenpaw app` 启动的主机地址     |
+| `last_api.port`       | int \| null    | `null`         | 上次 `qwenpaw app` 启动的端口         |
+| `show_tool_details`   | bool           | `true`         | 是否在频道消息中显示工具调用/返回详情 |
+| `user_timezone`       | string         | _（系统时区）_ | IANA 时区名称（如 `"Asia/Shanghai"`） |
+| `last_dispatch`       | object \| null | `null`         | 旧版单智能体的最近消息分发目标        |
 
 **`agents.profiles[agent_id]`** 引用字段：
 
@@ -496,7 +496,8 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 记录最近用户消息来源，用于心跳 `target = "last"` 时的消息发送。该文件是
 Agent 工作区中的运行状态，不属于 `agent.json` 业务配置；系统会自动原子更新，
-无需手动配置。升级时，旧 `agent.json` 中的 `last_dispatch` 会一次性迁移到此文件。
+无需手动配置。升级时，旧 `agent.json` 中的 `last_dispatch` 会一次性复制到此文件，
+并暂时保留旧字段以支持降级。新版本优先读取 state 文件，缺失或无效时回退旧字段。
 
 | 字段         | 类型   | 默认值 | 说明                                     |
 | ------------ | ------ | ------ | ---------------------------------------- |

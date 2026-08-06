@@ -841,16 +841,32 @@ def _migrate_last_dispatch_state(
 
 
 def read_last_dispatch(agent_id: str) -> Optional[LastDispatchConfig]:
-    """Read one agent's latest dispatch target from runtime state."""
+    """Read runtime dispatch state, falling back to the legacy field."""
     try:
         config = load_config()
         agent_ref = config.agents.profiles[agent_id]
         workspace_dir = Path(agent_ref.workspace_dir).expanduser()
         state_path = _last_dispatch_state_path(workspace_dir)
         with _last_dispatch_lock:
-            if not state_path.exists():
+            if state_path.exists():
+                try:
+                    return LastDispatchConfig.model_validate(
+                        read_json(state_path),
+                    )
+                except Exception:
+                    logger.warning(
+                        f"Invalid last dispatch state at {state_path}; "
+                        f"falling back to agent.json",
+                    )
+            agent_config_path = workspace_dir / "agent.json"
+            if not agent_config_path.exists():
                 return None
-            return LastDispatchConfig.model_validate(read_json(state_path))
+            legacy_dispatch = read_json(agent_config_path).get(
+                "last_dispatch",
+            )
+            if legacy_dispatch is None:
+                return None
+            return LastDispatchConfig.model_validate(legacy_dispatch)
     except Exception:
         logger.exception(
             f"Failed to read last dispatch state for agent {agent_id}",

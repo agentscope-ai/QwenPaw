@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Optional, TYPE_CHECKING
 
 from ..config.config import load_agent_config
+from ..utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from ..config.config import HeartbeatConfig
@@ -75,7 +76,7 @@ class AgentConfigWatcher:
 
     async def start(self) -> None:
         """Take initial snapshot and start the polling task."""
-        self._snapshot()
+        await self._snapshot()
         self._task = asyncio.create_task(
             self._poll_loop(),
             name=f"agent_config_watcher_{self._agent_id}",
@@ -107,10 +108,13 @@ class AgentConfigWatcher:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _snapshot(self) -> None:
+    async def _snapshot(self) -> None:
         """Record current section hashes as the new baseline."""
         try:
-            agent_config = load_agent_config(self._agent_id)
+            agent_config = await run_sync_io(
+                load_agent_config,
+                self._agent_id,
+            )
         except Exception:
             logger.exception(
                 f"AgentConfigWatcher ({self._agent_id}): "
@@ -146,7 +150,10 @@ class AgentConfigWatcher:
     async def _check(self) -> None:
         """Check for meaningful config changes and trigger a reload."""
         try:
-            agent_config = load_agent_config(self._agent_id)
+            agent_config = await run_sync_io(
+                load_agent_config,
+                self._agent_id,
+            )
         except Exception:
             logger.exception(
                 f"AgentConfigWatcher ({self._agent_id}): "

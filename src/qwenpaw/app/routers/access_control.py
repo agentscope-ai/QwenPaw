@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..channels.access_control import get_access_control_store
+from ...utils.io_utils import run_sync_io
 
 router = APIRouter(prefix="/access-control", tags=["access-control"])
 
@@ -19,7 +20,7 @@ async def _get_store(request: Request):
 
     workspace = await get_agent_for_request(request)
     workspace_dir = Path(workspace.workspace_dir)
-    return get_access_control_store(workspace_dir)
+    return await run_sync_io(get_access_control_store, workspace_dir)
 
 
 # ── Request / Response schemas ──────────────────────────────────────────────
@@ -85,8 +86,11 @@ async def get_all_acls(request: Request):
     from ..agent_context import get_agent_for_request
 
     workspace = await get_agent_for_request(request)
-    store = get_access_control_store(Path(workspace.workspace_dir))
-    raw_acls = store.get_all_acls()
+    store = await run_sync_io(
+        get_access_control_store,
+        Path(workspace.workspace_dir),
+    )
+    raw_acls = await run_sync_io(store.get_all_acls)
 
     # Collect enabled channel names
     enabled_channels: set = set()
@@ -127,7 +131,7 @@ async def get_all_acls(request: Request):
 )
 async def get_all_pending(request: Request):
     store = await _get_store(request)
-    return store.get_all_pending()
+    return await run_sync_io(store.get_all_pending)
 
 
 @router.post(
@@ -137,7 +141,8 @@ async def get_all_pending(request: Request):
 async def approve_pending(request: Request, body: ACLActionBody):
     store = await _get_store(request)
     for entry in body.entries:
-        store.approve_pending(
+        await run_sync_io(
+            store.approve_pending,
             entry.channel,
             entry.user_id,
             entry.remark,
@@ -152,7 +157,8 @@ async def approve_pending(request: Request, body: ACLActionBody):
 async def deny_pending(request: Request, body: ACLActionBody):
     store = await _get_store(request)
     for entry in body.entries:
-        store.deny_pending(
+        await run_sync_io(
+            store.deny_pending,
             entry.channel,
             entry.user_id,
             entry.remark,
@@ -167,7 +173,11 @@ async def deny_pending(request: Request, body: ACLActionBody):
 async def dismiss_pending(request: Request, body: ACLActionBody):
     store = await _get_store(request)
     for entry in body.entries:
-        store.dismiss_pending(entry.channel, entry.user_id)
+        await run_sync_io(
+            store.dismiss_pending,
+            entry.channel,
+            entry.user_id,
+        )
     return {"status": "ok", "count": len(body.entries)}
 
 
@@ -180,7 +190,8 @@ async def update_pending_remark(
     body: UpdateRemarkBody,
 ):
     store = await _get_store(request)
-    found = store.update_pending_remark(
+    found = await run_sync_io(
+        store.update_pending_remark,
         body.channel,
         body.user_id,
         body.remark,
@@ -203,7 +214,8 @@ async def update_pending_remark(
 async def add_to_whitelist(request: Request, body: ACLActionBody):
     store = await _get_store(request)
     for entry in body.entries:
-        store.add_to_whitelist(
+        await run_sync_io(
+            store.add_to_whitelist,
             entry.channel,
             entry.user_id,
             entry.remark,
@@ -222,7 +234,11 @@ async def remove_from_whitelist(
 ):
     store = await _get_store(request)
     for entry in body.entries:
-        store.remove_from_whitelist(entry.channel, entry.user_id)
+        await run_sync_io(
+            store.remove_from_whitelist,
+            entry.channel,
+            entry.user_id,
+        )
     return {"status": "ok", "count": len(body.entries)}
 
 
@@ -233,7 +249,8 @@ async def remove_from_whitelist(
 async def add_to_blacklist(request: Request, body: ACLActionBody):
     store = await _get_store(request)
     for entry in body.entries:
-        store.add_to_blacklist(
+        await run_sync_io(
+            store.add_to_blacklist,
             entry.channel,
             entry.user_id,
             entry.remark,
@@ -252,7 +269,11 @@ async def remove_from_blacklist(
 ):
     store = await _get_store(request)
     for entry in body.entries:
-        store.remove_from_blacklist(entry.channel, entry.user_id)
+        await run_sync_io(
+            store.remove_from_blacklist,
+            entry.channel,
+            entry.user_id,
+        )
     return {"status": "ok", "count": len(body.entries)}
 
 
@@ -262,7 +283,8 @@ async def remove_from_blacklist(
 )
 async def update_remark(request: Request, body: UpdateRemarkBody):
     store = await _get_store(request)
-    found = store.update_remark(
+    found = await run_sync_io(
+        store.update_remark,
         body.channel,
         body.user_id,
         body.remark,
@@ -281,7 +303,8 @@ async def update_remark(request: Request, body: UpdateRemarkBody):
 )
 async def update_username(request: Request, body: UpdateUsernameBody):
     store = await _get_store(request)
-    found = store.update_username(
+    found = await run_sync_io(
+        store.update_username,
         body.channel,
         body.user_id,
         body.username,
@@ -304,4 +327,4 @@ async def update_username(request: Request, body: UpdateUsernameBody):
 )
 async def get_channel_acl(request: Request, channel: str):
     store = await _get_store(request)
-    return store.get_acl(channel)
+    return await run_sync_io(store.get_acl, channel)

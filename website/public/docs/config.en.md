@@ -172,15 +172,15 @@ Stores globally shared configuration:
 
 **Global config.json field descriptions:**
 
-| Field                 | Type           | Default             | Description                                                       |
-| --------------------- | -------------- | ------------------- | ----------------------------------------------------------------- |
-| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                         |
-| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                        |
-| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                        |
-| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                                |
-| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages      |
-| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                      |
-| `last_dispatch`       | object \| null | `null`              | Legacy single-agent last message dispatch target                   |
+| Field                 | Type           | Default             | Description                                                  |
+| --------------------- | -------------- | ------------------- | ------------------------------------------------------------ |
+| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                    |
+| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                   |
+| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                   |
+| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                           |
+| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages |
+| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                 |
+| `last_dispatch`       | object \| null | `null`              | Legacy single-agent last message dispatch target             |
 
 **`agents.profiles[agent_id]` reference fields:**
 
@@ -563,7 +563,9 @@ Management: Console (Settings → Security Config) or directly edit `agent.json`
 Records the last user message source used when heartbeat `target = "last"`.
 This is runtime state in the Agent workspace, not business configuration in
 `agent.json`. QwenPaw updates it atomically; no manual configuration is needed.
-On upgrade, a legacy `last_dispatch` value in `agent.json` is migrated once.
+On upgrade, a legacy `last_dispatch` value in `agent.json` is copied once and
+temporarily retained for downgrade compatibility. New versions prefer the
+state file and fall back to the legacy field when it is missing or invalid.
 
 | Field        | Type   | Default | Description                                   |
 | ------------ | ------ | ------- | --------------------------------------------- |

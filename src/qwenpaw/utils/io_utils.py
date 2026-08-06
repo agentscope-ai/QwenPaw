@@ -34,6 +34,7 @@ import stat
 import threading
 import weakref
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ParamSpec, TextIO, TypeVar
 
@@ -48,6 +49,45 @@ _PATH_LOCKS: weakref.WeakValueDictionary[
 ] = weakref.WeakValueDictionary()
 _SYNC_PATH_LOCKS: dict[str, threading.RLock] = {}
 _SYNC_PATH_LOCKS_GUARD = threading.Lock()
+
+
+@dataclass(frozen=True)
+class FileFingerprint:
+    """Cross-platform identity for one filesystem snapshot."""
+
+    device: int
+    inode: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+
+
+def get_file_fingerprint(path: Path | str) -> FileFingerprint:
+    """Return metadata that detects normal edits and atomic replacements."""
+    stat_result = Path(path).stat()
+    return FileFingerprint(
+        device=stat_result.st_dev,
+        inode=stat_result.st_ino,
+        size=stat_result.st_size,
+        mtime_ns=stat_result.st_mtime_ns,
+        ctime_ns=stat_result.st_ctime_ns,
+    )
+
+
+def read_bytes_snapshot(
+    path: Path | str,
+    *,
+    retries: int = 3,
+) -> tuple[bytes, FileFingerprint]:
+    """Read a stable complete file snapshot across supported platforms."""
+    target = Path(path)
+    for _attempt in range(retries):
+        before = get_file_fingerprint(target)
+        content = target.read_bytes()
+        after = get_file_fingerprint(target)
+        if before == after:
+            return content, after
+    raise OSError(f"File changed repeatedly while reading {target}")
 
 
 def _path_lock_key(path: Path | str) -> str:
