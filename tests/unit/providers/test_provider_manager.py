@@ -941,7 +941,6 @@ async def test_activate_model_clears_rejects_media_for_selected_model(
         ModelCapabilityCache,
         get_capability_cache,
     )
-    from qwenpaw.providers.openai_provider import OpenAIProvider
 
     class FakeCompletions:
         def create(self, **kwargs):
@@ -977,7 +976,6 @@ async def test_activate_model_preserves_other_models_and_capabilities(
         ModelCapabilityCache,
         get_capability_cache,
     )
-    from qwenpaw.providers.openai_provider import OpenAIProvider
 
     class FakeCompletions:
         def create(self, **kwargs):

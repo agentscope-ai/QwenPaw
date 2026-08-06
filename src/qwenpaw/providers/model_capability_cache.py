@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class _CacheEntry:
-    """A learned capability value paired with the wall-clock time it was set."""
+    """A learned value paired with the monotonic time it was set."""
 
     __slots__ = ("value", "set_at")
 

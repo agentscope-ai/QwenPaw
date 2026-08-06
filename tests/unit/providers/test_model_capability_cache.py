@@ -9,6 +9,8 @@ import pytest
 
 from qwenpaw.providers.model_capability_cache import ModelCapabilityCache
 
+_TTL = "qwenpaw.providers.model_capability_cache.CAPABILITY_CACHE_TTL_SECONDS"
+
 
 @pytest.fixture()
 def cache() -> ModelCapabilityCache:
@@ -90,10 +92,7 @@ def test_relearn_different_value_overwrites(
 def test_expired_entry_returns_default(
     cache: ModelCapabilityCache,
 ) -> None:
-    with mock.patch(
-        "qwenpaw.providers.model_capability_cache.CAPABILITY_CACHE_TTL_SECONDS",
-        0.05,
-    ):
+    with mock.patch(_TTL, 0.05):
         cache.learn("p:m", "rejects_media", True)
         assert cache.get("p:m", "rejects_media", False) is True
         time.sleep(0.08)
@@ -103,10 +102,7 @@ def test_expired_entry_returns_default(
 def test_expired_entry_is_evicted_from_bucket(
     cache: ModelCapabilityCache,
 ) -> None:
-    with mock.patch(
-        "qwenpaw.providers.model_capability_cache.CAPABILITY_CACHE_TTL_SECONDS",
-        0.05,
-    ):
+    with mock.patch(_TTL, 0.05):
         cache.learn("p:m", "rejects_media", True)
         time.sleep(0.08)
         cache.get("p:m", "rejects_media", False)
@@ -114,10 +110,7 @@ def test_expired_entry_is_evicted_from_bucket(
 
 
 def test_ttl_zero_disables_expiry(cache: ModelCapabilityCache) -> None:
-    with mock.patch(
-        "qwenpaw.providers.model_capability_cache.CAPABILITY_CACHE_TTL_SECONDS",
-        0.0,
-    ):
+    with mock.patch(_TTL, 0.0):
         cache.learn("p:m", "rejects_media", True)
         time.sleep(0.05)
         assert cache.get("p:m", "rejects_media", False) is True
