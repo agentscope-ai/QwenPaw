@@ -4,7 +4,7 @@ const messages = {
   en: {
     routeLabel: "Chrome",
     pageTitle: "Chrome",
-    pageSubtitle: "Connect QwenPaw to this Chrome browser.",
+    pageSubtitle: "Connect NousAIPaw to this Chrome browser.",
     loading: "Checking Chrome connection...",
     refreshStatus: "Refresh Status",
     installedRefresh: "I've installed it, refresh status",
@@ -25,7 +25,7 @@ const messages = {
     localMethodTitle: "Local install",
     recommendedBadge: "Recommended",
     localMethodDescription:
-      "Use the extension files included with QwenPaw for this local browser.",
+      "Use the extension files included with NousAIPaw for this local browser.",
     copyChromeExtensionsPage: "Copy chrome://extensions",
     chromeWebStoreTitle: "Chrome Web Store",
     chromeWebStoreDescription:
@@ -49,13 +49,13 @@ const messages = {
     pastePathStepTitle: "Paste path and open",
     pastePathGuide:
       "Follow the Quick paste path tips on the right to copy the path, paste it, and open the folder.",
-    qwenpawExtensionPath: "Copy QwenPaw extension path",
+    qwenpawExtensionPath: "Copy NousAIPaw extension path",
     shortcutTipsTitle: "Quick paste path tips",
     shortcutTipsScope: "Use when selecting folder",
     currentSystem: "Current system",
     shortcutCopyPathPrefix: "Click",
     shortcutCopyPathSuffix:
-      "button to copy the QwenPaw extension path to your clipboard.",
+      "button to copy the NousAIPaw extension path to your clipboard.",
     shortcutMacStep1:
       "Press Cmd + Shift + G, paste the path, then press Enter.",
     shortcutMacStep2: "After the folder is selected, click Open.",
@@ -65,9 +65,9 @@ const messages = {
     shortcutLinuxStep1: "Press Ctrl + L, paste the path, then press Enter.",
     shortcutLinuxStep2: "After the folder is selected, click Open.",
     stepOpen: "Open chrome://extensions and enable Developer mode.",
-    stepLoad: "Choose Load unpacked and select the QwenPaw extension folder.",
+    stepLoad: "Choose Load unpacked and select the NousAIPaw extension folder.",
     stepVerify: "Return here and refresh the status.",
-    directoryLabel: "QwenPaw built-in extension folder",
+    directoryLabel: "NousAIPaw built-in extension folder",
     directoryHint: "Path is available from copy or advanced information.",
     openExtensionFolder: "Open Folder",
     copyPath: "Copy Path",
@@ -114,14 +114,14 @@ const messages = {
     browser_backend_unavailable:
       "Refresh the status after the backend is available.",
     chrome_action_runtime_missing:
-      "Restart QwenPaw or reload the Chrome plugin.",
+      "Restart NousAIPaw or reload the Chrome plugin.",
     isolated_backend_unavailable:
       "Install or restart the isolated browser runtime.",
   },
   zh: {
     routeLabel: "Chrome浏览器",
     pageTitle: "Chrome",
-    pageSubtitle: "将 QwenPaw 连接到此 Chrome 浏览器。",
+    pageSubtitle: "将 NousAIPaw 连接到此 Chrome 浏览器。",
     loading: "正在检查 Chrome 连接...",
     refreshStatus: "刷新状态",
     installedRefresh: "我已安装，刷新状态",
@@ -139,7 +139,7 @@ const messages = {
     installMethodsTitle: "安装方式",
     localMethodTitle: "本地安装",
     recommendedBadge: "推荐",
-    localMethodDescription: "使用 QwenPaw 自带扩展文件连接当前本地浏览器。",
+    localMethodDescription: "使用 NousAIPaw 自带扩展文件连接当前本地浏览器。",
     copyChromeExtensionsPage: "复制 chrome://extensions",
     chromeWebStoreTitle: "Chrome Web Store",
     chromeWebStoreDescription: "官方商店版本尚未发布。当前请使用本地安装。",
@@ -161,12 +161,12 @@ const messages = {
     pastePathStepTitle: "粘贴路径并打开",
     pastePathGuide:
       "请按右侧“快捷粘贴路径 Tips”的步骤完成复制、粘贴并打开目录。",
-    qwenpawExtensionPath: "复制 QwenPaw 扩展路径",
+    qwenpawExtensionPath: "复制 NousAIPaw 扩展路径",
     shortcutTipsTitle: "快捷粘贴路径 Tips",
     shortcutTipsScope: "选择目录时使用",
     currentSystem: "当前系统",
     shortcutCopyPathPrefix: "点击",
-    shortcutCopyPathSuffix: "按钮复制 QwenPaw 扩展路径到剪贴板。",
+    shortcutCopyPathSuffix: "按钮复制 NousAIPaw 扩展路径到剪贴板。",
     shortcutMacStep1: "按 Cmd + Shift + G，粘贴路径并回车。",
     shortcutMacStep2: "确认定位到目录后，点击“打开”。",
     shortcutWindowsStep1: "点击地址栏，粘贴路径并回车。",
@@ -174,9 +174,9 @@ const messages = {
     shortcutLinuxStep1: "按 Ctrl + L，粘贴路径并回车。",
     shortcutLinuxStep2: "确认定位到目录后，点击“打开”。",
     stepOpen: "打开 chrome://extensions，并启用开发者模式。",
-    stepLoad: "选择“加载未打包的扩展程序”，并选择 QwenPaw 扩展目录。",
+    stepLoad: "选择“加载未打包的扩展程序”，并选择 NousAIPaw 扩展目录。",
     stepVerify: "回到此页面并刷新状态。",
-    directoryLabel: "QwenPaw 自带扩展目录",
+    directoryLabel: "NousAIPaw 自带扩展目录",
     directoryHint: "完整路径可通过复制或高级信息查看。",
     openExtensionFolder: "打开目录",
     copyPath: "复制路径",
@@ -218,7 +218,7 @@ const messages = {
       "Chrome 未能自动打开扩展页。地址已复制，请在 Chrome 地址栏粘贴并按 Enter。",
     chrome_disconnected: "重载扩展，或重新打开目标浏览器标签页。",
     browser_backend_unavailable: "后端可用后刷新状态。",
-    chrome_action_runtime_missing: "重启 QwenPaw，或重新加载 Chrome 插件。",
+    chrome_action_runtime_missing: "重启 NousAIPaw，或重新加载 Chrome 插件。",
     isolated_backend_unavailable: "安装或重启隔离浏览器运行时。",
   },
 } as const;

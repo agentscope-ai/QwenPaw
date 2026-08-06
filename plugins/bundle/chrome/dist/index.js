@@ -1,8 +1,8 @@
-const F = {
+const H = {
   en: {
     routeLabel: "Chrome",
     pageTitle: "Chrome",
-    pageSubtitle: "Connect QwenPaw to this Chrome browser.",
+    pageSubtitle: "Connect NousAIPaw to this Chrome browser.",
     loading: "Checking Chrome connection...",
     refreshStatus: "Refresh Status",
     installedRefresh: "I've installed it, refresh status",
@@ -19,7 +19,7 @@ const F = {
     installMethodsTitle: "Install method",
     localMethodTitle: "Local install",
     recommendedBadge: "Recommended",
-    localMethodDescription: "Use the extension files included with QwenPaw for this local browser.",
+    localMethodDescription: "Use the extension files included with NousAIPaw for this local browser.",
     copyChromeExtensionsPage: "Copy chrome://extensions",
     chromeWebStoreTitle: "Chrome Web Store",
     chromeWebStoreDescription: "The store listing is not available yet. Use local install for now.",
@@ -40,12 +40,12 @@ const F = {
     loadUnpackedSuffix: "in Chrome.",
     pastePathStepTitle: "Paste path and open",
     pastePathGuide: "Follow the Quick paste path tips on the right to copy the path, paste it, and open the folder.",
-    qwenpawExtensionPath: "Copy QwenPaw extension path",
+    qwenpawExtensionPath: "Copy NousAIPaw extension path",
     shortcutTipsTitle: "Quick paste path tips",
     shortcutTipsScope: "Use when selecting folder",
     currentSystem: "Current system",
     shortcutCopyPathPrefix: "Click",
-    shortcutCopyPathSuffix: "button to copy the QwenPaw extension path to your clipboard.",
+    shortcutCopyPathSuffix: "button to copy the NousAIPaw extension path to your clipboard.",
     shortcutMacStep1: "Press Cmd + Shift + G, paste the path, then press Enter.",
     shortcutMacStep2: "After the folder is selected, click Open.",
     shortcutWindowsStep1: "Click the address bar, paste the path, then press Enter.",
@@ -53,9 +53,9 @@ const F = {
     shortcutLinuxStep1: "Press Ctrl + L, paste the path, then press Enter.",
     shortcutLinuxStep2: "After the folder is selected, click Open.",
     stepOpen: "Open chrome://extensions and enable Developer mode.",
-    stepLoad: "Choose Load unpacked and select the QwenPaw extension folder.",
+    stepLoad: "Choose Load unpacked and select the NousAIPaw extension folder.",
     stepVerify: "Return here and refresh the status.",
-    directoryLabel: "QwenPaw built-in extension folder",
+    directoryLabel: "NousAIPaw built-in extension folder",
     directoryHint: "Path is available from copy or advanced information.",
     openExtensionFolder: "Open Folder",
     copyPath: "Copy Path",
@@ -95,13 +95,13 @@ const F = {
     chromeExtensionsCopiedFallback: "Chrome could not open the extensions page automatically. The address was copied; paste it into Chrome's address bar and press Enter.",
     chrome_disconnected: "Reload the extension or reopen the target browser tab.",
     browser_backend_unavailable: "Refresh the status after the backend is available.",
-    chrome_action_runtime_missing: "Restart QwenPaw or reload the Chrome plugin.",
+    chrome_action_runtime_missing: "Restart NousAIPaw or reload the Chrome plugin.",
     isolated_backend_unavailable: "Install or restart the isolated browser runtime."
   },
   zh: {
     routeLabel: "Chrome浏览器",
     pageTitle: "Chrome",
-    pageSubtitle: "将 QwenPaw 连接到此 Chrome 浏览器。",
+    pageSubtitle: "将 NousAIPaw 连接到此 Chrome 浏览器。",
     loading: "正在检查 Chrome 连接...",
     refreshStatus: "刷新状态",
     installedRefresh: "我已安装，刷新状态",
@@ -118,7 +118,7 @@ const F = {
     installMethodsTitle: "安装方式",
     localMethodTitle: "本地安装",
     recommendedBadge: "推荐",
-    localMethodDescription: "使用 QwenPaw 自带扩展文件连接当前本地浏览器。",
+    localMethodDescription: "使用 NousAIPaw 自带扩展文件连接当前本地浏览器。",
     copyChromeExtensionsPage: "复制 chrome://extensions",
     chromeWebStoreTitle: "Chrome Web Store",
     chromeWebStoreDescription: "官方商店版本尚未发布。当前请使用本地安装。",
@@ -139,12 +139,12 @@ const F = {
     loadUnpackedSuffix: "。",
     pastePathStepTitle: "粘贴路径并打开",
     pastePathGuide: "请按右侧“快捷粘贴路径 Tips”的步骤完成复制、粘贴并打开目录。",
-    qwenpawExtensionPath: "复制 QwenPaw 扩展路径",
+    qwenpawExtensionPath: "复制 NousAIPaw 扩展路径",
     shortcutTipsTitle: "快捷粘贴路径 Tips",
     shortcutTipsScope: "选择目录时使用",
     currentSystem: "当前系统",
     shortcutCopyPathPrefix: "点击",
-    shortcutCopyPathSuffix: "按钮复制 QwenPaw 扩展路径到剪贴板。",
+    shortcutCopyPathSuffix: "按钮复制 NousAIPaw 扩展路径到剪贴板。",
     shortcutMacStep1: "按 Cmd + Shift + G，粘贴路径并回车。",
     shortcutMacStep2: "确认定位到目录后，点击“打开”。",
     shortcutWindowsStep1: "点击地址栏，粘贴路径并回车。",
@@ -152,9 +152,9 @@ const F = {
     shortcutLinuxStep1: "按 Ctrl + L，粘贴路径并回车。",
     shortcutLinuxStep2: "确认定位到目录后，点击“打开”。",
     stepOpen: "打开 chrome://extensions，并启用开发者模式。",
-    stepLoad: "选择“加载未打包的扩展程序”，并选择 QwenPaw 扩展目录。",
+    stepLoad: "选择“加载未打包的扩展程序”，并选择 NousAIPaw 扩展目录。",
     stepVerify: "回到此页面并刷新状态。",
-    directoryLabel: "QwenPaw 自带扩展目录",
+    directoryLabel: "NousAIPaw 自带扩展目录",
     directoryHint: "完整路径可通过复制或高级信息查看。",
     openExtensionFolder: "打开目录",
     copyPath: "复制路径",
@@ -194,7 +194,7 @@ const F = {
     chromeExtensionsCopiedFallback: "Chrome 未能自动打开扩展页。地址已复制，请在 Chrome 地址栏粘贴并按 Enter。",
     chrome_disconnected: "重载扩展，或重新打开目标浏览器标签页。",
     browser_backend_unavailable: "后端可用后刷新状态。",
-    chrome_action_runtime_missing: "重启 QwenPaw，或重新加载 Chrome 插件。",
+    chrome_action_runtime_missing: "重启 NousAIPaw，或重新加载 Chrome 插件。",
     isolated_backend_unavailable: "安装或重启隔离浏览器运行时。"
   }
 };
@@ -206,17 +206,17 @@ function J() {
     return null;
   }
 }
-function j(t = J()) {
+function z(t = J()) {
   return String(t || "").trim().split("-")[0].toLowerCase() === "zh" ? "zh" : "en";
 }
 function o(t, n, r) {
-  let l = F[t][n] ?? F.en[n];
+  let l = H[t][n] ?? H.en[n];
   if (r)
     for (const [i, h] of Object.entries(r))
       l = l.split(`{${i}}`).join(String(h));
   return l;
 }
-const f = window.QwenPaw.host, e = f.React, Z = f.antd, X = f.getApiUrl, R = f.getApiToken, { Alert: U, Button: u, Collapse: ee, Space: be, Spin: te, Typography: ne, message: S } = Z, { Text: d, Title: N } = ne, re = {
+const f = window.QwenPaw.host, e = f.React, Z = f.antd, X = f.getApiUrl, R = f.getApiToken, { Alert: F, Button: u, Collapse: ee, Space: be, Spin: te, Typography: ne, message: w } = Z, { Text: d, Title: U } = ne, re = {
   extension_bridge: "checkExtensionBridge",
   nm_host: "checkNmHost",
   extension_assets: "checkExtensionAssets",
@@ -767,7 +767,7 @@ function O({ ready: t }) {
     }
   );
 }
-function z({ name: t, size: n }) {
+function G({ name: t, size: n }) {
   const r = v(), l = {
     fill: "none",
     stroke: "currentColor",
@@ -818,7 +818,7 @@ function _({
       title: h ? n : void 0,
       type: "text"
     },
-    /* @__PURE__ */ e.createElement(z, { name: t, size: h ? 16 : void 0 }),
+    /* @__PURE__ */ e.createElement(G, { name: t, size: h ? 16 : void 0 }),
     h ? null : n
   );
 }
@@ -863,8 +863,8 @@ function fe({
   );
 }
 function Ee() {
-  var H;
-  const t = v(), n = j(), [r, l] = e.useState(null), [i, h] = e.useState(null), [p, g] = e.useState(null), [E, I] = e.useState(!0), [M, L] = e.useState(!1), [D, k] = e.useState(null), [W, G] = e.useState(!1), [A, V] = e.useState(() => xe()), x = e.useCallback(
+  var W;
+  const t = v(), n = z(), [r, l] = e.useState(null), [i, h] = e.useState(null), [p, g] = e.useState(null), [E, I] = e.useState(!0), [A, M] = e.useState(!1), [L, k] = e.useState(null), [D, V] = e.useState(!1), [N, Q] = e.useState(() => xe()), x = e.useCallback(
     async (a) => {
       a != null && a.silent || I(!0), k(null);
       try {
@@ -889,15 +889,15 @@ function Ee() {
     async (a) => {
       if (r != null && r.extension_dir && r.installed && !(a != null && a.refresh))
         return r;
-      L(!0), k(null);
+      M(!0), k(null);
       try {
         const s = await pe({
           install_mode: "unpacked",
           reset: !1
         });
-        return l(s), a != null && a.silent || (s.native_host_repair_required ? S.error(
+        return l(s), a != null && a.silent || (s.native_host_repair_required ? w.error(
           s.native_host_repair_instruction || o(n, "installFailed")
-        ) : S.success(
+        ) : w.success(
           o(
             n,
             r != null && r.native_host_repair_required ? "repairSuccess" : "installSuccess"
@@ -905,33 +905,33 @@ function Ee() {
         )), s;
       } catch (s) {
         const y = s instanceof Error ? s.message : String(s);
-        return k(y), a != null && a.silent || S.error(o(n, "installFailed")), null;
+        return k(y), a != null && a.silent || w.error(o(n, "installFailed")), null;
       } finally {
-        L(!1);
+        M(!1);
       }
     },
     [n, r]
-  ), w = e.useCallback(
+  ), C = e.useCallback(
     async (a, s = "copied") => {
       var y;
       try {
         if (!((y = navigator.clipboard) != null && y.writeText))
           throw new Error("clipboard API is unavailable");
-        return await navigator.clipboard.writeText(a), S.success(o(n, s)), !0;
+        return await navigator.clipboard.writeText(a), w.success(o(n, s)), !0;
       } catch {
-        return S.error(o(n, "copyFailed")), !1;
+        return w.error(o(n, "copyFailed")), !1;
       }
     },
     [n]
   ), q = e.useCallback(async () => {
     const a = await b({ refresh: !0 });
-    a != null && a.extension_dir && await w(a.extension_dir);
-  }, [w, b]), P = e.useCallback(
-    async (a = !1) => w(
+    a != null && a.extension_dir && await C(a.extension_dir);
+  }, [C, b]), P = e.useCallback(
+    async (a = !1) => C(
       (r == null ? void 0 : r.chrome_extensions_url) ?? "chrome://extensions",
       a ? "chromeExtensionsCopiedFallback" : "chromeExtensionsCopied"
     ),
-    [w, r == null ? void 0 : r.chrome_extensions_url]
+    [C, r == null ? void 0 : r.chrome_extensions_url]
   ), K = e.useCallback(async () => {
     try {
       if ((await he()).opened)
@@ -945,9 +945,9 @@ function Ee() {
     linux: ["shortcutLinuxStep1", "shortcutLinuxStep2"]
   };
   e.useEffect(() => {
-    E || W || r != null && r.extension_dir || (G(!0), b({ silent: !0 }));
-  }, [E, b, W, r == null ? void 0 : r.extension_dir]);
-  const m = !!(r != null && r.installed && (i != null && i.connected)), C = !!(r != null && r.native_host_repair_required && !(i != null && i.connected)), B = !!(r != null && r.installed && !C && !(i != null && i.connected));
+    E || D || r != null && r.extension_dir || (V(!0), b({ silent: !0 }));
+  }, [E, b, D, r == null ? void 0 : r.extension_dir]);
+  const m = !!(r != null && r.installed && (i != null && i.connected)), S = !!(r != null && r.native_host_repair_required && !(i != null && i.connected)), B = !!(r != null && r.installed && !S && !(i != null && i.connected));
   return e.useEffect(() => {
     if (!m) {
       g(null);
@@ -968,10 +968,10 @@ function Ee() {
     return () => {
       window.clearInterval(a);
     };
-  }, [m, x]), /* @__PURE__ */ e.createElement("div", { style: t.page }, /* @__PURE__ */ e.createElement("div", { style: t.shell }, /* @__PURE__ */ e.createElement("div", { style: t.panel }, /* @__PURE__ */ e.createElement("div", { style: t.statusBlock }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { style: t.header }, /* @__PURE__ */ e.createElement("div", { style: t.titleRow }, /* @__PURE__ */ e.createElement("span", { style: t.chromeIcon }), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(N, { level: 3, style: { margin: 0 } }, o(n, "pageTitle")), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, o(n, "pageSubtitle"))))), /* @__PURE__ */ e.createElement("div", { style: { marginTop: 22 } }, /* @__PURE__ */ e.createElement("div", { style: t.statusTitleRow }, m || B ? /* @__PURE__ */ e.createElement(O, { ready: m }) : null, /* @__PURE__ */ e.createElement(N, { level: 4, style: { margin: 0 } }, o(
+  }, [m, x]), /* @__PURE__ */ e.createElement("div", { style: t.page }, /* @__PURE__ */ e.createElement("div", { style: t.shell }, /* @__PURE__ */ e.createElement("div", { style: t.panel }, /* @__PURE__ */ e.createElement("div", { style: t.statusBlock }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { style: t.header }, /* @__PURE__ */ e.createElement("div", { style: t.titleRow }, /* @__PURE__ */ e.createElement("span", { style: t.chromeIcon }), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(U, { level: 3, style: { margin: 0 } }, o(n, "pageTitle")), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, o(n, "pageSubtitle"))))), /* @__PURE__ */ e.createElement("div", { style: { marginTop: 22 } }, /* @__PURE__ */ e.createElement("div", { style: t.statusTitleRow }, m || B ? /* @__PURE__ */ e.createElement(O, { ready: m }) : null, /* @__PURE__ */ e.createElement(U, { level: 4, style: { margin: 0 } }, o(
     n,
-    m ? "readyTitle" : C ? "repairTitle" : B ? "awaitingTitle" : "installTitle"
-  ))), /* @__PURE__ */ e.createElement("div", { style: t.statusCopy }, C ? o(n, "repairDescription") : m ? o(n, "readyDescription", {
+    m ? "readyTitle" : S ? "repairTitle" : B ? "awaitingTitle" : "installTitle"
+  ))), /* @__PURE__ */ e.createElement("div", { style: t.statusCopy }, S ? o(n, "repairDescription") : m ? o(n, "readyDescription", {
     version: (i == null ? void 0 : i.extension_version) || o(n, "versionUnknown"),
     connectedSince: me(
       i == null ? void 0 : i.connected_since,
@@ -991,11 +991,11 @@ function Ee() {
       onClick: () => void K()
     },
     o(n, "openChrome")
-  )) : C ? /* @__PURE__ */ e.createElement(
+  )) : S ? /* @__PURE__ */ e.createElement(
     u,
     {
       type: "primary",
-      loading: M,
+      loading: A,
       onClick: () => void b({ refresh: !0 })
     },
     o(n, "repairBrowserConnector")
@@ -1007,23 +1007,23 @@ function Ee() {
       onClick: () => void x()
     },
     o(n, "installedRefresh")
-  ))), D ? /* @__PURE__ */ e.createElement(
-    U,
+  ))), L ? /* @__PURE__ */ e.createElement(
+    F,
     {
       showIcon: !0,
       type: "error",
-      message: D,
+      message: L,
       style: { marginTop: 16 }
     }
-  ) : null, C && (r != null && r.native_host_repair_instruction) ? /* @__PURE__ */ e.createElement(
-    U,
+  ) : null, S && (r != null && r.native_host_repair_instruction) ? /* @__PURE__ */ e.createElement(
+    F,
     {
       showIcon: !0,
       type: "error",
       message: r == null ? void 0 : r.native_host_repair_instruction,
       style: { marginTop: 16 }
     }
-  ) : null, m ? /* @__PURE__ */ e.createElement("div", { style: t.section }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "checksTitle")), (H = p == null ? void 0 : p.checks) != null && H.length ? /* @__PURE__ */ e.createElement("div", { style: t.checkGrid }, p.checks.filter((a) => a.name !== "semantic_control").map((a) => {
+  ) : null, m ? /* @__PURE__ */ e.createElement("div", { style: t.section }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "checksTitle")), (W = p == null ? void 0 : p.checks) != null && W.length ? /* @__PURE__ */ e.createElement("div", { style: t.checkGrid }, p.checks.filter((a) => a.name !== "semantic_control").map((a) => {
     const s = ge(a);
     return /* @__PURE__ */ e.createElement("div", { key: a.name, style: t.checkTile }, /* @__PURE__ */ e.createElement("div", { style: t.checkTitle }, /* @__PURE__ */ e.createElement(O, { ready: !s }), /* @__PURE__ */ e.createElement(d, { strong: !0 }, ye(n, a.name))), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, s ? `${a.message} ${ue(
       n,
@@ -1035,7 +1035,7 @@ function Ee() {
       type: "primary",
       onClick: () => void P()
     },
-    /* @__PURE__ */ e.createElement(z, { name: "copy" }),
+    /* @__PURE__ */ e.createElement(G, { name: "copy" }),
     o(n, "copyChromeExtensionsPage")
   )), /* @__PURE__ */ e.createElement("div", { style: t.disabledTile, "aria-disabled": "true" }, /* @__PURE__ */ e.createElement("div", { style: t.methodHeader }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "chromeWebStoreTitle")), /* @__PURE__ */ e.createElement("span", { style: t.badge }, o(n, "comingSoon"))), /* @__PURE__ */ e.createElement(d, { type: "secondary" }, o(n, "chromeWebStoreDescription")), /* @__PURE__ */ e.createElement(u, { disabled: !0 }, o(n, "comingSoon"))))), /* @__PURE__ */ e.createElement("div", { style: t.section }, /* @__PURE__ */ e.createElement("div", { style: t.installSupportGrid }, /* @__PURE__ */ e.createElement("div", { style: t.installBox }, /* @__PURE__ */ e.createElement("div", { style: t.installBoxHead }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "localStepsTitle")), /* @__PURE__ */ e.createElement("span", { style: t.installBoxNote }, o(n, "localStepsOnce"))), /* @__PURE__ */ e.createElement("ol", { style: t.steps }, /* @__PURE__ */ e.createElement("li", { style: t.stepItem }, /* @__PURE__ */ e.createElement("span", { style: t.stepIndex }, "1"), /* @__PURE__ */ e.createElement("div", { style: t.stepBody }, /* @__PURE__ */ e.createElement(d, { strong: !0 }, o(n, "openExtensionsStepTitle")), /* @__PURE__ */ e.createElement("div", { style: t.stepLine }, o(n, "openExtensionsPrefix"), /* @__PURE__ */ e.createElement(
     _,
@@ -1074,10 +1074,10 @@ function Ee() {
       "button",
       {
         key: a,
-        onClick: () => V(a),
+        onClick: () => Q(a),
         style: {
           ...t.osTab,
-          ...A === a ? t.osTabActive : null
+          ...N === a ? t.osTabActive : null
         },
         type: "button"
       },
@@ -1087,29 +1087,29 @@ function Ee() {
       {
         icon: "copy",
         label: o(n, "qwenpawExtensionPath"),
-        loading: M,
+        loading: A,
         onClick: () => void q(),
         tone: "blue",
         iconOnly: !0
       }
-    ), /* @__PURE__ */ e.createElement("span", null, o(n, "shortcutCopyPathSuffix")))), Y[A].map(
+    ), /* @__PURE__ */ e.createElement("span", null, o(n, "shortcutCopyPathSuffix")))), Y[N].map(
       (a, s) => /* @__PURE__ */ e.createElement("li", { key: a, style: t.shortcutStep }, /* @__PURE__ */ e.createElement("span", { style: t.tipDot }, s + 2), /* @__PURE__ */ e.createElement("span", null, o(n, a)))
     )))
   )))), /* @__PURE__ */ e.createElement(
     fe,
     {
       locale: n,
-      onCopy: (a) => void w(a),
+      onCopy: (a) => void C(a),
       status: r
     }
   )), E && !r ? /* @__PURE__ */ e.createElement(te, null) : null));
 }
-var Q, $;
-($ = (Q = window.QwenPaw).registerRoutes) == null || $.call(Q, "chrome", [
+var $, j;
+(j = ($ = window.QwenPaw).registerRoutes) == null || j.call($, "chrome", [
   {
     path: "/plugin/chrome",
     component: Ee,
-    label: o(j(), "routeLabel"),
+    label: o(z(), "routeLabel"),
     icon: /* @__PURE__ */ e.createElement(ie, null),
     priority: 40
   }
