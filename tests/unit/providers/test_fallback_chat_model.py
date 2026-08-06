@@ -178,7 +178,9 @@ class TestFallbackChatModel:
         with pytest.raises(ModelFallbackError):
             await fallback()
 
-    async def test_non_eligible_error_raises_immediately(self, primary_candidate):
+    async def test_non_eligible_error_raises_immediately(
+        self, primary_candidate
+    ):
         """Non-eligible errors (e.g. context overflow) are not caught."""
         exc = Exception("context overflow")
         primary_candidate.model.side_effect = exc
