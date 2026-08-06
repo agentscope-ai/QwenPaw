@@ -69,6 +69,7 @@ SEL_INPUT = '[data-testid="qwenpaw-chat-input"]'
 SEL_SEND_BTN = "button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary"
 SEL_USER_BUBBLE = ".qwenpaw-bubble.qwenpaw-bubble-end"
 SEL_AI_BUBBLE = ".qwenpaw-bubble.qwenpaw-bubble-start"
+SEL_TOUR_NEXT = "button.qwenpaw-tour-next-btn"
 
 
 # =============================================================================
@@ -521,14 +522,31 @@ class PlaywrightDriver(UIDriver):
             except Exception:  # noqa: BLE001
                 pass
 
+    def _dismiss_open_tour(self) -> None:
+        """Complete any active product tour before driving the chat UI."""
+        dismissed_steps = 0
+        for _ in range(10):
+            next_button = self._page.locator(SEL_TOUR_NEXT).first
+            if not next_button.is_visible():
+                break
+            next_button.click(timeout=5_000)
+            dismissed_steps += 1
+            time.sleep(0.2)
+
+        if self._page.locator(SEL_TOUR_NEXT).first.is_visible():
+            raise RuntimeError("Product tour did not close after 10 steps")
+        if dismissed_steps:
+            print(f"INFO  dismissed product tour ({dismissed_steps} step(s))")
+
     def chat_one_round(self, message: str, timeout: int) -> str:
+        self._dismiss_open_tour()
         self._wait_previous_round_idle()
 
         ai_count_before = self._page.locator(SEL_AI_BUBBLE).count()
         user_count_before = self._page.locator(SEL_USER_BUBBLE).count()
 
         # Defensive input flow borrowed from e2e/pages/chat_page.py:
-        # focus the textarea, clear any leftover text, fill the new
+        # focus the chat input, clear any leftover text, fill the new
         # message, then click send (or fall back to Enter).
         input_box = self._page.locator(SEL_INPUT).first
         input_box.click()
