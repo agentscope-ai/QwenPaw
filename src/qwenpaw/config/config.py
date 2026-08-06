@@ -2791,8 +2791,26 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                 return cached_config
 
         # Need to reload config from disk
-        with open(agent_config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(agent_config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except UnicodeDecodeError as e:
+            raise ConfigurationException(
+                config_key="agent",
+                message=(
+                    f"Agent '{agent_id}' configuration file is corrupted "
+                    f"(invalid UTF-8 encoding). Path: {agent_config_path}. "
+                    f"Please repair or delete it. Error: {e}"
+                ),
+            ) from e
+        except json.JSONDecodeError as e:
+            raise ConfigurationException(
+                config_key="agent",
+                message=(
+                    f"Agent '{agent_id}' configuration file contains "
+                    f"invalid JSON. Path: {agent_config_path}. Error: {e}"
+                ),
+            ) from e
 
         project_dir_migrated = migrate_project_directory_config(data)
 
