@@ -20,10 +20,7 @@ import type { MarkdownFile, DailyMemoryFile } from "../../../api/types";
 export default function WorkspacePage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const { agents, selectedAgent } = useAgentStore();
-  const selectedWorkspacePath = agents.find(
-    (agent) => agent.id === selectedAgent,
-  )?.workspace_dir;
+  const { selectedAgent } = useAgentStore();
   const {
     files,
     selectedFile,
