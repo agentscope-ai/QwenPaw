@@ -33,7 +33,11 @@ except ImportError:
 
 from qwenpaw.agents import model_factory
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
-from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
+from qwenpaw.providers.capping_formatter import (
+    _CappingAnthropicFormatter,
+    _CappingGeminiFormatter,
+    _CappingOpenAIFormatter,
+)
 from qwenpaw.utils.tool_call_extra import persist_tool_call_extras
 
 
@@ -893,6 +897,85 @@ async def test_openai_formatter_uses_prepared_local_video(
     assert video_items[0]["video_url"]["url"].startswith(
         "data:video/mp4;base64,",
     )
+
+
+@pytest.mark.asyncio
+async def test_anthropic_hint_uses_prepared_local_video(tmp_path) -> None:
+    """Anthropic must preserve local videos nested in a HintBlock."""
+    if AnthropicChatFormatter is None:
+        pytest.skip("AnthropicChatFormatter not available")
+
+    video_path = tmp_path / "hint-clip.mp4"
+    video_path.write_bytes(b"video")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            HintBlock(
+                hint=[
+                    _data_block("video/mp4", f"file://{video_path}"),
+                ],
+            ),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    video_items = [
+        item
+        for message in formatted
+        for item in message.get("content") or []
+        if isinstance(item, dict) and item.get("type") == "video"
+    ]
+    assert len(video_items) == 1
+    assert video_items[0]["source"]["type"] == "base64"
+    assert video_items[0]["source"]["data"] == "dmlkZW8="
+
+
+@pytest.mark.asyncio
+async def test_gemini_formatter_skips_local_video_preparation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Gemini must not perform the unused worker-thread media pre-read."""
+    if GeminiChatFormatter is None:
+        pytest.skip("GeminiChatFormatter not available")
+
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+
+    def unexpected_reader(path: str):
+        raise AssertionError(f"unexpected worker-thread read: {path}")
+
+    monkeypatch.setattr(
+        model_factory,
+        "_read_local_media",
+        unexpected_reader,
+    )
+    video_path = tmp_path / "gemini-clip.mp4"
+    video_path.write_bytes(b"video")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingGeminiFormatter,
+    )
+    formatter = formatter_class()
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[
+            _data_block("video/mp4", f"file://{video_path}"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assert formatted[0]["parts"][0]["inline_data"]["data"] == "dmlkZW8="
 
 
 @pytest.mark.asyncio

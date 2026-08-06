@@ -238,7 +238,7 @@ def _collect_local_video_paths(
     items: list,
     paths: set[str],
 ) -> None:
-    """Collect local video paths, including nested tool results."""
+    """Collect local video paths from nested tool results and hints."""
     for block in items:
         url = _video_source_url(block)
         if url:
@@ -251,15 +251,21 @@ def _collect_local_video_paths(
             if isinstance(block, dict)
             else getattr(block, "type", None)
         )
-        if block_type != "tool_result":
-            continue
-        output = (
-            block.get("output")
-            if isinstance(block, dict)
-            else getattr(block, "output", None)
-        )
-        if isinstance(output, list):
-            _collect_local_video_paths(output, paths)
+        nested = None
+        if block_type == "tool_result":
+            nested = (
+                block.get("output")
+                if isinstance(block, dict)
+                else getattr(block, "output", None)
+            )
+        elif block_type == "hint":
+            nested = (
+                block.get("hint")
+                if isinstance(block, dict)
+                else getattr(block, "hint", None)
+            )
+        if isinstance(nested, list):
+            _collect_local_video_paths(nested, paths)
 
 
 async def _prepare_local_media_cache(
@@ -1283,7 +1289,11 @@ def _create_file_block_support_formatter(
             if fixup_tasks:
                 await asyncio.gather(*fixup_tasks)
 
-            media_cache = await _prepare_local_media_cache(normalized_msgs)
+            media_cache = (
+                {}
+                if _is_gemini_formatter
+                else await _prepare_local_media_cache(normalized_msgs)
+            )
             media_cache_token = _LOCAL_MEDIA_CACHE.set(media_cache)
             try:
                 # OpenAI-family formatters reject video blocks; substitute
