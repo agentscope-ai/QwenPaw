@@ -446,7 +446,7 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 | **Horizontal Expansion** | More channels, models, skills, MCPs — **community contributions welcome**                  | Seeking Contributors |
 | **Existing Feature Extension** | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
 | **Models**               | Multi-model switching                                                                         | In Progress          |
-| **Browser-use**   | [Support Chrome extension](https://qwenpaw.agentscope.io/docs/chrome)                 | Released          |
+| **Browser-use**   | Support Chrome extension                                                             | In Progress          |
 | **Long-term Memory**   | Personal knowledge base                                                             | In Progress          |
 | **QwenPaw Application**   | QwenPaw Creator                                                             | In Progress          |
 |                          | QwenPaw Insight                                           | In Progress              |
@@ -454,7 +454,7 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 |          | Group chat                                                                                   | Planned              |
 |                          | Subagent visualization                                                                                 | Planned              |
 
-_Status:_ **Released** — available in a stable release; **In Progress** — actively being worked on; **Planned** — queued or under design, also welcome contributions; **Seeking Contributors** — we strongly encourage community contributions.
+_Status:_ **In Progress** — actively being worked on; **Planned** — queued or under design, also welcome contributions; **Seeking Contributors** — we strongly encourage community contributions.
 
 ---
 

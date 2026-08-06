@@ -7,7 +7,7 @@
 | **Horizontal Expansion**       | More channels, models, skills, MCPs — **community contributions welcome**                                    | Seeking Contributors |
 | **Existing Feature Extension** | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
 | **Models**                     | Multi-model switching                                                                                        | In Progress          |
-| **Browser-use**                | [Support Chrome extension](./chrome)                                                                         | Released             |
+| **Browser-use**                | Support Chrome extension                                                                                     | In Progress          |
 | **Long-term Memory**           | Personal knowledge base                                                                                      | In Progress          |
 | **QwenPaw Application**        | QwenPaw Creator                                                                                              | In Progress          |
 |                                | QwenPaw Insight                                                                                              | In Progress          |
@@ -15,7 +15,7 @@
 |                                | Group chat                                                                                                   | Planned              |
 |                                | Subagent visualization                                                                                       | Planned              |
 
-_Status:_ _Released_ — available in a stable release; _In Progress_ — actively being worked on; _Planned_ — queued or under design, also welcome contributions; _Seeking Contributors_ — we strongly encourage community contributions.
+_Status:_ _In Progress_ — actively being worked on; _Planned_ — queued or under design, also welcome contributions; _Seeking Contributors_ — we strongly encourage community contributions.
 
 ---
 
