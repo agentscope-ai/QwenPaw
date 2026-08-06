@@ -7,7 +7,7 @@
  */
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@agentscope-ai/chat", () => ({
   Attachments: {
@@ -27,10 +27,6 @@ vi.mock("react-i18next", () => ({
     t: (key: string, opts?: { defaultValue?: string }) =>
       opts && "defaultValue" in opts ? opts.defaultValue ?? "" : key,
   }),
-}));
-
-vi.mock("../../../../utils/openExternalLink", () => ({
-  openExternalLink: vi.fn(),
 }));
 
 import MediaPreview from "./MediaPreview";
@@ -109,5 +105,27 @@ describe("MediaPreview error state", () => {
       ).not.toBeInTheDocument();
     });
     expect(screen.getByTestId("file-card")).toBeInTheDocument();
+  });
+
+  it("opens a file card in Preview without downloading it", async () => {
+    mockFetchByUrl({ "/api/files/preview/hello.txt": 200 });
+    const onFileOpen = vi.fn();
+
+    render(
+      <MediaPreview
+        media={{
+          url: "/api/files/preview/hello.txt",
+          name: "hello.txt",
+          type: "file",
+        }}
+        onFileOpen={onFileOpen}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("file-card")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("file-card"));
+    expect(onFileOpen).toHaveBeenCalledTimes(1);
   });
 });

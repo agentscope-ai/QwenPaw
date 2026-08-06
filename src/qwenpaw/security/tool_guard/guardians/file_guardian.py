@@ -13,7 +13,10 @@ import uuid
 from pathlib import Path
 from typing import Any, Iterable
 
-from ....config.context import get_current_workspace_dir
+from ....config.context import (
+    get_current_project_dir,
+    get_current_workspace_dir,
+)
 from ....constant import SECRET_DIR, WORKING_DIR
 from ..models import GuardFinding, GuardSeverity, GuardThreatCategory
 from . import BaseToolGuardian
@@ -74,8 +77,12 @@ _REDIRECT_OPS_BY_LEN = tuple(
 
 
 def _workspace_root() -> Path:
-    """Return current workspace root for resolving relative paths."""
-    return Path(get_current_workspace_dir() or WORKING_DIR)
+    """Return the effective project root for resolving relative paths."""
+    return Path(
+        get_current_project_dir()
+        or get_current_workspace_dir()
+        or WORKING_DIR,
+    )
 
 
 # Windows path recognition helpers --------------------------------------------

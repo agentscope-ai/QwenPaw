@@ -34,10 +34,9 @@ import {
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../stores/sessionListStore";
-import { useCodingMode } from "../stores/codingModeStore";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
+import { buildChatPath, getSessionIdFromPath } from "../utils/sessionRoute";
 import { useAgentStore } from "../stores/agentStore";
-import { buildSessionPath, getSessionIdFromPath } from "../utils/sessionRoute";
 import sessionApi from "../pages/Chat/sessionApi";
 import { useInboxWobble } from "../hooks/useInboxWobble";
 import styles from "./index.module.less";
@@ -79,6 +78,7 @@ const INBOX_BADGE_POLLING_MS = 6000;
 
 /** Menu item IDs that remain visible in simple sidebar mode (no groups). */
 const SIMPLE_MODE_WHITELIST = new Set([
+  "core.files",
   "core.inbox",
   "core.app-center",
   "core.cron-jobs",
@@ -123,14 +123,8 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
-  // When coding mode is on, the sidebar "Chat" entry should land on /coding
-  // (FileTree + Editor + Chat panel) rather than the bare Chat page.
-  const { codingMode } = useCodingMode();
   const currentSessionId = getSessionIdFromPath(location.pathname);
-  const chatPath = buildSessionPath(
-    codingMode ? "coding" : "chat",
-    currentSessionId,
-  );
+  const chatPath = buildChatPath(currentSessionId);
   const [authEnabled, setAuthEnabled] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
@@ -458,31 +452,26 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
    * the chat page will auto-create a new session on mount.
    */
   const handleNewChat = useCallback(() => {
-    const onChatPage =
-      location.pathname.startsWith("/chat") ||
-      location.pathname.startsWith("/coding");
+    const onChatPage = location.pathname.startsWith("/chat");
     if (onChatPage) {
       window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
     } else {
       sessionStorage.setItem("qwenpaw_pending_new_chat", "1");
-      const mode = codingMode ? "coding" : "chat";
-      navigate(`/${mode}`);
+      navigate("/chat");
     }
-  }, [location.pathname, navigate, codingMode]);
+  }, [location.pathname, navigate]);
 
   /**
    * Session click: navigate directly without relying on ChatSessionInitializer.
-   * buildSessionPath handles coding-mode paths.
    * Resolve realId (backend UUID) to avoid exposing local timestamp in URL.
    */
   const handleSidebarSessionClick = useCallback(
     (sessionId: string) => {
-      const mode = codingMode ? "coding" : "chat";
       const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
-      const targetPath = buildSessionPath(mode, effectiveId);
+      const targetPath = buildChatPath(effectiveId);
       navigate(targetPath);
     },
-    [codingMode, navigate],
+    [navigate],
   );
 
   const handleUpdateProfile = async (values: {
@@ -541,9 +530,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   // ── Render ────────────────────────────────────────────────────────────────
 
   const siderWidth = collapsed ? (isMobile ? 56 : 72) : 240;
-  // Sticky chat is active when on /chat* or /coding routes.
-  const isChatActive =
-    selectedKey === "core.chat" || selectedKey === "core.coding";
+  const isChatActive = selectedKey === "core.chat";
   // `renderIcon` retained for tree-shaking awareness.
   void renderIcon;
 
@@ -585,11 +572,13 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                       ? ` ${styles.inboxShake}`
                       : ""
                   }`}
-                  onClick={() =>
-                    item.href
-                      ? window.open(item.href, "_blank", "noopener,noreferrer")
-                      : navigate(item.path)
-                  }
+                  onClick={() => {
+                    if (item.href) {
+                      window.open(item.href, "_blank", "noopener,noreferrer");
+                    } else {
+                      navigate(item.path);
+                    }
+                  }}
                   onMouseEnter={
                     item.key === "core.inbox" ? handleInboxHover : undefined
                   }
@@ -621,15 +610,17 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                       isInbox && effectiveShake ? ` ${styles.inboxShake}` : ""
                     }`}
                     onMouseEnter={isInbox ? handleInboxHover : undefined}
-                    onClick={() =>
-                      entry.href
-                        ? window.open(
-                            entry.href,
-                            "_blank",
-                            "noopener,noreferrer",
-                          )
-                        : navigate(entry.path)
-                    }
+                    onClick={() => {
+                      if (entry.href) {
+                        window.open(
+                          entry.href,
+                          "_blank",
+                          "noopener,noreferrer",
+                        );
+                      } else {
+                        navigate(entry.path);
+                      }
+                    }}
                   >
                     {isInbox ? (
                       <span

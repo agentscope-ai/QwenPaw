@@ -21,6 +21,7 @@ from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
 from ...config.context import (
+    get_current_project_dir,
     get_current_shell_command_executable,
     get_current_shell_command_timeout,
     get_current_workspace_dir,
@@ -28,6 +29,7 @@ from ...config.context import (
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 from ...sandbox import ExecutionResult
+from ...sandbox.config import SandboxConfig
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -784,11 +786,14 @@ async def execute_shell_command(
         if configured is not None:
             timeout = configured
 
-    # Use current workspace_dir from context, fallback to WORKING_DIR
     if cwd is not None:
         working_dir = cwd
     else:
-        working_dir = get_current_workspace_dir() or WORKING_DIR
+        working_dir = (
+            get_current_project_dir()
+            or get_current_workspace_dir()
+            or WORKING_DIR
+        )
 
     # Ensure the venv Python is on PATH for subprocesses
     env = os.environ.copy()
@@ -798,6 +803,12 @@ async def execute_shell_command(
         env["PATH"] = python_bin_dir + os.pathsep + existing_path
     else:
         env["PATH"] = python_bin_dir
+
+    if sandbox_config is not None and not isinstance(
+        sandbox_config,
+        SandboxConfig,
+    ):
+        sandbox_config = None
 
     if sandbox_config is not None:
         # Create a copy with resolved shell and timeout to avoid mutating
