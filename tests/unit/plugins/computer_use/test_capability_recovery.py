@@ -94,34 +94,6 @@ def test_invalidating_an_endpoint_already_replaced_keeps_the_new_one(
     assert held.names_same_endpoint(_capability("pipe-new"))
 
 
-def test_restart_names_the_old_endpoint_and_preserves_a_new_capability(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    requests: list[dict[str, object]] = []
-
-    def request_control(
-        _control: object,
-        request: dict[str, object],
-    ) -> dict[str, bool]:
-        requests.append(request)
-        return {"ok": True}
-
-    monkeypatch.setattr(runtime_module, "_control_endpoint", object)
-    monkeypatch.setattr(
-        runtime_module,
-        "_request_control",
-        request_control,
-    )
-    replacement = _capability("pipe-new")
-    monkeypatch.setattr(HostRuntimeProvider, "_capability", replacement)
-
-    assert HostRuntimeProvider.restart_if_current(_capability("pipe-old"))
-    assert requests == [
-        {"action": "restart_if_current", "endpoint": "pipe-old"},
-    ]
-    assert HostRuntimeProvider.get_capability() is replacement
-
-
 def test_a_spent_environment_capability_stops_being_returned(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

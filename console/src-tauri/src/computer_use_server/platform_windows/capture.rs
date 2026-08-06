@@ -13,8 +13,8 @@ use windows::Storage::Streams::{DataReader, InMemoryRandomAccessStream};
 use windows::Win32::Foundation::HWND;
 
 use super::super::state::{
-    next_id, Observation, ServerState, WindowInfo, BMP_HEADER_BYTES, SCREENSHOT_JPEG_QUALITY,
-    SCREENSHOT_MAX_EDGE,
+    accessibility_revision, next_id, Observation, ServerState, WindowInfo, BMP_HEADER_BYTES,
+    SCREENSHOT_JPEG_QUALITY, SCREENSHOT_MAX_EDGE,
 };
 use super::uia::collect_accessibility;
 use super::wgc::{capture_window, CaptureArgs, CaptureInfo};
@@ -38,6 +38,7 @@ pub(crate) fn observe_window(
             Default::default(),
         ),
     };
+    let accessibility_revision = accessibility_revision(&accessibility);
     let (bounds, display_width, display_height, visual, screenshots) =
         capture_parts(capture, window);
     state.observations.insert(
@@ -47,6 +48,7 @@ pub(crate) fn observe_window(
             bounds,
             display_width,
             display_height,
+            accessibility_revision,
             elements,
         },
     );

@@ -110,10 +110,9 @@ class ComputerUseClient:
         # copying, guessing, or crossing it with another action while native
         # still rejects stale state at the trust boundary.
         self._observation_id: str | None = None
-        # The turn a stop applied to. Kept here rather than only in the helper
-        # because a stop drops the connection, and the helper holds that fact
-        # per connection -- a later action in the same turn would otherwise be
-        # allowed straight through on a fresh one.
+        # The turn a stop applied to. Kept client-side so requests already
+        # queued on this lock cannot cross the turn boundary after Native has
+        # released its per-connection state.
         self._stopped_turn: str | None = None
         self._lock = asyncio.Lock()
         # The loop that created the transport, its reader task and this lock.
@@ -136,12 +135,12 @@ class ComputerUseClient:
                 "turn_unavailable",
                 "Computer Use is unavailable outside an active agent turn.",
             )
-        if turn_id == self._stopped_turn:
-            raise ComputerUseProtocolError(
-                "turn_stopped",
-                "Computer Use was stopped for this turn.",
-            )
+        self._check_turn_active(turn_id)
         async with self._lock:
+            # A stop can arrive while this request is queued behind another
+            # operation. Recheck after acquiring the lock so queued work cannot
+            # cross the turn boundary and recreate a transport afterwards.
+            self._check_turn_active(turn_id, clear_previous=True)
             transport = await self._ensure_transport()
             if self._turn_id and self._turn_id != turn_id:
                 await self._end_turn(transport, self._turn_id)
@@ -160,13 +159,15 @@ class ComputerUseClient:
                         turn_id,
                         deadline_ms,
                     )
+                    self._check_turn_active(turn_id)
                     return self._accept_result(method, result)
                 except asyncio.CancelledError:
-                    # A synchronous native call may still be running after its
-                    # connection disappears. Terminate only the helper named
-                    # by this capability so cancellation cannot leave the
-                    # desktop held or affect a newer replacement.
-                    await self._restart_current_runtime()
+                    # The native operation may already have changed the
+                    # desktop. Stop this turn and abandon only its connection;
+                    # the shared helper lets the bounded operation finish and
+                    # remains available to other sessions.
+                    self._stopped_turn = turn_id
+                    await self._discard_transport()
                     raise
                 except ComputerUseProtocolError as error:
                     if error.code in {
@@ -176,7 +177,9 @@ class ComputerUseClient:
                     }:
                         self._observation_id = None
                     if error.code == "request_timeout":
-                        await self._restart_current_runtime()
+                        if method not in _READ_ONLY_METHODS:
+                            self._stopped_turn = turn_id
+                        await self._discard_transport()
                     elif error.code in _BROKEN_TRANSPORT_ERRORS:
                         await self._discard_transport()
                     if error.code in _DEAD_ENDPOINT_ERRORS:
@@ -195,6 +198,22 @@ class ComputerUseClient:
             "runtime_unavailable",
             "Computer Use native runtime is unavailable.",
         )
+
+    def _check_turn_active(
+        self,
+        turn_id: str,
+        *,
+        clear_previous: bool = False,
+    ) -> None:
+        """Reject the stopped turn and optionally retire an older marker."""
+        if turn_id == self._stopped_turn:
+            self._observation_id = None
+            raise ComputerUseProtocolError(
+                "turn_stopped",
+                "Computer Use was stopped for this turn.",
+            )
+        if clear_previous:
+            self._stopped_turn = None
 
     def _native_params(
         self,
@@ -218,7 +237,7 @@ class ComputerUseClient:
         method: str,
         result: Mapping[str, Any],
     ) -> dict[str, Any]:
-        """Advance the private observation and return only model-facing data."""
+        """Advance the observation and return only model-facing data."""
         public_result = dict(result)
         observation_id = public_result.pop("observation_id", None)
         if method == "observe_window" or method in _OBSERVED_METHODS:
@@ -280,28 +299,23 @@ class ComputerUseClient:
         return self._transport is not None and self._turn_id is not None
 
     async def stop_turn(self) -> bool:
-        """Tell Native to stop this session's active turn immediately."""
+        """Stop this session's active turn without affecting other clients."""
         return await self._on_owner_loop(self._stop_turn_here)
 
     async def _stop_turn_here(self) -> bool:
-        """Stop the active turn, on the loop that owns the transport.
-
-        Deliberately takes no lock. An action holds ``_lock`` for its whole
-        round trip, and that round trip may be waiting on a person answering an
-        approval prompt -- so a stop that queued behind it could not arrive
-        until the thing it was meant to interrupt had finished.
-
-        Signal first, then reap. Recording the stop and dropping the connection
-        ends the caller's wait at once. The desktop host then terminates only
-        the helper instance named by this client's capability; a synchronous
-        accessibility call cannot otherwise be interrupted reliably.
-        """
+        """Stop this turn after any already-dispatched operation settles."""
         turn_id = self._turn_id
         if self._transport is None or not turn_id:
             return False
+        # Mark before waiting: requests already queued on the lock will see the
+        # marker when they acquire it and must not reach the native connection.
         self._stopped_turn = turn_id
         self._observation_id = None
-        await self._restart_current_runtime()
+        async with self._lock:
+            transport = self._transport
+            if transport is not None and self._turn_id == turn_id:
+                await self._end_turn(transport, turn_id)
+                self._turn_id = None
         return True
 
     async def close(self) -> None:
@@ -319,14 +333,15 @@ class ComputerUseClient:
         return await self._on_owner_loop(self._end_turn_here)
 
     async def _end_turn_here(self) -> bool:
-        transport = self._transport
-        turn_id = self._turn_id
-        if transport is None or not turn_id:
-            return False
-        self._turn_id = None
-        self._observation_id = None
-        await self._end_turn(transport, turn_id)
-        return True
+        async with self._lock:
+            transport = self._transport
+            turn_id = self._turn_id
+            if transport is None or not turn_id:
+                return False
+            self._turn_id = None
+            self._observation_id = None
+            await self._end_turn(transport, turn_id)
+            return True
 
     @property
     def owner_loop(self) -> asyncio.AbstractEventLoop | None:
@@ -490,23 +505,6 @@ class ComputerUseClient:
             # Closing a broken pipe can raise transport errors; ignore them so
             # the caller can re-raise its own original failure.
             pass
-
-    async def _restart_current_runtime(self) -> None:
-        """Drop this connection and terminate its exact native helper."""
-        capability = self._capability
-        await self._discard_transport()
-        if capability is None:
-            return
-        try:
-            await asyncio.to_thread(
-                HostRuntimeProvider.restart_if_current,
-                capability,
-            )
-        finally:
-            # Also clear a capability when the host could not be reached. It is
-            # unsafe to reconnect to an endpoint whose in-flight mutation has
-            # an unknown outcome.
-            self._forget_capability()
 
 
 _clients: dict[str, ComputerUseClient] = {}

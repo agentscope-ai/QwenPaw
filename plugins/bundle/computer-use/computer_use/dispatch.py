@@ -12,7 +12,7 @@ import json
 import logging
 import threading
 import time
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 from agentscope.message import DataBlock, TextBlock, ToolResultState, URLSource
 from agentscope.tool import ToolChunk
@@ -28,7 +28,25 @@ _MAX_ACTIONS_PER_MINUTE = 60
 _action_times: list[float] = []
 _rate_limit_lock = threading.Lock()
 _SCREENSHOT_URL_PLACEHOLDER = "<image delivered as a separate attachment>"
-_TERMINAL_PROTOCOL_ERRORS = frozenset({"stale_observation"})
+
+ComputerUseAction = Literal[
+    "list_apps",
+    "list_windows",
+    "observe_window",
+    "launch_app",
+    "close_window",
+    "click",
+    "double_click",
+    "right_click",
+    "scroll",
+    "drag",
+    "type",
+    "press_key",
+    "invoke",
+    "set_value",
+    "wait",
+    "stop",
+]
 
 
 def _check_rate_limit() -> None:
@@ -193,7 +211,7 @@ def _error(code: str, message: str) -> ToolChunk:
     requires_skills=("computer_use",),
 )
 async def computer_use(
-    action: str,
+    action: ComputerUseAction,
     app: str = "",
     window_id: str = "",
     element_id: str = "",
@@ -278,16 +296,6 @@ async def computer_use(
             include_images=include_images or bool(result.get("screenshots")),
         )
     except ComputerUseProtocolError as error:
-        if error.code in _TERMINAL_PROTOCOL_ERRORS:
-            try:
-                await get_computer_use_client().stop_turn()
-            except Exception:  # noqa: BLE001 - preserve the original error
-                _LOGGER.warning(
-                    "Failed to stop Computer Use after terminal protocol "
-                    "error %s",
-                    error.code,
-                    exc_info=True,
-                )
         return _error(error.code, str(error))
     except ValueError as error:
         return _error("invalid_request", str(error))

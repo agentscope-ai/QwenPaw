@@ -31,9 +31,6 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
-#[cfg(target_os = "macos")]
-use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
-
 use crate::computer_use_protocol::VERSION as PROTOCOL_VERSION;
 
 #[cfg(windows)]
@@ -55,7 +52,8 @@ const CONTROL_MAX_MESSAGE_BYTES: usize = 4096;
 const HELPER_READY_PREFIX: &str = "QWENPAW_COMPUTER_USE_READY ";
 const HELPER_READY_TIMEOUT: Duration = Duration::from_secs(8);
 #[cfg(target_os = "macos")]
-const FOCUS_LEASE_TIMEOUT: Duration = Duration::from_secs(12);
+const FOCUS_LEASE_IDLE_TIMEOUT: Duration = Duration::from_secs(12);
+const CONTROL_CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 const MAX_CAPTURED_HELPER_STDERR_CHARS: usize = 4096;
 
@@ -85,8 +83,6 @@ struct RuntimeInner {
 struct FocusLease {
     id: String,
     helper_pid: u32,
-    target_pid: i32,
-    previous_frontmost_pid: Option<i32>,
     host_was_visible: bool,
     expires_at: Instant,
 }
@@ -108,8 +104,6 @@ struct ControlEndpoint {
 struct ControlRequest {
     token: String,
     action: String,
-    #[serde(default)]
-    endpoint: Option<String>,
     #[serde(default)]
     helper_pid: Option<u32>,
     #[serde(default)]
@@ -233,7 +227,7 @@ pub(crate) fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
                 inner.helper_pid.take();
                 #[cfg(target_os = "macos")]
                 if let Some(lease) = inner.focus_lease.take() {
-                    restore_focus_lease(app, lease);
+                    release_focus_lease(app, lease);
                 }
             }
             Err(error) => {
@@ -747,28 +741,18 @@ pub(crate) fn stop(app: &tauri::AppHandle) {
             log::warn!("[computer-use] control endpoint stopped unexpectedly");
         }
     }
-    if let Err(error) = stop_helper(app, None) {
+    if let Err(error) = stop_helper(app) {
         log::warn!("[computer-use] failed to stop helper: {error}");
     }
 }
 
-/// Terminate the currently managed helper, optionally only when it still owns
-/// the endpoint named by a caller. The endpoint comparison prevents a delayed
-/// stop from killing a replacement process that belongs to a newer turn.
-fn stop_helper(app: &tauri::AppHandle, expected_endpoint: Option<&str>) -> Result<bool, String> {
+/// Terminate the managed helper as part of desktop-host shutdown.
+fn stop_helper(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<ComputerUseRuntimeState>();
     let mut inner = state
         .inner
         .lock()
         .map_err(|_| "computer use runtime state poisoned")?;
-    if expected_endpoint.is_some_and(|expected| {
-        inner
-            .capability
-            .as_ref()
-            .is_none_or(|capability| capability.pipe_name != expected)
-    }) {
-        return Ok(false);
-    }
     let child = inner.child.take();
     let capability = inner.capability.take();
     let helper_pid = inner.helper_pid.take();
@@ -778,7 +762,7 @@ fn stop_helper(app: &tauri::AppHandle, expected_endpoint: Option<&str>) -> Resul
 
     #[cfg(target_os = "macos")]
     if let Some(lease) = focus_lease {
-        restore_focus_lease(app, lease);
+        release_focus_lease(app, lease);
     }
 
     if let Some(mut child) = child {
@@ -787,7 +771,7 @@ fn stop_helper(app: &tauri::AppHandle, expected_endpoint: Option<&str>) -> Resul
     if let Some(capability) = capability {
         cleanup_endpoint(&capability.pipe_name);
     }
-    Ok(true)
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -975,17 +959,10 @@ fn cleanup_endpoint(endpoint: &str) {
 }
 
 #[cfg(target_os = "macos")]
-fn frontmost_pid() -> Option<i32> {
-    NSWorkspace::sharedWorkspace()
-        .frontmostApplication()
-        .map(|application| application.processIdentifier())
-}
-
-#[cfg(target_os = "macos")]
 fn begin_focus_lease(
     app: &tauri::AppHandle,
     helper_pid: u32,
-    target_pid: i32,
+    _target_pid: i32,
 ) -> Result<String, &'static str> {
     expire_focus_lease(app);
     let state = app.state::<ComputerUseRuntimeState>();
@@ -994,24 +971,27 @@ fn begin_focus_lease(
         if inner.helper_pid != Some(helper_pid) || inner.child.is_none() {
             return Err("stale_helper");
         }
-        inner.focus_lease.take()
+        if inner
+            .focus_lease
+            .as_ref()
+            .is_some_and(|lease| lease.helper_pid != helper_pid)
+        {
+            inner.focus_lease.take()
+        } else {
+            None
+        }
     };
     if let Some(lease) = stale_lease {
-        // The helper serializes all desktop mutations before asking for a
-        // lease, so a second request from the current helper cannot overlap
-        // the action that owned this one. Recover a release message that was
-        // lost or timed out instead of stalling the rest of the turn.
-        log::warn!("[computer-use] recovering unreleased foreground lease");
-        restore_focus_lease(app, lease);
+        log::warn!("[computer-use] releasing a stale foreground lease");
+        release_focus_lease(app, lease);
     }
 
-    let previous_frontmost_pid = frontmost_pid();
     let window = app.get_webview_window("main");
-    let host_was_visible = window
+    let host_is_visible = window
         .as_ref()
         .and_then(|window| window.is_visible().ok())
         .unwrap_or(false);
-    if host_was_visible {
+    if host_is_visible {
         window
             .as_ref()
             .ok_or("runtime_unavailable")?
@@ -1020,7 +1000,7 @@ fn begin_focus_lease(
     }
 
     let restore_uncommitted_host = || {
-        if !host_was_visible {
+        if !host_is_visible {
             return;
         }
         let Some(window) = window.as_ref() else {
@@ -1028,13 +1008,6 @@ fn begin_focus_lease(
         };
         if let Err(error) = window.show() {
             log::warn!("[computer-use] failed to restore host window: {error}");
-            return;
-        }
-        let host_pid = i32::try_from(std::process::id()).ok();
-        if previous_frontmost_pid == host_pid {
-            if let Err(error) = window.set_focus() {
-                log::warn!("[computer-use] failed to restore host focus: {error}");
-            }
         }
     };
     let mut inner = match state.inner.lock() {
@@ -1048,14 +1021,20 @@ fn begin_focus_lease(
             return Err("runtime_unavailable");
         }
     };
+    if let Some(lease) = inner.focus_lease.as_mut() {
+        // begin_focus is idempotent for the managed helper. Keeping one lease
+        // across adjacent actions preserves transient UI state such as an
+        // inline editor, and also makes a lost control response safe to retry.
+        lease.host_was_visible |= host_is_visible;
+        lease.expires_at = Instant::now() + FOCUS_LEASE_IDLE_TIMEOUT;
+        return Ok(lease.id.clone());
+    }
     let id = random_hex(16);
     inner.focus_lease = Some(FocusLease {
         id: id.clone(),
         helper_pid,
-        target_pid,
-        previous_frontmost_pid,
-        host_was_visible,
-        expires_at: Instant::now() + FOCUS_LEASE_TIMEOUT,
+        host_was_visible: host_is_visible,
+        expires_at: Instant::now() + FOCUS_LEASE_IDLE_TIMEOUT,
     });
     Ok(id)
 }
@@ -1067,19 +1046,17 @@ fn end_focus_lease(
     lease_id: &str,
 ) -> Result<(), &'static str> {
     let state = app.state::<ComputerUseRuntimeState>();
-    let lease = {
-        let mut inner = state.inner.lock().map_err(|_| "runtime_unavailable")?;
-        let Some(lease) = inner.focus_lease.as_ref() else {
-            return Ok(());
-        };
-        if lease.helper_pid != helper_pid || lease.id != lease_id {
-            return Err("stale_lease");
-        }
-        inner.focus_lease.take()
+    let mut inner = state.inner.lock().map_err(|_| "runtime_unavailable")?;
+    let Some(lease) = inner.focus_lease.as_mut() else {
+        return Ok(());
     };
-    if let Some(lease) = lease {
-        restore_focus_lease(app, lease);
+    if lease.helper_pid != helper_pid || lease.id != lease_id {
+        return Err("stale_lease");
     }
+    // Drop marks the end of one native action, not the end of the whole
+    // interaction. Keep the host hidden until the lease goes idle so adjacent
+    // actions preserve transient target state such as a menu or inline editor.
+    lease.expires_at = Instant::now() + FOCUS_LEASE_IDLE_TIMEOUT;
     Ok(())
 }
 
@@ -1095,60 +1072,25 @@ fn expire_focus_lease(app: &tauri::AppHandle) {
             .flatten()
     });
     if let Some(lease) = lease {
-        log::warn!("[computer-use] restoring expired foreground lease");
-        restore_focus_lease(app, lease);
+        log::debug!("[computer-use] releasing idle foreground lease");
+        release_focus_lease(app, lease);
     }
 }
 
 #[cfg(target_os = "macos")]
-fn restore_focus_lease(app: &tauri::AppHandle, lease: FocusLease) {
-    let current_frontmost_pid = frontmost_pid();
-    let host_pid = i32::try_from(std::process::id()).ok();
-    let window = app.get_webview_window("main");
+fn release_focus_lease(app: &tauri::AppHandle, lease: FocusLease) {
     if lease.host_was_visible {
-        if let Some(window) = window.as_ref() {
-            if let Err(error) = window.show() {
-                log::warn!("[computer-use] failed to restore host window: {error}");
-            }
-        }
-    }
-
-    // Do not steal focus back after the person has already switched to a
-    // third application. Restoration is only needed while the target that the
-    // helper activated still owns the foreground.
-    if !should_restore_previous_frontmost(
-        current_frontmost_pid,
-        lease.target_pid,
-        lease.previous_frontmost_pid,
-    ) {
-        return;
-    }
-    if lease.previous_frontmost_pid == host_pid {
-        if lease.host_was_visible {
-            if let Some(window) = window {
-                if let Err(error) = window.set_focus() {
-                    log::warn!("[computer-use] failed to restore host focus: {error}");
-                }
-            }
-        }
-        return;
-    }
-    if let Some(previous_pid) = lease.previous_frontmost_pid {
-        if let Some(application) =
-            NSRunningApplication::runningApplicationWithProcessIdentifier(previous_pid)
-        {
-            let _ = application.activateWithOptions(NSApplicationActivationOptions::empty());
-        }
+        show_host_window(app);
     }
 }
 
 #[cfg(target_os = "macos")]
-fn should_restore_previous_frontmost(
-    current_frontmost_pid: Option<i32>,
-    target_pid: i32,
-    previous_frontmost_pid: Option<i32>,
-) -> bool {
-    current_frontmost_pid == Some(target_pid) && previous_frontmost_pid != Some(target_pid)
+fn show_host_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        if let Err(error) = window.show() {
+            log::warn!("[computer-use] failed to restore host window: {error}");
+        }
+    }
 }
 
 fn reap_exited_helper(app: &tauri::AppHandle) {
@@ -1174,7 +1116,7 @@ fn reap_exited_helper(app: &tauri::AppHandle) {
     log::warn!("[computer-use] helper exited: {status}");
     #[cfg(target_os = "macos")]
     if let Some(lease) = focus_lease {
-        restore_focus_lease(app, lease);
+        release_focus_lease(app, lease);
     }
     #[cfg(not(target_os = "macos"))]
     let _ = focus_lease;
@@ -1217,10 +1159,10 @@ fn serve_control_connection(
     token: &str,
 ) -> Result<(), String> {
     stream
-        .set_read_timeout(Some(Duration::from_millis(500)))
+        .set_read_timeout(Some(CONTROL_CONNECTION_TIMEOUT))
         .map_err(|err| err.to_string())?;
     stream
-        .set_write_timeout(Some(Duration::from_millis(500)))
+        .set_write_timeout(Some(CONTROL_CONNECTION_TIMEOUT))
         .map_err(|err| err.to_string())?;
 
     let response = match read_control_request(&stream) {
@@ -1235,16 +1177,6 @@ fn serve_control_connection(
                     log::warn!("[computer-use] control acquire failed: {err}");
                     ControlResponse::error("runtime_unavailable")
                 }
-            },
-            "restart_if_current" => match request.endpoint.as_deref() {
-                Some(endpoint) => match stop_helper(app, Some(endpoint)) {
-                    Ok(_) => ControlResponse::success(),
-                    Err(error) => {
-                        log::warn!("[computer-use] helper restart failed: {error}");
-                        ControlResponse::error("runtime_unavailable")
-                    }
-                },
-                None => ControlResponse::error("invalid_request"),
             },
             #[cfg(target_os = "macos")]
             "begin_focus" => match (request.helper_pid, request.target_pid) {
@@ -1380,22 +1312,12 @@ mod tests {
         assert!(buffer.ends_with("latest\n"));
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn focus_restoration_never_overrides_a_user_takeover() {
-        assert!(should_restore_previous_frontmost(Some(20), 20, Some(10)));
-        assert!(!should_restore_previous_frontmost(Some(30), 20, Some(10)));
-        assert!(!should_restore_previous_frontmost(Some(20), 20, Some(20)));
-    }
+    fn control_requests_keep_focus_fields_optional() {
+        let request: ControlRequest =
+            serde_json::from_str(r#"{"token":"token","action":"acquire"}"#)
+                .expect("control request should parse");
 
-    #[test]
-    fn control_requests_keep_lifecycle_fields_optional() {
-        let request: ControlRequest = serde_json::from_str(
-            r#"{"token":"token","action":"restart_if_current","endpoint":"pipe-1"}"#,
-        )
-        .expect("control request should parse");
-
-        assert_eq!(request.endpoint.as_deref(), Some("pipe-1"));
         assert!(request.helper_pid.is_none());
         assert!(request.lease_id.is_none());
     }

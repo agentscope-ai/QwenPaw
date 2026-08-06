@@ -12,7 +12,8 @@ use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
 use core_foundation::number::CFNumber;
 use core_foundation::string::CFString;
 use core_graphics::event::{
-    CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton, KeyCode, ScrollEventUnit,
+    CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton, EventField, KeyCode,
+    ScrollEventUnit,
 };
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::geometry::CGPoint;
@@ -39,6 +40,8 @@ use super::{
 /// refusing to inject input.
 const FOCUS_POLL_ATTEMPTS: u32 = 20;
 const FOCUS_POLL_INTERVAL_MS: u64 = 25;
+const MULTI_CLICK_INTERVAL_MS: u64 = 50;
+const TEXT_INPUT_INTERVAL_MS: u64 = 8;
 const EVENT_SOURCE_STATE_HID_SYSTEM: u32 = 1;
 const ANY_INPUT_EVENT_TYPE: u32 = 0xFFFF_FFFF;
 
@@ -144,9 +147,12 @@ pub(crate) fn click(
     };
     let source = event_source()?;
     post_mouse(&source, CGEventType::MouseMoved, point, CGMouseButton::Left)?;
-    for _ in 0..count {
-        post_mouse(&source, down, point, mouse_button)?;
-        post_mouse(&source, up, point, mouse_button)?;
+    for click_state in 1..=count {
+        post_mouse_click(&source, down, point, mouse_button, click_state)?;
+        post_mouse_click(&source, up, point, mouse_button, click_state)?;
+        if click_state < count {
+            std::thread::sleep(std::time::Duration::from_millis(MULTI_CLICK_INTERVAL_MS));
+        }
     }
     Ok(json!({"applied": true}))
 }
@@ -260,11 +266,15 @@ pub(crate) fn type_text(
         .ok_or(("invalid_request", "text is required.".to_string()))?;
     let _focus_lease = set_focus(&observation.window)?;
     let source = event_source()?;
-    // CGEvent accepts a complete Unicode string on one key-down event. Sending
-    // one down/up pair per character without pacing lets native controls drop
-    // later events and is especially unreliable for non-ASCII input.
-    post_text_event(&source, text, true)?;
-    post_text_event(&source, "", false)?;
+    // Some field editors ignore a multi-character Unicode payload on one key
+    // event. Pace complete key pairs so those editors receive normal text
+    // input without overwhelming controls that process events asynchronously.
+    for character in text.chars() {
+        let value = character.to_string();
+        post_text_event(&source, &value, true)?;
+        post_text_event(&source, "", false)?;
+        std::thread::sleep(std::time::Duration::from_millis(TEXT_INPUT_INTERVAL_MS));
+    }
     Ok(json!({"applied": true, "text_length": text.chars().count()}))
 }
 
@@ -565,6 +575,25 @@ fn post_mouse(
                 "Could not create the mouse event.".to_string(),
             )
         })?;
+    event.post(CGEventTapLocation::HID);
+    Ok(())
+}
+
+fn post_mouse_click(
+    source: &CGEventSource,
+    event_type: CGEventType,
+    point: CGPoint,
+    button: CGMouseButton,
+    click_state: i64,
+) -> Result<(), (&'static str, String)> {
+    let event =
+        CGEvent::new_mouse_event(source.clone(), event_type, point, button).map_err(|_| {
+            (
+                "input_failed",
+                "Could not create the mouse event.".to_string(),
+            )
+        })?;
+    event.set_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE, click_state);
     event.post(CGEventTapLocation::HID);
     Ok(())
 }

@@ -9,6 +9,7 @@
 //! different lengths, would make the observation contract platform-dependent.
 
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -103,7 +104,19 @@ pub(super) struct Observation {
     // window pixels before input is injected.
     pub(super) display_width: u32,
     pub(super) display_height: u32,
+    /// Digest of the normalized accessibility surface the model observed.
+    /// Kept native-side so callers cannot copy or forge a revision token.
+    pub(super) accessibility_revision: Option<[u8; 32]>,
     pub(super) elements: HashMap<String, NativeElement>,
+}
+
+/// Create a stable revision for an available accessibility surface.
+pub(super) fn accessibility_revision(accessibility: &Value) -> Option<[u8; 32]> {
+    if accessibility.get("available").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let encoded = serde_json::to_vec(accessibility).ok()?;
+    Some(Sha256::digest(encoded).into())
 }
 
 /// A native edit that changed a control's buffer but still needs the control's
@@ -316,6 +329,7 @@ mod tests {
             bounds,
             display_width: display.0,
             display_height: display.1,
+            accessibility_revision: None,
             elements: HashMap::new(),
         }
     }

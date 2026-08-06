@@ -14,7 +14,8 @@ use windows::Win32::UI::Accessibility::{
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
 use super::super::state::{
-    element_line, truncate_document_text, Observation, PendingAction, WindowInfo, DOC_TEXT_MAX,
+    accessibility_revision, element_line, truncate_document_text, Observation, PendingAction,
+    WindowInfo, DOC_TEXT_MAX,
 };
 
 /// Map a UI Automation control-type identifier to a human-readable role
@@ -328,6 +329,12 @@ fn accessibility_element<'a>(
         "element_not_found",
         "Element is not available in this observation.".to_string(),
     ))?;
+    if !element_belongs_to_window(element, observation.window.hwnd) {
+        return Err((
+            "stale_observation",
+            "The element is no longer part of the observed window; observe it again.".to_string(),
+        ));
+    }
     if !unsafe { element.CurrentIsEnabled() }
         .map(|value| value.as_bool())
         .unwrap_or(false)
@@ -338,6 +345,53 @@ fn accessibility_element<'a>(
         ));
     }
     Ok(element)
+}
+
+/// Re-read the normalized UIA surface before a semantic mutation.
+pub(crate) fn validate_observation(
+    observation: &Observation,
+) -> Result<(), (&'static str, String)> {
+    let expected = observation.accessibility_revision.ok_or((
+        "stale_observation",
+        "The observation had no accessibility revision; observe the window again.".to_string(),
+    ))?;
+    let (current, _) = collect_accessibility(&observation.window).map_err(|error| {
+        (
+            "stale_observation",
+            format!("The observed accessibility surface is unavailable: {error}"),
+        )
+    })?;
+    if accessibility_revision(&current) != Some(expected) {
+        return Err((
+            "stale_observation",
+            "The observed window changed; observe it again before acting.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn element_belongs_to_window(element: &IUIAutomationElement, hwnd: isize) -> bool {
+    let automation: IUIAutomation =
+        match unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) } {
+            Ok(automation) => automation,
+            Err(_) => return false,
+        };
+    let walker = match unsafe { automation.RawViewWalker() } {
+        Ok(walker) => walker,
+        Err(_) => return false,
+    };
+    let expected = HWND(hwnd as _);
+    let mut current = element.clone();
+    for _ in 0..64 {
+        if unsafe { current.CurrentNativeWindowHandle() }.ok() == Some(expected) {
+            return true;
+        }
+        let Ok(parent) = (unsafe { walker.GetParentElement(&current) }) else {
+            return false;
+        };
+        current = parent;
+    }
+    false
 }
 
 #[cfg(test)]

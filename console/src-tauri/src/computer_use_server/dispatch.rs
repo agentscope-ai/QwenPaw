@@ -14,10 +14,12 @@ use std::sync::Mutex;
 use super::app_identity::{launch_at, resolve_launch_target};
 use super::approval::request_approval;
 use super::state::{Observation, PendingAction, ServerState, WindowInfo, INPUT_GUARD_GRACE_MS};
+#[cfg(target_os = "macos")]
+use super::target_is_frontmost;
 use super::{
     click, close_window, desktop_locked, drag, ensure_permissions, invoke_element,
     last_input_age_ms, list_apps, list_windows, observe_window, press_key, resolve_window, scroll,
-    set_value, type_text, PROTOCOL_VERSION,
+    set_value, type_text, validate_observation, PROTOCOL_VERSION,
 };
 
 /// How recently a person must have used the keyboard or mouse for an action to
@@ -209,13 +211,18 @@ pub(super) fn dispatch_request(
     // actually require foreground input apply the recent-input guard below.
     let _desktop = if changes_window_state(method) {
         let held = take_desktop()?;
-        if requires_user_idle(method) {
+        if requires_user_idle(method, &window) {
             enforce_input_guard(state)?;
         }
         Some(held)
     } else {
         None
     };
+    // Approval may wait for user input, so freshness must be checked only
+    // after approval and the desktop guard, immediately before the action.
+    if requires_stable_observation(method) {
+        validate_observation(observation(state, observation_id)?)?;
+    }
     if let Some(path) = launch_path {
         launch_at(&path)?;
         state.note_global_action();
@@ -448,6 +455,12 @@ fn changes_window_state(method: &str) -> bool {
     )
 }
 
+/// Semantic AX/UIA mutations can run without pointer input, but only while the
+/// exact accessibility surface the model observed is still current.
+fn requires_stable_observation(method: &str) -> bool {
+    matches!(method, "invoke_element" | "set_value" | "close_window")
+}
+
 /// Whether this platform must take foreground input for the method.
 ///
 /// macOS accessibility actions can address a specific element without moving
@@ -455,18 +468,24 @@ fn changes_window_state(method: &str) -> bool {
 /// `invoke_element` or `set_value`. Windows keeps the conservative active-
 /// desktop guard for every mutation; this is an internal safety boundary, not
 /// a product-facing platform promise.
-fn requires_user_idle(method: &str) -> bool {
+fn requires_user_idle(method: &str, window: &WindowInfo) -> bool {
     #[cfg(windows)]
     {
+        let _ = window;
         changes_window_state(method)
     }
     #[cfg(target_os = "macos")]
     {
-        matches!(
-            method,
-            "click" | "scroll" | "drag" | "press_key" | "type_text" | "launch_app"
-        )
+        requires_user_idle_on_mac(method, target_is_frontmost(window))
     }
+}
+
+#[cfg(target_os = "macos")]
+fn requires_user_idle_on_mac(method: &str, target_is_frontmost: bool) -> bool {
+    matches!(
+        method,
+        "click" | "scroll" | "drag" | "press_key" | "type_text" | "launch_app"
+    ) || (matches!(method, "invoke_element" | "set_value" | "close_window") && target_is_frontmost)
 }
 
 #[cfg(test)]
@@ -488,6 +507,7 @@ mod tests {
             bounds: [0, 0, 100, 100],
             display_width: 100,
             display_height: 100,
+            accessibility_revision: None,
             elements: Default::default(),
         }
     }
@@ -591,17 +611,21 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn semantic_actions_do_not_require_an_idle_mac_desktop() {
+    fn semantic_actions_are_guarded_only_when_the_target_is_frontmost() {
         for method in ["invoke_element", "set_value", "close_window"] {
             assert!(changes_window_state(method));
             assert!(
-                !requires_user_idle(method),
+                !requires_user_idle_on_mac(method, false),
                 "{method} should remain addressable while the user works elsewhere"
+            );
+            assert!(
+                requires_user_idle_on_mac(method, true),
+                "{method} must not race a user in the target app"
             );
         }
         for method in ["click", "drag", "type_text", "press_key", "launch_app"] {
             assert!(
-                requires_user_idle(method),
+                requires_user_idle_on_mac(method, false),
                 "{method} must guard its foreground input"
             );
         }

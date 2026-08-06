@@ -142,29 +142,6 @@ class HostRuntimeProvider:
                 cls._environment_spent = True
 
     @classmethod
-    def restart_if_current(cls, capability: RuntimeCapability) -> bool:
-        """Ask the desktop host to terminate this capability's helper.
-
-        The host compares the opaque endpoint before acting, so a delayed stop
-        cannot terminate a newer helper issued to another caller.
-        """
-        control = _control_endpoint()
-        if control is None:
-            return False
-        response = _request_control(
-            control,
-            {
-                "action": "restart_if_current",
-                # pylint: disable=protected-access
-                "endpoint": capability._pipe_name,
-            },
-        )
-        if response is None or response.get("ok") is not True:
-            return False
-        cls.invalidate_capability(capability)
-        return True
-
-    @classmethod
     def _live_capability(cls) -> RuntimeCapability | None:
         """The capability to use, ignoring any endpoint known to be dead.
 

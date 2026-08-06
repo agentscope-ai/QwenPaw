@@ -16,7 +16,8 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use super::super::state::{
-    next_id, Observation, ServerState, WindowInfo, SCREENSHOT_JPEG_QUALITY, SCREENSHOT_MAX_EDGE,
+    accessibility_revision, next_id, Observation, ServerState, WindowInfo, SCREENSHOT_JPEG_QUALITY,
+    SCREENSHOT_MAX_EDGE,
 };
 use super::accessibility_tree::collect_accessibility;
 use super::window_bounds;
@@ -53,6 +54,7 @@ pub(crate) fn observe_window(
         ),
     };
     let point_bounds = point_bounds.unwrap_or([0, 0, capture_width as i32, capture_height as i32]);
+    let accessibility_revision = accessibility_revision(&accessibility);
     let (display_width, display_height, visual, screenshots) = match capture {
         Ok(capture) => {
             let width = capture.width;
@@ -116,6 +118,7 @@ pub(crate) fn observe_window(
             bounds: point_bounds,
             display_width,
             display_height,
+            accessibility_revision,
             elements,
         },
     );

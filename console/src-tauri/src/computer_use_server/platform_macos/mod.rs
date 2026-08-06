@@ -21,6 +21,7 @@ use core_graphics::window::{
     kCGWindowListOptionIncludingWindow, kCGWindowListOptionOnScreenOnly, kCGWindowNumber,
     kCGWindowOwnerPID, CGWindowID,
 };
+use objc2_app_kit::NSWorkspace;
 use serde_json::{Map, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -32,7 +33,7 @@ mod input;
 mod permissions;
 mod window;
 
-pub(super) use accessibility_tree::{set_value, AxElement};
+pub(super) use accessibility_tree::{set_value, validate_observation, AxElement};
 pub(super) use capture::observe_window;
 pub(super) use input::{
     click, desktop_locked, drag, invoke_element, last_input_age_ms, press_key, scroll, type_text,
@@ -48,11 +49,18 @@ pub(super) use window::{
 /// since these calls are synchronous round trips into that process.
 const AX_MESSAGING_TIMEOUT_SECONDS: f32 = 2.0;
 const CONTROL_MAX_MESSAGE_BYTES: usize = 4096;
-const CONTROL_TIMEOUT: Duration = Duration::from_millis(750);
+const CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// A short host-owned lease for an operation that must take foreground focus.
-/// Normal completion releases it here; the desktop independently expires it
-/// if this process hangs or dies, so host visibility never depends on Drop.
+/// Whether physical user input would currently target this window's app.
+pub(super) fn target_is_frontmost(window: &super::state::WindowInfo) -> bool {
+    NSWorkspace::sharedWorkspace()
+        .frontmostApplication()
+        .is_some_and(|application| application.processIdentifier() == window.owner_pid)
+}
+
+/// A host-owned lease for actions that must preserve foreground focus.
+/// Drop restores host visibility without activating it and leaves a short
+/// idempotency window; the desktop also expires the lease if this process dies.
 pub(super) struct HostFocusLease {
     id: String,
 }
@@ -94,14 +102,6 @@ fn host_control_request(
             "Desktop host control is unavailable.".to_string(),
         ));
     }
-    let mut stream = TcpStream::connect((host.as_str(), port.unwrap())).map_err(|error| {
-        (
-            "runtime_unavailable",
-            format!("Could not reach desktop host control: {error}"),
-        )
-    })?;
-    stream.set_read_timeout(Some(CONTROL_TIMEOUT)).ok();
-    stream.set_write_timeout(Some(CONTROL_TIMEOUT)).ok();
     let request = serde_json::json!({
         "token": token,
         "action": action,
@@ -109,14 +109,44 @@ fn host_control_request(
         "target_pid": target_pid,
         "lease_id": lease_id,
     });
-    serde_json::to_writer(&mut stream, &request).map_err(|error| {
+    let payload = serde_json::to_vec(&request).map_err(|error| {
         (
             "runtime_unavailable",
             format!("Could not encode desktop host control request: {error}"),
         )
     })?;
+    let response = host_control_round_trip(&host, port.unwrap(), &payload)
+        .or_else(|_| host_control_round_trip(&host, port.unwrap(), &payload))?;
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        let code = match response.get("error").and_then(Value::as_str) {
+            Some("desktop_busy") => "desktop_busy",
+            Some("stale_helper") => "runtime_unavailable",
+            _ => "focus_failed",
+        };
+        return Err((
+            code,
+            "Desktop host refused the foreground lease.".to_string(),
+        ));
+    }
+    Ok(response)
+}
+
+fn host_control_round_trip(
+    host: &str,
+    port: u16,
+    payload: &[u8],
+) -> Result<Value, (&'static str, String)> {
+    let mut stream = TcpStream::connect((host, port)).map_err(|error| {
+        (
+            "runtime_unavailable",
+            format!("Could not reach desktop host control: {error}"),
+        )
+    })?;
+    stream.set_read_timeout(Some(CONTROL_TIMEOUT)).ok();
+    stream.set_write_timeout(Some(CONTROL_TIMEOUT)).ok();
     stream
-        .write_all(b"\n")
+        .write_all(payload)
+        .and_then(|_| stream.write_all(b"\n"))
         .and_then(|_| stream.flush())
         .map_err(|error| {
             (
@@ -147,17 +177,6 @@ fn host_control_request(
             format!("Could not decode desktop host control response: {error}"),
         )
     })?;
-    if response.get("ok").and_then(Value::as_bool) != Some(true) {
-        let code = match response.get("error").and_then(Value::as_str) {
-            Some("desktop_busy") => "desktop_busy",
-            Some("stale_helper") => "runtime_unavailable",
-            _ => "focus_failed",
-        };
-        return Err((
-            code,
-            "Desktop host refused the foreground lease.".to_string(),
-        ));
-    }
     Ok(response)
 }
 

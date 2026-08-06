@@ -18,9 +18,10 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 
 use super::super::state::{
-    element_line, truncate_document_text, Observation, PendingAction, WindowInfo,
+    accessibility_revision, element_line, truncate_document_text, Observation, PendingAction,
+    WindowInfo,
 };
-use super::{_AXUIElementGetWindow, transient_surface_points};
+use super::{_AXUIElementGetWindow, target_is_frontmost, transient_surface_points};
 
 const AX_CONFIRM_ACTION: &str = "AXConfirm";
 const AX_OPEN_ACTION: &str = "AXOpen";
@@ -30,6 +31,13 @@ const AX_SHOW_MENU_ACTION: &str = "AXShowMenu";
 /// Native accessibility element handle for the shared observation store.
 pub(crate) struct AxElement {
     element: AXUIElement,
+    scope: ElementScope,
+}
+
+#[derive(Clone, Copy)]
+enum ElementScope {
+    Window(u32),
+    AppSurface(u32),
 }
 
 pub(crate) fn element_point(
@@ -125,7 +133,10 @@ fn interactive_element_at_point(point: CGPoint) -> Option<AXUIElement> {
 /// on-screen transient windows in front-to-back order; accessibility hit
 /// testing then resolves the actual menu instead of depending on the pointer
 /// landing inside a menu that macOS may offset from the click point.
-fn active_menu(expected_pid: i32, content_window: i64) -> Option<AXUIElement> {
+fn active_menu(app: &AXUIElement, expected_pid: i32, content_window: i64) -> Option<AXUIElement> {
+    if focused_window_id(app) != u32::try_from(content_window).ok() {
+        return None;
+    }
     transient_surface_points(expected_pid, content_window)
         .into_iter()
         .find_map(|point| menu_at_point(point, expected_pid))
@@ -302,6 +313,7 @@ pub(crate) fn set_value(
         hwnd: observation.window.hwnd,
         element: AxElement {
             element: element.element.clone(),
+            scope: element.scope,
         },
         expected_value: actual.clone(),
     });
@@ -332,6 +344,29 @@ fn accessibility_element<'a>(
         "element_not_found",
         "Element is not available in this observation.".to_string(),
     ))?;
+    let target_window = u32::try_from(observation.window.hwnd).map_err(|_| {
+        (
+            "stale_observation",
+            "The observed window is no longer valid; observe it again.".to_string(),
+        )
+    })?;
+    let in_scope = match element.scope {
+        ElementScope::Window(window_id) => {
+            window_id == target_window && owning_window_id(&element.element) == Some(target_window)
+        }
+        ElementScope::AppSurface(window_id) => {
+            window_id == target_window
+                && target_is_frontmost(&observation.window)
+                && focused_window_id(&AXUIElement::application(observation.window.owner_pid))
+                    == Some(target_window)
+        }
+    };
+    if !in_scope {
+        return Err((
+            "stale_observation",
+            "The element is no longer part of the observed window; observe it again.".to_string(),
+        ));
+    }
     if !element_enabled(&element.element) {
         return Err((
             "element_unavailable",
@@ -341,9 +376,34 @@ fn accessibility_element<'a>(
     Ok(element)
 }
 
+/// Re-read the normalized AX surface before a semantic mutation.
+pub(crate) fn validate_observation(
+    observation: &Observation,
+) -> Result<(), (&'static str, String)> {
+    let expected = observation.accessibility_revision.ok_or((
+        "stale_observation",
+        "The observation had no accessibility revision; observe the window again.".to_string(),
+    ))?;
+    let (current, _) = collect_accessibility(&observation.window).map_err(|error| {
+        (
+            "stale_observation",
+            format!("The observed accessibility surface is unavailable: {error}"),
+        )
+    })?;
+    if accessibility_revision(&current) != Some(expected) {
+        return Err((
+            "stale_observation",
+            "The observed window changed; observe it again before acting.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn collect_accessibility(
     window: &WindowInfo,
 ) -> Result<(Value, HashMap<String, AxElement>), String> {
+    let target_window = u32::try_from(window.hwnd)
+        .map_err(|_| "Accessibility window identifier is invalid.".to_string())?;
     let pid = (window.owner_pid > 0)
         .then_some(window.owner_pid)
         .ok_or_else(|| "Could not resolve the window's process.".to_string())?;
@@ -365,7 +425,7 @@ pub(super) fn collect_accessibility(
     // can never describe another application's UI.
     let mut focused: Option<(String, AXUIElement)> = None;
     let mut visited = Vec::new();
-    if let Some(menu) = active_menu(pid, window.hwnd as i64) {
+    if let Some(menu) = active_menu(&app, pid, window.hwnd as i64) {
         // Match the application surface a person is acting on: while a context
         // menu is open, its commands are the complete actionable state. The
         // underlying window and closed menu-bar descendants would only add
@@ -379,6 +439,7 @@ pub(super) fn collect_accessibility(
             &mut focused,
             focused_target.as_ref(),
             &mut visited,
+            ElementScope::AppSurface(target_window),
         );
     } else {
         walk_accessibility(
@@ -390,21 +451,25 @@ pub(super) fn collect_accessibility(
             &mut focused,
             focused_target.as_ref(),
             &mut visited,
+            ElementScope::Window(target_window),
         );
         // The menu bar belongs to the application rather than the content
         // window. Publish only its first level while it is closed; descendants
         // become actionable only when their menu is the active surface above.
-        if let Some(menu_bar) = ax_element(&app, "AXMenuBar") {
-            walk_accessibility(
-                &menu_bar,
-                0,
-                1,
-                &mut elements,
-                &mut descriptions,
-                &mut focused,
-                focused_target.as_ref(),
-                &mut visited,
-            );
+        if focused_window_id(&app) == Some(target_window) {
+            if let Some(menu_bar) = ax_element(&app, "AXMenuBar") {
+                walk_accessibility(
+                    &menu_bar,
+                    0,
+                    1,
+                    &mut elements,
+                    &mut descriptions,
+                    &mut focused,
+                    focused_target.as_ref(),
+                    &mut visited,
+                    ElementScope::AppSurface(target_window),
+                );
+            }
         }
         // Sheets, popovers and inline editors may move keyboard focus to an
         // application-owned branch outside the observed window. Merge only
@@ -415,17 +480,20 @@ pub(super) fn collect_accessibility(
                 .iter()
                 .any(|seen| seen.as_CFType() == target.as_CFType())
             {
-                let branch = top_level_branch(&app, target);
-                walk_accessibility(
-                    &branch,
-                    0,
-                    40,
-                    &mut elements,
-                    &mut descriptions,
-                    &mut focused,
-                    focused_target.as_ref(),
-                    &mut visited,
-                );
+                if owning_window_id(target) == Some(target_window) {
+                    let branch = top_level_branch(&app, target);
+                    walk_accessibility(
+                        &branch,
+                        0,
+                        40,
+                        &mut elements,
+                        &mut descriptions,
+                        &mut focused,
+                        focused_target.as_ref(),
+                        &mut visited,
+                        ElementScope::Window(target_window),
+                    );
+                }
             }
         }
     }
@@ -487,6 +555,28 @@ fn find_ax_window_in(element: &AXUIElement, target: u32, depth: usize) -> Option
         .find_map(|child| find_ax_window_in(&child, target, depth + 1))
 }
 
+fn focused_window_id(app: &AXUIElement) -> Option<u32> {
+    let focused = ax_element(app, "AXFocusedWindow")?;
+    owning_window_id(&focused)
+}
+
+fn owning_window_id(element: &AXUIElement) -> Option<u32> {
+    let mut current = element.clone();
+    for _ in 0..64 {
+        let mut id = 0;
+        if unsafe { _AXUIElementGetWindow(current.as_concrete_TypeRef(), &mut id) } == 0 && id != 0
+        {
+            return Some(id);
+        }
+        let parent = current.attribute(&AXAttribute::parent()).ok()?;
+        if parent.as_CFType() == current.as_CFType() {
+            return None;
+        }
+        current = parent;
+    }
+    None
+}
+
 fn walk_accessibility(
     element: &AXUIElement,
     depth: usize,
@@ -496,6 +586,7 @@ fn walk_accessibility(
     focused: &mut Option<(String, AXUIElement)>,
     focused_target: Option<&AXUIElement>,
     visited: &mut Vec<AXUIElement>,
+    scope: ElementScope,
 ) {
     if depth > max_depth || descriptions.len() >= 300 {
         return;
@@ -586,6 +677,7 @@ fn walk_accessibility(
             element_id,
             AxElement {
                 element: element.clone(),
+                scope,
             },
         );
     }
@@ -600,6 +692,7 @@ fn walk_accessibility(
                 focused,
                 focused_target,
                 visited,
+                scope,
             );
         }
     }
@@ -614,6 +707,7 @@ fn walk_accessibility(
                 focused,
                 focused_target,
                 visited,
+                scope,
             );
         }
     }
