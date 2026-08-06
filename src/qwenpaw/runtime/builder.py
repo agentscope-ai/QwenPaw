@@ -1125,7 +1125,12 @@ class AgentBuilder:
         3. Plugin-registered middlewares (sorted by priority)
         4. VisualCompressionMiddleware — innermost pre-provider transform
         """
-        mws: list[Any] = []
+        from ..agents.middlewares import CurrentDateMiddleware
+        from ..config.utils import load_config
+
+        mws: list[Any] = [
+            CurrentDateMiddleware(load_config().user_timezone),
+        ]
 
         pruning_middleware = None
         try:
