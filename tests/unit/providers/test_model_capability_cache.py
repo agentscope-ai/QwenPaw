@@ -20,7 +20,9 @@ def test_learn_and_get_roundtrip(cache: ModelCapabilityCache) -> None:
     assert cache.get("p:m", "rejects_media", False) is True
 
 
-def test_get_returns_default_when_unlearned(cache: ModelCapabilityCache) -> None:
+def test_get_returns_default_when_unlearned(
+    cache: ModelCapabilityCache,
+) -> None:
     assert cache.get("p:m", "rejects_media", False) is False
     assert cache.get("p:m", "rejects_media") is None
 
@@ -65,16 +67,21 @@ def test_forget_unknown_key_is_noop(cache: ModelCapabilityCache) -> None:
 def test_relearn_same_value_refreshes_timestamp(
     cache: ModelCapabilityCache,
 ) -> None:
-    cache.learn("p:m", "rejects_media", True)
-    entry_before = cache._learned["p:m"]["rejects_media"]
-    time.sleep(0.01)
-    cache.learn("p:m", "rejects_media", True)
-    entry_after = cache._learned["p:m"]["rejects_media"]
-    assert entry_after.set_at > entry_before.set_at
-    assert entry_after.value is True
+    with mock.patch(
+        "qwenpaw.providers.model_capability_cache.time.monotonic",
+        side_effect=[100.0, 200.0],
+    ):
+        cache.learn("p:m", "rejects_media", True)
+        set_at_before = cache._learned["p:m"]["rejects_media"].set_at
+        cache.learn("p:m", "rejects_media", True)
+        set_at_after = cache._learned["p:m"]["rejects_media"].set_at
+    assert set_at_after > set_at_before
+    assert cache._learned["p:m"]["rejects_media"].value is True
 
 
-def test_relearn_different_value_overwrites(cache: ModelCapabilityCache) -> None:
+def test_relearn_different_value_overwrites(
+    cache: ModelCapabilityCache,
+) -> None:
     cache.learn("p:m", "rejects_media", True)
     cache.learn("p:m", "rejects_media", False)
     assert cache.get("p:m", "rejects_media") is False

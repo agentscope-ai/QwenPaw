@@ -2501,9 +2501,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if "extra_models" in saved_config:
                     provider_info.extra_models = [
                         ModelInfo.model_validate(
-                            model.model_dump()
-                            if isinstance(model, BaseModel)
-                            else model,
+                            (
+                                model.model_dump()
+                                if isinstance(model, BaseModel)
+                                else model
+                            ),
                         )
                         for model in saved_config["extra_models"]
                     ]
