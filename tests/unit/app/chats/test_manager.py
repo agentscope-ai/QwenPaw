@@ -152,6 +152,30 @@ async def test_get_or_create_chat_invalid_source_falls_back_to_chat(
     assert spec.source == SessionSource.chat
 
 
+@pytest.mark.asyncio
+async def test_set_project_dir_persists_and_clears_controlled_meta(
+    manager: ChatManager,
+):
+    spec = await manager.create_chat(_make_spec(name="Project session"))
+
+    updated = await manager.set_project_dir(spec.id, "/project/session")
+
+    assert updated is not None
+    assert updated.meta["runtime_context"]["project_dir"] == (
+        "/project/session"
+    )
+    persisted = await manager.get_chat(spec.id)
+    assert persisted is not None
+    assert persisted.meta["runtime_context"]["project_dir"] == (
+        "/project/session"
+    )
+
+    cleared = await manager.set_project_dir(spec.id, None)
+
+    assert cleared is not None
+    assert "runtime_context" not in cleared.meta
+
+
 # ---------------------------------------------------------------------------
 # patch_chat / patch_chat_if_name_matches
 # ---------------------------------------------------------------------------
