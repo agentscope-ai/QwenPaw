@@ -41,7 +41,7 @@ _THREAD_LOCKS: dict[str, threading.Lock] = {}
 WORKTREE_REL = Path(".qwenpaw") / "worktrees"
 REGISTRY_REL = Path(".qwenpaw") / "fork_registry.json"
 # Written in the *agent workspace* so OMP gates can find the coding-project
-# registry when ``coding_mode.project_dir != workspace_dir``.
+# registry when ``project_dir != workspace_dir``.
 INTEGRATION_PROJECT_REL = Path(".qwenpaw") / "fork_integration_project"
 ACTIVE_SCOPE_REL = Path(".qwenpaw") / "fork_active_scope"
 
@@ -334,7 +334,7 @@ def resolve_git_project_dir(
     - When *workspace_dir* is provided without an explicit *agent_id*, only
       that path is considered (no implicit active-agent fallback).
     - When *agent_id* is provided, priority is:
-      ``coding_mode.project_dir`` → agent ``workspace_dir`` → *workspace_dir*.
+      agent ``project_dir`` → agent ``workspace_dir`` → *workspace_dir*.
     - When *workspace_dir* is omitted, fall back to the active agent config.
 
     Returns None when no git repository is found.
@@ -355,10 +355,10 @@ def resolve_git_project_dir(
             from ..config.config import load_agent_config
 
             cfg = load_agent_config(aid)
-            cm = getattr(cfg, "coding_mode", None)
-            if cm and getattr(cm, "enabled", False) and cm.project_dir:
+            project_dir = getattr(cfg, "project_dir", None)
+            if project_dir:
                 candidates.append(
-                    Path(cm.project_dir).expanduser().resolve(),
+                    Path(project_dir).expanduser().resolve(),
                 )
             if getattr(cfg, "workspace_dir", None):
                 candidates.append(

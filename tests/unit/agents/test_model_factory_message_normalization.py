@@ -385,6 +385,101 @@ async def test_openai_formatter_does_not_carry_reasoning_forward() -> None:
 
 
 @pytest.mark.asyncio
+async def test_required_reasoning_preserves_real_and_fills_missing() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(
+        relay_reasoning_content=True,
+    )
+    formatter._qwenpaw_require_reasoning_content = True
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="tool reasoning"),
+            ToolCallBlock(id="call_1", name="tool", input="{}"),
+            ToolResultBlock(
+                id="call_1",
+                name="tool",
+                output=[TextBlock(text="result")],
+                state=ToolResultState.SUCCESS,
+            ),
+            TextBlock(text="done"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert [item.get("reasoning_content") for item in assistant_messages] == [
+        "tool reasoning",
+        " ",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_required_reasoning_respects_disabled_relay_privacy() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(
+        relay_reasoning_content=False,
+    )
+    formatter._qwenpaw_require_reasoning_content = True
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="private reasoning"),
+            TextBlock(text="answer"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert assistant_messages[0]["reasoning_content"] == " "
+
+
+@pytest.mark.asyncio
+async def test_required_reasoning_falls_back_when_alignment_mismatches(
+    monkeypatch,
+) -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(
+        relay_reasoning_content=True,
+    )
+    formatter._qwenpaw_require_reasoning_content = True
+    monkeypatch.setattr(
+        model_factory,
+        "_reasoning_by_assistant_segment",
+        lambda _blocks, _formatter: ["real reasoning", "extra segment"],
+    )
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="real reasoning"),
+            TextBlock(text="answer"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert assistant_messages[0]["reasoning_content"] == " "
+
+
+@pytest.mark.asyncio
 async def test_openai_formatter_respects_disabled_reasoning_relay() -> None:
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingOpenAIFormatter,

@@ -108,6 +108,7 @@ jobs:
 
       - name: Upload unit coverage data
         if: |
+          always() &&
           matrix.os == 'ubuntu-latest' &&
           matrix.python-version == '3.13'
         uses: actions/upload-artifact@v4
@@ -187,6 +188,7 @@ jobs:
 
       - name: Upload contract coverage data
         if: |
+          always() &&
           matrix.os == 'ubuntu-latest' &&
           matrix.python-version == '3.13'
         uses: actions/upload-artifact@v4
@@ -299,21 +301,36 @@ jobs:
           if [ -n "$QWENPAW_INTEGRATION_COVERAGE" ]; then
             # Subprocess coverage entry. Parent process must not carry
             # --cov, hence --no-cov here.
+            #
+            # Runtime coverage is collected by the app subprocesses
+            # regardless of pass/fail, so it must be exported even when
+            # tests fail. Under the default `bash -e`, a failing pytest
+            # aborts the script right here and the cp/xml steps below
+            # never run, silently dropping the artifact. Capture the
+            # exit code, export, then restore it so failures still fail.
+            set +e
             pytest tests/integration -v --no-cov \
               -n auto --dist=loadscope --timeout=300 -m integration
-            cp .integration_coverage/integration_subproc \
-              .coverage.integration
-            # `coverage xml` honours fail_under and exits 2 when below;
-            # tolerate that — the combined value is what matters.
-            coverage xml --data-file=.coverage.integration \
-              -o coverage.integration.xml || [ "$?" -eq 2 ]
+            PYTEST_RC=$?
+            set -e
+            if [ -f .integration_coverage/integration_subproc ]; then
+              cp .integration_coverage/integration_subproc \
+                .coverage.integration
+              # `coverage xml` honours fail_under and exits 2 when below;
+              # tolerate that — the combined value is what matters.
+              coverage xml --data-file=.coverage.integration \
+                -o coverage.integration.xml || [ "$?" -eq 2 ]
+            else
+              echo "::warning::Integration coverage data file missing despite QWENPAW_INTEGRATION_COVERAGE=1 (session may have crashed before coverage flush)"
+            fi
+            exit "$PYTEST_RC"
           else
             pytest tests/integration -v \
               -n auto --dist=loadscope --timeout=300 -m integration
           fi
 
       - name: Upload integration coverage data
-        if: steps.cov_flag.outputs.enabled == '1'
+        if: always() && steps.cov_flag.outputs.enabled == '1'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-data-integration-${{ matrix.os }}-py${{ matrix.python-version }}

@@ -59,7 +59,7 @@ def test_broken_launcher_reports_failure_without_raising(
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_recorded_probe_failure_blocks_installed(
+def test_recorded_probe_failure_is_diagnostic_only(
     isolated_home: Path,
     monkeypatch,
 ) -> None:
@@ -76,7 +76,7 @@ def test_recorded_probe_failure_blocks_installed(
 
     status = extension_setup.extension_install_status(home=isolated_home)
 
-    assert status["installed"] is False
+    assert status["installed"] is True
     assert status["native_host_repair_required"] is True
     assert status["native_host_repair_instruction"]
 
@@ -98,6 +98,184 @@ def test_successful_install_records_a_passing_probe(
     state = json.loads(state_path.read_text(encoding="utf-8"))
     assert state["native_host_probe"]["ok"] is True
     assert result["installed"] is True
+
+
+def test_non_reset_repair_preserves_existing_bridge_token(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_DESKTOP_PY_RUNTIME", sys.executable)
+    extension_setup.setup_extension_files(home=isolated_home)
+    config_path = isolated_home / ".qwenpaw" / "nm-bridge.json"
+    original_token = json.loads(config_path.read_text(encoding="utf-8"))[
+        "token"
+    ]
+
+    extension_setup.setup_extension_files(home=isolated_home, reset=False)
+    repaired_token = json.loads(config_path.read_text(encoding="utf-8"))[
+        "token"
+    ]
+
+    assert repaired_token == original_token
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            r"\\?\D:\Programs\QwenPaw Desktop\python.exe",
+            r"D:\Programs\QwenPaw Desktop\python.exe",
+        ),
+        (
+            r"\\?\UNC\server\share\python.exe",
+            r"\\server\share\python.exe",
+        ),
+        (
+            r"D:\Programs\QwenPaw Desktop\python.exe",
+            r"D:\Programs\QwenPaw Desktop\python.exe",
+        ),
+        (
+            r"D:\Programs\100% QwenPaw\python.exe",
+            r"D:\Programs\100%% QwenPaw\python.exe",
+        ),
+    ],
+)
+def test_windows_batch_path_literal_normalizes_and_escapes(
+    source: str,
+    expected: str,
+) -> None:
+    assert extension_setup._windows_batch_path_literal(source) == expected
+
+
+def test_windows_launcher_uses_cmd_safe_path_literals(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    interpreter = r"\\?\D:\Programs\100% QwenPaw\python.exe"
+    monkeypatch.setattr(
+        extension_setup,
+        "_resolve_host_interpreter",
+        lambda: interpreter,
+    )
+
+    launcher = extension_setup._write_host(
+        isolated_home / ".qwenpaw",
+        platform="win32",
+    )
+    launcher_text = launcher.read_text(encoding="utf-8")
+
+    assert "\\\\?\\" not in launcher_text
+    assert '"D:\\Programs\\100%% QwenPaw\\python.exe"' in launcher_text
+    assert launcher_text.endswith('" %*\n')
+
+
+# test_chrome_extensions_page_opener.py
+
+
+@pytest.mark.integration
+@pytest.mark.p2
+def test_windows_chrome_locator_uses_local_appdata_install(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chrome = tmp_path / "Google" / "Chrome" / "Application" / "chrome.exe"
+    chrome.parent.mkdir(parents=True)
+    chrome.touch()
+
+    class MissingRegistry:
+        HKEY_CURRENT_USER = object()
+        HKEY_LOCAL_MACHINE = object()
+
+        @staticmethod
+        def OpenKey(*_args):  # noqa: N802
+            raise FileNotFoundError
+
+    monkeypatch.setitem(sys.modules, "winreg", MissingRegistry)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.delenv("ProgramFiles", raising=False)
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+
+    assert extension_setup._find_windows_chrome_executable() == chrome
+
+
+@pytest.mark.integration
+@pytest.mark.p2
+def test_windows_open_chrome_extensions_uses_resolved_executable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chrome = tmp_path / "chrome.exe"
+    chrome.touch()
+    launched: list[tuple[list[str], dict]] = []
+
+    def fake_popen(command: list[str], **kwargs):
+        launched.append((command, kwargs))
+        return object()
+
+    monkeypatch.setattr(
+        extension_setup,
+        "_find_windows_chrome_executable",
+        lambda: chrome,
+    )
+    monkeypatch.setattr(extension_setup.subprocess, "Popen", fake_popen)
+
+    result = extension_setup.open_chrome_extensions_page(platform="win32")
+
+    assert result == {
+        "opened": True,
+        "url": extension_setup.CHROME_EXTENSIONS_URL,
+    }
+    assert launched[0][0] == [
+        str(chrome),
+        extension_setup.CHROME_EXTENSIONS_URL,
+    ]
+
+
+@pytest.mark.integration
+@pytest.mark.p2
+def test_windows_open_chrome_extensions_reports_missing_chrome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        extension_setup,
+        "_find_windows_chrome_executable",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        extension_setup.webbrowser,
+        "open",
+        lambda *_args: pytest.fail("Windows must not use the default browser"),
+    )
+
+    result = extension_setup.open_chrome_extensions_page(platform="win32")
+
+    assert result["opened"] is False
+    assert result["error"] == "Google Chrome executable was not found."
+
+
+@pytest.mark.integration
+@pytest.mark.p2
+def test_windows_open_chrome_extensions_reports_launch_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chrome = tmp_path / "chrome.exe"
+    chrome.touch()
+
+    def raise_oserror(*_args, **_kwargs):
+        raise OSError("launch denied")
+
+    monkeypatch.setattr(
+        extension_setup,
+        "_find_windows_chrome_executable",
+        lambda: chrome,
+    )
+    monkeypatch.setattr(extension_setup.subprocess, "Popen", raise_oserror)
+
+    result = extension_setup.open_chrome_extensions_page(platform="win32")
+
+    assert result["opened"] is False
+    assert result["error"] == "Could not start Google Chrome: launch denied"
 
 
 # test_chrome_install_boundary.py
