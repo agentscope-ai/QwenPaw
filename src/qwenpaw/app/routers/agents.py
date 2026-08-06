@@ -78,6 +78,23 @@ class BackendSettingsRequest(BaseModel):
     reasoning_effort: str | None = None
 
 
+class ReMeComponentMemoryUsage(BaseModel):
+    """Estimated memory owned by one ReMe component."""
+
+    bytes: int
+    human: str
+
+
+class ReMeMemoryStatusResponse(BaseModel):
+    """Structured memory information returned by ReMe's status job."""
+
+    components: dict[str, dict[str, ReMeComponentMemoryUsage]]
+    components_total_bytes: int
+    components_total: str
+    process_rss_bytes: int
+    process_rss: str
+
+
 class CreateAgentRequest(BaseModel):
     """Request model for creating a new agent.
 
@@ -808,6 +825,70 @@ async def rebuild_agent_memory_index(
         raise HTTPException(status_code=500, detail=str(response.answer))
 
     return {"status": "completed"}
+
+
+@router.get(
+    "/{agentId}/memory/status",
+    response_model=ReMeMemoryStatusResponse,
+    summary="Get agent ReMe memory status",
+    description="Return ReMe component memory estimates and process RSS",
+)
+async def get_agent_memory_status(
+    agentId: str = PathParam(...),
+    request: Request = None,
+) -> ReMeMemoryStatusResponse:
+    """Inspect the currently running ReMe instance without reloading it."""
+    config = load_config()
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    agent_config = load_agent_config(agentId)
+    if agent_config.running.memory_manager_backend != "remelight":
+        raise HTTPException(
+            status_code=400,
+            detail="Memory status is only supported by ReMe Light",
+        )
+
+    manager = _get_multi_agent_manager(request)
+    workspace = manager.get_loaded_agent(agentId)
+    if workspace is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Agent is not running",
+        )
+    memory_manager = workspace.memory_manager
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory manager is not available",
+        )
+
+    response = await memory_manager.reme_status()
+    if response is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ReMe is not started or status reporting is unavailable",
+        )
+    if not response.success:
+        raise HTTPException(status_code=500, detail=str(response.answer))
+
+    metadata = getattr(response, "metadata", None) or {}
+    memory = metadata.get("status", {}).get("memory")
+    if not isinstance(memory, dict):
+        raise HTTPException(
+            status_code=500,
+            detail="ReMe returned an invalid memory status payload",
+        )
+    try:
+        return ReMeMemoryStatusResponse.model_validate(memory)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="ReMe returned an invalid memory status payload",
+        ) from exc
 
 
 @router.delete(

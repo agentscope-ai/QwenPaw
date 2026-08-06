@@ -8,6 +8,19 @@ import type {
   ReorderAgentsResponse,
 } from "../types/agents";
 
+export interface ReMeComponentMemoryUsage {
+  bytes: number;
+  human: string;
+}
+
+export interface ReMeMemoryStatusResponse {
+  components: Record<string, Record<string, ReMeComponentMemoryUsage>>;
+  components_total_bytes: number;
+  components_total: string;
+  process_rss_bytes: number;
+  process_rss: string;
+}
+
 // Multi-agent management API
 export const agentsApi = {
   // List all agents
@@ -52,6 +65,13 @@ export const agentsApi = {
       method: "POST",
       timeout: 10 * 60 * 1000,
     }),
+
+  getMemoryStatus: (agentId: string, signal?: AbortSignal) => {
+    const path = `/agents/${agentId}/memory/status`;
+    return signal
+      ? request<ReMeMemoryStatusResponse>(path, { signal })
+      : request<ReMeMemoryStatusResponse>(path);
+  },
 
   // Delete agent
   deleteAgent: (agentId: string) =>

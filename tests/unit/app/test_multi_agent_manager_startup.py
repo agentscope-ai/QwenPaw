@@ -69,6 +69,15 @@ class _ReloadWorkspace:
         self.stopped = True
 
 
+def test_get_loaded_agent_never_starts_a_workspace() -> None:
+    manager = MultiAgentManager()
+    workspace = MagicMock()
+    manager.agents["loaded"] = workspace
+
+    assert manager.get_loaded_agent("loaded") is workspace
+    assert manager.get_loaded_agent("not-loaded") is None
+
+
 @pytest.mark.asyncio
 async def test_reload_reuses_tracker_for_active_stream_reconnect(
     monkeypatch,

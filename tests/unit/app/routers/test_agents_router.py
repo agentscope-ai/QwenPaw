@@ -360,6 +360,117 @@ def test_rebuild_memory_index_rejects_concurrent_run(
 
 
 # ---------------------------------------------------------------------------
+# GET /agents/{id}/memory/status
+# ---------------------------------------------------------------------------
+
+
+def test_get_memory_status_returns_structured_reme_metrics(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    status_response = MagicMock(
+        success=True,
+        metadata={
+            "status": {
+                "memory": {
+                    "components": {
+                        "file_store": {
+                            "default": {"bytes": 2048, "human": "2.00 KiB"},
+                        },
+                    },
+                    "components_total_bytes": 2048,
+                    "components_total": "2.00 KiB",
+                    "process_rss_bytes": 83886080,
+                    "process_rss": "80.00 MiB",
+                },
+            },
+        },
+    )
+    memory_manager = MagicMock()
+    memory_manager.reme_status = AsyncMock(return_value=status_response)
+    manager_mock.get_loaded_agent.return_value = MagicMock(
+        memory_manager=memory_manager,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.get("/api/agents/bot/memory/status")
+
+    assert response.status_code == 200
+    assert response.json() == status_response.metadata["status"]["memory"]
+    memory_manager.reme_status.assert_awaited_once_with()
+
+
+def test_get_memory_status_rejects_invalid_payload(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_manager = MagicMock()
+    memory_manager.reme_status = AsyncMock(
+        return_value=MagicMock(success=True, metadata={}),
+    )
+    manager_mock.get_loaded_agent.return_value = MagicMock(
+        memory_manager=memory_manager,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.get("/api/agents/bot/memory/status")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == (
+        "ReMe returned an invalid memory status payload"
+    )
+
+
+def test_get_memory_status_does_not_start_an_unloaded_agent(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    manager_mock.get_loaded_agent.return_value = None
+    manager_mock.get_agent = AsyncMock()
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.get("/api/agents/bot/memory/status")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Agent is not running"
+    manager_mock.get_loaded_agent.assert_called_once_with("bot")
+    manager_mock.get_agent.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
 # PUT /agents/order
 # ---------------------------------------------------------------------------
 
