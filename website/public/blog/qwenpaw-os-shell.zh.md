@@ -75,9 +75,7 @@ Chat 是 QwenPaw OS Shell 中最直接的任务入口。打开 Chat 后，可以
 
 在 QwenPaw OS Shell 中，每个 Agent 都对应一个独立的**智能体空间（Agent Space）**。空间会保存该 Agent 当前打开的窗口和桌面布局，因此切换 Agent 不只是切换一个名称，而是切换整套工作现场。
 
-按下 **F3** 可以打开任务总览（Mission Control）。顶部展示可用的智能体空间及其窗口数量，点击卡片即可切换；也可以使用 **Ctrl + ← / →** 在空间之间移动。
-
-![任务总览中的多个智能体空间](https://img.alicdn.com/imgextra/i2/O1CN01jnjtfSXqu8I5CGAn_!!6000000002700-0-tps-2560-1229.jpg)
+把鼠标移到桌面顶部，呼出智能体空间条，再直接点击空间名称切换。每个空间会显示当前保存的窗口数量，方便你选择要继续的工作现场。
 
 例如，你可以把 Default Agent 用于日常对话，把 QA Agent 用于产品问答或文档核验。进入 QA Agent 的空间后，它拥有自己的窗口组合，不会把 Default Agent 的桌面挤乱。
 
@@ -95,7 +93,7 @@ QwenPaw OS Shell 提供了统一的**应用市场**，用于管理桌面应用�
 - 当前已经安装的 PawApp；
 - 来自插件市场、可以继续安装的应用。
 
-![QwenPaw OS Shell 应用市场](https://img.alicdn.com/imgextra/i4/O1CN01cdBqxyGYmYF5Bkx3_!!6000000006074-0-tps-2556-1217.jpg)
+![QwenPaw OS Shell 应用市场](https://img.alicdn.com/imgextra/i4/O1CN01HGGw9SrWaUK5CGAi_!!6000000006930-0-tps-2560-1224.jpg)
 
 安装流程与普通桌面应用类似：
 
@@ -107,7 +105,7 @@ QwenPaw OS Shell 提供了统一的**应用市场**，用于管理桌面应用�
 
 在本次走查中，我们安装了 **Agent Kanban**。安装完成后，它立即出现在 QwenPaw OS Shell 桌面，并可以在独立窗口中打开，无需离开当前智能体空间。
 
-![安装后打开的 Agent Kanban](https://img.alicdn.com/imgextra/i1/O1CN01zkuicI4BdzH5C8Mk_!!6000000003201-0-tps-2559-1219.jpg)
+![安装后打开的 Agent Kanban](https://img.alicdn.com/imgextra/i4/O1CN01ry1ahIYcqPE5CGAk_!!6000000007395-0-tps-2560-1226.jpg)
 
 应用本质上仍运行在 QwenPaw 的插件与路由体系中，因此安装前应确认来源、版本兼容性和所需权限。对于不再使用的应用，可以回到应用市场卸载。
 
@@ -154,7 +152,7 @@ QwenPaw 的能力越多，配置入口越需要集中。系统设置将常用管
 
 ### 用任务总览管理多个窗口
 
-当窗口数量较多时，按 **F3** 打开任务总览。下方区域会列出当前智能体空间中的全部窗口，点击任意窗口卡片即可关闭总览并直接聚焦该应用。
+当窗口数量较多时，把鼠标移到桌面顶部，呼出智能体空间条并点击当前空间名称。任务总览会列出当前智能体空间中的全部窗口，点击任意窗口卡片即可直接聚焦该应用。
 
 任务总览顶部还会显示每个智能体空间当前保存的窗口数量。因此它既是窗口切换器，也是不同 Agent 工作现场的总入口。
 
