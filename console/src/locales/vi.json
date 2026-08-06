@@ -940,7 +940,7 @@
     "sessionTrend": "Xu hướng phiên",
     "tokenTrend": "Xu hướng token",
     "llmAndToolTrend": "Xu hướng LLM & công cụ",
-    "llmAndToolTrendTooltip": "Xu hướng lời gọi API LLM toàn cục so với ý định dùng công cụ của agent hiện tại",
+    "llmAndToolTrendTooltip": "Xu hướng lượt LLM của agent hiện tại so với ý định dùng công cụ",
     "sessionsByChannel": "Phiên theo kênh",
     "messagesByChannel": "Tin nhắn theo kênh",
     "allAgents": "Tất cả agent",

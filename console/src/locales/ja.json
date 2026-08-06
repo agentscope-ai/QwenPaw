@@ -1429,7 +1429,7 @@
     "messageTrendTooltip": "ユーザーメッセージとアシスタントメッセージの比較推移",
     "sessionTrendTooltip": "新規セッションとアクティブセッションの比較推移。オレンジ色のバーはその日に作成されたセッション、青色のバーはその日にメッセージがあったセッションです",
     "tokenTrendTooltip": "入力 Token と出力 Token の消費推移",
-    "llmAndToolTrendTooltip": "グローバル LLM API 呼び出しと現在のエージェントのツール意図の比較推移",
+    "llmAndToolTrendTooltip": "現在のエージェントの LLM ターンとツール呼び出しの比較推移",
     "sessionsByChannelTooltip": "メッセージチャンネル別のセッション分布。チャンネルに属さないセッションはデフォルトで Console にグループ化されます",
     "messagesByChannelTooltip": "メッセージチャンネル別のメッセージ総数分布",
     "allAgents": "すべてのエージェント",

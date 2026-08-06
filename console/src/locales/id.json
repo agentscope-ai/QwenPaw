@@ -1680,7 +1680,7 @@
     "messageTrendTooltip": "Tren perbandingan pesan pengguna vs pesan asisten",
     "sessionTrendTooltip": "Tren perbandingan sesi baru vs sesi aktif; batang oranye adalah sesi yang dibuat hari itu, batang biru adalah sesi dengan pesan pada hari itu",
     "tokenTrendTooltip": "Tren konsumsi token prompt dan completion",
-    "llmAndToolTrendTooltip": "Tren panggilan API LLM global vs intent penggunaan alat agen saat ini",
+    "llmAndToolTrendTooltip": "Tren giliran LLM agen saat ini vs intent penggunaan alat",
     "sessionsByChannelTooltip": "Distribusi sesi berdasarkan saluran pesan; sesi tanpa saluran dikelompokkan di bawah Konsol",
     "messagesByChannelTooltip": "Distribusi total pesan berdasarkan saluran pesan",
     "allAgents": "Semua Agen",

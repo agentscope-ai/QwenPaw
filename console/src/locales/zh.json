@@ -1700,7 +1700,7 @@
     "messageTrendTooltip": "用户消息与智能体消息的数量对比趋势",
     "sessionTrendTooltip": "新建会话与活跃会话的对比趋势，橙色为当天创建的会话，蓝色为当天产生过消息的会话",
     "tokenTrendTooltip": "输入 Token 与输出 Token 的消耗趋势",
-    "llmAndToolTrendTooltip": "全局 LLM API 调用次数与当前智能体工具调用次数的对比趋势",
+    "llmAndToolTrendTooltip": "当前智能体 LLM 轮次与工具调用次数的对比趋势",
     "sessionsByChannelTooltip": "按消息渠道分布的会话数量占比，未关联渠道的会话默认归为 Console",
     "messagesByChannelTooltip": "按消息渠道分布的消息总数占比",
     "allAgents": "全部智能体",

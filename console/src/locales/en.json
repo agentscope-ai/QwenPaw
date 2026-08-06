@@ -1868,7 +1868,7 @@
     "messageTrendTooltip": "Trend comparing user messages vs assistant messages",
     "sessionTrendTooltip": "Trend comparing new sessions vs active sessions; orange bars are sessions created that day, blue bars are sessions with messages that day",
     "tokenTrendTooltip": "Trend of prompt and completion token consumption",
-    "llmAndToolTrendTooltip": "Trend of global LLM API calls vs current-agent tool-use intents",
+    "llmAndToolTrendTooltip": "Trend of current-agent LLM turns vs tool-use intents",
     "sessionsByChannelTooltip": "Distribution of sessions by messaging channel; sessions without a channel are grouped under Console",
     "messagesByChannelTooltip": "Distribution of total messages by messaging channel",
     "allAgents": "All Agents",
