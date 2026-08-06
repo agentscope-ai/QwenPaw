@@ -1374,6 +1374,24 @@ def _resolve_model_slot_override(model_slot_override: Any):
     return slot
 
 
+def _canonical_provider_id_for_model(
+    model: ChatModelBase,
+    configured_provider_id: str,
+) -> str:
+    """Prefer the provider identity explicitly bound to the model."""
+    model_provider_id = getattr(model, "qwenpaw_provider_id", None)
+    if not isinstance(model_provider_id, str) or not model_provider_id:
+        return configured_provider_id
+    if model_provider_id != configured_provider_id:
+        logger.warning(
+            "Configured provider id %r differs from the model's canonical "
+            "id %r; using the model id for formatter scope.",
+            configured_provider_id,
+            model_provider_id,
+        )
+    return model_provider_id
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
@@ -1468,6 +1486,8 @@ def create_model_and_formatter(
                 ),
             )
         provider_id = global_model.provider_id
+
+    provider_id = _canonical_provider_id_for_model(model, provider_id)
 
     # Create the formatter based on the model's native one.  In 2.0 every
     # ``ChatModelBase`` carries its own ``self.formatter`` (set by its

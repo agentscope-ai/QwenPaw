@@ -6,6 +6,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from agentscope.credential import OpenAICredential
 
 from qwenpaw.providers.openai_chat_model_compat import (
@@ -16,6 +17,12 @@ from qwenpaw.utils.tool_call_extra import collect_transient_tool_call_extras
 
 
 class CompatHarnessOpenAIChatModel(OpenAIChatModelCompat):
+    async def _call_api(self, *args: Any, **kwargs: Any) -> Any:
+        stream = getattr(self, "_test_stream", None)
+        if stream is not None:
+            return self._parse_stream_response(datetime.now(), stream)
+        return await super()._call_api(*args, **kwargs)
+
     async def parse_stream_for_test(
         self,
         start_datetime: datetime,
@@ -28,6 +35,14 @@ class CompatHarnessOpenAIChatModel(OpenAIChatModelCompat):
         ):
             responses.append(response)
         return responses
+
+    async def call_stream_for_test(self, stream: Any) -> list[Any]:
+        object.__setattr__(self, "_test_stream", stream)
+        try:
+            response = await self(messages=[])
+            return [chunk async for chunk in response]
+        finally:
+            object.__delattr__(self, "_test_stream")
 
 
 class FakeAsyncStream:
@@ -153,6 +168,53 @@ async def test_stream_parser_carries_extra_content_on_strict_block() -> None:
         "call_sig": {
             "provider_id": "example",
             "extra_content": {"thought_signature": "signature-abc"},
+        },
+    }
+
+
+@pytest.mark.parametrize("repeat_tool_id", [True, False])
+async def test_full_stream_preserves_extra_from_later_chunk(
+    repeat_tool_id: bool,
+) -> None:
+    """The final AgentScope accumulator receives late thought signatures."""
+    model = CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            id="qwenpaw-credential-name",
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        provider_id="configured-name",
+        model="dummy",
+        stream=True,
+    )
+    first = SimpleNamespace(
+        index=0,
+        id="call_sig",
+        function=SimpleNamespace(name="ping", arguments='{"x":'),
+    )
+    second = SimpleNamespace(
+        index=0,
+        id="call_sig" if repeat_tool_id else None,
+        function=SimpleNamespace(name=None, arguments="1}"),
+        extra_content={"thought_signature": "signature-late"},
+    )
+
+    responses = await model.call_stream_for_test(
+        FakeAsyncStream([_make_chunk([first]), _make_chunk([second])]),
+    )
+
+    final = responses[-1]
+    assert final.is_last
+    tool_block = next(
+        block
+        for block in final.content
+        if getattr(block, "type", None) in ("tool_use", "tool_call")
+    )
+    assert tool_block.input == '{"x":1}'
+    assert collect_transient_tool_call_extras([tool_block]) == {
+        "call_sig": {
+            "provider_id": "configured-name",
+            "extra_content": {"thought_signature": "signature-late"},
         },
     }
 

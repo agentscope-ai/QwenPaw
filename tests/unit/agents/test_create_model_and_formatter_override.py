@@ -48,6 +48,7 @@ def _patched_load_agent_config(_agent_id):  # noqa: ARG001
 @pytest.fixture(autouse=True)
 def _patch_dependencies(monkeypatch):
     """Avoid touching the real provider manager / retry wrappers."""
+    formatter_provider_ids = []
     monkeypatch.setattr(
         config_module,
         "load_agent_config",
@@ -74,7 +75,9 @@ def _patch_dependencies(monkeypatch):
     monkeypatch.setattr(
         model_factory,
         "_create_formatter_instance",
-        lambda _model: "formatter",
+        lambda _model, provider_id=None: (
+            formatter_provider_ids.append(provider_id) or "formatter"
+        ),
     )
     monkeypatch.setattr(
         model_factory,
@@ -86,9 +89,10 @@ def _patch_dependencies(monkeypatch):
         "RetryChatModel",
         lambda model, **_kwargs: model,
     )
+    return formatter_provider_ids
 
 
-def test_override_with_model_slot_config():
+def test_override_with_model_slot_config(_patch_dependencies):
     """Passing a ``ModelSlotConfig`` instance overrides ``active_model``."""
     override = ModelSlotConfig(provider_id="p", model="m")
 
@@ -101,6 +105,7 @@ def test_override_with_model_slot_config():
 
     assert model.identifier == "p/m"
     assert fmt == "formatter"
+    assert _patch_dependencies == ["p"]
 
 
 def test_factory_binds_returned_formatter_to_provider_model():
@@ -112,6 +117,34 @@ def test_factory_binds_returned_formatter_to_provider_model():
         )
 
     assert model.formatter is fmt
+
+
+def test_factory_uses_model_canonical_provider_id(
+    monkeypatch,
+    _patch_dependencies,
+):
+    """Formatter scope follows the provider ID bound to the model."""
+    canonical_model = _FakeChatModel("canonical-provider/model")
+    canonical_model.qwenpaw_provider_id = "canonical-provider"
+    manager = SimpleNamespace(
+        get_provider=lambda _provider_id: SimpleNamespace(
+            get_chat_model_instance=lambda _model_name: canonical_model,
+        ),
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "ProviderManager",
+        SimpleNamespace(get_instance=lambda: manager),
+    )
+
+    with patch.object(model_factory, "RetryConfig") as retry_cls:
+        retry_cls.return_value = "rc"
+        model_factory.create_model_and_formatter(
+            agent_id="agent-1",
+            model_slot_override="configured-alias:model",
+        )
+
+    assert _patch_dependencies == ["canonical-provider"]
 
 
 def test_override_with_dict():
