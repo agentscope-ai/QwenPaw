@@ -545,15 +545,16 @@ class PlaywrightDriver(UIDriver):
         ai_count_before = self._page.locator(SEL_AI_BUBBLE).count()
         user_count_before = self._page.locator(SEL_USER_BUBBLE).count()
 
-        # Defensive input flow borrowed from e2e/pages/chat_page.py:
-        # focus the chat input, clear any leftover text, fill the new
-        # message, then click send (or fall back to Enter).
+        # Drive the contenteditable through keyboard events.  Playwright's
+        # click() and fill() can hang against Lexical on WebKit even after
+        # completing their actionability checks.
         input_box = self._page.locator(SEL_INPUT).first
         input_box.focus()
         time.sleep(0.2)
-        input_box.fill("")
-        time.sleep(0.2)
-        input_box.fill(message)
+        select_all = "Meta+A" if sys.platform == "darwin" else "Control+A"
+        self._page.keyboard.press(select_all)
+        self._page.keyboard.press("Backspace")
+        self._page.keyboard.insert_text(message)
         time.sleep(0.5)
 
         # Reset Gate 2 state-machine caches so a fresh round starts
@@ -571,7 +572,7 @@ class PlaywrightDriver(UIDriver):
         if send_btn.is_visible() and send_btn.is_enabled():
             send_btn.click()
         else:
-            input_box.press("Enter")
+            self._page.keyboard.press("Enter")
 
         # Gold-standard "message actually sent" check: a new user bubble
         # must appear. Treating button-disabled as the signal turns out
@@ -596,7 +597,7 @@ class PlaywrightDriver(UIDriver):
             try:
                 input_box.focus()
                 time.sleep(0.2)
-                input_box.press("Enter")
+                self._page.keyboard.press("Enter")
                 self._page.wait_for_function(
                     """(expected) => {
                       const msgs = document.querySelectorAll(
