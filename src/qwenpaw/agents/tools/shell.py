@@ -52,106 +52,29 @@ def _windows_shell_creationflags() -> int:
     return getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 
-def _collapse_newlines_outside_quotes(cmd: str) -> str:
-    r"""Collapse newlines outside quoted strings; preserve those inside.
-
-    Used only on Unix where sh/bash correctly handles newlines in quotes.
-    Handles backslash-newline (line continuation) by removing both chars,
-    and treats single-quoted content as fully literal per POSIX.
-    """
-    result: list[str] = []
-    in_single_quote = False
-    in_double_quote = False
-    i = 0
-    length = len(cmd)
-
-    while i < length:
-        char = cmd[i]
-
-        # Toggle quote state
-        if char == "'" and not in_double_quote:
-            in_single_quote = not in_single_quote
-            result.append(char)
-            i += 1
-            continue
-
-        if char == '"' and not in_single_quote:
-            in_double_quote = not in_double_quote
-            result.append(char)
-            i += 1
-            continue
-
-        # Inside single quotes: everything is literal (POSIX)
-        if in_single_quote:
-            result.append(char)
-            i += 1
-            continue
-
-        # Backslash-newline (line continuation): remove both chars
-        if char == "\\" and i + 1 < length and cmd[i + 1] in ("\r", "\n"):
-            i += 2
-            # \r\n sequence: skip the \n as well
-            if i < length and cmd[i - 1] == "\r" and cmd[i] == "\n":
-                i += 1
-            continue
-
-        # Backslash escape (non-newline): keep both chars
-        if char == "\\" and i + 1 < length:
-            result.append(char)
-            result.append(cmd[i + 1])
-            i += 2
-            continue
-
-        # Newlines
-        if char in ("\r", "\n"):
-            if in_double_quote:
-                # Preserve newlines inside double quotes
-                result.append(char)
-            else:
-                # Collapse \r\n as a single space
-                if char == "\r" and i + 1 < length and cmd[i + 1] == "\n":
-                    i += 1
-                result.append(" ")
-            i += 1
-            continue
-
-        result.append(char)
-        i += 1
-
-    return "".join(result)
-
-
 def _collapse_embedded_newlines(
     cmd: str,
     shell_executable: str | None = None,
 ) -> str:
     r"""Normalize embedded newlines for the configured shell.
 
-    LLMs produce tool-call arguments in JSON where ``\n`` is parsed as an
-    actual newline character.  In the original shell command the user
-    intended the *literal* two-character sequence ``\n`` (e.g. inside a
-    ``--content`` flag), but after JSON decoding it becomes a real line
-    break.  When passed to a shell:
+    Unix-like shells natively assign meaning to newlines in command lists,
+    control structures, comments, and heredocs.  Rewriting those newlines
+    changes the program, so commands on Unix/macOS are passed through
+    unchanged.
 
-    * **Windows** ``cmd.exe`` truncates the command at the first newline
-      regardless of quoting context, so all newlines must be collapsed.
-      PowerShell supports multiline scripts, so its newlines are preserved.
-    * **Unix** ``sh -c`` treats an unquoted newline as a command separator,
-      but correctly handles newlines inside quoted strings.
-
-    On Unix/macOS, newlines inside quoted strings are preserved so that
-    downstream commands receive the correct multi-line content (e.g.
-    ``--text "Hello\nWorld"``).  On Windows, a missing or unrecognized shell
-    uses the conservative ``cmd.exe``-compatible behavior.
+    On Windows, PowerShell also supports multiline scripts and keeps the
+    original command.  ``cmd.exe`` (and unknown cmd-like shells) can truncate
+    at embedded line breaks, so that path retains the existing CRLF/LF
+    normalization behavior.
     """
     if "\n" not in cmd:
         return cmd
-    if sys.platform == "win32":
-        if shell_executable and _is_powershell(shell_executable):
-            return cmd
-        # cmd.exe (and unknown cmd-like Windows shells) truncate at newlines.
-        return cmd.replace("\r\n", " ").replace("\n", " ")
-    return _collapse_newlines_outside_quotes(cmd)
+    if sys.platform != "win32":
+        return cmd
+    if shell_executable and _is_powershell(shell_executable):
+        return cmd
+    return cmd.replace("\r\n", " ").replace("\n", " ")
 
 
 def _sanitize_win_cmd(cmd: str) -> str:
@@ -660,11 +583,8 @@ def _is_dangerous_self_kill(cmd: str) -> bool:
     return False
 
 
-async def _cleanup_proc(
-    proc: asyncio.subprocess.Process,
-    stderr_suffix: str,
-) -> tuple[str, str]:
-    """Kill a timed-out / cancelled subprocess and drain its output."""
+async def _cleanup_proc(proc: asyncio.subprocess.Process) -> None:
+    """Kill a timed-out or cancelled POSIX subprocess group."""
     try:
         pgid = os.getpgid(proc.pid)
         os.killpg(pgid, signal.SIGTERM)
@@ -673,29 +593,104 @@ async def _cleanup_proc(
         except asyncio.TimeoutError:
             os.killpg(pgid, signal.SIGKILL)
             await asyncio.wait_for(proc.wait(), timeout=2)
-
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=1,
-            )
-        except asyncio.TimeoutError:
-            stdout, stderr = b"", b""
-        stdout_str = smart_decode(stdout)
-        stderr_str = smart_decode(stderr)
-        if stderr_str:
-            stderr_str += f"\n{stderr_suffix}"
-        else:
-            stderr_str = stderr_suffix
     except (ProcessLookupError, OSError):
         try:
             proc.kill()
             await proc.wait()
         except (ProcessLookupError, OSError):
             pass
-        stdout_str = ""
-        stderr_str = stderr_suffix
-    return stdout_str, stderr_str
+
+
+async def _execute_posix_host(
+    cmd: str,
+    cwd: str,
+    timeout: float,
+    env: dict[str, str],
+    shell_executable: str | None,
+) -> tuple[int, str, str]:
+    """Execute a POSIX host command without pipe-inheritance hangs.
+
+    A background descendant can inherit stdout/stderr pipe descriptors after
+    the direct shell exits.  Waiting on ``communicate()`` would then wait for
+    every such descendant to close the descriptors.  Redirect output to
+    regular temporary files instead, and wait only for the direct shell.
+    """
+    stdout_path: str | None = None
+    stderr_path: str | None = None
+    stdout_file = None
+    stderr_file = None
+
+    try:
+        stdout_fd, stdout_path = tempfile.mkstemp(prefix="qwenpaw_out_")
+        stdout_file = os.fdopen(stdout_fd, "wb")
+        stderr_fd, stderr_path = tempfile.mkstemp(prefix="qwenpaw_err_")
+        stderr_file = os.fdopen(stderr_fd, "wb")
+
+        proc = await asyncio.create_subprocess_exec(
+            shell_executable or "/bin/sh",
+            "-c",
+            cmd,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            bufsize=0,
+            cwd=cwd,
+            env=env,
+            start_new_session=True,
+        )
+
+        # The child inherited its own descriptors.  Close the parent copies
+        # before waiting, then reopen the paths for reading after the shell
+        # exits.  Background descendants may keep their descriptors open, but
+        # regular files do not have pipe EOF semantics and cannot block wait().
+        stdout_file.close()
+        stdout_file = None
+        stderr_file.close()
+        stderr_file = None
+
+        stderr_suffix = ""
+        try:
+            from ...tool_calls import cancellable_wait
+
+            returncode = await cancellable_wait(
+                proc.wait(),
+                fallback_secs=timeout,
+                as_kill_deadline=True,
+            )
+        except asyncio.TimeoutError:
+            stderr_suffix = (
+                f"⚠️ TimeoutError: The command execution exceeded "
+                f"the timeout of {timeout} seconds. "
+                f"Please consider increasing the timeout value if this "
+                f"command requires more time to complete."
+            )
+            returncode = -1
+            await _cleanup_proc(proc)
+        except asyncio.CancelledError:
+            stderr_suffix = _cancel_stderr_message(timeout)
+            returncode = -1
+            await _cleanup_proc(proc)
+
+        stdout_str = _read_temp_file(stdout_path)
+        stderr_str = _read_temp_file(stderr_path)
+        if stderr_suffix:
+            if stderr_str:
+                stderr_str += f"\n{stderr_suffix}"
+            else:
+                stderr_str = stderr_suffix
+        return returncode, stdout_str, stderr_str
+    finally:
+        for output_file in (stdout_file, stderr_file):
+            if output_file is not None:
+                try:
+                    output_file.close()
+                except OSError:
+                    pass
+        for path in (stdout_path, stderr_path):
+            if path is not None:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
 
 
 # pylint: disable=too-many-branches, too-many-statements
@@ -891,51 +886,17 @@ async def execute_shell_command(
                 shell_executable,
             )
         else:
-            proc = await asyncio.create_subprocess_shell(
+            (
+                returncode,
+                stdout_str,
+                stderr_str,
+            ) = await _execute_posix_host(
                 cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                bufsize=0,
-                cwd=str(working_dir),
-                env=env,
-                start_new_session=True,
-                executable=shell_executable,
+                str(working_dir),
+                timeout,
+                env,
+                shell_executable,
             )
-
-            try:
-                # Apply timeout to communicate directly; wait()+communicate()
-                # can hang if descendants keep stdout/stderr pipes open.
-                from ...tool_calls import cancellable_wait
-
-                stdout, stderr = await cancellable_wait(
-                    proc.communicate(),
-                    fallback_secs=timeout,
-                    as_kill_deadline=True,
-                )
-                stdout_str = smart_decode(stdout)
-                stderr_str = smart_decode(stderr)
-                returncode = proc.returncode
-
-            except asyncio.TimeoutError:
-                stderr_suffix = (
-                    f"⚠️ TimeoutError: The command execution exceeded "
-                    f"the timeout of {timeout} seconds. "
-                    f"Please consider increasing the timeout value if this command "
-                    f"requires more time to complete."
-                )
-                returncode = -1
-                stdout_str, stderr_str = await _cleanup_proc(
-                    proc,
-                    stderr_suffix,
-                )
-
-            except asyncio.CancelledError:
-                stderr_suffix = _cancel_stderr_message(timeout)
-                returncode = -1
-                stdout_str, stderr_str = await _cleanup_proc(
-                    proc,
-                    stderr_suffix,
-                )
 
         if returncode == 0:
             if stdout_str:

@@ -2,7 +2,6 @@
 """Tests for qwenpaw.agents.tools.shell.
 
 Covers:
-- _collapse_newlines_outside_quotes
 - _collapse_embedded_newlines
 - _sanitize_win_cmd
 - _read_temp_file
@@ -27,8 +26,8 @@ import pytest
 from qwenpaw.agents.tools.shell import (
     _cancel_stderr_message,
     _collapse_embedded_newlines,
-    _collapse_newlines_outside_quotes,
     _execute_in_sandbox,
+    _execute_posix_host,
     _execute_subprocess_sync,
     _execute_windows_host,
     _extract_powershell_command,
@@ -108,50 +107,6 @@ class TestIsCmd:
 
 
 # ---------------------------------------------------------------------------
-# _collapse_newlines_outside_quotes
-# ---------------------------------------------------------------------------
-
-
-class TestCollapseNewlinesOutsideQuotes:
-    """Tests for _collapse_newlines_outside_quotes."""
-
-    def test_no_newlines(self):
-        assert _collapse_newlines_outside_quotes("echo hello") == "echo hello"
-
-    def test_unquoted_newline_to_space(self):
-        assert _collapse_newlines_outside_quotes("echo\nhello") == "echo hello"
-
-    def test_crlf_to_space(self):
-        assert (
-            _collapse_newlines_outside_quotes("echo\r\nhello") == "echo hello"
-        )
-
-    def test_single_quoted_newline_preserved(self):
-        result = _collapse_newlines_outside_quotes("echo 'hello\nworld'")
-        assert "\n" in result
-
-    def test_double_quoted_newline_preserved(self):
-        result = _collapse_newlines_outside_quotes('echo "hello\nworld"')
-        assert "\n" in result
-
-    def test_backslash_newline_continuation(self):
-        result = _collapse_newlines_outside_quotes("echo \\\nhello")
-        assert result == "echo hello"
-
-    def test_backslash_before_normal_char_kept(self):
-        result = _collapse_newlines_outside_quotes(r"echo \nhello")
-        assert result == r"echo \nhello"
-
-    def test_mixed_quoted_and_unquoted(self):
-        cmd = 'echo "line1\nline2" && \necho second'
-        result = _collapse_newlines_outside_quotes(cmd)
-        # First \n inside double quotes preserved
-        assert "line1\nline2" in result
-        # Second \n outside quotes collapsed to space
-        assert "echo second" in result
-
-
-# ---------------------------------------------------------------------------
 # _collapse_embedded_newlines
 # ---------------------------------------------------------------------------
 
@@ -180,6 +135,15 @@ class TestCollapseEmbeddedNewlines:
         result = _collapse_embedded_newlines('echo "hello\nworld"')
         assert result == 'echo "hello world"'
 
+    @patch("qwenpaw.agents.tools.shell.sys")
+    def test_windows_cmd_preserves_standalone_carriage_return(self, mock_sys):
+        mock_sys.platform = "win32"
+        result = _collapse_embedded_newlines(
+            "echo hello\rworld",
+            r"C:\Windows\System32\cmd.exe",
+        )
+        assert result == "echo hello\rworld"
+
     @pytest.mark.parametrize("shell", ["powershell.exe", "pwsh.exe"])
     @pytest.mark.parametrize("newline", ["\n", "\r\n"])
     @patch("qwenpaw.agents.tools.shell.sys")
@@ -200,6 +164,22 @@ class TestCollapseEmbeddedNewlines:
     def test_unix_preserves_quoted_newlines(self, mock_sys):
         mock_sys.platform = "linux"
         command = 'echo "hello\nworld"'
+        assert _collapse_embedded_newlines(command, "/bin/bash") == command
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo A\necho B",
+            "cd /repo &&\npwd",
+            "printf foo |\ngrep foo",
+            "for item in a b; do\n  echo $item\ndone",
+            "cat <<'EOF'\nhello\nEOF",
+            "echo A\n\necho B",
+        ],
+    )
+    @patch("qwenpaw.agents.tools.shell.sys")
+    def test_unix_preserves_shell_program(self, mock_sys, command):
+        mock_sys.platform = "linux"
         assert _collapse_embedded_newlines(command, "/bin/bash") == command
 
 
@@ -399,6 +379,102 @@ class TestIsDangerousSelfKill:
 
 
 # ---------------------------------------------------------------------------
+# _execute_posix_host
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX host subprocess path under test",
+)
+async def test_execute_posix_host_captures_regular_file_output(tmp_path):
+    """POSIX host execution waits on the shell and reads temp files."""
+    import asyncio
+
+    proc = MagicMock()
+    proc.wait = AsyncMock(return_value=0)
+    proc.pid = 12345
+
+    async def fake_create_subprocess_exec(*_args, **kwargs):
+        kwargs["stdout"].write(b"hello\n")
+        kwargs["stdout"].flush()
+        kwargs["stderr"].write(b"warning\n")
+        kwargs["stderr"].flush()
+        return proc
+
+    with (
+        patch(
+            "qwenpaw.agents.tools.shell.asyncio.create_subprocess_exec",
+            side_effect=fake_create_subprocess_exec,
+        ) as create_process,
+        patch(
+            "qwenpaw.agents.tools.shell.tempfile.tempdir",
+            str(tmp_path),
+        ),
+    ):
+        returncode, stdout, stderr = await _execute_posix_host(
+            "echo hello",
+            str(tmp_path),
+            5.0,
+            os.environ.copy(),
+            "/bin/sh",
+        )
+
+    assert returncode == 0
+    assert stdout == "hello"
+    assert stderr == "warning"
+    proc.wait.assert_awaited_once()
+    assert create_process.call_args.args == ("/bin/sh", "-c", "echo hello")
+    kwargs = create_process.call_args.kwargs
+    assert kwargs["stdout"] != asyncio.subprocess.PIPE
+    assert kwargs["stderr"] != asyncio.subprocess.PIPE
+    assert kwargs["cwd"] == str(tmp_path)
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX host subprocess path under test",
+)
+async def test_execute_posix_host_background_child_does_not_delay(tmp_path):
+    """A background child retaining output descriptors must not block."""
+    returncode, stdout, stderr = await _execute_posix_host(
+        "sleep 2 &\nprintf done",
+        str(tmp_path),
+        0.5,
+        os.environ.copy(),
+        "/bin/sh",
+    )
+
+    assert returncode == 0
+    assert stdout == "done"
+    assert stderr == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX host subprocess path under test",
+)
+async def test_execute_posix_host_timeout_preserves_partial_output(tmp_path):
+    """Timeout cleanup keeps output emitted before the process is killed."""
+    returncode, stdout, stderr = await _execute_posix_host(
+        "printf partial-out; printf partial-err >&2; sleep 5",
+        str(tmp_path),
+        0.2,
+        os.environ.copy(),
+        "/bin/sh",
+    )
+
+    assert returncode == -1
+    assert stdout == "partial-out"
+    assert stderr.startswith("partial-err\n")
+    assert "TimeoutError" in stderr
+
+
+# ---------------------------------------------------------------------------
 # execute_shell_command (mocked)
 # ---------------------------------------------------------------------------
 
@@ -420,24 +496,14 @@ class TestExecuteShellCommand:
         mock_workspace.return_value = None
         mock_timeout.return_value = None
 
-        async def fake_wait_for(coro, timeout=None):
-            return await coro
-
-        mock_proc = MagicMock()
-        mock_proc.communicate = AsyncMock(
-            return_value=(b"hello\n", b""),
-        )
-        mock_proc.returncode = 0
-        mock_proc.pid = 12345
-
         with (
             patch(
-                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
-                AsyncMock(return_value=mock_proc),
+                "qwenpaw.agents.tools.shell.sys.platform",
+                "linux",
             ),
             patch(
-                "qwenpaw.agents.tools.shell.asyncio.wait_for",
-                side_effect=fake_wait_for,
+                "qwenpaw.agents.tools.shell._execute_posix_host",
+                AsyncMock(return_value=(0, "hello\n", "")),
             ),
         ):
             from qwenpaw.agents.tools.shell import (
@@ -453,6 +519,35 @@ class TestExecuteShellCommand:
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
     @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
+    async def test_unix_multiline_command_reaches_shell_unchanged(
+        self,
+        mock_shell_exe,
+        mock_workspace,
+        mock_timeout,
+    ):
+        mock_shell_exe.return_value = "/bin/sh"
+        mock_workspace.return_value = None
+        mock_timeout.return_value = None
+        command = "echo A\necho B"
+
+        with (
+            patch("qwenpaw.agents.tools.shell.sys.platform", "linux"),
+            patch(
+                "qwenpaw.agents.tools.shell._execute_posix_host",
+                AsyncMock(return_value=(0, "A\nB", "")),
+            ) as execute_posix,
+        ):
+            from qwenpaw.agents.tools.shell import execute_shell_command
+
+            result = await execute_shell_command(command)
+
+        assert result.content[0].text == "A\nB"
+        assert execute_posix.call_args.args[0] == command
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
+    @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
+    @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
     async def test_command_failure(
         self,
         mock_shell_exe,
@@ -463,24 +558,14 @@ class TestExecuteShellCommand:
         mock_workspace.return_value = None
         mock_timeout.return_value = None
 
-        async def fake_wait_for(coro, timeout=None):
-            return await coro
-
-        mock_proc = MagicMock()
-        mock_proc.communicate = AsyncMock(
-            return_value=(b"", b"error msg\n"),
-        )
-        mock_proc.returncode = 1
-        mock_proc.pid = 12345
-
         with (
             patch(
-                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
-                AsyncMock(return_value=mock_proc),
+                "qwenpaw.agents.tools.shell.sys.platform",
+                "linux",
             ),
             patch(
-                "qwenpaw.agents.tools.shell.asyncio.wait_for",
-                side_effect=fake_wait_for,
+                "qwenpaw.agents.tools.shell._execute_posix_host",
+                AsyncMock(return_value=(1, "", "error msg\n")),
             ),
         ):
             from qwenpaw.agents.tools.shell import (
@@ -505,22 +590,14 @@ class TestExecuteShellCommand:
         mock_workspace.return_value = None
         mock_timeout.return_value = None
 
-        async def fake_wait_for(coro, timeout=None):
-            return await coro
-
-        mock_proc = MagicMock()
-        mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-        mock_proc.returncode = 0
-        mock_proc.pid = 12345
-
         with (
             patch(
-                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
-                AsyncMock(return_value=mock_proc),
+                "qwenpaw.agents.tools.shell.sys.platform",
+                "linux",
             ),
             patch(
-                "qwenpaw.agents.tools.shell.asyncio.wait_for",
-                side_effect=fake_wait_for,
+                "qwenpaw.agents.tools.shell._execute_posix_host",
+                AsyncMock(return_value=(0, "", "")),
             ),
         ):
             from qwenpaw.agents.tools.shell import (
@@ -545,22 +622,14 @@ class TestExecuteShellCommand:
         mock_workspace.return_value = None
         mock_timeout.return_value = None
 
-        async def fake_wait_for(coro, timeout=None):
-            return await coro
-
-        mock_proc = MagicMock()
-        mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
-        mock_proc.returncode = 0
-        mock_proc.pid = 12345
-
         with (
             patch(
-                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
-                AsyncMock(return_value=mock_proc),
+                "qwenpaw.agents.tools.shell.sys.platform",
+                "linux",
             ),
             patch(
-                "qwenpaw.agents.tools.shell.asyncio.wait_for",
-                side_effect=fake_wait_for,
+                "qwenpaw.agents.tools.shell._execute_posix_host",
+                AsyncMock(return_value=(0, "ok", "")),
             ),
         ):
             from qwenpaw.agents.tools.shell import (
@@ -585,22 +654,14 @@ class TestExecuteShellCommand:
         mock_workspace.return_value = None
         mock_timeout.return_value = None
 
-        async def fake_wait_for(coro, timeout=None):
-            return await coro
-
-        mock_proc = MagicMock()
-        mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
-        mock_proc.returncode = 0
-        mock_proc.pid = 12345
-
         with (
             patch(
-                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
-                AsyncMock(return_value=mock_proc),
+                "qwenpaw.agents.tools.shell.sys.platform",
+                "linux",
             ),
             patch(
-                "qwenpaw.agents.tools.shell.asyncio.wait_for",
-                side_effect=fake_wait_for,
+                "qwenpaw.agents.tools.shell._execute_posix_host",
+                AsyncMock(return_value=(0, "ok", "")),
             ),
         ):
             from qwenpaw.agents.tools.shell import (
@@ -1174,19 +1235,25 @@ async def test_unix_shell_cancellederror_uses_timeout_stderr():
 
     proc = MagicMock()
     proc.returncode = -1
+    proc.pid = 12345
+    proc.wait = AsyncMock(return_value=-1)
 
-    async def _fake_cleanup(proc_arg, stderr_suffix):
-        return "", stderr_suffix
+    async def _fake_cleanup(proc_arg):
+        return None
+
+    async def _cancel_wait(awaitable, **_kwargs):
+        awaitable.close()
+        raise asyncio.CancelledError()
 
     try:
         with (
             patch(
-                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
+                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_exec",
                 AsyncMock(return_value=proc),
             ),
             patch(
                 "qwenpaw.tool_calls.cancellable_wait",
-                AsyncMock(side_effect=asyncio.CancelledError()),
+                side_effect=_cancel_wait,
             ),
             patch(
                 "qwenpaw.agents.tools.shell._cleanup_proc",
@@ -1233,19 +1300,25 @@ async def test_unix_shell_cancellederror_uses_user_cancel_stderr():
 
     proc = MagicMock()
     proc.returncode = -1
+    proc.pid = 12345
+    proc.wait = AsyncMock(return_value=-1)
 
-    async def _fake_cleanup(proc_arg, stderr_suffix):
-        return "", stderr_suffix
+    async def _fake_cleanup(proc_arg):
+        return None
+
+    async def _cancel_wait(awaitable, **_kwargs):
+        awaitable.close()
+        raise asyncio.CancelledError()
 
     try:
         with (
             patch(
-                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
+                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_exec",
                 AsyncMock(return_value=proc),
             ),
             patch(
                 "qwenpaw.tool_calls.cancellable_wait",
-                AsyncMock(side_effect=asyncio.CancelledError()),
+                side_effect=_cancel_wait,
             ),
             patch(
                 "qwenpaw.agents.tools.shell._cleanup_proc",
