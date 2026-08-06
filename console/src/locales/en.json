@@ -538,6 +538,7 @@
     "restoreSuccessPreserved": "Backup restored successfully. Preserved local settings: {{keys}}. Please restart the service.",
     "restoreSuccessWithBackup": "Backup restored successfully. Pre-restore backup ID: {{preRestoreId}}. Please restart the service.",
     "restoreFailed": "Failed to restore backup",
+    "restoreTimedOut": "Restore is still running or took longer than 5 minutes. Check the backup size, disk space, and service logs before trying again.",
     "restoreTargetBusy": "Restore failed because these directories are still in use. Close the browser or process using them, then retry. If they remain locked, restart the system and try again.",
     "detailLoadFailed": "Failed to load backup details; restore is unavailable",
     "trustLocalBanner": "Local backup - full restore by default",

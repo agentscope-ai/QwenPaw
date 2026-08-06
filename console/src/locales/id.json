@@ -1071,6 +1071,7 @@
     "restoreSuccess": "Cadangan berhasil dipulihkan. Silakan mulai ulang layanan.",
     "restoreSuccessPreserved": "Cadangan berhasil dipulihkan. Pengaturan lokal dipertahankan: {{keys}}. Silakan mulai ulang layanan.",
     "restoreFailed": "Gagal memulihkan cadangan",
+    "restoreTimedOut": "Pemulihan masih berjalan atau telah melebihi 5 menit. Periksa ukuran cadangan, ruang disk, dan log layanan sebelum mencoba lagi.",
     "restoreTargetBusy": "Pemulihan gagal karena direktori berikut masih digunakan. Tutup browser atau proses yang menggunakannya, lalu coba lagi. Jika masih terkunci, mulai ulang sistem dan coba lagi.",
     "detailLoadFailed": "Gagal memuat detail cadangan; pemulihan tidak tersedia",
     "importSuccess": "Cadangan berhasil diimpor",

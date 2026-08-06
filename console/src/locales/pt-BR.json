@@ -366,6 +366,7 @@
     "restoreSuccessPreserved": "Backup restaurado com sucesso. Configurações locais preservadas: {{keys}}. Reinicie o serviço.",
     "restoreSuccessWithBackup": "Backup restored successfully. Pre-restore backup ID: {{preRestoreId}}. Please restart the service.",
     "restoreFailed": "Falhou to restore backup",
+    "restoreTimedOut": "A restauração ainda está em andamento ou excedeu 5 minutos. Verifique o tamanho do backup, o espaço em disco e os logs do serviço antes de tentar novamente.",
     "restoreTargetBusy": "A restauração falhou porque estes diretórios ainda estão em uso. Feche o navegador ou processo que os utiliza e tente novamente. Se continuarem bloqueados, reinicie o sistema e tente de novo.",
     "detailLoadFailed": "Failed to load backup details; restore is unavailable",
     "trustLocalBanner": "Backup local - restauração completa por padrão",

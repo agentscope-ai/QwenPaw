@@ -3131,6 +3131,7 @@
     "restoreSuccessPreserved": "备份恢复成功。已保留本地设置：{{keys}}。请重启服务。",
     "restoreSuccessWithBackup": "备份恢复成功，恢复前备份 ID：{{preRestoreId}}，请您重启服务。",
     "restoreFailed": "备份恢复失败",
+    "restoreTimedOut": "恢复仍在进行或已超过 5 分钟。请检查备份大小、磁盘空间和服务日志后再试。",
     "restoreTargetBusy": "备份恢复失败：以下目录仍被占用。请关闭正在使用这些目录的浏览器或进程后重试；如果仍然被锁定，请重启系统后再试。",
     "detailLoadFailed": "备份详情加载失败，无法进行恢复操作",
     "trustLocalBanner": "本地备份 - 默认完整恢复",
