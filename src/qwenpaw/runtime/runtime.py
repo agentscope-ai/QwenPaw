@@ -59,6 +59,7 @@ class Runtime:
         envelope = Envelope(session_id=ctx.session_id)
         ctx._envelope = envelope  # pylint: disable=protected-access
         skip_agent = False
+        skip_dispatch = False
 
         try:
             # --- [phase 1] PRE_DISPATCH ---
@@ -66,27 +67,29 @@ class Runtime:
             if r.action == HookAction.SHORT_CIRCUIT:
                 async for ev in envelope.from_msg(r.payload):
                     yield ev
-                return
-            if r.action == HookAction.SKIP_AGENT:
+                skip_agent = True
+                skip_dispatch = True
+            elif r.action == HookAction.SKIP_AGENT:
                 skip_agent = True
 
             # --- [fixed 1] slash command dispatch ---
-            text = _get_last_user_text(ctx.input_msgs)
-            cmd_registry = self.workspace.plugins.slash_command_registry
-            cmd_msg = await cmd_registry.dispatch(text or "", ctx)
-            if cmd_msg is not None:
-                async for ev in envelope.from_msg(cmd_msg):
-                    yield ev
-                skip_agent = True
-            else:
-                # --- [phase 2] POST_DISPATCH ---
-                r = await hooks.run(Phase.POST_DISPATCH, ctx)
-                if r.action == HookAction.SHORT_CIRCUIT:
-                    async for ev in envelope.from_msg(r.payload):
+            if not skip_dispatch:
+                text = _get_last_user_text(ctx.input_msgs)
+                cmd_registry = self.workspace.plugins.slash_command_registry
+                cmd_msg = await cmd_registry.dispatch(text or "", ctx)
+                if cmd_msg is not None:
+                    async for ev in envelope.from_msg(cmd_msg):
                         yield ev
                     skip_agent = True
-                elif r.action == HookAction.SKIP_AGENT:
-                    skip_agent = True
+                else:
+                    # --- [phase 2] POST_DISPATCH ---
+                    r = await hooks.run(Phase.POST_DISPATCH, ctx)
+                    if r.action == HookAction.SHORT_CIRCUIT:
+                        async for ev in envelope.from_msg(r.payload):
+                            yield ev
+                        skip_agent = True
+                    elif r.action == HookAction.SKIP_AGENT:
+                        skip_agent = True
 
             if not skip_agent:
                 # --- [phase 3] PRE_AGENT_BUILD ---
@@ -133,19 +136,6 @@ class Runtime:
                 )
                 async for ev in executor.run(ctx.input_msgs):
                     yield ev
-
-            artifact_hook = next(
-                (
-                    hook
-                    for hook in hooks.hooks_for(Phase.PRE_DISPATCH)
-                    if getattr(hook, "name", "") == "workspace_artifacts"
-                ),
-                None,
-            )
-            if artifact_hook is not None and hasattr(artifact_hook, "collect"):
-                manifest = await artifact_hook.collect(ctx)
-                if manifest is not None:
-                    ctx.extras["workspace_artifact_manifest"] = manifest
 
             # --- [phase 6] POST_RESPONSE ---
             await hooks.run(Phase.POST_RESPONSE, ctx)

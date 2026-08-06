@@ -145,7 +145,7 @@ class ArtifactCollector:
                 ),
             )
 
-        truncated = after.truncated
+        truncated = self._before.truncated or after.truncated
         if len(artifacts) > self._limits.max_artifacts:
             artifacts = artifacts[: self._limits.max_artifacts]
             truncated = True

@@ -1,18 +1,26 @@
 //! Tauri command for opening an agent workspace in the file manager.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tauri_plugin_shell::ShellExt;
 
-use crate::backend_download::resolve_agent_workspace_file_path;
+use crate::backend_download::{
+    get_agent_workspace_directory, resolve_agent_workspace_file_path,
+};
 
 /// Open a validated workspace directory through the operating system shell.
 #[tauri::command]
-pub(crate) fn open_workspace_directory(
+pub(crate) async fn open_workspace_directory(
     app: tauri::AppHandle,
-    path: String,
+    agent_id: String,
 ) -> Result<(), String> {
-    let workspace_path = validate_workspace_directory(&path).map_err(|err| {
+    let workspace_path = tauri::async_runtime::spawn_blocking(move || {
+        let path = get_agent_workspace_directory(&agent_id)?;
+        validate_workspace_directory(&path)
+    })
+    .await
+    .map_err(|err| format!("workspace resolver task failed: {err}"))?
+    .map_err(|err| {
         log::warn!("[workspace] command rejected: {err}");
         err
     })?;
@@ -32,12 +40,12 @@ pub(crate) fn open_workspace_directory(
 }
 
 #[tauri::command]
-pub(crate) fn open_workspace_artifact(
+pub(crate) async fn open_workspace_artifact(
     app: tauri::AppHandle,
     agent_id: String,
     file_path: String,
 ) -> Result<(), String> {
-    let artifact = resolve_agent_workspace_file_path(&file_path, &agent_id)?;
+    let artifact = resolve_artifact_path(agent_id, file_path).await?;
     #[allow(deprecated)]
     app.shell()
         .open(artifact.to_string_lossy().into_owned(), None)
@@ -45,16 +53,27 @@ pub(crate) fn open_workspace_artifact(
 }
 
 #[tauri::command]
-pub(crate) fn reveal_workspace_artifact(
+pub(crate) async fn reveal_workspace_artifact(
     agent_id: String,
     file_path: String,
 ) -> Result<(), String> {
-    let artifact = resolve_agent_workspace_file_path(&file_path, &agent_id)?;
+    let artifact = resolve_artifact_path(agent_id, file_path).await?;
     reveal_file(&artifact)
 }
 
+async fn resolve_artifact_path(
+    agent_id: String,
+    file_path: String,
+) -> Result<PathBuf, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        resolve_agent_workspace_file_path(&file_path, &agent_id)
+    })
+    .await
+    .map_err(|err| format!("artifact resolver task failed: {err}"))?
+}
+
 #[cfg(target_os = "windows")]
-fn reveal_file(path: &std::path::Path) -> Result<(), String> {
+fn reveal_file(path: &Path) -> Result<(), String> {
     let mut select_argument = std::ffi::OsString::from("/select,");
     select_argument.push(path.as_os_str());
     std::process::Command::new("explorer.exe")
@@ -65,7 +84,7 @@ fn reveal_file(path: &std::path::Path) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn reveal_file(path: &std::path::Path) -> Result<(), String> {
+fn reveal_file(path: &Path) -> Result<(), String> {
     std::process::Command::new("open")
         .arg("-R")
         .arg(path)
@@ -75,7 +94,7 @@ fn reveal_file(path: &std::path::Path) -> Result<(), String> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn reveal_file(path: &std::path::Path) -> Result<(), String> {
+fn reveal_file(path: &Path) -> Result<(), String> {
     let parent = path.parent().ok_or("artifact has no parent directory")?;
     std::process::Command::new("xdg-open")
         .arg(parent)
@@ -85,26 +104,12 @@ fn reveal_file(path: &std::path::Path) -> Result<(), String> {
 }
 
 /// Resolve a safe existing directory before passing it to the OS shell.
-fn validate_workspace_directory(path: &str) -> Result<PathBuf, String> {
-    let trimmed_path = path.trim();
-    if trimmed_path.is_empty() {
-        return Err("workspace path is empty".into());
-    }
-    if trimmed_path != path {
-        return Err(
-            "workspace path has leading or trailing whitespace".into(),
-        );
-    }
-    if trimmed_path.chars().any(char::is_control) {
-        return Err("workspace path contains control characters".into());
-    }
-
-    let workspace_path = PathBuf::from(trimmed_path);
-    if !workspace_path.is_absolute() {
+fn validate_workspace_directory(path: &Path) -> Result<PathBuf, String> {
+    if !path.is_absolute() {
         return Err("workspace path must be absolute".into());
     }
 
-    let canonical_path = workspace_path
+    let canonical_path = path
         .canonicalize()
         .map_err(|err| format!("failed to resolve workspace path: {err}"))?;
     if !canonical_path.is_dir() {
@@ -116,7 +121,7 @@ fn validate_workspace_directory(path: &str) -> Result<PathBuf, String> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, path::Path};
 
     use tempfile::tempdir;
 
@@ -130,7 +135,7 @@ mod tests {
             .to_str()
             .expect("temporary path is UTF-8");
 
-        let result = validate_workspace_directory(path)
+        let result = validate_workspace_directory(Path::new(path))
             .expect("existing directory should be valid");
 
         assert_eq!(
@@ -140,22 +145,11 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_ambiguous_and_relative_paths() {
+    fn rejects_relative_paths() {
         assert_eq!(
-            validate_workspace_directory("").unwrap_err(),
-            "workspace path is empty"
-        );
-        assert_eq!(
-            validate_workspace_directory(" relative/path").unwrap_err(),
-            "workspace path has leading or trailing whitespace"
-        );
-        assert_eq!(
-            validate_workspace_directory("relative/path").unwrap_err(),
+            validate_workspace_directory(Path::new("relative/path"))
+                .unwrap_err(),
             "workspace path must be absolute"
-        );
-        assert_eq!(
-            validate_workspace_directory("relative\npath").unwrap_err(),
-            "workspace path contains control characters"
         );
     }
 
@@ -165,17 +159,12 @@ mod tests {
         let file_path = workspace.path().join("artifact.txt");
         fs::write(&file_path, "artifact").expect("create temporary file");
 
-        let file_error = validate_workspace_directory(
-            file_path.to_str().expect("file path is UTF-8"),
-        )
-        .unwrap_err();
+        let file_error = validate_workspace_directory(&file_path).unwrap_err();
         assert_eq!(file_error, "workspace path is not a directory");
 
         let missing_path = workspace.path().join("missing");
-        let missing_error = validate_workspace_directory(
-            missing_path.to_str().expect("missing path is UTF-8"),
-        )
-        .unwrap_err();
+        let missing_error =
+            validate_workspace_directory(&missing_path).unwrap_err();
         assert!(
             missing_error.starts_with("failed to resolve workspace path:")
         );

@@ -131,6 +131,68 @@ async def test_save_and_load_round_trip(session, tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_partial_agent_save_preserves_registered_extensions(
+    session,
+    tmp_path: Path,
+):
+    manifests = [{"version": 1, "turn_id": "turn-1"}]
+    await session.save_session_state(
+        session_id="sess-extensions",
+        user_id="user-1",
+        agent=_StateModule(
+            {
+                "state": {"context": ["before"]},
+                "scroll": {"index": 2},
+                "workspace_artifact_manifests": manifests,
+            },
+        ),
+    )
+
+    await session.save_session_state(
+        session_id="sess-extensions",
+        user_id="user-1",
+        agent=_StateModule({"state": {"context": ["after"]}}),
+    )
+
+    saved = json.loads(
+        (tmp_path / "user-1_sess-extensions.json").read_text("utf-8"),
+    )
+    assert saved["agent"] == {
+        "state": {"context": ["after"]},
+        "workspace_artifact_manifests": manifests,
+    }
+
+
+@pytest.mark.asyncio
+async def test_explicit_empty_manifest_history_is_not_restored(
+    session,
+    tmp_path: Path,
+):
+    await session.save_session_state(
+        session_id="sess-clear-extensions",
+        user_id="user-1",
+        agent=_StateModule(
+            {
+                "workspace_artifact_manifests": [
+                    {"version": 1, "turn_id": "turn-1"},
+                ],
+            },
+        ),
+    )
+
+    await session.save_session_state(
+        session_id="sess-clear-extensions",
+        user_id="user-1",
+        agent=_StateModule({"workspace_artifact_manifests": []}),
+    )
+
+    saved = json.loads(
+        (tmp_path / "user-1_sess-clear-extensions.json").read_text("utf-8"),
+    )
+    assert saved["agent"]["workspace_artifact_manifests"] == []
+
+
+@pytest.mark.asyncio
 async def test_load_missing_session_allow_not_exist(session):
     state = _StateModule({"untouched": True})
 

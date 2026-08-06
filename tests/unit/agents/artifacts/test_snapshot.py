@@ -97,6 +97,27 @@ def test_snapshot_stops_at_file_limit(tmp_path: Path) -> None:
     assert snapshot.truncated is True
 
 
+def test_snapshot_file_limit_stops_nested_directory_traversal(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path
+    for index in range(25):
+        directory = directory / f"level-{index}"
+        directory.mkdir()
+        (directory / f"file-{index}.txt").write_text(
+            str(index),
+            encoding="utf-8",
+        )
+
+    snapshot = capture_workspace_snapshot(
+        tmp_path,
+        limits=SnapshotLimits(max_files=3),
+    )
+
+    assert len(snapshot.files) == 3
+    assert snapshot.truncated is True
+
+
 def test_diff_reports_created_modified_and_deleted(
     tmp_path: Path,
 ) -> None:

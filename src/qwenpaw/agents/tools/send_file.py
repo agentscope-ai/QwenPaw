@@ -11,6 +11,7 @@ from agentscope.message import ToolResultState
 from agentscope.message import TextBlock, DataBlock, URLSource
 
 from ...runtime.tool_registry import tool_descriptor
+from ...utils.io_utils import run_sync_io
 from ..artifacts import register_current_artifact
 from .file_io import _resolve_file_path, _path_to_file_url
 
@@ -77,7 +78,7 @@ async def send_file_to_user(
         mime_type = "application/octet-stream"
 
     try:
-        register_current_artifact(file_path)
+        await run_sync_io(register_current_artifact, file_path)
         file_url = _path_to_file_url(file_path)
 
         return ToolChunk(

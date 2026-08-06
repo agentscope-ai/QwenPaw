@@ -26,6 +26,27 @@ logger = logging.getLogger(__name__)
 
 # Characters forbidden in Windows filenames
 _UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|]')
+_PRESERVED_STATE_FIELDS = {
+    "agent": frozenset({"workspace_artifact_manifests"}),
+}
+
+
+def _preserve_registered_state_fields(
+    incoming: dict,
+    existing: dict,
+) -> None:
+    """Copy registered extension fields omitted by a partial state save."""
+    for module_name, field_names in _PRESERVED_STATE_FIELDS.items():
+        incoming_module = incoming.get(module_name)
+        existing_module = existing.get(module_name)
+        if not isinstance(incoming_module, dict):
+            continue
+        if not isinstance(existing_module, dict):
+            continue
+        for field_name in field_names:
+            if field_name not in incoming_module:
+                if field_name in existing_module:
+                    incoming_module[field_name] = existing_module[field_name]
 
 
 def sanitize_filename(name: str) -> str:
@@ -294,6 +315,14 @@ class SafeJSONSession:
             channel,
         )
         async with get_path_lock(session_save_path):
+            try:
+                existing = await run_sync_io(
+                    _read_session_json,
+                    session_save_path,
+                )
+            except FileNotFoundError:
+                existing = {}
+            _preserve_registered_state_fields(state_dicts, existing)
             await write_json_atomic_async(
                 session_save_path,
                 state_dicts,

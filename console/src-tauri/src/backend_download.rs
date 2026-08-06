@@ -118,11 +118,12 @@ fn parse_headers(headers: HashMap<String, String>) -> Result<HeaderMap, String> 
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::{path::PathBuf, sync::Mutex};
 
     use super::{
-        get_coding_directory, parse_local_backend_url,
-        resolve_agent_workspace_file_path,
+        get_agent_workspace_directory, get_coding_directory,
+        parse_local_backend_url, resolve_agent_workspace_file_path,
+        resolve_configured_path,
     };
 
     /// Serialize tests that mutate process environment variables.
@@ -230,6 +231,50 @@ mod tests {
         std::env::remove_var("QWENPAW_WORKING_DIR");
 
         assert_eq!(result, workspace_dir);
+    }
+
+    #[test]
+    fn agent_workspace_resolves_relative_to_working_directory() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let working_dir = temp.path();
+        let workspace_dir = working_dir.join("relative-workspace");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+        std::fs::write(
+            working_dir.join("config.json"),
+            serde_json::json!({
+                "agents": {
+                    "profiles": {
+                        "test-agent": {
+                            "workspace_dir": "relative-workspace",
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        std::env::set_var("QWENPAW_WORKING_DIR", working_dir);
+        let result = get_agent_workspace_directory("test-agent").unwrap();
+        std::env::remove_var("QWENPAW_WORKING_DIR");
+
+        assert_eq!(result, workspace_dir);
+    }
+
+    #[test]
+    fn configured_paths_expand_home_and_relative_paths() {
+        let working_dir = PathBuf::from("working-directory");
+        assert_eq!(
+            resolve_configured_path("relative/workspace", &working_dir),
+            working_dir.join("relative/workspace")
+        );
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(
+                resolve_configured_path("~/workspace", &working_dir),
+                home.join("workspace")
+            );
+        }
     }
 
     #[test]
@@ -395,7 +440,16 @@ pub(crate) fn resolve_agent_workspace_file_path(
     Ok(canonical_target)
 }
 
-fn get_agent_workspace_directory(agent_id: &str) -> Result<PathBuf, String> {
+pub(crate) fn get_agent_workspace_directory(
+    agent_id: &str,
+) -> Result<PathBuf, String> {
+    if agent_id.is_empty()
+        || !agent_id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        return Err("agent id contains invalid characters".into());
+    }
     let working_dir = if let Ok(dir) = std::env::var("QWENPAW_WORKING_DIR") {
         PathBuf::from(dir)
     } else if let Ok(dir) = std::env::var("COPAW_WORKING_DIR") {
@@ -425,7 +479,7 @@ fn get_agent_workspace_directory(agent_id: &str) -> Result<PathBuf, String> {
     Ok(profile
         .get("workspace_dir")
         .and_then(|path| path.as_str())
-        .map(expand_tilde)
+        .map(|path| resolve_configured_path(path, &working_dir))
         .unwrap_or_else(|| working_dir.join("workspaces").join(agent_id)))
 }
 
@@ -490,7 +544,7 @@ fn get_coding_directory(agent_id: Option<&str>) -> Result<PathBuf, String> {
     let workspace_dir = agent_profile
         .get("workspace_dir")
         .and_then(|d| d.as_str())
-        .map(|d| expand_tilde(d))
+        .map(|d| resolve_configured_path(d, &working_dir))
         .unwrap_or_else(|| working_dir.join("workspaces").join(target_agent));
 
     // Load the full agent config from workspace/agent.json to read
@@ -523,4 +577,16 @@ fn expand_tilde(path: &str) -> PathBuf {
         }
     }
     PathBuf::from(path)
+}
+
+fn resolve_configured_path(
+    path: &str,
+    working_dir: &std::path::Path,
+) -> PathBuf {
+    let expanded = expand_tilde(path);
+    if expanded.is_absolute() {
+        expanded
+    } else {
+        working_dir.join(expanded)
+    }
 }

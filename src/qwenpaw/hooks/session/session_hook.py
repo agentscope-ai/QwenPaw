@@ -96,7 +96,7 @@ class SessionLoadHook(LifecycleHook):
 
 
 class SessionSaveHook(LifecycleHook):
-    """Persist agent state after response completion."""
+    """Persist agent state before the response envelope is finalized."""
 
     phase = Phase.POST_RESPONSE
     name = "session_save"
@@ -106,7 +106,7 @@ class SessionSaveHook(LifecycleHook):
         ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = False
         if _is_ephemeral_request(ctx):
             return HookResult()
-        if ctx.workspace is None or ctx.agent is None:
+        if ctx.workspace is None:
             return HookResult()
         session = getattr(ctx.workspace, "session", None)
         if session is None:
@@ -115,11 +115,36 @@ class SessionSaveHook(LifecycleHook):
             request = ctx.request
             user_id = getattr(request, "user_id", "") or ctx.session_id
             channel = getattr(request, "channel", "") or ""
+            manifest = ctx.extras.get("workspace_artifact_manifest")
+
+            if ctx.agent is None:
+                if manifest is None:
+                    return HookResult()
+                states = await session.get_session_state_dict(
+                    session_id=ctx.session_id,
+                    user_id=user_id,
+                    channel=channel,
+                )
+                agent_state = states.get("agent", {})
+                if not isinstance(agent_state, dict):
+                    agent_state = {}
+                manifests = _merge_workspace_artifact_manifests(
+                    agent_state,
+                    manifest,
+                )
+                await session.update_session_state(
+                    session_id=ctx.session_id,
+                    key=("agent", "workspace_artifact_manifests"),
+                    value=manifests,
+                    user_id=user_id,
+                    channel=channel,
+                )
+                ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = True
+                return HookResult()
 
             proxy = StateProxy()
             proxy.data = ctx.agent.state_dict()
             proxy.data["mode_state"] = ctx.mode_state
-            manifest = ctx.extras.get("workspace_artifact_manifest")
             manifests = _merge_workspace_artifact_manifests(
                 ctx.session_state,
                 manifest,

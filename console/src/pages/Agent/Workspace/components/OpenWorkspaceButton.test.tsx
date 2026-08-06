@@ -56,8 +56,7 @@ describe("OpenWorkspaceButton", () => {
 
   it("opens the current workspace through the Tauri command", async () => {
     const user = userEvent.setup();
-    const workspacePath = "C:\\Users\\tester\\.qwenpaw\\workspaces\\default";
-    renderWithProviders(<OpenWorkspaceButton workspacePath={workspacePath} />);
+    renderWithProviders(<OpenWorkspaceButton agentId="default" />);
 
     await user.click(
       screen.getByRole("button", {
@@ -66,14 +65,14 @@ describe("OpenWorkspaceButton", () => {
     );
 
     expect(invoke).toHaveBeenCalledWith("open_workspace_directory", {
-      path: workspacePath,
+      agentId: "default",
     });
   });
 
   it("stays hidden outside the Tauri desktop runtime", () => {
     isTauri.mockReturnValue(false);
 
-    renderWithProviders(<OpenWorkspaceButton workspacePath="C:\\workspace" />);
+    renderWithProviders(<OpenWorkspaceButton agentId="default" />);
 
     expect(
       screen.queryByRole("button", {
@@ -83,7 +82,7 @@ describe("OpenWorkspaceButton", () => {
   });
 
   it("is disabled until the workspace path is available", () => {
-    renderWithProviders(<OpenWorkspaceButton workspacePath={null} />);
+    renderWithProviders(<OpenWorkspaceButton agentId={null} />);
 
     expect(
       screen.getByRole("button", {
@@ -96,7 +95,7 @@ describe("OpenWorkspaceButton", () => {
     const user = userEvent.setup();
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     invoke.mockRejectedValue(new Error("permission denied"));
-    renderWithProviders(<OpenWorkspaceButton workspacePath="C:\\workspace" />);
+    renderWithProviders(<OpenWorkspaceButton agentId="default" />);
 
     const button = screen.getByRole("button", {
       name: "workspace.openInFileManager",
@@ -119,7 +118,7 @@ describe("OpenWorkspaceButton", () => {
           resolveInvoke = resolve;
         }),
     );
-    renderWithProviders(<OpenWorkspaceButton workspacePath="C:\\workspace" />);
+    renderWithProviders(<OpenWorkspaceButton agentId="default" />);
 
     const button = screen.getByRole("button", {
       name: "workspace.openInFileManager",

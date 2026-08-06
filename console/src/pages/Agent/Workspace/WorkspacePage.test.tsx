@@ -31,13 +31,9 @@ vi.mock("./components", () => ({
   }),
   FileListPanel: () => <div>file-list</div>,
   FileEditor: () => <div>file-editor</div>,
-  OpenWorkspaceButton: ({
-    workspacePath,
-  }: {
-    workspacePath: string | null;
-  }) => {
-    mocks.openWorkspaceButton(workspacePath);
-    return <div data-testid="open-workspace-path">{workspacePath}</div>;
+  OpenWorkspaceButton: ({ agentId }: { agentId: string | null }) => {
+    mocks.openWorkspaceButton(agentId);
+    return <div data-testid="open-workspace-agent">{agentId}</div>;
   },
 }));
 
@@ -69,11 +65,11 @@ vi.mock("react-i18next", () => ({
 }));
 
 describe("WorkspacePage", () => {
-  it("uses the selected agent path when the core file list is empty", () => {
+  it("opens the workspace by selected agent id", () => {
     renderWithProviders(<WorkspacePage />);
 
-    expect(screen.getByTestId("open-workspace-path")).toHaveTextContent(
-      "C:\\Users\\tester\\.qwenpaw\\workspaces\\default",
+    expect(screen.getByTestId("open-workspace-agent")).toHaveTextContent(
+      "default",
     );
   });
 });

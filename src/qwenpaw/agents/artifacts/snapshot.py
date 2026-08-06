@@ -68,9 +68,7 @@ def capture_workspace_snapshot(
                 modified_ns=stat.st_mtime_ns,
             )
             if len(files) >= active_limits.max_files:
-                truncated = True
-                pending.clear()
-                break
+                return WorkspaceSnapshot.create(files, truncated=True)
 
         pending.extend(reversed(child_directories))
 

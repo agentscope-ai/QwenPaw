@@ -8,12 +8,10 @@ import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { isDesktopTauriRuntime } from "../../../../utils/openExternalLink";
 
 interface OpenWorkspaceButtonProps {
-  workspacePath: string | null;
+  agentId: string | null;
 }
 
-export function OpenWorkspaceButton({
-  workspacePath,
-}: OpenWorkspaceButtonProps) {
+export function OpenWorkspaceButton({ agentId }: OpenWorkspaceButtonProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [opening, setOpening] = useState(false);
@@ -23,11 +21,11 @@ export function OpenWorkspaceButton({
   }
 
   const handleOpen = async () => {
-    if (!workspacePath || opening) return;
+    if (!agentId || opening) return;
 
     setOpening(true);
     try {
-      await invoke("open_workspace_directory", { path: workspacePath });
+      await invoke("open_workspace_directory", { agentId });
     } catch (error) {
       console.warn("[workspace] failed to open workspace directory", error);
       message.error(t("workspace.openFailed"));
@@ -41,7 +39,7 @@ export function OpenWorkspaceButton({
       size="small"
       icon={<FolderOpen size={16} />}
       loading={opening || undefined}
-      disabled={!workspacePath}
+      disabled={!agentId}
       onClick={() => void handleOpen()}
     >
       {t("workspace.openInFileManager")}

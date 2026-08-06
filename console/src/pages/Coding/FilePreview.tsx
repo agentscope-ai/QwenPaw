@@ -1,12 +1,4 @@
-/**
- * FilePreview – renders a non-code file in the editor area.
- *
- * Supported types (auto-detected by extension):
- *   • image  – PNG / JPG / GIF / WebP / SVG / ICO / BMP
- *   • pdf    – inline <embed>
- *   • markdown – react-markdown with GFM
- *   • csv    – parsed table
- */
+/** Render editor previews from an explicit artifact kind or file extension. */
 
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -14,11 +6,13 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { invoke } from "@tauri-apps/api/core";
+import { Spin } from "antd";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { isDesktopTauriRuntime } from "../../utils/openExternalLink";
 import { ExternalMarkdownLink } from "../../components/Markdown/externalLinkComponents";
 import { useAgentStore } from "../../stores/agentStore";
+import type { WorkspaceArtifactPreviewKind } from "../../types/workspaceArtifacts";
 import styles from "./FilePreview.module.less";
 
 // ---------------------------------------------------------------------------
@@ -31,31 +25,52 @@ const IMAGE_EXTS = new Set([
   "jpeg",
   "gif",
   "webp",
+  "avif",
   "svg",
   "ico",
   "bmp",
 ]);
 
-export type PreviewType = "image" | "pdf" | "markdown" | "csv" | "none";
+const TEXT_EXTS = new Set([
+  "css",
+  "html",
+  "ini",
+  "js",
+  "json",
+  "log",
+  "py",
+  "toml",
+  "ts",
+  "tsx",
+  "txt",
+  "xml",
+  "yaml",
+  "yml",
+]);
+
+export type PreviewType = WorkspaceArtifactPreviewKind;
 
 export function getPreviewType(filePath: string): PreviewType {
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
   if (IMAGE_EXTS.has(ext)) return "image";
   if (ext === "pdf") return "pdf";
-  if (ext === "md" || ext === "mdx") return "markdown";
-  if (ext === "csv") return "csv";
+  if (ext === "md" || ext === "markdown" || ext === "mdx") {
+    return "markdown";
+  }
+  if (ext === "csv" || ext === "tsv") return "csv";
+  if (TEXT_EXTS.has(ext)) return "text";
   return "none";
 }
 
 export function isPreviewable(filePath: string): boolean {
-  return getPreviewType(filePath) !== "none";
+  return ["image", "pdf", "markdown", "csv"].includes(getPreviewType(filePath));
 }
 
 // ---------------------------------------------------------------------------
 // CSV parser (no external dep)
 // ---------------------------------------------------------------------------
 
-function parseCsv(raw: string): string[][] {
+function parseDelimited(raw: string, delimiter: string): string[][] {
   const lines = raw.trimEnd().split(/\r?\n/);
   return lines.map((line) => {
     const cells: string[] = [];
@@ -70,7 +85,7 @@ function parseCsv(raw: string): string[][] {
         } else {
           inQuote = !inQuote;
         }
-      } else if (ch === "," && !inQuote) {
+      } else if (ch === delimiter && !inQuote) {
         cells.push(cur);
         cur = "";
       } else {
@@ -90,15 +105,26 @@ function parseCsv(raw: string): string[][] {
 // command so binary previews work offline (no backend HTTP required).
 // ---------------------------------------------------------------------------
 
+interface BlobPreviewState {
+  blobUrl: string | null;
+  status: "loading" | "ready" | "error";
+}
+
 function useAuthBlobUrl(
   filePath: string,
   artifactAgentId?: string,
-): string | null {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+): BlobPreviewState {
+  const [state, setState] = useState<BlobPreviewState>({
+    blobUrl: null,
+    status: "loading",
+  });
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
 
   useEffect(() => {
-    let revoked = false;
+    let disposed = false;
+    let objectUrl: string | null = null;
+    const controller = new AbortController();
+    setState({ blobUrl: null, status: "loading" });
 
     const loadBlob = async (): Promise<Blob | null> => {
       // Tauri: read file directly from disk for offline support
@@ -128,30 +154,32 @@ function useAuthBlobUrl(
       const url = artifactAgentId
         ? workspaceApi.getArtifactFileUrl(artifactAgentId, filePath)
         : workspaceApi.getBinaryFileUrl(filePath);
-      const res = await fetch(url, { headers: buildAuthHeaders() });
+      const res = await fetch(url, {
+        headers: buildAuthHeaders(),
+        signal: controller.signal,
+      });
       if (!res.ok) throw new Error(`${res.status}`);
       return res.blob();
     };
 
     loadBlob()
       .then((blob) => {
-        if (revoked || !blob) return;
-        setBlobUrl(URL.createObjectURL(blob));
+        if (disposed || !blob) return;
+        objectUrl = URL.createObjectURL(blob);
+        setState({ blobUrl: objectUrl, status: "ready" });
       })
       .catch(() => {
-        if (!revoked) setBlobUrl(null);
+        if (!disposed) setState({ blobUrl: null, status: "error" });
       });
 
     return () => {
-      revoked = true;
-      setBlobUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
+      disposed = true;
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [artifactAgentId, filePath, selectedAgent]);
 
-  return blobUrl;
+  return state;
 }
 
 /** Guess a MIME type from the file extension for blob creation. */
@@ -163,6 +191,7 @@ function guessMimeType(filePath: string): string {
     jpeg: "image/jpeg",
     gif: "image/gif",
     webp: "image/webp",
+    avif: "image/avif",
     svg: "image/svg+xml",
     ico: "image/x-icon",
     bmp: "image/bmp",
@@ -182,8 +211,11 @@ function ImagePreview({
   filePath: string;
   artifactAgentId?: string;
 }) {
-  const blobUrl = useAuthBlobUrl(filePath, artifactAgentId);
-  if (!blobUrl) return null;
+  const { blobUrl, status } = useAuthBlobUrl(filePath, artifactAgentId);
+  if (status === "loading") return <Spin />;
+  if (status === "error" || !blobUrl) {
+    return <div className={styles.previewState}>Preview unavailable</div>;
+  }
   return (
     <div className={styles.imageWrap}>
       <img
@@ -202,8 +234,11 @@ function PdfPreview({
   filePath: string;
   artifactAgentId?: string;
 }) {
-  const blobUrl = useAuthBlobUrl(filePath, artifactAgentId);
-  if (!blobUrl) return null;
+  const { blobUrl, status } = useAuthBlobUrl(filePath, artifactAgentId);
+  if (status === "loading") return <Spin />;
+  if (status === "error" || !blobUrl) {
+    return <div className={styles.previewState}>Preview unavailable</div>;
+  }
   return (
     <embed
       src={blobUrl}
@@ -262,8 +297,17 @@ function MarkdownPreview({ content }: { content: string }) {
 const MAX_CSV_ROWS = 500;
 const MAX_CSV_COLS = 50;
 
-function CsvPreview({ content }: { content: string }) {
-  const rows = useMemo(() => parseCsv(content), [content]);
+function CsvPreview({
+  content,
+  delimiter,
+}: {
+  content: string;
+  delimiter: string;
+}) {
+  const rows = useMemo(
+    () => parseDelimited(content, delimiter),
+    [content, delimiter],
+  );
   const header = rows[0] ?? [];
   const body = rows.slice(1, MAX_CSV_ROWS + 1);
   const truncatedCols = header.length > MAX_CSV_COLS;
@@ -306,6 +350,29 @@ function CsvPreview({ content }: { content: string }) {
   );
 }
 
+function TextPreview({
+  filePath,
+  content,
+}: {
+  filePath: string;
+  content: string;
+}) {
+  const extension = filePath.split(".").pop()?.toLowerCase() || "text";
+  return (
+    <div className={styles.textWrap}>
+      <SyntaxHighlighter
+        language={extension}
+        style={oneDark}
+        showLineNumbers
+        wrapLongLines
+        customStyle={{ margin: 0, minHeight: "100%", borderRadius: 0 }}
+      >
+        {content}
+      </SyntaxHighlighter>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -315,14 +382,16 @@ export interface FilePreviewProps {
   /** Text content – used by Markdown and CSV renderers. */
   content: string;
   artifactAgentId?: string;
+  previewKind?: WorkspaceArtifactPreviewKind;
 }
 
 export default function FilePreview({
   filePath,
   content,
   artifactAgentId,
+  previewKind,
 }: FilePreviewProps) {
-  const type = getPreviewType(filePath);
+  const type = previewKind ?? getPreviewType(filePath);
 
   if (type === "image") {
     return (
@@ -333,6 +402,12 @@ export default function FilePreview({
     return <PdfPreview filePath={filePath} artifactAgentId={artifactAgentId} />;
   }
   if (type === "markdown") return <MarkdownPreview content={content} />;
-  if (type === "csv") return <CsvPreview content={content} />;
-  return null;
+  if (type === "csv") {
+    const delimiter = filePath.toLowerCase().endsWith(".tsv") ? "\t" : ",";
+    return <CsvPreview content={content} delimiter={delimiter} />;
+  }
+  if (type === "text") {
+    return <TextPreview filePath={filePath} content={content} />;
+  }
+  return <div className={styles.previewState}>Preview unavailable</div>;
 }

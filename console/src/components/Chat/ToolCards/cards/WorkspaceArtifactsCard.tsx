@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { Drawer } from "antd";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Drawer, Spin } from "antd";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Download,
@@ -13,8 +13,12 @@ import {
 import { useTranslation } from "react-i18next";
 import { buildAuthHeaders } from "../../../../api/authHeaders";
 import { workspaceApi } from "../../../../api/modules/workspace";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import FilePreview from "../../../../pages/Coding/FilePreview";
-import { downloadFileFromUrl } from "../../../../utils/downloadFileFromUrl";
+import {
+  DownloadCancelledError,
+  downloadFileFromUrl,
+} from "../../../../utils/downloadFileFromUrl";
 import { isTauriRuntime } from "../../../../tauri/backendRuntime";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell } from "../shared";
@@ -37,6 +41,7 @@ const WorkspaceArtifactsCard: React.FC<{
   isStreaming?: boolean;
 }> = ({ content, isStreaming }) => {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const [drawer, setDrawer] = useState<
     "artifacts" | "changes" | "preview" | null
   >(null);
@@ -44,6 +49,11 @@ const WorkspaceArtifactsCard: React.FC<{
     null,
   );
   const [previewContent, setPreviewContent] = useState("");
+  const [previewStatus, setPreviewStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const previewRequestId = useRef(0);
+  const previewAbortController = useRef<AbortController | null>(null);
   const manifest = useMemo(
     () => parseManifest(content.result),
     [content.result],
@@ -52,27 +62,75 @@ const WorkspaceArtifactsCard: React.FC<{
   const desktop = isTauriRuntime();
   const title = t("tool.workspaceArtifacts", "Workspace artifacts");
 
-  const downloadArtifact = (artifact: ArtifactEntry) => {
+  useEffect(
+    () => () => {
+      previewAbortController.current?.abort();
+    },
+    [],
+  );
+
+  const downloadArtifact = async (artifact: ArtifactEntry) => {
     if (!manifest) return;
-    void downloadFileFromUrl(
-      workspaceApi.getArtifactFileUrl(manifest.agent_id, artifact.path),
-      artifact.name,
-      { errorMessage: "Artifact download failed" },
-    );
+    try {
+      await downloadFileFromUrl(
+        workspaceApi.getArtifactFileUrl(manifest.agent_id, artifact.path),
+        artifact.name,
+        {
+          headers: buildAuthHeaders(),
+          errorMessage: "Artifact download failed",
+        },
+      );
+    } catch (error) {
+      if (error instanceof DownloadCancelledError) return;
+      message.error(
+        t("tool.workspaceArtifactDownloadFailed", "Artifact download failed"),
+      );
+    }
   };
 
   const openPreview = async (artifact: ArtifactEntry) => {
     if (!manifest) return;
+    const requestId = previewRequestId.current + 1;
+    previewRequestId.current = requestId;
+    previewAbortController.current?.abort();
+    previewAbortController.current = null;
     setPreviewArtifact(artifact);
     setPreviewContent("");
     setDrawer("preview");
     if (["markdown", "csv", "text"].includes(artifact.preview)) {
-      const response = await fetch(
-        workspaceApi.getArtifactFileUrl(manifest.agent_id, artifact.path),
-        { headers: buildAuthHeaders() },
-      );
-      if (response.ok) setPreviewContent(await response.text());
+      const controller = new AbortController();
+      previewAbortController.current = controller;
+      setPreviewStatus("loading");
+      try {
+        const response = await fetch(
+          workspaceApi.getArtifactFileUrl(manifest.agent_id, artifact.path),
+          {
+            headers: buildAuthHeaders(),
+            signal: controller.signal,
+          },
+        );
+        if (!response.ok) throw new Error(`Preview failed: ${response.status}`);
+        const text = await response.text();
+        if (previewRequestId.current !== requestId) return;
+        setPreviewContent(text);
+        setPreviewStatus("ready");
+      } catch (error) {
+        if (previewRequestId.current !== requestId) return;
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        setPreviewStatus("error");
+      }
+      return;
     }
+    setPreviewStatus("ready");
+  };
+
+  const closeDrawer = () => {
+    previewRequestId.current += 1;
+    previewAbortController.current?.abort();
+    previewAbortController.current = null;
+    setDrawer(null);
   };
 
   const invokeArtifactCommand = (
@@ -114,7 +172,7 @@ const WorkspaceArtifactsCard: React.FC<{
           className={styles.iconButton}
           type="button"
           aria-label={`Download ${artifact.name}`}
-          onClick={() => downloadArtifact(artifact)}
+          onClick={() => void downloadArtifact(artifact)}
         >
           <Download size={15} aria-hidden="true" />
         </button>
@@ -194,7 +252,7 @@ const WorkspaceArtifactsCard: React.FC<{
       {manifest && (
         <Drawer
           open={drawer !== null}
-          onClose={() => setDrawer(null)}
+          onClose={closeDrawer}
           width={560}
           title={
             drawer === "changes"
@@ -220,11 +278,22 @@ const WorkspaceArtifactsCard: React.FC<{
           )}
           {drawer === "preview" && previewArtifact && (
             <div className={styles.previewBody}>
-              <FilePreview
-                filePath={previewArtifact.path}
-                content={previewContent}
-                artifactAgentId={manifest.agent_id}
-              />
+              {previewStatus === "loading" ? (
+                <div className={styles.previewState}>
+                  <Spin />
+                </div>
+              ) : previewStatus === "error" ? (
+                <div className={styles.previewState} role="alert">
+                  {t("tool.workspaceArtifactPreviewFailed", "Preview failed")}
+                </div>
+              ) : (
+                <FilePreview
+                  filePath={previewArtifact.path}
+                  content={previewContent}
+                  artifactAgentId={manifest.agent_id}
+                  previewKind={previewArtifact.preview}
+                />
+              )}
             </div>
           )}
         </Drawer>

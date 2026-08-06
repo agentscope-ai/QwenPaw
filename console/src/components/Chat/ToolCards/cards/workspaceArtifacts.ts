@@ -1,3 +1,8 @@
+import {
+  isWorkspaceArtifactPreviewKind,
+  type WorkspaceArtifactPreviewKind,
+} from "../../../../types/workspaceArtifacts";
+
 export interface ArtifactEntry {
   path: string;
   name: string;
@@ -5,7 +10,7 @@ export interface ArtifactEntry {
   mime_type: string;
   size: number;
   change: "created" | "modified";
-  preview: string;
+  preview: WorkspaceArtifactPreviewKind;
 }
 
 export interface ArtifactManifest {
@@ -21,12 +26,26 @@ export interface ArtifactManifest {
 export function parseManifest(result: unknown): ArtifactManifest | null {
   if (typeof result !== "string") return null;
   try {
-    const parsed = JSON.parse(result) as { manifest?: ArtifactManifest };
-    const manifest = parsed.manifest ?? (parsed as ArtifactManifest);
-    if (manifest.version !== 1 || !Array.isArray(manifest.artifacts)) {
+    const parsed = JSON.parse(result) as { manifest?: unknown };
+    const manifest = parsed.manifest ?? parsed;
+    if (typeof manifest !== "object" || manifest === null) {
       return null;
     }
-    return manifest;
+    const candidate = manifest as Partial<ArtifactManifest>;
+    if (candidate.version !== 1 || !Array.isArray(candidate.artifacts)) {
+      return null;
+    }
+    if (
+      candidate.artifacts.some(
+        (artifact) =>
+          typeof artifact !== "object" ||
+          artifact === null ||
+          !isWorkspaceArtifactPreviewKind(artifact.preview),
+      )
+    ) {
+      return null;
+    }
+    return candidate as ArtifactManifest;
   } catch {
     return null;
   }

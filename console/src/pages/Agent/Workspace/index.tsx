@@ -190,9 +190,7 @@ export default function WorkspacePage() {
         extra={
           <div className={styles.workspaceInfo}>
             <div className={styles.actionButtons}>
-              <OpenWorkspaceButton
-                workspacePath={selectedWorkspacePath ?? null}
-              />
+              <OpenWorkspaceButton agentId={selectedAgent || null} />
               <input
                 type="file"
                 ref={fileInputRef}

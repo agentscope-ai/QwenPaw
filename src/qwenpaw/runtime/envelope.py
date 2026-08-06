@@ -771,10 +771,8 @@ class Envelope:
     # ------------------------------------------------------------------
 
     async def from_msg(self, cmd_msg: Any) -> AsyncGenerator[Any, None]:
-        """Translate a completed ``Msg`` from a slash
-        command into a full envelope sequence.
-        """
-        from ..schemas import ContentType, RunStatus, TextContent
+        """Append a completed command message without finalizing response."""
+        from ..schemas import ContentType, TextContent
 
         cmd_text = cmd_msg.get_text_content() or ""
 
@@ -792,19 +790,11 @@ class Envelope:
         yield self._tag_seq(tc)
 
         self._completed_message.content.append(tc)
-        self._completed_message.status = RunStatus.Completed
         self._completed_message.metadata = (
             getattr(cmd_msg, "metadata", None) or {}
         )
-        self._response.output.append(self._completed_message)
-        yield self._tag_seq(self._completed_message)
-
-        self._response.status = RunStatus.Completed
-        self._response.completed_at = datetime.now(timezone.utc).isoformat(
-            timespec="seconds",
-        )
-        yield self._tag_seq(self._response)
-        self._finalized = True
+        async for obj in self._finalize_text_message():
+            yield obj
 
     # ------------------------------------------------------------------
     # Error / Cancel

@@ -4,6 +4,7 @@ from pathlib import Path
 from qwenpaw.agents.artifacts import (
     ArtifactCollector,
     ArtifactLimits,
+    WorkspaceSnapshot,
     capture_workspace_snapshot,
 )
 
@@ -112,4 +113,15 @@ def test_collector_applies_artifact_limit(tmp_path: Path) -> None:
     result = collector.collect(capture_workspace_snapshot(tmp_path))
 
     assert len(result.artifacts) == 2
+    assert result.truncated is True
+
+
+def test_collector_preserves_initial_snapshot_truncation(
+    tmp_path: Path,
+) -> None:
+    before = WorkspaceSnapshot.create({}, truncated=True)
+    collector = ArtifactCollector(tmp_path, before)
+
+    result = collector.collect(capture_workspace_snapshot(tmp_path))
+
     assert result.truncated is True
