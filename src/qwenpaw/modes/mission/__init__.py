@@ -19,6 +19,10 @@ from typing import TYPE_CHECKING, Optional
 from agentscope.message import Msg, TextBlock
 
 from ..base import AgentMode, find_active_explicit_mode
+from ..goal.helpers import (
+    create_completion_gate,
+    create_doom_loop_gate,
+)
 from ...runtime.hooks import HookBase, HookContext
 from ...runtime.slash_command_registry import CommandSpec
 
@@ -102,6 +106,12 @@ class MissionMode(AgentMode):
         handler = StopHandler()
         gate = _MG()
         handler.register(gate)
+        doom_gate = create_doom_loop_gate(workspace)
+        if doom_gate is not None:
+            handler.register(doom_gate)
+        completion_gate = create_completion_gate(workspace)
+        if completion_gate is not None:
+            handler.register(completion_gate)
         self._gate = gate
 
         plugins = getattr(workspace, "plugins", None)

@@ -3,6 +3,7 @@
 
 Separated from goal_mode.py for maintainability.
 """
+
 from __future__ import annotations
 
 import logging
@@ -56,17 +57,17 @@ def register_goal_tools_governance() -> None:
 def create_doom_loop_gate(
     workspace: object,
 ) -> Any:
-    """Create DoomLoopGate from agent config.
+    """Create DoomLoopGate from workspace config.
 
     Returns None if doom loop detection is disabled
-    or config is unavailable.
+    or not enabled for in-loop modes.
     """
     try:
         from ...loop.gates import DoomLoopGate
 
         agent_cfg = getattr(
             workspace,
-            "agent_config",
+            "config",
             None,
         )
         if agent_cfg is None:
@@ -82,7 +83,11 @@ def create_doom_loop_gate(
             "doom_loop",
             None,
         )
-        if doom_cfg is None or not doom_cfg.enabled:
+        if (
+            doom_cfg is None
+            or not doom_cfg.enabled
+            or not doom_cfg.in_loop_modes
+        ):
             return None
 
         return DoomLoopGate(
@@ -101,10 +106,10 @@ def create_doom_loop_gate(
 def create_completion_gate(
     workspace: object,
 ) -> Any:
-    """Create QualitativeRubricGate from config.
+    """Create QualitativeRubricGate from workspace config.
 
     Returns None when the rubric completion check
-    is disabled or the config is missing.
+    is disabled, not enabled for in-loop modes, or missing.
     """
     try:
         from ...loop.gates import (
@@ -113,7 +118,7 @@ def create_completion_gate(
 
         agent_cfg = getattr(
             workspace,
-            "agent_config",
+            "config",
             None,
         )
         if agent_cfg is None:
@@ -129,7 +134,11 @@ def create_completion_gate(
             "rubric",
             None,
         )
-        if rubric_cfg is None or not rubric_cfg.enabled:
+        if (
+            rubric_cfg is None
+            or not rubric_cfg.enabled
+            or not rubric_cfg.in_loop_modes
+        ):
             return None
 
         return QualitativeRubricGate(
