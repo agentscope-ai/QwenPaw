@@ -67,6 +67,10 @@ class MultiAgentManager:
         """
         return Workspace(agent_id=agent_id, workspace_dir=workspace_dir)
 
+    def get_loaded_agent(self, agent_id: str) -> Workspace | None:
+        """Return an already loaded workspace without starting it."""
+        return self.agents.get(agent_id)
+
     async def get_agent(self, agent_id: str) -> Workspace:
         """Get agent workspace by ID (lazy loading with dedup).
 

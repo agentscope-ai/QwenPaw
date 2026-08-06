@@ -19,12 +19,22 @@ from agentscope.message import ToolResultState
 from agentscope.tool import ToolChunk
 
 from .base_memory_manager import BaseMemoryManager, memory_registry
+from .embedding_model import (
+    EmbeddingTestResult,
+    embedding_config_fingerprint,
+    embedding_vector_space_fingerprint,
+    test_embedding_model,
+)
 from .prompts import build_memory_guidance_prompt
 from .reme_config import get_reme_app_config
 from ..model_factory import create_model_and_formatter
 from ...app.inbox_store import append_event as append_inbox_event
 from ...config import load_config
-from ...config.config import load_agent_config, AgentProfileConfig
+from ...config.config import (
+    load_agent_config,
+    AgentProfileConfig,
+    EmbeddingModelConfig,
+)
 
 if TYPE_CHECKING:
     from reme import ReMe
@@ -114,6 +124,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         super().__init__(working_dir=working_dir, agent_id=agent_id)
         self._reme: "ReMe | None" = None
         self._reindex_lock = asyncio.Lock()
+        self._embedding_update_lock = asyncio.Lock()
+        self._tested_embedding: tuple[tuple[Any, ...], Any] | None = None
+        self._active_embedding_config: EmbeddingModelConfig | None = None
         logger.info(
             "ReMeLightMemoryManager init: agent_id=%s working_dir=%s",
             agent_id,
@@ -124,6 +137,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             from reme import ReMe as ReMeApp  # type: ignore
 
             agent_config: AgentProfileConfig = load_agent_config(self.agent_id)
+            self._active_embedding_config = (
+                agent_config.running.reme_light_memory_config
+                .embedding_model_config.model_copy(deep=True)
+            )
             global_config = load_config()
             self._reme = ReMeApp(
                 **get_reme_app_config(
@@ -214,6 +231,86 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             "default",
             model=model,
         )
+
+    async def test_and_stage_embedding(
+        self,
+        config: EmbeddingModelConfig,
+    ) -> EmbeddingTestResult:
+        """Test a provider and retain the exact model object for the next save."""
+        model, result = await test_embedding_model(config)
+        if result.success and model is not None:
+            self._tested_embedding = (
+                embedding_config_fingerprint(config),
+                model,
+            )
+        else:
+            self._tested_embedding = None
+        return result
+
+    async def apply_tested_embedding(
+        self,
+        config: EmbeddingModelConfig,
+    ) -> bool:
+        """Hot-apply the last successfully tested embedding object.
+
+        Returns ``False`` when a normal workspace reload is required, such as
+        first-time enablement or when the submitted config was not tested.
+        """
+        if self._reme is None or not getattr(self._reme, "is_started", False):
+            return False
+        staged = self._tested_embedding
+        if staged is None or staged[0] != embedding_config_fingerprint(config):
+            return False
+
+        async with self._embedding_update_lock:
+            tested_model = staged[1]
+            if hasattr(tested_model, "context_size"):
+                tested_model.context_size = config.max_input_length
+            try:
+                await self._reme.update_component(
+                    "as_embedding",
+                    "default",
+                    model=tested_model,
+                )
+                store = await self._reme.update_component(
+                    "embedding_store",
+                    "default",
+                    enable_cache=config.enable_cache,
+                    max_cache_size=config.max_cache_size,
+                    max_input_length=config.max_input_length,
+                    max_batch_size=config.max_batch_size,
+                )
+            except KeyError:
+                # ReMe 0.4 cannot add/remove components after initialization.
+                return False
+
+            old_config = self._active_embedding_config
+            vector_space_changed = old_config is None or (
+                embedding_vector_space_fingerprint(old_config)
+                != embedding_vector_space_fingerprint(config)
+            )
+            if vector_space_changed:
+                # LocalEmbeddingStore cache keys only include dimensions, so a
+                # same-dimension model switch must explicitly invalidate it.
+                cache = getattr(store, "_cache", None)
+                if cache is not None:
+                    cache.clear()
+                if hasattr(store, "_key_suffix"):
+                    store._key_suffix = f"|{config.dimensions}".encode()
+                cache_path = getattr(store, "cache_path", None)
+                if cache_path is not None:
+                    cache_path.unlink(missing_ok=True)
+
+                response = await self.rebuild_index()
+                if response is None or not response.success:
+                    detail = "ReMe index rebuild failed"
+                    if response is not None:
+                        detail = str(response.answer)
+                    raise RuntimeError(detail)
+
+            self._active_embedding_config = config.model_copy(deep=True)
+            self._tested_embedding = None
+            return True
 
     async def _run_reme_job(
         self,
