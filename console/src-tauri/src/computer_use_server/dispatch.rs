@@ -283,11 +283,11 @@ pub(super) fn dispatch_request(
     // the next action. If the action removed or replaced that window, retain
     // the dispatch receipt and direct the caller to discover the new target.
     let refreshed = refresh_after_action(state, &window);
+    let has_refreshed_observation = refreshed.is_some();
     let mut response = action_receipt(result, refreshed);
-    if let Some(pending) = state
-        .pending_action()
-        .filter(|pending| pending.hwnd == window.hwnd)
-    {
+    if let Some(pending) = state.pending_action().filter(|pending| {
+        should_attach_pending_action(has_refreshed_observation, pending.hwnd, window.hwnd)
+    }) {
         attach_pending_action(&mut response, pending);
     }
     Ok(response)
@@ -328,6 +328,14 @@ fn attach_pending_action(result: &mut Value, pending: &PendingAction) {
         object.insert("pending_action".to_string(), pending.to_json());
         object.insert("next_action".to_string(), json!("invoke"));
     }
+}
+
+fn should_attach_pending_action(
+    has_refreshed_observation: bool,
+    pending_hwnd: isize,
+    window_hwnd: isize,
+) -> bool {
+    has_refreshed_observation && pending_hwnd == window_hwnd
 }
 
 /// Combine the dispatch result with the post-action observation when the
@@ -482,6 +490,22 @@ mod tests {
             display_height: 100,
             elements: Default::default(),
         }
+    }
+
+    #[test]
+    fn an_action_without_a_refresh_requires_window_discovery() {
+        let result = action_receipt(json!({"applied": true}), None);
+
+        assert_eq!(result.get("dispatched"), Some(&json!(true)));
+        assert_eq!(result.get("requires_observe"), Some(&json!(true)));
+        assert_eq!(result.get("next_action"), Some(&json!("list_windows")));
+    }
+
+    #[test]
+    fn pending_action_requires_a_refreshed_observation_of_its_window() {
+        assert!(!should_attach_pending_action(false, 7, 7));
+        assert!(!should_attach_pending_action(true, 7, 8));
+        assert!(should_attach_pending_action(true, 7, 7));
     }
 
     #[test]

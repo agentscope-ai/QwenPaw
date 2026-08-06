@@ -220,7 +220,7 @@ async def computer_use(
     ``observe_window`` before acting. The client advances the native
     observation after every successful action; native rejects stale state.
     ``launch_app`` accepts an App ID returned by ``list_apps`` or an absolute
-    ``.exe`` path.
+    platform-native application path.
     """
     # Each early return maps to one refusal reason the model must be able to
     # tell apart, so they are reported individually rather than merged.

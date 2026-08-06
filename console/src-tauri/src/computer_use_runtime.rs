@@ -1019,10 +1019,35 @@ fn begin_focus_lease(
             .map_err(|_| "focus_failed")?;
     }
 
-    let mut inner = state.inner.lock().map_err(|_| "runtime_unavailable")?;
-    if inner.helper_pid != Some(helper_pid) || inner.child.is_none() {
-        return Err("stale_helper");
-    }
+    let restore_uncommitted_host = || {
+        if !host_was_visible {
+            return;
+        }
+        let Some(window) = window.as_ref() else {
+            return;
+        };
+        if let Err(error) = window.show() {
+            log::warn!("[computer-use] failed to restore host window: {error}");
+            return;
+        }
+        let host_pid = i32::try_from(std::process::id()).ok();
+        if previous_frontmost_pid == host_pid {
+            if let Err(error) = window.set_focus() {
+                log::warn!("[computer-use] failed to restore host focus: {error}");
+            }
+        }
+    };
+    let mut inner = match state.inner.lock() {
+        Ok(inner) if inner.helper_pid == Some(helper_pid) && inner.child.is_some() => inner,
+        Ok(_) => {
+            restore_uncommitted_host();
+            return Err("stale_helper");
+        }
+        Err(_) => {
+            restore_uncommitted_host();
+            return Err("runtime_unavailable");
+        }
+    };
     let id = random_hex(16);
     inner.focus_lease = Some(FocusLease {
         id: id.clone(),
