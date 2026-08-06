@@ -63,10 +63,10 @@ class CurrentDateMiddleware(MiddlewareBase):
 
     async def on_system_prompt(
         self,
+        # pylint: disable=unused-argument
         agent: "Agent",
         current_prompt: str,
     ) -> str:
-        del agent
         timezone_name = self._timezone_name
         try:
             tz = ZoneInfo(timezone_name)
