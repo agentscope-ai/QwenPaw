@@ -65,7 +65,7 @@ HANG_DUMP_SECONDS = 540
 
 # Selectors come straight from e2e/pages/chat_page.py so they stay in sync
 # with what the real UI tests expect.
-SEL_INPUT = "textarea.qwenpaw-sender-input"
+SEL_INPUT = '[data-testid="qwenpaw-chat-input"]'
 SEL_SEND_BTN = "button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary"
 SEL_USER_BUBBLE = ".qwenpaw-bubble.qwenpaw-bubble-end"
 SEL_AI_BUBBLE = ".qwenpaw-bubble.qwenpaw-bubble-start"

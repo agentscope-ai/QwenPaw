@@ -579,6 +579,7 @@ function EditableSurface({
   return (
     <ContentEditable
       className={styles.richEditor}
+      data-testid="qwenpaw-chat-input"
       aria-multiline="true"
       spellCheck={false}
       onKeyDown={(event) => {
