@@ -2107,6 +2107,8 @@
     "promptToggle": "切换 {{name}} 是否加入系统 Prompt",
     "sourceControl": "源码管理",
     "preview": "预览",
+    "htmlPreview": "HTML 预览",
+    "openHtmlInBrowser": "在浏览器中打开",
     "edit": "编辑",
     "selectFile": "选择文件以打开",
     "closeTab": "关闭标签页",

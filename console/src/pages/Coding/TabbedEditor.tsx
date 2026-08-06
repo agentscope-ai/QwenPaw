@@ -5,7 +5,7 @@
  *   • Inline Diff view when Agent modifies the open file:
  *       - Switches to DiffEditor (renderSideBySide: false → VS Code inline style)
  *       - Per-hunk "Keep"/"Undo" widgets + global "Keep all"/"Undo all"
- *   • Preview mode for images, Markdown, PDF, CSV (toggle per tab)
+ *   • Preview mode for images, Markdown, HTML, PDF, CSV (toggle per tab)
  *   • Toolbar "Copy to Chat" button injects `path:line[-line]` context
  *     into the Chat composer (raw Cmd/Ctrl+C still copies plain text)
  *   • Cmd/Ctrl+S to save

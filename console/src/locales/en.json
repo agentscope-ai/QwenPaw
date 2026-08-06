@@ -2248,6 +2248,8 @@
     "promptToggle": "Toggle whether {{name}} is included in the system prompt",
     "sourceControl": "Source control",
     "preview": "Preview",
+    "htmlPreview": "HTML preview",
+    "openHtmlInBrowser": "Open in browser",
     "edit": "Edit",
     "selectFile": "Select a file to open",
     "closeTab": "Close tab",

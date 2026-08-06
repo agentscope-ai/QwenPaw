@@ -5,10 +5,11 @@
  *   • image  – PNG / JPG / GIF / WebP / SVG / ICO / BMP
  *   • pdf    – inline <embed>
  *   • markdown – react-markdown with GFM
+ *   • html   – read-only sandboxed document
  *   • csv    – parsed table
  */
 
-import { FileWarning, LoaderCircle } from "lucide-react";
+import { ExternalLink, FileWarning, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
@@ -38,13 +39,20 @@ const IMAGE_EXTS = new Set([
   "bmp",
 ]);
 
-export type PreviewType = "image" | "pdf" | "markdown" | "csv" | "none";
+export type PreviewType =
+  | "image"
+  | "pdf"
+  | "markdown"
+  | "html"
+  | "csv"
+  | "none";
 
 export function getPreviewType(filePath: string): PreviewType {
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
   if (IMAGE_EXTS.has(ext)) return "image";
   if (ext === "pdf") return "pdf";
   if (ext === "md" || ext === "mdx") return "markdown";
+  if (ext === "html" || ext === "htm") return "html";
   if (ext === "csv") return "csv";
   return "none";
 }
@@ -325,6 +333,76 @@ function MarkdownPreview({ content }: { content: string }) {
   );
 }
 
+function buildReadOnlyHtml(content: string): string {
+  const document = new DOMParser().parseFromString(content, "text/html");
+  document
+    .querySelectorAll("script, meta[http-equiv='refresh']")
+    .forEach((element) => element.remove());
+  document.querySelectorAll("*").forEach((element) => {
+    Array.from(element.attributes).forEach((attribute) => {
+      if (attribute.name.toLowerCase().startsWith("on")) {
+        element.removeAttribute(attribute.name);
+      }
+    });
+    element.removeAttribute("contenteditable");
+  });
+  document.querySelectorAll("a").forEach((element) => {
+    element.removeAttribute("href");
+    element.removeAttribute("target");
+    element.removeAttribute("download");
+  });
+  document.querySelectorAll("form").forEach((element) => {
+    element.removeAttribute("action");
+    element.removeAttribute("method");
+  });
+  document
+    .querySelectorAll("button, input, select, textarea")
+    .forEach((element) => element.setAttribute("disabled", ""));
+
+  const style = document.createElement("style");
+  style.textContent = [
+    "a, button, input, select, textarea, form, iframe, object, embed,",
+    "audio, video, [contenteditable] { pointer-events: none !important; }",
+  ].join(" ");
+  document.head.appendChild(style);
+  return `<!doctype html>\n${document.documentElement.outerHTML}`;
+}
+
+function openHtmlInBrowser(content: string): void {
+  const url = URL.createObjectURL(
+    new Blob([content], { type: "text/html;charset=utf-8" }),
+  );
+  window.open(url, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function HtmlPreview({ content }: { content: string }) {
+  const { t } = useTranslation();
+  const readOnlyHtml = useMemo(() => buildReadOnlyHtml(content), [content]);
+
+  return (
+    <div className={styles.htmlWrap}>
+      <div className={styles.htmlToolbar}>
+        <button
+          type="button"
+          className={styles.htmlOpenButton}
+          onClick={() => openHtmlInBrowser(content)}
+        >
+          <ExternalLink size={14} />
+          {t("files.openHtmlInBrowser")}
+        </button>
+      </div>
+      <iframe
+        className={styles.htmlFrame}
+        srcDoc={readOnlyHtml}
+        sandbox=""
+        tabIndex={-1}
+        title={t("files.htmlPreview")}
+      />
+    </div>
+  );
+}
+
 const MAX_CSV_ROWS = 500;
 const MAX_CSV_COLS = 50;
 
@@ -412,6 +490,7 @@ export default function FilePreview({
     );
   }
   if (type === "markdown") return <MarkdownPreview content={content} />;
+  if (type === "html") return <HtmlPreview content={content} />;
   if (type === "csv") return <CsvPreview content={content} />;
   return null;
 }

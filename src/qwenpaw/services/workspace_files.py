@@ -52,6 +52,7 @@ _TEXT_EXTENSIONS = frozenset(
         ".csv",
         ".go",
         ".h",
+        ".htm",
         ".html",
         ".ini",
         ".java",
