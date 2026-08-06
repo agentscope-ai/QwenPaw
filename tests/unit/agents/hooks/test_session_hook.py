@@ -8,8 +8,13 @@ from types import SimpleNamespace
 import pytest
 
 from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
-from qwenpaw.hooks.session.session_hook import SessionLoadHook, SessionSaveHook
+from qwenpaw.hooks.session.session_hook import (
+    SessionEarlySaveHook,
+    SessionLoadHook,
+    SessionSaveHook,
+)
 from qwenpaw.hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
+from qwenpaw.runtime.phases import Phase
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
 
@@ -87,3 +92,59 @@ async def test_failed_session_save_does_not_mark_turn_as_persisted():
 
     assert session.saved is False
     assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False
+
+
+# --- SessionEarlySaveHook (PRE_EXECUTE turn-start save) -------------------
+
+
+def test_early_save_hook_runs_last_in_pre_execute():
+    hook = SessionEarlySaveHook()
+    assert hook.phase is Phase.PRE_EXECUTE
+    assert hook.name == "session_early_save"
+    # Higher priority = later within the phase; must run after the other
+    # PRE_EXECUTE hooks (e.g. BootstrapHook=20) so the snapshot reflects
+    # the final pre-execution state.
+    assert hook.priority >= 90
+
+
+async def test_early_save_hook_saves_state_at_turn_start():
+    session = _FakeSession()
+    ctx = _ctx(session, ephemeral=False)
+
+    await SessionEarlySaveHook().run(ctx)
+
+    assert session.saved is True
+    assert session.saved_payload["context"] == []
+    assert session.saved_payload["mode_state"] == ctx.mode_state
+
+
+async def test_early_save_hook_skips_ephemeral_request():
+    session = _FakeSession()
+    ctx = _ctx(session, ephemeral=True)
+
+    await SessionEarlySaveHook().run(ctx)
+
+    assert session.saved is False
+
+
+async def test_early_save_hook_does_not_publish_success_key():
+    # SESSION_SAVE_SUCCEEDED_KEY is reserved for the canonical
+    # POST_RESPONSE save that CheckpointAutoSnapshotHook depends on.
+    session = _FakeSession()
+    ctx = _ctx(session, ephemeral=False)
+
+    await SessionEarlySaveHook().run(ctx)
+
+    assert session.saved is True
+    assert SESSION_SAVE_SUCCEEDED_KEY not in ctx.extras
+
+
+async def test_early_save_hook_swallows_save_errors():
+    session = _FakeSession(save_error=RuntimeError("disk gone"))
+    ctx = _ctx(session, ephemeral=False)
+
+    # Must not raise — the turn has to proceed even when the early
+    # snapshot cannot be written.
+    await SessionEarlySaveHook().run(ctx)
+
+    assert session.saved is False

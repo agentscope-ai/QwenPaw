@@ -3,7 +3,9 @@
 
 Loads persisted session state into ``ctx.session_state`` (PRE_AGENT_BUILD)
 so the builder can inject it into the newly-constructed agent. Saves
-agent state back to session storage after the response completes.
+agent state back to session storage after the response completes, plus an
+early save at turn start (PRE_EXECUTE) so a mid-turn refresh already sees
+the current turn's user message instead of the previous turn's state.
 """
 
 from __future__ import annotations
@@ -76,6 +78,41 @@ class SessionLoadHook(LifecycleHook):
         return HookResult()
 
 
+async def _do_session_save(ctx: HookContext) -> bool:
+    """Persist ``ctx.agent`` state + mode_state to session storage.
+
+    Shared by the canonical POST_RESPONSE save and the PRE_EXECUTE early
+    save. Returns ``True`` on success, ``False`` when skipped or failed —
+    callers decide what a failure means for them (only the POST_RESPONSE
+    hook publishes SESSION_SAVE_SUCCEEDED_KEY).
+    """
+    if _is_ephemeral_request(ctx):
+        return False
+    if ctx.workspace is None or ctx.agent is None:
+        return False
+    session = getattr(ctx.workspace, "session", None)
+    if session is None:
+        return False
+    try:
+        request = ctx.request
+        user_id = getattr(request, "user_id", "") or ctx.session_id
+        channel = getattr(request, "channel", "") or ""
+
+        proxy = StateProxy()
+        proxy.data = ctx.agent.state_dict()
+        proxy.data["mode_state"] = ctx.mode_state
+        await session.save_session_state(
+            session_id=ctx.session_id,
+            user_id=user_id,
+            channel=channel,
+            agent=proxy,
+        )
+        return True
+    except Exception:
+        logger.debug("session_save: failed", exc_info=True)
+        return False
+
+
 class SessionSaveHook(LifecycleHook):
     """Persist agent state after response completion."""
 
@@ -85,31 +122,35 @@ class SessionSaveHook(LifecycleHook):
 
     async def run(self, ctx: HookContext) -> HookResult:
         ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = False
-        if _is_ephemeral_request(ctx):
-            return HookResult()
-        if ctx.workspace is None or ctx.agent is None:
-            return HookResult()
-        session = getattr(ctx.workspace, "session", None)
-        if session is None:
-            return HookResult()
-        try:
-            request = ctx.request
-            user_id = getattr(request, "user_id", "") or ctx.session_id
-            channel = getattr(request, "channel", "") or ""
-
-            proxy = StateProxy()
-            proxy.data = ctx.agent.state_dict()
-            proxy.data["mode_state"] = ctx.mode_state
-            await session.save_session_state(
-                session_id=ctx.session_id,
-                user_id=user_id,
-                channel=channel,
-                agent=proxy,
-            )
+        if await _do_session_save(ctx):
             ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = True
-        except Exception:
-            logger.debug("session_save: failed", exc_info=True)
         return HookResult()
 
 
-__all__ = ["SessionLoadHook", "SessionSaveHook"]
+class SessionEarlySaveHook(LifecycleHook):
+    """Persist agent state at turn start, before execution begins.
+
+    The canonical save only runs at POST_RESPONSE, so refreshing mid-turn
+    shows the PREVIOUS turn's state: the just-sent user message is missing
+    from the chat view (it only survives same-tab via the frontend's
+    sessionStorage patch). Saving once at PRE_EXECUTE — after session load,
+    agent build and mode start, i.e. the final pre-execution state — makes
+    the current turn's user message durable immediately. The POST_RESPONSE
+    (or cancel/error) save overwrites this with the completed turn later.
+
+    Runs last within PRE_EXECUTE (higher priority = later) so the snapshot
+    reflects state left by the earlier PRE_EXECUTE hooks. Does NOT set
+    SESSION_SAVE_SUCCEEDED_KEY: that signal is reserved for the canonical
+    POST_RESPONSE save that CheckpointAutoSnapshotHook depends on.
+    """
+
+    phase = Phase.PRE_EXECUTE
+    name = "session_early_save"
+    priority = 95
+
+    async def run(self, ctx: HookContext) -> HookResult:
+        await _do_session_save(ctx)
+        return HookResult()
+
+
+__all__ = ["SessionEarlySaveHook", "SessionLoadHook", "SessionSaveHook"]
