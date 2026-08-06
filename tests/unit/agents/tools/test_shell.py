@@ -5,12 +5,15 @@ Covers:
 - _collapse_embedded_newlines
 - _sanitize_win_cmd
 - _read_temp_file
+- _read_temp_file_async
+- _open_temp_output
 - _shell_basename
 - _is_powershell / _is_cmd
 - _extract_powershell_command
 - smart_decode
 - execute_shell_command (mocked subprocess)
 """
+
 # pylint: disable=protected-access,unused-argument
 
 import os
@@ -18,6 +21,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -34,7 +38,9 @@ from qwenpaw.agents.tools.shell import (
     _is_cmd,
     _is_dangerous_self_kill,
     _is_powershell,
+    _open_temp_output,
     _read_temp_file,
+    _read_temp_file_async,
     _sanitize_win_cmd,
     _shell_basename,
     smart_decode,
@@ -45,7 +51,6 @@ from qwenpaw.sandbox import (
     SandboxConfig,
     SandboxMode,
 )
-
 
 # ---------------------------------------------------------------------------
 # _shell_basename
@@ -228,6 +233,65 @@ class TestReadTempFile:
         f.write_bytes("你好".encode("utf-8"))
         result = _read_temp_file(str(f))
         assert "你好" in result
+
+
+class TestReadTempFileAsync:
+    """Tests for _read_temp_file_async."""
+
+    @pytest.mark.asyncio
+    async def test_uses_project_async_io_helper(self):
+        with patch(
+            "qwenpaw.agents.tools.shell.read_bytes_async",
+            AsyncMock(return_value="你好".encode("utf-8")),
+        ) as read_bytes:
+            result = await _read_temp_file_async("/tmp/output.txt")
+
+        assert result == "你好"
+        read_bytes.assert_awaited_once_with("/tmp/output.txt")
+
+    @pytest.mark.asyncio
+    async def test_read_nonexistent_file(self):
+        with patch(
+            "qwenpaw.agents.tools.shell.read_bytes_async",
+            AsyncMock(side_effect=FileNotFoundError),
+        ):
+            result = await _read_temp_file_async("/nonexistent/file.txt")
+
+        assert result == ""
+
+
+class TestOpenTempOutput:
+    """Tests for _open_temp_output."""
+
+    def test_fdopen_failure_closes_fd_and_unlinks_path(self, tmp_path):
+        fd, path = tempfile.mkstemp(dir=tmp_path)
+
+        try:
+            with (
+                patch(
+                    "qwenpaw.agents.tools.shell.tempfile.mkstemp",
+                    return_value=(fd, path),
+                ),
+                patch(
+                    "qwenpaw.agents.tools.shell.os.fdopen",
+                    side_effect=OSError("fdopen failed"),
+                ),
+                patch(
+                    "qwenpaw.agents.tools.shell.os.close",
+                    wraps=os.close,
+                ) as close_fd,
+            ):
+                with pytest.raises(OSError, match="fdopen failed"):
+                    _open_temp_output("qwenpaw_out_")
+
+            close_fd.assert_called_once_with(fd)
+            assert not Path(path).exists()
+        finally:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            Path(path).unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------

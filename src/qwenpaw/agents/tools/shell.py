@@ -15,7 +15,7 @@ import threading
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, BinaryIO, Optional
 
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
@@ -30,6 +30,7 @@ from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
+from ...utils.io_utils import read_bytes_async
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -99,6 +100,31 @@ def _read_temp_file(path: str) -> str:
             return smart_decode(f.read())
     except OSError:
         return ""
+
+
+async def _read_temp_file_async(path: str) -> str:
+    """Read a temporary output file without blocking the event loop."""
+    try:
+        return smart_decode(await read_bytes_async(path))
+    except OSError:
+        return ""
+
+
+def _open_temp_output(prefix: str) -> tuple[BinaryIO, str]:
+    """Create a temporary output file without leaking its raw descriptor."""
+    fd, path = tempfile.mkstemp(prefix=prefix)
+    try:
+        return os.fdopen(fd, "wb"), path
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
 
 
 def _shell_basename(executable: str) -> str:
@@ -233,10 +259,8 @@ def _execute_subprocess_sync(
             # POSIX-like shell on Windows (e.g. Git Bash, MSYS2)
             wrapped = [shell_executable, "-c", cmd]
 
-        stdout_fd, stdout_path = tempfile.mkstemp(prefix="qwenpaw_out_")
-        stderr_fd, stderr_path = tempfile.mkstemp(prefix="qwenpaw_err_")
-        stdout_file = os.fdopen(stdout_fd, "wb")
-        stderr_file = os.fdopen(stderr_fd, "wb")
+        stdout_file, stdout_path = _open_temp_output("qwenpaw_out_")
+        stderr_file, stderr_path = _open_temp_output("qwenpaw_err_")
 
         proc = subprocess.Popen(  # pylint: disable=consider-using-with
             wrapped,
@@ -623,10 +647,8 @@ async def _execute_posix_host(
     stderr_file = None
 
     try:
-        stdout_fd, stdout_path = tempfile.mkstemp(prefix="qwenpaw_out_")
-        stdout_file = os.fdopen(stdout_fd, "wb")
-        stderr_fd, stderr_path = tempfile.mkstemp(prefix="qwenpaw_err_")
-        stderr_file = os.fdopen(stderr_fd, "wb")
+        stdout_file, stdout_path = _open_temp_output("qwenpaw_out_")
+        stderr_file, stderr_path = _open_temp_output("qwenpaw_err_")
 
         proc = await asyncio.create_subprocess_exec(
             shell_executable or "/bin/sh",
@@ -672,8 +694,8 @@ async def _execute_posix_host(
             returncode = -1
             await _cleanup_proc(proc)
 
-        stdout_str = _read_temp_file(stdout_path)
-        stderr_str = _read_temp_file(stderr_path)
+        stdout_str = await _read_temp_file_async(stdout_path)
+        stderr_str = await _read_temp_file_async(stderr_path)
         if stderr_suffix:
             if stderr_str:
                 stderr_str += f"\n{stderr_suffix}"
