@@ -251,7 +251,7 @@
       "language": "语言",
       "theme": "主题",
       "mode": "模式",
-      "enterDesktopMode": "进入桌面模式"
+      "desktopMode": "桌面模式"
     },
     "desktopModeHint": {
       "title": "试试桌面模式",
