@@ -52,4 +52,29 @@ describe("ChatActionGroup", () => {
       document.querySelector('[data-icon="SparkNewChatFill"]'),
     ).toBeInTheDocument();
   });
+
+  it("renders the Session workspace toggle next to essential actions", () => {
+    const onToggleWorkspace = vi.fn();
+    renderWithProviders(
+      <ChatActionGroup onToggleWorkspace={onToggleWorkspace} />,
+    );
+
+    const button = document.querySelector(
+      'button[aria-label="files.openWorkspace"]',
+    ) as HTMLButtonElement | null;
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveStyle({
+      width: "32px",
+      height: "32px",
+      padding: "0px",
+    });
+    expect(button?.querySelector("svg")).toHaveAttribute("width", "16");
+    expect(button?.querySelector("svg")).toHaveAttribute("height", "16");
+    expect(button?.querySelector("svg")).toHaveStyle({
+      width: "16px",
+      height: "16px",
+    });
+    button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onToggleWorkspace).toHaveBeenCalledOnce();
+  });
 });
