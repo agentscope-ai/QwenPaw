@@ -1066,6 +1066,42 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.findSession(libraryId)?.sessionId || libraryId;
   }
 
+  /**
+   * Strict variant of getBackendSessionId for APIs that VALIDATE the
+   * session_id (e.g. /tool-calls/*, which 404s on mismatch). Never falls
+   * back to an unconfirmed library id: sending a stale chat UUID or an
+   * unresolved local timestamp id to a validating endpoint is what produced
+   * the "session_id mismatch" 404 storms. Returns "" when the mapping
+   * cannot be confirmed; callers are expected to retry (the tool-call
+   * hooks poll with backoff while the session list catches up).
+   *
+   * Confirmed mappings:
+   *  - library id (session.id / realId) hits an entry -> its sessionId
+   *  - the input already IS a backend session_id present in the list
+   */
+  getBackendSessionIdStrict(libraryId: string): string {
+    if (!libraryId) return "";
+    if (this.isKnownBackendSessionId(libraryId)) return libraryId;
+    const session = this.findSession(libraryId);
+    if (!session?.sessionId) return "";
+    // An unresolved local session carries its own timestamp id in the
+    // sessionId field (createEmptySession) — that id is not backend-known.
+    if (!session.realId && isLocalTimestamp(session.id)) return "";
+    return session.sessionId;
+  }
+
+  /** True when id is the backend session_id of a session in the current list.
+   *  Unresolved local sessions are excluded: their sessionId field still
+   *  holds the local timestamp id, which the backend does not know. */
+  isKnownBackendSessionId(id: string): boolean {
+    if (!id) return false;
+    return this.sessionList.some((s) => {
+      const ext = s as ExtendedSession;
+      if (ext.sessionId !== id) return false;
+      return !(!ext.realId && isLocalTimestamp(s.id));
+    });
+  }
+
   /** Returns session identity from the session list (authoritative).
    *  Uses lastActiveChatId (set only by intentional user actions) as the
    *  primary lookup key, avoiding the stale window globals problem. */
