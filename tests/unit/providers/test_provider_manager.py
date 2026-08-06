@@ -22,6 +22,7 @@ from qwenpaw.providers.openai_provider import (
     GitHubModelsProvider,
     OpenAIProvider,
 )
+from qwenpaw.providers.openrouter_provider import OpenRouterProvider
 from qwenpaw.providers.provider import ModelInfo, ProviderInfo
 from qwenpaw.providers.provider_manager import ProviderManager
 
@@ -489,6 +490,114 @@ def test_builtin_capability_probe_results_survive_storage_reload(
     assert model.supports_multimodal is False
     assert model.supports_image is False
     assert model.supports_video is False
+
+
+async def test_openrouter_metadata_probe_restores_and_persists_capabilities(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openrouter")
+    assert isinstance(provider, OpenRouterProvider)
+
+    model_id = "x-ai/grok-4.5"
+    poisoned_model = ModelInfo(
+        id=model_id,
+        name="Grok 4.5",
+        supports_multimodal=False,
+        supports_image=False,
+        supports_video=False,
+        probe_source="probed",
+    )
+    monkeypatch.setattr(provider, "extra_models", [poisoned_model])
+
+    row = SimpleNamespace(
+        id=model_id,
+        name="Grok 4.5",
+        pricing=None,
+        architecture={
+            "input_modalities": ["text", "image", "file"],
+            "output_modalities": ["text"],
+        },
+    )
+
+    class FakeModels:
+        async def list(self, timeout=None):
+            _ = timeout
+            return SimpleNamespace(data=[row])
+
+    fake_client = SimpleNamespace(models=FakeModels())
+    monkeypatch.setattr(
+        OpenRouterProvider,
+        "_client",
+        lambda self, timeout=30: fake_client,
+    )
+
+    result = await manager.probe_model_multimodal("openrouter", model_id)
+
+    assert result["supports_image"] is True
+    assert poisoned_model.supports_image is True
+    assert poisoned_model.supports_video is False
+    assert poisoned_model.supports_multimodal is True
+    assert poisoned_model.probe_source == "documentation"
+
+    saved_path = (
+        isolated_secret_dir / "providers" / "builtin" / "openrouter.json"
+    )
+    saved = json.loads(saved_path.read_text(encoding="utf-8"))
+    saved_model = next(
+        item for item in saved["extra_models"] if item["id"] == model_id
+    )
+    assert saved_model["supports_image"] is True
+    assert saved_model["supports_multimodal"] is True
+    assert saved_model["probe_source"] == "documentation"
+
+
+async def test_openrouter_inconclusive_probe_does_not_overwrite_capabilities(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openrouter")
+    assert isinstance(provider, OpenRouterProvider)
+
+    model_id = "x-ai/grok-4.5"
+    configured_model = ModelInfo(
+        id=model_id,
+        name="Grok 4.5",
+        supports_multimodal=True,
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    )
+    monkeypatch.setattr(provider, "extra_models", [configured_model])
+
+    class FakeModels:
+        async def list(self, timeout=None):
+            _ = timeout
+            return SimpleNamespace(data=[])
+
+    fake_client = SimpleNamespace(models=FakeModels())
+    monkeypatch.setattr(
+        OpenRouterProvider,
+        "_client",
+        lambda self, timeout=30: fake_client,
+    )
+    save_calls = []
+    monkeypatch.setattr(
+        manager,
+        "_save_provider",
+        lambda *args, **kwargs: save_calls.append((args, kwargs)),
+    )
+
+    with pytest.raises(ProviderError, match="was not found"):
+        await manager.probe_model_multimodal("openrouter", model_id)
+
+    assert configured_model.supports_multimodal is True
+    assert configured_model.supports_image is True
+    assert configured_model.supports_video is False
+    assert configured_model.probe_source == "documentation"
+    assert not save_calls
 
 
 def test_update_provider_for_unknown_returns_false(

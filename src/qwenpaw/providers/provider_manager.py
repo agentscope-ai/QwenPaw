@@ -1848,7 +1848,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     # image alone; video will be updated by the full probe.
                     if result.supports_image:
                         model.supports_multimodal = True
-                model.probe_source = "probed"
+                model.probe_source = getattr(
+                    result,
+                    "probe_source",
+                    "probed",
+                )
                 break
 
         # Compare probe result against expected baseline
