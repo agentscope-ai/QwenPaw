@@ -1,13 +1,11 @@
 /**
- * AppStore.tsx — System app for installing apps & plugins.
+ * AppStore.tsx — System app for installing desktop and Paw apps.
  *
- * Two sections:
+ * Three sections:
  *   1. Desktop apps  — the curated OS_APPS catalog. Install / uninstall toggles
  *      whether they appear on the desktop + launcher (osPluginStore, local).
- *   2. Plugin Market — sourced from the real plugin marketplace via
- *      useMarketPlugins (search / category / paginate / install). This is the
- *      same backend the Plugin Manager "Market" tab uses, so the App Store
- *      browses and installs exactly what the marketplace offers.
+ *   2. Installed PawApps — app-type plugins loaded from the backend.
+ *   3. App Market — sourced from the real marketplace via useOsAppMarket.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -22,7 +20,6 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useRoutes } from "../plugins/registry/hooks";
-import { useMarketPlugins } from "../pages/Settings/PluginManager/hooks/useMarketPlugins";
 import type { MarketPluginEntry } from "../api/modules/pluginMarket";
 import { openExternalLink } from "../utils/openExternalLink";
 import {
@@ -35,15 +32,7 @@ import { useOsPlugins } from "./osPluginStore";
 import { purgeAppState, purgePluginAppState } from "./osCleanup";
 import { useOsModal } from "./useOsModal";
 import { useOsStyles } from "./useOsStyles";
-
-const MARKET_CATEGORIES = [
-  { code: "agent-tool", zh: "Agent 工具", en: "Agent Tool" },
-  { code: "provider", zh: "模型接入", en: "Provider" },
-  { code: "command", zh: "Slash 命令", en: "Slash Command" },
-  { code: "hook", zh: "生命周期 Hook", en: "Lifecycle Hook" },
-  { code: "frontend", zh: "UI 扩展", en: "UI Extension" },
-  { code: "general", zh: "通用插件", en: "General" },
-];
+import { useOsAppMarket } from "./useOsAppMarket";
 
 /** Pick the description for the active language, with graceful fallbacks. */
 function localizedDescription(
@@ -93,21 +82,20 @@ export default function AppStore() {
     total,
     page,
     pageSize,
-    category,
     installingId,
     qwenpawVersion,
     isCompatible,
     handleSearch,
-    handleCategoryChange,
     handlePageChange,
     handleRefresh,
     handleInstall,
     // onInstalled: refresh the installed-apps section after a market
     // install/update so the new PawApp shows up without a full page reload.
-  } = useMarketPlugins({ onInstalled: refreshInstalledApps });
+  } = useOsAppMarket({
+    onInstalled: refreshInstalledApps,
+  });
 
   const [searchInput, setSearchInput] = useState("");
-  const lang = i18n.language.split("-")[0].toLowerCase();
 
   useEffect(() => {
     refreshInstalledApps();
@@ -164,14 +152,14 @@ export default function AppStore() {
       return;
     }
     osModal.confirm({
-      title: t("pluginManager.compatWarningTitle", "Compatibility Warning"),
-      content: t("pluginManager.compatWarningContent", {
+      title: t("os.appCompatibilityWarningTitle", "Compatibility Warning"),
+      content: t("os.appCompatibilityWarningContent", {
         defaultValue:
-          "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Continue?",
+          "This app is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Continue?",
         labels: entry.qwenpaw_compat_labels?.join(", ") ?? "unknown",
         version: qwenpawVersion ?? "unknown",
       }),
-      okText: t("pluginManager.compatWarningConfirm", "Install anyway"),
+      okText: t("os.appCompatibilityWarningConfirm", "Install anyway"),
       cancelText: t("common.cancel", "Cancel"),
       onOk: () => void handleInstall(entry),
     });
@@ -341,39 +329,16 @@ export default function AppStore() {
           </div>
         </Spin>
 
-        {/* Section 3 — plugin marketplace (real source) */}
+        {/* Section 3 — app marketplace (real source) */}
         <div className={styles.storeSectionTitle}>
-          {t("os.pluginMarket", "Plugin Market")}
+          {t("os.appMarket", "App Market")}
           {!loading && !error && ` · ${total}`}
         </div>
 
         <div className={styles.storeToolbarRow}>
-          <div className={styles.storeChips}>
-            <span
-              className={cx(
-                styles.storeChip,
-                !category && styles.storeChipActive,
-              )}
-              onClick={() => handleCategoryChange(undefined)}
-            >
-              {t("pluginManager.marketAll", "All")}
-            </span>
-            {MARKET_CATEGORIES.map((c) => (
-              <span
-                key={c.code}
-                className={cx(
-                  styles.storeChip,
-                  category === c.code && styles.storeChipActive,
-                )}
-                onClick={() => handleCategoryChange(c.code)}
-              >
-                {lang === "zh" ? c.zh : c.en}
-              </span>
-            ))}
-          </div>
           <div className={styles.storeActions}>
             <Input.Search
-              placeholder={t("pluginManager.marketSearch", "Search plugins")}
+              placeholder={t("os.appMarketSearch", "Search apps")}
               allowClear
               value={searchInput}
               onChange={(e) => {
@@ -389,7 +354,7 @@ export default function AppStore() {
               onClick={handleRefresh}
               disabled={loading}
             >
-              {t("pluginManager.catalogRefresh", "Refresh")}
+              {t("os.appMarketRefresh", "Refresh")}
             </Button>
           </div>
         </div>
@@ -399,7 +364,7 @@ export default function AppStore() {
         <Spin spinning={loading}>
           {!loading && !error && plugins.length === 0 && (
             <div className={styles.storeEmpty}>
-              {t("pluginManager.marketEmpty", "No plugins found")}
+              {t("os.appMarketEmpty", "No apps found")}
             </div>
           )}
           <div className={styles.storeGrid}>
@@ -452,15 +417,14 @@ export default function AppStore() {
                   </div>
                   <div className={styles.storeCardMeta}>
                     {entry.developer
-                      ? `${t("pluginManager.marketDeveloper", "By")}: ${
+                      ? `${t("os.appMarketDeveloper", "By")}: ${
                           entry.developer
                         }`
                       : ""}
                     {entry.downloads != null
-                      ? ` · ${t(
-                          "pluginManager.marketDownloads",
-                          "Downloads",
-                        )}: ${entry.downloads}`
+                      ? ` · ${t("os.appMarketDownloads", "Downloads")}: ${
+                          entry.downloads
+                        }`
                       : ""}
                   </div>
 
@@ -471,13 +435,13 @@ export default function AppStore() {
                         icon={<ExternalLink size={14} />}
                         onClick={() => openExternalLink(entry.details_url!)}
                       >
-                        {t("pluginManager.marketDetails", "Details")}
+                        {t("os.appMarketDetails", "Details")}
                       </Button>
                     )}
                     <Tooltip
                       title={
                         !isCompatible(entry)
-                          ? t("pluginManager.compatUnverified", {
+                          ? t("os.appCompatibilityUnverified", {
                               defaultValue:
                                 "Compatibility with your QwenPaw version is unverified.",
                             })
@@ -494,7 +458,7 @@ export default function AppStore() {
                         }
                         onClick={() => installMarketPlugin(entry)}
                       >
-                        {t("pluginManager.catalogInstall", "Install")}
+                        {t("os.appMarketInstall", "Install")}
                       </Button>
                     </Tooltip>
                   </div>

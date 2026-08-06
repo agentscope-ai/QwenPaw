@@ -293,9 +293,14 @@ class QQConfig(BaseChannelConfig):
 
 
 class OneBotConfig(BaseChannelConfig):
-    """OneBot v11 channel: reverse WebSocket for NapCat/go-cqhttp/Lagrange."""
+    """OneBot v11 channel: reverse WebSocket for NapCat/go-cqhttp/Lagrange.
 
-    ws_host: str = "0.0.0.0"
+    ``ws_host`` defaults to loopback so the reverse WebSocket server is
+    not reachable from the network without an explicit opt-in.  Binding
+    to a non-loopback address requires ``access_token`` to be set.
+    """
+
+    ws_host: str = "127.0.0.1"
     ws_port: int = 6199
     access_token: str = ""
     share_session_in_group: bool = False
