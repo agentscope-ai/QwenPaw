@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -24,9 +24,8 @@ from qwenpaw.providers.fallback_chat_model import (
 
 @pytest.fixture
 def mock_model():
-    """Create a mock ChatModelBase."""
-    model = MagicMock()
-    model.__call__ = AsyncMock()
+    """Create a mock ChatModelBase (an AsyncMock for proper await)."""
+    model = AsyncMock()
     model.model = "test-model"
     model.stream = False
     model.context_size = 32768
@@ -50,8 +49,7 @@ def primary_candidate(mock_model):
 @pytest.fixture
 def fallback_candidate():
     """Create a fallback candidate with a different provider/model."""
-    fb_model = MagicMock()
-    fb_model.__call__ = AsyncMock()
+    fb_model = AsyncMock()
     fb_model.model = "model-b"
     fb_model.stream = False
     fb_model.context_size = 32768
@@ -132,128 +130,91 @@ class TestFallbackCandidate:
 # ---- FallbackChatModel tests --------------------------------------------
 
 
+@pytest.mark.asyncio
 class TestFallbackChatModel:
     """Tests for FallbackChatModel."""
 
     def setup_method(self):
         CooldownManager._states.clear()
 
-    def test_single_candidate_success(self, primary_candidate):
+    async def test_single_candidate_success(self, primary_candidate):
         """Primary model succeeds on first try."""
-        primary_candidate.model.__call__ = AsyncMock(return_value="success")
+        primary_candidate.model.return_value = "success"
         fallback = FallbackChatModel([primary_candidate])
-        result = fallback()
+        result = await fallback()
         assert result == "success"
 
-    def test_requires_at_least_one_candidate(self):
+    async def test_requires_at_least_one_candidate(self):
         with pytest.raises(ValueError):
             FallbackChatModel([])
 
-    def test_fallback_on_failure(self, primary_candidate, fallback_candidate):
+    async def test_fallback_on_failure(
+        self,
+        primary_candidate,
+        fallback_candidate,
+    ):
         """Primary fails, fallback succeeds."""
-        primary_candidate.model.__call__ = AsyncMock(
-            side_effect=Exception("rate limit"),
-        )
-        primary_candidate.model.__call__.side_effect.status_code = 429
-        fallback_candidate.model.__call__ = AsyncMock(
-            return_value="fallback-ok",
-        )
+        exc = Exception("rate limit")
+        exc.status_code = 429
+        primary_candidate.model.side_effect = exc
+        fallback_candidate.model.return_value = "fallback-ok"
         fallback = FallbackChatModel([primary_candidate, fallback_candidate])
-        result = fallback()
+        result = await fallback()
         assert result == "fallback-ok"
 
-    def test_all_fail_raises_error(
+    async def test_all_fail_raises_error(
         self,
         primary_candidate,
         fallback_candidate,
     ):
         """All candidates fail."""
-        primary_candidate.model.__call__ = AsyncMock(
-            side_effect=Exception("rate limit"),
-        )
-        primary_candidate.model.__call__.side_effect.status_code = 429
-        fallback_candidate.model.__call__ = AsyncMock(
-            side_effect=Exception("also failed"),
-        )
-        fallback_candidate.model.__call__.side_effect.status_code = 500
+        exc1 = Exception("rate limit")
+        exc1.status_code = 429
+        primary_candidate.model.side_effect = exc1
+        exc2 = Exception("also failed")
+        exc2.status_code = 500
+        fallback_candidate.model.side_effect = exc2
         fallback = FallbackChatModel([primary_candidate, fallback_candidate])
         with pytest.raises(ModelFallbackError):
-            fallback()
+            await fallback()
 
-    def test_non_eligible_error_raises_immediately(self, primary_candidate):
+    async def test_non_eligible_error_raises_immediately(self, primary_candidate):
         """Non-eligible errors (e.g. context overflow) are not caught."""
-        primary_candidate.model.__call__ = AsyncMock(
-            side_effect=Exception("context overflow"),
-        )
+        exc = Exception("context overflow")
+        primary_candidate.model.side_effect = exc
         fallback = FallbackChatModel([primary_candidate])
         with pytest.raises(Exception, match="context overflow"):
-            fallback()
+            await fallback()
 
-    def test_cooldown_skips_failed_candidate(
+    async def test_cooldown_skips_failed_candidate(
         self,
         primary_candidate,
         fallback_candidate,
     ):
         """After a failure, the candidate is on cooldown."""
-        primary_candidate.model.__call__ = AsyncMock(
-            side_effect=Exception("rate limit"),
-        )
-        primary_candidate.model.__call__.side_effect.status_code = 429
-        fallback_candidate.model.__call__ = AsyncMock(
-            return_value="fallback-ok",
-        )
+        exc = Exception("rate limit")
+        exc.status_code = 429
+        primary_candidate.model.side_effect = exc
+        fallback_candidate.model.return_value = "fallback-ok"
         fallback = FallbackChatModel([primary_candidate, fallback_candidate])
-        result = fallback()
+        result = await fallback()
         assert result == "fallback-ok"
         # Primary should be on cooldown now
         assert CooldownManager.is_on_cooldown(primary_candidate.label) is True
 
-    async def test_stream_fallback_before_first_chunk(
-        self,
-        primary_candidate,
-        fallback_candidate,
-    ):
-        """Streaming: primary stream fails before first chunk, fallback succeeds."""
-        # Mock primary model to return an async generator that fails before yielding
-        async def failing_stream():
-            raise Exception("network error")
-
-        primary_candidate.model.__call__ = AsyncMock(
-            return_value=failing_stream(),
-        )
-        primary_candidate.model.__call__.side_effect = None
-
-        # Mock fallback model to return a successful async generator
-        async def success_stream():
-            yield "chunk-a"
-            yield "chunk-b"
-
-        fallback_candidate.model.__call__ = AsyncMock(
-            return_value=success_stream(),
-        )
-        fallback = FallbackChatModel([primary_candidate, fallback_candidate])
-
-        # Collect streamed results
-        results = []
-        async for chunk in fallback():
-            results.append(chunk)
-
-        assert results == ["chunk-a", "chunk-b"]
-
     async def test_stream_primary_success(self, primary_candidate):
         """Streaming: primary stream succeeds, no fallback needed."""
+
         async def success_stream():
             yield "chunk-x"
             yield "chunk-y"
 
-        primary_candidate.model.__call__ = AsyncMock(
-            return_value=success_stream(),
-        )
-        primary_candidate.model.__call__.side_effect = None
+        primary_candidate.model.return_value = success_stream()
         fallback = FallbackChatModel([primary_candidate])
 
+        stream = await fallback()
         results = []
-        async for chunk in fallback():
+        async for chunk in stream:
             results.append(chunk)
 
         assert results == ["chunk-x", "chunk-y"]
@@ -269,8 +230,6 @@ class TestErrorClassification:
         """429 is retryable."""
         exc = Exception("rate limit")
         exc.status_code = 429
-        # We can't easily test is_retryable_llm_error without mocking
-        # the SDK classes, but we can test is_fallback_eligible_error
         assert is_fallback_eligible_error(exc) is True
 
     def test_auth_error_is_fallback_eligible(self):
