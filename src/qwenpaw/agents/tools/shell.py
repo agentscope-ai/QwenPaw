@@ -13,7 +13,7 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, BinaryIO, Optional
 
@@ -30,7 +30,9 @@ from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
-from ...utils.io_utils import read_bytes_async
+from ...utils.io_utils import run_sync_io
+
+_SHELL_OUTPUT_MAX_BYTES = 1024 * 1024
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -93,19 +95,39 @@ def _sanitize_win_cmd(cmd: str) -> str:
     return cmd
 
 
-def _read_temp_file(path: str) -> str:
-    """Read a temporary output file and return its decoded content."""
+def _read_output_snapshot(
+    output_file: BinaryIO,
+    max_bytes: int = _SHELL_OUTPUT_MAX_BYTES,
+) -> str:
+    """Read one fixed, bounded snapshot from a temporary output file."""
     try:
-        with open(path, "rb") as f:
-            return smart_decode(f.read())
+        snapshot_size = os.fstat(output_file.fileno()).st_size
+        capture_limit = max(0, max_bytes)
+        capture_size = min(snapshot_size, capture_limit)
+        output_file.seek(0)
+        data = output_file.read(capture_size)
     except OSError:
         return ""
 
+    text = smart_decode(data)
+    if snapshot_size > len(data):
+        notice = (
+            f"⚠️ Output truncated: captured the first {len(data)} bytes "
+            f"from a {snapshot_size}-byte snapshot "
+            f"(limit: {capture_limit} bytes)."
+        )
+        return f"{text}\n{notice}" if text else notice
+    return text
 
-async def _read_temp_file_async(path: str) -> str:
-    """Read a temporary output file without blocking the event loop."""
+
+def _read_temp_file(
+    path: str,
+    max_bytes: int = _SHELL_OUTPUT_MAX_BYTES,
+) -> str:
+    """Read one fixed, bounded snapshot from a temporary output path."""
     try:
-        return smart_decode(await read_bytes_async(path))
+        with open(path, "rb") as output_file:
+            return _read_output_snapshot(output_file, max_bytes)
     except OSError:
         return ""
 
@@ -125,6 +147,116 @@ def _open_temp_output(prefix: str) -> tuple[BinaryIO, str]:
         except OSError:
             pass
         raise
+
+
+@dataclass
+class _PosixTempOutputs:
+    """POSIX temporary output resources managed in a worker thread."""
+
+    stdout_file: BinaryIO | None = None
+    stderr_file: BinaryIO | None = None
+    stdout_path: str | None = None
+    stderr_path: str | None = None
+
+    @classmethod
+    def create(cls) -> "_PosixTempOutputs":
+        outputs = cls()
+        try:
+            outputs.stdout_file, outputs.stdout_path = _open_temp_output(
+                "qwenpaw_out_",
+            )
+            outputs.stderr_file, outputs.stderr_path = _open_temp_output(
+                "qwenpaw_err_",
+            )
+            return outputs
+        except BaseException:
+            outputs.cleanup()
+            raise
+
+    def close_writers(self) -> None:
+        """Close parent writer copies after the shell inherits them."""
+        for attr in ("stdout_file", "stderr_file"):
+            output_file = getattr(self, attr)
+            if output_file is not None:
+                try:
+                    output_file.close()
+                except OSError:
+                    pass
+                setattr(self, attr, None)
+
+    def read_snapshot(
+        self,
+        max_bytes: int = _SHELL_OUTPUT_MAX_BYTES,
+    ) -> tuple[str, str]:
+        """Read bounded stdout and stderr snapshots."""
+        stdout = (
+            _read_temp_file(self.stdout_path, max_bytes)
+            if self.stdout_path is not None
+            else ""
+        )
+        stderr = (
+            _read_temp_file(self.stderr_path, max_bytes)
+            if self.stderr_path is not None
+            else ""
+        )
+        return stdout, stderr
+
+    def cleanup(self) -> None:
+        """Close writers and unlink both temporary paths."""
+        self.close_writers()
+        for attr in ("stdout_path", "stderr_path"):
+            path = getattr(self, attr)
+            if path is not None:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+                setattr(self, attr, None)
+
+
+def _open_windows_temp_output(prefix: str) -> tuple[Any, BinaryIO]:
+    """Create Windows output handles that delete after the last close.
+
+    The writer is inherited by the shell and possibly its background
+    descendants.  Opening both handles with ``O_TEMPORARY`` gives them delete
+    sharing and marks the file for automatic deletion when the final inherited
+    handle closes.  The separate reader has its own file position, so reading
+    captured output cannot disturb a descendant that still holds the writer.
+    """
+    # The handle must outlive this helper and be inherited by the child.
+    # pylint: disable-next=consider-using-with
+    writer = tempfile.NamedTemporaryFile(
+        mode="w+b",
+        prefix=prefix,
+        delete=True,
+    )
+    reader_fd: int | None = None
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_TEMPORARY", 0)
+        reader_fd = os.open(writer.name, flags)
+        reader = os.fdopen(reader_fd, "rb")
+        reader_fd = None
+        return writer, reader
+    except BaseException:
+        if reader_fd is not None:
+            try:
+                os.close(reader_fd)
+            except OSError:
+                pass
+        try:
+            writer.close()
+        except OSError:
+            pass
+        raise
+
+
+def _read_temp_output(
+    output_file: BinaryIO,
+    max_bytes: int = _SHELL_OUTPUT_MAX_BYTES,
+) -> str:
+    """Read a bounded snapshot from an independent Windows handle."""
+    return _read_output_snapshot(output_file, max_bytes)
 
 
 def _shell_basename(executable: str) -> str:
@@ -238,6 +370,8 @@ def _execute_subprocess_sync(
     stderr_path: str | None = None
     stdout_file = None
     stderr_file = None
+    stdout_reader = None
+    stderr_reader = None
 
     try:
         if shell_executable and _is_powershell(shell_executable):
@@ -259,8 +393,16 @@ def _execute_subprocess_sync(
             # POSIX-like shell on Windows (e.g. Git Bash, MSYS2)
             wrapped = [shell_executable, "-c", cmd]
 
-        stdout_file, stdout_path = _open_temp_output("qwenpaw_out_")
-        stderr_file, stderr_path = _open_temp_output("qwenpaw_err_")
+        if sys.platform == "win32":
+            stdout_file, stdout_reader = _open_windows_temp_output(
+                "qwenpaw_out_",
+            )
+            stderr_file, stderr_reader = _open_windows_temp_output(
+                "qwenpaw_err_",
+            )
+        else:
+            stdout_file, stdout_path = _open_temp_output("qwenpaw_out_")
+            stderr_file, stderr_path = _open_temp_output("qwenpaw_err_")
 
         proc = subprocess.Popen(  # pylint: disable=consider-using-with
             wrapped,
@@ -315,8 +457,24 @@ def _execute_subprocess_sync(
                 except OSError:
                     pass
 
-        stdout_str = _read_temp_file(stdout_path)
-        stderr_str = _read_temp_file(stderr_path)
+        if stdout_reader is not None and stderr_reader is not None:
+            stdout_str = _read_temp_output(
+                stdout_reader,
+                _SHELL_OUTPUT_MAX_BYTES,
+            )
+            stderr_str = _read_temp_output(
+                stderr_reader,
+                _SHELL_OUTPUT_MAX_BYTES,
+            )
+        else:
+            stdout_str = _read_temp_file(
+                stdout_path,
+                _SHELL_OUTPUT_MAX_BYTES,
+            )
+            stderr_str = _read_temp_file(
+                stderr_path,
+                _SHELL_OUTPUT_MAX_BYTES,
+            )
 
         if stopped:
             # Async side replaces with cancel/timeout stderr via cancel_reason.
@@ -337,7 +495,12 @@ def _execute_subprocess_sync(
     except Exception as e:
         return -1, "", str(e)
     finally:
-        for f in (stdout_file, stderr_file):
+        for f in (
+            stdout_file,
+            stderr_file,
+            stdout_reader,
+            stderr_reader,
+        ):
             if f is not None:
                 try:
                     f.close()
@@ -640,22 +803,30 @@ async def _execute_posix_host(
     the direct shell exits.  Waiting on ``communicate()`` would then wait for
     every such descendant to close the descriptors.  Redirect output to
     regular temporary files instead, and wait only for the direct shell.
+    Once it exits, capture at most ``_SHELL_OUTPUT_MAX_BYTES`` from the fixed
+    file-size snapshot observed at that moment.  Background services must
+    redirect their own stdout/stderr; inherited descriptors can otherwise keep
+    consuming storage even after the temporary path is unlinked.
     """
-    stdout_path: str | None = None
-    stderr_path: str | None = None
-    stdout_file = None
-    stderr_file = None
+    outputs: _PosixTempOutputs | None = None
+    loop = asyncio.get_running_loop()
+    local_deadline = loop.time() + max(0.0, timeout)
+
+    def remaining_timeout() -> float:
+        """Return the direct-call budget left for the next async phase."""
+        return max(0.0, local_deadline - loop.time())
 
     try:
-        stdout_file, stdout_path = _open_temp_output("qwenpaw_out_")
-        stderr_file, stderr_path = _open_temp_output("qwenpaw_err_")
+        outputs = await run_sync_io(_PosixTempOutputs.create)
+        if outputs.stdout_file is None or outputs.stderr_file is None:
+            raise RuntimeError("Temporary output files were not created")
 
         proc = await asyncio.create_subprocess_exec(
             shell_executable or "/bin/sh",
             "-c",
             cmd,
-            stdout=stdout_file,
-            stderr=stderr_file,
+            stdout=outputs.stdout_file,
+            stderr=outputs.stderr_file,
             bufsize=0,
             cwd=cwd,
             env=env,
@@ -666,10 +837,7 @@ async def _execute_posix_host(
         # before waiting, then reopen the paths for reading after the shell
         # exits.  Background descendants may keep their descriptors open, but
         # regular files do not have pipe EOF semantics and cannot block wait().
-        stdout_file.close()
-        stdout_file = None
-        stderr_file.close()
-        stderr_file = None
+        await run_sync_io(outputs.close_writers)
 
         stderr_suffix = ""
         try:
@@ -677,7 +845,7 @@ async def _execute_posix_host(
 
             returncode = await cancellable_wait(
                 proc.wait(),
-                fallback_secs=timeout,
+                fallback_secs=remaining_timeout(),
                 as_kill_deadline=True,
             )
         except asyncio.TimeoutError:
@@ -694,8 +862,39 @@ async def _execute_posix_host(
             returncode = -1
             await _cleanup_proc(proc)
 
-        stdout_str = await _read_temp_file_async(stdout_path)
-        stderr_str = await _read_temp_file_async(stderr_path)
+        # Monitor the same cancellation source while collecting output.  The
+        # worker itself cannot be interrupted safely, so shield it, wait for
+        # the bounded snapshot to finish, then surface cancel/timeout and
+        # clean up.  This avoids leaving a reader racing with unlink().
+        snapshot_task = asyncio.create_task(
+            run_sync_io(
+                outputs.read_snapshot,
+                _SHELL_OUTPUT_MAX_BYTES,
+            ),
+        )
+        try:
+            stdout_str, stderr_str = await cancellable_wait(
+                asyncio.shield(snapshot_task),
+                fallback_secs=remaining_timeout(),
+            )
+        except asyncio.TimeoutError:
+            stdout_str, stderr_str = await asyncio.shield(snapshot_task)
+            stderr_suffix = (
+                f"⚠️ TimeoutError: The command execution exceeded "
+                f"the timeout of {timeout} seconds. "
+                f"Please consider increasing the timeout value if this "
+                f"command requires more time to complete."
+            )
+            returncode = -1
+        except asyncio.CancelledError:
+            stdout_str, stderr_str = await asyncio.shield(snapshot_task)
+            from ...tool_calls import get_call_context
+
+            ctx = get_call_context()
+            if ctx is None or not ctx.cancel_event.is_set():
+                raise
+            stderr_suffix = _cancel_stderr_message(timeout)
+            returncode = -1
         if stderr_suffix:
             if stderr_str:
                 stderr_str += f"\n{stderr_suffix}"
@@ -703,18 +902,8 @@ async def _execute_posix_host(
                 stderr_str = stderr_suffix
         return returncode, stdout_str, stderr_str
     finally:
-        for output_file in (stdout_file, stderr_file):
-            if output_file is not None:
-                try:
-                    output_file.close()
-                except OSError:
-                    pass
-        for path in (stdout_path, stderr_path):
-            if path is not None:
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
+        if outputs is not None:
+            await run_sync_io(outputs.cleanup)
 
 
 # pylint: disable=too-many-branches, too-many-statements
@@ -742,6 +931,10 @@ async def execute_shell_command(
     IMPORTANT: Check the 'Default Shell' field to
     determine which shell is active, and generate commands using the
     appropriate syntax (e.g. bash vs PowerShell vs cmd.exe).
+
+    Direct host execution captures a bounded stdout/stderr snapshot. Long-lived
+    background services should explicitly redirect their output to a
+    user-managed log file or the platform null device.
 
     Args:
         command (`str`):

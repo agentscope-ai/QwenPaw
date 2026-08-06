@@ -5,8 +5,9 @@ Covers:
 - _collapse_embedded_newlines
 - _sanitize_win_cmd
 - _read_temp_file
-- _read_temp_file_async
+- _read_output_snapshot
 - _open_temp_output
+- _open_windows_temp_output
 - _shell_basename
 - _is_powershell / _is_cmd
 - _extract_powershell_command
@@ -38,9 +39,12 @@ from qwenpaw.agents.tools.shell import (
     _is_cmd,
     _is_dangerous_self_kill,
     _is_powershell,
+    _PosixTempOutputs,
     _open_temp_output,
+    _open_windows_temp_output,
     _read_temp_file,
-    _read_temp_file_async,
+    _read_output_snapshot,
+    _read_temp_output,
     _sanitize_win_cmd,
     _shell_basename,
     smart_decode,
@@ -234,30 +238,36 @@ class TestReadTempFile:
         result = _read_temp_file(str(f))
         assert "你好" in result
 
+    def test_truncates_large_snapshot_with_notice(self, tmp_path):
+        output = tmp_path / "large.txt"
+        output.write_bytes(b"abcdefghij")
 
-class TestReadTempFileAsync:
-    """Tests for _read_temp_file_async."""
+        result = _read_temp_file(str(output), max_bytes=4)
 
-    @pytest.mark.asyncio
-    async def test_uses_project_async_io_helper(self):
+        assert result.startswith("abcd\n")
+        assert "Output truncated" in result
+        assert "10-byte snapshot" in result
+
+
+class TestReadOutputSnapshot:
+    """Tests for fixed-size output snapshot reads."""
+
+    def test_reads_only_recorded_bounded_size(self):
+        output = MagicMock()
+        output.fileno.return_value = 123
+        output.read.return_value = b"abcd"
+        stat_result = MagicMock(st_size=10)
+
         with patch(
-            "qwenpaw.agents.tools.shell.read_bytes_async",
-            AsyncMock(return_value="你好".encode("utf-8")),
-        ) as read_bytes:
-            result = await _read_temp_file_async("/tmp/output.txt")
-
-        assert result == "你好"
-        read_bytes.assert_awaited_once_with("/tmp/output.txt")
-
-    @pytest.mark.asyncio
-    async def test_read_nonexistent_file(self):
-        with patch(
-            "qwenpaw.agents.tools.shell.read_bytes_async",
-            AsyncMock(side_effect=FileNotFoundError),
+            "qwenpaw.agents.tools.shell.os.fstat",
+            return_value=stat_result,
         ):
-            result = await _read_temp_file_async("/nonexistent/file.txt")
+            result = _read_output_snapshot(output, max_bytes=4)
 
-        assert result == ""
+        output.seek.assert_called_once_with(0)
+        output.read.assert_called_once_with(4)
+        assert result.startswith("abcd\n")
+        assert "Output truncated" in result
 
 
 class TestOpenTempOutput:
@@ -292,6 +302,134 @@ class TestOpenTempOutput:
             except OSError:
                 pass
             Path(path).unlink(missing_ok=True)
+
+
+class TestOpenWindowsTempOutput:
+    """Tests for Windows delete-on-close temporary output handles."""
+
+    def test_uses_delete_sharing_and_independent_reader(self):
+        writer = MagicMock()
+        writer.name = r"C:\Temp\qwenpaw_out_test"
+        reader = MagicMock()
+
+        with (
+            patch(
+                "qwenpaw.agents.tools.shell.tempfile.NamedTemporaryFile",
+                return_value=writer,
+            ) as named_temp,
+            patch(
+                "qwenpaw.agents.tools.shell.os.O_TEMPORARY",
+                0x40,
+                create=True,
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.os.O_BINARY",
+                0x80,
+                create=True,
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.os.open",
+                return_value=123,
+            ) as open_file,
+            patch(
+                "qwenpaw.agents.tools.shell.os.fdopen",
+                return_value=reader,
+            ) as fdopen,
+        ):
+            result = _open_windows_temp_output("qwenpaw_out_")
+
+        assert result == (writer, reader)
+        named_temp.assert_called_once_with(
+            mode="w+b",
+            prefix="qwenpaw_out_",
+            delete=True,
+        )
+        open_file.assert_called_once_with(
+            writer.name,
+            os.O_RDONLY | 0x40 | 0x80,
+        )
+        fdopen.assert_called_once_with(123, "rb")
+
+    def test_reader_open_failure_closes_writer_and_raw_fd(self):
+        writer = MagicMock()
+        writer.name = r"C:\Temp\qwenpaw_out_test"
+
+        with (
+            patch(
+                "qwenpaw.agents.tools.shell.tempfile.NamedTemporaryFile",
+                return_value=writer,
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.os.open",
+                return_value=123,
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.os.fdopen",
+                side_effect=OSError("fdopen failed"),
+            ),
+            patch("qwenpaw.agents.tools.shell.os.close") as close_fd,
+        ):
+            with pytest.raises(OSError, match="fdopen failed"):
+                _open_windows_temp_output("qwenpaw_out_")
+
+        close_fd.assert_called_once_with(123)
+        writer.close.assert_called_once_with()
+
+    def test_read_uses_independent_file_position(self):
+        reader = MagicMock()
+        reader.fileno.return_value = 123
+        reader.read.return_value = "你好".encode("utf-8")
+
+        with patch(
+            "qwenpaw.agents.tools.shell.os.fstat",
+            return_value=MagicMock(st_size=6),
+        ):
+            result = _read_temp_output(reader)
+
+        assert result == "你好"
+        reader.seek.assert_called_once_with(0)
+        reader.read.assert_called_once_with(6)
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows handle inheritance semantics under test",
+)
+def test_windows_background_handles_are_eventually_deleted(
+    tmp_path,
+    monkeypatch,
+):
+    """Delete-on-close removes output after a background descendant exits."""
+    import time
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    command = (
+        "$child = Start-Process -FilePath powershell.exe "
+        "-ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 4' "
+        "-NoNewWindow -PassThru; Write-Output done"
+    )
+
+    started = time.monotonic()
+    returncode, stdout, stderr = _execute_subprocess_sync(
+        command,
+        str(tmp_path),
+        timeout=5.0,
+        env=os.environ.copy(),
+        shell_executable="powershell.exe",
+    )
+    elapsed = time.monotonic() - started
+
+    assert returncode == 0
+    assert stdout == "done"
+    assert stderr == ""
+    assert elapsed < 3.0
+
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        if not list(tmp_path.glob("qwenpaw_*")):
+            break
+        time.sleep(0.1)
+    assert not list(tmp_path.glob("qwenpaw_*"))
 
 
 # ---------------------------------------------------------------------------
@@ -515,6 +653,311 @@ async def test_execute_posix_host_background_child_does_not_delay(tmp_path):
     assert returncode == 0
     assert stdout == "done"
     assert stderr == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX host subprocess path under test",
+)
+async def test_execute_posix_host_bounds_continuously_growing_output(
+    tmp_path,
+    monkeypatch,
+):
+    """A background writer cannot make snapshot collection chase EOF."""
+    import asyncio
+    import time
+
+    max_bytes = 4096
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.shell._SHELL_OUTPUT_MAX_BYTES",
+        max_bytes,
+    )
+    pid_path = tmp_path / "background.pid"
+    writer_code = (
+        "import os,time\n"
+        "chunk=b'x'*4096\n"
+        "while True:\n"
+        " os.write(1,chunk)\n"
+        " time.sleep(0.005)"
+    )
+    command = (
+        f"{shlex.quote(sys.executable)} -c {shlex.quote(writer_code)} & "
+        f"echo $! > {shlex.quote(str(pid_path))}; "
+        "sleep 0.1; printf done"
+    )
+
+    started = time.monotonic()
+    background_pid = None
+    try:
+        returncode, stdout, stderr = await asyncio.wait_for(
+            _execute_posix_host(
+                command,
+                str(tmp_path),
+                2.0,
+                os.environ.copy(),
+                "/bin/sh",
+            ),
+            timeout=3.0,
+        )
+        if pid_path.exists():
+            background_pid = int(pid_path.read_text(encoding="utf-8"))
+    finally:
+        if background_pid is None and pid_path.exists():
+            background_pid = int(pid_path.read_text(encoding="utf-8"))
+        if background_pid is not None:
+            try:
+                os.kill(background_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    assert returncode == 0
+    assert "Output truncated" in stdout
+    assert len(stdout.encode("utf-8")) < max_bytes + 256
+    assert stderr == ""
+    assert time.monotonic() - started < 3.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX host subprocess path under test",
+)
+async def test_execute_posix_host_slow_temp_io_does_not_block_loop(
+    tmp_path,
+):
+    """Slow create/unlink operations must run outside the event loop."""
+    import asyncio
+    import time
+
+    real_mkstemp = tempfile.mkstemp
+    real_unlink = os.unlink
+    ticker_done = asyncio.Event()
+    ticks = 0
+
+    def slow_mkstemp(*args, **kwargs):
+        time.sleep(0.05)
+        kwargs["dir"] = tmp_path
+        return real_mkstemp(*args, **kwargs)
+
+    def slow_unlink(path):
+        time.sleep(0.05)
+        return real_unlink(path)
+
+    async def ticker():
+        nonlocal ticks
+        while not ticker_done.is_set():
+            ticks += 1
+            await asyncio.sleep(0.005)
+
+    ticker_task = asyncio.create_task(ticker())
+    try:
+        with (
+            patch(
+                "qwenpaw.agents.tools.shell.tempfile.mkstemp",
+                side_effect=slow_mkstemp,
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.os.unlink",
+                side_effect=slow_unlink,
+            ),
+        ):
+            returncode, stdout, stderr = await _execute_posix_host(
+                "printf ok",
+                str(tmp_path),
+                2.0,
+                os.environ.copy(),
+                "/bin/sh",
+            )
+    finally:
+        ticker_done.set()
+        await ticker_task
+
+    assert returncode == 0
+    assert stdout == "ok"
+    assert stderr == ""
+    assert ticks >= 10
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX host subprocess path under test",
+)
+async def test_execute_posix_host_cancel_during_snapshot_cleans_up(
+    tmp_path,
+):
+    """Cancellation waits for bounded I/O, then removes temporary files."""
+    import asyncio
+    import threading
+
+    read_started = threading.Event()
+    release_read = threading.Event()
+    real_read_snapshot = _PosixTempOutputs.read_snapshot
+
+    def slow_read_snapshot(outputs, max_bytes):
+        read_started.set()
+        release_read.wait(timeout=2.0)
+        return real_read_snapshot(outputs, max_bytes)
+
+    with (
+        patch(
+            "qwenpaw.agents.tools.shell.tempfile.tempdir",
+            str(tmp_path),
+        ),
+        patch.object(
+            _PosixTempOutputs,
+            "read_snapshot",
+            autospec=True,
+            side_effect=slow_read_snapshot,
+        ),
+    ):
+        task = asyncio.create_task(
+            _execute_posix_host(
+                "printf partial",
+                str(tmp_path),
+                2.0,
+                os.environ.copy(),
+                "/bin/sh",
+            ),
+        )
+        for _ in range(200):
+            if read_started.is_set():
+                break
+            await asyncio.sleep(0.005)
+        assert read_started.is_set()
+
+        task.cancel()
+        await asyncio.sleep(0.02)
+        assert not task.done()
+        release_read.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert not list(tmp_path.glob("qwenpaw_*"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX host subprocess path under test",
+)
+async def test_execute_posix_host_context_cancel_during_snapshot(
+    tmp_path,
+):
+    """Context cancellation is observed during bounded output collection."""
+    import asyncio
+    import threading
+
+    from qwenpaw.tool_calls import reset_call_context, set_call_context
+    from qwenpaw.tool_calls._context import CancelReason, ToolCallContext
+
+    read_started = threading.Event()
+    release_read = threading.Event()
+    real_read_snapshot = _PosixTempOutputs.read_snapshot
+
+    def slow_read_snapshot(outputs, max_bytes):
+        read_started.set()
+        release_read.wait(timeout=2.0)
+        return real_read_snapshot(outputs, max_bytes)
+
+    loop = asyncio.get_running_loop()
+    ctx = ToolCallContext(
+        tool_call_id="tc-posix-snapshot-cancel",
+        tool_name="execute_shell_command",
+        session_id="s",
+        agent_id="a",
+        root_session_id="r",
+        started_at=loop.time(),
+        offload_deadline=None,
+        cancel_event=asyncio.Event(),
+    )
+    token = set_call_context(ctx)
+    try:
+        with (
+            patch(
+                "qwenpaw.agents.tools.shell.tempfile.tempdir",
+                str(tmp_path),
+            ),
+            patch.object(
+                _PosixTempOutputs,
+                "read_snapshot",
+                autospec=True,
+                side_effect=slow_read_snapshot,
+            ),
+        ):
+            task = asyncio.create_task(
+                _execute_posix_host(
+                    "printf partial",
+                    str(tmp_path),
+                    2.0,
+                    os.environ.copy(),
+                    "/bin/sh",
+                ),
+            )
+            for _ in range(200):
+                if read_started.is_set():
+                    break
+                await asyncio.sleep(0.005)
+            assert read_started.is_set()
+
+            ctx.cancel_reason = CancelReason.USER
+            ctx.cancel_event.set()
+            await asyncio.sleep(0.02)
+            assert not task.done()
+            release_read.set()
+            returncode, stdout, stderr = await task
+    finally:
+        reset_call_context(token)
+
+    assert returncode == -1
+    assert stdout == "partial"
+    assert "cancelled by the user" in stderr
+    assert not list(tmp_path.glob("qwenpaw_*"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX host subprocess path under test",
+)
+async def test_execute_posix_host_snapshot_uses_remaining_timeout(
+    tmp_path,
+):
+    """Direct calls retain one deadline across wait and output collection."""
+    import threading
+
+    release_read = threading.Event()
+    real_read_snapshot = _PosixTempOutputs.read_snapshot
+
+    def slow_read_snapshot(outputs, max_bytes):
+        release_read.wait(timeout=0.3)
+        return real_read_snapshot(outputs, max_bytes)
+
+    with (
+        patch(
+            "qwenpaw.agents.tools.shell.tempfile.tempdir",
+            str(tmp_path),
+        ),
+        patch.object(
+            _PosixTempOutputs,
+            "read_snapshot",
+            autospec=True,
+            side_effect=slow_read_snapshot,
+        ),
+    ):
+        returncode, stdout, stderr = await _execute_posix_host(
+            "printf partial",
+            str(tmp_path),
+            0.2,
+            os.environ.copy(),
+            "/bin/sh",
+        )
+
+    assert returncode == -1
+    assert stdout == "partial"
+    assert "TimeoutError" in stderr
+    assert not list(tmp_path.glob("qwenpaw_*"))
 
 
 @pytest.mark.asyncio
@@ -1305,9 +1748,18 @@ async def test_unix_shell_cancellederror_uses_timeout_stderr():
     async def _fake_cleanup(proc_arg):
         return None
 
+    cancelled_once = False
+
     async def _cancel_wait(awaitable, **_kwargs):
-        awaitable.close()
-        raise asyncio.CancelledError()
+        nonlocal cancelled_once
+        if not cancelled_once:
+            cancelled_once = True
+            if asyncio.iscoroutine(awaitable):
+                awaitable.close()
+            elif isinstance(awaitable, asyncio.Future):
+                awaitable.cancel()
+            raise asyncio.CancelledError()
+        return await awaitable
 
     try:
         with (
@@ -1370,9 +1822,18 @@ async def test_unix_shell_cancellederror_uses_user_cancel_stderr():
     async def _fake_cleanup(proc_arg):
         return None
 
+    cancelled_once = False
+
     async def _cancel_wait(awaitable, **_kwargs):
-        awaitable.close()
-        raise asyncio.CancelledError()
+        nonlocal cancelled_once
+        if not cancelled_once:
+            cancelled_once = True
+            if asyncio.iscoroutine(awaitable):
+                awaitable.close()
+            elif isinstance(awaitable, asyncio.Future):
+                awaitable.cancel()
+            raise asyncio.CancelledError()
+        return await awaitable
 
     try:
         with (
