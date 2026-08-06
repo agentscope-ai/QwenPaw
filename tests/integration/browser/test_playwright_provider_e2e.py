@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 """Real Chromium contracts for the Playwright control-link provider."""
 
+# pylint: disable=protected-access
+
 import pytest
 
 from qwenpaw.browser.control_link.playwright.adapter import (
     PlaywrightControlLink,
 )
-from qwenpaw.browser.errors import BrowserError
+from qwenpaw.browser.errors import BrowserError, ErrorCategory, ErrorCause
 
 
 def _locator_spec(method: str, *args: str, **kwargs: str) -> list[dict]:
@@ -120,5 +122,43 @@ async def test_real_provider_rejects_unsupported_context_and_method() -> None:
             )
         with pytest.raises(BrowserError):
             await link.request("no_such_method", {})
+    finally:
+        await link.close_all()
+
+
+async def test_real_provider_recovers_from_a_dead_driver(
+    fixture_url: str,
+) -> None:
+    """A killed node driver is reset and restarted on the next session."""
+    link = PlaywrightControlLink()
+    owner = {"workspace_id": "ws", "session_id": "session"}
+    try:
+        await link.request(
+            "open_session",
+            {**owner, "context": "incognito"},
+        )
+        transport = link._pw._impl_obj._connection._transport
+        driver_proc = transport._proc
+        driver_proc.kill()
+        await driver_proc.wait()
+
+        with pytest.raises(BrowserError) as raised:
+            await link.request("new_page", {**owner, "url": fixture_url})
+        assert raised.value.category is ErrorCategory.RETRYABLE
+        assert raised.value.cause is ErrorCause.STATE_STALE
+        assert "Browser.connect()" in raised.value.suggested_action
+        assert link._pw is None
+        assert not link._sessions
+        assert ("ws", "session") in link._closed_sessions
+
+        await link.request(
+            "open_session",
+            {**owner, "context": "incognito"},
+        )
+        reopened = await link.request(
+            "new_page",
+            {**owner, "url": fixture_url},
+        )
+        assert reopened["url"] == fixture_url
     finally:
         await link.close_all()

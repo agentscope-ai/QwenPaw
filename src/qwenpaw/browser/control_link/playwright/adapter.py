@@ -104,6 +104,24 @@ def teaching_from_strict_violation(exc: Exception) -> BrowserError | None:
     )
 
 
+_DRIVER_DEAD_MARKERS = (
+    "connection closed while reading from the driver",
+)
+
+
+def _driver_connection_dead(exc: BaseException) -> bool:
+    """Return whether a provider failure means the node driver died."""
+    texts = [str(exc)]
+    detail = getattr(exc, "detail", "")
+    if isinstance(detail, str):
+        texts.append(detail)
+    return any(
+        marker in text.lower()
+        for marker in _DRIVER_DEAD_MARKERS
+        for text in texts
+    )
+
+
 class PlaywrightControlLink:
     """Per-variant multiplexer for workspace processes and session contexts."""
 
@@ -156,7 +174,26 @@ class PlaywrightControlLink:
         if handler is None:
             raise _fatal(f"unknown method: {method}", method)
         typed_handler = cast(Callable[..., Any], handler)
-        return await typed_handler(dict(params), timeout=timeout)
+        victim = self._pw
+        try:
+            return await typed_handler(dict(params), timeout=timeout)
+        except Exception as exc:
+            if not _driver_connection_dead(exc):
+                raise
+            await self._recover_dead_driver(victim)
+            raise BrowserError(
+                category=ErrorCategory.RETRYABLE,
+                cause=ErrorCause.STATE_STALE,
+                suggested_action=(
+                    "Reconnect, then reopen your page: browser = await "
+                    "Browser.connect(); page = await browser.open(url)."
+                ),
+                reason=(
+                    "the browser driver process died and was reset; every "
+                    "browser session must be reopened"
+                ),
+                detail=str(exc),
+            ) from exc
 
     def on_event(self, sink: EventSink) -> Callable[[], None]:
         """Subscribe to raw provider events and return an unsubscribe callback.
@@ -601,6 +638,42 @@ class PlaywrightControlLink:
     ) -> Mapping[str, Any]:
         await self.close_all()
         return {"closed": True}
+
+    async def _recover_dead_driver(self, victim: Any) -> None:
+        """Drop a dead node driver and every session it can no longer serve.
+
+        A dead driver connection cannot be revived, so the only truthful
+        recovery is to forget every cached handle and let the next
+        ``open_session`` start a fresh driver. Former owners are marked
+        closed so stale SDK references receive the reconnect teaching.
+        """
+        async with self._pw_lock:
+            if self._pw is not victim:
+                return
+            dead_owners = set(self._contexts) | set(self._sessions)
+            logger.warning(
+                "browser Playwright driver connection died; resetting "
+                "the provider so the next session restarts it",
+            )
+            for process in list(self._procs.values()):
+                target = process.get("context") or process.get("browser")
+                if target is not None:
+                    with contextlib.suppress(Exception):
+                        await target.close()
+            self._procs.clear()
+            self._contexts.clear()
+            self._sessions.clear()
+            self._pages.clear()
+            self._active.clear()
+            self._last_used.clear()
+            self._opening.clear()
+            self._launch_locks.clear()
+            self._fixed_profile_workspaces.clear()
+            self._closed_sessions.update(dead_owners)
+            self._pw = None
+        if victim is not None:
+            with contextlib.suppress(Exception):
+                await victim.stop()
 
     async def close_all_sessions(self) -> None:
         """Explicitly destroy every session during application shutdown."""

@@ -12,9 +12,13 @@ import time
 from fastapi import FastAPI
 
 from qwenpaw.app._app import _start_browser_runtime, _stop_browser_runtime
+from qwenpaw.browser.control_link.playwright.adapter import (
+    PlaywrightControlLink,
+)
 from qwenpaw.browser.execution.kernel import KernelRuntime
 from qwenpaw.browser.execution.subprocess_plane import SubprocessPlane
 from qwenpaw.browser.execution.wire import ExecRequest
+from qwenpaw.browser.runtime import links as runtime_links
 
 
 def _request(
@@ -110,3 +114,59 @@ async def test_runtime_shutdown_reclaims_real_workers() -> None:
         assert app.state.browser_watchdog.cancelled()
     finally:
         await plane.discard_all_workers()
+
+
+async def test_driver_death_heals_through_reconnect(
+    fixture_url: str,
+) -> None:
+    """A dead node driver resets once and reconnects instead of failing."""
+    link = PlaywrightControlLink()
+    runtime_links.register_local(link, priority=True)
+    plane = SubprocessPlane()
+    runtime = KernelRuntime(plane=plane)
+    session = "driver-death"
+    try:
+        opened = await runtime.run(
+            _request(
+                "open",
+                session,
+                "browser = await Browser.connect(identity='guest')\n"
+                f"page = await browser.open({fixture_url!r})\n"
+                "surface = await page.current_surface()\n"
+                "return surface.url",
+            ),
+        )
+        assert opened.error is None, opened.error
+        assert opened.value == fixture_url
+        driver_proc = link._pw._impl_obj._connection._transport._proc
+        driver_proc.kill()
+        await driver_proc.wait()
+
+        failed = await runtime.run(
+            _request(
+                "dead",
+                session,
+                "obs = await page.snapshot()\nreturn len(obs.text)",
+            ),
+        )
+        assert failed.error is not None
+        assert failed.error["category"] == "RETRYABLE"
+        assert "driver process died" in failed.error["teaching"]
+        assert "Browser.connect()" in failed.error["teaching"]
+
+        healed = await runtime.run(
+            _request(
+                "heal",
+                session,
+                "browser = await Browser.connect(identity='guest')\n"
+                f"page = await browser.open({fixture_url!r})\n"
+                "surface = await page.current_surface()\n"
+                "return surface.url",
+            ),
+        )
+        assert healed.error is None, healed.error
+        assert healed.value == fixture_url
+    finally:
+        await plane.discard_all_workers()
+        runtime_links.unregister_local(link)
+        await link.close_all()
