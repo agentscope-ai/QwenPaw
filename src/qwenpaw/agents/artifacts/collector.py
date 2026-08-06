@@ -95,11 +95,19 @@ class ArtifactCollector:
         if not candidate.is_absolute():
             candidate = self._workspace_dir / candidate
         try:
+            lexical_relative = candidate.absolute().relative_to(
+                self._workspace_dir,
+            )
+            current = self._workspace_dir
+            for component in lexical_relative.parts:
+                current /= component
+                if current.is_symlink():
+                    return False
             resolved = candidate.resolve(strict=True)
             relative = resolved.relative_to(self._workspace_dir)
         except (OSError, ValueError):
             return False
-        if not resolved.is_file() or resolved.is_symlink():
+        if not resolved.is_file():
             return False
         if is_excluded_file(relative):
             return False

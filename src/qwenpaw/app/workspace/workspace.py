@@ -32,6 +32,7 @@ from ..chats.session import SafeJSONSession
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
+from ...config.paths import resolve_agent_workspace_path
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,10 @@ class Workspace:
             workspace_dir: Path to agent's workspace directory
         """
         self.agent_id = agent_id
-        self.workspace_dir = Path(workspace_dir).expanduser()
+        self.workspace_dir = resolve_agent_workspace_path(
+            workspace_dir,
+            agent_id,
+        )
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
 
         # Per-workspace pluggable registries (tools, hooks, commands, prompts)
@@ -580,8 +584,7 @@ class Workspace:
             )
         except Exception as exc:
             logger.warning(
-                "weixin->wechat chats.json migration failed for "
-                "agent %s: %s",
+                "weixin->wechat chats.json migration failed for " "agent %s: %s",
                 self.agent_id,
                 exc,
             )
@@ -592,8 +595,7 @@ class Workspace:
             )
         except Exception as exc:
             logger.warning(
-                "weixin->wechat jobs.json migration failed for "
-                "agent %s: %s",
+                "weixin->wechat jobs.json migration failed for " "agent %s: %s",
                 self.agent_id,
                 exc,
             )

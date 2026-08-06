@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use tauri_plugin_shell::ShellExt;
 
-use crate::backend_download::{
+use crate::workspace_resolver::{
     get_agent_workspace_directory, resolve_agent_workspace_file_path,
 };
 

@@ -222,4 +222,7 @@ export const workspaceApi = {
 
   getArtifactFileUrl: (agentId: string, filePath: string) =>
     getAgentWorkspaceUrl(agentId, `/artifacts/${encodePath(filePath)}`),
+
+  getArtifactPreviewUrl: (agentId: string, filePath: string) =>
+    getAgentWorkspaceUrl(agentId, `/artifact-previews/${encodePath(filePath)}`),
 };

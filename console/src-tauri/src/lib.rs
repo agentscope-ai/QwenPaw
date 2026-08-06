@@ -11,6 +11,7 @@ mod runtime_env;
 mod tray;
 mod updates;
 mod workspace;
+mod workspace_resolver;
 
 use tauri::{Manager, RunEvent, WebviewWindow, WindowEvent};
 

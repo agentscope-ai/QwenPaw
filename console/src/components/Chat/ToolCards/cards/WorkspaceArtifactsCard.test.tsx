@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   authHeaders: { Authorization: "Bearer test-token" },
   download: vi.fn(),
   messageError: vi.fn(),
+  invoke: vi.fn(),
+  desktop: false,
 }));
 
 vi.mock("react-i18next", () => ({
@@ -32,10 +34,10 @@ vi.mock("../shared", () => ({
   ),
 }));
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
 
 vi.mock("../../../../tauri/backendRuntime", () => ({
-  isTauriRuntime: () => false,
+  isTauriRuntime: () => mocks.desktop,
 }));
 
 vi.mock("../../../../hooks/useAppMessage", () => ({
@@ -50,6 +52,8 @@ vi.mock("../../../../api/modules/workspace", () => ({
   workspaceApi: {
     getArtifactFileUrl: (agentId: string, path: string) =>
       `/artifacts/${agentId}/${path}`,
+    getArtifactPreviewUrl: (agentId: string, path: string) =>
+      `/artifact-previews/${agentId}/${path}`,
   },
 }));
 
@@ -83,6 +87,7 @@ function manifestResult() {
     agent_id: "analyst",
     chat_id: "chat-1",
     turn_id: "turn-1",
+    created_at: "2026-08-06T00:00:00Z",
     artifacts: [
       {
         path: "first.txt",
@@ -90,6 +95,7 @@ function manifestResult() {
         extension: ".txt",
         mime_type: "text/plain",
         size: 5,
+        modified_ns: 1,
         change: "created",
         preview: "text",
       },
@@ -99,6 +105,7 @@ function manifestResult() {
         extension: ".txt",
         mime_type: "text/plain",
         size: 6,
+        modified_ns: 2,
         change: "created",
         preview: "text",
       },
@@ -140,6 +147,9 @@ describe("WorkspaceArtifactsCard", () => {
     mocks.download.mockReset();
     mocks.download.mockResolvedValue(undefined);
     mocks.messageError.mockReset();
+    mocks.invoke.mockReset();
+    mocks.invoke.mockResolvedValue(undefined);
+    mocks.desktop = false;
     vi.unstubAllGlobals();
   });
 
@@ -231,6 +241,39 @@ describe("WorkspaceArtifactsCard", () => {
     await Promise.resolve();
     expect(screen.getByTestId("file-preview")).toHaveTextContent(
       "second.txt:second content:text",
+    );
+  });
+
+  it("shows feedback when opening an artifact fails", async () => {
+    mocks.desktop = true;
+    mocks.invoke.mockRejectedValueOnce(new Error("permission denied"));
+    render(<WorkspaceArtifactsCard content={artifactContent()} />);
+
+    fireEvent.click(screen.getByLabelText("Open first.txt"));
+
+    await waitFor(() => {
+      expect(mocks.messageError).toHaveBeenCalledWith(
+        "Could not open workspace artifact",
+      );
+    });
+  });
+
+  it("does not fetch text previews over the size limit", () => {
+    const result = JSON.parse(manifestResult());
+    result.artifacts[0].size = 5 * 1024 * 1024 + 1;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <WorkspaceArtifactsCard
+        content={{ ...artifactContent(), result: JSON.stringify(result) }}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Preview first.txt"));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "This file is too large to preview",
     );
   });
 });

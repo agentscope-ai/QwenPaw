@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
 
+import pytest
+
 from qwenpaw.agents.artifacts import (
     ArtifactCollector,
     ArtifactLimits,
@@ -67,6 +69,44 @@ def test_collector_rejects_paths_outside_workspace(
 
     assert collector.register(outside) is False
     assert collector.register("../outside.txt") is False
+
+
+def test_collector_rejects_original_file_symlink(tmp_path: Path) -> None:
+    """Reject a symlink before resolving it to a regular file."""
+    target = tmp_path / "target.txt"
+    target.write_text("target", encoding="utf-8")
+    link = tmp_path / "link.txt"
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable on this platform")
+
+    collector = ArtifactCollector(
+        tmp_path,
+        capture_workspace_snapshot(tmp_path),
+    )
+
+    assert collector.register(link) is False
+
+
+def test_collector_rejects_symlinked_parent(tmp_path: Path) -> None:
+    """Reject files reached through a symlinked directory."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / "target.txt"
+    target.write_text("target", encoding="utf-8")
+    linked_dir = tmp_path / "linked"
+    try:
+        linked_dir.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable on this platform")
+
+    collector = ArtifactCollector(
+        tmp_path,
+        capture_workspace_snapshot(tmp_path),
+    )
+
+    assert collector.register(linked_dir / "target.txt") is False
 
 
 def test_collector_rejects_internal_state_but_keeps_user_jsonl(

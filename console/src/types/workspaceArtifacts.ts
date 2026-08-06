@@ -6,6 +6,21 @@ export type WorkspaceArtifactPreviewKind =
   | "text"
   | "none";
 
+export const ARTIFACT_TEXT_PREVIEW_MAX_BYTES = 5 * 1024 * 1024;
+export const ARTIFACT_BINARY_PREVIEW_MAX_BYTES = 50 * 1024 * 1024;
+
+export function getArtifactPreviewLimit(
+  preview: WorkspaceArtifactPreviewKind,
+): number | null {
+  if (["markdown", "csv", "text"].includes(preview)) {
+    return ARTIFACT_TEXT_PREVIEW_MAX_BYTES;
+  }
+  if (["image", "pdf"].includes(preview)) {
+    return ARTIFACT_BINARY_PREVIEW_MAX_BYTES;
+  }
+  return null;
+}
+
 const PREVIEW_KINDS = new Set<WorkspaceArtifactPreviewKind>([
   "image",
   "pdf",

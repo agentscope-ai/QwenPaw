@@ -24,7 +24,51 @@ import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell } from "../shared";
 import type { ArtifactEntry } from "./workspaceArtifacts";
 import { parseManifest } from "./workspaceArtifacts";
+import {
+  ARTIFACT_TEXT_PREVIEW_MAX_BYTES,
+  getArtifactPreviewLimit,
+} from "../../../../types/workspaceArtifacts";
 import styles from "./workspaceArtifacts.module.less";
+
+class PreviewTooLargeError extends Error {}
+
+async function readPreviewText(
+  response: Response,
+  maxBytes: number,
+): Promise<string> {
+  const declaredSize = Number(response.headers?.get("Content-Length"));
+  if (Number.isFinite(declaredSize) && declaredSize > maxBytes) {
+    throw new PreviewTooLargeError();
+  }
+  if (!response.body) {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > maxBytes) {
+      throw new PreviewTooLargeError();
+    }
+    return text;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      throw new PreviewTooLargeError();
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
 
 function formatSize(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -52,6 +96,9 @@ const WorkspaceArtifactsCard: React.FC<{
   const [previewStatus, setPreviewStatus] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
+  const [previewError, setPreviewError] = useState<"failed" | "too_large">(
+    "failed",
+  );
   const previewRequestId = useRef(0);
   const previewAbortController = useRef<AbortController | null>(null);
   const manifest = useMemo(
@@ -97,20 +144,33 @@ const WorkspaceArtifactsCard: React.FC<{
     setPreviewArtifact(artifact);
     setPreviewContent("");
     setDrawer("preview");
+    setPreviewError("failed");
+    const previewLimit = getArtifactPreviewLimit(artifact.preview);
+    if (previewLimit !== null && artifact.size > previewLimit) {
+      setPreviewError("too_large");
+      setPreviewStatus("error");
+      return;
+    }
     if (["markdown", "csv", "text"].includes(artifact.preview)) {
       const controller = new AbortController();
       previewAbortController.current = controller;
       setPreviewStatus("loading");
       try {
         const response = await fetch(
-          workspaceApi.getArtifactFileUrl(manifest.agent_id, artifact.path),
+          workspaceApi.getArtifactPreviewUrl(manifest.agent_id, artifact.path),
           {
             headers: buildAuthHeaders(),
             signal: controller.signal,
           },
         );
-        if (!response.ok) throw new Error(`Preview failed: ${response.status}`);
-        const text = await response.text();
+        if (!response.ok) {
+          if (response.status === 413) throw new PreviewTooLargeError();
+          throw new Error(`Preview failed: ${response.status}`);
+        }
+        const text = await readPreviewText(
+          response,
+          previewLimit ?? ARTIFACT_TEXT_PREVIEW_MAX_BYTES,
+        );
         if (previewRequestId.current !== requestId) return;
         setPreviewContent(text);
         setPreviewStatus("ready");
@@ -118,6 +178,9 @@ const WorkspaceArtifactsCard: React.FC<{
         if (previewRequestId.current !== requestId) return;
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
+        }
+        if (error instanceof PreviewTooLargeError) {
+          setPreviewError("too_large");
         }
         setPreviewStatus("error");
       }
@@ -133,15 +196,24 @@ const WorkspaceArtifactsCard: React.FC<{
     setDrawer(null);
   };
 
-  const invokeArtifactCommand = (
+  const invokeArtifactCommand = async (
     command: "open_workspace_artifact" | "reveal_workspace_artifact",
     artifact: ArtifactEntry,
   ) => {
     if (!manifest) return;
-    void invoke(command, {
-      agentId: manifest.agent_id,
-      filePath: artifact.path,
-    });
+    try {
+      await invoke(command, {
+        agentId: manifest.agent_id,
+        filePath: artifact.path,
+      });
+    } catch {
+      message.error(
+        t(
+          "tool.workspaceArtifactOpenFailed",
+          "Could not open workspace artifact",
+        ),
+      );
+    }
   };
 
   const renderArtifact = (artifact: ArtifactEntry) => (
@@ -183,7 +255,7 @@ const WorkspaceArtifactsCard: React.FC<{
               type="button"
               aria-label={`Open ${artifact.name}`}
               onClick={() =>
-                invokeArtifactCommand("open_workspace_artifact", artifact)
+                void invokeArtifactCommand("open_workspace_artifact", artifact)
               }
             >
               <SquareArrowOutUpRight size={15} aria-hidden="true" />
@@ -193,7 +265,10 @@ const WorkspaceArtifactsCard: React.FC<{
               type="button"
               aria-label={`Reveal ${artifact.name}`}
               onClick={() =>
-                invokeArtifactCommand("reveal_workspace_artifact", artifact)
+                void invokeArtifactCommand(
+                  "reveal_workspace_artifact",
+                  artifact,
+                )
               }
             >
               <FolderSearch size={15} aria-hidden="true" />
@@ -284,13 +359,22 @@ const WorkspaceArtifactsCard: React.FC<{
                 </div>
               ) : previewStatus === "error" ? (
                 <div className={styles.previewState} role="alert">
-                  {t("tool.workspaceArtifactPreviewFailed", "Preview failed")}
+                  {previewError === "too_large"
+                    ? t(
+                        "tool.workspaceArtifactPreviewTooLarge",
+                        "This file is too large to preview",
+                      )
+                    : t(
+                        "tool.workspaceArtifactPreviewFailed",
+                        "Preview failed",
+                      )}
                 </div>
               ) : (
                 <FilePreview
                   filePath={previewArtifact.path}
                   content={previewContent}
                   artifactAgentId={manifest.agent_id}
+                  artifactSize={previewArtifact.size}
                   previewKind={previewArtifact.preview}
                 />
               )}

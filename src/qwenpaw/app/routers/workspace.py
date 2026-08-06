@@ -208,9 +208,7 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
     try:
         for dirpath, dirnames, filenames in os.walk(root, topdown=True):
             # Prune in place — must mutate, not rebind, for os.walk to honor.
-            dirnames[:] = sorted(
-                d for d in dirnames if not _is_skipped_name(d)
-            )
+            dirnames[:] = sorted(d for d in dirnames if not _is_skipped_name(d))
             rel_dir = os.path.relpath(dirpath, root)
             for name in sorted(filenames):
                 if _is_skipped_name(name):
@@ -221,9 +219,7 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
                 except OSError:
                     continue
                 rel = (
-                    name
-                    if rel_dir == "."
-                    else f"{rel_dir}/{name}".replace(os.sep, "/")
+                    name if rel_dir == "." else f"{rel_dir}/{name}".replace(os.sep, "/")
                 )
                 files.append(
                     {
@@ -258,6 +254,8 @@ async def list_code_files(request: Request) -> list[dict]:
 _CODE_FILE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 _BINARY_FILE_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
 _ARTIFACT_FILE_MAX_BYTES = 250 * 1024 * 1024  # 250 MB
+_ARTIFACT_TEXT_PREVIEW_MAX_BYTES = 5 * 1024 * 1024
+_ARTIFACT_BINARY_PREVIEW_MAX_BYTES = 50 * 1024 * 1024
 
 _MIME_MAP: dict[str, str] = {
     # Images
@@ -274,6 +272,51 @@ _MIME_MAP: dict[str, str] = {
     # Data
     "csv": "text/csv",
 }
+
+_ARTIFACT_PREVIEW_MIME_MAP: dict[str, str] = {
+    **_MIME_MAP,
+    "avif": "image/avif",
+    "markdown": "text/markdown",
+    "md": "text/markdown",
+    "mdx": "text/markdown",
+    "tsv": "text/tab-separated-values",
+    "css": "text/css",
+    "html": "text/html",
+    "ini": "text/plain",
+    "js": "text/javascript",
+    "json": "application/json",
+    "log": "text/plain",
+    "py": "text/plain",
+    "toml": "text/plain",
+    "ts": "text/plain",
+    "tsx": "text/plain",
+    "txt": "text/plain",
+    "xml": "application/xml",
+    "yaml": "text/yaml",
+    "yml": "text/yaml",
+}
+_ARTIFACT_TEXT_PREVIEW_EXTENSIONS = frozenset(
+    {
+        "css",
+        "html",
+        "ini",
+        "js",
+        "json",
+        "log",
+        "markdown",
+        "md",
+        "mdx",
+        "py",
+        "toml",
+        "ts",
+        "tsv",
+        "tsx",
+        "txt",
+        "xml",
+        "yaml",
+        "yml",
+    },
+)
 
 
 def _resolve_artifact_file(workspace_dir: Path, file_path: str) -> Path:
@@ -365,9 +408,65 @@ async def download_artifact_file(
     return FileResponse(
         target,
         filename=target.name,
-        media_type=mimetypes.guess_type(target.name)[0]
-        or "application/octet-stream",
+        media_type=mimetypes.guess_type(target.name)[0] or "application/octet-stream",
     )
+
+
+def _resolve_artifact_preview_file(
+    workspace_dir: Path,
+    file_path: str,
+) -> tuple[Path, str]:
+    """Resolve an artifact and enforce the smaller preview size limits."""
+    target = safe_join(workspace_dir, file_path)
+    extension = target.suffix.lstrip(".").lower()
+    media_type = _ARTIFACT_PREVIEW_MIME_MAP.get(extension)
+    if media_type is None:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Preview not supported for .{extension} files",
+        )
+
+    try:
+        stat_result = target.stat()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if not stat.S_ISREG(stat_result.st_mode):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    limit = (
+        _ARTIFACT_TEXT_PREVIEW_MAX_BYTES
+        if extension in _ARTIFACT_TEXT_PREVIEW_EXTENSIONS
+        else _ARTIFACT_BINARY_PREVIEW_MAX_BYTES
+    )
+    if stat_result.st_size > limit:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Artifact preview is too large ({stat_result.st_size} bytes"
+                f" > {limit} bytes limit)"
+            ),
+        )
+    return target, media_type
+
+
+@router.get(
+    "/artifact-previews/{file_path:path}",
+    summary="Preview one workspace artifact",
+)
+async def preview_artifact_file(
+    file_path: str,
+    request: Request,
+) -> FileResponse:
+    """Serve an artifact with the smaller preview-specific size limit."""
+    workspace = await get_agent_for_request(request)
+    target, media_type = await asyncio.to_thread(
+        _resolve_artifact_preview_file,
+        workspace.workspace_dir,
+        file_path,
+    )
+    return FileResponse(target, media_type=media_type)
 
 
 def _file_etag(stat_result: os.stat_result) -> str:
@@ -757,9 +856,7 @@ async def get_transcription_provider_type() -> dict:
     """Get transcription provider type setting."""
     config = load_config()
     return {
-        "transcription_provider_type": (
-            config.agents.transcription_provider_type
-        ),
+        "transcription_provider_type": (config.agents.transcription_provider_type),
     }
 
 
@@ -777,8 +874,7 @@ async def put_transcription_provider_type(
     body: dict = Body(
         ...,
         description=(
-            "Provider type, e.g. "
-            '{"transcription_provider_type": "whisper_api"}'
+            "Provider type, e.g. " '{"transcription_provider_type": "whisper_api"}'
         ),
     ),
 ) -> dict:
@@ -903,9 +999,7 @@ async def post_transcribe_audio(
         ".ogg",
         ".flac",
     }
-    suffix = (
-        os.path.splitext(file.filename or "audio.webm")[1].lower() or ".webm"
-    )
+    suffix = os.path.splitext(file.filename or "audio.webm")[1].lower() or ".webm"
     if suffix not in allowed_extensions:
         raise HTTPException(
             status_code=400,
@@ -1159,9 +1253,7 @@ async def upload_workspace(
     ):
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Expected a zip file, got content-type: {file.content_type}"
-            ),
+            detail=(f"Expected a zip file, got content-type: {file.content_type}"),
         )
 
     agent = await get_agent_for_request(request)

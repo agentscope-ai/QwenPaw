@@ -12,7 +12,10 @@ import { buildAuthHeaders } from "../../api/authHeaders";
 import { isDesktopTauriRuntime } from "../../utils/openExternalLink";
 import { ExternalMarkdownLink } from "../../components/Markdown/externalLinkComponents";
 import { useAgentStore } from "../../stores/agentStore";
-import type { WorkspaceArtifactPreviewKind } from "../../types/workspaceArtifacts";
+import {
+  getArtifactPreviewLimit,
+  type WorkspaceArtifactPreviewKind,
+} from "../../types/workspaceArtifacts";
 import styles from "./FilePreview.module.less";
 
 // ---------------------------------------------------------------------------
@@ -113,6 +116,7 @@ interface BlobPreviewState {
 function useAuthBlobUrl(
   filePath: string,
   artifactAgentId?: string,
+  artifactSize?: number,
 ): BlobPreviewState {
   const [state, setState] = useState<BlobPreviewState>({
     blobUrl: null,
@@ -125,6 +129,15 @@ function useAuthBlobUrl(
     let objectUrl: string | null = null;
     const controller = new AbortController();
     setState({ blobUrl: null, status: "loading" });
+    const previewLimit = getArtifactPreviewLimit(getPreviewType(filePath));
+    if (
+      artifactSize !== undefined &&
+      previewLimit !== null &&
+      artifactSize > previewLimit
+    ) {
+      setState({ blobUrl: null, status: "error" });
+      return () => controller.abort();
+    }
 
     const loadBlob = async (): Promise<Blob | null> => {
       // Tauri: read file directly from disk for offline support
@@ -152,14 +165,26 @@ function useAuthBlobUrl(
 
       // Browser / online: fetch via backend API with auth headers
       const url = artifactAgentId
-        ? workspaceApi.getArtifactFileUrl(artifactAgentId, filePath)
+        ? workspaceApi.getArtifactPreviewUrl(artifactAgentId, filePath)
         : workspaceApi.getBinaryFileUrl(filePath);
       const res = await fetch(url, {
         headers: buildAuthHeaders(),
         signal: controller.signal,
       });
       if (!res.ok) throw new Error(`${res.status}`);
-      return res.blob();
+      const contentLength = Number(res.headers.get("Content-Length"));
+      if (
+        previewLimit !== null &&
+        Number.isFinite(contentLength) &&
+        contentLength > previewLimit
+      ) {
+        throw new Error("Preview file is too large");
+      }
+      const blob = await res.blob();
+      if (previewLimit !== null && blob.size > previewLimit) {
+        throw new Error("Preview file is too large");
+      }
+      return blob;
     };
 
     loadBlob()
@@ -177,7 +202,7 @@ function useAuthBlobUrl(
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [artifactAgentId, filePath, selectedAgent]);
+  }, [artifactAgentId, artifactSize, filePath, selectedAgent]);
 
   return state;
 }
@@ -207,11 +232,17 @@ function guessMimeType(filePath: string): string {
 function ImagePreview({
   filePath,
   artifactAgentId,
+  artifactSize,
 }: {
   filePath: string;
   artifactAgentId?: string;
+  artifactSize?: number;
 }) {
-  const { blobUrl, status } = useAuthBlobUrl(filePath, artifactAgentId);
+  const { blobUrl, status } = useAuthBlobUrl(
+    filePath,
+    artifactAgentId,
+    artifactSize,
+  );
   if (status === "loading") return <Spin />;
   if (status === "error" || !blobUrl) {
     return <div className={styles.previewState}>Preview unavailable</div>;
@@ -230,11 +261,17 @@ function ImagePreview({
 function PdfPreview({
   filePath,
   artifactAgentId,
+  artifactSize,
 }: {
   filePath: string;
   artifactAgentId?: string;
+  artifactSize?: number;
 }) {
-  const { blobUrl, status } = useAuthBlobUrl(filePath, artifactAgentId);
+  const { blobUrl, status } = useAuthBlobUrl(
+    filePath,
+    artifactAgentId,
+    artifactSize,
+  );
   if (status === "loading") return <Spin />;
   if (status === "error" || !blobUrl) {
     return <div className={styles.previewState}>Preview unavailable</div>;
@@ -382,6 +419,7 @@ export interface FilePreviewProps {
   /** Text content – used by Markdown and CSV renderers. */
   content: string;
   artifactAgentId?: string;
+  artifactSize?: number;
   previewKind?: WorkspaceArtifactPreviewKind;
 }
 
@@ -389,17 +427,28 @@ export default function FilePreview({
   filePath,
   content,
   artifactAgentId,
+  artifactSize,
   previewKind,
 }: FilePreviewProps) {
   const type = previewKind ?? getPreviewType(filePath);
 
   if (type === "image") {
     return (
-      <ImagePreview filePath={filePath} artifactAgentId={artifactAgentId} />
+      <ImagePreview
+        filePath={filePath}
+        artifactAgentId={artifactAgentId}
+        artifactSize={artifactSize}
+      />
     );
   }
   if (type === "pdf") {
-    return <PdfPreview filePath={filePath} artifactAgentId={artifactAgentId} />;
+    return (
+      <PdfPreview
+        filePath={filePath}
+        artifactAgentId={artifactAgentId}
+        artifactSize={artifactSize}
+      />
+    );
   }
   if (type === "markdown") return <MarkdownPreview content={content} />;
   if (type === "csv") {
