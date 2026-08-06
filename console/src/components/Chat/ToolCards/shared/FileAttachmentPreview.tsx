@@ -18,7 +18,11 @@ function targetForPath(
   filePath: string,
   artifactUrl?: string,
 ): FileTarget | null {
-  const relativeTarget = parseInternalFileLink(filePath);
+  const workspacePath = filePath
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^(?:\.\/)+/, "");
+  const relativeTarget = parseInternalFileLink(workspacePath);
   if (relativeTarget) {
     return { ...relativeTarget, root: "project" };
   }
