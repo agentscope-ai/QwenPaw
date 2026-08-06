@@ -549,7 +549,7 @@ class PlaywrightDriver(UIDriver):
         # focus the chat input, clear any leftover text, fill the new
         # message, then click send (or fall back to Enter).
         input_box = self._page.locator(SEL_INPUT).first
-        input_box.click()
+        input_box.focus()
         time.sleep(0.2)
         input_box.fill("")
         time.sleep(0.2)
@@ -592,9 +592,9 @@ class PlaywrightDriver(UIDriver):
             )
         except Exception:  # noqa: BLE001
             # Fall back to pressing Enter — some layouts ignore the
-            # send button click but accept Enter on the textarea.
+            # send button click but accept Enter on the chat input.
             try:
-                input_box.click()
+                input_box.focus()
                 time.sleep(0.2)
                 input_box.press("Enter")
                 self._page.wait_for_function(

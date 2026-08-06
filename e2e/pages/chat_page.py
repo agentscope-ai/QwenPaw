@@ -417,7 +417,7 @@ class ChatPage(BasePage):
 
         # ---- Fill the input box ----
         input_box = self.page.locator(self.CHAT_INPUT)
-        input_box.click()
+        input_box.focus()
         self.wait(300)
         input_box.fill("")
         self.wait(200)
@@ -450,7 +450,7 @@ class ChatPage(BasePage):
         except (TimeoutError, AssertionError, Exception):
             logger.warning("[send_message] user bubble missing, retrying with Enter")
             input_box = self.page.locator(self.CHAT_INPUT)
-            input_box.click()
+            input_box.focus()
             self.wait(200)
             input_box.press("Enter")
             # Verify again after retry; if still failing, raise for real
