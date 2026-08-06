@@ -33,6 +33,7 @@ from ...sandbox.config import SandboxConfig
 from ...utils.io_utils import run_sync_io
 
 _SHELL_OUTPUT_MAX_BYTES = 1024 * 1024
+_SHELL_OUTPUT_DRAIN_GRACE_SECS = 10.0
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -257,6 +258,35 @@ def _read_temp_output(
 ) -> str:
     """Read a bounded snapshot from an independent Windows handle."""
     return _read_output_snapshot(output_file, max_bytes)
+
+
+def _consume_background_task(task: asyncio.Task[Any]) -> None:
+    """Consume a detached task result so late I/O errors are not reported."""
+    try:
+        task.result()
+    except BaseException:
+        pass
+
+
+async def _drain_output_snapshot(
+    snapshot_task: asyncio.Task[tuple[str, str]],
+) -> tuple[str, str]:
+    """Wait briefly for bounded snapshot I/O after timeout or cancellation."""
+    try:
+        return await asyncio.wait_for(
+            asyncio.shield(snapshot_task),
+            timeout=_SHELL_OUTPUT_DRAIN_GRACE_SECS,
+        )
+    except asyncio.TimeoutError:
+        snapshot_task.add_done_callback(_consume_background_task)
+        notice = (
+            "⚠️ Output collection omitted: snapshot I/O did not finish "
+            f"within {_SHELL_OUTPUT_DRAIN_GRACE_SECS:g} seconds."
+        )
+        return "", notice
+    except asyncio.CancelledError:
+        snapshot_task.add_done_callback(_consume_background_task)
+        raise
 
 
 def _shell_basename(executable: str) -> str:
@@ -878,7 +908,9 @@ async def _execute_posix_host(
                 fallback_secs=remaining_timeout(),
             )
         except asyncio.TimeoutError:
-            stdout_str, stderr_str = await asyncio.shield(snapshot_task)
+            stdout_str, stderr_str = await _drain_output_snapshot(
+                snapshot_task,
+            )
             stderr_suffix = (
                 f"⚠️ TimeoutError: The command execution exceeded "
                 f"the timeout of {timeout} seconds. "
@@ -887,7 +919,9 @@ async def _execute_posix_host(
             )
             returncode = -1
         except asyncio.CancelledError:
-            stdout_str, stderr_str = await asyncio.shield(snapshot_task)
+            stdout_str, stderr_str = await _drain_output_snapshot(
+                snapshot_task,
+            )
             from ...tool_calls import get_call_context
 
             ctx = get_call_context()

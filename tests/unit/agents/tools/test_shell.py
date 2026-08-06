@@ -965,6 +965,67 @@ async def test_execute_posix_host_snapshot_uses_remaining_timeout(
     sys.platform == "win32",
     reason="POSIX host subprocess path under test",
 )
+async def test_execute_posix_host_snapshot_drain_has_grace_timeout(
+    tmp_path,
+    monkeypatch,
+):
+    """Hung snapshot I/O is detached after the bounded drain window."""
+    import asyncio
+    import threading
+    import time
+
+    read_started = threading.Event()
+    release_read = threading.Event()
+    real_read_snapshot = _PosixTempOutputs.read_snapshot
+
+    def blocked_read_snapshot(outputs, max_bytes):
+        read_started.set()
+        release_read.wait(timeout=2.0)
+        return real_read_snapshot(outputs, max_bytes)
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.shell._SHELL_OUTPUT_DRAIN_GRACE_SECS",
+        0.02,
+    )
+    started = time.monotonic()
+    try:
+        with (
+            patch(
+                "qwenpaw.agents.tools.shell.tempfile.tempdir",
+                str(tmp_path),
+            ),
+            patch.object(
+                _PosixTempOutputs,
+                "read_snapshot",
+                autospec=True,
+                side_effect=blocked_read_snapshot,
+            ),
+        ):
+            returncode, stdout, stderr = await _execute_posix_host(
+                "printf partial",
+                str(tmp_path),
+                0.2,
+                os.environ.copy(),
+                "/bin/sh",
+            )
+    finally:
+        release_read.set()
+
+    assert read_started.is_set()
+    assert time.monotonic() - started < 1.0
+    assert returncode == -1
+    assert stdout == ""
+    assert "Output collection omitted" in stderr
+    assert "TimeoutError" in stderr
+    assert not list(tmp_path.glob("qwenpaw_*"))
+    await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX host subprocess path under test",
+)
 async def test_execute_posix_host_timeout_preserves_partial_output(tmp_path):
     """Timeout cleanup keeps output emitted before the process is killed."""
     returncode, stdout, stderr = await _execute_posix_host(
