@@ -1374,22 +1374,20 @@ def _resolve_model_slot_override(model_slot_override: Any):
     return slot
 
 
-def _canonical_provider_id_for_model(
+def _bind_provider_id_to_model(
     model: ChatModelBase,
-    configured_provider_id: str,
+    provider_id: str,
 ) -> str:
-    """Prefer the provider identity explicitly bound to the model."""
-    model_provider_id = getattr(model, "qwenpaw_provider_id", None)
-    if not isinstance(model_provider_id, str) or not model_provider_id:
-        return configured_provider_id
-    if model_provider_id != configured_provider_id:
-        logger.warning(
-            "Configured provider id %r differs from the model's canonical "
-            "id %r; using the model id for formatter scope.",
-            configured_provider_id,
-            model_provider_id,
-        )
-    return model_provider_id
+    """Bind the provider identity resolved by ``ProviderManager``."""
+    bind_provider_id = getattr(model, "bind_qwenpaw_provider_id", None)
+    if callable(bind_provider_id):
+        bind_provider_id(provider_id)
+    return provider_id
+
+
+def _resolved_provider_id(provider: Any, configured_provider_id: str) -> str:
+    """Return the canonical ID exposed by a resolved provider instance."""
+    return str(getattr(provider, "id", "") or configured_provider_id)
 
 
 def create_model_and_formatter(
@@ -1472,7 +1470,7 @@ def create_model_and_formatter(
             )
 
         model = provider.get_chat_model_instance(model_slot.model)
-        provider_id = model_slot.provider_id
+        provider_id = _resolved_provider_id(provider, model_slot.provider_id)
     else:
         # Fallback to global active model
         model = ProviderManager.get_active_chat_model()
@@ -1485,9 +1483,14 @@ def create_model_and_formatter(
                     "or set an agent-specific model."
                 ),
             )
-        provider_id = global_model.provider_id
+        provider_id = _resolved_provider_id(
+            ProviderManager.get_instance().get_provider(
+                global_model.provider_id,
+            ),
+            global_model.provider_id,
+        )
 
-    provider_id = _canonical_provider_id_for_model(model, provider_id)
+    provider_id = _bind_provider_id_to_model(model, provider_id)
 
     # Create the formatter based on the model's native one.  In 2.0 every
     # ``ChatModelBase`` carries its own ``self.formatter`` (set by its

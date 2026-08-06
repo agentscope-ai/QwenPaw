@@ -681,6 +681,17 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         """Canonical provider ID used for provider-scoped metadata."""
         return self._qwenpaw_provider_id
 
+    def bind_qwenpaw_provider_id(self, provider_id: str) -> None:
+        """Bind the provider identity resolved by ``ProviderManager``.
+
+        Credential-derived IDs are only a fallback for models constructed
+        outside QwenPaw's factory.  Inside the factory, the resolved provider
+        instance is authoritative for metadata, accounting, and retry keys.
+        """
+        if not provider_id:
+            raise ValueError("provider_id must not be empty")
+        self._qwenpaw_provider_id = provider_id
+
     async def __call__(self, *args: Any, **kwargs: Any) -> Any:
         try:
             from ..observability.langfuse import (
@@ -715,22 +726,25 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         reattach its records to the final accumulated response.
         """
         extras: dict[str, dict[str, Any]] = {}
-        async for chunk in response:
-            extras.update(
-                collect_transient_tool_call_extras(chunk.content),
-            )
-            if chunk.is_last and extras:
-                for block in chunk.content:
-                    tool_id = _battr(block, "id")
-                    record = extras.get(tool_id)
-                    if not record:
-                        continue
-                    attach_transient_tool_call_extra(
-                        block,
-                        provider_id=str(record.get("provider_id") or ""),
-                        extra_content=record["extra_content"],
-                    )
-            yield chunk
+        try:
+            async for chunk in response:
+                extras.update(
+                    collect_transient_tool_call_extras(chunk.content),
+                )
+                if chunk.is_last and extras:
+                    for block in chunk.content:
+                        tool_id = _battr(block, "id")
+                        record = extras.get(tool_id)
+                        if not record:
+                            continue
+                        attach_transient_tool_call_extra(
+                            block,
+                            provider_id=str(record.get("provider_id") or ""),
+                            extra_content=record["extra_content"],
+                        )
+                yield chunk
+        finally:
+            await response.aclose()
 
     async def _call_api(
         self,

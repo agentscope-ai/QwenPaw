@@ -19,6 +19,11 @@ class _FakeChatModel:
         self.identifier = identifier
         self.formatter = SimpleNamespace()
         self.max_retries = 3
+        self.qwenpaw_provider_id = "credential-derived"
+
+    def bind_qwenpaw_provider_id(self, provider_id: str) -> None:
+        """Record the provider identity selected by the factory."""
+        self.qwenpaw_provider_id = provider_id
 
 
 def _patched_load_agent_config(_agent_id):  # noqa: ARG001
@@ -60,7 +65,7 @@ def _patch_dependencies(monkeypatch):
         SimpleNamespace(
             get_instance=lambda: SimpleNamespace(
                 get_provider=lambda provider_id: SimpleNamespace(
-                    provider_id=provider_id,
+                    id=provider_id,
                     get_chat_model_instance=(
                         lambda model_name: _FakeChatModel(
                             f"{provider_id}/{model_name}",
@@ -119,15 +124,16 @@ def test_factory_binds_returned_formatter_to_provider_model():
     assert model.formatter is fmt
 
 
-def test_factory_uses_model_canonical_provider_id(
+def test_factory_uses_resolved_provider_id(
     monkeypatch,
     _patch_dependencies,
 ):
-    """Formatter scope follows the provider ID bound to the model."""
+    """Resolved provider identity overrides credential-derived fallback."""
     canonical_model = _FakeChatModel("canonical-provider/model")
-    canonical_model.qwenpaw_provider_id = "canonical-provider"
+    wrapper_provider_ids = []
     manager = SimpleNamespace(
         get_provider=lambda _provider_id: SimpleNamespace(
+            id="canonical-provider",
             get_chat_model_instance=lambda _model_name: canonical_model,
         ),
     )
@@ -135,6 +141,13 @@ def test_factory_uses_model_canonical_provider_id(
         model_factory,
         "ProviderManager",
         SimpleNamespace(get_instance=lambda: manager),
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "TokenRecordingModelWrapper",
+        lambda provider_id, model, **_kwargs: (
+            wrapper_provider_ids.append(provider_id) or model
+        ),
     )
 
     with patch.object(model_factory, "RetryConfig") as retry_cls:
@@ -145,6 +158,8 @@ def test_factory_uses_model_canonical_provider_id(
         )
 
     assert _patch_dependencies == ["canonical-provider"]
+    assert wrapper_provider_ids == ["canonical-provider"]
+    assert canonical_model.qwenpaw_provider_id == "canonical-provider"
 
 
 def test_override_with_dict():

@@ -44,6 +44,10 @@ class CompatHarnessOpenAIChatModel(OpenAIChatModelCompat):
         finally:
             object.__delattr__(self, "_test_stream")
 
+    def relay_stream_for_test(self, response: Any) -> Any:
+        """Expose the compatibility relay for lifecycle assertions."""
+        return self._relay_stream_tool_call_extras(response)
+
 
 class FakeAsyncStream:
     def __init__(self, items: list[Any]):
@@ -217,6 +221,34 @@ async def test_full_stream_preserves_extra_from_later_chunk(
             "extra_content": {"thought_signature": "signature-late"},
         },
     }
+
+
+async def test_stream_relay_closes_inner_generator_immediately() -> None:
+    """Closing the public stream promptly releases the provider stream."""
+    model = CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        model="dummy",
+        stream=True,
+    )
+    inner_closed = False
+
+    async def inner_stream():
+        nonlocal inner_closed
+        try:
+            yield SimpleNamespace(content=[], is_last=False)
+            yield SimpleNamespace(content=[], is_last=True)
+        finally:
+            inner_closed = True
+
+    response = inner_stream()
+    relay = model.relay_stream_for_test(response)
+    await anext(relay)
+    await relay.aclose()
+
+    assert inner_closed
 
 
 def test_sanitize_tool_call_normalizes_non_string_arguments() -> None:
