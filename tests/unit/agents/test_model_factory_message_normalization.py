@@ -35,6 +35,7 @@ from qwenpaw.agents import model_factory
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
 from qwenpaw.providers.capping_formatter import (
     _CappingAnthropicFormatter,
+    _CappingDashScopeFormatter,
     _CappingGeminiFormatter,
     _CappingOpenAIFormatter,
 )
@@ -900,11 +901,31 @@ async def test_openai_formatter_uses_prepared_local_video(
 
 
 @pytest.mark.asyncio
-async def test_anthropic_hint_uses_prepared_local_video(tmp_path) -> None:
+async def test_anthropic_hint_uses_prepared_local_video(
+    tmp_path,
+    monkeypatch,
+) -> None:
     """Anthropic must preserve local videos nested in a HintBlock."""
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    original_reader = model_factory._read_local_media
+    worker_reads: list[str] = []
+
+    def counted_reader(path: str):
+        worker_reads.append(path)
+        return original_reader(path)
+
+    monkeypatch.setattr(
+        model_factory,
+        "_read_local_media",
+        counted_reader,
+    )
     video_path = tmp_path / "hint-clip.mp4"
     video_path.write_bytes(b"video")
     formatter_class = model_factory._create_file_block_support_formatter(
@@ -934,6 +955,97 @@ async def test_anthropic_hint_uses_prepared_local_video(tmp_path) -> None:
     assert len(video_items) == 1
     assert video_items[0]["source"]["type"] == "base64"
     assert video_items[0]["source"]["data"] == "dmlkZW8="
+    assert len(worker_reads) == 1
+
+
+@pytest.mark.asyncio
+async def test_dashscope_hint_skips_local_video_preparation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """DashScope must avoid the unused worker-thread hint pre-read."""
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+
+    def unexpected_reader(path: str):
+        raise AssertionError(f"unexpected worker-thread read: {path}")
+
+    monkeypatch.setattr(
+        model_factory,
+        "_read_local_media",
+        unexpected_reader,
+    )
+    video_path = tmp_path / "dashscope-hint-clip.mp4"
+    video_path.write_bytes(b"video")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingDashScopeFormatter,
+    )
+    formatter = formatter_class()
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            HintBlock(
+                hint=[
+                    _data_block("video/mp4", f"file://{video_path}"),
+                ],
+            ),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    video_item = formatted[0]["content"][0]
+    assert video_item["type"] == "video_url"
+    assert video_item["video_url"]["url"].startswith(
+        "data:video/mp4;base64,",
+    )
+
+
+@pytest.mark.asyncio
+async def test_openai_hint_skips_local_video_preparation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """OpenAI must not pre-read a HintBlock video it will discard."""
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+
+    def unexpected_reader(path: str):
+        raise AssertionError(f"unexpected worker-thread read: {path}")
+
+    monkeypatch.setattr(
+        model_factory,
+        "_read_local_media",
+        unexpected_reader,
+    )
+    video_path = tmp_path / "openai-hint-clip.mp4"
+    video_path.write_bytes(b"video")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class()
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            HintBlock(
+                hint=[
+                    _data_block("video/mp4", f"file://{video_path}"),
+                ],
+            ),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assert formatted == []
 
 
 @pytest.mark.asyncio

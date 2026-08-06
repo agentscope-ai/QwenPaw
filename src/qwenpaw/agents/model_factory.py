@@ -237,8 +237,10 @@ def _video_source_url(block: Any) -> str | None:
 def _collect_local_video_paths(
     items: list,
     paths: set[str],
+    *,
+    include_hint_videos: bool = False,
 ) -> None:
-    """Collect local video paths from nested tool results and hints."""
+    """Collect local video paths from supported nested block types."""
     for block in items:
         url = _video_source_url(block)
         if url:
@@ -258,25 +260,35 @@ def _collect_local_video_paths(
                 if isinstance(block, dict)
                 else getattr(block, "output", None)
             )
-        elif block_type == "hint":
+        elif block_type == "hint" and include_hint_videos:
             nested = (
                 block.get("hint")
                 if isinstance(block, dict)
                 else getattr(block, "hint", None)
             )
         if isinstance(nested, list):
-            _collect_local_video_paths(nested, paths)
+            _collect_local_video_paths(
+                nested,
+                paths,
+                include_hint_videos=include_hint_videos,
+            )
 
 
 async def _prepare_local_media_cache(
     msgs: list,
+    *,
+    include_hint_videos: bool = False,
 ) -> dict[str, _LocalMediaRead]:
     """Read local videos in worker threads before wire formatting."""
     paths: set[str] = set()
     for msg in msgs:
         content = getattr(msg, "content", None)
         if isinstance(content, list):
-            _collect_local_video_paths(content, paths)
+            _collect_local_video_paths(
+                content,
+                paths,
+                include_hint_videos=include_hint_videos,
+            )
 
     ordered_paths = sorted(paths)
     reads = await asyncio.gather(
@@ -1292,7 +1304,10 @@ def _create_file_block_support_formatter(
             media_cache = (
                 {}
                 if _is_gemini_formatter
-                else await _prepare_local_media_cache(normalized_msgs)
+                else await _prepare_local_media_cache(
+                    normalized_msgs,
+                    include_hint_videos=is_anthropic_formatter,
+                )
             )
             media_cache_token = _LOCAL_MEDIA_CACHE.set(media_cache)
             try:
