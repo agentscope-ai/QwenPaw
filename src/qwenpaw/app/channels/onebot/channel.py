@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hmac
 import json
 import logging
 import os
@@ -36,6 +37,7 @@ from qwenpaw.schemas import (
 )
 
 from ....config.config import OneBotConfig as OneBotChannelConfig
+from ....utils.http import is_loopback_host, probe_host_for_bind_host
 from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
@@ -50,6 +52,11 @@ logger = logging.getLogger(__name__)
 # Hard cap on concurrently-tracked event handlers (flood protection).
 _EVENT_TASK_HARD_CAP = 500
 _DEFAULT_MEDIA_BASE64_MAX_MB = 10
+_DEFAULT_WS_HOST = "127.0.0.1"
+# OneBot v11 defines the "Bearer" scheme; "Token" is an ecosystem
+# convention popularised by NoneBot.  Matching is case-insensitive per
+# RFC 7235.
+_AUTH_SCHEMES = frozenset({"bearer", "token"})
 _CODE_FENCE_RE = re.compile(r"^[ \t]{0,3}(?P<mark>`{3,}|~{3,})")
 _MARKDOWN_LINK_RE = re.compile(
     r"\[(?P<label>[^\]\n]+)\]"
@@ -215,11 +222,47 @@ async def _normalize_media_ref(
     )
 
 
+def _extract_auth_token(auth_header: str) -> str:
+    """Extract the token from an ``Authorization`` header value.
+
+    Returns an empty string when the scheme is unsupported or the header
+    carries no token.
+    """
+    scheme, _, token = auth_header.strip().partition(" ")
+    if scheme.lower() not in _AUTH_SCHEMES:
+        return ""
+    return token.strip()
+
+
+def _tokens_match(provided: str, expected: str) -> bool:
+    """Compare two access tokens in constant time."""
+    return hmac.compare_digest(
+        provided.encode("utf-8"),
+        expected.encode("utf-8"),
+    )
+
+
+def _log_remote(request: web.Request) -> str:
+    """Render the peer address as a single-line log field.
+
+    ``request.remote`` is the socket peer today, but aiohttp allows it to
+    be overridden via ``clone(remote=...)``, which a forwarded-header
+    middleware would do with client-controlled input.  Dropping newlines
+    keeps one rejection from ever becoming several log records.
+    """
+    remote = request.remote or "unknown"
+    return remote.replace("\r", "").replace("\n", "")
+
+
 class OneBotChannel(BaseChannel):
     """OneBot v11 channel via reverse WebSocket.
 
     Acts as a WebSocket server; NapCat (or compatible) connects
     as a client to ``ws://<host>:<port>/ws``.
+
+    The server binds loopback by default.  When bound to a
+    network-reachable address, ``access_token`` becomes mandatory and
+    every connection is rejected until it is set.
     """
 
     channel = "onebot"
@@ -229,7 +272,7 @@ class OneBotChannel(BaseChannel):
         self,
         process: ProcessHandler,
         enabled: bool,
-        ws_host: str = "0.0.0.0",
+        ws_host: str = _DEFAULT_WS_HOST,
         ws_port: int = 6199,
         access_token: str = "",
         bot_prefix: str = "",
@@ -262,9 +305,18 @@ class OneBotChannel(BaseChannel):
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
-        self._ws_host = ws_host
+        # An empty host would make aiohttp bind every interface, so treat
+        # it as "unset" and fall back to the loopback default.  Brackets
+        # are URL notation for IPv6 literals and make getaddrinfo fail,
+        # so drop them the way ``is_loopback_host`` does.
+        self._ws_host = ws_host.strip().strip("[]") or _DEFAULT_WS_HOST
         self._ws_port = ws_port
-        self._access_token = access_token
+        # A request token is stripped before comparison, so a token made
+        # only of whitespace could never match.  Treat it as unset to get
+        # the actionable "access_token is empty" rejection instead.
+        self._access_token = access_token.strip()
+        # A network-reachable listener must authenticate its clients.
+        self._auth_required = not is_loopback_host(self._ws_host)
         self._share_session_in_group = share_session_in_group
         self._media_base64 = media_base64
         max_mb = (
@@ -307,7 +359,7 @@ class OneBotChannel(BaseChannel):
         return cls(
             process=process,
             enabled=os.getenv("ONEBOT_CHANNEL_ENABLED", "0") == "1",
-            ws_host=os.getenv("ONEBOT_WS_HOST", "0.0.0.0"),
+            ws_host=os.getenv("ONEBOT_WS_HOST", _DEFAULT_WS_HOST),
             ws_port=int(os.getenv("ONEBOT_WS_PORT", "6199")),
             access_token=os.getenv("ONEBOT_ACCESS_TOKEN", ""),
             bot_prefix=os.getenv("ONEBOT_BOT_PREFIX", ""),
@@ -345,7 +397,7 @@ class OneBotChannel(BaseChannel):
         return cls(
             process=process,
             enabled=config.enabled,
-            ws_host=config.ws_host or "0.0.0.0",
+            ws_host=config.ws_host or _DEFAULT_WS_HOST,
             ws_port=config.ws_port or 6199,
             access_token=config.access_token or "",
             bot_prefix=config.bot_prefix or "",
@@ -551,9 +603,7 @@ class OneBotChannel(BaseChannel):
         """
         if self._site is None:
             return False
-        probe_host = (
-            "127.0.0.1" if self._ws_host == "0.0.0.0" else self._ws_host
-        )
+        probe_host = probe_host_for_bind_host(self._ws_host)
         probe_port = self._get_listen_port()
         try:
             _, writer = await asyncio.wait_for(
@@ -570,31 +620,58 @@ class OneBotChannel(BaseChannel):
     # WebSocket connection handling
     # ------------------------------------------------------------------
 
+    def _token_authorized(self, request: web.Request) -> bool:
+        """Check the ``Authorization`` header against the access token.
+
+        Only the header is accepted: the OneBot v11 reverse WebSocket
+        spec defines no query-parameter fallback, and a token placed in a
+        query string leaks into proxy and container access logs.
+        """
+        provided = _extract_auth_token(
+            request.headers.get("Authorization", ""),
+        )
+        if not provided:
+            return False
+        return _tokens_match(provided, self._access_token)
+
     async def _handle_ws_connection(
         self,
         request: web.Request,
     ) -> web.WebSocketResponse:
         """Handle incoming WebSocket connection from NapCat."""
-        # Token authentication
-        if self._access_token:
-            auth_header = request.headers.get("Authorization", "")
-            query_token = request.query.get("access_token", "")
-            valid = (
-                auth_header == f"Bearer {self._access_token}"
-                or auth_header == f"Token {self._access_token}"
-                or query_token == self._access_token
+        # A network-reachable listener without a token would accept
+        # events from anyone, so refuse every connection instead.
+        if self._auth_required and not self._access_token:
+            logger.error(
+                "onebot: rejected connection from %s: ws_host=%s is not a "
+                "loopback address and access_token is empty. Set "
+                "access_token, or bind ws_host to 127.0.0.1.",
+                _log_remote(request),
+                self._ws_host,
             )
-            if not valid:
+            return web.Response(status=401, text="Unauthorized")
+
+        if self._access_token and not self._token_authorized(request):
+            logger.warning(
+                "onebot: rejected connection from %s (bad token)",
+                _log_remote(request),
+            )
+            if "access_token" in request.query:
                 logger.warning(
-                    "onebot: rejected connection from %s (bad token)",
-                    request.remote,
+                    "onebot: access_token was supplied as a query "
+                    "parameter; OneBot v11 reverse WebSocket expects the "
+                    "Authorization header instead (e.g. 'Bearer <token>'). "
+                    "Configure the token field of the OneBot client.",
                 )
-                return web.Response(status=401, text="Unauthorized")
+            return web.Response(status=401, text="Unauthorized")
 
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         self._connections.add(ws)
-        logger.info("onebot: client connected from %s", request.remote)
+        logger.info(
+            "onebot: client connected from %s",
+            _log_remote(request),
+        )
 
         try:
             async for msg in ws:
@@ -623,7 +700,10 @@ class OneBotChannel(BaseChannel):
             logger.exception("onebot: WS connection error")
         finally:
             self._connections.discard(ws)
-            logger.info("onebot: client disconnected from %s", request.remote)
+            logger.info(
+                "onebot: client disconnected from %s",
+                _log_remote(request),
+            )
 
         return ws
 
