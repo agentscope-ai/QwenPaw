@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Tests for non-blocking send-file inspection."""
 
+# pylint: disable=protected-access
+
 import importlib
 from pathlib import Path
 
@@ -22,7 +24,9 @@ def test_inspect_file_distinguishes_regular_files(
 
     assert send_file_module._inspect_file(str(file_path)) == "file"
     assert send_file_module._inspect_file(str(directory)) == "not_file"
-    assert send_file_module._inspect_file(str(tmp_path / "missing")) == ("missing")
+    assert send_file_module._inspect_file(str(tmp_path / "missing")) == (
+        "missing"
+    )
 
 
 @pytest.mark.asyncio

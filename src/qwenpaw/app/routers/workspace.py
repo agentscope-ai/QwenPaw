@@ -245,7 +245,9 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
     try:
         for dirpath, dirnames, filenames in os.walk(root, topdown=True):
             # Prune in place — must mutate, not rebind, for os.walk to honor.
-            dirnames[:] = sorted(d for d in dirnames if not _is_skipped_name(d))
+            dirnames[:] = sorted(
+                d for d in dirnames if not _is_skipped_name(d)
+            )
             rel_dir = os.path.relpath(dirpath, root)
             for name in sorted(filenames):
                 if _is_skipped_name(name):
@@ -256,7 +258,9 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
                 except OSError:
                     continue
                 rel = (
-                    name if rel_dir == "." else f"{rel_dir}/{name}".replace(os.sep, "/")
+                    name
+                    if rel_dir == "."
+                    else f"{rel_dir}/{name}".replace(os.sep, "/")
                 )
                 files.append(
                     {
@@ -624,7 +628,9 @@ def _upload_name_key(
 ) -> str:
     """Build a filename comparison key matching the target filesystem."""
     comparable = (
-        filename if normalization_sensitive else unicodedata.normalize("NFC", filename)
+        filename
+        if normalization_sensitive
+        else unicodedata.normalize("NFC", filename)
     )
     return comparable if case_sensitive else comparable.casefold()
 
@@ -950,7 +956,8 @@ async def download_artifact_file(
     return FileResponse(
         target,
         filename=target.name,
-        media_type=mimetypes.guess_type(target.name)[0] or "application/octet-stream",
+        media_type=mimetypes.guess_type(target.name)[0]
+        or "application/octet-stream",
     )
 
 
@@ -1419,7 +1426,9 @@ async def get_transcription_provider_type() -> dict:
     """Get transcription provider type setting."""
     config = load_config()
     return {
-        "transcription_provider_type": (config.agents.transcription_provider_type),
+        "transcription_provider_type": (
+            config.agents.transcription_provider_type
+        ),
     }
 
 
@@ -1437,7 +1446,8 @@ async def put_transcription_provider_type(
     body: dict = Body(
         ...,
         description=(
-            "Provider type, e.g. " '{"transcription_provider_type": "whisper_api"}'
+            "Provider type, e.g. "
+            '{"transcription_provider_type": "whisper_api"}'
         ),
     ),
 ) -> dict:
@@ -1562,7 +1572,9 @@ async def post_transcribe_audio(
         ".ogg",
         ".flac",
     }
-    suffix = os.path.splitext(file.filename or "audio.webm")[1].lower() or ".webm"
+    suffix = (
+        os.path.splitext(file.filename or "audio.webm")[1].lower() or ".webm"
+    )
     if suffix not in allowed_extensions:
         raise HTTPException(
             status_code=400,
@@ -1816,7 +1828,9 @@ async def upload_workspace(
     ):
         raise HTTPException(
             status_code=400,
-            detail=(f"Expected a zip file, got content-type: {file.content_type}"),
+            detail=(
+                f"Expected a zip file, got content-type: {file.content_type}"
+            ),
         )
 
     agent = await get_agent_for_request(request)

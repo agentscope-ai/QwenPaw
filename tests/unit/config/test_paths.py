@@ -39,4 +39,7 @@ def test_workspace_uses_configured_working_dir_for_relative_path(
 
     workspace = Workspace("agent", "relative-workspace")
 
-    assert workspace.workspace_dir == (working_dir / "relative-workspace").resolve()
+    assert (
+        workspace.workspace_dir
+        == (working_dir / "relative-workspace").resolve()
+    )
