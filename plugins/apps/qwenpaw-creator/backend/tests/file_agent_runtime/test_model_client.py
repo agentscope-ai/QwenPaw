@@ -16,6 +16,7 @@ from agentscope.message import (
 )
 from agentscope.model import DashScopeChatModel
 from agentscope.model._model_response import ChatResponse
+from agentscope.model._model_usage import ChatUsage
 import pytest
 
 from services.file_agent_runtime.model_client import (
@@ -30,7 +31,6 @@ from services.file_agent_runtime.model_client import (
     records_to_agentscope_messages,
 )
 from services.file_agent_runtime import model_client
-
 
 pytestmark = pytest.mark.unit
 
@@ -242,6 +242,12 @@ def test_agentscope_client_streams_native_blocks_and_raw_argument_deltas() -> (
                         ),
                     ],
                     is_last=True,
+                    usage=ChatUsage(
+                        input_tokens=123,
+                        output_tokens=45,
+                        time=1.5,
+                        cache_input_tokens=100,
+                    ),
                 )
 
             return chunks()
@@ -304,6 +310,17 @@ def test_agentscope_client_streams_native_blocks_and_raw_argument_deltas() -> (
         ("call-read-1", "read_project", '{"project'),
         ("call-read-1", "read_project", 'Id":"project-1"}'),
     ]
+    assert turn.tool_calls[0].raw_arguments == '{"projectId":"project-1"}'
+    assert turn.tool_calls[0].raw_arguments_bytes == 25
+    assert turn.tool_calls[0].provider_chunk_count == 2
+    assert turn.finish_reason == "completed"
+    assert turn.usage == {
+        "input_tokens": 123,
+        "output_tokens": 45,
+        "cache_creation_input_tokens": 0,
+        "cache_input_tokens": 100,
+        "time": 1.5,
+    }
 
 
 def test_agentscope_client_repairs_truncated_native_tool_argument_json() -> (
@@ -554,9 +571,13 @@ def test_agentscope_client_rejects_textual_tool_markup_before_text_callback(
     class TextualToolModel:
         model = "qwen3.7-plus"
 
+        def __init__(self) -> None:
+            self.calls = 0
+
         async def __call__(self, messages, *, tools=None):
             del messages
             assert tools
+            self.calls += 1
             return ChatResponse(
                 id="response-text-tool",
                 content=[TextBlock(text=markup)],
@@ -568,16 +589,21 @@ def test_agentscope_client_rejects_textual_tool_markup_before_text_callback(
     async def collect(delta: str) -> None:
         text_deltas.append(delta)
 
-    async def scenario() -> None:
-        client = AgentScopeAgentChatClient(TextualToolModel())  # type: ignore[arg-type]
+    async def scenario() -> TextualToolModel:
+        provider = TextualToolModel()
+        client = AgentScopeAgentChatClient(provider)  # type: ignore[arg-type]
         with pytest.raises(AgentModelError, match="ToolCallBlock"):
             await client.complete(
                 messages=[{"role": "user", "content": "读取"}],
                 tools=_tools(),
                 on_text_delta=collect,
             )
+        return provider
 
-    asyncio.run(scenario())
+    provider = asyncio.run(scenario())
+    # Markup degradation is stochastic, so the turn is retried before the
+    # run is failed: original attempt plus two retries.
+    assert provider.calls == 3
     assert text_deltas == []
 
 
@@ -585,9 +611,20 @@ def test_agentscope_client_withholds_split_textual_tool_markup() -> None:
     class SplitTextualToolModel:
         model = "qwen3.7-plus"
 
+        def __init__(self) -> None:
+            self.calls = 0
+
         async def __call__(self, messages, *, tools=None):
             del messages
             assert tools
+            self.calls += 1
+            if self.calls > 1:
+                # The degradation is stochastic: the retried turn recovers.
+                return ChatResponse(
+                    id="response-retry-clean",
+                    content=[TextBlock(text="重试成功")],
+                    is_last=True,
+                )
 
             async def chunks():
                 yield ChatResponse(
@@ -624,20 +661,22 @@ def test_agentscope_client_withholds_split_textual_tool_markup() -> None:
     async def collect(delta: str) -> None:
         text_deltas.append(delta)
 
-    async def scenario() -> None:
-        client = AgentScopeAgentChatClient(SplitTextualToolModel())  # type: ignore[arg-type]
-        with pytest.raises(
-            AgentModelError,
-            match="AgentScope model request failed",
-        ):
-            await client.complete(
-                messages=[{"role": "user", "content": "读取"}],
-                tools=_tools(),
-                on_text_delta=collect,
-            )
+    async def scenario():
+        provider = SplitTextualToolModel()
+        client = AgentScopeAgentChatClient(provider)  # type: ignore[arg-type]
+        turn = await client.complete(
+            messages=[{"role": "user", "content": "读取"}],
+            tools=_tools(),
+            on_text_delta=collect,
+        )
+        return provider, turn
 
-    asyncio.run(scenario())
-    assert text_deltas == ["先检查。"]
+    provider, turn = asyncio.run(scenario())
+    # First attempt leaked only the safe prefix, the retried turn delivered
+    # clean prose, and no markup fragment ever reached the callback.
+    assert provider.calls == 2
+    assert turn.content == "重试成功"
+    assert text_deltas == ["先检查。", "重试成功"]
     assert all(
         "<function" not in delta and "<parameter" not in delta
         for delta in text_deltas

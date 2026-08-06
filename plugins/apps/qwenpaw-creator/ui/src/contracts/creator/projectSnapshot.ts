@@ -1,4 +1,4 @@
-/** Canonical schema-v2 Project document from GET /projects/:id/project. */
+/** Canonical Project document from GET /projects/:id/project. */
 export type ProjectJsonRecord = Record<string, unknown>;
 
 export interface ProjectEntityCollection<T> {
@@ -119,6 +119,18 @@ export interface VisualVariantDocument extends ProjectJsonRecord {
   reference_asset_version_ids: string[];
   reference_artifact_version_ids: string[];
   generated_artifact_version_ids: string[];
+  selected_artifact_version_id: string | null;
+  derived_from_variant_id?: string | null;
+  consistency_tags?: string[];
+}
+
+export interface CharacterVoiceDocument extends ProjectJsonRecord {
+  voice_id: string;
+  target_model: string;
+  preferred_name: string;
+  sample_source_version_id: string | null;
+  enrollment_key: string;
+  created_at: string;
 }
 
 export interface VisualEntityDocument extends ProjectJsonRecord {
@@ -127,14 +139,32 @@ export interface VisualEntityDocument extends ProjectJsonRecord {
   name: string;
   description: string;
   continuity: string;
+  required_variant_ids: string[];
   variants: ProjectEntityCollection<VisualVariantDocument>;
   selected_artifact_version_id: string | null;
+  voice?: CharacterVoiceDocument | null;
+  canonical_variant_id?: string | null;
+}
+
+export interface VisualCastLineupDocument extends ProjectJsonRecord {
+  lineup_id: string;
+  name: string;
+  description: string;
+  character_refs: string[];
+  scene_ref: string | null;
+  prop_refs: string[];
+  reference_asset_version_ids: string[];
+  reference_artifact_version_ids: string[];
+  generated_artifact_version_ids: string[];
+  selected_artifact_version_id: string | null;
+  relative_notes: string;
 }
 
 export interface VisualDevelopmentDocument extends ProjectJsonRecord {
   visual_bible: string;
   style: string;
   entities: ProjectEntityCollection<VisualEntityDocument>;
+  cast_lineups?: ProjectEntityCollection<VisualCastLineupDocument>;
 }
 
 export interface TimelineSpanDocument extends ProjectJsonRecord {
@@ -170,6 +200,8 @@ export interface ShotDocument extends ProjectJsonRecord {
   dialogue?: string;
 }
 
+export type VideoGenerationMode = "r2v" | "t2v" | "i2v" | "s2v";
+
 export interface R2VCreationDocument extends ProjectJsonRecord {
   type: "r2v";
   intent: string;
@@ -178,12 +210,46 @@ export interface R2VCreationDocument extends ProjectJsonRecord {
   character_refs: string[];
   scene_ref: string | null;
   prop_refs: string[];
+  visual_variant_refs: Record<string, string>;
+  cast_lineup_refs?: string[];
   shots: ProjectEntityCollection<ShotDocument>;
   recipe: GenerationRecipeDocument | null;
   storyboard_prompt: string;
   storyboard_reference_version_ids: string[];
   video_prompt: string;
   video_reference_version_ids: string[];
+}
+
+export interface T2VCreationDocument extends ProjectJsonRecord {
+  type: "t2v";
+  intent: string;
+  narrative: string;
+  continuity: string;
+  video_prompt: string;
+  recipe: GenerationRecipeDocument | null;
+}
+
+export interface I2VCreationDocument extends ProjectJsonRecord {
+  type: "i2v";
+  intent: string;
+  narrative: string;
+  continuity: string;
+  first_frame_version_id: string | null;
+  video_prompt: string;
+  recipe: GenerationRecipeDocument | null;
+}
+
+export interface S2VCreationDocument extends ProjectJsonRecord {
+  type: "s2v";
+  intent: string;
+  // Visual entity whose portrait (and enrolled voice) drives the clip.
+  character_ref: string | null;
+  // Exact image version used as the s2v reference portrait.
+  portrait_version_id: string | null;
+  // Spoken lines; TTS turns them into the driving audio below.
+  script: string;
+  audio_version_id: string | null;
+  recipe: GenerationRecipeDocument | null;
 }
 
 export interface EditCreationDocument extends ProjectJsonRecord {
@@ -195,8 +261,9 @@ export interface EditCreationDocument extends ProjectJsonRecord {
 }
 
 export interface MotionGraphicDocument extends ProjectJsonRecord {
-  format: "html_css";
-  html: string;
+  format: "html_css" | "html_js";
+  html?: string | null;
+  html_file_id?: string | null;
   fps: number;
   loop: boolean;
   design_notes: string;
@@ -212,7 +279,9 @@ export interface MotionGraphicDocument extends ProjectJsonRecord {
 
 export interface OverlayCreationDocument extends ProjectJsonRecord {
   type: "overlay";
-  overlay_kind: "pet_os" | "interview_summary" | "motion" | "media";
+  // The overlay role derives from data: non-empty text = caption card;
+  // empty text with motion/prompt = text-free decoration; media stickers
+  // reference their payload through the element's render_source.
   text: string;
   vibe: string;
   prompt: string;
@@ -228,19 +297,43 @@ export interface TransitionCreationDocument extends ProjectJsonRecord {
   easing: string;
 }
 
+// A full-canvas motion document that carries the segment's whole picture
+// (pure motion-graphics cut, no footage behind it).
+export interface MotionClipCreationDocument extends ProjectJsonRecord {
+  type: "motion_clip";
+  intent: string;
+  prompt: string;
+  motion?: MotionGraphicDocument | null;
+}
+
 export interface AudioCreationDocument extends ProjectJsonRecord {
   type: "audio";
   source_asset_version_id: string;
+  /** TTS narration keeps its script here; uploaded audio leaves it empty. */
+  script?: string;
+  /** Synthesis speed multiplier (0.5–2.0); CosyVoice family only. */
+  speech_rate?: number;
   gain_db: number;
   pan: number;
 }
 
 export type ElementCreationDocument =
   | R2VCreationDocument
+  | T2VCreationDocument
+  | I2VCreationDocument
+  | S2VCreationDocument
   | EditCreationDocument
   | OverlayCreationDocument
+  | MotionClipCreationDocument
   | TransitionCreationDocument
   | AudioCreationDocument;
+
+// Creation types produced by a video generation provider.
+export type VideoCreationDocument =
+  | R2VCreationDocument
+  | T2VCreationDocument
+  | I2VCreationDocument
+  | S2VCreationDocument;
 
 export interface ElementOutputDocument extends ProjectJsonRecord {
   slot_id: string;
@@ -299,7 +392,7 @@ export interface TimelineDocument extends ProjectJsonRecord {
 }
 
 export interface ProjectDocument extends ProjectJsonRecord {
-  schema_version: 2;
+  schema_version: 4;
   project_id: string;
   generation: number;
   created_at: string;

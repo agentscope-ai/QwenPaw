@@ -22,9 +22,9 @@ const defaultLocation = {
   opacity: 1,
 };
 
-/** Schema-v2 Project fixture used by the Timeline/Element frontend. */
+/** Schema-v4 Project fixture used by the Timeline/Element frontend. */
 export const projectDocument: ProjectDocument = {
-  schema_version: 2,
+  schema_version: 4,
   project_id: "p1",
   generation: 3,
   created_at: "2026-07-20T00:00:00Z",
@@ -74,7 +74,21 @@ export const projectDocument: ProjectDocument = {
           name: "圆润大橘猫",
           description: "主角，佩戴红色项圈",
           continuity: "所有画面保持同一项圈与毛色",
-          variants: { order: [], items: {} },
+          required_variant_ids: ["variant:cat:default"],
+          variants: {
+            order: ["variant:cat:default"],
+            items: {
+              "variant:cat:default": {
+                variant_id: "variant:cat:default",
+                requirements: "圆润体型、橘色毛发、红色项圈",
+                prompt: "圆润大橘猫，佩戴红色项圈",
+                reference_asset_version_ids: [],
+                reference_artifact_version_ids: [],
+                generated_artifact_version_ids: ["cat-anchor-v1"],
+                selected_artifact_version_id: "cat-anchor-v1",
+              },
+            },
+          },
           selected_artifact_version_id: "cat-anchor-v1",
         },
       },
@@ -124,9 +138,12 @@ export const projectDocument: ProjectDocument = {
               intent: "生成猫咪隔窗看午饭的画面",
               narrative: "橘猫停下脚步看向窗内",
               continuity: "保持红色项圈",
-              character_refs: ["visual-entity:cat"],
+              character_refs: ["cat"],
               scene_ref: null,
               prop_refs: [],
+              visual_variant_refs: {
+                cat: "variant:cat:default",
+              },
               shots: {
                 order: ["shot:window"],
                 items: {
@@ -171,7 +188,6 @@ export const projectDocument: ProjectDocument = {
             z_index: 10,
             creation: {
               type: "overlay",
-              overlay_kind: "motion",
               text: "小猫出发",
               vibe: "轻快",
               prompt: "文字轻盈浮现",
@@ -203,7 +219,6 @@ export const projectDocument: ProjectDocument = {
             z_index: 11,
             creation: {
               type: "overlay",
-              overlay_kind: "pet_os",
               text: "午饭在哪里？",
               vibe: "俏皮",
               prompt: "漫画气泡弹出",

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ProjectEditOperation } from "@/store/projectSnapshotStore";
 import { projectJsonPointer } from "@/lib/projectJsonPointer";
+import i18n from "@/i18n";
 
 type DraftRecord = Record<string, unknown>;
 
@@ -126,13 +127,17 @@ function relativePointer(tokens: string[]): string {
 
 function applyChange(target: unknown, change: DraftChange): void {
   if (change.tokens.length === 0) {
-    throw new Error("Draft 根对象不能被整体替换");
+    throw new Error(i18n.t("lib.draftRootReplace"));
   }
   let parent = target as DraftRecord;
   for (const token of change.tokens.slice(0, -1)) {
     const child = parent[token];
     if (child === null || typeof child !== "object" || Array.isArray(child)) {
-      throw new Error(`Draft 路径不存在：${relativePointer(change.tokens)}`);
+      throw new Error(
+        i18n.t("lib.draftPathNotExist", {
+          path: relativePointer(change.tokens),
+        }),
+      );
     }
     parent = child as DraftRecord;
   }
@@ -172,7 +177,7 @@ function mergeAuthority<T>(
         ...new Set([
           ...session.conflictPaths,
           ...conflicts,
-          "结构已被其他操作修改",
+          i18n.t("lib.structureModified"),
         ]),
       ],
     };

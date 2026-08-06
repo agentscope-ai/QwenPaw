@@ -202,6 +202,18 @@ def is_protected_pointer(pointer: str) -> bool:
     return pointer in PROTECTED_EXACT_POINTERS
 
 
+# Character voice bindings are tool-authoritative: only the enrollment
+# executor (a Runtime task) may write them. Without this gate an agent could
+# fabricate a voice_id via generic JSON editing after a failed enrollment.
+_RUNTIME_ONLY_POINTER = re.compile(
+    r"^/visual/entities/items/[^/]+/voice(/.*)?$",
+)
+
+
+def is_runtime_only_pointer(pointer: str) -> bool:
+    return bool(_RUNTIME_ONLY_POINTER.match(pointer))
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -351,6 +363,16 @@ class ProjectCommitBoundary:
         )
         if protected:
             raise ProtectedFieldError(protected)
+        if origin_value is not ChangeOrigin.RUNTIME_TASK:
+            runtime_only = sorted(
+                {
+                    item.pointer
+                    for item in requested
+                    if is_runtime_only_pointer(item.pointer)
+                },
+            )
+            if runtime_only:
+                raise ProtectedFieldError(runtime_only)
 
         round_record = ChangeRoundRecord(
             round_id=round_id,

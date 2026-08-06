@@ -7,6 +7,7 @@
  */
 import {
   MessageSquare,
+  Files,
   Sparkles,
   Clock,
   Plug,
@@ -67,6 +68,17 @@ export const OS_APPS: OsAppDef[] = [
     accent: "#3b82f6",
     defaultW: 880,
     defaultH: 640,
+  },
+  {
+    routeId: "core.files",
+    labelKey: "nav.files",
+    fallback: "Files",
+    Icon: Files,
+    accent: "#f36b21",
+    defaultW: 1180,
+    defaultH: 720,
+    minW: 760,
+    minH: 480,
   },
   {
     routeId: "core.coding",

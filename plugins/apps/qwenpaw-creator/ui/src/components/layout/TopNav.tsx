@@ -6,11 +6,13 @@ import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useOnboardingStore } from "@/store/onboardingStore";
 import Breadcrumb from "./Breadcrumb";
 import ModelBadges from "@/components/creator/ModelBadges";
+import LanguageToggle from "@/components/common/LanguageToggle";
 import logoMarkUrl from "@/assets/design/logo-mark.png";
+import { useTranslation } from "react-i18next";
 
 const MAIN_TABS = [
-  { key: "plan", label: "视频方案", icon: LayoutList },
-  { key: "assets", label: "资产库", icon: Images },
+  { key: "plan", labelKey: "nav.videoPlan", icon: LayoutList },
+  { key: "assets", labelKey: "nav.assets", icon: Images },
 ] as const;
 
 function activeTabKey(routeSection: string): string {
@@ -18,6 +20,7 @@ function activeTabKey(routeSection: string): string {
 }
 
 export default function TopNav() {
+  const { t } = useTranslation();
   const { id = "" } = useParams();
   const pathname = usePathname();
   const router = useRouter();
@@ -52,7 +55,7 @@ export default function TopNav() {
         <Link
           href="/?view=projects"
           className="icon-button shrink-0"
-          aria-label="返回项目列表"
+          aria-label={t("nav.backToProjects")}
         >
           <LeftOutlined className="text-xs" />
         </Link>
@@ -70,7 +73,8 @@ export default function TopNav() {
             </span>
             <Tooltip title={masterScript} placement="right">
               <span className="block min-w-0 max-w-[180px] truncate text-[11px] font-normal leading-tight text-[var(--color-text-secondary)] md:max-w-[240px]">
-                原始脚本：{masterScriptPreview}
+                {t("nav.originalScript")}
+                {masterScriptPreview}
               </span>
             </Tooltip>
           </div>
@@ -96,23 +100,24 @@ export default function TopNav() {
               }`}
             >
               <Icon className="h-3.5 w-3.5" />
-              {tab.label}
+              {t(tab.labelKey)}
             </Link>
           );
         })}
       </nav>
 
       <div className="flex min-w-0 items-center justify-end gap-2">
-        <Tooltip title="重新查看新手引导">
+        <Tooltip title={t("nav.replayTour")}>
           <button
             type="button"
             onClick={replayTour}
             className="icon-button shrink-0"
-            aria-label="重新查看新手引导"
+            aria-label={t("nav.replayTour")}
           >
             <CircleHelp className="h-3.5 w-3.5" />
           </button>
         </Tooltip>
+        <LanguageToggle className="icon-button shrink-0 text-[11px] font-semibold" />
         <ModelBadges />
       </div>
     </header>

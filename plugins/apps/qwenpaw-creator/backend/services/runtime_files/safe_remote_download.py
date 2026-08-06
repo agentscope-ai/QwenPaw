@@ -13,7 +13,10 @@ from dataclasses import dataclass
 import ipaddress
 import logging
 from pathlib import Path
+import shutil
 import socket
+import subprocess
+import time
 from typing import Any, Iterator
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
@@ -79,27 +82,28 @@ def validate_public_remote_url(
     except ValueError as error:
         raise SafeRemoteDownloadError("远程 URL 端口非法") from error
     host = parsed.hostname
+    # Distinguish literal-IP hosts from hostnames up front: pushing a
+    # hostname through require_public_ip only to catch the failure logged a
+    # misleading "ssrf block: invalid ip address: <hostname>" WARNING on
+    # every legitimate domain download.
     try:
-        require_public_ip(host)
-    except SafeRemoteDownloadError:
+        ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
         try:
-            ipaddress.ip_address(host.split("%", 1)[0])
-        except ValueError:
-            try:
-                records = resolver(host, port, type=socket.SOCK_STREAM)
-            except socket.gaierror as error:
-                raise SafeRemoteDownloadError(
-                    "远程 URL 主机无法解析",
-                ) from error
-            addresses = {str(record[4][0]) for record in records if record[4]}
-            if not addresses:
-                raise SafeRemoteDownloadError(
-                    "远程 URL 主机无法解析",
-                ) from None
-            for address in addresses:
-                require_public_ip(address)
-        else:
-            raise
+            records = resolver(host, port, type=socket.SOCK_STREAM)
+        except socket.gaierror as error:
+            raise SafeRemoteDownloadError(
+                "远程 URL 主机无法解析",
+            ) from error
+        addresses = {str(record[4][0]) for record in records if record[4]}
+        if not addresses:
+            raise SafeRemoteDownloadError(
+                "远程 URL 主机无法解析",
+            ) from None
+        for address in addresses:
+            require_public_ip(address)
+    else:
+        require_public_ip(host)
     return urlunsplit(
         (parsed.scheme, parsed.netloc, parsed.path, parsed.query, ""),
     )
@@ -252,6 +256,156 @@ def safe_download_bytes(
     return content
 
 
+def _resolved_public_endpoint(
+    url: str,
+    *,
+    resolver: Any = socket.getaddrinfo,
+) -> tuple[str, int, str]:
+    """Return ``(host, port, validated_ip)`` for one already-validated URL."""
+
+    parsed = urlsplit(url)
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme.casefold() == "https" else 80)
+    try:
+        ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        try:
+            records = resolver(host, port, type=socket.SOCK_STREAM)
+        except socket.gaierror as error:
+            raise SafeRemoteDownloadError("远程 URL 主机无法解析") from error
+        addresses = [str(record[4][0]) for record in records if record[4]]
+        if not addresses:
+            raise SafeRemoteDownloadError("远程 URL 主机无法解析") from None
+        for address in addresses:
+            require_public_ip(address)
+        return host, port, addresses[0]
+    require_public_ip(host)
+    return host, port, host
+
+
+def safe_curl_download_to_file(
+    url: str,
+    destination: str | Path,
+    *,
+    max_bytes: int,
+    timeout_seconds: float,
+    connect_timeout_seconds: float = 15.0,
+    max_redirects: int = DEFAULT_MAX_REMOTE_REDIRECTS,
+    resolver: Any = socket.getaddrinfo,
+    runner: Any = subprocess.run,
+) -> tuple[int, str, str]:
+    """Download via a curl subprocess under the same SSRF/size policy.
+
+    Network fallback for stacks where httpx cannot establish the route
+    (observed with DashScope OSS result URLs) while the system curl can.
+    Redirects are followed in Python so every hop re-runs URL validation.
+    For hostname URLs the connection is pinned to a pre-validated resolved
+    IP through ``--resolve``, keeping DNS rebinding out of the curl hop;
+    IP-literal URLs are already validated by ``require_public_ip`` and
+    curl connects to that literal directly.
+
+    Returns ``(size_bytes, media_type, final_url)``; the partial file is
+    removed on every failure.
+    """
+
+    if max_bytes <= 0:
+        raise SafeRemoteDownloadError("远程下载大小限制必须大于 0")
+    if shutil.which("curl") is None:
+        raise SafeRemoteDownloadError("系统 curl 不可用，无法回退下载")
+    path = Path(destination)
+    deadline = time.monotonic() + max(1.0, float(timeout_seconds))
+    current = validate_public_remote_url(url, resolver=resolver)
+    try:
+        for _ in range(max_redirects + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise SafeRemoteDownloadError("远程下载超过总 deadline")
+            host, port, address = _resolved_public_endpoint(
+                current,
+                resolver=resolver,
+            )
+            command = [
+                "curl",
+                "--silent",
+                "--show-error",
+                "--globoff",
+                "--noproxy",
+                "*",
+                "--max-redirs",
+                "0",
+                "--proto",
+                "=http,https",
+                "--connect-timeout",
+                str(int(max(1, connect_timeout_seconds))),
+                "--max-time",
+                str(int(max(1, remaining))),
+                "--max-filesize",
+                str(max_bytes),
+                "--header",
+                "Accept: */*",
+                "--header",
+                "Accept-Encoding: identity",
+                "--resolve",
+                f"{host}:{port}:{address}",
+                "--output",
+                str(path),
+                "--write-out",
+                "%{http_code}\t%{content_type}\t%{redirect_url}",
+                "--",
+                current,
+            ]
+            completed = runner(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=max(1.0, remaining) + 10.0,
+                check=False,
+            )
+            fields = (completed.stdout or "").strip().split("\t")
+            status = int(fields[0] or 0) if fields and fields[0] else 0
+            media_type = fields[1] if len(fields) > 1 else ""
+            redirect_url = fields[2] if len(fields) > 2 else ""
+            if status in _REDIRECT_STATUSES:
+                if not redirect_url:
+                    raise SafeRemoteDownloadError(
+                        "远程 URL 重定向缺少 Location",
+                    )
+                current = validate_public_remote_url(
+                    urljoin(current, redirect_url),
+                    resolver=resolver,
+                )
+                path.unlink(missing_ok=True)
+                continue
+            if completed.returncode != 0:
+                detail = (completed.stderr or "").strip()[:200]
+                raise SafeRemoteDownloadError(
+                    f"curl 下载失败 (exit={completed.returncode}): {detail}",
+                )
+            if not 200 <= status < 300:
+                raise SafeRemoteDownloadError(
+                    f"远程 URL 返回 HTTP {status}",
+                )
+            size = path.stat().st_size if path.exists() else 0
+            if size == 0:
+                raise SafeRemoteDownloadError("远程 URL 返回了空内容")
+            if size > max_bytes:
+                raise SafeRemoteDownloadError(
+                    f"远程内容超过 {max_bytes} bytes 限制",
+                )
+            return (
+                size,
+                (media_type or "").split(";", 1)[0]
+                or "application/octet-stream",
+                current,
+            )
+        raise SafeRemoteDownloadError("远程 URL 重定向次数超过限制")
+    except subprocess.TimeoutExpired as error:
+        raise SafeRemoteDownloadError("curl 下载超时") from error
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+
 def safe_download_to_file(
     url: str,
     destination: str | Path,
@@ -295,6 +449,7 @@ __all__ = [
     "declared_content_length",
     "open_safe_remote_stream",
     "require_public_ip",
+    "safe_curl_download_to_file",
     "safe_download_bytes",
     "safe_download_to_file",
     "validate_public_remote_url",

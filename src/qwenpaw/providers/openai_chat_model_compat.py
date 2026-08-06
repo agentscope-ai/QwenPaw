@@ -10,6 +10,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Callable
 
+from agentscope.message import ToolCallBlock
 from agentscope.model import OpenAIChatModel
 from agentscope.model._model_response import ChatResponse
 
@@ -733,9 +734,8 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         response: Any,
     ) -> AsyncGenerator[ChatResponse, None]:
         sanitized_response = _SanitizedStream(response)
-
-        _think_tool_calls: dict[str, dict] = {}
-        _text_tool_calls: dict[str, dict] = {}
+        next_think_tool_call_id = 0
+        next_text_tool_call_id = 0
 
         async for parsed in super()._parse_stream_response(
             start_datetime=start_datetime,
@@ -807,10 +807,8 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                 for b in parsed.content
             )
 
-            if has_tool_use:
-                _think_tool_calls.clear()
-                _text_tool_calls.clear()
-            else:
+            recovered_tool_calls: list[ToolCallBlock] = []
+            if not has_tool_use:
                 # --- 1. Scan thinking blocks ---
                 for block in parsed.content:
                     btype = _battr(block, "type")
@@ -826,16 +824,15 @@ class OpenAIChatModelCompat(OpenAIChatModel):
 
                     _bset(block, "thinking", think_parsed.text_before.strip())
 
-                    _think_tool_calls = {
-                        f"thinking_{i}": {
-                            "type": "tool_use",
-                            "id": f"think_call_{i}",
-                            "name": ptc.name,
-                            "input": ptc.arguments,
-                            "raw_input": ptc.raw_arguments,
-                        }
-                        for i, ptc in enumerate(think_parsed.tool_calls)
-                    }
+                    for tool_call in think_parsed.tool_calls:
+                        recovered_tool_calls.append(
+                            ToolCallBlock(
+                                id=f"think_call_{next_think_tool_call_id}",
+                                name=tool_call.name,
+                                input=tool_call.raw_arguments,
+                            ),
+                        )
+                        next_think_tool_call_id += 1
 
                 # --- 2. Scan text/content blocks ---
                 new_content: list | None = None
@@ -851,16 +848,15 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                     _bset(block, "text", clean_text)
 
                     if text_parsed.tool_calls:
-                        _text_tool_calls = {
-                            f"text_{j}": {
-                                "type": "tool_use",
-                                "id": f"text_call_{j}",
-                                "name": ptc.name,
-                                "input": ptc.arguments,
-                                "raw_input": ptc.raw_arguments,
-                            }
-                            for j, ptc in enumerate(text_parsed.tool_calls)
-                        }
+                        for tool_call in text_parsed.tool_calls:
+                            recovered_tool_calls.append(
+                                ToolCallBlock(
+                                    id=f"text_call_{next_text_tool_call_id}",
+                                    name=tool_call.name,
+                                    input=tool_call.raw_arguments,
+                                ),
+                            )
+                            next_text_tool_call_id += 1
 
                     # If the text block is now empty, mark it for removal.
                     if not clean_text:
@@ -871,10 +867,9 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                 if new_content is not None:
                     parsed.content = [b for b in new_content if b is not None]
 
-                extra = list(_think_tool_calls.values()) + list(
-                    _text_tool_calls.values(),
-                )
-                if extra:
-                    parsed.content = list(parsed.content) + extra
+                if recovered_tool_calls:
+                    parsed.content = (
+                        list(parsed.content) + recovered_tool_calls
+                    )
 
             yield parsed

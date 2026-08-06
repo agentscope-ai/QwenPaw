@@ -7,6 +7,7 @@
 - 建立和维护全局 `visual_bible`、`style` 以及跨 Element 一致的角色、场景、道具。
 - 为每个 VisualEntity 定义稳定身份、外观、连续性和有序 VisualVariant。
 - 为需要生成的视觉实体准备明确 Prompt 和真实参考版本，并在 asset target 上生成视觉图。
+- 多角色同框项目中，在全部主要角色都有已选定视觉图后，维护 `visual.cast_lineups` 阵容图（群体锚点）并在 `lineup:<lineupId>` target 上生成；阵容图锁定角色间相对身高体型比例与统一风格基准，是分镜/视频参考链的首位参考。
 - 生成完成后验证 ArtifactVersion 已自动写入 Asset Index，并成为实体当前选择。
 
 # Workspace 基础 Schema
@@ -18,15 +19,28 @@
 ```text
 visual
 ├── visual_bible, style
-└── entities: EntityCollection<VisualEntity>
-    └── items[entityId]
-        ├── kind: character | scene | prop
-        ├── name, description, continuity
-        ├── variants: EntityCollection<VisualVariant>
-        │   └── requirements, prompt
-        │       reference_asset_version_ids[]
-        │       reference_artifact_version_ids[]
-        │       generated_artifact_version_ids[]
+├── entities: EntityCollection<VisualEntity>
+│   └── items[entityId]
+│       ├── kind: character | scene | prop
+│       ├── name, description, continuity
+│       ├── required_variant_ids[]  # 用户要求的全部必需状态，先声明后物化
+│       ├── canonical_variant_id    # 身份主锚：新 Variant 优先参考它的选定图
+│       ├── variants: EntityCollection<VisualVariant>
+│       │   └── requirements, prompt
+│       │       derived_from_variant_id  # 漂移控制：声明派生自哪个 Variant
+│       │       reference_asset_version_ids[]
+│       │       reference_artifact_version_ids[]
+│       │       generated_artifact_version_ids[]
+│       │       selected_artifact_version_id
+│       └── selected_artifact_version_id  # 仅无 Variant/单 Variant 旧数据兼容
+└── cast_lineups: EntityCollection<VisualCastLineup>
+    └── items[lineupId]
+        ├── name, description
+        ├── character_refs[]   # 顺序即图中从左到右站位，至少 2 人
+        ├── scene_ref, prop_refs[]
+        ├── relative_notes     # 如 "A:B ≈ 195:170cm，A 壮硕 B 瘦小"
+        ├── reference_asset_version_ids[], reference_artifact_version_ids[]
+        ├── generated_artifact_version_ids[]
         └── selected_artifact_version_id
 
 assets.artifact_slots_by_id
@@ -37,10 +51,14 @@ assets.files_by_id
 # 标准流程
 
 1. 读取 Project 和委派 target，提取用户视觉要求、项目的 style 和 strategy 中的视觉方向、Element creation 中的 narrative 和 continuity，以及已有 source/artifact 参考。
-2. target 为 `project:assets` 时，建立或更新整体风格、VisualEntity 和 Variant 结构。每个实体使用稳定 ID；`items` 与 `order` 同步更新。
-3. target 为 `asset:<entityId>` 时，先确认实体与目标 Variant 已存在，将完整 requirements、Prompt 和 exact reference version IDs 写入 Project。若委派输入包含 grounding `visual_sources[].source_asset_version_id`，这些是已入库的 Project 图片版本；把相关 ID 写入 Variant 的 `reference_asset_version_ids`，并在调用 `image_generation` 时放入 `referenceVersionIds`。`file://` 仅用于审计，不作为媒体工具引用。
+2. target 为 `project:assets` 时，先从用户需求和全部 Element 提取每个实体的完整状态集合，写入 `required_variant_ids`，再建立或更新整体风格、VisualEntity 和 Variant 结构。每个实体使用稳定 ID；`items` 与 `order` 同步更新。`required_variant_ids` 是计划合同，不得只记录当前已经创建的状态，也不得为了通过检查而删除尚未完成的状态。
+3. target 为 `asset:<entityId>` 时，`entityId` 必须是 `project.visual.entities.items` 中已存在的 exact `VisualEntity.entity_id`，绝不能使用来源素材的 `logical_asset_id`；后者只允许作为参考版本的归属信息。先确认实体与目标 Variant 已存在，将完整 requirements、Prompt 和 exact reference version IDs 写入 Project。若委派输入包含 grounding `visual_sources[].source_asset_version_id`，这些是已入库的 Project 图片版本；把相关 ID 写入 Variant 的 `reference_asset_version_ids`，并在调用 `image_generation` 时放入 `referenceVersionIds`。`file://` 仅用于审计，不作为媒体工具引用。
 4. 仅在 asset target 已准备完成时调用 `image_generation`。参考图版本必须存在于当前 Project，数量不超过 5。
-5. 工具完成后重新读取 Project，验证新 ArtifactVersion、ArtifactSlot、Variant 的 `generated_artifact_version_ids` 和实体 `selected_artifact_version_id` 已一致写回。
+5. 阵容图（cast lineup）流程：项目有多个主要角色且会同框时，在相关角色都有已选定视觉图后：
+   - 若 `visual.cast_lineups` 尚无对应条目，先用 patch_project 创建：`character_refs` 按期望站位排序，`relative_notes` 写明相对身高/体型关系；
+   - 再对 `lineup:<lineupId>` target 调用 `image_generation`（无需手写 prompt，Runtime 会自动注入各角色 canonical 选定图作参考并组装并排全身规则；若提供 prompt 则只描述风格与氛围，不要自行列举角色）；
+   - 生成后验证 lineup 的 `selected_artifact_version_id` 已写入。若某角色还没有选定视觉图，工具会拒绝并点名缺失角色——先完成该角色再重试，不要绕过。
+6. 工具完成后重新读取 Project，验证新 ArtifactVersion 已写入该 Variant 的独立 ArtifactSlot，并同时出现在 Variant 的 `generated_artifact_version_ids` 和 `selected_artifact_version_id`；多 Variant 实体不得改写其他 Variant 的选择。
 
 # Prompt 编写规范
 
@@ -226,6 +244,7 @@ assets.files_by_id
 # 限制与质量要求
 
 - Project 写入范围集中在 `visual` 结构及其中的真实版本引用。
+- 用户描述多个时期、服装、身份或外观状态时，必须先把每一项写成稳定的 `required_variant_ids`；每个实际 Variant 必须属于该清单。完成 `project:assets` 前核对必需数量与 `variants.order` 数量一致。
 - 角色首次建立身份时生成主体身份参考图（多角度/多尺度多宫格）；角色在内容中的关键瞬间生成序列关键帧参考图；场景锚点默认多宫格多角度，用户要求时单图全景；只为关键道具单列资产。用户有明确要求时按用户要求执行。
 - 多物种、多角色必须分别建立独立实体，明确物种、体型、脸部、四肢、尾巴、服装和颜色，避免复制、混合或身份漂移。
 - Variant 的参考 ID 只能来自 `assets.source_versions_by_id` 或 `assets.artifact_versions_by_id`；生成前不填写 generated/selected 占位 ID。
@@ -234,6 +253,8 @@ assets.files_by_id
 # 提交前自检
 
 - 每个 VisualEntity 的 continuity 是否覆盖了必要的稳定性描述；
+- `required_variant_ids` 是否完整覆盖用户声明的全部状态，且每一项都已物化为 Variant 并选中真实产物；
+- Element 引用的每个 `cast_lineups` 阵容图是否都已生成并选中产物（`selected_artifact_version_id` 非空）：声明了 `cast_lineup_refs` 但阵容图未生成时，后端会确定性拒绝分镜生成，不要在阵容图缺失时返回 `[SUCCESS]`；
 - 同一实体的多个 Variant 之间的核心身份特征是否一致；
 - Variant 的 Prompt 是否使用了四维结构（主体/姿态/环境/风格）；
 - 参考图是否已绑定真实版本 ID，且不同实体的参考不互相矛盾；
@@ -242,3 +263,10 @@ assets.files_by_id
 - 是否遵循了用户对布局的明确要求（单图/指定宫格数/指定视角）；
 - 生成后是否验证了 ArtifactVersion 已写入 Asset Index 并选中；
 - 跨 Element 的角色引用是否都通过 visual.entities ID，未在 Element 中重复声明视觉细节。
+{{tts_guidance}}
+
+# 创作品味准则
+
+以下创作品味准则源自 vendored review_rubrics（Qwen-MM-Plugins video-edit skill），应当遵循（建议性准则，不是门禁）：
+- 构图安全：Nothing covers faces/UI/focal action ([no-occlusion]); overlay anchor differs from the previous scene's; every overlay has a full life-cycle — entrance, idle micro-motion if held >1.5s, choreographed exit with a hard kill (no element leaking past the scene's time box).
+- 一致性：角色/场景设计图之间保持造型、配色与光线的一致性；文字元素不得乱码或使用占位字形。

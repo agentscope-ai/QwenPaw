@@ -36,7 +36,7 @@ import { useAppMessage } from "@/hooks/useAppMessage";
 import { pawappApi } from "../../api/modules/pawapp";
 import { useRoutes } from "../../plugins/registry/hooks";
 import { setActivePawAppId } from "../../plugins/pawapp-sdk/context";
-import { AppCard, type AppCardData } from "./AppCard";
+import { AppCard, pickAppDescription, type AppCardData } from "./AppCard";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import {
   addRouterBasename,
@@ -57,8 +57,17 @@ const { Option } = Select;
 /** URL-persisted App Center views; unknown values fall back to installed. */
 type AppCenterView = "installed" | "official" | "market";
 
+// Featured installed apps (e.g. Creator) are pinned to the top of the grid.
+// Lower index = higher placement.
+const FEATURED_APP_IDS = ["qwenpaw-creator"];
+
+function featuredRank(id: string): number {
+  const index = FEATURED_APP_IDS.indexOf(id);
+  return index === -1 ? FEATURED_APP_IDS.length : index;
+}
+
 export default function AppCenterPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { appId } = useParams();
   const { message } = useAppMessage();
   const routes = useRoutes();
@@ -96,6 +105,7 @@ export default function AppCenterPage() {
           name: app.name,
           version: app.version,
           description: app.description,
+          description_i18n: app.description_i18n ?? {},
           category: app.category ?? "",
           icon: app.icon ?? "",
           icon_url: app.icon_url ?? "",
@@ -139,18 +149,21 @@ export default function AppCenterPage() {
     return Array.from(cats).sort();
   }, [apps]);
 
-  // Filter apps
+  // Filter apps (featured apps stay pinned to the top, stable otherwise)
   const filteredApps = useMemo(() => {
-    return apps.filter((app) => {
-      const matchesSearch =
-        !searchQuery ||
-        app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        app.description.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCategory =
-        categoryFilter === "all" || app.category === categoryFilter;
-      return matchesSearch && matchesCategory;
-    });
-  }, [apps, searchQuery, categoryFilter]);
+    return apps
+      .filter((app) => {
+        const description = pickAppDescription(app, i18n.language);
+        const matchesSearch =
+          !searchQuery ||
+          app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          description.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesCategory =
+          categoryFilter === "all" || app.category === categoryFilter;
+        return matchesSearch && matchesCategory;
+      })
+      .sort((a, b) => featuredRank(a.id) - featuredRank(b.id));
+  }, [apps, searchQuery, categoryFilter, i18n.language]);
 
   const appTarget = (app: AppCardData) => app.entry_page || `/apps/${app.id}`;
 
@@ -281,7 +294,7 @@ export default function AppCenterPage() {
                 {activeApp.description && (
                   <p>
                     <strong>{t("appCenter.description", "描述")}:</strong>{" "}
-                    {activeApp.description}
+                    {pickAppDescription(activeApp, i18n.language)}
                   </p>
                 )}
               </div>
@@ -459,7 +472,7 @@ export default function AppCenterPage() {
           )}
         </Empty>
       ) : (
-        <div className={styles.grid}>
+        <div className={styles.gridLarge}>
           {filteredApps.map((app) => (
             <AppCard
               key={app.id}

@@ -3,17 +3,19 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use windows::core::BSTR;
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationInvokePattern,
-    IUIAutomationTextPattern, IUIAutomationValuePattern, TreeScope_Subtree, UIA_InvokePatternId,
-    UIA_TextPatternId, UIA_ValuePatternId,
+    IUIAutomationSelectionItemPattern, IUIAutomationTextPattern, IUIAutomationValuePattern,
+    TreeScope_Subtree, UIA_InvokePatternId, UIA_SelectionItemPatternId, UIA_TextPatternId,
+    UIA_ValuePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
 use super::super::state::{
-    element_line, truncate_document_text, Observation, WindowInfo, DOC_TEXT_MAX,
+    accessibility_revision, element_line, truncate_document_text, Observation, PendingAction,
+    WindowInfo, DOC_TEXT_MAX,
 };
 
 /// Map a UI Automation control-type identifier to a human-readable role
@@ -131,6 +133,15 @@ pub(crate) fn collect_accessibility(
             continue;
         }
         let bounds = unsafe { element.CurrentBoundingRectangle() }.unwrap_or_default();
+        let selected = unsafe {
+            element
+                .GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(
+                    UIA_SelectionItemPatternId,
+                )
+                .and_then(|pattern| pattern.CurrentIsSelected())
+                .map(|value| value.as_bool())
+                .unwrap_or(false)
+        };
         let element_id = format!("uia-{index}");
         let control_type = unsafe { element.CurrentControlType() }
             .map(|value| value.0)
@@ -153,6 +164,7 @@ pub(crate) fn collect_accessibility(
             "control_type_name": control_type_name(control_type),
             "enabled": unsafe { element.CurrentIsEnabled() }.map(|value| value.as_bool()).unwrap_or(false),
             "offscreen": unsafe { element.CurrentIsOffscreen() }.map(|value| value.as_bool()).unwrap_or(true),
+            "selected": selected,
             "bounds": [bounds.left, bounds.top, bounds.right, bounds.bottom],
         }));
         elements.insert(element_id, element);
@@ -171,10 +183,79 @@ pub(crate) fn collect_accessibility(
     Ok((Value::Object(accessibility), elements))
 }
 
+pub(crate) fn element_point(
+    observation: &Observation,
+    params: &serde_json::Map<String, Value>,
+) -> Result<POINT, (&'static str, String)> {
+    let element_id = params
+        .get("element_id")
+        .and_then(Value::as_str)
+        .ok_or(("invalid_request", "element_id is required.".to_string()))?;
+    element_point_by_id(observation, element_id)
+}
+
+pub(crate) fn element_point_by_id(
+    observation: &Observation,
+    element_id: &str,
+) -> Result<POINT, (&'static str, String)> {
+    let element = observation.elements.get(element_id).ok_or((
+        "element_not_found",
+        "Element is not available in this observation.".to_string(),
+    ))?;
+    if !unsafe { element.CurrentIsEnabled() }
+        .map(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        return Err((
+            "element_unavailable",
+            "Element is no longer enabled.".to_string(),
+        ));
+    }
+    if unsafe { element.CurrentIsOffscreen() }
+        .map(|value| value.as_bool())
+        .unwrap_or(true)
+    {
+        return Err((
+            "element_unavailable",
+            "Element is offscreen; scroll it into view before acting on it.".to_string(),
+        ));
+    }
+    let mut point = POINT::default();
+    if unsafe { element.GetClickablePoint(&mut point) }
+        .map(|available| available.as_bool())
+        .unwrap_or(false)
+    {
+        return Ok(point);
+    }
+    let bounds = unsafe { element.CurrentBoundingRectangle() }.map_err(|_| {
+        (
+            "element_unavailable",
+            "The element does not expose a clickable point.".to_string(),
+        )
+    })?;
+    if bounds.right <= bounds.left || bounds.bottom <= bounds.top {
+        return Err((
+            "element_unavailable",
+            "The element has no clickable area.".to_string(),
+        ));
+    }
+    Ok(POINT {
+        x: bounds.left + (bounds.right - bounds.left) / 2,
+        y: bounds.top + (bounds.bottom - bounds.top) / 2,
+    })
+}
+
 pub(crate) fn invoke_element(
     observation: &Observation,
     params: &serde_json::Map<String, Value>,
+    pending: Option<&PendingAction>,
 ) -> Result<Value, (&'static str, String)> {
+    if pending.is_some() {
+        return Err((
+            "pending_action_unavailable",
+            "This platform cannot complete the pending native edit.".to_string(),
+        ));
+    }
     let element = accessibility_element(observation, params)?;
     let pattern: IUIAutomationInvokePattern =
         unsafe { element.GetCurrentPatternAs(UIA_InvokePatternId) }.map_err(|_| {
@@ -195,7 +276,7 @@ pub(crate) fn invoke_element(
 pub(crate) fn set_value(
     observation: &Observation,
     params: &serde_json::Map<String, Value>,
-) -> Result<Value, (&'static str, String)> {
+) -> Result<(Value, Option<PendingAction>), (&'static str, String)> {
     let value = params
         .get("value")
         .and_then(Value::as_str)
@@ -214,7 +295,20 @@ pub(crate) fn set_value(
             format!("UI Automation value update failed: {error}"),
         )
     })?;
-    Ok(json!({"applied": true}))
+    let actual = unsafe { pattern.CurrentValue() }.map_err(|error| {
+        (
+            "postcondition_failed",
+            format!("UI Automation could not read the updated value: {error}"),
+        )
+    })?;
+    let actual = actual.to_string();
+    if actual != value {
+        return Err((
+            "postcondition_failed",
+            "The control did not retain the requested value.".to_string(),
+        ));
+    }
+    Ok((json!({"applied": true, "value": actual}), None))
 }
 
 fn accessibility_element<'a>(
@@ -235,6 +329,12 @@ fn accessibility_element<'a>(
         "element_not_found",
         "Element is not available in this observation.".to_string(),
     ))?;
+    if !element_belongs_to_window(element, observation.window.hwnd) {
+        return Err((
+            "stale_observation",
+            "The element is no longer part of the observed window; observe it again.".to_string(),
+        ));
+    }
     if !unsafe { element.CurrentIsEnabled() }
         .map(|value| value.as_bool())
         .unwrap_or(false)
@@ -245,6 +345,53 @@ fn accessibility_element<'a>(
         ));
     }
     Ok(element)
+}
+
+/// Re-read the normalized UIA surface before a semantic mutation.
+pub(crate) fn validate_observation(
+    observation: &Observation,
+) -> Result<(), (&'static str, String)> {
+    let expected = observation.accessibility_revision.ok_or((
+        "stale_observation",
+        "The observation had no accessibility revision; observe the window again.".to_string(),
+    ))?;
+    let (current, _) = collect_accessibility(&observation.window).map_err(|error| {
+        (
+            "stale_observation",
+            format!("The observed accessibility surface is unavailable: {error}"),
+        )
+    })?;
+    if accessibility_revision(&current) != Some(expected) {
+        return Err((
+            "stale_observation",
+            "The observed window changed; observe it again before acting.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn element_belongs_to_window(element: &IUIAutomationElement, hwnd: isize) -> bool {
+    let automation: IUIAutomation =
+        match unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) } {
+            Ok(automation) => automation,
+            Err(_) => return false,
+        };
+    let walker = match unsafe { automation.RawViewWalker() } {
+        Ok(walker) => walker,
+        Err(_) => return false,
+    };
+    let expected = HWND(hwnd as _);
+    let mut current = element.clone();
+    for _ in 0..64 {
+        if unsafe { current.CurrentNativeWindowHandle() }.ok() == Some(expected) {
+            return true;
+        }
+        let Ok(parent) = (unsafe { walker.GetParentElement(&current) }) else {
+            return false;
+        };
+        current = parent;
+    }
+    false
 }
 
 #[cfg(test)]
