@@ -44,6 +44,7 @@ def test_sanitize_tool_name(name: str, expected: str) -> None:
         ("123", "fallback", "tool_123"),
         ("---", "fallback", "tool_---"),
         ("", "-driver", "tool_-driver"),
+        ("...", "client.with.dot", "client_with_dot"),
     ],
 )
 def test_tool_namespace_starts_with_letter(

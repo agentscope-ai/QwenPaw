@@ -429,4 +429,7 @@ def _tool_namespace_from_display_name(
     *,
     fallback: str,
 ) -> str:
-    return _sanitize_tool_namespace(display_name.strip() or fallback)
+    cleaned = _TOOL_NAME_SAFE_CHARS.sub("_", display_name.strip())
+    if not cleaned.strip("_"):
+        cleaned = fallback
+    return _sanitize_tool_namespace(cleaned)
