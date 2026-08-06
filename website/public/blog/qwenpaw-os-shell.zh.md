@@ -3,7 +3,7 @@ title: "QwenPaw OS Shell：把对话、智能体与应用装进一张 AI 桌面"
 date: 2026-08-06
 author: QwenPaw Team
 tags: [QwenPaw OS Shell, Agent Space, 应用市场, 审批, 多窗口]
-cover: /blog/assets/qwenpaw-os/cover.png
+cover: https://img.alicdn.com/imgextra/i1/O1CN01KdzUBgLJLmH3OTaP_!!6000000003854-2-tps-1672-941.png
 excerpt: "QwenPaw OS Shell 是建立在 QwenPaw Console 之上的前端桌面交互层，将对话、智能体空间、应用、系统配置与多窗口工作流组织在一张 AI 桌面中。"
 ---
 
@@ -27,13 +27,13 @@ excerpt: "QwenPaw OS Shell 是建立在 QwenPaw Console 之上的前端桌面交
 
 首次使用时，Console 会在左下角显示“试试桌面模式”的引导提示，并指向快捷设置入口。按照提示点击即可找到“进入桌面模式”。
 
-![从经典 Console 的快捷设置进入桌面模式](/blog/assets/qwenpaw-os/enter-desktop-mode.png)
+![从经典 Console 的快捷设置进入桌面模式](https://img.alicdn.com/imgextra/i4/O1CN016yb4RooFSZJ5Bsl3_!!6000000006635-0-tps-2557-1224.jpg)
 
 进入后，页面会切换为全屏桌面布局。顶部是菜单栏，中间是应用窗口和桌面图标，底部是程序坞（Dock）。首次进入时可能会短暂显示启动画面。
 
 需要返回经典 Console 时，点击左上角的 **QwenPaw 标识**，再选择“返回控制台”即可。OS Shell 只是另一种前端入口，切换界面不会创建第二套 QwenPaw 数据。
 
-![QwenPaw OS Shell 桌面中的 Chat 窗口](/blog/assets/qwenpaw-os/chat.png)
+![QwenPaw OS Shell 桌面中的 Chat 窗口](https://img.alicdn.com/imgextra/i1/O1CN01JLELdKorvLB5CGAm_!!6000000004339-0-tps-2560-1228.jpg)
 
 ## 02 认识桌面：图标、启动器、程序坞与窗口
 
@@ -77,11 +77,11 @@ Chat 是 QwenPaw OS Shell 中最直接的任务入口。打开 Chat 后，可以
 
 按下 **F3** 可以打开任务总览（Mission Control）。顶部展示可用的智能体空间及其窗口数量，点击卡片即可切换；也可以使用 **Ctrl + ← / →** 在空间之间移动。
 
-![任务总览中的多个智能体空间](/blog/assets/qwenpaw-os/mission-control.png)
+![任务总览中的多个智能体空间](https://img.alicdn.com/imgextra/i2/O1CN01jnjtfSXqu8I5CGAn_!!6000000002700-0-tps-2560-1229.jpg)
 
 例如，你可以把 Default Agent 用于日常对话，把 QA Agent 用于产品问答或文档核验。进入 QA Agent 的空间后，它拥有自己的窗口组合，不会把 Default Agent 的桌面挤乱。
 
-![QA Agent 的独立桌面空间](/blog/assets/qwenpaw-os/agent-space.png)
+![QA Agent 的独立桌面空间](https://img.alicdn.com/imgextra/i4/O1CN015P4tmnPeQSG5CGAn_!!6000000002843-0-tps-2560-1229.jpg)
 
 这种隔离方式适合两类场景：一类是按角色分工，例如“研究”“开发”“质检”；另一类是按项目分工，让不同 Agent 的对话、文件和应用窗口保持清晰边界。
 
@@ -95,7 +95,7 @@ QwenPaw OS Shell 提供了统一的**应用市场**，用于管理桌面应用�
 - 当前已经安装的 PawApp；
 - 来自插件市场、可以继续安装的应用。
 
-![QwenPaw OS Shell 应用市场](/blog/assets/qwenpaw-os/app-store.png)
+![QwenPaw OS Shell 应用市场](https://img.alicdn.com/imgextra/i4/O1CN01cdBqxyGYmYF5Bkx3_!!6000000006074-0-tps-2556-1217.jpg)
 
 安装流程与普通桌面应用类似：
 
@@ -107,7 +107,7 @@ QwenPaw OS Shell 提供了统一的**应用市场**，用于管理桌面应用�
 
 在本次走查中，我们安装了 **Agent Kanban**。安装完成后，它立即出现在 QwenPaw OS Shell 桌面，并可以在独立窗口中打开，无需离开当前智能体空间。
 
-![安装后打开的 Agent Kanban](/blog/assets/qwenpaw-os/installed-app.png)
+![安装后打开的 Agent Kanban](https://img.alicdn.com/imgextra/i1/O1CN01zkuicI4BdzH5C8Mk_!!6000000003201-0-tps-2559-1219.jpg)
 
 应用本质上仍运行在 QwenPaw 的插件与路由体系中，因此安装前应确认来源、版本兼容性和所需权限。对于不再使用的应用，可以回到应用市场卸载。
 
@@ -121,7 +121,7 @@ QwenPaw 的能力越多，配置入口越需要集中。系统设置将常用管
 - Backups 与 Voice Transcription；
 - Debug 与 Plugin Manager。
 
-![QwenPaw OS Shell 系统设置](/blog/assets/qwenpaw-os/system-settings.png)
+![QwenPaw OS Shell 系统设置](https://img.alicdn.com/imgextra/i1/O1CN0197z888mPcoD5CGAl_!!6000000001126-0-tps-2560-1227.jpg)
 
 如果要新增 Agent、调整模型、管理 Skills 或检查安全设置，可以双击桌面的“系统设置”，再从左侧选择对应分类。配置完成后关闭窗口即可回到原来的桌面，其他应用的位置不会被打断。
 
@@ -138,7 +138,7 @@ QwenPaw 的能力越多，配置入口越需要集中。系统设置将常用管
 - 在 Agent Kanban 等 PawApp 中管理结构化任务；
 - 保留系统设置窗口，以便随时调整 Agent、模型或安全配置。
 
-![Chat、Files 与 Agent Kanban 多个窗口同时展开](/blog/assets/qwenpaw-os/multi-windows.png)
+![Chat、Files 与 Agent Kanban 多个窗口同时展开](https://img.alicdn.com/imgextra/i3/O1CN01sEc6VFNbC5J5CGAe_!!6000000000192-0-tps-2560-1220.jpg)
 
 ### 排列与切换窗口
 

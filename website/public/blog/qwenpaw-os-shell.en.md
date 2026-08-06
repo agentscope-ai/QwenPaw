@@ -3,7 +3,7 @@ title: "QwenPaw OS Shell: A Desktop for Conversations, Agents, and Apps"
 date: 2026-08-06
 author: QwenPaw Team
 tags: [QwenPaw OS Shell, Agent Space, App Market, Approvals, Multi-window]
-cover: /blog/assets/qwenpaw-os/cover.png
+cover: https://img.alicdn.com/imgextra/i1/O1CN01KdzUBgLJLmH3OTaP_!!6000000003854-2-tps-1672-941.png
 excerpt: "QwenPaw OS Shell is a desktop-style frontend layer built on top of QwenPaw Console, bringing conversations, Agent Spaces, apps, system settings, and multi-window workflows together on one AI desktop."
 ---
 
@@ -27,13 +27,13 @@ You do not need to run a command or edit the browser address to enter QwenPaw OS
 
 On your first visit, the Console may display a “Try Desktop Mode” guide in the bottom-left corner, pointing to the quick-settings entry. Follow the prompt to find **Enter Desktop Mode**.
 
-![Enter Desktop Mode from quick settings in the classic Console](/blog/assets/qwenpaw-os/enter-desktop-mode.png)
+![Enter Desktop Mode from quick settings in the classic Console](https://img.alicdn.com/imgextra/i4/O1CN016yb4RooFSZJ5Bsl3_!!6000000006635-0-tps-2557-1224.jpg)
 
 The page then changes to a full-screen desktop layout. The menu bar sits at the top, app windows and desktop icons occupy the center, and the Dock appears at the bottom. A short startup screen may appear the first time you enter.
 
 To return to the classic Console, click the **QwenPaw logo** in the upper-left corner and select **Return to console**. OS Shell is simply another frontend entry point; switching interfaces does not create a second copy of your QwenPaw data.
 
-![The Chat window on the QwenPaw OS Shell desktop](/blog/assets/qwenpaw-os/chat.png)
+![The Chat window on the QwenPaw OS Shell desktop](https://img.alicdn.com/imgextra/i1/O1CN01JLELdKorvLB5CGAm_!!6000000004339-0-tps-2560-1228.jpg)
 
 ## 02 Get to Know the Desktop: Icons, Launchpad, Dock, and Windows
 
@@ -77,11 +77,11 @@ In QwenPaw OS Shell, every Agent has its own **Agent Space**. Each space preserv
 
 Press **F3** to open Mission Control. The top section shows the available Agent Spaces and their window counts. Click a card to switch spaces, or use **Ctrl + ← / →** to move between them.
 
-![Multiple Agent Spaces in Mission Control](/blog/assets/qwenpaw-os/mission-control.png)
+![Multiple Agent Spaces in Mission Control](https://img.alicdn.com/imgextra/i2/O1CN01jnjtfSXqu8I5CGAn_!!6000000002700-0-tps-2560-1229.jpg)
 
 For example, you can use the Default Agent for everyday conversations and a QA Agent for product questions or document verification. The QA Agent has its own window arrangement, so its workspace does not disrupt the Default Agent's desktop.
 
-![A separate desktop space for the QA Agent](/blog/assets/qwenpaw-os/agent-space.png)
+![A separate desktop space for the QA Agent](https://img.alicdn.com/imgextra/i4/O1CN015P4tmnPeQSG5CGAn_!!6000000002843-0-tps-2560-1229.jpg)
 
 This separation works well in two common situations. You can divide spaces by role—such as research, development, and quality assurance—or divide them by project so that each Agent's conversations, files, and app windows stay within a clear boundary.
 
@@ -95,7 +95,7 @@ QwenPaw OS Shell provides a unified **App Market** for managing desktop apps and
 - PawApps already installed in the current instance;
 - Apps available to install from the plugin market.
 
-![App Market in QwenPaw OS Shell](/blog/assets/qwenpaw-os/app-store.png)
+![App Market in QwenPaw OS Shell](https://img.alicdn.com/imgextra/i4/O1CN01cdBqxyGYmYF5Bkx3_!!6000000006074-0-tps-2556-1217.jpg)
 
 The installation flow is similar to using a regular desktop app store:
 
@@ -107,7 +107,7 @@ The installation flow is similar to using a regular desktop app store:
 
 During this walkthrough, we installed **Agent Kanban**. As soon as the installation finished, it appeared on the QwenPaw OS Shell desktop and could be opened in its own window without leaving the current Agent Space.
 
-![Agent Kanban opened after installation](/blog/assets/qwenpaw-os/installed-app.png)
+![Agent Kanban opened after installation](https://img.alicdn.com/imgextra/i1/O1CN01zkuicI4BdzH5C8Mk_!!6000000003201-0-tps-2559-1219.jpg)
 
 Apps still run through QwenPaw's plugin and routing system underneath OS Shell. Before installing one, confirm its source, version compatibility, and required permissions. If you no longer need an app, return to App Market to uninstall it.
 
@@ -121,7 +121,7 @@ As QwenPaw gains more capabilities, its configuration entry points need to stay 
 - Backups and Voice Transcription;
 - Debug and Plugin Manager.
 
-![System Settings in QwenPaw OS Shell](/blog/assets/qwenpaw-os/system-settings.png)
+![System Settings in QwenPaw OS Shell](https://img.alicdn.com/imgextra/i1/O1CN0197z888mPcoD5CGAl_!!6000000001126-0-tps-2560-1227.jpg)
 
 To add an Agent, change a model, manage Skills, or review security settings, double-click **System Settings** on the desktop and choose the relevant category from the left sidebar. When you finish, close the window to return to the same desktop; the positions of your other apps remain undisturbed.
 
@@ -138,7 +138,7 @@ A typical workspace might include:
 - A PawApp such as Agent Kanban, where you manage structured tasks;
 - System Settings, kept nearby so you can adjust Agents, models, or security controls when needed.
 
-![Chat, Files, and Agent Kanban open together in multiple windows](/blog/assets/qwenpaw-os/multi-windows.png)
+![Chat, Files, and Agent Kanban open together in multiple windows](https://img.alicdn.com/imgextra/i3/O1CN01sEc6VFNbC5J5CGAe_!!6000000000192-0-tps-2560-1220.jpg)
 
 ### Arrange and Switch Between Windows
 
