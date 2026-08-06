@@ -1723,3 +1723,33 @@ async def test_execute_shell_command_win32_uses_windows_host():
 
     mock_win.assert_awaited_once()
     assert "win-ok" in result.content[0].text
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Unix-only direct subprocess path",
+)
+async def test_non_dataclass_sandbox_config_ignored(
+    monkeypatch,
+    tmp_path,
+):
+    """Model-supplied non-SandboxConfig value must not crash replace().
+
+    Regression test for GitHub issue #6731: when a model fills the
+    ``sandbox_config`` parameter with a plain JSON value (e.g. ``{}``),
+    ``dataclasses.replace()`` raises ``TypeError``. The fix discards
+    any non-``SandboxConfig`` value and falls through to direct
+    execution.
+    """
+    from qwenpaw.agents.tools.shell import execute_shell_command
+
+    monkeypatch.setenv("SHELL", "/bin/sh")
+
+    result = await execute_shell_command(
+        "echo hello",
+        cwd=tmp_path,
+        sandbox_config={},
+    )
+
+    assert "hello" in result.content[0].text
