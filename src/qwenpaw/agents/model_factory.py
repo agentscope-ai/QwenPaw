@@ -1449,6 +1449,13 @@ def create_model_and_formatter(
     # ``__init__``), so we just wrap that one with file-block support
     # instead of class-resolving via a brittle map.
     formatter = _create_formatter_instance(model)
+    # Keep the provider model and the separately returned formatter on the
+    # same instance.  AgentScope formats ``Msg`` objects through
+    # ``model.formatter`` inside every API call, while QwenPaw's retry layer
+    # toggles request-time fallback flags on that same formatter.  Binding it
+    # here makes the contract hold for every factory caller, including those
+    # that intentionally ignore the second return value.
+    model.formatter = formatter
 
     # agentscope 2.0 ChatModelBase has its own retry loop
     # (model/_base.py:162: ``for attempt in range(self.max_retries + 1)``)
