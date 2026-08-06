@@ -6,6 +6,9 @@ import {
   toStoredName,
   normalizeContentUrls,
   toDisplayUrl,
+  getActiveSenderTextarea,
+  getSenderTextareaFromTarget,
+  clearSubmittedSenderInput,
 } from "./utils";
 import type { CopyableResponse } from "./utils";
 
@@ -106,6 +109,72 @@ describe("extractUserMessageText", () => {
   it("returns empty string for non-string non-array content", () => {
     expect(extractUserMessageText({ content: null })).toBe("");
     expect(extractUserMessageText({ content: 123 })).toBe("");
+  });
+});
+
+describe("getActiveSenderTextarea", () => {
+  it("prefers the textarea in the focused sender", () => {
+    document.body.innerHTML = `
+      <div class="sender-one"><textarea id="first"></textarea></div>
+      <div class="sender-two"><textarea id="second"></textarea></div>
+    `;
+    const second = document.querySelector("#second") as HTMLTextAreaElement;
+    second.focus();
+
+    expect(getActiveSenderTextarea()).toBe(second);
+    document.body.innerHTML = "";
+  });
+});
+
+describe("getSenderTextareaFromTarget", () => {
+  it("resolves the hidden textarea from the rich sender editor", () => {
+    document.body.innerHTML = `
+      <div class="qwenpaw-sender">
+        <div id="editor" contenteditable="true"></div>
+        <textarea id="bridge"></textarea>
+      </div>
+    `;
+    const editor = document.querySelector("#editor");
+    const textarea = document.querySelector("#bridge");
+
+    expect(getSenderTextareaFromTarget(editor)).toBe(textarea);
+    document.body.innerHTML = "";
+  });
+
+  it("rejects contenteditable elements outside a sender", () => {
+    document.body.innerHTML = `<div id="editor" contenteditable="true"></div>`;
+
+    expect(
+      getSenderTextareaFromTarget(document.querySelector("#editor")),
+    ).toBeNull();
+    document.body.innerHTML = "";
+  });
+});
+
+describe("clearSubmittedSenderInput", () => {
+  it("clears the real textarea value and dispatches an input event", () => {
+    document.body.innerHTML = `
+      <div class="sender"><textarea>send me</textarea></div>
+    `;
+    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+    const onInput = vi.fn();
+    textarea.addEventListener("input", onInput);
+
+    expect(clearSubmittedSenderInput("send me")).toBe(true);
+    expect(textarea.value).toBe("");
+    expect(onInput).toHaveBeenCalledOnce();
+    document.body.innerHTML = "";
+  });
+
+  it("does not erase text typed for the next message", () => {
+    document.body.innerHTML = `
+      <div class="sender"><textarea>next message</textarea></div>
+    `;
+    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+
+    expect(clearSubmittedSenderInput("sent message")).toBe(false);
+    expect(textarea.value).toBe("next message");
+    document.body.innerHTML = "";
   });
 });
 

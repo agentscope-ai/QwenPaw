@@ -44,7 +44,6 @@ describe("useOsAppLauncher", () => {
     useCodingModeStore.setState({
       codingModeByAgent: { default: false },
       codingModeRevisionByAgent: {},
-      projectDirByAgent: { default: null },
     });
     useOsWindows.setState({
       windows: {},

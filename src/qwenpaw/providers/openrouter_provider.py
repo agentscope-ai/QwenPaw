@@ -10,6 +10,7 @@ from agentscope.model import ChatModelBase
 from openai import APIError, AsyncOpenAI
 from pydantic import Field
 
+from qwenpaw.exceptions import ProviderError
 from qwenpaw.providers.provider import (
     Provider,
     ExtendedModelInfo,
@@ -17,6 +18,7 @@ from qwenpaw.providers.provider import (
 )
 from .capping_formatter import _CappingOpenAIFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
+from .multimodal_prober import ProbeResult
 
 
 class OpenRouterProvider(Provider):
@@ -273,6 +275,68 @@ class OpenRouterProvider(Provider):
             timeout=timeout,
             include_extended=True,
         )  # type: ignore
+
+    async def probe_model_multimodal(
+        self,
+        model_id: str,
+        timeout: float = 10,
+        image_only: bool = False,
+    ) -> ProbeResult:
+        """Resolve multimodal support from OpenRouter's model catalog.
+
+        OpenRouter publishes input modalities in its ``/models`` response.
+        Treat that metadata as authoritative instead of sending a paid chat
+        completion.  A missing or unavailable catalog is inconclusive and
+        must raise so the provider manager does not persist false capability
+        flags over previously known values.
+        """
+        try:
+            client = self._client(timeout=timeout)
+            payload = await client.models.list(timeout=timeout)
+        except APIError as exc:
+            raise ProviderError(
+                message=(
+                    "Unable to read OpenRouter model metadata while probing "
+                    f"'{model_id}'"
+                ),
+                details={"model_id": model_id},
+            ) from exc
+
+        models = self._normalize_models_payload(
+            payload,
+            include_extended=True,
+        )
+        model = next((item for item in models if item.id == model_id), None)
+        if model is None:
+            raise ProviderError(
+                message=(
+                    f"Model '{model_id}' was not found in the OpenRouter "
+                    "model catalog"
+                ),
+                details={"model_id": model_id},
+            )
+
+        supports_image = bool(model.supports_image)
+        supports_video = False if image_only else bool(model.supports_video)
+        image_message = (
+            "Image capability reported by OpenRouter model metadata: "
+            f"{supports_image}"
+        )
+        video_message = (
+            "Skipped: image_only=True"
+            if image_only
+            else (
+                "Video capability reported by OpenRouter model metadata: "
+                f"{supports_video}"
+            )
+        )
+        return ProbeResult(
+            supports_image=supports_image,
+            supports_video=supports_video,
+            image_message=image_message,
+            video_message=video_message,
+            probe_source="documentation",
+        )
 
     def filter_models(
         self,

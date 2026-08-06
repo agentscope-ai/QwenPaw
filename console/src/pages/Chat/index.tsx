@@ -11,6 +11,7 @@ import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
 import { usePlugins } from "../../plugins/PluginContext";
 import { useTranslation } from "react-i18next";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
@@ -30,7 +31,6 @@ import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
-import { useCodingMode } from "../../stores/codingModeStore";
 import {
   beginLoopModeSubmission,
   fetchActiveLoopMode,
@@ -81,6 +81,38 @@ import {
   type HeadlineStreamFilterState,
   stripScrollHeadlineTextBlocks,
 } from "./headlineFilter";
+import FilesDrawer from "../../features/files-workspace/FilesDrawer";
+import SessionProjectDirectory from "../../features/project-directory/SessionProjectDirectory";
+import {
+  sessionFilesScopeKey,
+  type FilesWorkspaceScope,
+} from "../../features/files-workspace/filesWorkspaceScope";
+import {
+  filePathFromPreviewUrl,
+  parseInternalFileLink,
+  rootForFileReference,
+} from "../../features/files-workspace/internalFileLinks";
+import type {
+  FilesDrawerEvent,
+  FileTarget,
+} from "../../features/files-workspace/types";
+import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
+import { projectDirectoryApi } from "../../api/modules/projectDirectory";
+import {
+  getPendingProjectDirectory,
+  migratePendingProjectDirectory,
+  setPendingProjectDirectory,
+  withPendingProjectDirectory,
+} from "../../features/project-directory/pendingProjectDirectory";
+import {
+  useFilesSurfaceStore,
+  useSessionFilesDrawer,
+} from "../../stores/filesSurfaceStore";
+import { useCodingTabsStore } from "../../stores/codingTabsStore";
+import RichFileReferenceInput, {
+  RichFileReferenceInputProvider,
+} from "./RichFileReferenceInput";
+import type { ParsedFileReference } from "./fileReferenceFormatting";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -103,6 +135,17 @@ interface ApprovalMessageData {
   sourceType: string;
 }
 
+function resolveBackendChatId(chatId?: string | null): string | undefined {
+  if (!chatId) return undefined;
+  const resolved = sessionApi.getRealIdForSession(chatId);
+  if (resolved) return resolved;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    chatId,
+  )
+    ? chatId
+    : undefined;
+}
+
 import WhisperSpeechButton, {
   WhisperSpeechButtonRef,
 } from "./components/WhisperSpeechButton";
@@ -116,19 +159,19 @@ import {
   normalizeContentUrls,
   extractUserMessageText,
   extractTextFromMessage,
+  clearSubmittedSenderInput,
+  getActiveSenderTextarea,
+  getSenderTextareaFromTarget,
   setTextareaValue,
   formatMessageTime,
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
 import {
+  CHAT_BASE_PATH,
+  buildChatPath,
   getSessionIdFromPath,
-  buildBasePath,
-  buildSessionPath,
-  type SessionRouteMode,
 } from "../../utils/sessionRoute";
-import { openExternalLink } from "../../utils/openExternalLink";
-import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import ChatSenderTabsPanel from "./components/ChatSenderTabsPanel";
 import {
@@ -352,22 +395,14 @@ async function startBackgroundQueue(
       let fetchStarted = false;
       try {
         const authHeaders = buildAuthHeaders();
+        const queueAgentId = item.agentId || "default";
         // Use the agent ID captured at enqueue time to prevent cross-agent
         // delivery when the user switches agents after queueing.
         if (item.agentId) {
           authHeaders["X-Agent-Id"] = item.agentId;
         }
-        // Intentionally do NOT pass ctrl.signal to fetch. This keeps the
-        // HTTP connection alive even when the queue loop is aborted (e.g.
-        // foreground takes over). The server finishes generating and
-        // persists the turn so no message is lost and no re-send occurs.
-        const res = await fetch(getApiUrl("/console/chat"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...authHeaders,
-          },
-          body: JSON.stringify({
+        const pendingRequest = withPendingProjectDirectory(
+          {
             input: [
               {
                 role: "user",
@@ -384,12 +419,29 @@ async function startBackgroundQueue(
             user_id: item.userId || DEFAULT_USER_ID,
             channel: item.channel || DEFAULT_CHANNEL,
             stream: true,
-          }),
+          },
+          queueAgentId,
+          queueKey,
+        );
+        // Intentionally do NOT pass ctrl.signal to fetch. This keeps the
+        // HTTP connection alive even when the queue loop is aborted (e.g.
+        // foreground takes over). The server finishes generating and
+        // persists the turn so no message is lost and no re-send occurs.
+        const res = await fetch(getApiUrl("/console/chat"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
+          body: JSON.stringify(pendingRequest.requestBody),
         });
 
         if (!res.ok) {
           sessionApi.discardLastUserMessage(chatIdForStatus, clientMessageId);
           throw new Error(`HTTP ${res.status}`);
+        }
+        if (pendingRequest.projectDir) {
+          setPendingProjectDirectory(queueAgentId, queueKey, null);
         }
         fetchStarted = true;
 
@@ -865,16 +917,11 @@ function useMessageHistoryNavigation(
       if (!isChatActive()) return;
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
 
-      const target = e.target as HTMLElement;
-      const isChatSender =
-        target?.tagName === "TEXTAREA" &&
-        target?.closest('[class*="sender"]') !== null;
-
-      if (!isChatSender) return;
+      const textarea = getSenderTextareaFromTarget(e.target);
+      if (!textarea) return;
       if (isComposingRef.current || (e as any).isComposing) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-      const textarea = target as HTMLTextAreaElement;
       const hasSelection = textarea.selectionStart !== textarea.selectionEnd;
       if (hasSelection) return;
 
@@ -929,12 +976,7 @@ function useMessageHistoryNavigation(
     };
 
     const handleFocus = (e: FocusEvent) => {
-      const target = e.target as HTMLElement;
-      const isChatSender =
-        target?.tagName === "TEXTAREA" &&
-        target?.closest('[class*="sender"]') !== null;
-
-      if (isChatSender) {
+      if (getSenderTextareaFromTarget(e.target)) {
         historyIndexRef.current = -1;
         draftRef.current = "";
       }
@@ -1064,57 +1106,6 @@ function useChatInputDraft(isChatActive: () => boolean, agentId?: string) {
   }, [isChatActive, storageKey]);
 }
 
-/**
- * When the user pastes into the chat textarea text that was just copied
- * from the Coding-mode editor, swap the raw paste for the formatted
- * `path:line[-line]` version (plus optional fenced code). Cmd/Ctrl+C in
- * the editor stays as a plain-text copy for paste-anywhere; only Chat
- * pastes get the editor-context format.
- *
- * Not gated by route: the Chat composer is also embedded in Coding
- * mode (side-by-side with the editor), and that's the primary place
- * users do an editor→chat copy. The handler is already selective (it
- * checks the paste target is a sender textarea AND the pasted text
- * matches the last editor copy), so a global listener is safe.
- */
-function useChatPasteFromEditor() {
-  useEffect(() => {
-    // Anything older than this is treated as stale (different copy session).
-    const STALE_MS = 60_000;
-
-    const handlePaste = (e: ClipboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target || target.tagName !== "TEXTAREA") return;
-      if (!target.closest('[class*="sender"]')) return;
-
-      const last = getLastEditorCopy();
-      if (!last) return;
-      if (Date.now() - last.ts > STALE_MS) return;
-
-      const pasted = e.clipboardData?.getData("text/plain");
-      if (pasted == null || pasted !== last.text) return;
-
-      e.preventDefault();
-      const textarea = target as HTMLTextAreaElement;
-      const start = textarea.selectionStart ?? textarea.value.length;
-      const end = textarea.selectionEnd ?? textarea.value.length;
-      const before = textarea.value.slice(0, start);
-      const after = textarea.value.slice(end);
-      const next = before + last.formatted + after;
-      setTextareaValue(textarea, next);
-      const caret = before.length + last.formatted.length;
-      requestAnimationFrame(() => {
-        textarea.selectionStart = textarea.selectionEnd = caret;
-      });
-    };
-
-    document.addEventListener("paste", handlePaste, true);
-    return () => {
-      document.removeEventListener("paste", handlePaste, true);
-    };
-  }, []);
-}
-
 function RuntimeLoadingBridge({
   bridgeRef,
   onLoadingChange,
@@ -1177,10 +1168,96 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark } = useTheme();
-  const { codingMode, initialized } = useCodingMode();
-  const codingModeRef = useRef(codingMode);
-  codingModeRef.current = codingMode;
+  const { selectedAgent, agents } = useAgentStore();
+  const chatId = useMemo(
+    () => getSessionIdFromPath(location.pathname),
+    [location.pathname],
+  );
+  const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
+  const backendChatId = resolveBackendChatId(chatId);
+  const pendingProjectDir = backendChatId
+    ? undefined
+    : getPendingProjectDirectory(selectedAgent, queueSessionId) ?? undefined;
+  const sessionScope = useMemo<
+    Extract<FilesWorkspaceScope, { kind: "session" }>
+  >(
+    () => ({
+      kind: "session",
+      agentId: selectedAgent,
+      sessionId: queueSessionId,
+      chatId: backendChatId,
+      projectDirOverride: pendingProjectDir,
+    }),
+    [backendChatId, pendingProjectDir, queueSessionId, selectedAgent],
+  );
+  const currentSessionFilesScopeKey = sessionFilesScopeKey(
+    selectedAgent,
+    queueSessionId,
+  );
+  const filesDrawerState = useSessionFilesDrawer(currentSessionFilesScopeKey);
+  const dispatchFilesDrawer = useCallback(
+    (event: FilesDrawerEvent) => {
+      useFilesSurfaceStore
+        .getState()
+        .dispatchSession(currentSessionFilesScopeKey, event);
+    },
+    [currentSessionFilesScopeKey],
+  );
+  const filesWorkspaceOpen = filesDrawerState.kind === "workspace";
+  const toggleFilesWorkspace = useCallback(() => {
+    const current = useFilesSurfaceStore.getState().sessionDrawers[
+      currentSessionFilesScopeKey
+    ] ?? { kind: "closed" as const };
+    if (current.kind === "workspace") {
+      dispatchFilesDrawer({ type: "CLOSE" });
+      return;
+    }
+    if (current.kind === "preview") {
+      dispatchFilesDrawer({ type: "EXPAND_WORKSPACE" });
+      return;
+    }
+    dispatchFilesDrawer({
+      type: "OPEN_WORKSPACE",
+      trigger: null,
+    });
+  }, [currentSessionFilesScopeKey, dispatchFilesDrawer]);
   const loopAvailableModes = useLoopStore((state) => state.availableModes);
+
+  useEffect(() => {
+    const openPreview = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        target: FileTarget;
+        trigger?: HTMLElement | null;
+      }>;
+      dispatchFilesDrawer({
+        type: "OPEN_PREVIEW",
+        target: customEvent.detail.target,
+        trigger: customEvent.detail.trigger ?? null,
+      });
+    };
+    window.addEventListener("qwenpaw:open-file-preview", openPreview);
+    return () =>
+      window.removeEventListener("qwenpaw:open-file-preview", openPreview);
+  }, [dispatchFilesDrawer]);
+
+  const handleInternalFileLink = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const element = event.target;
+      if (!(element instanceof Element)) return;
+      const anchor = element.closest<HTMLAnchorElement>("a[href]");
+      if (!anchor) return;
+      const target = parseInternalFileLink(anchor.getAttribute("href") ?? "");
+      if (!target) return;
+      event.preventDefault();
+      event.stopPropagation();
+      dispatchFilesDrawer({
+        type: "OPEN_PREVIEW",
+        target,
+        trigger: anchor,
+      });
+    },
+    [dispatchFilesDrawer],
+  );
 
   // Wide mode toggle: expand chat content to full available width
   const [isWideMode, setIsWideMode] = useState(() => {
@@ -1206,22 +1283,6 @@ export default function ChatPage() {
     });
   }, []);
 
-  // Redirect to /coding when coding mode is active, preserving sessionId.
-  useEffect(() => {
-    if (initialized && codingMode && !location.pathname.startsWith("/coding")) {
-      // Issue #5142: Carry over the current chatId so the session survives
-      // the redirect from /chat/<id> to /coding/<id>.
-      const currentChatId = getSessionIdFromPath(location.pathname);
-      navigate(buildSessionPath("coding", currentChatId), {
-        replace: true,
-      });
-    }
-  }, [initialized, codingMode, navigate, location.pathname]);
-
-  const chatId = useMemo(
-    () => getSessionIdFromPath(location.pathname),
-    [location.pathname],
-  );
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const [rateLimitAlternatives, setRateLimitAlternatives] = useState<
     Array<{
@@ -1231,7 +1292,6 @@ export default function ChatPage() {
       model_name: string;
     }>
   >([]);
-  const { selectedAgent, agents } = useAgentStore();
   const selectedAgentInfo = agents.find((agent) => agent.id === selectedAgent);
   const selectedAgentBackend = selectedAgentInfo?.backend ?? "qwenpaw";
   const backendCapabilities = selectedAgentInfo?.backend_capabilities;
@@ -1251,7 +1311,6 @@ export default function ChatPage() {
     createHeadlineFilterState(),
   );
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
-  const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
   const queueSessionIdRef = useRef(queueSessionId);
   queueSessionIdRef.current = queueSessionId;
   const messageQueue =
@@ -1509,6 +1568,7 @@ export default function ChatPage() {
   // On mobile viewports the right-side history panel should always be
   // available regardless of the sidebar mode setting.
   const isMobile = useIsMobile();
+  const prefersReducedMotion = useReducedMotion();
   const effectiveIsFullMode = isFullMode || isMobile;
 
   // Right-side history panel state
@@ -1566,12 +1626,8 @@ export default function ChatPage() {
   }, [selectedAgent, usesQwenPawBackend]);
 
   const isChatActiveRef = useRef(false);
-  // Issue #5142: In Coding mode the Chat component is embedded under /coding/*,
-  // so session callbacks must also fire on /coding paths.
   isChatActiveRef.current =
-    location.pathname === "/" ||
-    location.pathname.startsWith("/chat") ||
-    location.pathname.startsWith("/coding");
+    location.pathname === "/" || location.pathname.startsWith("/chat");
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
 
@@ -1800,6 +1856,7 @@ export default function ChatPage() {
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  const pendingSenderClearRef = useRef<string | null>(null);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1845,8 +1902,6 @@ export default function ChatPage() {
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
   useChatInputDraft(isChatActive, selectedAgent);
-  useChatPasteFromEditor();
-
   // ── Message Queue ───────────────────────────────────────────────────────
 
   // Stop background sender for THIS session when ChatPage mounts (foreground
@@ -2108,11 +2163,56 @@ export default function ChatPage() {
 
   const onFileCardClick = useCallback(
     (fileInfo: { name?: string; size?: number; url?: string }) => {
-      if (fileInfo.url) {
-        openExternalLink(fileInfo.url);
-      }
+      if (!fileInfo.url) return;
+      const target: FileTarget = {
+        source: "attachment",
+        path:
+          filePathFromPreviewUrl(fileInfo.url) ||
+          fileInfo.name ||
+          fileInfo.url.split("?")[0].split("/").pop() ||
+          t("files.title"),
+        artifactUrl: fileInfo.url,
+      };
+      dispatchFilesDrawer({
+        type: "OPEN_PREVIEW",
+        target,
+        trigger: null,
+      });
     },
-    [],
+    [dispatchFilesDrawer, t],
+  );
+
+  const openInlineFileReference = useCallback(
+    async (reference: ParsedFileReference, trigger: HTMLElement) => {
+      let root: FileTarget["root"] = "project";
+      try {
+        const agentDirectory = await projectDirectoryApi.get();
+        const backendChatId = resolveBackendChatId(chatId);
+        const projectDirectory = backendChatId
+          ? (await chatProjectDirectoryApi.get(backendChatId)).project_dir
+          : agentDirectory.path;
+        root = rootForFileReference(
+          reference.path,
+          projectDirectory,
+          agentDirectory.workspace_dir ?? agentDirectory.path,
+        );
+      } catch {
+        root = "project";
+      }
+      const target: FileTarget = {
+        source: "workspace",
+        path: reference.path,
+        root,
+        line: reference.startLine,
+        endLine: reference.endLine,
+      };
+      dispatchFilesDrawer({
+        type: reference.kind === "editor" ? "OPEN_WORKSPACE" : "OPEN_PREVIEW",
+        target,
+        trigger,
+      });
+    },
+    [chatId, dispatchFilesDrawer],
   );
 
   // Shortcut key for voice recording (Ctrl+Shift+M or Cmd+Shift+M on Mac)
@@ -2184,16 +2284,19 @@ export default function ChatPage() {
   // Register session API event callbacks for URL synchronization
 
   useEffect(() => {
-    const getCurrentRouteMode = (): SessionRouteMode =>
-      codingModeRef.current ? "coding" : "chat";
-
     const buildCurrentSessionPath = (sessionId: string) =>
-      buildSessionPath(getCurrentRouteMode(), sessionId);
+      buildChatPath(sessionId);
 
-    const buildCurrentBasePath = () => buildBasePath(getCurrentRouteMode());
+    const buildCurrentBasePath = () => CHAT_BASE_PATH;
 
     sessionApi.onSessionIdResolved = (tempId, realId) => {
       if (!isChatActiveRef.current) return;
+      const agentId = selectedAgentRef.current;
+      migratePendingProjectDirectory(agentId, tempId, realId);
+      const fromScopeKey = sessionFilesScopeKey(agentId, tempId);
+      const toScopeKey = sessionFilesScopeKey(agentId, realId);
+      useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
+      useFilesSurfaceStore.getState().migrateSession(fromScopeKey, toScopeKey);
       try {
         useMessageQueueStore.getState().migrateQueue(tempId, realId);
       } catch {
@@ -2239,6 +2342,12 @@ export default function ChatPage() {
         // ignore
       }
       stopBackgroundQueue(removedId);
+      const removedScopeKey = sessionFilesScopeKey(
+        selectedAgentRef.current,
+        removedId,
+      );
+      useCodingTabsStore.getState().removeScope(removedScopeKey);
+      useFilesSurfaceStore.getState().removeSession(removedScopeKey);
     };
 
     sessionApi.onSessionSelected = (
@@ -2316,6 +2425,12 @@ export default function ChatPage() {
 
     sessionApi.onSessionCreated = (sessionId) => {
       if (!isChatActiveRef.current) return;
+      const agentId = selectedAgentRef.current;
+      migratePendingProjectDirectory(agentId, "new", sessionId);
+      const fromScopeKey = sessionFilesScopeKey(agentId, "new");
+      const toScopeKey = sessionFilesScopeKey(agentId, sessionId);
+      useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
+      useFilesSurfaceStore.getState().migrateSession(fromScopeKey, toScopeKey);
       try {
         useMessageQueueStore.getState().clear("new");
       } catch {
@@ -2381,7 +2496,7 @@ export default function ChatPage() {
       // before this guard was added.
       const restored = getLastChatId(selectedAgent);
       if (restored && !isLocalTimestampId(restored)) {
-        navigateRef.current(buildSessionPath("chat", restored), {
+        navigateRef.current(buildChatPath(restored), {
           replace: true,
         });
         sessionApi.preferredChatId = restored;
@@ -2436,13 +2551,22 @@ export default function ChatPage() {
             !activeModels?.active_llm?.provider_id ||
             !activeModels?.active_llm?.model
           ) {
+            pendingSenderClearRef.current = null;
             setShowModelPrompt(true);
             return buildModelError();
           }
         } catch {
+          pendingSenderClearRef.current = null;
           setShowModelPrompt(true);
           return buildModelError();
         }
+      }
+
+      const submittedValue = pendingSenderClearRef.current;
+      if (submittedValue !== null) {
+        clearSubmittedSenderInput(submittedValue);
+        pendingSenderClearRef.current = null;
+        localStorage.removeItem(getDraftStorageKey(selectedAgent));
       }
 
       const { input = [], biz_params } = data;
@@ -2491,6 +2615,9 @@ export default function ChatPage() {
         }
       }
 
+      let projectSessionId: string | null = null;
+      let appliedProjectDir: string | null = null;
+
       if (clientMessageId && Array.isArray(requestBody.input)) {
         const requestInput = [...requestBody.input] as Array<
           Record<string, unknown>
@@ -2505,13 +2632,23 @@ export default function ChatPage() {
           break;
         }
       }
-
       if (usesQwenPawBackend) {
         applyApprovalLevelToRequestBody(
           requestBody,
           sessionApprovalLevelRef.current,
           runningConfigApprovalLevel,
         );
+        projectSessionId =
+          sessionApi.lastActiveChatId ??
+          chatIdRef.current ??
+          String(requestBody.session_id || "new");
+        const pendingRequest = withPendingProjectDirectory(
+          requestBody,
+          selectedAgent,
+          projectSessionId,
+        );
+        requestBody = pendingRequest.requestBody;
+        appliedProjectDir = pendingRequest.projectDir ?? null;
       } else if (Object.keys(backendControlsRef.current).length > 0) {
         const currentContext =
           requestBody.request_context &&
@@ -2570,6 +2707,9 @@ export default function ChatPage() {
 
       const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
       if (response.ok && localIdToResolve) {
+        if (appliedProjectDir && projectSessionId) {
+          setPendingProjectDirectory(selectedAgent, projectSessionId, null);
+        }
         sessionApi.triggerResolve(localIdToResolve);
       }
 
@@ -2632,6 +2772,8 @@ export default function ChatPage() {
     },
     [multimodalCaps, t, usesQwenPawBackend],
   );
+
+  const compactSender = filesDrawerState.kind === "workspace";
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
@@ -2705,9 +2847,7 @@ export default function ChatPage() {
       // abort the actual SDK send. The owner tab will pick the item up via
       // cross-tab broadcast and send it.
       if (!isOwnerRef.current) {
-        const textarea = document
-          .querySelector('[class*="sender"]')
-          ?.querySelector("textarea") as HTMLTextAreaElement | null;
+        const textarea = getActiveSenderTextarea();
         const val = textarea?.value.trim() ?? "";
         if (!val) return false;
         const currentQ = useMessageQueueStore
@@ -2748,9 +2888,7 @@ export default function ChatPage() {
       // Clear pending attachments when sending directly (not through queue)
       pendingFileListRef.current = [];
 
-      const textarea = document
-        .querySelector('[class*="sender"]')
-        ?.querySelector("textarea") as HTMLTextAreaElement | null;
+      const textarea = getActiveSenderTextarea();
       if (textarea) {
         const prepared = usesQwenPawBackend
           ? beginLoopModeSubmission(textarea.value)
@@ -2758,6 +2896,7 @@ export default function ChatPage() {
         if (prepared !== textarea.value) {
           setTextareaValue(textarea, prepared);
         }
+        pendingSenderClearRef.current = prepared;
       }
 
       return true;
@@ -2978,6 +3117,8 @@ export default function ChatPage() {
               <HarnessModelSelector providerId={selectedAgentBackend} />
             ) : null}
             <ChatActionGroup
+              onToggleWorkspace={toggleFilesWorkspace}
+              workspaceOpen={filesWorkspaceOpen}
               onToggleHistory={
                 effectiveIsFullMode ? toggleHistoryPanel : undefined
               }
@@ -3003,6 +3144,9 @@ export default function ChatPage() {
       },
       sender: {
         ...(i18nConfig as any)?.sender,
+        components: {
+          input: RichFileReferenceInput,
+        },
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: whisperChecked && !whisperEnabled,
         beforeUI: showSenderBeforeUI ? (
@@ -3043,11 +3187,9 @@ export default function ChatPage() {
         ),
         actionAffix: (
           <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-            }}
+            className={`${styles.senderActionAffix} ${
+              compactSender ? styles.compactSenderAffix : ""
+            }`}
           >
             {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
               <ContextUsageIndicator
@@ -3055,10 +3197,17 @@ export default function ChatPage() {
                 onNew={handleNewCommand}
               />
             )}
+            {usesQwenPawBackend && (
+              <SessionProjectDirectory
+                scope={sessionScope}
+                compact={compactSender}
+              />
+            )}
             {usesQwenPawBackend ? (
               <ApprovalLevelToggle
                 sessionId={queueSessionId}
                 runningConfigApprovalLevel={runningConfigApprovalLevel}
+                compact={compactSender}
                 onChange={(sessionOverride) => {
                   sessionApprovalLevelRef.current = sessionOverride;
                 }}
@@ -3346,16 +3495,55 @@ export default function ChatPage() {
     toggleHistoryPanel,
     handleCompactCommand,
     handleNewCommand,
+    compactSender,
+    sessionScope,
+    filesWorkspaceOpen,
+    toggleFilesWorkspace,
     isOwner,
     bgTaskCount,
     bgBackendSessionId,
     queueSessionId,
   ]);
 
+  const filesDrawerClass =
+    filesDrawerState.kind === "closed"
+      ? ""
+      : filesDrawerState.kind === "preview"
+      ? styles.filesPreviewOpen
+      : styles.filesWorkspaceOpen;
+
   return (
-    <div className={styles.chatPageRoot}>
+    <div
+      className={`${styles.chatPageRoot} ${filesDrawerClass}`}
+      onClickCapture={handleInternalFileLink}
+    >
+      <AnimatePresence initial={false} mode="popLayout">
+        {filesDrawerState.kind !== "closed" ? (
+          <FilesDrawer
+            key="session-files-drawer"
+            state={filesDrawerState}
+            dispatch={dispatchFilesDrawer}
+            scope={sessionScope}
+          />
+        ) : null}
+      </AnimatePresence>
       {/* Main chat area */}
-      <div className={styles.chatMainArea}>
+      <motion.div
+        className={styles.chatMainArea}
+        layout={prefersReducedMotion ? false : "size"}
+        transition={
+          prefersReducedMotion
+            ? { duration: 0 }
+            : {
+                layout: {
+                  type: "spring",
+                  stiffness: 360,
+                  damping: 38,
+                  mass: 0.82,
+                },
+              }
+        }
+      >
         <div
           className={
             isWideMode
@@ -3363,11 +3551,17 @@ export default function ChatPage() {
               : styles.chatMessagesArea
           }
         >
-          <AgentScopeRuntimeWebUI
-            ref={chatRef}
-            key={refreshKey}
-            options={options}
-          />
+          <RichFileReferenceInputProvider
+            onOpenReference={(reference, trigger) =>
+              void openInlineFileReference(reference, trigger)
+            }
+          >
+            <AgentScopeRuntimeWebUI
+              ref={chatRef}
+              key={refreshKey}
+              options={options}
+            />
+          </RichFileReferenceInputProvider>
         </div>
 
         {/* Rate-limit guidance banner */}
@@ -3549,7 +3743,7 @@ export default function ChatPage() {
             ]}
           />
         </Modal>
-      </div>
+      </motion.div>
       {/* End of main chat area */}
 
       {/* Right-side history panel (full mode only) */}
