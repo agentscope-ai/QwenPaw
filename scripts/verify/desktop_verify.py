@@ -539,22 +539,23 @@ class PlaywrightDriver(UIDriver):
         if dismissed_steps:
             print(f"INFO  dismissed product tour ({dismissed_steps} step(s))")
 
-    def _replace_webkit_input(self, input_box, message: str) -> None:
+    def _replace_webkit_input(self, message: str) -> None:
         """Replace Lexical content without WebKit's hanging input protocol."""
         print("INFO  replacing WebKit rich-editor content", flush=True)
-        input_box.evaluate(
-            """(element, value) => {
-              element.focus();
-              const selection = window.getSelection();
-              if (!selection) throw new Error('Selection API is unavailable');
-              const range = document.createRange();
-              range.selectNodeContents(element);
-              selection.removeAllRanges();
-              selection.addRange(range);
-              document.execCommand('insertText', false, value);
-              if (element.textContent !== value) {
-                throw new Error('insertText did not update the rich editor');
+        self._page.locator(SEL_INPUT).first.evaluate(
+            """(editor, value) => {
+              const textarea = editor.parentElement?.querySelector('textarea');
+              if (!(textarea instanceof HTMLTextAreaElement)) {
+                throw new Error('Hidden chat textarea was not found');
               }
+              const setter = Object.getOwnPropertyDescriptor(
+                HTMLTextAreaElement.prototype,
+                'value',
+              )?.set;
+              if (setter) setter.call(textarea, value);
+              else textarea.value = value;
+              textarea.selectionStart = textarea.selectionEnd = value.length;
+              textarea.dispatchEvent(new Event('input', { bubbles: true }));
             }""",
             message,
             timeout=5_000,
@@ -581,7 +582,7 @@ class PlaywrightDriver(UIDriver):
         if self._browser_name == "webkit":
             # WebKit v2251 on macos-14 can hang indefinitely in Playwright's
             # click(), fill(), and keyboard input protocols for Lexical.
-            self._replace_webkit_input(input_box, message)
+            self._replace_webkit_input(message)
         else:
             input_box.focus()
             time.sleep(0.2)
@@ -602,7 +603,9 @@ class PlaywrightDriver(UIDriver):
             pass
 
         send_btn = self._page.locator(SEL_SEND_BTN).first
-        if send_btn.is_visible() and send_btn.is_enabled():
+        if self._browser_name == "webkit":
+            send_btn.evaluate("element => element.click()", timeout=5_000)
+        elif send_btn.is_visible() and send_btn.is_enabled():
             send_btn.click()
         else:
             self._page.keyboard.press("Enter")
@@ -628,9 +631,28 @@ class PlaywrightDriver(UIDriver):
             # Fall back to pressing Enter — some layouts ignore the
             # send button click but accept Enter on the chat input.
             try:
-                input_box.focus()
-                time.sleep(0.2)
-                self._page.keyboard.press("Enter")
+                if self._browser_name == "webkit":
+                    input_box.evaluate(
+                        """element => {
+                          const options = {
+                            key: 'Enter',
+                            code: 'Enter',
+                            bubbles: true,
+                            cancelable: true,
+                          };
+                          element.dispatchEvent(
+                            new KeyboardEvent('keydown', options),
+                          );
+                          element.dispatchEvent(
+                            new KeyboardEvent('keyup', options),
+                          );
+                        }""",
+                        timeout=5_000,
+                    )
+                else:
+                    input_box.focus()
+                    time.sleep(0.2)
+                    self._page.keyboard.press("Enter")
                 self._page.wait_for_function(
                     """(expected) => {
                       const msgs = document.querySelectorAll(
