@@ -87,6 +87,10 @@ class AgentToolCall:
         compare=False,
         repr=False,
     )
+    # Retain the provider payload only until the Runtime persists the completed
+    # turn. Raw fragments are deliberately not durable events anymore.
+    raw_arguments: str = field(default="", compare=False, repr=False)
+    provider_chunk_count: int = field(default=0, compare=False, repr=False)
 
     def history_dict(self) -> dict[str, Any]:
         """Serialize the call for the driver's provider-independent turn history."""
@@ -111,9 +115,31 @@ class AgentModelTurn:
     thinking: str = ""
     tool_calls: tuple[AgentToolCall, ...] = ()
     provider_message_id: str | None = None
+    finish_reason: str = "completed"
+    usage: dict[str, Any] | None = field(default=None, compare=False)
 
 
 _ARGS_PREVIEW_CHARS = 160
+
+
+def _usage_payload(usage: Any) -> dict[str, Any] | None:
+    if usage is None:
+        return None
+    payload: dict[str, Any] = {}
+    for name in (
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_input_tokens",
+        "time",
+    ):
+        value = getattr(usage, name, None)
+        if isinstance(value, (int, float)):
+            payload[name] = value
+    metadata = getattr(usage, "metadata", None)
+    if isinstance(metadata, Mapping) and metadata:
+        payload["metadata"] = dict(metadata)
+    return payload or None
 
 
 def _parse_tool_arguments(
@@ -140,6 +166,9 @@ def _parse_tool_arguments(
     else:
         if isinstance(parsed, dict):
             return parsed, None, False, None
+    benign = _parse_with_benign_trailing_closers(raw, decode_error)
+    if benign is not None:
+        return benign, None, False, None
     strict_error = (
         f"JSONDecodeError: {decode_error}"
         if decode_error is not None
@@ -169,6 +198,36 @@ def _parse_tool_arguments(
 
 AgentTextDeltaCallback = Callable[[str], Awaitable[None]]
 AgentToolDeltaCallback = Callable[[str, str, str], Awaitable[None]]
+
+
+def _parse_with_benign_trailing_closers(
+    raw: str,
+    decode_error: json.JSONDecodeError | None,
+) -> dict[str, Any] | None:
+    """Accept a complete JSON object followed only by stray closers.
+
+    Long streamed tool arguments sometimes end with one surplus ``}`` or
+    ``]`` (a bracket-count slip, not truncation). When the prefix before
+    the decode error parses to a complete object and the remainder holds
+    zero information — nothing but closers and whitespace — executing the
+    prefix is provably lossless, so the call must not pay a repair-and-
+    retry turn. Any other trailing content means real payload was cut off
+    and keeps the strict failure path.
+    """
+
+    if decode_error is None or "Extra data" not in decode_error.msg:
+        return None
+    boundary = decode_error.pos
+    remainder = raw[boundary:].strip()
+    if remainder and set(remainder) - {"}", "]", " ", "\t", "\r", "\n"}:
+        return None
+    try:
+        parsed = json.loads(raw[:boundary])
+    except json.JSONDecodeError:
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    return None
 
 
 def _guard_text_callback(
@@ -502,9 +561,10 @@ class AgentScopeAgentChatClient:
         on_text_delta: AgentTextDeltaCallback | None = None,
         on_thinking_delta: AgentTextDeltaCallback | None = None,
         on_tool_call_delta: AgentToolDeltaCallback | None = None,
-        _empty_retries_remaining: int = 1,
+        _empty_retries_remaining: int = 2,
         _rate_limit_retries_remaining: int = 3,
         _transient_retries_remaining: int = 2,
+        _markup_retries_remaining: int = 2,
     ) -> AgentModelTurn:
         native_messages = records_to_agentscope_messages(messages)
         allowed_names = {
@@ -522,6 +582,7 @@ class AgentScopeAgentChatClient:
         streamed_tool_call_ids: set[str] = set()
         streamed_tool_names: dict[str, str] = {}
         pending_tool_inputs: dict[str, list[str]] = {}
+        provider_tool_chunk_counts: dict[str, int] = {}
 
         try:
             async with model_slot("text"):
@@ -567,6 +628,15 @@ class AgentScopeAgentChatClient:
                                         ]
                                         if guarded_tool_delta is not None:
                                             for delta in deltas:
+                                                provider_tool_chunk_counts[
+                                                    block.id
+                                                ] = (
+                                                    provider_tool_chunk_counts.get(
+                                                        block.id,
+                                                        0,
+                                                    )
+                                                    + 1
+                                                )
                                                 await guarded_tool_delta(
                                                     block.id,
                                                     effective_name,
@@ -574,6 +644,15 @@ class AgentScopeAgentChatClient:
                                                 )
                                             streamed_tool_call_ids.add(
                                                 block.id,
+                                            )
+                                        else:
+                                            provider_tool_chunk_counts[
+                                                block.id
+                                            ] = provider_tool_chunk_counts.get(
+                                                block.id,
+                                                0,
+                                            ) + len(
+                                                deltas,
                                             )
                                     else:
                                         pending_tool_inputs.setdefault(
@@ -589,6 +668,36 @@ class AgentScopeAgentChatClient:
                             "AgentScope Creator stream is missing its final response",
                         )
                     response = final
+        except NonNativeToolMarkupError as exc:
+            # Same class of stochastic stream degradation as an empty
+            # response: the model narrates its tool call as XML-ish text.
+            # A fresh turn usually recovers; killing the run must be the
+            # last resort, not the first response.
+            if _markup_retries_remaining > 0:
+                logger.warning(
+                    "Model emitted textual tool-call markup in a TextBlock, "
+                    "retrying (%d retries remaining)",
+                    _markup_retries_remaining,
+                )
+                return await self.complete(
+                    messages=messages,
+                    tools=tools,
+                    on_text_delta=on_text_delta,
+                    on_thinking_delta=on_thinking_delta,
+                    on_tool_call_delta=on_tool_call_delta,
+                    _empty_retries_remaining=_empty_retries_remaining,
+                    _rate_limit_retries_remaining=(
+                        _rate_limit_retries_remaining
+                    ),
+                    _transient_retries_remaining=(
+                        _transient_retries_remaining
+                    ),
+                    _markup_retries_remaining=_markup_retries_remaining - 1,
+                )
+            raise AgentModelError(
+                "Creator Agent returned textual tool-call markup instead of "
+                "an AgentScope ToolCallBlock",
+            ) from exc
         except (
             AgentModelError,
             AgentModelConfigurationError,
@@ -720,6 +829,11 @@ class AgentScopeAgentChatClient:
                         ),
                         arguments_repaired=repaired,
                         strict_json_error=strict_error,
+                        raw_arguments=raw_arguments,
+                        provider_chunk_count=(
+                            provider_tool_chunk_counts.get(call_id, 0)
+                            or (1 if raw_arguments else 0)
+                        ),
                     ),
                 )
 
@@ -727,6 +841,27 @@ class AgentScopeAgentChatClient:
         try:
             await text_stream.finalize(text)
         except NonNativeToolMarkupError as exc:
+            if _markup_retries_remaining > 0:
+                logger.warning(
+                    "Model emitted textual tool-call markup in final text, "
+                    "retrying (%d retries remaining)",
+                    _markup_retries_remaining,
+                )
+                return await self.complete(
+                    messages=messages,
+                    tools=tools,
+                    on_text_delta=on_text_delta,
+                    on_thinking_delta=on_thinking_delta,
+                    on_tool_call_delta=on_tool_call_delta,
+                    _empty_retries_remaining=_empty_retries_remaining,
+                    _rate_limit_retries_remaining=(
+                        _rate_limit_retries_remaining
+                    ),
+                    _transient_retries_remaining=(
+                        _transient_retries_remaining
+                    ),
+                    _markup_retries_remaining=_markup_retries_remaining - 1,
+                )
             raise AgentModelError(
                 "Creator Agent returned textual tool-call markup instead of an "
                 "AgentScope ToolCallBlock",
@@ -772,6 +907,14 @@ class AgentScopeAgentChatClient:
             provider_message_id=(
                 str(response.id) if getattr(response, "id", None) else None
             ),
+            finish_reason=str(
+                getattr(
+                    getattr(response, "finished_reason", None),
+                    "value",
+                    getattr(response, "finished_reason", "completed"),
+                ),
+            ),
+            usage=_usage_payload(getattr(response, "usage", None)),
         )
 
 

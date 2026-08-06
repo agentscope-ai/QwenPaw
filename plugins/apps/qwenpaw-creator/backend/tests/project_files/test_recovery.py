@@ -1055,3 +1055,98 @@ def test_legacy_journal_is_parseable_but_never_guessed(tmp_path):
     assert report.outcomes[0].action is RecoveryAction.INTEGRITY_ERROR
     assert "legacy journal" in (report.outcomes[0].detail or "")
     assert store.read("project-1") == result.snapshot
+
+
+def test_legacy_schema_replaced_transaction_is_finalized_not_fail_closed(
+    tmp_path,
+    monkeypatch,
+):
+    """A pre-migration PROJECT_REPLACED transaction must not fail-close the
+    Project after a schema upgrade: recovery advances its journal so the
+    commit-time pending-publication guard accepts new writes again."""
+
+    store, base = _project_store(tmp_path)
+    _crash_with_project_replaced(
+        store,
+        base,
+        monkeypatch,
+        transaction_id="legacy-replaced",
+        round_id="round-legacy",
+    )
+    base_store = AtomicJsonRecordStore(
+        _transaction_root(store, "legacy-replaced") / "base.json",
+    )
+    base_data = base_store.read()
+    base_data["schema_version"] = 999
+    base_store.write(base_data)
+
+    report = ProjectCommitRecoveryCoordinator(store).recover_project(
+        "project-1",
+    )
+    assert report.ok
+    outcome = next(
+        item
+        for item in report.outcomes
+        if item.transaction_id == "legacy-replaced"
+    )
+    assert outcome.action is RecoveryAction.ALREADY_FINALIZED
+    assert "legacy-schema" in (outcome.detail or "")
+    assert (
+        _journal(store, "legacy-replaced").state
+        is CommitJournalState.RUNTIME_FINALIZED
+    )
+
+    # New commits pass the pending-publication guard again.
+    current = store.read("project-1")
+    candidate = current.project.model_dump(mode="json")
+    candidate["name"] = "After legacy recovery"
+    ProjectCommitBoundary(store).commit(
+        base=current,
+        candidate=candidate,
+        origin="frontend_edit",
+        transaction_id="post-legacy-commit",
+    )
+    assert store.read("project-1").project.name == "After legacy recovery"
+
+
+def test_legacy_schema_aborted_transaction_is_skipped(tmp_path, monkeypatch):
+    store, base = _project_store(tmp_path)
+    _crash_with_project_replaced(
+        store,
+        base,
+        monkeypatch,
+        transaction_id="legacy-aborted",
+        round_id="round-legacy-aborted",
+    )
+    journal_store = AtomicJsonRecordStore(
+        _transaction_root(store, "legacy-aborted") / "journal.json",
+        ProjectCommitJournal,
+    )
+    snapshot = journal_store.read_snapshot()
+    journal_store.compare_and_swap(
+        expected_checksum=snapshot.checksum,
+        value=snapshot.value.model_copy(
+            update={"state": CommitJournalState.ABORTED},
+        ),
+    )
+    base_store = AtomicJsonRecordStore(
+        _transaction_root(store, "legacy-aborted") / "base.json",
+    )
+    base_data = base_store.read()
+    base_data["schema_version"] = 999
+    base_store.write(base_data)
+
+    report = ProjectCommitRecoveryCoordinator(store).recover_project(
+        "project-1",
+    )
+    assert report.ok
+    outcome = next(
+        item
+        for item in report.outcomes
+        if item.transaction_id == "legacy-aborted"
+    )
+    assert outcome.action is RecoveryAction.SKIPPED_ABORTED
+    assert "legacy-schema" in (outcome.detail or "")
+    assert (
+        _journal(store, "legacy-aborted").state is CommitJournalState.ABORTED
+    )

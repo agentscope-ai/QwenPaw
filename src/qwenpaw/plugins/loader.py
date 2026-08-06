@@ -551,6 +551,7 @@ class PluginLoader:
                 "name": manifest.name,
                 "version": manifest.version,
                 "description": manifest.description,
+                "description_i18n": manifest.description_i18n,
                 "author": manifest.author,
                 "dependencies": manifest.dependencies,
                 "qwenpaw_version": qv_dict,

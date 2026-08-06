@@ -2,7 +2,7 @@
 # pylint: disable=too-many-branches,too-many-statements
 """Typed side effects for explicit frontend Element draft commits.
 
-User operations remain ordinary schema-v2 JSON Pointer edits.  Before the
+User operations remain ordinary Project JSON Pointer edits.  Before the
 Project commit is published, this module derives which selected artifacts no
 longer describe the edited Project and marks those immutable versions stale in
 the same transaction.  The bytes and slot history are retained.
@@ -226,12 +226,10 @@ _R2V_VIDEO_ONLY_FIELDS = {
 }
 _EDIT_METADATA_FIELDS = {"intent", "reason"}
 _OVERLAY_GENERATION_INPUT_FIELDS = {
-    "overlay_kind",
     "vibe",
     "prompt",
     "reference_version_ids",
 }
-_TEXT_OVERLAY_KINDS = {"pet_os", "interview_summary"}
 _BODY_PATTERN = re.compile(
     r"(?is)(<body\b[^>]*>)(.*?)(</body\s*>)",
 )
@@ -402,15 +400,36 @@ def _apply_element_path(  # pylint: disable=too-many-branches
         and suffix[0] == "creation"
     ):
         field_name = suffix[1]
-        overlay_kind = creation.get("overlay_kind")
+        # The overlay role derives from data: a caption edit is a change to
+        # previously non-empty authoritative text; text appearing on a
+        # text-free decoration is a new generation input instead.
+        was_caption = False
+        if base_document is not None:
+            try:
+                base_creation_probe = _record(
+                    _record(
+                        _timeline_element(
+                            base_document,
+                            timeline_id,
+                            element_id,
+                        ),
+                    ).get("creation"),
+                )
+                was_caption = bool(
+                    str(base_creation_probe.get("text") or "").strip(),
+                )
+            except Exception:  # noqa: BLE001 - fall back to current text
+                was_caption = bool(str(creation.get("text") or "").strip())
+        else:
+            was_caption = bool(str(creation.get("text") or "").strip())
         generation_input_changed = (
             field_name in _OVERLAY_GENERATION_INPUT_FIELDS
-            or (field_name == "text" and overlay_kind == "motion")
+            or (field_name == "text" and not was_caption)
         )
         motion = creation.get("motion")
         if (
             field_name == "text"
-            and overlay_kind in _TEXT_OVERLAY_KINDS
+            and was_caption
             and isinstance(motion, dict)
             and isinstance(motion.get("html"), str)
             and base_document is not None
@@ -440,7 +459,7 @@ def _apply_element_path(  # pylint: disable=too-many-branches
                     creation["motion"] = None
         elif (
             field_name in _OVERLAY_GENERATION_INPUT_FIELDS
-            or (field_name == "text" and overlay_kind == "motion")
+            or (field_name == "text" and not was_caption)
         ) and creation.get("motion") is not None:
             # Styling/prompt changes intentionally request a new projection.
             creation["motion"] = None

@@ -9,16 +9,7 @@ interface CodingModeState {
   codingModeByAgent: Record<string, boolean>;
   /** Monotonic local-write version used to ignore stale sync responses. */
   codingModeRevisionByAgent: Record<string, number>;
-  /**
-   * Active coding project directory path, keyed by agentId.
-   * Key absent / undefined → never selected (show picker on next toggle).
-   * null → user explicitly chose the default workspace (skip picker).
-   * string → specific project directory.
-   */
-  projectDirByAgent: Record<string, string | null>;
-
   setCodingMode: (agentId: string, enabled: boolean) => void;
-  setProjectDir: (agentId: string, path: string | null) => void;
 }
 
 // Backend (agent.json) is the source of truth. State is held in-memory
@@ -28,7 +19,6 @@ interface CodingModeState {
 export const useCodingModeStore = create<CodingModeState>((set) => ({
   codingModeByAgent: {},
   codingModeRevisionByAgent: {},
-  projectDirByAgent: {},
 
   setCodingMode: (agentId: string, enabled: boolean) =>
     set((state: CodingModeState) => ({
@@ -37,11 +27,6 @@ export const useCodingModeStore = create<CodingModeState>((set) => ({
         ...state.codingModeRevisionByAgent,
         [agentId]: (state.codingModeRevisionByAgent[agentId] ?? 0) + 1,
       },
-    })),
-
-  setProjectDir: (agentId: string, path: string | null) =>
-    set((state: CodingModeState) => ({
-      projectDirByAgent: { ...state.projectDirByAgent, [agentId]: path },
     })),
 }));
 
@@ -62,24 +47,5 @@ export function useCodingMode(): {
     codingMode: codingModeByAgent[selectedAgent] ?? false,
     initialized: selectedAgent in codingModeByAgent,
     setCodingMode: (enabled: boolean) => setCodingMode(selectedAgent, enabled),
-  };
-}
-
-/** Convenience hook: coding project directory for the currently selected agent.
- *
- * Returns `undefined` when the user has never chosen a project (show picker),
- * `null` when they explicitly chose the default workspace (skip picker),
- * or a `string` path when a specific project is active.
- */
-export function useProjectDir(): {
-  projectDir: string | null | undefined;
-  setProjectDir: (path: string | null) => void;
-} {
-  const { selectedAgent } = useAgentStore();
-  const { projectDirByAgent, setProjectDir } = useCodingModeStore();
-  return {
-    // Do NOT fall back to null here – undefined means "never selected"
-    projectDir: projectDirByAgent[selectedAgent],
-    setProjectDir: (path: string | null) => setProjectDir(selectedAgent, path),
   };
 }

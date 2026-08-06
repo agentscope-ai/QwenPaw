@@ -157,7 +157,7 @@ function elementReview(): FileProjectReviewRecord {
   };
 }
 
-describe("ProjectLayout schema-v2 visible shell", () => {
+describe("ProjectLayout visible shell", () => {
   beforeEach(() => {
     useCreatorSessionStore.getState().reset();
     useCreatorTaskViewStore.getState().reset();

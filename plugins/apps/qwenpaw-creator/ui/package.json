@@ -14,9 +14,11 @@
   "dependencies": {
     "@ant-design/icons": "^6.2.5",
     "antd": "^6.4.5",
+    "i18next": "^26.3.6",
     "lucide-react": "^0.562.0",
     "react": "^18",
     "react-dom": "^18",
+    "react-i18next": "^17.0.11",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.30.1",
     "remark-gfm": "^4.0.1",

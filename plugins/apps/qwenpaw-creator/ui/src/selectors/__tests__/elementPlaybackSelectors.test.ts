@@ -174,7 +174,12 @@ describe("resolveElementPlayback", () => {
     const project = cloneProject();
     const timeline = timelineOf(project);
     const element = timeline.elements_by_id["overlay-title"];
-    if (element.creation.type === "overlay") element.creation.motion = null;
+    if (element.creation.type === "overlay") {
+      // A text-free decoration overlay without a designed document has
+      // nothing to preview; captions (non-empty text) stay ready instead.
+      element.creation.text = "";
+      element.creation.motion = null;
+    }
     expect(resolveElementPlayback(project, timeline, element).status).toBe(
       "pending",
     );

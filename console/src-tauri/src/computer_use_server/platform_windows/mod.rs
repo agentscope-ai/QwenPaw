@@ -16,7 +16,7 @@ pub(super) use capture::observe_window;
 pub(super) use input::{
     click, desktop_locked, drag, last_input_age_ms, press_key, scroll, type_text,
 };
-pub(super) use uia::{invoke_element, set_value};
+pub(super) use uia::{invoke_element, set_value, validate_observation};
 pub(super) use window::{close_window, is_forbidden, list_apps, list_windows, resolve_window};
 
 pub(super) fn ensure_permissions(_method: &str) -> Result<(), (&'static str, String)> {

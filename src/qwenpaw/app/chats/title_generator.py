@@ -68,8 +68,14 @@ async def generate_and_update_title(
     message = (user_message or "").strip()
     if not message:
         return
-    if len(message) > MAX_INPUT_CHARS:
-        message = message[:MAX_INPUT_CHARS]
+
+    # Check if this is a proactive session message
+    is_proactive = message.startswith("[Agent proactive_helper requesting]")
+    if is_proactive:
+        title = "[Proactive信息]"
+    else:
+        if len(message) > MAX_INPUT_CHARS:
+            message = message[:MAX_INPUT_CHARS]
 
     try:
         # Local imports keep this module's import cost low and avoid a
@@ -86,54 +92,57 @@ async def generate_and_update_title(
             )
             return
 
-        title_cfg = cfg.auto_title_config
-        if not title_cfg.enabled:
-            logger.debug(
-                "Title generation disabled by config for chat %s",
-                chat_id,
-            )
-            return
-        timeout = title_cfg.timeout_seconds
+        if not is_proactive:
+            title_cfg = cfg.auto_title_config
+            if not title_cfg.enabled:
+                logger.debug(
+                    "Title generation disabled by config for chat %s",
+                    chat_id,
+                )
+                return
+            timeout = title_cfg.timeout_seconds
 
-        try:
-            model, _ = create_model_and_formatter(
-                agent_id=workspace.agent_id,
-            )
-        except (ValueError, AppBaseException) as exc:
-            # Same exception shape as ``skills_stream.get_model``: missing
-            # or misconfigured providers raise these and are non-fatal.
-            logger.debug(
-                "Title generation skipped: no model available (%s)",
-                exc,
-            )
-            return
+            try:
+                model, _ = create_model_and_formatter(
+                    agent_id=workspace.agent_id,
+                )
+            except (ValueError, AppBaseException) as exc:
+                # Same exception shape as ``skills_stream.get_model``: missing
+                # or misconfigured providers raise these and are non-fatal.
+                logger.debug(
+                    "Title generation skipped: no model available (%s)",
+                    exc,
+                )
+                return
 
-        from agentscope.message import Msg, TextBlock
+            from agentscope.message import Msg, TextBlock
 
-        messages = [
-            Msg(
-                name="system",
-                role="system",
-                content=[TextBlock(type="text", text=TITLE_PROMPT)],
-            ),
-            Msg(
-                name="user",
-                role="user",
-                content=[TextBlock(type="text", text=message)],
-            ),
-        ]
+            messages = [
+                Msg(
+                    name="system",
+                    role="system",
+                    content=[TextBlock(type="text", text=TITLE_PROMPT)],
+                ),
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[TextBlock(type="text", text=message)],
+                ),
+            ]
 
-        raw_title = await asyncio.wait_for(
-            consume_model_response(model, messages),
-            timeout=timeout,
-        )
-        title = _clean_title(raw_title)
-        if not title:
-            logger.debug(
-                "Title generation produced empty output for %s",
-                chat_id,
+            raw_title = await asyncio.wait_for(
+                consume_model_response(model, messages),
+                timeout=timeout,
             )
-            return
+            title = _clean_title(raw_title)
+            if not title:
+                logger.debug(
+                    "Title generation produced empty output for %s",
+                    chat_id,
+                )
+                return
+        else:
+            logger.debug("Using fixed title for proactive chat %s", chat_id)
 
         # Compare-and-set on the chat name in a single locked critical
         # section so a concurrent user rename cannot slip in between a

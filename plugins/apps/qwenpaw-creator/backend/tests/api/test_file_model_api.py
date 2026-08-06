@@ -17,7 +17,6 @@ from api import model_routes
 from domain.errors import CreatorError, ValidationError
 from schemas.models import ModelConfigData
 
-
 router = model_routes.router
 
 
@@ -51,6 +50,7 @@ def _config(model_name: str = "qwen-plus") -> dict:
             "custom_protocol": "",
             "reuse_llm": True,
             "tavily_api_key": "tvly-test",
+            "serper_api_key": "serper-secret",
         },
         "asr": {
             "enabled": False,
@@ -150,6 +150,7 @@ def test_grounding_accepts_generic_vlm_validation_with_tavily_search() -> None:
 def test_grounding_rejects_non_search_llm_when_tavily_is_absent() -> None:
     payload = _config()
     payload["grounding"]["tavily_api_key"] = ""
+    payload["grounding"]["serper_api_key"] = ""
     payload["llm"].update(
         {
             "model_name": "generic-text-model",
@@ -162,6 +163,17 @@ def test_grounding_rejects_non_search_llm_when_tavily_is_absent() -> None:
         model_routes._ensure_grounding_model_configured(
             ModelConfigData.model_validate(payload),
         )
+
+
+def test_grounding_accepts_serper_only_search() -> None:
+    payload = _config()
+    payload["grounding"]["tavily_api_key"] = ""
+    payload["grounding"]["serper_api_key"] = "serper-secret"
+    payload["grounding"]["native_search_enabled"] = False
+
+    model_routes._ensure_grounding_model_configured(
+        ModelConfigData.model_validate(payload),
+    )
 
 
 def test_creation_checkpoints_mode_round_trips_through_assembly(
@@ -186,6 +198,130 @@ def test_creation_checkpoints_mode_round_trips_through_assembly(
     model_routes.mutate_model_config(lambda config: config)
     reloaded = model_routes.load_model_config(include_environment=False)
     assert reloaded.creation_checkpoints.mode == "skip"
+
+
+def test_tts_section_survives_unrelated_config_mutations(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """TTS credentials must not be dropped by an unrelated config write.
+
+    ``mutate_model_config`` rewrites the whole file from the assembled
+    sections, so a section missing from the contract would be erased and the
+    deployment would silently lose speech synthesis.
+    """
+
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    config_path = (tmp_path / "config" / "model_config.json").resolve()
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    payload = _config()
+    payload["tts"] = {
+        "enabled": True,
+        "api_key": "sk-tts",
+        "base_url": "https://dashscope.aliyuncs.com/api/v1",
+        "model_name": "qwen3-tts-flash",
+        "voice": "Cherry",
+    }
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = model_routes.load_model_config(include_environment=False)
+    assert loaded.tts.model_name == "qwen3-tts-flash"
+    assert loaded.tts.voice == "Cherry"
+
+    model_routes.mutate_model_config(lambda config: config)
+
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    assert persisted["tts"]["model_name"] == "qwen3-tts-flash"
+    assert persisted["tts"]["voice"] == "Cherry"
+    reloaded = model_routes.load_model_config(include_environment=False)
+    assert reloaded.tts.api_key == "sk-tts"
+
+
+def test_real_api_key_supports_every_speech_section(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """``tts`` must resolve like ``asr``: the UI fetches the real key for a
+    connection test whenever the section stores its own credential."""
+
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    config_path = (tmp_path / "config" / "model_config.json").resolve()
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    payload = _config()
+    payload["tts"] = {
+        "enabled": True,
+        "api_key": "sk-tts-own",
+        "base_url": "https://dashscope.aliyuncs.com/api/v1",
+        "model_name": "qwen3-tts-flash",
+        "voice": "Cherry",
+    }
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    app = FastAPI()
+    app.add_exception_handler(CreatorError, creator_error_handler)
+    app.include_router(router)
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+        ) as client:
+            tts = await client.get("/models/real-api-key/tts")
+            bogus = await client.get("/models/real-api-key/bogus")
+        return tts, bogus
+
+    tts, bogus = asyncio.run(scenario())
+    assert tts.status_code == 200
+    assert tts.json() == {"api_key": "sk-tts-own"}
+    assert bogus.status_code == 422
+
+
+def test_permission_mode_patch_is_atomic(tmp_path, monkeypatch) -> None:
+    """One PATCH persists all three ladder fields in a single transaction.
+
+    Split per-field PATCHes could strand a mixed state when one call
+    fails (worst case: media_review=auto_approve hiding behind a
+    conservative-looking slider position).
+    """
+
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    config_path = (tmp_path / "config" / "model_config.json").resolve()
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps(_config()), encoding="utf-8")
+
+    asyncio.run(
+        model_routes.patch_permission_mode(
+            {
+                "execution_authorization": "allow_all",
+                "creation_checkpoints": "skip",
+                "media_review": "auto_approve",
+            },
+        ),
+    )
+
+    loaded = model_routes.load_model_config(include_environment=False)
+    assert loaded.execution_authorization.mode == "allow_all"
+    assert loaded.creation_checkpoints.mode == "skip"
+    assert loaded.media_review.mode == "auto_approve"
+
+    # Any invalid field rejects the whole request before mutation.
+    with pytest.raises(ValidationError, match="media_review"):
+        asyncio.run(
+            model_routes.patch_permission_mode(
+                {
+                    "execution_authorization": "required",
+                    "creation_checkpoints": "required",
+                    "media_review": "yes-please",
+                },
+            ),
+        )
+    unchanged = model_routes.load_model_config(include_environment=False)
+    assert unchanged.execution_authorization.mode == "allow_all"
+    assert unchanged.media_review.mode == "auto_approve"
 
 
 def test_load_migrates_legacy_grounding_model_to_search_and_validation(
@@ -369,7 +505,10 @@ def test_model_config_is_single_file_native_and_idempotent(
         "custom_protocol": "",
         "reuse_llm": True,
         "validation_source": "llm",
-        "tavily_api_key": "tvly-test",
+        # Search-provider keys are secret fields: GET returns the
+        # keep-placeholder instead of the persisted credentials.
+        "tavily_api_key": model_routes.SECRET_MASK,
+        "serper_api_key": model_routes.SECRET_MASK,
         "native_search_enabled": True,
         "search_provider": "dashscope_qwen",
         "search_reuse_llm": True,

@@ -11,8 +11,11 @@ import { navigate, useParams, useSearchParams } from "@/routing/navigation";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
+import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 import { getArtifactVersionMediaUrl, renderTimeline } from "@/api/creator";
 import {
+  elementsAtTick,
+  overlayContentKind,
   resolveTimelineRender,
   selectPrimaryTimeline,
   timelineEndTick,
@@ -26,18 +29,22 @@ import ElementList from "@/components/timeline/ElementList";
 import ElementDetail from "@/components/timeline/ElementDetail";
 import PageSkeleton from "@/components/PageSkeleton";
 import PageLoadError from "@/components/PageLoadError";
+import VisualCoverageCheckpoint from "@/components/creator/VisualCoverageCheckpoint";
 import {
   ExportProgressCard,
   saveExportFile,
   type ExportProgressState,
 } from "@/components/creator/ProjectImportExport";
 import type { TimelineElementDocument } from "@/contracts/creator";
+import { selectVisualVariantCoverage } from "@/selectors/visualVariantCoverage";
+import { useTranslation } from "react-i18next";
 
 function sec(tick: number, ticksPerSecond: number): string {
   return (tick / ticksPerSecond).toFixed(1).replace(/\.0$/, "");
 }
 
 export default function PlanPage() {
+  const { t } = useTranslation();
   const { id = "" } = useParams();
   const query = useSearchParams();
   const project = useProjectSnapshotStore((state) =>
@@ -51,6 +58,10 @@ export default function PlanPage() {
   const tasks = useCreatorTaskViewStore((state) => state.tasks);
   const refreshTasks = useCreatorTaskViewStore((state) => state.refresh);
   const timeline = useMemo(() => selectPrimaryTimeline(project), [project]);
+  const visualCoverage = useMemo(
+    () => (project ? selectVisualVariantCoverage(project) : null),
+    [project],
+  );
   const selectedElementId = query.get("element");
   const selectedElement =
     selectedElementId && timeline
@@ -81,7 +92,12 @@ export default function PlanPage() {
   const composeAttemptedGeneration = useRef<number | null>(null);
   const handledComposeTask = useRef<string | null>(null);
   const generation = useProjectSnapshotStore((state) => state.generation);
-  const [activeElementIds, setActiveElementIds] = useState<string[]>([]);
+  // Explicit selection (range drag, block/lane clicks) pins a list; when
+  // null, "content at the playhead" derives from timeline + playheadTick so
+  // keyboard seeks, playback and span edits can never show stale elements.
+  const [explicitActiveIds, setExplicitActiveIds] = useState<string[] | null>(
+    null,
+  );
   const durationTick = timelineEndTick(timeline);
   const displayDurationTick = timeline
     ? durationTick ||
@@ -90,6 +106,27 @@ export default function PlanPage() {
           timeline.ticks_per_second,
       )
     : 1;
+  const clampedPlayheadTick = Math.min(playheadTick, displayDurationTick);
+  // Any playhead motion (transport keys, scrub, playback, seeks) returns the
+  // panel to follow mode so it can never describe a stale selection.
+  const movePlayhead = useCallback((tick: number) => {
+    setPlayheadTick(tick);
+    setExplicitActiveIds(null);
+  }, []);
+  useEffect(() => {
+    // Never carry one project's selection into another.
+    setExplicitActiveIds(null);
+  }, [id]);
+  const activeElementIds = useMemo(
+    () =>
+      explicitActiveIds ??
+      (timeline
+        ? elementsAtTick(timeline, clampedPlayheadTick).map(
+            (element) => element.element_id,
+          )
+        : []),
+    [explicitActiveIds, timeline, clampedPlayheadTick],
+  );
   const reviewMode = query.get("review") === "1";
   const reviewField = query.get("field");
   const reviewPulse = query.get("reviewPulse");
@@ -134,6 +171,7 @@ export default function PlanPage() {
     )
       return;
     setPlayheadTick(selectedElement.span.start_tick);
+    setExplicitActiveIds(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedElement]);
 
@@ -145,11 +183,11 @@ export default function PlanPage() {
         return;
       }
       Modal.confirm({
-        title: "还有未应用的修改",
-        content: "离开后这些页面草稿会被放弃。你也可以先返回并点击“应用修改”。",
-        okText: "放弃并离开",
+        title: t("plan.unsavedChanges"),
+        content: t("plan.unsavedChangesDesc"),
+        okText: t("plan.discardAndLeave"),
         okButtonProps: { danger: true },
-        cancelText: "继续编辑",
+        cancelText: t("plan.continueEditing"),
         onOk: () => {
           elementDraft.discard();
           next();
@@ -170,6 +208,9 @@ export default function PlanPage() {
               ? currentTick
               : startTick;
           });
+          // Follow mode by default; a track block click re-pins its own
+          // explicit selection right after this handler in the same batch.
+          setExplicitActiveIds(null);
         }
         navigate(
           selectedElementId === elementId
@@ -191,9 +232,12 @@ export default function PlanPage() {
       (element) =>
         element.enabled &&
         (element.creation.type === "r2v" ||
+          element.creation.type === "t2v" ||
+          element.creation.type === "i2v" ||
+          element.creation.type === "s2v" ||
           element.creation.type === "edit" ||
           (element.creation.type === "overlay" &&
-            ["motion", "media"].includes(element.creation.overlay_kind))),
+            overlayContentKind(element.creation) !== "copy")),
     );
     return {
       total: items.length,
@@ -263,10 +307,13 @@ export default function PlanPage() {
     };
   }, [activeComposeTask]);
   const composeLabel = composeElementProgress
-    ? `合成中 · ${composeElementProgress.completed}/${composeElementProgress.total}`
+    ? t("plan.composingLabel", {
+        completed: composeElementProgress.completed,
+        total: composeElementProgress.total,
+      })
     : activeComposeTask
-    ? "合成中"
-    : "合成准备中";
+    ? t("plan.composingShort")
+    : t("plan.preparingComposeShort");
 
   const composeNow = useCallback(async () => {
     if (!timeline || isComposing) return;
@@ -283,7 +330,7 @@ export default function PlanPage() {
         renderTimeline(id, timeline.timeline_id),
         new Promise<never>((_, reject) =>
           window.setTimeout(
-            () => reject(new Error("派发超时，正在恢复合成状态")),
+            () => reject(new Error(t("plan.composeDispatchTimeout"))),
             15_000,
           ),
         ),
@@ -304,7 +351,9 @@ export default function PlanPage() {
         setRequestedComposeTaskId(adopted.id);
       } else {
         setComposeFailed(true);
-        message.error(`成片合成失败：${(error as Error).message}`);
+        message.error(
+          t("plan.composeFailed", { detail: (error as Error).message }),
+        );
       }
     } finally {
       setComposing(false);
@@ -375,7 +424,7 @@ export default function PlanPage() {
     void pollOnce(id).then(() => pollOnce(id));
     if (requestedComposeTask.status === "SUCCEEDED") {
       setComposeFailed(false);
-      message.success("成片合成完成");
+      message.success(t("plan.composeSuccess"));
       return;
     }
     setComposeFailed(true);
@@ -383,9 +432,9 @@ export default function PlanPage() {
       typeof requestedComposeTask.error?.message === "string"
         ? requestedComposeTask.error.message
         : requestedComposeTask.status === "QUARANTINED"
-        ? "合成期间项目内容发生变化，结果未采用"
-        : "合成任务未能完成";
-    message.error(`成片合成失败：${detail}`);
+        ? t("plan.composeContentChanged")
+        : t("plan.composeNotCompleted");
+    message.error(t("plan.composeFailed", { detail }));
   }, [id, pollOnce, requestedComposeTask]);
 
   // Auto-compose once all main-track elements are ready and there is no
@@ -409,7 +458,9 @@ export default function PlanPage() {
   const downloadRender = useCallback(async () => {
     if (!freshRender) return;
     const url = getArtifactVersionMediaUrl(freshRender.version_id);
-    const filename = `${freshRender.name || project?.name || "成片"}.mp4`;
+    const filename = `${
+      freshRender.name || project?.name || t("plan.finalCut")
+    }.mp4`;
     try {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -449,7 +500,9 @@ export default function PlanPage() {
       );
     } catch (error) {
       setExportProgress(null);
-      message.error(`导出项目失败：${(error as Error).message}`);
+      message.error(
+        t("plan.exportFailed", { detail: (error as Error).message }),
+      );
     }
   }, [exporting, id]);
 
@@ -464,7 +517,7 @@ export default function PlanPage() {
     if (syncStatus === "invalid" || syncStatus === "not_found") {
       return (
         <PageLoadError
-          message={syncError || "Project 无法读取"}
+          message={syncError || t("assets.projectReadError")}
           retry={() => void pollOnce(id)}
         />
       );
@@ -474,7 +527,7 @@ export default function PlanPage() {
   if (!timeline) {
     return (
       <PageLoadError
-        message="视频方案中没有可用的时间轴"
+        message={t("plan.noTimeline")}
         retry={() => void pollOnce(id)}
       />
     );
@@ -485,24 +538,54 @@ export default function PlanPage() {
     if (!draft || !elementDraft.operations.length) return;
     if (
       draft.creation.type === "overlay" &&
-      ["pet_os", "interview_summary"].includes(draft.creation.overlay_kind) &&
+      overlayContentKind(draft.creation) === "copy" &&
       !draft.creation.text.trim()
     ) {
-      message.error("文案类 Overlay 的文本不能为空");
+      message.error(t("plan.overlayTextEmpty"));
       return;
     }
+    // A narration script or speech-rate edit needs the assistant to
+    // re-synthesize the audio after the patch lands; captured before
+    // markApplied clears it.
+    const scriptEdit =
+      draft.creation.type === "audio" &&
+      draft.creation.script?.trim() &&
+      elementDraft.operations.some(
+        (operation) =>
+          operation.path.endsWith("/creation/script") ||
+          operation.path.endsWith("/creation/speech_rate"),
+      )
+        ? {
+            elementId: draft.element_id,
+            label: draft.label || draft.element_id,
+            text: draft.creation.script.trim(),
+            speechRate: draft.creation.speech_rate ?? 1.0,
+            budgetSeconds: Number(
+              (
+                draft.span.duration_tick / (timeline?.ticks_per_second || 1000)
+              ).toFixed(1),
+            ),
+          }
+        : null;
     try {
       const response = await patchProject(id, elementDraft.operations);
       elementDraft.markApplied();
-      if (response.editImpact?.regenerationRequired) {
-        message.success("修改已应用；相关生成结果已标记为需要重新生成");
+      if (scriptEdit) {
+        void useCreatorSessionStore.getState().sendMessage({
+          message: t("plan.ttsRegenerateMessage", scriptEdit),
+        });
+        message.success(t("plan.ttsRegenerateQueued"));
+      } else if (response.editImpact?.regenerationRequired) {
+        message.success(t("plan.applySuccessRegenRequired"));
       } else if (response.editImpact?.renderTimelineIds.length) {
-        message.success("修改已应用；实时预览已更新，成片将重新合成");
+        message.success(t("plan.applySuccessPreviewUpdated"));
       } else {
-        message.success("修改已应用");
+        message.success(t("plan.applySuccess"));
       }
     } catch (error) {
-      message.error(`应用修改失败：${(error as Error).message}`);
+      message.error(
+        t("plan.applyFailed", { detail: (error as Error).message }),
+      );
     }
   };
   const closeElementDetail = () => leaveDraft(() => navigate(base));
@@ -524,7 +607,7 @@ export default function PlanPage() {
           project.strategy.creative_direction ? (
             <details className="max-w-3xl">
               <summary className="w-fit cursor-pointer select-none text-base font-semibold text-[var(--color-text-primary)]">
-                创作总纲
+                {t("plan.creativeBrief")}
               </summary>
               <div
                 data-creator-field="project:strategy/creative_brief"
@@ -532,17 +615,19 @@ export default function PlanPage() {
                   "strategy",
                   "creative_brief",
                 )}
-                data-creator-field-label="创作总纲"
+                data-creator-field-label={t("plan.creativeBrief")}
                 className="mt-2 max-h-[92px] overflow-y-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-3 text-xs leading-5 text-[var(--color-text-secondary)]"
               >
                 {project.strategy.creative_brief}
                 {project.strategy.creative_direction &&
-                  `\n\n创作方向：${project.strategy.creative_direction}`}
+                  `\n\n${t("plan.creativeDirectionLabel", {
+                    direction: project.strategy.creative_direction,
+                  })}`}
               </div>
             </details>
           ) : (
             <h2 className="text-base font-semibold text-[var(--color-text-primary)]">
-              创作总纲
+              {t("plan.creativeBrief")}
             </h2>
           )}
         </div>
@@ -554,19 +639,33 @@ export default function PlanPage() {
             {project.settings.aspect_ratio}
           </span>
           <span className="rounded-full border border-[var(--color-border)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-secondary)]">
-            {Object.keys(timeline.elements_by_id).length} 项内容
+            {t("plan.items", {
+              count: Object.keys(timeline.elements_by_id).length,
+            })}
           </span>
           {composeFailed && !isComposing && (
             <button
               type="button"
-              title="上次自动合成失败，点击重新合成"
+              title={t("plan.retryComposeTitle")}
               className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-danger)]/50 bg-[var(--color-danger-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--color-danger)] transition hover:border-[var(--color-danger)]"
               onClick={() => void composeNow()}
             >
               <RefreshCw className="h-3.5 w-3.5" />
-              重试合成
+              {t("plan.retryCompose")}
             </button>
           )}
+          <button
+            type="button"
+            title={t("plan.composeTooltip")}
+            disabled={isComposing}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-accent)]/50 bg-[var(--color-accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--color-accent)] transition hover:border-[var(--color-accent)] disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => void composeNow()}
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${isComposing ? "animate-spin" : ""}`}
+            />
+            {isComposing ? t("lib.composing") : t("lib.composeFinalCut")}
+          </button>
           {/* Download-final-cut and export-project share one split entry. */}
           <Dropdown
             trigger={["click"]}
@@ -574,14 +673,16 @@ export default function PlanPage() {
               items: [
                 {
                   key: "download",
-                  label: "下载成片",
+                  label: t("plan.downloadFinal"),
                   icon: <Download className="h-3.5 w-3.5" />,
                   disabled: !freshRender,
                   onClick: () => void downloadRender(),
                 },
                 {
                   key: "export",
-                  label: exporting ? "导出中…" : "导出项目",
+                  label: exporting
+                    ? t("plan.exporting")
+                    : t("plan.exportProject"),
                   icon: <FileOutput className="h-3.5 w-3.5" />,
                   disabled: exporting,
                   onClick: () => void exportProject(),
@@ -594,16 +695,21 @@ export default function PlanPage() {
               data-download-render
               title={
                 freshRender
-                  ? "下载成片视频文件或导出项目"
+                  ? t("plan.downloadFinalTitle")
                   : isComposing
                   ? composeElementProgress
-                    ? `正在合成成片，已完成 ${composeElementProgress.completed}/${composeElementProgress.total} 个 Element`
-                    : "正在准备成片合成，完成后可下载"
+                    ? t("plan.composing", {
+                        completed: composeElementProgress.completed,
+                        total: composeElementProgress.total,
+                      })
+                    : t("plan.preparingCompose")
                   : readiness.total === 0
-                  ? "时间轴还没有可合成的画面内容"
+                  ? t("plan.noComposableContent")
                   : readiness.notReady > 0
-                  ? `还有 ${readiness.notReady} 项内容生成中，全部就绪后自动合成`
-                  : "等待成片合成"
+                  ? t("plan.waitingForContent", {
+                      count: readiness.notReady,
+                    })
+                  : t("plan.waitingForCompose")
               }
               className="relative inline-flex cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-primary)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-secondary)]"
             >
@@ -634,7 +740,7 @@ export default function PlanPage() {
                 ) : (
                   <Download className="h-3.5 w-3.5" />
                 )}
-                {isComposing ? composeLabel : "下载 / 导出"}
+                {isComposing ? composeLabel : t("plan.downloadOrExport")}
                 <ChevronDown className="h-3.5 w-3.5" />
               </span>
             </button>
@@ -644,26 +750,27 @@ export default function PlanPage() {
 
       {syncStatus === "degraded" && (
         <div className="shrink-0 border-b border-[var(--color-warning)]/20 bg-[var(--color-warning-soft)] px-5 py-1.5 text-[11px] text-[var(--color-warning)]">
-          当前显示最后一次可用快照；后台同步暂时异常。
+          {t("plan.syncDegraded")}
           {syncError ? ` ${syncError}` : ""}
         </div>
       )}
+
+      {visualCoverage && <VisualCoverageCheckpoint report={visualCoverage} />}
 
       <TimelineCanvas
         project={project}
         timeline={timeline}
         durationTick={displayDurationTick}
-        playheadTick={Math.min(playheadTick, displayDurationTick)}
+        playheadTick={clampedPlayheadTick}
         selectedElementId={selectedElementId}
-        activeElementIds={activeElementIds}
         previewOpen={previewOpen}
         tasks={tasks}
         onPreviewOpenChange={setPreviewOpen}
         onPlayheadChange={(tick) =>
-          setPlayheadTick(Math.max(0, Math.min(displayDurationTick, tick)))
+          movePlayhead(Math.max(0, Math.min(displayDurationTick, tick)))
         }
         onSelectElement={selectElement}
-        onActiveElementIdsChange={setActiveElementIds}
+        onActiveElementIdsChange={setExplicitActiveIds}
       />
 
       <main
@@ -677,6 +784,7 @@ export default function PlanPage() {
           timeline={timeline}
           playheadTick={playheadTick}
           activeElementIds={activeElementIds}
+          selectionPinned={explicitActiveIds !== null}
           selectedElementId={selectedElementId}
           tasks={tasks}
           onSelect={selectElement}

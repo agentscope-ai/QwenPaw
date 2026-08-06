@@ -6,16 +6,19 @@ versions on the CDN while adding new ones.
 
 Merge rules:
 - ``files``: keyed by file_id (``{plugin_id}-{version}``).  New entries
-  overwrite same-id old entries; different ids from old are preserved.
+  overwrite same-id old entries; different ids from old are preserved unless
+  their plugin id is explicitly retired.
 - ``platforms.{kind}.versions``: union of new and old version lists,
-  new versions first, old versions appended with deduplication.
+  new versions first, old versions appended with deduplication. Versions that
+  belong to a retired plugin id are omitted.
 
 Usage::
 
     python scripts/pack/merge_plugin_index.py \
         --new  dist/plugins/index.json \
         --old  existing-index.json \
-        --out  dist/plugins/index.json
+        --out  dist/plugins/index.json \
+        --retire-plugin-id old-plugin-id
 """
 
 from __future__ import annotations
@@ -25,10 +28,26 @@ import json
 from pathlib import Path
 
 
-def merge_indexes(new_index: dict, old_index: dict) -> dict:
+def merge_indexes(
+    new_index: dict,
+    old_index: dict,
+    retired_plugin_ids: set[str] | None = None,
+) -> dict:
     """Merge *old_index* into *new_index* (mutates and returns *new_index*)."""
+    retired_plugin_ids = retired_plugin_ids or set()
+
     # files: same file_id is overwritten by new; different ids preserved.
     old_files = old_index.get("files", {})
+    retired_file_ids = {
+        file_id
+        for file_id, metadata in old_files.items()
+        if metadata.get("plugin_id") in retired_plugin_ids
+    }
+    old_files = {
+        file_id: metadata
+        for file_id, metadata in old_files.items()
+        if file_id not in retired_file_ids
+    }
     new_files = new_index.get("files", {})
     new_index["files"] = {**old_files, **new_files}
 
@@ -46,7 +65,7 @@ def merge_indexes(new_index: dict, old_index: dict) -> dict:
         seen = set(new_versions)
         merged = list(new_versions)
         for v in old_versions:
-            if v not in seen:
+            if v not in seen and v not in retired_file_ids:
                 merged.append(v)
                 seen.add(v)
         new_index.setdefault("platforms", {})
@@ -78,6 +97,12 @@ def main(argv: list[str] | None = None) -> None:
         type=Path,
         help="Output path for the merged index.json",
     )
+    parser.add_argument(
+        "--retire-plugin-id",
+        action="append",
+        default=[],
+        help="Plugin id to remove from the historical index (repeatable)",
+    )
     args = parser.parse_args(argv)
 
     with open(args.new, encoding="utf-8") as f:
@@ -85,7 +110,11 @@ def main(argv: list[str] | None = None) -> None:
     with open(args.old, encoding="utf-8") as f:
         old_index = json.load(f)
 
-    merged = merge_indexes(new_index, old_index)
+    merged = merge_indexes(
+        new_index,
+        old_index,
+        set(args.retire_plugin_id),
+    )
 
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(merged, f, indent=2, ensure_ascii=False)
