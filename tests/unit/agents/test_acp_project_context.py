@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""ACP session metadata for TUI Coding Mode projects."""
+"""ACP session project context metadata."""
 
 from __future__ import annotations
 
 from acp import text_block
 
 from qwenpaw.agents.acp.meta import (
-    ACP_CODING_PROJECT_META_KEY,
     ACP_EPHEMERAL_META_KEY,
+    ACP_PROJECT_DIR_META_KEY,
 )
 from qwenpaw.agents.acp.server import QwenPawACPAgent
 
@@ -37,7 +37,7 @@ class _TestACPAgent(QwenPawACPAgent):
         return self._fake_workspace
 
 
-async def test_acp_project_metadata_flows_to_request_context(tmp_path):
+async def test_acp_project_dir_flows_to_request_context(tmp_path):
     project_dir = str(tmp_path)
     workspace = _FakeWorkspace()
     agent = _TestACPAgent(workspace)
@@ -45,7 +45,7 @@ async def test_acp_project_metadata_flows_to_request_context(tmp_path):
 
     response = await agent.new_session(
         cwd=project_dir,
-        **{ACP_CODING_PROJECT_META_KEY: project_dir},
+        **{ACP_PROJECT_DIR_META_KEY: project_dir},
     )
 
     await agent.prompt(
@@ -54,13 +54,10 @@ async def test_acp_project_metadata_flows_to_request_context(tmp_path):
     )
 
     assert workspace.requests
-    assert (
-        workspace.requests[0].request_context[ACP_CODING_PROJECT_META_KEY]
-        == project_dir
-    )
+    assert workspace.requests[0].request_context["project_dir"] == project_dir
 
 
-async def test_acp_project_metadata_is_stripped(tmp_path):
+async def test_acp_project_dir_is_stripped(tmp_path):
     project_dir = str(tmp_path)
     workspace = _FakeWorkspace()
     agent = _TestACPAgent(workspace)
@@ -68,7 +65,7 @@ async def test_acp_project_metadata_is_stripped(tmp_path):
 
     response = await agent.new_session(
         cwd=project_dir,
-        **{ACP_CODING_PROJECT_META_KEY: f"  {project_dir}  "},
+        **{ACP_PROJECT_DIR_META_KEY: f"  {project_dir}  "},
     )
 
     await agent.prompt(
@@ -76,13 +73,10 @@ async def test_acp_project_metadata_is_stripped(tmp_path):
         session_id=response.session_id,
     )
 
-    assert (
-        workspace.requests[0].request_context[ACP_CODING_PROJECT_META_KEY]
-        == project_dir
-    )
+    assert workspace.requests[0].request_context["project_dir"] == project_dir
 
 
-async def test_acp_resume_project_metadata_is_stripped(tmp_path):
+async def test_acp_resume_project_dir_is_stripped(tmp_path):
     project_dir = str(tmp_path)
     workspace = _FakeWorkspace()
     agent = _TestACPAgent(workspace)
@@ -92,7 +86,7 @@ async def test_acp_resume_project_metadata_is_stripped(tmp_path):
     await agent.resume_session(
         cwd=project_dir,
         session_id=response.session_id,
-        **{ACP_CODING_PROJECT_META_KEY: f"  {project_dir}  "},
+        **{ACP_PROJECT_DIR_META_KEY: f"  {project_dir}  "},
     )
 
     await agent.prompt(
@@ -100,10 +94,7 @@ async def test_acp_resume_project_metadata_is_stripped(tmp_path):
         session_id=response.session_id,
     )
 
-    assert (
-        workspace.requests[0].request_context[ACP_CODING_PROJECT_META_KEY]
-        == project_dir
-    )
+    assert workspace.requests[0].request_context["project_dir"] == project_dir
 
 
 async def test_acp_ephemeral_metadata_flows_to_request_context(tmp_path):
