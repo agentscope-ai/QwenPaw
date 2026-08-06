@@ -133,6 +133,21 @@ describe("messageQueueStore", () => {
     expect(parsed.runState).toBe("idle");
   });
 
+  it("enqueue preserves serializable mention metadata", () => {
+    const mentions = [{ value: "src/app.ts", type: "file" }];
+    useMessageQueueStore.getState().enqueue(SESSION_ID, {
+      text: "check @ src/app.ts",
+      mentions,
+    });
+
+    const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
+    expect(item.mentions).toEqual(mentions);
+    const persisted = JSON.parse(
+      localStorage.getItem(getStorageKey(SESSION_ID)) as string,
+    );
+    expect(persisted.items[0].mentions).toEqual(mentions);
+  });
+
   it("enqueue rejects when the queue is already at MAX_QUEUE_SIZE", () => {
     for (let i = 0; i < MAX_QUEUE_SIZE; i++) {
       useMessageQueueStore

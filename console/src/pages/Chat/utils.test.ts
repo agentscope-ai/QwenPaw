@@ -6,6 +6,9 @@ import {
   toStoredName,
   normalizeContentUrls,
   toDisplayUrl,
+  getActiveSenderTextarea,
+  getSenderTextareaFromTarget,
+  setTextareaValue,
 } from "./utils";
 import type { CopyableResponse } from "./utils";
 
@@ -241,5 +244,57 @@ describe("toDisplayUrl", () => {
     expect(toDisplayUrl("file:///uploads/img.png")).toBe(
       "http://localhost:8000/uploads/img.png",
     );
+  });
+});
+
+describe("rich sender DOM helpers", () => {
+  it("resolves the hidden textarea from a focused rich editor", () => {
+    document.body.innerHTML = `
+      <div data-sender-root="true">
+        <div id="editor" contenteditable="true" data-sender-editor="true"></div>
+        <textarea id="bridge" data-sender-input="true"></textarea>
+      </div>
+    `;
+    const editor = document.querySelector("#editor") as HTMLElement;
+    const textarea = document.querySelector("#bridge") as HTMLTextAreaElement;
+    editor.focus();
+
+    expect(getSenderTextareaFromTarget(editor)).toBe(textarea);
+    expect(getActiveSenderTextarea()).toBe(textarea);
+    document.body.innerHTML = "";
+  });
+
+  it("uses the focused sender when multiple composers exist", () => {
+    document.body.innerHTML = `
+      <div data-sender-root="true">
+        <div id="first-editor" contenteditable="true" data-sender-editor="true"></div>
+        <textarea id="first-input" data-sender-input="true"></textarea>
+      </div>
+      <div data-sender-root="true">
+        <div id="second-editor" contenteditable="true" data-sender-editor="true"></div>
+        <textarea id="second-input" data-sender-input="true"></textarea>
+      </div>
+    `;
+    const editor = document.querySelector("#second-editor") as HTMLElement;
+    const textarea = document.querySelector(
+      "#second-input",
+    ) as HTMLTextAreaElement;
+    editor.focus();
+
+    expect(getActiveSenderTextarea()).toBe(textarea);
+    document.body.innerHTML = "";
+  });
+
+  it("sets the requested caret before dispatching the input event", () => {
+    const textarea = document.createElement("textarea");
+    const observedSelections: Array<[number, number]> = [];
+    textarea.addEventListener("input", () => {
+      observedSelections.push([textarea.selectionStart, textarea.selectionEnd]);
+    });
+
+    setTextareaValue(textarea, "@ src/app.ts ", 13, 13);
+
+    expect(textarea.value).toBe("@ src/app.ts ");
+    expect(observedSelections).toEqual([[13, 13]]);
   });
 });

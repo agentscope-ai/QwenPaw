@@ -25,8 +25,8 @@ export interface QueueImage {
 
 /** Mention reference */
 export interface QueueMention {
-  id: string;
-  name: string;
+  value: string;
+  type?: string;
 }
 
 /** Quote reference */

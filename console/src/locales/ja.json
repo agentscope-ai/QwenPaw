@@ -2334,6 +2334,13 @@
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
     "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド（承認時は\"/approve\"または\"/deny\"）",
+    "fileReference": {
+      "codeSnippet": "コードスニペット · {{count}} 行"
+    },
+    "pathMentions": {
+      "loading": "ワークスペースのパスを読み込み中...",
+      "empty": "一致するファイルまたはフォルダーがありません"
+    },
     "longTextUploadPrompt": "アップロードされたプロンプトファイルを読み、その内容に基づいて回答してください。",
     "emptyOutputError": "アシスタントが空のレスポンスを返しました。",
     "commands": {
