@@ -414,7 +414,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
 
         # Find model
         model_info = None
-        for model in provider.models + provider.extra_models:
+        for model in provider.all_models():
             if model.id == model_id:
                 model_info = model
                 break

@@ -21,10 +21,11 @@ from agentscope.tool import ToolChunk
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from .prompts import build_memory_guidance_prompt
 from .reme_config import get_reme_app_config
-from ..model_factory import create_model_and_formatter
+from ..model_factory import create_model_and_formatter_async
 from ...app.inbox_store import append_event as append_inbox_event
 from ...config import load_config
 from ...config.config import load_agent_config, AgentProfileConfig
+from ...utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from reme import ReMe
@@ -208,7 +209,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if self._reme is None:
             return
 
-        model, _formatter = create_model_and_formatter(self.agent_id)
+        model, _formatter = await create_model_and_formatter_async(
+            self.agent_id,
+        )
         await self._reme.update_component(
             "as_llm",
             "default",
@@ -275,7 +278,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     ) -> bool:
         if name not in INBOX_RESULT_JOB_NAMES:
             return False
-        memory_config = self.get_memory_config()
+        memory_config = await run_sync_io(self.get_memory_config)
         if not memory_config.inbox_push_enabled:
             logger.info(
                 "ReMe job result inbox push disabled: "
@@ -462,7 +465,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """Auto-search memory and expose it as a completed tool interaction."""
         del agent_name
         del kwargs
-        agent_config = load_agent_config(self.agent_id)
+        agent_config = await run_sync_io(load_agent_config, self.agent_id)
         memory_cfg = agent_config.running.reme_light_memory_config
         if not memory_cfg.auto_memory_search_config.enabled:
             return None
@@ -492,6 +495,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             query=query,
             max_results=max_results,
             text=text,
+            estimate_divisor=self._resolve_token_estimate_divisor(
+                agent_config,
+            ),
         )
         return {
             "query": query,

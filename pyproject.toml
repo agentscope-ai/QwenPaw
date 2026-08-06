@@ -102,6 +102,7 @@ include-package-data = true
     "security/skill_scanner/rules/**",
     "security/skill_scanner/data/**",
     "browser/control_link/injected/*.js",
+    "providers/data/**",
     "docs/*.md",
     "app/channels/yuanbao/proto/**",
 ]

@@ -57,6 +57,7 @@ _data_dirs = [
     ("security/skill_scanner/rules", "qwenpaw/security/skill_scanner/rules"),
     ("security/skill_scanner/data", "qwenpaw/security/skill_scanner/data"),
     ("app/channels/yuanbao/proto", "qwenpaw/app/channels/yuanbao/proto"),
+    ("providers/data", "qwenpaw/providers/data"),
 ]
 datas = [
     (str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()

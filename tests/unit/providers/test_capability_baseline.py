@@ -2,8 +2,13 @@
 # pylint: disable=protected-access,redefined-outer-name
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
+
 import pytest
 
+from qwenpaw.providers import capability_baseline
 from qwenpaw.providers.capability_baseline import (
     ExpectedCapability,
     ExpectedCapabilityRegistry,
@@ -214,3 +219,192 @@ def test_generate_summary_details_populated() -> None:
     summary = generate_summary(results)
     assert len(summary.details) == 1
     assert summary.details[0].field == "image"
+
+
+def _write_capability_catalog(
+    path: Path,
+    capabilities: list[dict[str, object]],
+) -> bytes:
+    payload = {
+        "schema_version": 1,
+        "catalog_version": "test",
+        "capabilities": capabilities,
+    }
+    content = json.dumps(payload).encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return content
+
+
+def test_capability_overlays_merge_by_provider_and_model(
+    tmp_path: Path,
+) -> None:
+    packaged = tmp_path / "packaged.json"
+    ota = tmp_path / "ota.json"
+    local = tmp_path / "local.json"
+    _write_capability_catalog(
+        packaged,
+        [
+            {
+                "provider_id": "provider",
+                "model_id": "model",
+                "expected_image": False,
+                "expected_video": False,
+                "note": "packaged",
+            },
+        ],
+    )
+    _write_capability_catalog(
+        ota,
+        [
+            {
+                "provider_id": "provider",
+                "model_id": "model",
+                "expected_image": True,
+                "expected_video": False,
+                "note": "ota",
+            },
+        ],
+    )
+    _write_capability_catalog(
+        local,
+        [
+            {
+                "provider_id": "provider",
+                "model_id": "model",
+                "expected_image": True,
+                "expected_video": True,
+                "note": "local",
+            },
+        ],
+    )
+
+    registry = ExpectedCapabilityRegistry(packaged, ota, local)
+    capability = registry.get_expected("provider", "model")
+
+    assert capability is not None
+    assert capability.expected_image is True
+    assert capability.expected_video is True
+    assert capability.note == "local"
+
+
+def test_capability_update_validates_hash_and_installs_atomically(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.json"
+    destination = tmp_path / "cache" / "capabilities.json"
+    payload = _write_capability_catalog(source, [])
+    monkeypatch.setattr(
+        capability_baseline,
+        "_download_capability_bytes",
+        lambda _url, _timeout: payload,
+    )
+
+    document = capability_baseline.update_capability_catalog(
+        url="https://example.invalid/capabilities.json",
+        expected_sha256=hashlib.sha256(payload).hexdigest(),
+        destination=destination,
+    )
+
+    assert document.catalog_version == "test"
+    assert destination.read_bytes() == payload
+    assert not list(destination.parent.glob("*.tmp"))
+
+
+def test_capability_hash_mismatch_preserves_previous_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "capabilities.json"
+    destination.write_bytes(b"previous")
+    payload = _write_capability_catalog(tmp_path / "source.json", [])
+    monkeypatch.setattr(
+        capability_baseline,
+        "_download_capability_bytes",
+        lambda _url, _timeout: payload,
+    )
+
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        capability_baseline.update_capability_catalog(
+            url="https://example.invalid/capabilities.json",
+            expected_sha256="0" * 64,
+            destination=destination,
+        )
+
+    assert destination.read_bytes() == b"previous"
+
+
+def test_capability_invalid_entry_preserves_previous_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "capabilities.json"
+    previous = _write_capability_catalog(destination, [])
+    payload = _write_capability_catalog(
+        tmp_path / "source.json",
+        [
+            {
+                "provider_id": "provider",
+                "model_id": "model",
+                "expected_image": "yes",
+                "expected_video": False,
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        capability_baseline,
+        "_download_capability_bytes",
+        lambda _url, _timeout: payload,
+    )
+
+    with pytest.raises(ValueError):
+        capability_baseline.update_capability_catalog(
+            url="https://example.invalid/capabilities.json",
+            destination=destination,
+        )
+
+    assert destination.read_bytes() == previous
+
+
+def test_registry_reload_replaces_snapshot_atomically(tmp_path: Path) -> None:
+    packaged = tmp_path / "packaged.json"
+    ota = tmp_path / "ota.json"
+    local = tmp_path / "local.json"
+    _write_capability_catalog(
+        packaged,
+        [
+            {
+                "provider_id": "provider",
+                "model_id": "model",
+                "expected_image": False,
+                "expected_video": False,
+            },
+        ],
+    )
+    registry = ExpectedCapabilityRegistry(packaged, ota, local)
+
+    _write_capability_catalog(
+        ota,
+        [
+            {
+                "provider_id": "provider",
+                "model_id": "model",
+                "expected_image": True,
+                "expected_video": False,
+            },
+        ],
+    )
+    registry.reload()
+
+    capability = registry.get_expected("provider", "model")
+    assert capability is not None
+    assert capability.expected_image is True
+
+    ota.write_text("{invalid", encoding="utf-8")
+    with pytest.raises(ValueError):
+        registry.reload()
+
+    capability = registry.get_expected("provider", "model")
+    assert capability is not None
+    assert capability.expected_image is True

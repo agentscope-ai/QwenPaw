@@ -49,6 +49,8 @@ from typing import Any
 import httpx
 import pytest
 
+from tests.integration.helpers import app_startup_wait_timeout
+
 _INTEGRATION_COVERAGE_DIR: Path | None = None
 _COVERAGE_SUBPROC_BASENAME = "integration_subproc"
 _COVERAGE_RCFILE_NAME = "coverage_subprocess.ini"
@@ -416,7 +418,7 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
         client = httpx.Client(timeout=http_timeout, trust_env=False)
 
         try:
-            max_wait_seconds = 60
+            max_wait_seconds = app_startup_wait_timeout()
             start_at = time.time()
             last_error: str | None = None
             while time.time() - start_at < max_wait_seconds:

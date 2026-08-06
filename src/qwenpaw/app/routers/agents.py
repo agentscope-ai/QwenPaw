@@ -4,6 +4,7 @@
 Provides RESTful API for managing multiple agent instances.
 """
 
+import asyncio
 import json
 import logging
 import shutil
@@ -36,6 +37,7 @@ from ...harnesses.registry import ProviderCatalogItem, get_provider
 from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +274,7 @@ def _read_profile_description(workspace_dir: str) -> str:
 )
 async def list_agents(request: Request = None) -> AgentListResponse:
     """List all configured agents."""
-    config = load_config()
+    config = await run_sync_io(load_config)
     manager = (
         _get_multi_agent_manager(request) if request is not None else None
     )
@@ -297,10 +299,13 @@ async def list_agents(request: Request = None) -> AgentListResponse:
             )
         )
         try:
-            agent_config = load_agent_config(agent_id)
+            agent_config = await run_sync_io(load_agent_config, agent_id)
             description = agent_config.description or ""
 
-            profile_desc = _read_profile_description(agent_ref.workspace_dir)
+            profile_desc = await run_sync_io(
+                _read_profile_description,
+                agent_ref.workspace_dir,
+            )
             if profile_desc:
                 if description.strip():
                     description = f"{description.strip()} | {profile_desc}"
@@ -363,7 +368,7 @@ async def reorder_agents(
     reorder_request: ReorderAgentsRequest = Body(...),
 ) -> dict:
     """Persist the full ordered list of agent IDs."""
-    config = load_config()
+    config = await run_sync_io(load_config)
     configured_ids = list(config.agents.profiles.keys())
 
     if len(reorder_request.agent_ids) != len(set(reorder_request.agent_ids)):
@@ -388,7 +393,7 @@ async def reorder_agents(
         )
 
     config.agents.agent_order = list(reorder_request.agent_ids)
-    save_config(config)
+    await run_sync_io(save_config, config)
 
     return {"success": True, "agent_ids": config.agents.agent_order}
 
@@ -403,7 +408,7 @@ async def set_agent_pinned(
     pinned: bool = Body(..., embed=True),
 ) -> dict:
     """Persist an agent's pinned state without changing enabled state."""
-    config = load_config()
+    config = await run_sync_io(load_config)
 
     if agentId not in config.agents.profiles:
         raise HTTPException(
@@ -421,7 +426,7 @@ async def set_agent_pinned(
     if agentId != "default":
         agent_ref.pinned = pinned
         config.agents.agent_order = _display_agent_order(config)
-        save_config(config)
+        await run_sync_io(save_config, config)
 
     return {
         "success": True,
@@ -439,7 +444,7 @@ async def set_agent_pinned(
 async def get_agent(agentId: str = PathParam(...)) -> AgentProfileConfig:
     """Get agent configuration."""
     try:
-        agent_config = load_agent_config(agentId)
+        agent_config = await asyncio.to_thread(load_agent_config, agentId)
         return agent_config
     except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -458,7 +463,7 @@ async def update_backend_settings(
 ) -> AgentProfileConfig:
     """Persist model controls owned by a third-party agent backend."""
     try:
-        agent_config = load_agent_config(agentId)
+        agent_config = await asyncio.to_thread(load_agent_config, agentId)
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if agent_config.backend == "qwenpaw":
@@ -480,7 +485,7 @@ async def update_backend_settings(
         else:
             settings.pop("reasoning_effort", None)
     agent_config.backend_settings = settings
-    save_agent_config(agentId, agent_config)
+    await asyncio.to_thread(save_agent_config, agentId, agent_config)
     return agent_config
 
 
@@ -521,7 +526,7 @@ async def create_agent(
     if request.backend != "qwenpaw":
         _get_available_third_party_provider(request.backend)
 
-    config = load_config()
+    config = await run_sync_io(load_config)
     existing_ids = set(config.agents.profiles.keys())
 
     if request.id:
@@ -539,7 +544,7 @@ async def create_agent(
     workspace_dir = Path(
         request.workspace_dir or f"{WORKING_DIR}/workspaces/{new_id}",
     ).expanduser()
-    workspace_dir.mkdir(parents=True, exist_ok=True)
+    await run_sync_io(workspace_dir.mkdir, parents=True, exist_ok=True)
 
     from ...config.config import (
         ChannelConfig,
@@ -582,7 +587,8 @@ async def create_agent(
         active_model=active_model,
     )
 
-    _initialize_agent_workspace(
+    await run_sync_io(
+        _initialize_agent_workspace,
         workspace_dir,
         skill_names=(
             request.skill_names if request.skill_names is not None else []
@@ -596,10 +602,13 @@ async def create_agent(
         enabled=True,
     )
 
-    config.agents.profiles[new_id] = agent_ref
-    config.agents.agent_order = _normalized_agent_order(config)
-    save_config(config)
-    save_agent_config(new_id, agent_config)
+    await run_sync_io(
+        _persist_created_agent,
+        config,
+        new_id,
+        agent_ref,
+        agent_config,
+    )
 
     logger.info(f"Created new agent: {new_id} (name={request.name})")
 
@@ -660,6 +669,41 @@ def _copy_selected_workspace_files(
             shutil.copy2(src_jobs, workspace_dir / "jobs.json")
 
 
+def _prepare_copied_workspace(
+    request: CopyAgentRequest,
+    source_workspace: Path,
+    workspace_dir: Path,
+    language: str,
+) -> None:
+    """Initialize and copy a new agent workspace synchronously."""
+    _initialize_agent_workspace(
+        workspace_dir,
+        skill_names=[],
+        language=language,
+        apply_md_templates=request.copy_md_files,
+        create_skills_dir=request.copy_skills,
+        create_jobs_file=request.copy_jobs,
+    )
+    _copy_selected_workspace_files(
+        request=request,
+        source_workspace=source_workspace,
+        workspace_dir=workspace_dir,
+    )
+
+
+def _persist_created_agent(
+    config: Any,
+    agent_id: str,
+    agent_ref: AgentProfileRef,
+    agent_config: AgentProfileConfig,
+) -> None:
+    """Persist a newly created agent and its profile atomically by sequence."""
+    config.agents.profiles[agent_id] = agent_ref
+    config.agents.agent_order = _normalized_agent_order(config)
+    save_config(config)
+    save_agent_config(agent_id, agent_config)
+
+
 @router.post(
     "/{agentId}/copy",
     response_model=AgentProfileRef,
@@ -676,7 +720,7 @@ async def copy_agent(
     http_request: Request = None,
 ) -> AgentProfileRef:
     """Copy selected agent config files into a newly created agent."""
-    config = load_config()
+    config = await run_sync_io(load_config)
 
     if agentId not in config.agents.profiles:
         raise HTTPException(
@@ -685,7 +729,7 @@ async def copy_agent(
         )
 
     try:
-        source_config = load_agent_config(agentId)
+        source_config = await run_sync_io(load_agent_config, agentId)
     except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
@@ -697,7 +741,7 @@ async def copy_agent(
     new_id = _generate_unique_id(existing_ids)
     new_name = (request.name or "").strip() or f"{source_config.name} Copy"
     workspace_dir = Path(f"{WORKING_DIR}/workspaces/{new_id}").expanduser()
-    workspace_dir.mkdir(parents=True, exist_ok=True)
+    await run_sync_io(workspace_dir.mkdir, parents=True, exist_ok=True)
 
     language = normalize_agent_language(
         source_config.language or config.agents.language or "en",
@@ -710,18 +754,12 @@ async def copy_agent(
         workspace_dir=workspace_dir,
     )
 
-    _initialize_agent_workspace(
+    await run_sync_io(
+        _prepare_copied_workspace,
+        request,
+        source_workspace,
         workspace_dir,
-        skill_names=[],
-        language=language,
-        apply_md_templates=request.copy_md_files,
-        create_skills_dir=request.copy_skills,
-        create_jobs_file=request.copy_jobs,
-    )
-    _copy_selected_workspace_files(
-        request=request,
-        source_workspace=source_workspace,
-        workspace_dir=workspace_dir,
+        language,
     )
 
     agent_ref = AgentProfileRef(
@@ -730,10 +768,13 @@ async def copy_agent(
         enabled=True,
     )
 
-    config.agents.profiles[new_id] = agent_ref
-    config.agents.agent_order = _normalized_agent_order(config)
-    save_config(config)
-    save_agent_config(new_id, agent_config)
+    await run_sync_io(
+        _persist_created_agent,
+        config,
+        new_id,
+        agent_ref,
+        agent_config,
+    )
 
     logger.info(
         "Copied agent %s -> %s "
@@ -766,7 +807,7 @@ async def update_agent(
     request: Request = None,
 ) -> AgentProfileConfig:
     """Update agent configuration."""
-    config = load_config()
+    config = await asyncio.to_thread(load_config)
 
     if agentId not in config.agents.profiles:
         raise HTTPException(
@@ -774,7 +815,7 @@ async def update_agent(
             detail=f"Agent '{agentId}' not found",
         )
 
-    existing_config = load_agent_config(agentId)
+    existing_config = await asyncio.to_thread(load_agent_config, agentId)
 
     update_data = agent_config.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -782,10 +823,10 @@ async def update_agent(
             setattr(existing_config, key, value)
 
     existing_config.id = agentId
-    save_agent_config(agentId, existing_config)
+    await asyncio.to_thread(save_agent_config, agentId, existing_config)
     schedule_agent_reload(request, agentId)
 
-    return agent_config
+    return existing_config
 
 
 @router.post(
@@ -798,14 +839,14 @@ async def rebuild_agent_memory_index(
     request: Request = None,
 ) -> dict[str, str]:
     """Run the expensive ReMe reindex job as an explicit maintenance task."""
-    config = load_config()
+    config = await run_sync_io(load_config)
     if agentId not in config.agents.profiles:
         raise HTTPException(
             status_code=404,
             detail=f"Agent '{agentId}' not found",
         )
 
-    agent_config = load_agent_config(agentId)
+    agent_config = await run_sync_io(load_agent_config, agentId)
     if agent_config.running.memory_manager_backend != "remelight":
         raise HTTPException(
             status_code=400,
@@ -917,7 +958,7 @@ async def delete_agent(
     request: Request = None,
 ) -> dict:
     """Delete an agent."""
-    config = load_config()
+    config = await run_sync_io(load_config)
 
     if agentId not in config.agents.profiles:
         raise HTTPException(
@@ -941,7 +982,7 @@ async def delete_agent(
 
     del config.agents.profiles[agentId]
     config.agents.agent_order = _normalized_agent_order(config)
-    save_config(config)
+    await run_sync_io(save_config, config)
 
     return {"success": True, "agent_id": agentId}
 
@@ -957,7 +998,7 @@ async def toggle_agent_enabled(
     request: Request = None,
 ) -> dict:
     """Toggle agent enabled state."""
-    config = load_config()
+    config = await run_sync_io(load_config)
 
     if agentId not in config.agents.profiles:
         raise HTTPException(
@@ -987,7 +1028,7 @@ async def toggle_agent_enabled(
         await manager.stop_agent(agentId)
 
     agent_ref.enabled = enabled
-    save_config(config)
+    await run_sync_io(save_config, config)
 
     if enabled:
         manager.schedule_agent_startup(agentId)

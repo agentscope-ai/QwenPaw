@@ -248,7 +248,7 @@ class AgentBuilder:
         from ..providers.provider_manager import ProviderManager
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
-        agent_config = load_agent_config(agent_id)
+        agent_config = await run_sync_io(load_agent_config, agent_id)
         request_context = self._build_request_context(ctx)
         agent_config = self._apply_request_project(
             agent_config,
@@ -268,11 +268,13 @@ class AgentBuilder:
         workspace_dir = getattr(ctx, "workspace_dir", None)
 
         # Resolve skills.
-        ensure_skills_initialized(workspace_dir or WORKING_DIR)
+        skills_workspace = workspace_dir or WORKING_DIR
+        await run_sync_io(ensure_skills_initialized, skills_workspace)
         channel_name = request_context.get("channel", "console")
         try:
-            effective_skills = resolve_effective_skills(
-                workspace_dir or WORKING_DIR,
+            effective_skills = await run_sync_io(
+                resolve_effective_skills,
+                skills_workspace,
                 channel_name,
             )
         except Exception:
@@ -342,7 +344,10 @@ class AgentBuilder:
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
         model_slot_override = getattr(ctx.request, "model_slot_override", None)
-        model, _formatter = self.build_model(
+        if model_slot_override is None:
+            model_slot_override = request_context.get("model_slot_override")
+        model, _formatter = await run_sync_io(
+            self.build_model,
             agent_config,
             model_slot_override=model_slot_override,
         )
@@ -397,7 +402,11 @@ class AgentBuilder:
         )
 
         # System prompt.
-        sys_prompt = self.build_prompt(ctx, agent_config)
+        sys_prompt = await run_sync_io(
+            self.build_prompt,
+            ctx,
+            agent_config,
+        )
 
         middlewares = self._build_middlewares(
             ctx,
@@ -503,6 +512,7 @@ class AgentBuilder:
         model, formatter = create_model_and_formatter(
             agent_id=agent_config.id,
             model_slot_override=model_slot_override,
+            agent_config=agent_config,
         )
         if formatter is not None:
             innermost = model

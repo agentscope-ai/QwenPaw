@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { providerApi } from "../../../api/modules/provider";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { openExternalLink } from "../../../utils/openExternalLink";
+import styles from "./index.module.less";
 
 interface OAuthConfirmModalProps {
   open: boolean;
@@ -89,23 +90,15 @@ export function OAuthConfirmModal({
       width={420}
     >
       {phase === "confirm" ? (
-        <div style={{ textAlign: "center", padding: "16px 0" }}>
-          <ExternalLink
-            size={40}
-            style={{ color: "#6366f1", marginBottom: 16 }}
-          />
-          <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 600 }}>
+        <div className={styles.oauthModalContent}>
+          <ExternalLink size={40} className={styles.oauthModalIcon} />
+          <h3 className={styles.oauthModalTitle}>
             {t("modelSelector.oauthTitle", { provider: providerName })}
           </h3>
-          <p
-            style={{
-              color: "var(--text-secondary, rgba(0,0,0,0.45))",
-              margin: "0 0 24px",
-            }}
-          >
+          <p className={styles.oauthModalDescription}>
             {t("modelSelector.oauthDescription", { provider: providerName })}
           </p>
-          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+          <div className={styles.oauthModalActions}>
             <Button onClick={onCancel}>{t("common.cancel")}</Button>
             <Button type="primary" onClick={handleContinue}>
               {t("modelSelector.oauthContinue")}
@@ -113,20 +106,12 @@ export function OAuthConfirmModal({
           </div>
         </div>
       ) : (
-        <div style={{ textAlign: "center", padding: "24px 0" }}>
-          <Loader2
-            size={32}
-            style={{ color: "#6366f1", animation: "spin 1s linear infinite" }}
-          />
-          <h3 style={{ margin: "16px 0 8px", fontSize: 16, fontWeight: 600 }}>
+        <div className={styles.oauthModalContent} role="status">
+          <Loader2 size={32} className={styles.oauthModalSpinner} />
+          <h3 className={styles.oauthModalWaitingTitle}>
             {t("modelSelector.oauthWaiting")}
           </h3>
-          <p
-            style={{
-              color: "var(--text-secondary, rgba(0,0,0,0.45))",
-              margin: "0 0 24px",
-            }}
-          >
+          <p className={styles.oauthModalDescription}>
             {t("modelSelector.oauthWaitingDescription")}
           </p>
           <Button onClick={onCancel}>{t("common.cancel")}</Button>

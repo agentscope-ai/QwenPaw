@@ -19,7 +19,6 @@ from qwenpaw.tauri.env import (
     DESKTOP_READY_PREFIX,
     ensure_desktop_cors_origins,
 )
-from qwenpaw.browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
 from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
 
 logger = logging.getLogger(__name__)
@@ -267,6 +266,9 @@ def _emit_backend_ready(port: int) -> None:
 def _run_backend_server(log_level: str) -> None:
     import uvicorn
 
+    from qwenpaw.browser.control_link.chrome.protocol import (
+        NM_MAX_INBOUND_BYTES,
+    )
     from qwenpaw.config.utils import write_last_api
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
     from qwenpaw.utils.logging import (

@@ -48,11 +48,12 @@ from ..constant import (
 )
 from .error_utils import extract_status_code as _extract_status_code
 from .model_capability_cache import get_capability_cache
+from .model_error_policy import (
+    is_retryable_same_model,
+)
 from .rate_limiter import LLMRateLimiter, get_rate_limiter
 
 logger = logging.getLogger(__name__)
-
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504, 529}
 
 _openai_retryable: tuple[type[Exception], ...] | None = None
 _anthropic_retryable: tuple[type[Exception], ...] | None = None
@@ -155,19 +156,7 @@ def _get_httpx_retryable() -> tuple[type[Exception], ...]:
 
 def _is_retryable(exc: Exception) -> bool:
     """Return *True* if *exc* should trigger a retry."""
-    retryable = (
-        _get_openai_retryable()
-        + _get_anthropic_retryable()
-        + _get_httpx_retryable()
-    )
-    if retryable and isinstance(exc, retryable):
-        return True
-
-    status = _extract_status_code(exc)
-    if status is not None and status in RETRYABLE_STATUS_CODES:
-        return True
-
-    return False
+    return is_retryable_same_model(exc)
 
 
 def _is_rate_limit(exc: Exception) -> bool:
@@ -471,7 +460,67 @@ class RetryChatModel(ChatModelBase):
         *args: Any,
         **kwargs: Any,
     ) -> Any:
-        return await self._inner.generate_structured_output(*args, **kwargs)
+        limiter = await get_rate_limiter(
+            limiter_key=self.model_key,
+            max_concurrent=self._rate_limit_config.max_concurrent,
+            max_qpm=self._rate_limit_config.max_qpm,
+            default_pause_seconds=self._rate_limit_config.pause_seconds,
+            jitter_range=self._rate_limit_config.jitter_range,
+        )
+        retries = (
+            self._retry_config.max_retries if self._retry_config.enabled else 0
+        )
+        attempts = retries + 1
+
+        for attempt in range(1, attempts + 1):
+            acquired = False
+            try:
+                try:
+                    acquired_at = await asyncio.wait_for(
+                        limiter.acquire(),
+                        timeout=self._rate_limit_config.acquire_timeout,
+                    )
+                    acquired = True
+                except asyncio.TimeoutError as exc:
+                    raise _AcquireTimeoutError(
+                        operation=(
+                            f"LLM structured output for {self.model_key}"
+                        ),
+                        retry_after=int(
+                            self._rate_limit_config.acquire_timeout,
+                        ),
+                        details={
+                            "reason": (
+                                f"Timed out waiting for {self.model_key} "
+                                f"execution slot"
+                            ),
+                        },
+                    ) from exc
+
+                result = await self._inner.generate_structured_output(
+                    *args,
+                    **kwargs,
+                )
+                await limiter.on_success(acquired_at)
+                return result
+            except Exception as exc:
+                await self._handle_rate_limit_exc(exc, limiter)
+                if not _is_retryable(exc) or attempt >= attempts:
+                    raise
+                delay = _compute_backoff(attempt, self._retry_config)
+                logger.warning(
+                    f"LLM structured output failed "
+                    f"(attempt {attempt}/{attempts}): {exc}. "
+                    f"Retrying in {delay:.1f}s ...",
+                )
+                await asyncio.sleep(delay)
+            finally:
+                if acquired:
+                    limiter.release()
+
+        raise RuntimeError(
+            f"Structured output retry loop exhausted for {self.model_key}",
+        )
 
     async def __call__(
         self,
@@ -619,16 +668,22 @@ class RetryChatModel(ChatModelBase):
         pending_stream: AsyncGenerator[ChatResponse, None] | None = stream
         pending_acquired_at = acquired_at
         reasoning_injected = False
+        emitted = False
 
         while True:
             try:
                 if pending_stream is not None:
-                    async for chunk in self._consume_stream_with_slot(
+                    active_stream = self._consume_stream_with_slot(
                         pending_stream,
                         limiter,
                         pending_acquired_at,
-                    ):
-                        yield chunk
+                    )
+                    try:
+                        async for chunk in active_stream:
+                            emitted = emitted or bool(chunk.content)
+                            yield chunk
+                    finally:
+                        await active_stream.aclose()
                     return  # stream completed without error
 
                 acquired = False
@@ -670,6 +725,8 @@ class RetryChatModel(ChatModelBase):
 
             except Exception as retry_exc:
                 pending_stream = None
+                if emitted:
+                    raise
                 if (
                     not reasoning_injected
                     and _is_missing_reasoning_content_error(retry_exc)

@@ -13,7 +13,9 @@ Covers the highest-value flows:
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,9 +26,15 @@ from qwenpaw.exceptions import AppBaseException
 from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.routers.agents import (
     CopyAgentRequest,
+    CreateAgentRequest,
+    ReorderAgentsRequest,
     _initialize_agent_workspace,
     copy_agent,
+    create_agent,
+    get_agent,
+    reorder_agents,
     router as agents_router,
+    update_backend_settings,
 )
 from qwenpaw.config.config import (
     AgentProfileConfig,
@@ -214,6 +222,35 @@ def test_get_agent_returns_config(client):
     assert response.json()["id"] == "bot"
 
 
+async def test_get_agent_loads_config_off_event_loop(monkeypatch):
+    """Route config reads through ``asyncio.to_thread``."""
+    cfg = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        workspace_dir="/tmp/ws/bot",
+    )
+    calls = []
+
+    async def to_thread(func, *args):
+        calls.append((func, args))
+        return func(*args)
+
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.asyncio.to_thread",
+        to_thread,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.load_agent_config",
+        lambda _agent_id: cfg,
+    )
+
+    result = await get_agent("bot")
+
+    assert result is cfg
+    assert len(calls) == 1
+    assert calls[0][1] == ("bot",)
+
+
 def test_update_backend_settings_from_chat(client):
     cfg = AgentProfileConfig(
         id="bot",
@@ -249,6 +286,48 @@ def test_update_backend_settings_from_chat(client):
     save.assert_called_once()
 
 
+async def test_backend_settings_read_and_write_off_event_loop(monkeypatch):
+    """Route backend config persistence through ``asyncio.to_thread``."""
+    cfg = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        workspace_dir="/tmp/ws/bot",
+        backend="codex",
+    )
+    calls = []
+
+    async def to_thread(func, *args):
+        calls.append((func, args))
+        return func(*args)
+
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.asyncio.to_thread",
+        to_thread,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.load_agent_config",
+        lambda _agent_id: cfg,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.save_agent_config",
+        lambda _agent_id, _config: None,
+    )
+
+    await update_backend_settings(
+        body=SimpleNamespace(
+            model_dump=lambda: {
+                "model": "gpt-test-codex",
+                "reasoning_effort": "high",
+            },
+        ),
+        agentId="bot",
+    )
+
+    assert len(calls) == 2
+    assert calls[0][1] == ("bot",)
+    assert calls[1][1] == ("bot", cfg)
+
+
 def test_get_agent_returns_404_for_missing(client):
     with patch(
         "qwenpaw.app.routers.agents.load_agent_config",
@@ -257,6 +336,45 @@ def test_get_agent_returns_404_for_missing(client):
         response = client.get("/api/agents/ghost")
 
     assert response.status_code == 404
+
+
+def test_update_agent_returns_merged_config(client, fake_config):
+    existing = AgentProfileConfig(
+        id="bot",
+        name="Existing name",
+        description="preserved",
+        workspace_dir="/tmp/ws/bot",
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=existing,
+        ),
+        patch("qwenpaw.app.routers.agents.save_agent_config") as save,
+        patch("qwenpaw.app.routers.agents.schedule_agent_reload") as reload,
+    ):
+        response = client.put(
+            "/api/agents/bot",
+            json={
+                "id": "ignored",
+                "name": "Updated name",
+                "thinking_level": "high",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == "bot"
+    assert body["name"] == "Updated name"
+    assert body["description"] == "preserved"
+    assert body["thinking_level"] == "high"
+    save.assert_called_once_with("bot", existing)
+    reload.assert_called_once()
 
 
 def test_get_agent_returns_404_for_app_base_exception(client):
@@ -567,6 +685,82 @@ def test_reorder_agents_happy_path_saves(client, fake_config):
     assert response.status_code == 200
     assert response.json()["success"] is True
     save_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_reorder_config_io_runs_off_event_loop(
+    fake_config,
+    monkeypatch,
+):
+    """Agent order config reads and writes must run in worker threads."""
+    event_loop_thread = threading.get_ident()
+    io_threads = []
+
+    def load():
+        io_threads.append(threading.get_ident())
+        return fake_config
+
+    def save(_config):
+        io_threads.append(threading.get_ident())
+
+    monkeypatch.setattr("qwenpaw.app.routers.agents.load_config", load)
+    monkeypatch.setattr("qwenpaw.app.routers.agents.save_config", save)
+
+    await reorder_agents(
+        ReorderAgentsRequest(agent_ids=["default", "bot"]),
+    )
+
+    assert len(io_threads) == 2
+    assert all(thread_id != event_loop_thread for thread_id in io_threads)
+
+
+@pytest.mark.asyncio
+async def test_create_workspace_io_runs_off_event_loop(
+    fake_config,
+    monkeypatch,
+    tmp_path,
+):
+    """Agent creation workspace and persistence I/O use worker threads."""
+    event_loop_thread = threading.get_ident()
+    io_threads = []
+    workspace_dir = tmp_path / "created"
+
+    def load():
+        io_threads.append(threading.get_ident())
+        return fake_config
+
+    def initialize(*_args, **_kwargs):
+        io_threads.append(threading.get_ident())
+
+    def persist(*_args):
+        io_threads.append(threading.get_ident())
+
+    monkeypatch.setattr("qwenpaw.app.routers.agents.load_config", load)
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents._initialize_agent_workspace",
+        initialize,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents._persist_created_agent",
+        persist,
+    )
+
+    result = await create_agent(
+        request=CreateAgentRequest(
+            id="created",
+            name="Created",
+            workspace_dir=str(workspace_dir),
+            active_model=ModelSlotConfig(
+                provider_id="openai",
+                model="gpt-test",
+            ),
+        ),
+        http_request=None,
+    )
+
+    assert result.id == "created"
+    assert len(io_threads) == 3
+    assert all(thread_id != event_loop_thread for thread_id in io_threads)
 
 
 # ---------------------------------------------------------------------------

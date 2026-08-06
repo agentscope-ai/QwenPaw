@@ -175,7 +175,7 @@ async def oauth_callback(
     # Save credentials to provider config
     credential = flow.get_credential_dict(token_result)
     if credential:
-        if not manager.update_provider(provider_id, credential):
+        if not await manager.update_provider_async(provider_id, credential):
             _session_store.fail(session_state, "Provider not found")
             return HTMLResponse(
                 content=_error_html("Provider not found."),

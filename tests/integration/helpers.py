@@ -39,6 +39,11 @@ def default_http_timeout(default: float = 15.0) -> float:
     return default
 
 
+def app_startup_wait_timeout() -> float:
+    """Return the maximum wait for the integration app to become ready."""
+    return default_http_timeout(60.0)
+
+
 PLUGIN_HTTP_TIMEOUT = default_http_timeout(60.0)
 LOADER_READY_TIMEOUT = 20.0
 AGENT_SCOPED_PREFIX = "/api/agents"
@@ -679,6 +684,7 @@ def register_mock_provider(app_server, mock_url: str) -> str:
         json={
             "api_key": "test-key-mock",
             "base_url": mock_url,
+            "auto_discover": False,
         },
         timeout=_HTTP_TIMEOUT,
     )

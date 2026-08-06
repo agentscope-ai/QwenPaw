@@ -1666,6 +1666,15 @@ class CodingModeConfig(BaseModel):
     )
 
 
+class FallbackPolicyConfig(BaseModel):
+    """Policy controlling cross-model fallback targets."""
+
+    enabled: bool = Field(default=True)
+    target_scope: Literal["configured", "free_only"] = Field(
+        default="configured",
+    )
+
+
 class AgentProfileConfig(BaseModel):
     """Complete Agent Profile configuration (stored in workspace/agent.json).
 
@@ -1727,6 +1736,28 @@ class AgentProfileConfig(BaseModel):
     active_model: Optional["ModelSlotConfig"] = Field(
         default=None,
         description="Active model for this agent (provider_id + model)",
+    )
+    fallback_models: List["ModelSlotConfig"] = Field(
+        default_factory=list,
+        description="Ordered model fallback chain for transient failures",
+    )
+    fallback_policy: FallbackPolicyConfig = Field(
+        default_factory=FallbackPolicyConfig,
+        description="Cross-model fallback policy",
+    )
+    subagent_model: Optional["ModelSlotConfig"] = Field(
+        default=None,
+        description="Optional cheaper model used by spawned subagents",
+    )
+    thinking_level: Literal[
+        "inherit",
+        "off",
+        "low",
+        "medium",
+        "high",
+    ] = Field(
+        default="inherit",
+        description="Provider-independent agent reasoning level",
     )
     language: str = Field(
         default="zh",

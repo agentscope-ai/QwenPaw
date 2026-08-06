@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from agentscope.model import ChatModelBase
 from pydantic import Field
@@ -49,6 +49,31 @@ class DashScopeProvider(OpenAIProvider):
             "conversation history. 0 disables capping."
         ),
     )
+
+    @staticmethod
+    def _is_non_chat_model(model_id: str) -> bool:
+        """Exclude DashScope products that cannot use chat completions."""
+        normalized = model_id.lower()
+        non_chat_markers = (
+            "image",
+            "speech",
+            "asr",
+            "audio",
+            "embedding",
+            "rerank",
+            "translation",
+            "realtime",
+            "live",
+            "gpu-auto-handle",
+        )
+        return any(marker in normalized for marker in non_chat_markers)
+
+    async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
+        """Fetch only catalog entries compatible with chat completions."""
+        models = await super().fetch_models(timeout)
+        return [
+            model for model in models if not self._is_non_chat_model(model.id)
+        ]
 
     def _is_builtin_model(self, model_id: str) -> bool:
         return any(m.id == model_id for m in self.models)

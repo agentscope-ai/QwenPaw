@@ -188,8 +188,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     # boot path) to speed up startup.
     await _sync_scroll_history_on_startup()
 
-    # Create core managers (instant — no I/O)
-    provider_manager = ProviderManager.get_instance()
+    # Provider initialization scans and may migrate persisted configuration.
+    provider_manager = await asyncio.to_thread(ProviderManager.get_instance)
     local_model_manager = LocalModelManager.get_instance()
 
     # --- AppServiceManager + WorkspaceRegistry ---
@@ -423,6 +423,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 startup_display.mark_finalizing()
 
             provider_manager.start_local_model_resume(local_model_manager)
+            asyncio.create_task(
+                provider_manager.sync_startup_provider_models(),
+                name="qwenpaw-provider-model-sync",
+            )
+            asyncio.create_task(
+                provider_manager.sync_remote_catalogs(),
+                name="qwenpaw-provider-catalog-sync",
+            )
 
             # Phase 2: load remaining plugins (channel plugins already
             # loaded — load_plugin skips them automatically)
@@ -443,7 +451,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 provider_id,
                 provider_reg,
             ) in plugin_loader.registry.get_all_providers().items():
-                provider_manager.register_plugin_provider(
+                await provider_manager.register_plugin_provider_async(
                     provider_id=provider_id,
                     provider_class=provider_reg.provider_class,
                     label=provider_reg.label,

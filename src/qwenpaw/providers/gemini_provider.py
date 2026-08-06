@@ -23,7 +23,11 @@ from qwenpaw.providers.multimodal_prober import (
     _is_media_keyword_error,
     evaluate_image_probe_answer,
 )
-from qwenpaw.providers.provider import ModelInfo, Provider
+from qwenpaw.providers.provider import (
+    ModelConnectionResult,
+    ModelInfo,
+    Provider,
+)
 from .capping_formatter import _CappingGeminiFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
@@ -82,10 +86,6 @@ def _flatten_json_schema(schema: dict) -> dict:
     return _resolve_ref(schema)
 
 
-def _is_null_schema(schema: Any) -> bool:
-    return isinstance(schema, dict) and schema.get("type") == "null"
-
-
 # pylint: disable=too-many-branches
 def _sanitize_schema_for_gemini(schema: Any) -> Any:
     """Sanitize a JSON schema to be compatible with the Gemini API.
@@ -129,7 +129,11 @@ def _sanitize_schema_for_gemini(schema: Any) -> Any:
 
     if "anyOf" in schema and isinstance(schema["anyOf"], list):
         any_of = schema["anyOf"]
-        non_null = [v for v in any_of if not _is_null_schema(v)]
+        non_null = [
+            v
+            for v in any_of
+            if not (isinstance(v, dict) and v.get("type") == "null")
+        ]
         if len(non_null) < len(any_of):
             if len(non_null) == 1:
                 merged = dict(_sanitize_schema_for_gemini(non_null[0]))
@@ -211,7 +215,16 @@ class GeminiProvider(Provider):
             if not display_name or display_name.startswith("models/"):
                 display_name = model_id
 
-            models.append(ModelInfo(id=model_id, name=display_name))
+            metadata: dict[str, int] = {}
+            input_limit = getattr(row, "input_token_limit", None)
+            if isinstance(input_limit, (int, float)) and input_limit >= 1000:
+                metadata["max_input_length_auto_detected"] = int(input_limit)
+            output_limit = getattr(row, "output_token_limit", None)
+            if isinstance(output_limit, (int, float)) and output_limit > 0:
+                metadata["max_tokens"] = int(output_limit)
+            models.append(
+                ModelInfo(id=model_id, name=display_name, **metadata),
+            )
 
         deduped: List[ModelInfo] = []
         seen: set[str] = set()
@@ -224,10 +237,13 @@ class GeminiProvider(Provider):
 
     async def check_connection(self, timeout: float = 10) -> tuple[bool, str]:
         """Check if Google Gemini provider is reachable."""
+        client = None
+        response = None
         try:
             client = self._client(timeout=timeout)
             # Use the async list models endpoint to verify connectivity
-            async for _ in await client.aio.models.list():
+            response = await client.aio.models.list()
+            async for _ in response:
                 break
             return True, ""
         except genai_errors.APIError:
@@ -241,13 +257,20 @@ class GeminiProvider(Provider):
                 False,
                 "Unknown exception when connecting to Google Gemini API.",
             )
+        finally:
+            await self._close_async_resource(response)
+            if client is not None:
+                await self._close_async_resource(client.aio)
 
     async def fetch_models(self, timeout: float = 10) -> List[ModelInfo]:
         """Fetch available models from Gemini API."""
+        client = None
+        response = None
         try:
             client = self._client(timeout=timeout)
             payload = []
-            async for model in await client.aio.models.list():
+            response = await client.aio.models.list()
+            async for model in response:
                 payload.append(model)
             models = self._normalize_models_payload(payload)
             return models
@@ -255,17 +278,26 @@ class GeminiProvider(Provider):
             return []
         except Exception:
             return []
+        finally:
+            await self._close_async_resource(response)
+            if client is not None:
+                await self._close_async_resource(client.aio)
 
     async def check_model_connection(
         self,
         model_id: str,
         timeout: float = 10,
-    ) -> tuple[bool, str]:
+    ) -> ModelConnectionResult:
         """Check if a specific Gemini model is reachable/usable."""
         target = (model_id or "").strip()
         if not target:
-            return False, "Empty model ID"
+            return ModelConnectionResult(
+                success=False,
+                message="Empty model ID",
+            )
 
+        client = None
+        response = None
         try:
             client = self._client(timeout=timeout)
             response = await client.aio.models.generate_content_stream(
@@ -274,17 +306,51 @@ class GeminiProvider(Provider):
             )
             async for _ in response:
                 break
-            return True, ""
-        except genai_errors.APIError:
-            return (
-                False,
-                f"Model '{model_id}' is not reachable or usable",
+            return ModelConnectionResult(success=True)
+        except genai_errors.APIError as exc:
+            status = getattr(exc, "code", None) or getattr(
+                exc,
+                "status_code",
+                None,
             )
-        except Exception:
-            return (
-                False,
-                f"Unknown exception when connecting to model '{model_id}'",
+            return ModelConnectionResult(
+                success=False,
+                message=(
+                    f"Model '{model_id}' is not reachable or usable: "
+                    f"{self.connection_error_message(exc)}"
+                ),
+                http_status=status if isinstance(status, int) else None,
+                error_kind=(
+                    "permission_denied"
+                    if status in (401, 403)
+                    else "model_not_found"
+                    if status == 404
+                    else None
+                ),
             )
+        except Exception as exc:
+            return ModelConnectionResult(
+                success=False,
+                message=(
+                    f"Unknown exception when connecting to model "
+                    f"'{model_id}': {self.connection_error_message(exc)}"
+                ),
+            )
+        finally:
+            await self._close_async_resource(response)
+            if client is not None:
+                await self._close_async_resource(client.aio)
+
+    @staticmethod
+    async def _close_async_resource(resource: Any) -> None:
+        """Close an SDK stream or client without masking its result."""
+        close = getattr(resource, "aclose", None)
+        if close is None:
+            return
+        try:
+            await close()
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.debug("Failed to close Gemini SDK resource: %s", exc)
 
     @staticmethod
     def _adapt_generate_kwargs_for_gemini(
@@ -567,23 +633,23 @@ class _GeminiChatModelCompat:
                 effective_thinking_enable = (
                     False
                     if disable_thinking
-                    else bool(self.parameters.thinking_enable)
+                    else bool(
+                        self.parameters.thinking_enable,
+                    )
                 )
-
                 from datetime import datetime
 
+                client_options = {}
                 if self._qp_default_headers:
-                    client = genai.Client(
-                        api_key=self.credential.api_key.get_secret_value(),
-                        http_options=genai_types.HttpOptions(
-                            headers=self._qp_default_headers,
-                        ),
+                    client_options["http_options"] = genai_types.HttpOptions(
+                        headers=self._qp_default_headers,
                     )
                 else:
-                    client = genai.Client(
-                        api_key=self.credential.api_key.get_secret_value(),
-                        **self.client_kwargs,
-                    )
+                    client_options.update(self.client_kwargs)
+                client = genai.Client(
+                    api_key=self.credential.api_key.get_secret_value(),
+                    **client_options,
+                )
 
                 formatted = await self.formatter.format(messages)
                 config: dict[str, Any] = {**merged}
@@ -605,10 +671,7 @@ class _GeminiChatModelCompat:
                     ),
                 }
 
-                fmt_tools, fmt_tc = self._format_tools(
-                    tools,
-                    tool_choice,
-                )
+                fmt_tools, fmt_tc = self._format_tools(tools, tool_choice)
                 if fmt_tools is not None:
                     config["tools"] = fmt_tools
                 if fmt_tc is not None:
@@ -621,13 +684,10 @@ class _GeminiChatModelCompat:
                 }
                 start = datetime.now()
                 if self.stream:
-                    stream_method = client.aio.models.generate_content_stream
-                    response = await stream_method(**call_kwargs)
-                    return self._parse_stream_response(
-                        start,
-                        response,
-                        client,
+                    response = await client.aio.models.generate_content_stream(
+                        **call_kwargs,
                     )
+                    return self._parse_stream_response(start, response, client)
                 response = await client.aio.models.generate_content(
                     **call_kwargs,
                 )

@@ -63,10 +63,15 @@ function ModelsPage() {
   // Auto-open provider config modal from URL param
   useEffect(() => {
     const providerParam = searchParams.get("provider");
+    const manageModels = searchParams.get("manageModels") === "true";
     if (providerParam && providers.length > 0) {
       const target = providers.find((p) => p.id === providerParam);
       if (target) {
-        setConfigModalProvider(target);
+        if (manageModels) {
+          setModelsModalProvider(target);
+        } else {
+          setConfigModalProvider(target);
+        }
         setSearchParams({}, { replace: true });
       }
     }

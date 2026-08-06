@@ -34,6 +34,7 @@ const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
 function hydrateTurnUsageFromMessages(
   messages: IAgentScopeRuntimeWebUIMessage[],
 ): void {
+  useTurnUsageStore.getState().invalidateTurn(false);
   const snap = extractLatestSnapshotFromCards(messages);
   const activeMax = useTurnUsageStore.getState().activeMaxInputLength;
   if (snap?.context_usage && typeof activeMax === "number" && activeMax > 0) {

@@ -171,7 +171,7 @@ async def _post_load_setup(  # pylint: disable=too-many-branches
             if reg.plugin_id != plugin_id:
                 continue
             try:
-                provider_manager.register_plugin_provider(
+                await provider_manager.register_plugin_provider_async(
                     provider_id=pid,
                     provider_class=reg.provider_class,
                     label=reg.label,

@@ -980,6 +980,11 @@ class BaseChannel(ABC):
                             event,
                             send_meta,
                         )
+                    await self._send_model_fallback_notice(
+                        to_handle,
+                        event,
+                        send_meta,
+                    )
                 elif obj == "response":
                     last_response = event
                     await self.on_event_response(request, event)
@@ -1565,6 +1570,11 @@ class BaseChannel(ABC):
                         event,
                         send_meta,
                     )
+                    await self._send_model_fallback_notice(
+                        to_handle,
+                        event,
+                        send_meta,
+                    )
                 elif obj == "response":
                     last_response = event
                     await self.on_event_response(request, event)
@@ -1770,6 +1780,86 @@ class BaseChannel(ABC):
         Override for batch/debounce (e.g. DingTalk merge then send).
         """
         await self.send_message_content(to_handle, event, send_meta)
+
+    @staticmethod
+    def _model_fallback_events(event: Any) -> List[Dict[str, str]]:
+        """Return valid, unique model fallback events from message metadata."""
+        metadata = getattr(event, "metadata", None)
+        if not isinstance(metadata, dict):
+            message = getattr(event, "message", None)
+            metadata = getattr(message, "metadata", None)
+        if not isinstance(metadata, dict):
+            return []
+
+        nested_metadata = metadata.get("metadata")
+        event_source = (
+            nested_metadata if isinstance(nested_metadata, dict) else metadata
+        )
+        raw_events = event_source.get("qwenpaw_model_fallbacks")
+        if not isinstance(raw_events, list):
+            return []
+
+        required_fields = (
+            "from_provider_id",
+            "from_model_id",
+            "to_provider_id",
+            "to_model_id",
+            "reason_kind",
+        )
+        events: List[Dict[str, str]] = []
+        seen: set[tuple[str, ...]] = set()
+        for raw_event in raw_events:
+            if not isinstance(raw_event, dict):
+                continue
+            if raw_event.get("type") != "model_fallback":
+                continue
+            if not all(
+                isinstance(raw_event.get(field), str)
+                for field in required_fields
+            ):
+                continue
+            event_key = tuple(
+                str(raw_event[field]) for field in required_fields
+            )
+            if event_key in seen:
+                continue
+            seen.add(event_key)
+            events.append(
+                {field: str(raw_event[field]) for field in required_fields},
+            )
+        return events
+
+    @staticmethod
+    def _format_model_fallback_notice(event: Dict[str, str]) -> str:
+        """Format one model fallback event for channel users."""
+        source = f"{event['from_provider_id']}:{event['from_model_id']}"
+        target = f"{event['to_provider_id']}:{event['to_model_id']}"
+        return (
+            f"Model switched from {source} to {target} "
+            f"({event['reason_kind']})."
+        )
+
+    async def _send_model_fallback_notice(
+        self,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Send fallback metadata to channels without Console rendering."""
+        if self.channel == "console":
+            return
+        fallback_events = self._model_fallback_events(event)
+        if not fallback_events:
+            return
+        notice = "\n".join(
+            self._format_model_fallback_notice(item)
+            for item in fallback_events
+        )
+        await self.send_content_parts(
+            to_handle,
+            [TextContent(type=ContentType.TEXT, text=notice)],
+            send_meta,
+        )
 
     async def on_event_response(
         self,
@@ -2212,6 +2302,7 @@ class BaseChannel(ABC):
             session_id=session_id,
         )
         await self.send_message_content(to_handle, event, meta)
+        await self._send_model_fallback_notice(to_handle, event, meta or {})
 
     async def send_approval_notification(
         self,

@@ -18,6 +18,7 @@ Corresponding Tier Strategy:
 # pylint: disable=reimported,broad-exception-raised,using-constant-test
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1409,6 +1410,47 @@ class TestRunProcessLoopIntegration:
         # Verify send_message_content was called
         base_channel.send_message_content.assert_called_once()
 
+    async def test_completed_message_sends_fallback_notice(
+        self,
+        base_channel,
+    ):
+        """Non-console channels should expose fallback metadata to users."""
+        from qwenpaw.schemas import Event, RunStatus
+
+        fallback = {
+            "type": "model_fallback",
+            "from_provider_id": "primary",
+            "from_model_id": "model-a",
+            "to_provider_id": "backup",
+            "to_model_id": "model-b",
+            "reason_kind": "rate_limited",
+        }
+
+        async def mock_process(_request):
+            yield Event(
+                object="message",
+                status=RunStatus.Completed,
+                metadata={"qwenpaw_model_fallbacks": [fallback]},
+            )
+
+        base_channel.channel = "telegram"
+        base_channel._process = mock_process
+        base_channel.send_message_content = AsyncMock()
+        base_channel.send_content_parts = AsyncMock()
+
+        await base_channel._run_process_loop(
+            MagicMock(session_id="test:user1"),
+            to_handle="user1",
+            send_meta={},
+        )
+
+        base_channel.send_content_parts.assert_awaited_once()
+        notice_part = base_channel.send_content_parts.await_args.args[1][0]
+        assert notice_part.text == (
+            "Model switched from primary:model-a to backup:model-b "
+            "(rate_limited)."
+        )
+
     @pytest.mark.skip(
         reason="Response/AgentResponse classes removed from schema",
     )
@@ -1417,6 +1459,66 @@ class TestRunProcessLoopIntegration:
         # NOTE: Response, AgentResponse, ErrorDetail classes removed
         # Test disabled until schema definitions are updated
         pytest.skip("Schema classes removed - test needs updating")
+
+
+class TestModelFallbackNotice:
+    """Fallback metadata parsing and channel visibility tests."""
+
+    def test_parses_nested_metadata_and_deduplicates(self, base_channel):
+        """Nested metadata should produce unique validated events."""
+        fallback = {
+            "type": "model_fallback",
+            "from_provider_id": "primary",
+            "from_model_id": "model-a",
+            "to_provider_id": "backup",
+            "to_model_id": "model-b",
+            "reason_kind": "timeout",
+        }
+        event = SimpleNamespace(
+            metadata={
+                "metadata": {
+                    "qwenpaw_model_fallbacks": [
+                        fallback,
+                        fallback,
+                        {"type": "invalid"},
+                    ],
+                },
+            },
+        )
+
+        assert base_channel._model_fallback_events(event) == [
+            {key: value for key, value in fallback.items() if key != "type"},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_console_does_not_send_duplicate_notice(
+        self,
+        base_channel,
+    ):
+        """Console frontend remains the only Console fallback renderer."""
+        event = SimpleNamespace(
+            metadata={
+                "qwenpaw_model_fallbacks": [
+                    {
+                        "type": "model_fallback",
+                        "from_provider_id": "primary",
+                        "from_model_id": "model-a",
+                        "to_provider_id": "backup",
+                        "to_model_id": "model-b",
+                        "reason_kind": "timeout",
+                    },
+                ],
+            },
+        )
+        base_channel.send_content_parts = AsyncMock()
+
+        await base_channel._send_model_fallback_notice(
+            "user1",
+            event,
+            {},
+        )
+
+        base_channel.send_content_parts.assert_not_awaited()
 
 
 # =============================================================================
