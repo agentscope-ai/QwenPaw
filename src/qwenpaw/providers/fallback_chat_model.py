@@ -160,6 +160,11 @@ class CooldownManager:
 
     Cooldown states are stored in a singleton so they persist across
     model instances and requests.
+
+    Thread-safety: This class is designed for use within a single async
+    event loop (no ``await`` between read and write). If QwenPaw ever
+    introduces thread-pool concurrency, add an ``asyncio.Lock`` around
+    ``_states`` access.
     """
 
     _states: dict[str, CooldownState] = {}

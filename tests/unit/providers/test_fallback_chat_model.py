@@ -208,6 +208,56 @@ class TestFallbackChatModel:
         # Primary should be on cooldown now
         assert CooldownManager.is_on_cooldown(primary_candidate.label) is True
 
+    async def test_stream_fallback_before_first_chunk(
+        self,
+        primary_candidate,
+        fallback_candidate,
+    ):
+        """Streaming: primary stream fails before first chunk, fallback succeeds."""
+        # Mock primary model to return an async generator that fails before yielding
+        async def failing_stream():
+            raise Exception("network error")
+
+        primary_candidate.model.__call__ = AsyncMock(
+            return_value=failing_stream(),
+        )
+        primary_candidate.model.__call__.side_effect = None
+
+        # Mock fallback model to return a successful async generator
+        async def success_stream():
+            yield "chunk-a"
+            yield "chunk-b"
+
+        fallback_candidate.model.__call__ = AsyncMock(
+            return_value=success_stream(),
+        )
+        fallback = FallbackChatModel([primary_candidate, fallback_candidate])
+
+        # Collect streamed results
+        results = []
+        async for chunk in fallback():
+            results.append(chunk)
+
+        assert results == ["chunk-a", "chunk-b"]
+
+    async def test_stream_primary_success(self, primary_candidate):
+        """Streaming: primary stream succeeds, no fallback needed."""
+        async def success_stream():
+            yield "chunk-x"
+            yield "chunk-y"
+
+        primary_candidate.model.__call__ = AsyncMock(
+            return_value=success_stream(),
+        )
+        primary_candidate.model.__call__.side_effect = None
+        fallback = FallbackChatModel([primary_candidate])
+
+        results = []
+        async for chunk in fallback():
+            results.append(chunk)
+
+        assert results == ["chunk-x", "chunk-y"]
+
 
 # ---- Error classification tests -----------------------------------------
 

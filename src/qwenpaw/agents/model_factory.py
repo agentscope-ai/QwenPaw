@@ -1369,7 +1369,10 @@ def _create_raw_chat_model(
     candidate path.  It creates the model without any retry/fallback wrapping.
     """
     manager = ProviderManager.get_instance()
-    return manager.create_chat_model(provider_id, model_name)
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise ProviderError(message=f"Provider '{provider_id}' not found.")
+    return provider.get_chat_model_instance(model_name)
 
 
 def _is_fallback_candidate_available(
@@ -1394,7 +1397,7 @@ def _is_fallback_candidate_available(
             model_id,
             exc_info=True,
         )
-        return True  # Conservative: assume available if check fails
+        return False  # Skip unknown providers — safer than attempting
 
 
 def _create_fallback_candidate(
@@ -1468,12 +1471,19 @@ def _apply_fallback_if_configured(
     agent_id: str | None,
     provider_id: str,
     formatter: FormatterBase,
+    retry_config: RetryConfig | None = None,
+    rate_limit_config: RateLimitConfig | None = None,
+    compact_threshold: float | None = None,
 ) -> ChatModelBase:
     """Wrap *primary_model* in ``FallbackChatModel`` if fallback is configured.
 
     Reads fallback config from the agent's configuration (or global config).
     If fallback is not enabled or no fallback candidates are available, returns
     the primary model unchanged.
+
+    Fallback candidates beyond the primary are wrapped with
+    ``TokenRecordingModelWrapper`` and ``RetryChatModel`` so that token
+    usage is tracked and rate-limiting is enforced for all fallback calls.
     """
     fallback_cfg = _get_fallback_config(agent_id)
     if fallback_cfg is None:
@@ -1535,6 +1545,21 @@ def _apply_fallback_if_configured(
                 exc,
             )
             continue
+
+        # Wrap fallback candidates with the same layers as the primary
+        # model (TokenRecordingModelWrapper + RetryChatModel) so that
+        # token usage is tracked and rate-limiting is enforced for all
+        # fallback calls, not just the primary.
+        fb_model = TokenRecordingModelWrapper(
+            fb_provider_id,
+            fb_model,
+            compact_threshold=compact_threshold,
+        )
+        fb_model = RetryChatModel(
+            fb_model,
+            retry_config=retry_config,
+            rate_limit_config=rate_limit_config,
+        )
 
         # Check formatter compatibility
         fb_formatter = getattr(fb_model, "formatter", None)
@@ -1711,6 +1736,9 @@ def create_model_and_formatter(
         agent_id=agent_id,
         provider_id=provider_id,
         formatter=formatter,
+        retry_config=retry_config,
+        rate_limit_config=rate_limit_config,
+        compact_threshold=compact_threshold,
     )
 
     return wrapped_model, formatter
