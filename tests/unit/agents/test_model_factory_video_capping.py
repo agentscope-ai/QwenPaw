@@ -9,9 +9,12 @@ the local-file (``file://`` / ``url``) and in-memory (``base64``) source
 shapes, for both wire formats.
 """
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,mixed-line-endings
+from typing import Any, Callable
+
 from agentscope.message import DataBlock, URLSource
 
+from qwenpaw.agents import model_factory
 from qwenpaw.agents.model_factory import (
     MAX_INLINE_MEDIA_BYTES,
     _format_anthropic_video_data_block,
@@ -27,13 +30,36 @@ def _write_video(tmp_path, name: str, size: int) -> str:
     return f"file://{path}"
 
 
+def _format_prepared_local_video(
+    url: str,
+    formatter: Callable[..., Any],
+    block: Any,
+    **kwargs: Any,
+) -> Any:
+    """Call a pure formatter helper with worker-prepared media data."""
+    path = model_factory._local_media_path(url)
+    assert path is not None
+    cache_key = model_factory._local_media_cache_key(path)
+    token = model_factory._LOCAL_MEDIA_CACHE.set(
+        {cache_key: model_factory._read_local_media(path)},
+    )
+    try:
+        return formatter(block, **kwargs)
+    finally:
+        model_factory._LOCAL_MEDIA_CACHE.reset(token)
+
+
 # --------------------------------------------------------------------- OpenAI
 
 
 def test_openai_url_video_under_cap_is_inlined(tmp_path) -> None:
     url = _write_video(tmp_path, "small.mp4", MAX_INLINE_MEDIA_BYTES)
     block = {"source": {"type": "url", "url": url}}
-    out = _format_openai_video_block(block)
+    out = _format_prepared_local_video(
+        url,
+        _format_openai_video_block,
+        block,
+    )
     assert out["type"] == "video_url"
     assert out["video_url"]["url"].startswith("data:video/mp4;base64,")
 
@@ -41,7 +67,11 @@ def test_openai_url_video_under_cap_is_inlined(tmp_path) -> None:
 def test_openai_url_video_over_cap_is_placeholder(tmp_path) -> None:
     url = _write_video(tmp_path, "big.mp4", MAX_INLINE_MEDIA_BYTES + 1)
     block = {"source": {"type": "url", "url": url}}
-    out = _format_openai_video_block(block)
+    out = _format_prepared_local_video(
+        url,
+        _format_openai_video_block,
+        block,
+    )
     assert out["type"] == "text"
     assert "video omitted from model context" in out["text"]
     assert str(MAX_INLINE_MEDIA_BYTES + 1) in out["text"]
@@ -93,7 +123,11 @@ def test_openai_remote_url_video_is_passed_through() -> None:
 def test_anthropic_url_video_over_cap_is_placeholder(tmp_path) -> None:
     url = _write_video(tmp_path, "big.mp4", MAX_INLINE_MEDIA_BYTES + 1)
     block = DataBlock(source=URLSource(url=url, media_type="video/mp4"))
-    out = _format_anthropic_video_data_block(block)
+    out = _format_prepared_local_video(
+        url,
+        _format_anthropic_video_data_block,
+        block,
+    )
     assert out["type"] == "text"
     assert "video omitted from model context" in out["text"]
 
@@ -101,7 +135,11 @@ def test_anthropic_url_video_over_cap_is_placeholder(tmp_path) -> None:
 def test_anthropic_url_video_under_cap_is_inlined(tmp_path) -> None:
     url = _write_video(tmp_path, "small.mp4", MAX_INLINE_MEDIA_BYTES)
     block = DataBlock(source=URLSource(url=url, media_type="video/mp4"))
-    out = _format_anthropic_video_data_block(block)
+    out = _format_prepared_local_video(
+        url,
+        _format_anthropic_video_data_block,
+        block,
+    )
     assert out["type"] == "video"
     assert out["source"]["type"] == "base64"
     assert out["source"]["media_type"] == "video/mp4"
@@ -179,7 +217,12 @@ def test_openai_response_api_remote_url() -> None:
 def test_openai_response_api_local_file(tmp_path) -> None:
     url = _write_video(tmp_path, "small.mp4", 64)
     block = {"source": {"type": "url", "url": url}}
-    out = _format_openai_video_block(block, response_api=True)
+    out = _format_prepared_local_video(
+        url,
+        _format_openai_video_block,
+        block,
+        response_api=True,
+    )
     assert out["type"] == "input_video"
     assert out["video_url"].startswith("data:video/mp4;base64,")
 

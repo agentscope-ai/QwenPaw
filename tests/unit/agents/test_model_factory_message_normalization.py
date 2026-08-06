@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Tests for model_factory message normalization integration."""
 
-# pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=protected-access,redefined-outer-name,mixed-line-endings
+import asyncio
 import json
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -785,3 +787,163 @@ def test_datablock_unc_file_uri_resolved(
     model_factory._fixup_media_list(items)
 
     assert items[0].source.url == "//server/share/x.png"
+
+
+@pytest.mark.asyncio
+async def test_local_video_preparation_does_not_block_event_loop(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Local media reads must run outside the formatter event loop."""
+    video_path = tmp_path / "clip.mp4"
+    video_path.write_bytes(b"video")
+    entered = threading.Event()
+    release = threading.Event()
+    original_reader = model_factory._read_local_media
+
+    def blocking_reader(path: str):
+        entered.set()
+        release.wait(timeout=2)
+        return original_reader(path)
+
+    monkeypatch.setattr(
+        model_factory,
+        "_read_local_media",
+        blocking_reader,
+    )
+    user_msg = Msg(
+        name="user",
+        role="user",
+        content=[
+            _data_block("video/mp4", f"file://{video_path}"),
+        ],
+    )
+    tool_msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolCallBlock(
+                id="call_1",
+                name="view_video",
+                input="{}",
+            ),
+            ToolResultBlock(
+                id="call_1",
+                name="view_video",
+                output=[
+                    _data_block("video/mp4", f"file://{video_path}"),
+                ],
+                state=ToolResultState.SUCCESS,
+            ),
+        ],
+    )
+    preparation = asyncio.create_task(
+        model_factory._prepare_local_media_cache([user_msg, tool_msg]),
+    )
+    await asyncio.wait_for(asyncio.to_thread(entered.wait), timeout=1)
+
+    ticks = 0
+    deadline = asyncio.get_running_loop().time() + 0.05
+    while asyncio.get_running_loop().time() < deadline:
+        ticks += 1
+        await asyncio.sleep(0)
+
+    release.set()
+    cache = await preparation
+
+    assert ticks > 0
+    assert len(cache) == 1
+    assert next(iter(cache.values())).encoded == "dmlkZW8="
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_uses_prepared_local_video(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The formatter must consume local video data prepared off-thread."""
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    video_path = tmp_path / "clip.mp4"
+    video_path.write_bytes(b"video")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class()
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[
+            _data_block("video/mp4", f"file://{video_path}"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    video_items = [
+        item
+        for message in formatted
+        for item in message.get("content") or []
+        if isinstance(item, dict) and item.get("type") == "video_url"
+    ]
+    assert len(video_items) == 1
+    assert video_items[0]["video_url"]["url"].startswith(
+        "data:video/mp4;base64,",
+    )
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_promotes_prepared_tool_video(
+    tmp_path,
+) -> None:
+    """Tool-result video promotion must use prepared media data."""
+    video_path = tmp_path / "tool-clip.mp4"
+    video_path.write_bytes(b"video")
+    msg = SimpleNamespace(
+        content=[
+            {
+                "type": "tool_result",
+                "id": "call_1",
+                "name": "view_video",
+                "output": [
+                    {
+                        "type": "video",
+                        "source": {
+                            "type": "url",
+                            "url": f"file://{video_path}",
+                            "media_type": "video/mp4",
+                        },
+                    },
+                ],
+            },
+        ],
+    )
+    media_cache = await model_factory._prepare_local_media_cache([msg])
+    cache_token = model_factory._LOCAL_MEDIA_CACHE.set(media_cache)
+    try:
+        formatted = model_factory._promote_tool_result_videos(
+            [msg],
+            [
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_1",
+                    "content": "tool output",
+                },
+            ],
+        )
+    finally:
+        model_factory._LOCAL_MEDIA_CACHE.reset(cache_token)
+
+    video_items = [
+        item
+        for message in formatted
+        for item in message.get("content") or []
+        if isinstance(item, dict) and item.get("type") == "video_url"
+    ]
+    assert len(video_items) == 1
+    assert video_items[0]["video_url"]["url"].startswith(
+        "data:video/mp4;base64,",
+    )
