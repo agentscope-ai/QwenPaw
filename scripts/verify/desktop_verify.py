@@ -272,7 +272,6 @@ class PlaywrightDriver(UIDriver):
         cdp_url: str = "",
     ) -> None:
         self._screenshot_dir = screenshot_dir
-        self._browser_name = browser
         if screenshot_dir:
             os.makedirs(screenshot_dir, exist_ok=True)
 
@@ -539,38 +538,6 @@ class PlaywrightDriver(UIDriver):
         if dismissed_steps:
             print(f"INFO  dismissed product tour ({dismissed_steps} step(s))")
 
-    def _replace_webkit_input(self, message: str) -> None:
-        """Replace Lexical content without WebKit's hanging input protocol."""
-        print("INFO  replacing WebKit rich-editor content", flush=True)
-        self._page.locator(SEL_INPUT).first.evaluate(
-            """(editor, value) => {
-              const textarea = editor.parentElement?.querySelector('textarea');
-              if (!(textarea instanceof HTMLTextAreaElement)) {
-                throw new Error('Hidden chat textarea was not found');
-              }
-              const setter = Object.getOwnPropertyDescriptor(
-                HTMLTextAreaElement.prototype,
-                'value',
-              )?.set;
-              if (setter) setter.call(textarea, value);
-              else textarea.value = value;
-              textarea.selectionStart = textarea.selectionEnd = value.length;
-              textarea.dispatchEvent(new Event('input', { bubbles: true }));
-            }""",
-            message,
-            timeout=5_000,
-        )
-        self._page.wait_for_function(
-            """({ selector, value }) => {
-              const editor = document.querySelector(selector);
-              const textarea = editor?.parentElement?.querySelector('textarea');
-              return editor?.textContent === value && textarea?.value === value;
-            }""",
-            arg={"selector": SEL_INPUT, "value": message},
-            timeout=5_000,
-        )
-        print("INFO  WebKit rich-editor content synchronized", flush=True)
-
     def chat_one_round(self, message: str, timeout: int) -> str:
         self._dismiss_open_tour()
         self._wait_previous_round_idle()
@@ -578,17 +545,15 @@ class PlaywrightDriver(UIDriver):
         ai_count_before = self._page.locator(SEL_AI_BUBBLE).count()
         user_count_before = self._page.locator(SEL_USER_BUBBLE).count()
 
+        # Defensive input flow borrowed from e2e/pages/chat_page.py:
+        # focus the chat input, clear any leftover text, fill the new
+        # message, then click send (or fall back to Enter).
         input_box = self._page.locator(SEL_INPUT).first
-        if self._browser_name == "webkit":
-            # WebKit v2251 on macos-14 can hang indefinitely in Playwright's
-            # click(), fill(), and keyboard input protocols for Lexical.
-            self._replace_webkit_input(message)
-        else:
-            input_box.focus()
-            time.sleep(0.2)
-            input_box.fill("")
-            time.sleep(0.2)
-            input_box.fill(message)
+        input_box.focus()
+        time.sleep(0.2)
+        input_box.fill("")
+        time.sleep(0.2)
+        input_box.fill(message)
         time.sleep(0.5)
 
         # Reset Gate 2 state-machine caches so a fresh round starts
@@ -603,12 +568,10 @@ class PlaywrightDriver(UIDriver):
             pass
 
         send_btn = self._page.locator(SEL_SEND_BTN).first
-        if self._browser_name == "webkit":
-            send_btn.evaluate("element => element.click()", timeout=5_000)
-        elif send_btn.is_visible() and send_btn.is_enabled():
+        if send_btn.is_visible() and send_btn.is_enabled():
             send_btn.click()
         else:
-            self._page.keyboard.press("Enter")
+            input_box.press("Enter")
 
         # Gold-standard "message actually sent" check: a new user bubble
         # must appear. Treating button-disabled as the signal turns out
@@ -631,28 +594,9 @@ class PlaywrightDriver(UIDriver):
             # Fall back to pressing Enter — some layouts ignore the
             # send button click but accept Enter on the chat input.
             try:
-                if self._browser_name == "webkit":
-                    input_box.evaluate(
-                        """element => {
-                          const options = {
-                            key: 'Enter',
-                            code: 'Enter',
-                            bubbles: true,
-                            cancelable: true,
-                          };
-                          element.dispatchEvent(
-                            new KeyboardEvent('keydown', options),
-                          );
-                          element.dispatchEvent(
-                            new KeyboardEvent('keyup', options),
-                          );
-                        }""",
-                        timeout=5_000,
-                    )
-                else:
-                    input_box.focus()
-                    time.sleep(0.2)
-                    self._page.keyboard.press("Enter")
+                input_box.focus()
+                time.sleep(0.2)
+                input_box.press("Enter")
                 self._page.wait_for_function(
                     """(expected) => {
                       const msgs = document.querySelectorAll(

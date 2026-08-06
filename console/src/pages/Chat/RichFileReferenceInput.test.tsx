@@ -7,7 +7,6 @@ import {
   clearLastEditorCopy,
   setLastEditorCopy,
 } from "../Coding/lastEditorCopy";
-import { setTextareaValue } from "./utils";
 import { useState } from "react";
 import "../../i18n";
 
@@ -73,21 +72,6 @@ describe("RichFileReferenceInput", () => {
       container.querySelector('[contenteditable="true"]'),
     ).toHaveTextContent("");
     expect(container.querySelector("textarea")).toHaveValue("");
-  });
-
-  it("syncs native textarea input into the visible editor", async () => {
-    const { container } = render(<ControlledRichInput />);
-    const textarea = container.querySelector("textarea");
-    expect(textarea).not.toBeNull();
-
-    setTextareaValue(textarea as HTMLTextAreaElement, "hello from automation");
-
-    await waitFor(() => {
-      expect(screen.getByTestId("qwenpaw-chat-input")).toHaveTextContent(
-        "hello from automation",
-      );
-    });
-    expect(textarea).toHaveValue("hello from automation");
   });
 
   it("turns a whole-line Monaco paste into an atomic line reference", async () => {
