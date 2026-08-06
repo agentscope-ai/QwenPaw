@@ -15,8 +15,8 @@
 这些可修复问题已经在本地 PR 分支完成修正。修正后，PR 描述中的目标基本实现，
 但不能把它描述成“彻底消除外部并发覆盖”：不配合锁协议的外部进程仍可在摘要
 校验与 `os.replace` 之间写入，普通文件系统 API 无法提供跨进程 compare-and-swap。
-当前还必须解决与最新 `upstream/main` 在 `src/qwenpaw/config/config.py` 的合并冲突，
-并在推送后重新跑远端 CI，才达到可合并状态。
+与最新 `upstream/main` 在 `src/qwenpaw/config/config.py` 的冲突已在 merge commit
+`5b6e406a` 中解决；远端已确认 PR 为 `MERGEABLE`，仍需等待剩余 CI 完成。
 
 ## Findings 与处理状态
 
@@ -104,11 +104,11 @@ QwenPaw 锁协议的外部写者恰好在两步之间更新文件，本次保存
 所有写者共同使用版本协议/锁服务，或改用支持条件更新的存储后端。PR 描述应将
 “preventing”调整为“detects stale versions before save and reduces overwrite risk”。
 
-### P2：PR 与最新 main 冲突——合并前必须解决
+### P2：PR 与最新 main 冲突——已解决
 
-`git merge-tree --write-tree HEAD upstream/main` 确认
-`src/qwenpaw/config/config.py` 存在内容冲突。不要机械选择 ours/theirs；最新 main
-也改动了同一配置模块，需要人工保留双方语义后重跑完整测试。
+冲突来自最新 main 新增的 `project_dir` 迁移与本分支的迁移失败退避、写后摘要
+校验修改同一区域。merge commit `5b6e406a` 已人工保留双方语义，并在最新 main
+上通过配置、ACL、Heartbeat 和频道针对性回归。
 
 ### P2：远端 website format check 失败——本地已修复，待推送验证
 
@@ -144,6 +144,7 @@ Windows CI 至少覆盖原子替换、同 mtime 替换和迁移失败重试用�
 - `Codex-QwenPaw` 环境完整单测：`6283 passed, 15 skipped`；
 - 最后新增的配置并发/降级用例：`15 passed`；
 - 频道、ACL、Heartbeat 与配置针对性回归：`216 passed, 1 skipped`；
+- 合并最新 main 后的配置与频道回归：`229 passed, 1 skipped`；
 - 修改文件 `pre-commit`：通过；
 - 四份修改文档 `prettier --check`：通过；
 - `git diff --check`：通过。
@@ -164,14 +165,12 @@ Windows CI 至少覆盖原子替换、同 mtime 替换和迁移失败重试用�
 - [x] PR 新增/加重的持久化热路径不再阻塞事件循环
 - [x] 保留旧 `last_dispatch`，支持降级读取
 - [ ] 严格消除任意外部写者竞争：普通文件 API 下无法保证
-- [ ] 与最新 main 无冲突：当前尚未解决
-- [ ] 远端 CI 全绿：需推送本地修正后重新验证
+- [x] 与最新 main 无冲突，远端状态为 `MERGEABLE`
+- [ ] 远端 CI 全绿：推送后检查正在运行
 
 ## 最终建议
 
-当前本地修正版结论为 **Changes requested，修复完成后可复审**。下一步应：
+当前修正版结论为 **主要问题已修复，等待 CI 后可复审**。下一步应：
 
-1. 人工解决与最新 main 的 `config.py` 冲突；
-2. 更新 PR 描述，删除“迁移后移除 legacy last_dispatch”的表述，并说明降级策略；
-3. 提交并推送本地修正；
-4. 等待 Linux/Windows CI 和 website format check 全绿后再合并。
+1. 等待 Linux/Windows CI、CodeQL 和 console format check 完成；
+2. Maintainer 和 AI Review Approval 通过后再合并。
