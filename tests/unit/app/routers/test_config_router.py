@@ -280,8 +280,9 @@ async def test_run_heartbeat_once_uses_configured_timeout(
         ),
     )
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
-        lambda _agent_id: SimpleNamespace(last_dispatch=last_dispatch),
+        heartbeat,
+        "read_last_dispatch",
+        lambda _agent_id: last_dispatch,
     )
     monkeypatch.setattr(
         heartbeat,

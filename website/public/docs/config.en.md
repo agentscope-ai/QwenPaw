@@ -180,7 +180,7 @@ Stores globally shared configuration:
 | `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                                |
 | `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages      |
 | `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                      |
-| `last_dispatch`       | object \| null | `null`              | Last message dispatch target (used for heartbeat `target="last"`) |
+| `last_dispatch`       | object \| null | `null`              | Legacy single-agent last message dispatch target                   |
 
 **`agents.profiles[agent_id]` reference fields:**
 
@@ -276,8 +276,7 @@ Each agent has an independent `agent.json` in its workspace directory (`~/.qwenp
       "mode": "warn"
     },
     "allow_no_auth_hosts": ["127.0.0.1", "::1"]
-  },
-  "last_dispatch": null
+  }
 }
 ```
 
@@ -559,17 +558,18 @@ Management: Console (Settings → Security Config) or directly edit `agent.json`
 
 ---
 
-#### `last_dispatch` — Last message dispatch target
+#### `state/last_dispatch.json` — Last message dispatch state
 
-Records the last user message source, used for sending messages when heartbeat `target = "last"`.
+Records the last user message source used when heartbeat `target = "last"`.
+This is runtime state in the Agent workspace, not business configuration in
+`agent.json`. QwenPaw updates it atomically; no manual configuration is needed.
+On upgrade, a legacy `last_dispatch` value in `agent.json` is migrated once.
 
 | Field        | Type   | Default | Description                                   |
 | ------------ | ------ | ------- | --------------------------------------------- |
 | `channel`    | string | `""`    | Channel name (e.g. `"discord"`, `"dingtalk"`) |
 | `user_id`    | string | `""`    | User ID in that channel                       |
 | `session_id` | string | `""`    | Session/conversation ID                       |
-
-Auto-updated; no manual configuration needed.
 
 ---
 

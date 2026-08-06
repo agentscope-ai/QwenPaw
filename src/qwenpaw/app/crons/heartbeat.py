@@ -20,6 +20,7 @@ from ...config import (
     get_heartbeat_config,
     get_heartbeat_query_path,
     load_config,
+    read_last_dispatch,
 )
 from ...constant import (
     HEARTBEAT_FILE,
@@ -194,8 +195,6 @@ async def run_heartbeat_once(
     """Run one heartbeat: read HEARTBEAT.md, run agent, optionally
     dispatch to last channel (target=last).
     """
-    from ...config.config import load_agent_config
-
     hb = get_heartbeat_config(agent_id)
     if not _in_active_hours(hb.active_hours):
         logger.debug("heartbeat skipped: outside active hours")
@@ -231,14 +230,10 @@ async def run_heartbeat_once(
         "request_context": {"source": "heartbeat"},
     }
 
-    # Get last_dispatch from agent config if agent_id provided
+    # Get last_dispatch from per-agent runtime state if agent_id is provided.
     last_dispatch = None
     if agent_id:
-        try:
-            agent_config = load_agent_config(agent_id)
-            last_dispatch = agent_config.last_dispatch
-        except Exception:
-            pass
+        last_dispatch = read_last_dispatch(agent_id)
     else:
         # Legacy: try root config
         config = load_config()

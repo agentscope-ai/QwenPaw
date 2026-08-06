@@ -357,6 +357,27 @@ class TestAccessControlStore:  # pylint: disable=too-many-public-methods
         store.import_allow_from("console", set())
         assert store.get_all_acls() == {}
 
+    def test_import_allow_from_uses_atomic_write(
+        self,
+        store: AccessControlStore,
+        monkeypatch,
+    ):
+        writes = []
+
+        def fake_atomic_write(path, payload):
+            writes.append((path, payload))
+            Path(path).write_text(json.dumps(payload), encoding="utf-8")
+
+        monkeypatch.setattr(
+            "qwenpaw.app.channels.access_control.write_json_atomic",
+            fake_atomic_write,
+        )
+
+        store.import_allow_from("console", {"u1"})
+
+        assert len(writes) == 1
+        assert "u1" in writes[0][1]["console"]["whitelist"]
+
     def test_reload_if_stale_picks_up_external_change(
         self,
         tmp_path: Path,

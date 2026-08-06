@@ -2,17 +2,21 @@
 from __future__ import annotations
 
 import importlib
+import hashlib
 import json
 import logging
 import re
 import threading
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union, Dict, List, Literal, Any, Set, Tuple
 
 from pydantic import (
     BaseModel,
-    Field,
     ConfigDict,
+    Field,
+    PrivateAttr,
     field_validator,
     model_validator,
 )
@@ -47,6 +51,56 @@ logger = logging.getLogger(__name__)
 # lifetime.  The migration reminder is useful once, but repeating it for
 # every request obscures real warnings.
 _legacy_scroll_tool_cap_warned = False
+
+_AGENT_CONFIG_CACHE_VERIFY_SECONDS = 5.0
+_AGENT_CONFIG_READ_RETRIES = 3
+
+
+@dataclass(frozen=True)
+class _AgentConfigFingerprint:
+    """Filesystem identity used for fast agent config cache validation."""
+
+    device: int
+    inode: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+
+
+@dataclass(frozen=True)
+class _AgentConfigCacheEntry:
+    """Cached parsed config plus metadata and content verification state."""
+
+    path: Path
+    config: Any
+    fingerprint: _AgentConfigFingerprint
+    digest: bytes
+    verified_at: float
+
+
+def _agent_config_fingerprint(path: Path) -> _AgentConfigFingerprint:
+    """Build a high-resolution identity for one agent config file."""
+    stat_result = path.stat()
+    return _AgentConfigFingerprint(
+        device=stat_result.st_dev,
+        inode=stat_result.st_ino,
+        size=stat_result.st_size,
+        mtime_ns=stat_result.st_mtime_ns,
+        ctime_ns=stat_result.st_ctime_ns,
+    )
+
+
+def _read_agent_config_snapshot(
+    path: Path,
+) -> tuple[bytes, _AgentConfigFingerprint]:
+    """Read a stable complete snapshot, retrying concurrent replacements."""
+    for _attempt in range(_AGENT_CONFIG_READ_RETRIES):
+        before = _agent_config_fingerprint(path)
+        content = path.read_bytes()
+        after = _agent_config_fingerprint(path)
+        if before == after:
+            return content, after
+    raise OSError(f"Agent config changed repeatedly while reading {path}")
 
 
 # ============================================================================
@@ -1676,6 +1730,16 @@ class AgentProfileConfig(BaseModel):
     Each agent has its own configuration file with all settings.
     """
 
+    _source_digest: bytes | None = PrivateAttr(default=None)
+
+    def source_digest(self) -> bytes | None:
+        """Return the content version captured when this model was loaded."""
+        return self._source_digest
+
+    def record_source_digest(self, digest: bytes) -> None:
+        """Record the content version represented by this model."""
+        self._source_digest = digest
+
     id: str = Field(..., description="Unique agent ID")
     name: str = Field(..., description="Human-readable agent name")
     description: str = Field(default="", description="Agent description")
@@ -1708,10 +1772,6 @@ class AgentProfileConfig(BaseModel):
     heartbeat: Optional[HeartbeatConfig] = Field(
         default=None,
         description="Heartbeat configuration for this agent",
-    )
-    last_dispatch: Optional["LastDispatchConfig"] = Field(
-        default=None,
-        description="Last dispatch target for this agent",
     )
     running: AgentsRunningConfig = Field(
         default_factory=AgentsRunningConfig,
@@ -2658,22 +2718,30 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
             migrated = True
         # allow_from → access_control.json whitelist
         allow_from = ch_cfg.get("allow_from")
-        if allow_from and isinstance(allow_from, list):
-            try:
-                from ..app.channels.access_control import (
-                    get_access_control_store,
-                )
+        if isinstance(allow_from, list):
+            migration_succeeded = True
+            if allow_from:
+                try:
+                    from ..app.channels.access_control import (
+                        get_access_control_store,
+                    )
 
-                store = get_access_control_store(workspace_dir)
-                store.import_allow_from(ch_key, set(allow_from))
-            except Exception:
-                pass
-            del ch_cfg["allow_from"]
-            migrated = True
+                    store = get_access_control_store(workspace_dir)
+                    store.import_allow_from(ch_key, set(allow_from))
+                except Exception:
+                    migration_succeeded = False
+                    logger.exception(
+                        f"Failed to migrate access control for channel "
+                        f"{ch_key}",
+                    )
+            if migration_succeeded:
+                del ch_cfg["allow_from"]
+                migrated = True
         # group_allow_from (matrix legacy) → whitelist
         grp_allow = ch_cfg.get("group_allow_from")
-        if grp_allow is not None:
-            if isinstance(grp_allow, list) and grp_allow:
+        if isinstance(grp_allow, list):
+            migration_succeeded = True
+            if grp_allow:
                 try:
                     from ..app.channels.access_control import (
                         get_access_control_store,
@@ -2682,9 +2750,14 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
                     store = get_access_control_store(workspace_dir)
                     store.import_allow_from(ch_key, set(grp_allow))
                 except Exception:
-                    pass
-            del ch_cfg["group_allow_from"]
-            migrated = True
+                    migration_succeeded = False
+                    logger.exception(
+                        f"Failed to migrate group access control for channel "
+                        f"{ch_key}",
+                    )
+            if migration_succeeded:
+                del ch_cfg["group_allow_from"]
+                migrated = True
     return migrated
 
 
@@ -2716,10 +2789,11 @@ def migrate_channel_display_fields(channels: object) -> bool:
 def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     agent_id: str,
 ) -> AgentProfileConfig:
-    """Load agent's complete configuration from workspace/agent.json with
-    mtime-based caching.
+    """Load an agent configuration with bounded-staleness caching.
 
-    Uses file modification time to avoid unnecessary disk reads.
+    Fast cache validation uses a high-resolution filesystem fingerprint. A
+    periodic content digest check bounds staleness on filesystems whose
+    metadata can remain unchanged after an external replacement.
 
     Args:
         agent_id: Agent ID to load
@@ -2732,6 +2806,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     """
     from .utils import (
         load_config,
+        _migrate_last_dispatch_state,
         _agent_config_cache,
         _agent_config_lock,
     )
@@ -2754,24 +2829,63 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         save_agent_config(agent_id, fallback_config)
         return fallback_config
 
-    # Check mtime to see if we can use cached config
+    # Build a richer identity than mtime alone. OSSFS and other FUSE mounts
+    # can preserve coarse mtimes across atomic replacements.
     try:
-        current_mtime = agent_config_path.stat().st_mtime
-    except OSError:
-        fallback_config = build_fallback_agent_profile_config(agent_id, config)
-        save_agent_config(agent_id, fallback_config)
-        return fallback_config
+        current_fingerprint = _agent_config_fingerprint(agent_config_path)
+    except OSError as exc:
+        raise ConfigurationException(
+            config_key="agent",
+            message=f"Agent '{agent_id}' config is temporarily unavailable",
+        ) from exc
 
     with _agent_config_lock:
-        # Return cached config if mtime hasn't changed
-        if agent_id in _agent_config_cache:
-            cached_config, cached_mtime = _agent_config_cache[agent_id]
-            if cached_mtime == current_mtime:
-                return cached_config
+        now = time.monotonic()
+        cached_entry = _agent_config_cache.get(agent_id)
+        cache_matches = (
+            isinstance(cached_entry, _AgentConfigCacheEntry)
+            and cached_entry.path == agent_config_path
+            and cached_entry.fingerprint == current_fingerprint
+        )
+        if (
+            cache_matches
+            and now - cached_entry.verified_at
+            < _AGENT_CONFIG_CACHE_VERIFY_SECONDS
+        ):
+            return cached_entry.config.model_copy(deep=True)
 
-        # Need to reload config from disk
-        with open(agent_config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        raw_content, current_fingerprint = _read_agent_config_snapshot(
+            agent_config_path,
+        )
+        content_digest = hashlib.sha256(raw_content).digest()
+        if cache_matches and cached_entry.digest == content_digest:
+            refreshed_entry = _AgentConfigCacheEntry(
+                path=agent_config_path,
+                config=cached_entry.config,
+                fingerprint=current_fingerprint,
+                digest=content_digest,
+                verified_at=now,
+            )
+            _agent_config_cache[agent_id] = refreshed_entry
+            return refreshed_entry.config.model_copy(deep=True)
+
+        data = json.loads(raw_content)
+
+        last_dispatch_migrated = False
+        if "last_dispatch" in data:
+            try:
+                _migrate_last_dispatch_state(
+                    workspace_dir,
+                    data["last_dispatch"],
+                )
+            except Exception:
+                logger.exception(
+                    f"Failed to migrate last dispatch state for agent "
+                    f"{agent_id}",
+                )
+                raise
+            data.pop("last_dispatch")
+            last_dispatch_migrated = True
 
         # Match the existing migration behavior: migrate this workspace only
         # when its agent configuration is loaded.
@@ -2792,7 +2906,13 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             display_migrated = False
             access_control_migrated = False
 
-        if weixin_migrated or display_migrated or access_control_migrated:
+        migration_write_failed = False
+        if (
+            weixin_migrated
+            or display_migrated
+            or access_control_migrated
+            or last_dispatch_migrated
+        ):
             try:
                 if weixin_migrated or display_migrated:
                     import uuid as _uuid
@@ -2806,18 +2926,20 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                         f"{migration_name}-migrate.bak",
                     )
                     _shutil.copy2(agent_config_path, backup_path)
-                with open(
+                write_json_atomic(
                     agent_config_path,
-                    "w",
-                    encoding="utf-8",
-                ) as file:
-                    json.dump(data, file, ensure_ascii=False, indent=2)
-                try:
-                    current_mtime = agent_config_path.stat().st_mtime
-                except OSError:
-                    pass
+                    data,
+                )
+                raw_content, current_fingerprint = _read_agent_config_snapshot(
+                    agent_config_path,
+                )
+                content_digest = hashlib.sha256(raw_content).digest()
             except OSError:
-                pass
+                migration_write_failed = True
+                logger.exception(
+                    f"Failed to persist agent config migration for "
+                    f"{agent_id}",
+                )
 
         # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
         # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
@@ -2840,11 +2962,21 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         _sanitize_loop_config(data, agent_id)
 
         agent_config = AgentProfileConfig(**data)
+        agent_config.record_source_digest(content_digest)
 
-        # Cache the config with its mtime
-        _agent_config_cache[agent_id] = (agent_config, current_mtime)
+        _agent_config_cache[agent_id] = _AgentConfigCacheEntry(
+            path=agent_config_path,
+            config=agent_config,
+            fingerprint=current_fingerprint,
+            digest=b"" if migration_write_failed else content_digest,
+            verified_at=(
+                now - _AGENT_CONFIG_CACHE_VERIFY_SECONDS
+                if migration_write_failed
+                else now
+            ),
+        )
 
-        return agent_config
+        return agent_config.model_copy(deep=True)
 
 
 def save_agent_config(
@@ -2878,9 +3010,37 @@ def save_agent_config(
     workspace_dir = Path(agent_ref.workspace_dir).expanduser()
     agent_config_path = workspace_dir / "agent.json"
     with _agent_config_lock:
+        source_digest = agent_config.source_digest()
+        if source_digest is not None:
+            if not agent_config_path.exists():
+                raise ConfigurationException(
+                    config_key="agent",
+                    message=(
+                        f"Agent '{agent_id}' changed on disk; reload it "
+                        f"before saving"
+                    ),
+                )
+            current_content, _fingerprint = _read_agent_config_snapshot(
+                agent_config_path,
+            )
+            current_digest = hashlib.sha256(current_content).digest()
+            if current_digest != source_digest:
+                raise ConfigurationException(
+                    config_key="agent",
+                    message=(
+                        f"Agent '{agent_id}' changed on disk; reload it "
+                        f"before saving"
+                    ),
+                )
         write_json_atomic(
             agent_config_path,
             agent_config.model_dump(exclude_none=True),
+        )
+        saved_content, _fingerprint = _read_agent_config_snapshot(
+            agent_config_path,
+        )
+        agent_config.record_source_digest(
+            hashlib.sha256(saved_content).digest(),
         )
         _agent_config_cache.pop(agent_id, None)
 

@@ -4,8 +4,7 @@
 Delegates to ``MultiAgentManager.reload_agent`` so disk-edit reloads
 go through the same atomic workspace swap as frontend saves and wait
 for in-flight tasks. Only triggers when ``channels`` or ``heartbeat``
-hashes change, so runtime bookkeeping rewrites (e.g. ``last_dispatch``)
-do not cause spurious reloads.
+hashes change.
 """
 
 from __future__ import annotations
@@ -68,7 +67,6 @@ class AgentConfigWatcher:
         self._poll_interval = poll_interval
         self._task: Optional[asyncio.Task] = None
 
-        self._last_mtime: float = 0.0
         self._last_channels_hash: Optional[int] = None
         self._last_heartbeat_hash: Optional[int] = None
 
@@ -109,16 +107,8 @@ class AgentConfigWatcher:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _read_mtime(self) -> float:
-        """Return current mtime of agent.json, 0.0 if missing."""
-        try:
-            return self._config_path.stat().st_mtime
-        except FileNotFoundError:
-            return 0.0
-
     def _snapshot(self) -> None:
-        """Record current mtime and section hashes as the new baseline."""
-        self._last_mtime = self._read_mtime()
+        """Record current section hashes as the new baseline."""
         try:
             agent_config = load_agent_config(self._agent_id)
         except Exception:
@@ -155,11 +145,6 @@ class AgentConfigWatcher:
 
     async def _check(self) -> None:
         """Check for meaningful config changes and trigger a reload."""
-        mtime = self._read_mtime()
-        if mtime == self._last_mtime:
-            return
-        self._last_mtime = mtime
-
         try:
             agent_config = load_agent_config(self._agent_id)
         except Exception:
@@ -184,8 +169,7 @@ class AgentConfigWatcher:
             or new_heartbeat_hash != old_heartbeat_hash
         )
 
-        # Refresh hashes regardless so non-meaningful rewrites
-        # (e.g. last_dispatch) re-baseline silently.
+        # Refresh hashes regardless so unrelated changes re-baseline silently.
         self._last_channels_hash = new_channels_hash
         self._last_heartbeat_hash = new_heartbeat_hash
 
