@@ -6,6 +6,7 @@ import pytest
 from qwenpaw.utils.http import (
     is_loopback_host,
     is_loopback_url,
+    probe_host_for_bind_host,
     trust_env_for_url,
 )
 
@@ -68,3 +69,25 @@ def test_is_loopback_url_recognizes_loopback_targets(url: str) -> None:
 def test_is_loopback_url_keeps_non_loopback_targets(url: str) -> None:
     assert is_loopback_url(url) is False
     assert trust_env_for_url(url) is True
+
+
+# A wildcard bind address must be probed through the loopback address of
+# its own family: Winsock rejects a wildcard connect target with
+# WSAEADDRNOTAVAIL, and a socket bound to :: is unreachable over IPv4.
+@pytest.mark.parametrize(
+    "bind_host, expected",
+    [
+        ("0.0.0.0", "127.0.0.1"),
+        ("::", "::1"),
+        ("[::]", "::1"),
+        ("  ::  ", "::1"),
+        ("", "127.0.0.1"),
+        ("   ", "127.0.0.1"),
+        ("127.0.0.1", "127.0.0.1"),
+        ("[::1]", "::1"),
+        ("192.168.1.10", "192.168.1.10"),
+        ("localhost", "localhost"),
+    ],
+)
+def test_probe_host_for_bind_host(bind_host: str, expected: str) -> None:
+    assert probe_host_for_bind_host(bind_host) == expected

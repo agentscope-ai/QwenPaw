@@ -42,6 +42,8 @@ interface ExtensionStatus {
   configured_endpoint?: string | null;
   bridge_endpoint_stale?: boolean;
   chrome_extensions_url?: string;
+  native_host_repair_required?: boolean;
+  native_host_repair_instruction?: string;
   version?: string | null;
 }
 
@@ -49,6 +51,7 @@ interface SelfTestCheck {
   name: string;
   passed: boolean;
   status: string;
+  severity?: "none" | "warn" | "error";
   code: string;
   message: string;
   repair_action: string;
@@ -94,6 +97,7 @@ const PROBE_LABEL_KEYS: Record<string, MessageKey> = {
   nm_host: "checkNmHost",
   extension_assets: "checkExtensionAssets",
   bridge_lifecycle: "checkBridgeLifecycle",
+  contract_drift: "checkContractDrift",
 };
 
 const REPAIR_KEYS: Record<string, MessageKey> = {
@@ -101,6 +105,7 @@ const REPAIR_KEYS: Record<string, MessageKey> = {
   reload_unpacked_extension: "repairReloadUnpackedExtension",
   wait_or_restart_chrome: "repairWaitOrRestartChrome",
   reload_extension: "repairReloadExtension",
+  reload_or_update_extension: "repairReloadOrUpdateExtension",
 };
 
 const baseStyles: Record<string, ReactNS.CSSProperties> = {
@@ -670,6 +675,19 @@ function repairText(locale: ChromeLocale, action: string): string {
   return key ? translate(locale, key) : "";
 }
 
+function probeLabel(locale: ChromeLocale, name: string): string {
+  const key = PROBE_LABEL_KEYS[name];
+  return key
+    ? translate(locale, key)
+    : translate(locale, "checkUnknown", { name });
+}
+
+function checkNeedsAttention(check: SelfTestCheck): boolean {
+  return (
+    !check.passed || check.severity === "warn" || check.severity === "error"
+  );
+}
+
 function StatusDot({ ready }: { ready: boolean }) {
   const { token } = host.antd.theme.useToken();
   const styles = useChromeStyles();
@@ -916,10 +934,25 @@ function ChromeSetupPage() {
       try {
         const next = await setupExtension({
           install_mode: "unpacked",
+          reset: false,
         });
         setStatus(next);
         if (!options?.silent) {
-          message.success(translate(locale, "installSuccess"));
+          if (next.native_host_repair_required) {
+            message.error(
+              next.native_host_repair_instruction ||
+                translate(locale, "installFailed"),
+            );
+          } else {
+            message.success(
+              translate(
+                locale,
+                status?.native_host_repair_required
+                  ? "repairSuccess"
+                  : "installSuccess",
+              ),
+            );
+          }
         }
         return next;
       } catch (err) {
@@ -937,9 +970,18 @@ function ChromeSetupPage() {
   );
 
   const copyValue = React.useCallback(
-    async (value: string) => {
-      await navigator.clipboard?.writeText(value);
-      message.success(translate(locale, "copied"));
+    async (value: string, feedback: MessageKey = "copied") => {
+      try {
+        if (!navigator.clipboard?.writeText) {
+          throw new Error("clipboard API is unavailable");
+        }
+        await navigator.clipboard.writeText(value);
+        message.success(translate(locale, feedback));
+        return true;
+      } catch {
+        message.error(translate(locale, "copyFailed"));
+        return false;
+      }
     },
     [locale],
   );
@@ -951,12 +993,26 @@ function ChromeSetupPage() {
     }
   }, [copyValue, prepareLocalFiles]);
 
+  const copyChromeExtensionsUrl = React.useCallback(
+    async (fallback = false) =>
+      copyValue(
+        status?.chrome_extensions_url ?? "chrome://extensions",
+        fallback ? "chromeExtensionsCopiedFallback" : "chromeExtensionsCopied",
+      ),
+    [copyValue, status?.chrome_extensions_url],
+  );
+
   const handleOpenChrome = React.useCallback(async () => {
-    const result = await openChromeExtensionsPage();
-    if (!result.opened && result.error) {
-      message.warning(result.error);
+    try {
+      const result = await openChromeExtensionsPage();
+      if (result.opened) {
+        return;
+      }
+    } catch {
+      // The copied address is the safe fallback if the local backend is gone.
     }
-  }, []);
+    await copyChromeExtensionsUrl(true);
+  }, [copyChromeExtensionsUrl]);
 
   const shortcutTipsSteps: Record<ShortcutPlatform, [MessageKey, MessageKey]> =
     {
@@ -974,8 +1030,11 @@ function ChromeSetupPage() {
   }, [loading, prepareLocalFiles, silentPrepareStarted, status?.extension_dir]);
 
   const isConnected = Boolean(status?.installed && coreStatus?.connected);
+  const needsRepair = Boolean(
+    status?.native_host_repair_required && !coreStatus?.connected,
+  );
   const isAwaitingConnection = Boolean(
-    status?.installed && !coreStatus?.connected,
+    status?.installed && !needsRepair && !coreStatus?.connected,
   );
 
   React.useEffect(() => {
@@ -1035,6 +1094,8 @@ function ChromeSetupPage() {
                       locale,
                       isConnected
                         ? "readyTitle"
+                        : needsRepair
+                        ? "repairTitle"
                         : isAwaitingConnection
                         ? "awaitingTitle"
                         : "installTitle",
@@ -1042,7 +1103,9 @@ function ChromeSetupPage() {
                   </Title>
                 </div>
                 <div style={styles.statusCopy}>
-                  {isConnected
+                  {needsRepair
+                    ? translate(locale, "repairDescription")
+                    : isConnected
                     ? translate(locale, "readyDescription", {
                         version:
                           coreStatus?.extension_version ||
@@ -1075,6 +1138,14 @@ function ChromeSetupPage() {
                     {translate(locale, "openChrome")}
                   </Button>
                 </>
+              ) : needsRepair ? (
+                <Button
+                  type="primary"
+                  loading={setupLoading}
+                  onClick={() => void prepareLocalFiles({ refresh: true })}
+                >
+                  {translate(locale, "repairBrowserConnector")}
+                </Button>
               ) : (
                 <Button
                   type="primary"
@@ -1096,6 +1167,15 @@ function ChromeSetupPage() {
             />
           ) : null}
 
+          {needsRepair && status?.native_host_repair_instruction ? (
+            <Alert
+              showIcon
+              type="error"
+              message={status?.native_host_repair_instruction}
+              style={{ marginTop: 16 }}
+            />
+          ) : null}
+
           {isConnected ? (
             <div style={styles.section}>
               <Text strong>{translate(locale, "checksTitle")}</Text>
@@ -1103,28 +1183,25 @@ function ChromeSetupPage() {
                 <div style={styles.checkGrid}>
                   {selfTest.checks
                     .filter((check) => check.name !== "semantic_control")
-                    .map((check) => (
-                      <div key={check.name} style={styles.checkTile}>
-                        <div style={styles.checkTitle}>
-                          <StatusDot ready={check.passed} />
-                          <Text strong>
-                            {translate(
-                              locale,
-                              PROBE_LABEL_KEYS[check.name] ??
-                                "checkExtensionBridge",
-                            )}
+                    .map((check) => {
+                      const needsAttention = checkNeedsAttention(check);
+                      return (
+                        <div key={check.name} style={styles.checkTile}>
+                          <div style={styles.checkTitle}>
+                            <StatusDot ready={!needsAttention} />
+                            <Text strong>{probeLabel(locale, check.name)}</Text>
+                          </div>
+                          <Text type="secondary">
+                            {needsAttention
+                              ? `${check.message} ${repairText(
+                                  locale,
+                                  check.repair_action,
+                                )}`.trim()
+                              : translate(locale, "checkReady")}
                           </Text>
                         </div>
-                        <Text type="secondary">
-                          {check.passed
-                            ? translate(locale, "checkReady")
-                            : `${check.message} ${repairText(
-                                locale,
-                                check.repair_action,
-                              )}`.trim()}
-                        </Text>
-                      </div>
-                    ))}
+                      );
+                    })}
                 </div>
               ) : (
                 <Text type="secondary">
@@ -1151,10 +1228,10 @@ function ChromeSetupPage() {
                     </Text>
                     <Button
                       type="primary"
-                      onClick={() => void handleOpenChrome()}
+                      onClick={() => void copyChromeExtensionsUrl()}
                     >
-                      <InlineIcon name="chromeExtensions" />
-                      {translate(locale, "openChromeExtensionsPage")}
+                      <InlineIcon name="copy" />
+                      {translate(locale, "copyChromeExtensionsPage")}
                     </Button>
                   </div>
                   <div style={styles.disabledTile} aria-disabled="true">
@@ -1193,9 +1270,9 @@ function ChromeSetupPage() {
                           <div style={styles.stepLine}>
                             {translate(locale, "openExtensionsPrefix")}
                             <StepControl
-                              icon="chromeExtensions"
+                              icon="copy"
                               label={translate(locale, "openExtensionsAction")}
-                              onClick={() => void handleOpenChrome()}
+                              onClick={() => void copyChromeExtensionsUrl()}
                               tone="blue"
                             />
                             {translate(locale, "openExtensionsSuffix")}

@@ -40,6 +40,7 @@ pub fn run() {
             backend::backend_startup_error,
             backend::restart_backend,
             external_link::open_external_link,
+            external_link::open_workspace_html,
             updates::check_desktop_update,
             updates::install_desktop_update,
             updates::download_desktop_update,

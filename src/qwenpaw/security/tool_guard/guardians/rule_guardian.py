@@ -92,10 +92,17 @@ _RM_DETECTION_ONLY_PATTERNS = [
 def _get_workspace_root() -> Path:
     """Return current workspace root for resolving relative paths."""
     try:
-        from qwenpaw.config.context import get_current_workspace_dir
+        from qwenpaw.config.context import (
+            get_current_project_dir,
+            get_current_workspace_dir,
+        )
         from qwenpaw.constant import WORKING_DIR
 
-        workspace_dir = get_current_workspace_dir() or WORKING_DIR
+        workspace_dir = (
+            get_current_project_dir()
+            or get_current_workspace_dir()
+            or WORKING_DIR
+        )
         return Path(workspace_dir)
     except (ImportError, AttributeError, OSError) as e:
         logger.debug("Failed to get workspace dir, falling back to cwd: %s", e)

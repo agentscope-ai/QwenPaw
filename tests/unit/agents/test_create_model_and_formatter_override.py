@@ -12,6 +12,15 @@ from qwenpaw.config import config as config_module
 from qwenpaw.config.config import ModelSlotConfig
 
 
+class _FakeChatModel:
+    """Minimal provider model used by the factory tests."""
+
+    def __init__(self, identifier: str) -> None:
+        self.identifier = identifier
+        self.formatter = SimpleNamespace()
+        self.max_retries = 3
+
+
 def _patched_load_agent_config(_agent_id):  # noqa: ARG001
     """Return fake agent config with an overridable active model."""
     return SimpleNamespace(
@@ -52,7 +61,9 @@ def _patch_dependencies(monkeypatch):
                 get_provider=lambda provider_id: SimpleNamespace(
                     provider_id=provider_id,
                     get_chat_model_instance=(
-                        lambda model_name: f"{provider_id}/{model_name}"
+                        lambda model_name: _FakeChatModel(
+                            f"{provider_id}/{model_name}",
+                        )
                     ),
                 ),
                 get_active_chat_model=lambda: None,
@@ -88,8 +99,19 @@ def test_override_with_model_slot_config():
             model_slot_override=override,
         )
 
-    assert model == "p/m"
+    assert model.identifier == "p/m"
     assert fmt == "formatter"
+
+
+def test_factory_binds_returned_formatter_to_provider_model():
+    """Callers that ignore the formatter return still use the enhanced one."""
+    with patch.object(model_factory, "RetryConfig") as retry_cls:
+        retry_cls.return_value = "rc"
+        model, fmt = model_factory.create_model_and_formatter(
+            agent_id="agent-1",
+        )
+
+    assert model.formatter is fmt
 
 
 def test_override_with_dict():
@@ -101,7 +123,7 @@ def test_override_with_dict():
             model_slot_override={"provider_id": "p", "model": "m"},
         )
 
-    assert model == "p/m"
+    assert model.identifier == "p/m"
 
 
 def test_override_with_string():
@@ -113,7 +135,7 @@ def test_override_with_string():
             model_slot_override="p:m",
         )
 
-    assert model == "p/m"
+    assert model.identifier == "p/m"
 
 
 def test_override_with_string_preserves_colon_in_model_name():
@@ -125,7 +147,7 @@ def test_override_with_string_preserves_colon_in_model_name():
             model_slot_override="openai:gpt-4o:2024-08-06",
         )
 
-    assert model == "openai/gpt-4o:2024-08-06"
+    assert model.identifier == "openai/gpt-4o:2024-08-06"
 
 
 def test_override_with_invalid_string_falls_back_to_active_model():
@@ -137,7 +159,7 @@ def test_override_with_invalid_string_falls_back_to_active_model():
             model_slot_override="no-colon-here",
         )
 
-    assert model == "default-provider/default-model"
+    assert model.identifier == "default-provider/default-model"
 
 
 def test_override_with_unsupported_type_falls_back_to_active_model():
@@ -149,7 +171,7 @@ def test_override_with_unsupported_type_falls_back_to_active_model():
             model_slot_override=12345,
         )
 
-    assert model == "default-provider/default-model"
+    assert model.identifier == "default-provider/default-model"
 
 
 def test_no_override_uses_active_model():
@@ -160,4 +182,4 @@ def test_no_override_uses_active_model():
             agent_id="agent-1",
         )
 
-    assert model == "default-provider/default-model"
+    assert model.identifier == "default-provider/default-model"

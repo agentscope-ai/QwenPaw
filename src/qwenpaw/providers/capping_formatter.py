@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import base64
 import os
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
@@ -182,6 +182,8 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
 class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
     """OpenAI formatter that caps oversized local image/audio media."""
 
+    _qwenpaw_supports_reasoning_content_fallback: ClassVar[bool] = True
+
     def _format_image_source(self, source: Any) -> dict[str, Any]:
         capped = self._maybe_cap(source, "image")
         if capped is not None:
@@ -240,6 +242,8 @@ class _CappingDashScopeFormatter(
     CappingFormatterMixin,
 ):
     """DashScope formatter capping oversized local image/video/audio media."""
+
+    _qwenpaw_supports_reasoning_content_fallback: ClassVar[bool] = True
 
     def _format_video_source(self, source: Any) -> dict[str, Any]:
         capped = self._maybe_cap(source, "video")

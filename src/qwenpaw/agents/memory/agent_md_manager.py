@@ -4,6 +4,7 @@ and memory directories."""
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 from ..utils.file_handling import read_text_file_with_encoding_fallback
 from ...config.config import load_agent_config
@@ -166,8 +167,24 @@ class AgentMdManager:
         self._assert_within_dir(file_path, self.working_dir)
         file_path.write_text(content, encoding="utf-8")
 
-    def _memory_path_for_read_write(self, md_path: str) -> Path:
+    def _memory_root(self, section: Literal["daily", "digest"]) -> Path:
+        """Return the configured root for a memory section."""
+        return self.memory_dir if section == "daily" else self.digest_dir
+
+    def _memory_path_for_read_write(
+        self,
+        md_path: str,
+        section: Literal["daily", "digest"] | None = None,
+    ) -> Path:
         rel_path = self._normalize_md_path(md_path)
+        if section is not None:
+            base_dir = self._memory_root(section)
+            target = base_dir / rel_path
+            self._assert_within_dir(target, base_dir)
+            return target
+
+        # Legacy routing kept for clients that do not send an explicit
+        # section. New callers should always select daily or digest directly.
         digest_prefix = self.digest_dir.name
         if rel_path == f"{digest_prefix}.md":
             base_dir = self.memory_dir
@@ -202,7 +219,26 @@ class AgentMdManager:
             ).isoformat(),
         }
 
-    def list_memory_mds(self) -> list[dict]:
+    @staticmethod
+    def _nested_root_to_exclude(
+        root_dir: Path,
+        other_dir: Path,
+    ) -> Path | None:
+        """Return *other_dir* when it is strictly nested under *root_dir*."""
+        resolved_root = root_dir.resolve()
+        resolved_other = other_dir.resolve()
+        if resolved_other == resolved_root:
+            return None
+        try:
+            resolved_other.relative_to(resolved_root)
+        except ValueError:
+            return None
+        return resolved_other
+
+    def list_memory_mds(
+        self,
+        section: Literal["daily", "digest"] | None = None,
+    ) -> list[dict]:
         """List all markdown files with metadata in the memory dir.
 
         Returns files sorted by modification time descending (newest first).
@@ -215,13 +251,38 @@ class AgentMdManager:
                 - modified_time: file modification timestamp
         """
         result = []
-        for root_dir, prefix in (
-            (self.memory_dir, ""),
-            (self.digest_dir, f"{self.digest_dir.name}/"),
-        ):
+        daily_exclusion = self._nested_root_to_exclude(
+            self.memory_dir,
+            self.digest_dir,
+        )
+        digest_exclusion = self._nested_root_to_exclude(
+            self.digest_dir,
+            self.memory_dir,
+        )
+        if section == "daily":
+            roots = ((self.memory_dir, "", daily_exclusion),)
+        elif section == "digest":
+            roots = ((self.digest_dir, "", digest_exclusion),)
+        else:
+            roots = (
+                (self.memory_dir, "", daily_exclusion),
+                (
+                    self.digest_dir,
+                    f"{self.digest_dir.name}/",
+                    digest_exclusion,
+                ),
+            )
+        for root_dir, prefix, excluded_root in roots:
             for file_path in root_dir.rglob("*.md"):
                 if not file_path.is_file():
                     continue
+                if excluded_root is not None:
+                    try:
+                        file_path.resolve().relative_to(excluded_root)
+                    except ValueError:
+                        pass
+                    else:
+                        continue
                 stat = file_path.stat()
                 filename = (
                     f"{prefix}{file_path.relative_to(root_dir).as_posix()}"
@@ -232,20 +293,29 @@ class AgentMdManager:
         result.sort(key=lambda x: x["modified_time"], reverse=True)
         return result
 
-    def read_memory_md(self, md_name: str) -> str:
+    def read_memory_md(
+        self,
+        md_name: str,
+        section: Literal["daily", "digest"] | None = None,
+    ) -> str:
         """Read markdown file content from the memory directory.
 
         Returns:
             str: The file content as string
         """
-        file_path = self._memory_path_for_read_write(md_name)
+        file_path = self._memory_path_for_read_write(md_name, section)
         if not file_path.exists():
             raise FileNotFoundError(f"Memory md file not found: {md_name}")
 
         return read_text_file_with_encoding_fallback(file_path).strip()
 
-    def write_memory_md(self, md_name: str, content: str):
+    def write_memory_md(
+        self,
+        md_name: str,
+        content: str,
+        section: Literal["daily", "digest"] | None = None,
+    ):
         """Write markdown content to a file in the memory directory."""
-        file_path = self._memory_path_for_read_write(md_name)
+        file_path = self._memory_path_for_read_write(md_name, section)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")

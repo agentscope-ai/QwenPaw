@@ -10,15 +10,27 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import secrets
 import shutil
 import stat
 import tempfile
 import os
+import sys
+import unicodedata
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, AsyncIterator, Literal
 
-from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Request
+from fastapi import (
+    APIRouter,
+    Body,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import ORJSONResponse, Response, StreamingResponse
 from watchfiles import awatch, Change
 from pydantic import BaseModel, Field
@@ -34,10 +46,31 @@ from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.templates import get_workspace_md_template_id
 from ...agents.utils import copy_workspace_md_files
 from ...constant import BUILTIN_QA_AGENT_ID, SUPPORTED_AGENT_LANGUAGES
-from ..agent_context import get_agent_for_request, get_coding_dir
+from ...services.workspace_files import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_PAGE_SIZE,
+    FileVersionConflict,
+    InvalidCursor,
+    InvalidWorkspacePath,
+    MAX_PAGE_SIZE,
+    file_etag,
+    get_file_metadata,
+    list_directory,
+    read_file_chunk,
+    resolve_workspace_path,
+    save_text_file,
+)
+from ..agent_context import (
+    get_agent_for_request,
+    get_agent_project_dir,
+    get_project_dir_for_request,
+)
 
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
+_FILESYSTEM_SEMAPHORE = asyncio.Semaphore(8)
+_WATCH_HEARTBEAT_SECONDS = 30.0
+_WATCH_POLL_TIMEOUT_MS = 1_000
 
 
 class MdFileInfo(BaseModel):
@@ -239,6 +272,513 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
     return files
 
 
+async def _resolve_files_root(
+    request: Request,
+    workspace: Any,
+    root: str,
+) -> Path:
+    """Resolve the selected project or agent configuration directory."""
+    if root == "workspace":
+        return workspace.workspace_dir
+    if root == "project":
+        return await get_project_dir_for_request(request, workspace)
+    raise HTTPException(
+        status_code=400,
+        detail="root must be project or workspace",
+    )
+
+
+@router.get(
+    "/tree",
+    summary="List one workspace directory page",
+)
+async def list_workspace_tree(
+    request: Request,
+    path: str = Query(default=""),
+    cursor: str | None = Query(default=None),
+    root: str = Query(default="project"),
+    limit: int = Query(
+        default=DEFAULT_PAGE_SIZE,
+        ge=1,
+        le=MAX_PAGE_SIZE,
+    ),
+) -> dict:
+    """List immediate children without materializing the full project."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            return await asyncio.to_thread(
+                list_directory,
+                files_root,
+                path,
+                cursor,
+                limit,
+            )
+    except InvalidCursor as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Directory not found",
+        ) from exc
+
+
+@router.get(
+    "/file-metadata",
+    summary="Read workspace file metadata",
+)
+async def read_workspace_file_metadata(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+) -> dict:
+    """Return file metadata before content is requested."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            return await asyncio.to_thread(
+                get_file_metadata,
+                files_root,
+                path,
+            )
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+
+@router.get(
+    "/file-content",
+    summary="Read a bounded workspace text chunk",
+)
+async def read_workspace_file_content(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=DEFAULT_CHUNK_SIZE, ge=1),
+) -> dict:
+    """Read text by byte range with UTF-8 boundary protection."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            return await asyncio.to_thread(
+                read_file_chunk,
+                files_root,
+                path,
+                offset,
+                limit,
+            )
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=416, detail=str(exc)) from exc
+    except FileVersionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="File changed while it was being read",
+        ) from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+
+@router.put(
+    "/file-content",
+    summary="Save workspace text with optimistic concurrency",
+)
+async def write_workspace_file_content(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+    body: dict = Body(...),
+) -> dict:
+    """Atomically save text when the supplied ETag still matches."""
+    content = body.get("content")
+    if not isinstance(content, str):
+        raise HTTPException(status_code=422, detail="content must be a string")
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            return await asyncio.to_thread(
+                save_text_file,
+                files_root,
+                path,
+                content,
+                request.headers.get("if-match"),
+            )
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileVersionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="File changed on disk",
+        ) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get(
+    "/file-download",
+    summary="Stream one workspace file",
+)
+async def download_workspace_file(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+) -> StreamingResponse:
+    """Stream one safe workspace file without buffering it in memory."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+
+    def _resolve_download() -> tuple[Path, os.stat_result]:
+        target = resolve_workspace_path(files_root, path)
+        return target, target.stat()
+
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            target, info = await asyncio.to_thread(_resolve_download)
+        if not stat.S_ISREG(info.st_mode):
+            raise FileNotFoundError(path)
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+    def _stream_file(chunk_size: int = 256 * 1024):
+        with target.open("rb") as handle:
+            while chunk := handle.read(chunk_size):
+                yield chunk
+
+    filename = target.name.replace('"', "")
+    return StreamingResponse(
+        _stream_file(),
+        media_type="application/octet-stream",
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Disposition": (f'attachment; filename="{filename}"'),
+            "Content-Length": str(info.st_size),
+            "ETag": file_etag(info),
+        },
+    )
+
+
+@router.get(
+    "/html-file-uri",
+    summary="Resolve one workspace HTML file for the desktop browser",
+)
+async def resolve_workspace_html_file_uri(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+) -> dict:
+    """Return the URI of one validated HTML file in the selected workspace."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+
+    def _resolve_html() -> Path:
+        target = resolve_workspace_path(files_root, path)
+        if target.suffix.lower() not in {".html", ".htm"}:
+            raise InvalidWorkspacePath("Path must reference an HTML file")
+        if not target.is_file():
+            raise FileNotFoundError(path)
+        return target
+
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            target = await asyncio.to_thread(_resolve_html)
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+    return {"uri": target.as_uri()}
+
+
+def _reserve_path(target: Path) -> bool:
+    """Atomically reserve one upload target without truncating a file."""
+    try:
+        descriptor = os.open(
+            target,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+        )
+    except FileExistsError:
+        return False
+    os.close(descriptor)
+    return True
+
+
+def _reserve_upload_targets(
+    upload_targets: list[tuple[UploadFile, str, Path]],
+    conflict: str | None,
+) -> tuple[list[tuple[UploadFile, str, Path | None, Path]], set[Path]]:
+    """Atomically allocate all non-overwrite upload destinations."""
+    allocated: list[tuple[UploadFile, str, Path | None, Path]] = []
+    reservations: set[Path] = set()
+    try:
+        for upload, filename, target in upload_targets:
+            if conflict == "overwrite":
+                allocated.append((upload, filename, target, target))
+                continue
+            if _reserve_path(target):
+                reservations.add(target)
+                allocated.append((upload, filename, target, target))
+                continue
+            if conflict == "skip":
+                allocated.append((upload, filename, None, target))
+                continue
+            if conflict != "rename":
+                raise FileExistsError(filename)
+            for index in range(1, 10_000):
+                candidate = target.with_name(
+                    f"{target.stem} ({index}){target.suffix}",
+                )
+                if _reserve_path(candidate):
+                    reservations.add(candidate)
+                    allocated.append((upload, filename, candidate, target))
+                    break
+            else:
+                raise OSError("Unable to allocate a conflict-free filename")
+    except BaseException:
+        for reservation in reservations:
+            reservation.unlink(missing_ok=True)
+        raise
+    return allocated, reservations
+
+
+def _write_reserved_upload(upload: UploadFile, target: Path) -> int:
+    """Copy one upload and atomically replace its reserved target."""
+    temporary = target.with_name(
+        f".{target.name}.{secrets.token_hex(6)}.qwenpaw.tmp",
+    )
+    size = 0
+    try:
+        upload.file.seek(0)
+        with temporary.open("wb") as handle:
+            while chunk := upload.file.read(256 * 1024):
+                size += len(chunk)
+                handle.write(chunk)
+            handle.flush()
+        os.replace(temporary, target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return size
+
+
+def _cleanup_upload_reservations(reservations: set[Path]) -> None:
+    """Remove placeholders that were not replaced by completed uploads."""
+    for reservation in reservations:
+        reservation.unlink(missing_ok=True)
+
+
+def _probe_name_alias(directory: Path, first: str, second: str) -> bool:
+    """Return whether two spellings address the same directory entry."""
+    first_path = directory / first
+    second_path = directory / second
+    descriptor = os.open(
+        first_path,
+        os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+        0o600,
+    )
+    os.close(descriptor)
+    try:
+        return second_path.exists()
+    finally:
+        first_path.unlink(missing_ok=True)
+
+
+def _filesystem_name_rules(directory: Path) -> tuple[bool, bool]:
+    """Detect case and Unicode normalization sensitivity for a directory."""
+    token = secrets.token_hex(8)
+    try:
+        case_aliases = _probe_name_alias(
+            directory,
+            f".qwenpaw-case-{token}-a",
+            f".QWENPAW-CASE-{token}-A",
+        )
+        normalization_aliases = _probe_name_alias(
+            directory,
+            f".qwenpaw-unicode-{token}-é",
+            f".qwenpaw-unicode-{token}-e\u0301",
+        )
+    except OSError:
+        case_aliases = os.name == "nt" or sys.platform == "darwin"
+        normalization_aliases = sys.platform == "darwin"
+    return not case_aliases, not normalization_aliases
+
+
+def _upload_name_key(
+    filename: str,
+    *,
+    case_sensitive: bool,
+    normalization_sensitive: bool,
+) -> str:
+    """Build a filename comparison key matching the target filesystem."""
+    comparable = (
+        filename
+        if normalization_sensitive
+        else unicodedata.normalize("NFC", filename)
+    )
+    return comparable if case_sensitive else comparable.casefold()
+
+
+def _prepare_upload_targets(
+    directory: Path,
+    files: list[UploadFile],
+) -> tuple[list[tuple[UploadFile, str, Path]], list[str]]:
+    """Validate upload names and collect conflicts before writing files."""
+    upload_targets: list[tuple[UploadFile, str, Path]] = []
+    seen_names: set[str] = set()
+    conflicts: list[str] = []
+    case_sensitive, normalization_sensitive = _filesystem_name_rules(
+        directory,
+    )
+    for upload in files:
+        filename = upload.filename or ""
+        if "/" in filename or "\\" in filename:
+            raise HTTPException(
+                status_code=400,
+                detail="Upload filename must not contain a path",
+            )
+        try:
+            target = resolve_workspace_path(
+                directory,
+                filename,
+                portable=True,
+            )
+        except InvalidWorkspacePath as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        comparable_name = _upload_name_key(
+            filename,
+            case_sensitive=case_sensitive,
+            normalization_sensitive=normalization_sensitive,
+        )
+        if target.exists() or comparable_name in seen_names:
+            conflicts.append(filename)
+        seen_names.add(comparable_name)
+        upload_targets.append((upload, filename, target))
+    return upload_targets, conflicts
+
+
+@router.post(
+    "/file-upload",
+    summary="Stream ordinary files into one workspace directory",
+)
+async def upload_workspace_files(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    path: str = Query(default=""),
+    root: str = Query(default="project"),
+    conflict: str | None = Query(default=None),
+) -> dict:
+    """Upload files, requesting a policy only when names conflict."""
+    if conflict is not None and conflict not in {
+        "overwrite",
+        "skip",
+        "rename",
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail="conflict must be overwrite, skip, or rename",
+        )
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+
+    def _resolve_directory() -> Path:
+        directory = resolve_workspace_path(
+            files_root,
+            path,
+            allow_root=True,
+        )
+        if not directory.is_dir():
+            raise NotADirectoryError(path)
+        return directory
+
+    try:
+        directory = await asyncio.to_thread(_resolve_directory)
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Upload directory not found",
+        ) from exc
+
+    upload_targets, conflicts = await asyncio.to_thread(
+        _prepare_upload_targets,
+        directory,
+        files,
+    )
+
+    if conflicts and conflict is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "upload_conflict",
+                "files": conflicts,
+            },
+        )
+
+    try:
+        allocated, reservations = await asyncio.to_thread(
+            _reserve_upload_targets,
+            upload_targets,
+            conflict,
+        )
+    except FileExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "upload_conflict",
+                "files": [str(exc)],
+            },
+        ) from exc
+
+    results: list[dict] = []
+    try:
+        for upload, filename, target, requested_target in allocated:
+            if target is None:
+                results.append(
+                    {
+                        "name": filename,
+                        "path": requested_target.relative_to(
+                            files_root,
+                        ).as_posix(),
+                        "status": "skipped",
+                    },
+                )
+                continue
+            async with _FILESYSTEM_SEMAPHORE:
+                size = await asyncio.to_thread(
+                    _write_reserved_upload,
+                    upload,
+                    target,
+                )
+                reservations.discard(target)
+
+            results.append(
+                {
+                    "name": filename,
+                    "path": target.relative_to(files_root).as_posix(),
+                    "size": size,
+                    "status": "uploaded",
+                },
+            )
+    finally:
+        await asyncio.to_thread(
+            _cleanup_upload_reservations,
+            reservations,
+        )
+    return {"files": results}
+
+
 @router.get(
     "/code-files",
     summary="List all workspace files (Coding Mode)",
@@ -246,10 +786,8 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
 async def list_code_files(request: Request) -> list[dict]:
     """List every non-hidden file in the active coding project directory."""
     workspace = await get_agent_for_request(request)
-    return await asyncio.get_event_loop().run_in_executor(
-        None,
-        _list_all_files,
-        get_coding_dir(workspace),
+    return await asyncio.to_thread(
+        lambda: _list_all_files(get_agent_project_dir(workspace)),
     )
 
 
@@ -287,7 +825,9 @@ async def read_binary_file(
     Rejects files that are not in ``_MIME_MAP`` or exceed 50 MB.
     """
     workspace = await get_agent_for_request(request)
-    target = safe_join(get_coding_dir(workspace), file_path)
+    target = await asyncio.to_thread(
+        lambda: safe_join(get_agent_project_dir(workspace), file_path),
+    )
 
     ext = target.suffix.lstrip(".").lower()
     mime = _MIME_MAP.get(ext)
@@ -346,7 +886,9 @@ async def read_code_file(file_path: str, request: Request):
     avoid flooding the browser with huge binary or log files.
     """
     workspace = await get_agent_for_request(request)
-    target = safe_join(get_coding_dir(workspace), file_path)
+    target = await asyncio.to_thread(
+        lambda: safe_join(get_agent_project_dir(workspace), file_path),
+    )
 
     def _stat() -> os.stat_result:
         return target.stat()
@@ -403,7 +945,9 @@ async def write_code_file(
         {"content": "<new file content>"}
     """
     workspace = await get_agent_for_request(request)
-    target = safe_join(get_coding_dir(workspace), file_path)
+    target = await asyncio.to_thread(
+        lambda: safe_join(get_agent_project_dir(workspace), file_path),
+    )
     content = body.get("content", "")
     if not isinstance(content, str):
         raise HTTPException(status_code=422, detail="content must be a string")
@@ -422,9 +966,12 @@ async def write_code_file(
 
 @router.get(
     "/watch",
-    summary="SSE stream for workspace file changes (Coding Mode)",
+    summary="SSE stream for agent workspace file changes",
 )
-async def watch_workspace_files(request: Request) -> StreamingResponse:
+async def watch_workspace_files(
+    request: Request,
+    root: str = Query(default="project"),
+) -> StreamingResponse:
     """Server-Sent Events that emit file-change notifications.
 
     Each SSE payload has the form::
@@ -434,68 +981,10 @@ async def watch_workspace_files(request: Request) -> StreamingResponse:
     A heartbeat comment (``": heartbeat"``) is sent every 30 s when idle.
     """
     workspace = await get_agent_for_request(request)
-    watch_dir = get_coding_dir(workspace)
-
-    async def event_generator():
-        yield 'data: {"type": "connected"}\n\n'
-        watcher = awatch(watch_dir)
-        try:
-            while True:
-                if await request.is_disconnected():
-                    break
-                try:
-                    raw_changes = await asyncio.wait_for(
-                        watcher.__anext__(),
-                        timeout=30.0,
-                    )
-                except asyncio.TimeoutError:
-                    yield ": heartbeat\n\n"
-                    continue
-                except (
-                    StopAsyncIteration,
-                    asyncio.CancelledError,
-                    GeneratorExit,
-                ):
-                    # StopAsyncIteration  – watcher stopped naturally
-                    # CancelledError      – app shutdown cancelled the task
-                    # GeneratorExit       – streaming response closed
-                    break
-
-                events = []
-                for change_type, path in raw_changes:
-                    try:
-                        rel = Path(path).relative_to(watch_dir)
-                    except ValueError:
-                        continue
-                    if _should_skip(rel.parts):
-                        continue
-                    change_name = (
-                        "added"
-                        if change_type is Change.added
-                        else "deleted"
-                        if change_type is Change.deleted
-                        else "modified"
-                    )
-                    events.append(
-                        {"change": change_name, "path": rel.as_posix()},
-                    )
-
-                if events:
-                    payload = json.dumps(
-                        {"type": "file_change", "events": events},
-                        ensure_ascii=False,
-                    )
-                    yield f"data: {payload}\n\n"
-        except (asyncio.CancelledError, GeneratorExit):
-            pass  # normal during app shutdown
-        finally:
-            try:
-                await watcher.aclose()
-            except Exception:
-                pass
+    watch_dir = await _resolve_files_root(request, workspace, root)
 
     return StreamingResponse(
-        event_generator(),
+        workspace_watch_events(request, watch_dir),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -503,6 +992,70 @@ async def watch_workspace_files(request: Request) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
+
+
+async def workspace_watch_events(
+    request: Request,
+    watch_dir: Path,
+) -> AsyncIterator[str]:
+    """Yield workspace file changes without cancelling the watcher on idle."""
+    yield 'data: {"type": "connected"}\n\n'
+    watcher = awatch(
+        watch_dir,
+        rust_timeout=_WATCH_POLL_TIMEOUT_MS,
+        yield_on_timeout=True,
+    )
+    last_emit = asyncio.get_running_loop().time()
+    try:
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                raw_changes = await watcher.__anext__()
+            except (
+                StopAsyncIteration,
+                asyncio.CancelledError,
+                GeneratorExit,
+            ):
+                break
+
+            events = []
+            for change_type, path in raw_changes:
+                try:
+                    rel = Path(path).relative_to(watch_dir)
+                except ValueError:
+                    continue
+                if _should_skip(rel.parts):
+                    continue
+                change_name = (
+                    "added"
+                    if change_type is Change.added
+                    else "deleted"
+                    if change_type is Change.deleted
+                    else "modified"
+                )
+                events.append(
+                    {"change": change_name, "path": rel.as_posix()},
+                )
+
+            now = asyncio.get_running_loop().time()
+            if events:
+                payload = json.dumps(
+                    {"type": "file_change", "events": events},
+                    ensure_ascii=False,
+                )
+                yield f"data: {payload}\n\n"
+                last_emit = now
+            elif now - last_emit >= _WATCH_HEARTBEAT_SECONDS:
+                yield ": heartbeat\n\n"
+                last_emit = now
+    except (asyncio.CancelledError, GeneratorExit):
+        pass
+    finally:
+        try:
+            await watcher.aclose()
+        except Exception:
+            pass
 
 
 @router.get(
@@ -513,6 +1066,7 @@ async def watch_workspace_files(request: Request) -> StreamingResponse:
 )
 async def list_memory_files(
     request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
 ) -> list[MdFileInfo]:
     """List memory directory markdown files."""
     try:
@@ -521,7 +1075,10 @@ async def list_memory_files(
             str(workspace.workspace_dir),
             agent_id=workspace.agent_id,
         )
-        raw_files = await asyncio.to_thread(workspace_manager.list_memory_mds)
+        raw_files = await asyncio.to_thread(
+            workspace_manager.list_memory_mds,
+            section,
+        )
         files = [MdFileInfo.model_validate(file) for file in raw_files]
         return files
     except Exception as exc:
@@ -537,6 +1094,7 @@ async def list_memory_files(
 async def read_memory_file(
     md_path: str,
     request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
 ) -> MdFileContent:
     """Read a memory directory markdown file."""
     try:
@@ -548,6 +1106,7 @@ async def read_memory_file(
         content = await asyncio.to_thread(
             workspace_manager.read_memory_md,
             md_path,
+            section,
         )
         return MdFileContent(content=content)
     except FileNotFoundError as exc:
@@ -566,6 +1125,7 @@ async def write_memory_file(
     md_path: str,
     body: MdFileContent,
     request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
 ) -> dict:
     """Write a memory directory markdown file."""
     try:
@@ -578,6 +1138,7 @@ async def write_memory_file(
             workspace_manager.write_memory_md,
             md_path,
             body.content,
+            section,
         )
         return {"written": True}
     except Exception as exc:
