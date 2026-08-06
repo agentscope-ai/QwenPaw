@@ -3257,7 +3257,7 @@
     "importing": "Importando...",
     "dropFailed": "Falha ao ler a pasta",
     "workingDir": "Diretório de trabalho",
-    "importCopyNote": "A pasta será copiada para a biblioteca de projetos gerenciada do QwenPaw. Os arquivos originais não serão modificados.",
+    "importCopyNote": "A pasta será copiada para a biblioteca de projetos gerenciada do NousAIPaw. Os arquivos originais não serão modificados.",
     "importCopyDesc": "A importacao cria uma copia da pasta. O Agent trabalha na copia e seus arquivos originais nao sao alterados. Para trabalhar diretamente no original, use \"Abrir diretorio\".",
     "tabOpenDir": "Abrir diretório",
     "openDirDesc": "Abrir um diretório local existente — nenhum arquivo será copiado",

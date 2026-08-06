@@ -495,7 +495,7 @@ python -c "import whisper; print('openai-whisper installed')"
 - [频道配置](./channels) —— 各频道的接入步骤和凭据获取
 - [技能](./skills) —— 内置技能说明和自定义技能编写
 - [浏览器](./browser) —— 浏览器工具的实现切换、身份与配置
-- [Chrome 浏览器扩展](./chrome) —— 把 QwenPaw 连接到你自己的 Chrome
+- [Chrome 浏览器扩展](./chrome) —— 把 NousAIPaw 连接到你自己的 Chrome
 - [心跳](./heartbeat) —— 心跳配置
 - [上下文](./context) —— 压缩与上下文机制
 - [安全](./security) —— Web 登录、工具守卫与文件防护详解

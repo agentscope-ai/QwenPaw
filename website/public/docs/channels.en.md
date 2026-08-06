@@ -522,7 +522,7 @@ NapCat  ──reverse WS──▶  NousAIPaw (:6199/ws)
 
 3. Go to **Network Config** → **New** → **WebSocket Client** (reverse WS):
    - URL: `ws://<qwenpaw_host>:6199/ws`
-   - Access Token: same as `access_token` in QwenPaw config (required unless QwenPaw listens on loopback)
+   - Access Token: same as `access_token` in NousAIPaw config (required unless NousAIPaw listens on loopback)
 
 ### Fill agent.json
 
@@ -565,7 +565,7 @@ lets anyone drive your agent.
   directly: `ws://` traffic is unencrypted, so a token sent over the public
   internet can be intercepted.
 
-> **Docker Compose tip:** When running QwenPaw and NapCat in Docker Compose, the
+> **Docker Compose tip:** When running NousAIPaw and NapCat in Docker Compose, the
 > two containers are not on the same loopback interface, so set `ws_host` to
 > `0.0.0.0`, **set `access_token`**, and point the NapCat reverse WS URL at
 > `ws://qwenpaw:6199/ws` (using the service name). Do not publish port 6199 to

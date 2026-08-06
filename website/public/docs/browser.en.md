@@ -1,6 +1,6 @@
 # Browser
 
-Browser is a built-in QwenPaw capability. Through the `browser` tool an Agent
+Browser is a built-in NousAIPaw capability. Through the `browser` tool an Agent
 writes async Python that drives a real browser to open pages, fill forms,
 click, and read page content. It can either launch a standalone browser or work
 inside the Chrome you already use and are already signed in to.
@@ -13,10 +13,10 @@ inside the Chrome you already use and are already signed in to.
 
 ## Two kinds of browser
 
-| Which browser          | What it is                                                              | Requirement                              |
-| ---------------------- | ----------------------------------------------------------------------- | ---------------------------------------- |
-| **Standalone browser** | QwenPaw launches its own Chromium, isolated from your everyday browsing | None                                     |
-| **Your own Chrome**    | Works in tabs of your signed-in Chrome, visible to you the whole time   | Install the [Chrome extension](./chrome) |
+| Which browser          | What it is                                                                | Requirement                              |
+| ---------------------- | ------------------------------------------------------------------------- | ---------------------------------------- |
+| **Standalone browser** | NousAIPaw launches its own Chromium, isolated from your everyday browsing | None                                     |
+| **Your own Chrome**    | Works in tabs of your signed-in Chrome, visible to you the whole time     | Install the [Chrome extension](./chrome) |
 
 Both use the same `browser` tool and the same SDK, so the Agent writes exactly
 the same code. The only difference is whose browser and whose signed-in session
@@ -26,7 +26,7 @@ is used.
 
 ## How it works
 
-The Agent uses QwenPaw's own Browser SDK (not Playwright), and the API surface
+The Agent uses NousAIPaw's own Browser SDK (not Playwright), and the API surface
 is closed: only the methods the SDK exposes exist. The complete API reference
 is delivered to the Agent together with the built-in **browser** skill, so
 there is nothing for you to configure.
@@ -91,13 +91,13 @@ unaffected by this setting.
 
 | Value            | Behaviour                                                                                         |
 | ---------------- | ------------------------------------------------------------------------------------------------- |
-| `auto` (default) | QwenPaw launches and manages a Chromium                                                           |
+| `auto` (default) | NousAIPaw launches and manages a Chromium                                                         |
 | `launch`         | Same as `auto`, stated explicitly                                                                 |
 | `managed_cdp`    | Launch a Chromium with a debugging port and control it over CDP; see `cdp_port`, `0` auto-assigns |
 | `connect_cdp`    | Connect to an already running CDP endpoint; `cdp_url` must also be set                            |
 
-By default QwenPaw prefers the Chromium-based executable of your system default
-browser and falls back to the Chromium bundled with QwenPaw. Use
+By default NousAIPaw prefers the Chromium-based executable of your system default
+browser and falls back to the Chromium bundled with NousAIPaw. Use
 `use_system_default` and `executable_path` to override this.
 
 ---
@@ -118,7 +118,7 @@ through an `action` parameter. This switch is written to the global
 configuration and applies to every Agent.
 
 > After switching, the card shows a pending notice about the mode that will
-> apply next. **You must restart the QwenPaw service** for it to take effect;
+> apply next. **You must restart the NousAIPaw service** for it to take effect;
 > this setting is not hot-reloaded.
 
 ---
@@ -187,7 +187,7 @@ Browser processes are reclaimed according to `idle_ttl_seconds` /
 
 ### I switched the implementation but nothing changed
 
-This setting is not hot-reloaded. Restart the QwenPaw service and try again;
+This setting is not hot-reloaded. Restart the NousAIPaw service and try again;
 the pending notice on the tool card means the change is saved and waiting for
 the restart.
 
@@ -199,7 +199,7 @@ connected. Install and connect the [Chrome extension](./chrome), or change
 
 ### Can I use it on a server without a display?
 
-Yes. With `headless` set to `auto`, QwenPaw runs headless inside containers and
+Yes. With `headless` set to `auto`, NousAIPaw runs headless inside containers and
 in environments without a display. Tasks that need you to sign in or solve a
 CAPTCHA cannot be handed back in headless mode, so run those where a window is
 available.
@@ -220,7 +220,7 @@ use `user` to reuse the sessions in your own Chrome.
 
 ## Related pages
 
-- [Chrome extension](./chrome) — connect QwenPaw to your own Chrome
+- [Chrome extension](./chrome) — connect NousAIPaw to your own Chrome
 - [MCP & built-in tools](./mcp) — review and manage the tools available to an Agent
 - [Skills](./skills) — how the built-in **browser** skill and SDK reference are delivered
 - [Configuration & working directory](./config) — global config file and directory layout

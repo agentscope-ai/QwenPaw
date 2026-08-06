@@ -542,7 +542,7 @@ python -c "import whisper; print('openai-whisper installed')"
 - [Channels](./channels) — Per-channel setup and credentials
 - [Skills](./skills) — Built-in skills and custom skills
 - [Browser](./browser) — Browser tool tracks, identities, and settings
-- [Chrome extension](./chrome) — Connect QwenPaw to your own Chrome
+- [Chrome extension](./chrome) — Connect NousAIPaw to your own Chrome
 - [Heartbeat](./heartbeat) — Heartbeat configuration
 - [Context](./context) — Compaction and context
 - [Security](./security) — Web login, tool guard, file guard

@@ -1,6 +1,6 @@
 # 浏览器
 
-浏览器是 QwenPaw 的内置能力。Agent 通过 `browser` 工具编写异步 Python 代码，驱动一个真实的浏览器完成打开网页、填表、点击、读取页面内容等任务。它既可以启动一个独立的浏览器，也可以接入你自己日常使用、已经登录的 Chrome。
+浏览器是 NousAIPaw 的内置能力。Agent 通过 `browser` 工具编写异步 Python 代码，驱动一个真实的浏览器完成打开网页、填表、点击、读取页面内容等任务。它既可以启动一个独立的浏览器，也可以接入你自己日常使用、已经登录的 Chrome。
 
 > **Beta 功能**：新版统一浏览器默认启用。如果你需要旧版行为，可以在控制台切回旧版实现；切换后需要重启服务才会生效。
 
@@ -8,10 +8,10 @@
 
 ## 两种浏览器
 
-| 用哪个浏览器        | 说明                                                    | 前置条件                           |
-| ------------------- | ------------------------------------------------------- | ---------------------------------- |
-| **独立浏览器**      | QwenPaw 自己启动一个 Chromium，与你的日常浏览器互不干扰 | 无                                 |
-| **你自己的 Chrome** | 直接在你已登录的 Chrome 里开标签页工作，你能全程看见    | 安装 [Chrome 浏览器扩展](./chrome) |
+| 用哪个浏览器        | 说明                                                      | 前置条件                           |
+| ------------------- | --------------------------------------------------------- | ---------------------------------- |
+| **独立浏览器**      | NousAIPaw 自己启动一个 Chromium，与你的日常浏览器互不干扰 | 无                                 |
+| **你自己的 Chrome** | 直接在你已登录的 Chrome 里开标签页工作，你能全程看见      | 安装 [Chrome 浏览器扩展](./chrome) |
 
 两者用的是同一个 `browser` 工具和同一套 SDK，Agent 的写法完全一样，区别只在于"用谁的浏览器、带谁的登录态"。
 
@@ -19,7 +19,7 @@
 
 ## 工作方式
 
-Agent 使用的是 QwenPaw 自带的 Browser SDK（不是 Playwright），API 是封闭的一套：只有 SDK 明确提供的方法可用。完整 API 参考随内置的 **browser** 技能一起交付给 Agent，你不需要手动配置。
+Agent 使用的是 NousAIPaw 自带的 Browser SDK（不是 Playwright），API 是封闭的一套：只有 SDK 明确提供的方法可用。完整 API 参考随内置的 **browser** 技能一起交付给 Agent，你不需要手动配置。
 
 每一轮操作遵循固定纪律：
 
@@ -63,12 +63,12 @@ Agent 使用的是 QwenPaw 自带的 Browser SDK（不是 Playwright），API �
 
 | 取值           | 行为                                                                               |
 | -------------- | ---------------------------------------------------------------------------------- |
-| `auto`（默认） | 由 QwenPaw 启动并管理一个 Chromium                                                 |
-| `launch`       | 同 `auto`，显式声明由 QwenPaw 启动                                                 |
+| `auto`（默认） | 由 NousAIPaw 启动并管理一个 Chromium                                               |
+| `launch`       | 同 `auto`，显式声明由 NousAIPaw 启动                                               |
 | `managed_cdp`  | 启动一个带调试端口的 Chromium 再通过 CDP 控制；端口见 `cdp_port`，`0` 表示自动分配 |
 | `connect_cdp`  | 连接到一个已经在运行的 CDP 端点；必须同时设置 `cdp_url`                            |
 
-默认情况下 QwenPaw 优先使用你系统默认浏览器的 Chromium 内核可执行文件，找不到时回退到 QwenPaw 自带的 Chromium。可用 `use_system_default` 和 `executable_path` 干预。
+默认情况下 NousAIPaw 优先使用你系统默认浏览器的 Chromium 内核可执行文件，找不到时回退到 NousAIPaw 自带的 Chromium。可用 `use_system_default` 和 `executable_path` 干预。
 
 ---
 
@@ -83,7 +83,7 @@ Agent 使用的是 QwenPaw 自带的 Browser SDK（不是 Playwright），API �
 
 两者的调用方式不同：新版是 `browser(code)`——Agent 写一段异步 Python；旧版按 `action` 参数逐个动作调用。该开关写入全局配置，对所有智能体生效。
 
-> 切换后卡片上会提示"重启服务后将切换为：…"。**必须重启 QwenPaw 服务**才会真正生效，这一项不支持热加载。
+> 切换后卡片上会提示"重启服务后将切换为：…"。**必须重启 NousAIPaw 服务**才会真正生效，这一项不支持热加载。
 
 ---
 
@@ -144,7 +144,7 @@ Agent 使用的是 QwenPaw 自带的 Browser SDK（不是 Playwright），API �
 
 ### 切换了新旧实现却没有变化？
 
-这一项不热加载。请重启 QwenPaw 服务后再试；工具卡片上出现"重启服务后将切换为：…"说明改动已保存、等待重启。
+这一项不热加载。请重启 NousAIPaw 服务后再试；工具卡片上出现"重启服务后将切换为：…"说明改动已保存、等待重启。
 
 ### Agent 提示需要连接 Chrome 扩展？
 
@@ -166,7 +166,7 @@ Agent 使用的是 QwenPaw 自带的 Browser SDK（不是 Playwright），API �
 
 ## 相关页面
 
-- [Chrome 浏览器扩展](./chrome) — 把 QwenPaw 连接到你自己的 Chrome
+- [Chrome 浏览器扩展](./chrome) — 把 NousAIPaw 连接到你自己的 Chrome
 - [MCP 与内置工具](./mcp) — 查看和管理 Agent 可用的工具
 - [Skills](./skills) — 内置 **browser** 技能与 SDK 参考的交付方式
 - [配置与工作目录](./config) — 全局配置文件与目录结构

@@ -346,8 +346,8 @@ NousAIPaw 提供了一组开箱即用的内置工具，智能体可以直接调�
 
 **浏览器自动化**
 
-- `browser(code)`：用异步 Python 调用 QwenPaw 内置 Browser SDK 驱动真实浏览器——导航、定位元素、执行动作、读取可见页面状态。完整 SDK API 会在 agent 首次使用时自动交付。
-  - 既可以使用 QwenPaw 启动的独立浏览器，也可以接入你自己已登录的 Chrome（需安装 [Chrome 浏览器扩展](./chrome)）
+- `browser(code)`：用异步 Python 调用 NousAIPaw 内置 Browser SDK 驱动真实浏览器——导航、定位元素、执行动作、读取可见页面状态。完整 SDK API 会在 agent 首次使用时自动交付。
+  - 既可以使用 NousAIPaw 启动的独立浏览器，也可以接入你自己已登录的 Chrome（需安装 [Chrome 浏览器扩展](./chrome)）
   - 浏览器身份、接入方式与全部配置项详见 [浏览器](./browser)
 
 **截图和图像**

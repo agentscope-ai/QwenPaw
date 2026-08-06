@@ -171,7 +171,7 @@ flowchart LR
 /checkpoint auto off       # 关闭
 ```
 
-开启后，QwenPaw 会在以下条件都满足时创建自动检查点：
+开启后，NousAIPaw 会在以下条件都满足时创建自动检查点：
 
 1. Agent 的回答已成功完成；
 2. 当前会话已成功保存；
@@ -191,7 +191,7 @@ flowchart LR
 /checkpoint snapshot "发布前状态"
 ```
 
-如果省略名称，QwenPaw 会自动生成一个名称。快照名称会被规范化为安全的引用名；同一会话中出现重名时，系统会自动追加数字后缀。
+如果省略名称，NousAIPaw 会自动生成一个名称。快照名称会被规范化为安全的引用名；同一会话中出现重名时，系统会自动追加数字后缀。
 
 ---
 
@@ -291,7 +291,7 @@ flowchart LR
 /checkpoint restore #3
 ```
 
-QwenPaw 会返回预览和确认命令。`--dry-run` 与 `--confirm` 互斥；真正恢复必须显式使用 `--confirm`。
+NousAIPaw 会返回预览和确认命令。`--dry-run` 与 `--confirm` 互斥；真正恢复必须显式使用 `--confirm`。
 
 ---
 
@@ -303,7 +303,7 @@ QwenPaw 会返回预览和确认命令。`--dry-run` 与 `--confirm` 互斥；�
 2. **固定目标**：控制台执行恢复时使用预览得到的精确提交 SHA。
 3. **暂停内部写入**：执行恢复时暂停可协作的内部调度，并等待已跟踪的 Agent 任务结束。
 4. **创建安全点**：修改任何内容前自动保存 pre-restore 检查点。
-5. **失败回滚**：应用过程中出错时，QwenPaw 会尝试恢复已修改的路径和会话 HEAD。
+5. **失败回滚**：应用过程中出错时，NousAIPaw 会尝试恢复已修改的路径和会话 HEAD。
 
 如果内部任务在安全超时时间内没有结束，本次恢复会取消，不会强行覆盖。待任务完成后重新预览并恢复即可。
 
@@ -355,7 +355,7 @@ QwenPaw 会返回预览和确认命令。`--dry-run` 与 `--confirm` 互斥；�
 | 项目 `.git/`           | 排除，不修改项目历史                                                        |
 | `checkpoints/`         | 排除，避免影子仓库保存自身                                                  |
 | 凭据和运行时配置       | 排除，例如 `credentials.yaml`、`agent.json`、`access_control.json`          |
-| QwenPaw 运行时状态     | 排除，例如 `history.db`、cron 状态、缓存、派生记忆索引、媒体和工具结果      |
+| NousAIPaw 运行时状态   | 排除，例如 `history.db`、cron 状态、缓存、派生记忆索引、媒体和工具结果      |
 | 人设与技能运行文件     | 排除，例如 `AGENTS.md`、`SOUL.md`、`skills/`                                |
 | 开发产物               | 排除，例如 `.venv/`、`node_modules/`、`dist/`、`build/`、日志和 Python 缓存 |
 
@@ -413,7 +413,7 @@ include_memory_quiesce_timeout = 30.0
 /checkpoint reset --confirm
 ```
 
-重置后自动检查点会恢复为关闭状态。此操作不会删除当前会话、长期记忆或普通工作区文件，但删除的检查点历史无法再通过 QwenPaw 恢复。
+重置后自动检查点会恢复为关闭状态。此操作不会删除当前会话、长期记忆或普通工作区文件，但删除的检查点历史无法再通过 NousAIPaw 恢复。
 
 ---
 
@@ -436,7 +436,7 @@ include_memory_quiesce_timeout = 30.0
 
 #### 为什么提示找不到 Git？
 
-检查点依赖本机 Git。请从 [git-scm.com](https://git-scm.com/downloads) 安装 Git，确认终端中可以执行 `git`，然后重启 QwenPaw。
+检查点依赖本机 Git。请从 [git-scm.com](https://git-scm.com/downloads) 安装 Git，确认终端中可以执行 `git`，然后重启 NousAIPaw。
 
 #### 为什么恢复成功后，对话页面还是旧内容？
 
@@ -444,7 +444,7 @@ include_memory_quiesce_timeout = 30.0
 
 #### 为什么某些文件没有出现在恢复候选中？
 
-没有变化的文件不会出现。会话、记忆和 QwenPaw 运行时文件也不会作为普通文件候选，它们分别由专用恢复流程处理或被明确排除。
+没有变化的文件不会出现。会话、记忆和 NousAIPaw 运行时文件也不会作为普通文件候选，它们分别由专用恢复流程处理或被明确排除。
 
 #### 恢复后还能回到恢复前吗？
 

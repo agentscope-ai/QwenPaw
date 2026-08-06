@@ -171,7 +171,7 @@ Automatic checkpoints are disabled by default. Turn on **Automatic checkpoints**
 /checkpoint auto off       # Disable
 ```
 
-Once enabled, QwenPaw creates an automatic checkpoint when all of the following are true:
+Once enabled, NousAIPaw creates an automatic checkpoint when all of the following are true:
 
 1. The Agent response completed successfully.
 2. The current session was saved successfully.
@@ -191,7 +191,7 @@ In the Console, click **Create snapshot** and enter a name. You can also run:
 /checkpoint snapshot "before release"
 ```
 
-If you omit the name, QwenPaw generates one. Names are normalized into safe ref names; when a session already has the same name, QwenPaw appends a numeric suffix.
+If you omit the name, NousAIPaw generates one. Names are normalized into safe ref names; when a session already has the same name, NousAIPaw appends a numeric suffix.
 
 ---
 
@@ -291,7 +291,7 @@ This command does not modify anything:
 /checkpoint restore #3
 ```
 
-QwenPaw returns the corresponding preview and confirmation commands. `--dry-run` and `--confirm` are mutually exclusive, and an applied restore always requires explicit `--confirm`.
+NousAIPaw returns the corresponding preview and confirmation commands. `--dry-run` and `--confirm` are mutually exclusive, and an applied restore always requires explicit `--confirm`.
 
 ---
 
@@ -302,8 +302,8 @@ Checkpoint restore uses several layers of protection:
 1. **Preview first**: `--dry-run` computes changes without writing to the workspace.
 2. **Pin the target**: the Console applies the exact commit SHA returned by the preview.
 3. **Pause internal writers**: an applied restore pauses cooperating internal schedulers and waits for tracked Agent tasks.
-4. **Create a safety point**: QwenPaw creates a pre-restore checkpoint before changing anything.
-5. **Roll back on failure**: if applying the restore fails, QwenPaw attempts to restore changed paths and the session HEAD.
+4. **Create a safety point**: NousAIPaw creates a pre-restore checkpoint before changing anything.
+5. **Roll back on failure**: if applying the restore fails, NousAIPaw attempts to restore changed paths and the session HEAD.
 
 If internal tasks do not finish before the safety timeout, the restore is cancelled instead of forcing an overwrite. Wait for the tasks to finish, then preview and restore again.
 
@@ -355,7 +355,7 @@ Checkpoints store conversation state, memory source files, and ordinary workspac
 | Project `.git/`                       | Excluded; project history is never modified                                                           |
 | `checkpoints/`                        | Excluded so the shadow repository never snapshots itself                                              |
 | Credentials and runtime configuration | Excluded, including `credentials.yaml`, `agent.json`, and `access_control.json`                       |
-| QwenPaw runtime state                 | Excluded, including `history.db`, cron state, caches, derived memory indexes, media, and tool results |
+| NousAIPaw runtime state               | Excluded, including `history.db`, cron state, caches, derived memory indexes, media, and tool results |
 | Persona and runtime skill files       | Excluded, including `AGENTS.md`, `SOUL.md`, and `skills/`                                             |
 | Development artifacts                 | Excluded, including `.venv/`, `node_modules/`, `dist/`, `build/`, logs, and Python caches             |
 
@@ -413,7 +413,7 @@ Reset deletes all checkpoint history for the current workspace and reinitializes
 /checkpoint reset --confirm
 ```
 
-Automatic checkpoints return to the disabled state after reset. Reset does not delete the current conversation, long-term memory, or ordinary workspace files, but removed checkpoint history can no longer be recovered through QwenPaw.
+Automatic checkpoints return to the disabled state after reset. Reset does not delete the current conversation, long-term memory, or ordinary workspace files, but removed checkpoint history can no longer be recovered through NousAIPaw.
 
 ---
 
@@ -434,9 +434,9 @@ The three tools complement each other: use checkpoints for everyday rollback, pr
 
 ### FAQ
 
-#### Why does QwenPaw say Git is missing?
+#### Why does NousAIPaw say Git is missing?
 
-Checkpoints require Git on the local machine. Install it from [git-scm.com](https://git-scm.com/downloads), verify that `git` works in a terminal, and restart QwenPaw.
+Checkpoints require Git on the local machine. Install it from [git-scm.com](https://git-scm.com/downloads), verify that `git` works in a terminal, and restart NousAIPaw.
 
 #### Why does the conversation page still show the old state after restore?
 
@@ -444,7 +444,7 @@ The page may still hold the pre-restore session in memory. Refresh the conversat
 
 #### Why is a file missing from the restore candidates?
 
-Unchanged files are not listed. Conversation, memory, and QwenPaw runtime files are also excluded from ordinary file candidates because dedicated restore flows handle them or they are intentionally not restorable.
+Unchanged files are not listed. Conversation, memory, and NousAIPaw runtime files are also excluded from ordinary file candidates because dedicated restore flows handle them or they are intentionally not restorable.
 
 #### Can I return to the state from before a restore?
 

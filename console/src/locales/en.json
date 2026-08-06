@@ -3385,7 +3385,7 @@
     "importing": "Importing...",
     "dropFailed": "Failed to read folder",
     "workingDir": "Working directory",
-    "importCopyNote": "The folder will be copied into QwenPaw's managed project library. Original files will not be modified.",
+    "importCopyNote": "The folder will be copied into NousAIPaw's managed project library. Original files will not be modified.",
     "importCopyDesc": "Import creates a copy of the folder. The Agent works on the copy and your original files stay untouched. To work directly on the original, use \"Open Directory\" instead.",
     "tabOpenDir": "Open Directory",
     "openDirDesc": "Open an existing local directory — no files will be copied",

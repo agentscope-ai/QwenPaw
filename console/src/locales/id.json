@@ -1364,7 +1364,7 @@
     "importing": "Mengimpor...",
     "dropFailed": "Gagal membaca folder",
     "workingDir": "Direktori kerja",
-    "importCopyNote": "Folder akan disalin ke pustaka proyek terkelola QwenPaw. File asli tidak akan diubah.",
+    "importCopyNote": "Folder akan disalin ke pustaka proyek terkelola NousAIPaw. File asli tidak akan diubah.",
     "importCopyDesc": "Impor akan membuat salinan folder. Agent bekerja pada salinan, file asli tidak diubah. Untuk bekerja langsung pada aslinya, gunakan \"Buka Direktori\".",
     "tabOpenDir": "Buka Direktori",
     "openDirDesc": "Buka direktori lokal yang sudah ada — tidak ada file yang disalin",

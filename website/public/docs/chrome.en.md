@@ -1,6 +1,6 @@
 # Chrome extension
 
-The Chrome extension connects QwenPaw to the Chrome you already use. Once
+The Chrome extension connects NousAIPaw to the Chrome you already use. Once
 connected, an Agent can open tabs, click, and type inside your signed-in
 browser — visible to you the whole time, and yours to take over at any moment.
 
@@ -14,19 +14,19 @@ browser — visible to you the whole time, and yours to take over at any moment.
 
 ### Supported environment
 
-| Item    | Requirement                                                                                         |
-| ------- | --------------------------------------------------------------------------------------------------- |
-| Browser | Desktop Google Chrome                                                                               |
-| OS      | Windows, macOS, Linux                                                                               |
-| QwenPaw | Runs on the same machine as Chrome and listens on a local address (`127.0.0.1`, `localhost`, `::1`) |
+| Item      | Requirement                                                                                         |
+| --------- | --------------------------------------------------------------------------------------------------- |
+| Browser   | Desktop Google Chrome                                                                               |
+| OS        | Windows, macOS, Linux                                                                               |
+| NousAIPaw | Runs on the same machine as Chrome and listens on a local address (`127.0.0.1`, `localhost`, `::1`) |
 
 The extension relies on Chrome Native Messaging: it has to be able to start
-QwenPaw's local connection helper. The following setups therefore do not work:
+NousAIPaw's local connection helper. The following setups therefore do not work:
 
-- QwenPaw runs in Docker, on a remote server, or in the cloud while Chrome runs
+- NousAIPaw runs in Docker, on a remote server, or in the cloud while Chrome runs
   on your own machine.
 - You reach the Console through a non-local address. Setup then fails with an
-  explicit message that QwenPaw must listen on a local address.
+  explicit message that NousAIPaw must listen on a local address.
 
 For those setups use the standalone browser instead (`avatar` / `guest`
 identity) — see [Browser](./browser).
@@ -65,7 +65,7 @@ Follow the **Local install steps** — you only need to do this once:
    corner.
 3. **Click load button** — select **Load unpacked** in Chrome.
 4. **Paste path and open** — follow the **Quick paste path tips** on the right
-   and select **Copy QwenPaw extension path** first, then follow your platform:
+   and select **Copy NousAIPaw extension path** first, then follow your platform:
 
 | Platform | In the folder picker                                                              |
 | -------- | --------------------------------------------------------------------------------- |
@@ -73,7 +73,7 @@ Follow the **Local install steps** — you only need to do this once:
 | Windows  | Click the address bar, paste the path, press Enter, then select **Select Folder** |
 | Linux    | Press `Ctrl + L`, paste the path, press Enter, then select **Open**               |
 
-Return to the QwenPaw page and select **I've installed it, refresh status**.
+Return to the NousAIPaw page and select **I've installed it, refresh status**.
 
 > You can also use **Copy Path** or **Open Folder** to get at the extension
 > folder directly.
@@ -94,23 +94,23 @@ The top of the page shows one of three states:
 | **Extension installed, waiting for Chrome** | The extension is loaded, the connection is not up yet    | Keep Chrome running, then select **Refresh Status** |
 | **Chrome Connected**                        | Connected, showing extension version and connect time    | Ready for the Agent to use                          |
 
-Once connected, the QwenPaw icon in the Chrome toolbar also reports status:
-open it to see **Status** (connected or not), **QwenPaw tabs** (how many tabs
-QwenPaw currently manages), and the extension **Version**.
+Once connected, the NousAIPaw icon in the Chrome toolbar also reports status:
+open it to see **Status** (connected or not), **NousAIPaw tabs** (how many tabs
+NousAIPaw currently manages), and the extension **Version**.
 
 ### Connection checks
 
 The **Connection checks** section lists health item by item, each marked
 **Ready** or **Needs attention**:
 
-| Check                     | Meaning                                                            | Advice when it needs attention                                   |
-| ------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
-| **Extension bridge**      | The connection between the extension and QwenPaw                   | Reload the extension, or reopen the target browser tab           |
-| **Native Messaging host** | Whether the local connection helper is installed and usable        | Reinstall the Native Messaging host (rerun setup from this page) |
-| **Extension assets**      | Whether the version loaded in Chrome matches the one QwenPaw ships | Reload the unpacked extension in `chrome://extensions`           |
-| **Bridge lifecycle**      | Whether the connection is stable                                   | Wait a moment or restart Chrome                                  |
+| Check                     | Meaning                                                              | Advice when it needs attention                                   |
+| ------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| **Extension bridge**      | The connection between the extension and NousAIPaw                   | Reload the extension, or reopen the target browser tab           |
+| **Native Messaging host** | Whether the local connection helper is installed and usable          | Reinstall the Native Messaging host (rerun setup from this page) |
+| **Extension assets**      | Whether the version loaded in Chrome matches the one NousAIPaw ships | Reload the unpacked extension in `chrome://extensions`           |
+| **Bridge lifecycle**      | Whether the connection is stable                                     | Wait a moment or restart Chrome                                  |
 
-It is worth revisiting this page after upgrading QwenPaw: if **Extension
+It is worth revisiting this page after upgrading NousAIPaw: if **Extension
 assets** reports a version mismatch, rerun setup and reload the extension in
 Chrome.
 
@@ -147,10 +147,10 @@ that step back to you.
 ## Security boundaries
 
 - **The connection endpoint cannot be supplied manually.** It is derived from
-  the address QwenPaw actually listens on, and must be a local address.
+  the address NousAIPaw actually listens on, and must be a local address.
 - **The local settings file holds a locally generated connection token**,
   readable only by your user (written with `600` permissions on macOS and
-  Linux). The extension can only connect to QwenPaw on this machine.
+  Linux). The extension can only connect to NousAIPaw on this machine.
 - **The extension only accepts page messages from local addresses**
   (`localhost`, `127.0.0.1`, `[::1]`).
 
@@ -166,8 +166,8 @@ immediately.
 
 ### It stays on "Extension installed, waiting for Chrome"
 
-Check in order: Chrome is running; the QwenPaw extension is enabled in
-`chrome://extensions`; the QwenPaw service is running and listening on a local
+Check in order: Chrome is running; the NousAIPaw extension is enabled in
+`chrome://extensions`; the NousAIPaw service is running and listening on a local
 address. Then select **Refresh Status**. If it still does not connect, reload
 the extension in `chrome://extensions`.
 
@@ -181,12 +181,12 @@ extension in Chrome.
 
 The extension reconnects on its own (about 5 seconds at first, backing off to
 at most 60 seconds). If the disconnect lasts longer than roughly a minute, the
-extension stops acting on QwenPaw's behalf so it never keeps touching your
+extension stops acting on NousAIPaw's behalf so it never keeps touching your
 pages while out of contact; it resumes once reconnected.
 
-### Can one computer connect to several QwenPaw instances?
+### Can one computer connect to several NousAIPaw instances?
 
-No. The local connection config points at a single QwenPaw service, so one
+No. The local connection config points at a single NousAIPaw service, so one
 Chrome connects to only one of them at a time.
 
 ### When will the Chrome Web Store version be available?
