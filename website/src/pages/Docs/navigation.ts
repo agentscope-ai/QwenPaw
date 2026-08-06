@@ -42,7 +42,6 @@ export const DOC_GROUPS: DocGroup[] = [
       { slug: "multi-agent", titleKey: "docs.multiAgent" },
       { slug: "skills", titleKey: "docs.skills" },
       { slug: "mcp", titleKey: "docs.mcp" },
-      { slug: "browser", titleKey: "docs.browser" },
       { slug: "context", titleKey: "docs.context" },
       {
         slug: "loop-engineering",
@@ -63,10 +62,11 @@ export const DOC_GROUPS: DocGroup[] = [
     ],
   },
   {
-    titleKey: "docs.groupPlugins",
+    titleKey: "docs.groupBrowserDesktop",
     children: [
-      { slug: "computer-use", titleKey: "docs.computerUse" },
+      { slug: "browser", titleKey: "docs.browser" },
       { slug: "chrome", titleKey: "docs.chrome" },
+      { slug: "computer-use", titleKey: "docs.computerUse" },
     ],
   },
   {
