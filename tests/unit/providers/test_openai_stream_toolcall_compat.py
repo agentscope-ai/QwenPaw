@@ -12,6 +12,7 @@ from qwenpaw.providers.openai_chat_model_compat import (
     OpenAIChatModelCompat,
     _sanitize_tool_call,
 )
+from qwenpaw.utils.tool_call_extra import collect_transient_tool_call_extras
 
 
 class CompatHarnessOpenAIChatModel(OpenAIChatModelCompat):
@@ -115,6 +116,45 @@ async def test_stream_parser_skips_tool_call_without_function() -> None:
     if isinstance(block_input, str):
         block_input = json.loads(block_input)
     assert block_input == {"x": 1}
+
+
+async def test_stream_parser_carries_extra_content_on_strict_block() -> None:
+    """Gemini thought signatures survive strict ToolCallBlock parsing."""
+    model = CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            id="qwenpaw-example",
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        model="dummy",
+        stream=True,
+    )
+    tool_call = SimpleNamespace(
+        index=0,
+        id="call_sig",
+        function=SimpleNamespace(name="ping", arguments='{"x":1}'),
+        extra_content={"thought_signature": "signature-abc"},
+    )
+
+    responses = await model.parse_stream_for_test(
+        datetime.now(),
+        FakeAsyncStream([_make_chunk([tool_call])]),
+    )
+
+    tool_blocks = [
+        block
+        for response in responses
+        for block in response.content
+        if getattr(block, "type", None) in ("tool_use", "tool_call")
+    ]
+    assert tool_blocks
+    assert not hasattr(tool_blocks[0], "extra_content")
+    assert collect_transient_tool_call_extras(tool_blocks) == {
+        "call_sig": {
+            "provider_id": "example",
+            "extra_content": {"thought_signature": "signature-abc"},
+        },
+    }
 
 
 def test_sanitize_tool_call_normalizes_non_string_arguments() -> None:

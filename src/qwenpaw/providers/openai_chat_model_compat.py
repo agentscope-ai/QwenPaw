@@ -17,6 +17,7 @@ from qwenpaw.local_models.tag_parser import (
     parse_tool_calls_from_text,
     text_contains_tool_call_tag,
 )
+from qwenpaw.utils.tool_call_extra import attach_transient_tool_call_extra
 
 logger = logging.getLogger(__name__)
 
@@ -647,6 +648,8 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         self._extra_generate_kwargs = extra_generate_kwargs or {}
         self._output_token_param = output_token_param
         super().__init__(**kwargs)
+        credential_id = str(getattr(self.credential, "id", "") or "")
+        self._qwenpaw_provider_id = credential_id.removeprefix("qwenpaw-")
 
     async def __call__(self, *args: Any, **kwargs: Any) -> Any:
         try:
@@ -792,10 +795,11 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                         continue
                     ec = sanitized_response.extra_contents.get(tool_id)
                     if ec:
-                        if isinstance(block, dict):
-                            block["extra_content"] = ec
-                        else:
-                            block.extra_content = ec
+                        attach_transient_tool_call_extra(
+                            block,
+                            provider_id=self._qwenpaw_provider_id,
+                            extra_content=ec,
+                        )
 
             has_tool_use = any(
                 (
