@@ -1081,6 +1081,9 @@ def _create_file_block_support_formatter(
             )
 
             has_reasoning = False
+            # Tool-call IDs are required to be unique within one assistant
+            # response. A deque still preserves FIFO order when historical
+            # messages from separate turns happen to reuse the same ID.
             extra_contents: dict[str, deque[Any]] = defaultdict(deque)
             for msg in normalized_msgs:
                 if msg.role != "assistant":
@@ -1149,6 +1152,10 @@ def _create_file_block_support_formatter(
             messages = _reorder_tool_and_promoted_messages(messages)
             _fix_image_mime_types(messages)
 
+            # ``extra_content`` is an OpenAI-chat wire extension. Persisted
+            # values entered ``extra_contents`` only when ``provider_id``
+            # matched their origin, so other compatible providers never see
+            # the field merely because they share this formatter family.
             if extra_contents and issubclass(
                 base_formatter_class,
                 OpenAIChatFormatter,

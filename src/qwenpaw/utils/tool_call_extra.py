@@ -33,9 +33,11 @@ def attach_transient_tool_call_extra(
         return
 
     # ``ToolCallBlock`` rejects unknown fields through Pydantic's normal
-    # setattr path.  This attribute is deliberately transient: the agent
-    # consumes it before state serialization and persists the value in the
-    # owning Msg.metadata instead.
+    # setattr path. This deliberately relies on the current Pydantic model
+    # layout accepting transient attributes through ``object.__setattr__``;
+    # the lifecycle tests should fail loudly if a future AgentScope/Pydantic
+    # release changes that contract. The agent consumes the attribute before
+    # state serialization and persists the value in the owning Msg.metadata.
     object.__setattr__(block, _TRANSIENT_TOOL_CALL_EXTRA_ATTR, record)
 
 
@@ -53,10 +55,19 @@ def collect_transient_tool_call_extras(
             block_type = getattr(block, "type", None)
             tool_id = getattr(block, "id", None)
             record = getattr(block, _TRANSIENT_TOOL_CALL_EXTRA_ATTR, None)
-            getattr(block, "__dict__", {}).pop(
-                _TRANSIENT_TOOL_CALL_EXTRA_ATTR,
-                None,
-            )
+            try:
+                object.__delattr__(
+                    block,
+                    _TRANSIENT_TOOL_CALL_EXTRA_ATTR,
+                )
+            except AttributeError:
+                # Current Pydantic models store the transient attribute in
+                # ``__dict__``. Keep this fallback for compatible wrappers;
+                # slot-only models are covered by ``object.__delattr__``.
+                getattr(block, "__dict__", {}).pop(
+                    _TRANSIENT_TOOL_CALL_EXTRA_ATTR,
+                    None,
+                )
 
         if (
             block_type not in ("tool_use", "tool_call")

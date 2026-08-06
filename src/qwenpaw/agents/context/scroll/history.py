@@ -388,6 +388,8 @@ class HistoryStore:
                     (seq,),
                 ).fetchone()
                 old_content = r["content"] if r else None
+            # Keep every column name below as a hard-coded literal. Only
+            # values are parameterized; never add caller-controlled names.
             assignments = [
                 "content = ?",
                 "headline = ?",
@@ -408,6 +410,8 @@ class HistoryStore:
             ]
             if metadata is not _UNSET:
                 assignments.append("metadata = ?")
+                # The history schema canonically represents empty metadata
+                # as SQL NULL, matching the initial insert path.
                 values.append(_to_json(metadata or None))
             values.append(seq)
             self._conn.execute(

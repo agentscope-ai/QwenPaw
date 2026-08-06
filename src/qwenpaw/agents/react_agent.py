@@ -41,6 +41,10 @@ from ..constant import (
 from ..loop.gates import StopAction, StopHandlerResult
 from ..providers.error_utils import extract_status_code
 from ..providers.model_capability_cache import get_capability_cache
+from ..utils.tool_call_extra import (
+    collect_transient_tool_call_extras,
+    persist_tool_call_extras,
+)
 
 if TYPE_CHECKING:
     from ..agents.memory import BaseMemoryManager
@@ -240,11 +244,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     def _save_to_context(self, blocks: Any, usage: Any = None) -> None:
         """Append blocks, then let the context manager write them through."""
-        from ..utils.tool_call_extra import (
-            collect_transient_tool_call_extras,
-            persist_tool_call_extras,
-        )
-
         block_list = list(blocks or [])
         tool_call_extras = collect_transient_tool_call_extras(block_list)
 
