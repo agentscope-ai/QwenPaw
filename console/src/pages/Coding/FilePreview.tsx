@@ -21,6 +21,7 @@ import { buildAuthHeaders } from "../../api/authHeaders";
 import type { WorkspaceRoot } from "../../features/files-workspace/types";
 import { ExternalMarkdownLink } from "../../components/Markdown/externalLinkComponents";
 import { useAgentStore } from "../../stores/agentStore";
+import { openHtmlFile } from "../../utils/openHtmlFile";
 import { parseMarkdownFrontmatter } from "../../utils/markdown";
 import styles from "./FilePreview.module.less";
 
@@ -368,15 +369,14 @@ function buildReadOnlyHtml(content: string): string {
   return `<!doctype html>\n${document.documentElement.outerHTML}`;
 }
 
-function openHtmlInBrowser(content: string): void {
-  const url = URL.createObjectURL(
-    new Blob([content], { type: "text/html;charset=utf-8" }),
-  );
-  window.open(url, "_blank", "noopener,noreferrer");
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
-
-function HtmlPreview({ content }: { content: string }) {
+function HtmlPreview({
+  content,
+  filePath,
+  chatId,
+  projectDirOverride,
+  root,
+  workspaceBacked,
+}: FilePreviewProps) {
   const { t } = useTranslation();
   const readOnlyHtml = useMemo(() => buildReadOnlyHtml(content), [content]);
 
@@ -386,7 +386,16 @@ function HtmlPreview({ content }: { content: string }) {
         <button
           type="button"
           className={styles.htmlOpenButton}
-          onClick={() => openHtmlInBrowser(content)}
+          onClick={() =>
+            openHtmlFile({
+              content,
+              filePath,
+              chatId,
+              projectDirOverride,
+              root,
+              workspaceBacked,
+            })
+          }
         >
           <ExternalLink size={14} />
           {t("files.openHtmlInBrowser")}
@@ -458,6 +467,8 @@ export interface FilePreviewProps {
   chatId?: string;
   binaryUrl?: string;
   root?: WorkspaceRoot;
+  projectDirOverride?: string;
+  workspaceBacked?: boolean;
 }
 
 export default function FilePreview({
@@ -466,6 +477,8 @@ export default function FilePreview({
   chatId,
   binaryUrl,
   root,
+  projectDirOverride,
+  workspaceBacked,
 }: FilePreviewProps) {
   const type = getPreviewType(filePath);
 
@@ -490,7 +503,18 @@ export default function FilePreview({
     );
   }
   if (type === "markdown") return <MarkdownPreview content={content} />;
-  if (type === "html") return <HtmlPreview content={content} />;
+  if (type === "html") {
+    return (
+      <HtmlPreview
+        filePath={filePath}
+        content={content}
+        chatId={chatId}
+        root={root}
+        projectDirOverride={projectDirOverride}
+        workspaceBacked={workspaceBacked}
+      />
+    );
+  }
   if (type === "csv") return <CsvPreview content={content} />;
   return null;
 }

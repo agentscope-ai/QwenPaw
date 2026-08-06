@@ -219,6 +219,9 @@ export const workspaceApi = {
   getFileDownloadUrl: (path: string, root: WorkspaceRoot = "project") =>
     getApiUrl(workspaceQuery("/workspace/file-download", { path, root })),
 
+  getHtmlFileUriUrl: (path: string, root: WorkspaceRoot = "project") =>
+    getApiUrl(workspaceQuery("/workspace/html-file-uri", { path, root })),
+
   uploadFiles: async (
     files: File[],
     path = "",

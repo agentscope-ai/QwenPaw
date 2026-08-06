@@ -46,7 +46,7 @@ function inferPreviewKind(
   if (/\.csv$/i.test(path)) return "csv";
   if (
     contentType.startsWith("text/") ||
-    /\.(?:md|mdx|txt|log|json|ya?ml|toml|xml|html|css|less|scss|js|jsx|ts|tsx|py|java|go|rs|sh)$/i.test(
+    /\.(?:md|mdx|txt|log|json|ya?ml|toml|xml|html?|css|less|scss|js|jsx|ts|tsx|py|java|go|rs|sh)$/i.test(
       path,
     ) ||
     !path.split("/").pop()?.includes(".")

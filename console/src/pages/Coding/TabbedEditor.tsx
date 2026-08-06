@@ -1102,6 +1102,8 @@ export default function TabbedEditor({
               chatId={chatId}
               binaryUrl={activeTab.artifactUrl}
               root={activeTab.workspaceRoot}
+              projectDirOverride={projectDirOverride}
+              workspaceBacked={activeTab.source === "workspace"}
             />
           ) : (
             <pre className={styles.textPreview}>{activeRenderedContent}</pre>

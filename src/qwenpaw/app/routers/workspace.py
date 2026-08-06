@@ -468,6 +468,38 @@ async def download_workspace_file(
     )
 
 
+@router.get(
+    "/html-file-uri",
+    summary="Resolve one workspace HTML file for the desktop browser",
+)
+async def resolve_workspace_html_file_uri(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+) -> dict:
+    """Return the URI of one validated HTML file in the selected workspace."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+
+    def _resolve_html() -> Path:
+        target = resolve_workspace_path(files_root, path)
+        if target.suffix.lower() not in {".html", ".htm"}:
+            raise InvalidWorkspacePath("Path must reference an HTML file")
+        if not target.is_file():
+            raise FileNotFoundError(path)
+        return target
+
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            target = await asyncio.to_thread(_resolve_html)
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+    return {"uri": target.as_uri()}
+
+
 def _reserve_path(target: Path) -> bool:
     """Atomically reserve one upload target without truncating a file."""
     try:

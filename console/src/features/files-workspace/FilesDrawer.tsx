@@ -121,7 +121,7 @@ export default function FilesDrawer({
           const contentType = response.headers.get("Content-Type") ?? "";
           const isText =
             contentType.startsWith("text/") ||
-            /\.(?:md|mdx|txt|csv|json|ya?ml|toml|xml|html|css|less|scss|js|jsx|ts|tsx|py|java|go|rs|sh)$/i.test(
+            /\.(?:md|mdx|txt|csv|json|ya?ml|toml|xml|html?|css|less|scss|js|jsx|ts|tsx|py|java|go|rs|sh)$/i.test(
               target.path,
             );
           const previewKind = /\.(?:png|jpe?g|gif|webp|svg|ico|bmp)$/i.test(
@@ -422,6 +422,8 @@ export default function FilesDrawer({
                     chatId={chatId}
                     binaryUrl={target.artifactUrl}
                     root={target.root}
+                    projectDirOverride={projectDirOverride}
+                    workspaceBacked={target.source === "workspace"}
                   />
                 ) : metadata?.preview_kind === "text" ? (
                   <pre className={styles.textPreview}>{content}</pre>
