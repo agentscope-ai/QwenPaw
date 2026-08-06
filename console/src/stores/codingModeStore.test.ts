@@ -1,17 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
-import {
-  useCodingModeStore,
-  useCodingMode,
-  useProjectDir,
-} from "./codingModeStore";
+import { useCodingModeStore, useCodingMode } from "./codingModeStore";
 import { useAgentStore } from "./agentStore";
 
 beforeEach(() => {
   useCodingModeStore.setState({
     codingModeByAgent: {},
     codingModeRevisionByAgent: {},
-    projectDirByAgent: {},
   });
   useAgentStore.setState({ selectedAgent: "test-agent", agents: [] });
 });
@@ -21,11 +16,9 @@ describe("codingModeStore", () => {
   // Initial state
   // ---------------------------------------------------------------------------
 
-  it("both codingModeByAgent and projectDirByAgent start empty", () => {
-    const { codingModeByAgent, projectDirByAgent } =
-      useCodingModeStore.getState();
+  it("codingModeByAgent starts empty", () => {
+    const { codingModeByAgent } = useCodingModeStore.getState();
     expect(codingModeByAgent).toEqual({});
-    expect(projectDirByAgent).toEqual({});
   });
 
   // ---------------------------------------------------------------------------
@@ -40,22 +33,6 @@ describe("codingModeStore", () => {
   it("setCodingMode(false) stores false for the given agent", () => {
     useCodingModeStore.getState().setCodingMode("a1", false);
     expect(useCodingModeStore.getState().codingModeByAgent["a1"]).toBe(false);
-  });
-
-  // ---------------------------------------------------------------------------
-  // setProjectDir
-  // ---------------------------------------------------------------------------
-
-  it("setProjectDir stores the path string correctly", () => {
-    useCodingModeStore.getState().setProjectDir("a1", "/path/to/project");
-    expect(useCodingModeStore.getState().projectDirByAgent["a1"]).toBe(
-      "/path/to/project",
-    );
-  });
-
-  it("setProjectDir(null) stores null (user chose default workspace)", () => {
-    useCodingModeStore.getState().setProjectDir("a1", null);
-    expect(useCodingModeStore.getState().projectDirByAgent["a1"]).toBeNull();
   });
 
   // ---------------------------------------------------------------------------
@@ -74,20 +51,9 @@ describe("codingModeStore", () => {
     useCodingModeStore.setState({
       codingModeByAgent: { a1: false },
       codingModeRevisionByAgent: {},
-      projectDirByAgent: {},
     });
     const { result } = renderHook(() => useCodingMode());
     expect(result.current.codingMode).toBe(false);
     expect(result.current.initialized).toBe(true);
-  });
-
-  // ---------------------------------------------------------------------------
-  // useProjectDir hook
-  // ---------------------------------------------------------------------------
-
-  it("useProjectDir: agent never set projectDir → projectDir is undefined", () => {
-    useAgentStore.setState({ selectedAgent: "never-set", agents: [] });
-    const { result } = renderHook(() => useProjectDir());
-    expect(result.current.projectDir).toBeUndefined();
   });
 });

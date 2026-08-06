@@ -1,21 +1,34 @@
-/** Render editor previews from an explicit artifact kind or file extension. */
+/**
+ * FilePreview – renders a non-code file in the editor area.
+ *
+ * Supported types (auto-detected by extension):
+ *   • image  – PNG / JPG / GIF / WebP / SVG / ICO / BMP
+ *   • pdf    – inline <embed>
+ *   • markdown – react-markdown with GFM
+ *   • html   – read-only sandboxed document
+ *   • csv    – parsed table
+ */
 
+import { ExternalLink, FileWarning, LoaderCircle } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { invoke } from "@tauri-apps/api/core";
-import { Spin } from "antd";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
-import { isDesktopTauriRuntime } from "../../utils/openExternalLink";
-import { ExternalMarkdownLink } from "../../components/Markdown/externalLinkComponents";
-import { useAgentStore } from "../../stores/agentStore";
 import {
   getArtifactPreviewLimit,
   type WorkspaceArtifactPreviewKind,
 } from "../../types/workspaceArtifacts";
+import { isDesktopTauriRuntime } from "../../utils/openExternalLink";
+import type { WorkspaceRoot } from "../../features/files-workspace/types";
+import { ExternalMarkdownLink } from "../../components/Markdown/externalLinkComponents";
+import { useAgentStore } from "../../stores/agentStore";
+import { openHtmlFile } from "../../utils/openHtmlFile";
+import { parseMarkdownFrontmatter } from "../../utils/markdown";
 import styles from "./FilePreview.module.less";
 
 // ---------------------------------------------------------------------------
@@ -34,9 +47,17 @@ const IMAGE_EXTS = new Set([
   "bmp",
 ]);
 
+export type PreviewType =
+  | "image"
+  | "pdf"
+  | "markdown"
+  | "html"
+  | "csv"
+  | "text"
+  | "none";
+
 const TEXT_EXTS = new Set([
   "css",
-  "html",
   "ini",
   "js",
   "json",
@@ -51,8 +72,6 @@ const TEXT_EXTS = new Set([
   "yml",
 ]);
 
-export type PreviewType = WorkspaceArtifactPreviewKind;
-
 export function getPreviewType(filePath: string): PreviewType {
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
   if (IMAGE_EXTS.has(ext)) return "image";
@@ -60,20 +79,21 @@ export function getPreviewType(filePath: string): PreviewType {
   if (ext === "md" || ext === "markdown" || ext === "mdx") {
     return "markdown";
   }
+  if (ext === "html" || ext === "htm") return "html";
   if (ext === "csv" || ext === "tsv") return "csv";
   if (TEXT_EXTS.has(ext)) return "text";
   return "none";
 }
 
 export function isPreviewable(filePath: string): boolean {
-  return ["image", "pdf", "markdown", "csv"].includes(getPreviewType(filePath));
+  return getPreviewType(filePath) !== "none";
 }
 
 // ---------------------------------------------------------------------------
 // CSV parser (no external dep)
 // ---------------------------------------------------------------------------
 
-function parseDelimited(raw: string, delimiter: string): string[][] {
+function parseCsv(raw: string, delimiter = ","): string[][] {
   const lines = raw.trimEnd().split(/\r?\n/);
   return lines.map((line) => {
     const cells: string[] = [];
@@ -104,71 +124,73 @@ function parseDelimited(raw: string, delimiter: string): string[][] {
 // Authenticated blob loader — browser-native <img>/<embed> won't send
 // X-Agent-Id, so we fetch with headers and create an object URL.
 //
-// In Tauri desktop mode, reads the file directly from disk via a native
-// command so binary previews work offline (no backend HTTP required).
 // ---------------------------------------------------------------------------
-
-interface BlobPreviewState {
-  blobUrl: string | null;
-  status: "loading" | "ready" | "error";
-}
 
 function useAuthBlobUrl(
   filePath: string,
+  chatId?: string,
+  binaryUrl?: string,
+  root?: WorkspaceRoot,
   artifactAgentId?: string,
   artifactSize?: number,
-): BlobPreviewState {
-  const [state, setState] = useState<BlobPreviewState>({
-    blobUrl: null,
-    status: "loading",
-  });
+  previewKind?: WorkspaceArtifactPreviewKind,
+): {
+  blobUrl: string | null;
+  loading: boolean;
+  failed: boolean;
+} {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
 
   useEffect(() => {
-    let disposed = false;
+    let revoked = false;
     let objectUrl: string | null = null;
     const controller = new AbortController();
-    setState({ blobUrl: null, status: "loading" });
-    const previewLimit = getArtifactPreviewLimit(getPreviewType(filePath));
+    setLoading(true);
+    setFailed(false);
+    const resolvedPreviewKind = previewKind ?? getPreviewType(filePath);
+    const previewLimit =
+      resolvedPreviewKind === "html"
+        ? null
+        : getArtifactPreviewLimit(resolvedPreviewKind);
     if (
       artifactSize !== undefined &&
       previewLimit !== null &&
       artifactSize > previewLimit
     ) {
-      setState({ blobUrl: null, status: "error" });
+      setLoading(false);
+      setFailed(true);
       return () => controller.abort();
     }
 
     const loadBlob = async (): Promise<Blob | null> => {
-      // Tauri: read file directly from disk for offline support
       if (isDesktopTauriRuntime() && !artifactAgentId) {
         try {
           const response = await invoke<ArrayBuffer | number[]>(
             "read_workspace_binary_file",
             {
               filePath,
-              agentId: artifactAgentId || selectedAgent,
+              agentId: selectedAgent,
             },
           );
-          const mimeType = guessMimeType(filePath);
-          // Tauri 2.11.1 on macOS may serialize a raw Vec<u8> as number[]
-          // instead of ArrayBuffer. Normalize both shapes into a Uint8Array
-          // so Blob construction uses the actual bytes, not a string join.
           const bytes = Array.isArray(response)
             ? new Uint8Array(response)
             : new Uint8Array(response);
-          return new Blob([bytes], { type: mimeType });
+          return new Blob([bytes], { type: guessMimeType(filePath) });
         } catch {
-          // Fall through to HTTP fetch as fallback
+          // Fall back to the authenticated HTTP endpoint.
         }
       }
-
-      // Browser / online: fetch via backend API with auth headers
       const url = artifactAgentId
         ? workspaceApi.getArtifactPreviewUrl(artifactAgentId, filePath)
-        : workspaceApi.getBinaryFileUrl(filePath);
+        : binaryUrl ?? workspaceApi.getFileDownloadUrl(filePath, root);
       const res = await fetch(url, {
-        headers: buildAuthHeaders(),
+        headers: {
+          ...buildAuthHeaders(),
+          ...(chatId ? { "X-Chat-Id": chatId } : {}),
+        },
         signal: controller.signal,
       });
       if (!res.ok) throw new Error(`${res.status}`);
@@ -189,25 +211,42 @@ function useAuthBlobUrl(
 
     loadBlob()
       .then((blob) => {
-        if (disposed || !blob) return;
+        if (revoked || !blob) return;
         objectUrl = URL.createObjectURL(blob);
-        setState({ blobUrl: objectUrl, status: "ready" });
+        setBlobUrl(objectUrl);
+        setLoading(false);
       })
       .catch(() => {
-        if (!disposed) setState({ blobUrl: null, status: "error" });
+        if (!revoked) {
+          setBlobUrl(null);
+          setLoading(false);
+          setFailed(true);
+        }
       });
 
     return () => {
-      disposed = true;
+      revoked = true;
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setBlobUrl((prev) => {
+        if (prev && prev !== objectUrl) URL.revokeObjectURL(prev);
+        return null;
+      });
     };
-  }, [artifactAgentId, artifactSize, filePath, selectedAgent]);
+  }, [
+    artifactAgentId,
+    artifactSize,
+    binaryUrl,
+    chatId,
+    filePath,
+    previewKind,
+    root,
+    selectedAgent,
+  ]);
 
-  return state;
+  return { blobUrl, loading, failed };
 }
 
-/** Guess a MIME type from the file extension for blob creation. */
 function guessMimeType(filePath: string): string {
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
   const mimeMap: Record<string, string> = {
@@ -231,21 +270,44 @@ function guessMimeType(filePath: string): string {
 
 function ImagePreview({
   filePath,
+  chatId,
+  binaryUrl,
+  root,
   artifactAgentId,
   artifactSize,
+  previewKind,
 }: {
   filePath: string;
+  chatId?: string;
+  binaryUrl?: string;
+  root?: WorkspaceRoot;
   artifactAgentId?: string;
   artifactSize?: number;
+  previewKind?: WorkspaceArtifactPreviewKind;
 }) {
-  const { blobUrl, status } = useAuthBlobUrl(
+  const { t } = useTranslation();
+  const { blobUrl, loading, failed } = useAuthBlobUrl(
     filePath,
+    chatId,
+    binaryUrl,
+    root,
     artifactAgentId,
     artifactSize,
+    previewKind,
   );
-  if (status === "loading") return <Spin />;
-  if (status === "error" || !blobUrl) {
-    return <div className={styles.previewState}>Preview unavailable</div>;
+  if (loading) {
+    return (
+      <PreviewStatus icon={<LoaderCircle size={18} />} spinning>
+        {t("common.loading")}
+      </PreviewStatus>
+    );
+  }
+  if (failed || !blobUrl) {
+    return (
+      <PreviewStatus icon={<FileWarning size={18} />}>
+        {t("files.loadFailed")}
+      </PreviewStatus>
+    );
   }
   return (
     <div className={styles.imageWrap}>
@@ -260,21 +322,44 @@ function ImagePreview({
 
 function PdfPreview({
   filePath,
+  chatId,
+  binaryUrl,
+  root,
   artifactAgentId,
   artifactSize,
+  previewKind,
 }: {
   filePath: string;
+  chatId?: string;
+  binaryUrl?: string;
+  root?: WorkspaceRoot;
   artifactAgentId?: string;
   artifactSize?: number;
+  previewKind?: WorkspaceArtifactPreviewKind;
 }) {
-  const { blobUrl, status } = useAuthBlobUrl(
+  const { t } = useTranslation();
+  const { blobUrl, loading, failed } = useAuthBlobUrl(
     filePath,
+    chatId,
+    binaryUrl,
+    root,
     artifactAgentId,
     artifactSize,
+    previewKind,
   );
-  if (status === "loading") return <Spin />;
-  if (status === "error" || !blobUrl) {
-    return <div className={styles.previewState}>Preview unavailable</div>;
+  if (loading) {
+    return (
+      <PreviewStatus icon={<LoaderCircle size={18} />} spinning>
+        {t("common.loading")}
+      </PreviewStatus>
+    );
+  }
+  if (failed || !blobUrl) {
+    return (
+      <PreviewStatus icon={<FileWarning size={18} />}>
+        {t("files.loadFailed")}
+      </PreviewStatus>
+    );
   }
   return (
     <embed
@@ -286,12 +371,40 @@ function PdfPreview({
   );
 }
 
+function PreviewStatus({
+  children,
+  icon,
+  spinning = false,
+}: {
+  children: React.ReactNode;
+  icon: React.ReactNode;
+  spinning?: boolean;
+}) {
+  return (
+    <div className={styles.previewStatus}>
+      <span className={spinning ? styles.spinning : undefined}>{icon}</span>
+      <span>{children}</span>
+    </div>
+  );
+}
+
 const markdownComponents = {
   a: ExternalMarkdownLink,
   pre({ children }: { children?: React.ReactNode }) {
     return <>{children}</>;
   },
-  code({ node: _node, inline: _inline, className, children, ...rest }: any) {
+  code({
+    node,
+    inline,
+    className,
+    children,
+    ...rest
+  }: React.ComponentPropsWithoutRef<"code"> & {
+    node?: unknown;
+    inline?: boolean;
+  }) {
+    void node;
+    void inline;
     const match = /language-([\w-]+)/.exec(className || "");
     const codeText = String(children).replace(/\n$/, "");
     if (match) {
@@ -319,14 +432,107 @@ const markdownComponents = {
 };
 
 function MarkdownPreview({ content }: { content: string }) {
+  const { body, entries } = useMemo(
+    () => parseMarkdownFrontmatter(content),
+    [content],
+  );
+
   return (
     <div className={styles.markdownWrap}>
+      {entries.length > 0 && (
+        <dl className={styles.frontmatter} aria-label="Front matter">
+          {entries.map(({ key, value }, index) => (
+            <div className={styles.frontmatterRow} key={`${key}:${index}`}>
+              <dt className={styles.frontmatterKey}>{key}</dt>
+              <dd className={styles.frontmatterValue}>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={markdownComponents}
       >
-        {content}
+        {body}
       </ReactMarkdown>
+    </div>
+  );
+}
+
+function buildReadOnlyHtml(content: string): string {
+  const document = new DOMParser().parseFromString(content, "text/html");
+  document
+    .querySelectorAll("script, meta[http-equiv='refresh']")
+    .forEach((element) => element.remove());
+  document.querySelectorAll("*").forEach((element) => {
+    Array.from(element.attributes).forEach((attribute) => {
+      if (attribute.name.toLowerCase().startsWith("on")) {
+        element.removeAttribute(attribute.name);
+      }
+    });
+    element.removeAttribute("contenteditable");
+  });
+  document.querySelectorAll("a").forEach((element) => {
+    element.removeAttribute("href");
+    element.removeAttribute("target");
+    element.removeAttribute("download");
+  });
+  document.querySelectorAll("form").forEach((element) => {
+    element.removeAttribute("action");
+    element.removeAttribute("method");
+  });
+  document
+    .querySelectorAll("button, input, select, textarea")
+    .forEach((element) => element.setAttribute("disabled", ""));
+
+  const style = document.createElement("style");
+  style.textContent = [
+    "a, button, input, select, textarea, form, iframe, object, embed,",
+    "audio, video, [contenteditable] { pointer-events: none !important; }",
+  ].join(" ");
+  document.head.appendChild(style);
+  return `<!doctype html>\n${document.documentElement.outerHTML}`;
+}
+
+function HtmlPreview({
+  content,
+  filePath,
+  chatId,
+  projectDirOverride,
+  root,
+  workspaceBacked,
+}: FilePreviewProps) {
+  const { t } = useTranslation();
+  const readOnlyHtml = useMemo(() => buildReadOnlyHtml(content), [content]);
+
+  return (
+    <div className={styles.htmlWrap}>
+      <div className={styles.htmlToolbar}>
+        <button
+          type="button"
+          className={styles.htmlOpenButton}
+          onClick={() =>
+            openHtmlFile({
+              content,
+              filePath,
+              chatId,
+              projectDirOverride,
+              root,
+              workspaceBacked,
+            })
+          }
+        >
+          <ExternalLink size={14} />
+          {t("files.openHtmlInBrowser")}
+        </button>
+      </div>
+      <iframe
+        className={styles.htmlFrame}
+        srcDoc={readOnlyHtml}
+        sandbox=""
+        tabIndex={-1}
+        title={t("files.htmlPreview")}
+      />
     </div>
   );
 }
@@ -342,7 +548,7 @@ function CsvPreview({
   delimiter: string;
 }) {
   const rows = useMemo(
-    () => parseDelimited(content, delimiter),
+    () => parseCsv(content, delimiter),
     [content, delimiter],
   );
   const header = rows[0] ?? [];
@@ -365,18 +571,15 @@ function CsvPreview({
           <thead>
             <tr>
               {header.slice(0, MAX_CSV_COLS).map((h, i) => (
-                // eslint-disable-next-line react/no-array-index-key
-                <th key={i}>{h}</th>
+                <th key={`${i}:${h}`}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {body.map((row, ri) => (
-              // eslint-disable-next-line react/no-array-index-key
-              <tr key={ri}>
+              <tr key={`${ri}:${row.join("\u0000")}`}>
                 {row.slice(0, MAX_CSV_COLS).map((cell, ci) => (
-                  // eslint-disable-next-line react/no-array-index-key
-                  <td key={ci}>{cell}</td>
+                  <td key={`${ci}:${cell}`}>{cell}</td>
                 ))}
               </tr>
             ))}
@@ -418,6 +621,11 @@ export interface FilePreviewProps {
   filePath: string;
   /** Text content – used by Markdown and CSV renderers. */
   content: string;
+  chatId?: string;
+  binaryUrl?: string;
+  root?: WorkspaceRoot;
+  projectDirOverride?: string;
+  workspaceBacked?: boolean;
   artifactAgentId?: string;
   artifactSize?: number;
   previewKind?: WorkspaceArtifactPreviewKind;
@@ -426,6 +634,11 @@ export interface FilePreviewProps {
 export default function FilePreview({
   filePath,
   content,
+  chatId,
+  binaryUrl,
+  root,
+  projectDirOverride,
+  workspaceBacked,
   artifactAgentId,
   artifactSize,
   previewKind,
@@ -436,8 +649,12 @@ export default function FilePreview({
     return (
       <ImagePreview
         filePath={filePath}
+        chatId={chatId}
+        binaryUrl={binaryUrl}
+        root={root}
         artifactAgentId={artifactAgentId}
         artifactSize={artifactSize}
+        previewKind={previewKind}
       />
     );
   }
@@ -445,12 +662,28 @@ export default function FilePreview({
     return (
       <PdfPreview
         filePath={filePath}
+        chatId={chatId}
+        binaryUrl={binaryUrl}
+        root={root}
         artifactAgentId={artifactAgentId}
         artifactSize={artifactSize}
+        previewKind={previewKind}
       />
     );
   }
   if (type === "markdown") return <MarkdownPreview content={content} />;
+  if (type === "html") {
+    return (
+      <HtmlPreview
+        filePath={filePath}
+        content={content}
+        chatId={chatId}
+        root={root}
+        projectDirOverride={projectDirOverride}
+        workspaceBacked={workspaceBacked}
+      />
+    );
+  }
   if (type === "csv") {
     const delimiter = filePath.toLowerCase().endsWith(".tsv") ? "\t" : ",";
     return <CsvPreview content={content} delimiter={delimiter} />;
@@ -458,5 +691,9 @@ export default function FilePreview({
   if (type === "text") {
     return <TextPreview filePath={filePath} content={content} />;
   }
-  return <div className={styles.previewState}>Preview unavailable</div>;
+  return (
+    <PreviewStatus icon={<FileWarning size={18} />}>
+      {"Preview unavailable"}
+    </PreviewStatus>
+  );
 }

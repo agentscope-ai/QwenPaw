@@ -13,7 +13,6 @@ import LanguageSwitcher, {
   LANGUAGE_LIST,
 } from "../components/LanguageSwitcher/index";
 import ThemeToggleButton from "../components/ThemeToggleButton";
-import CodingModeToggle from "../components/CodingModeToggle";
 import { useTranslation } from "react-i18next";
 import { Button, Modal } from "@agentscope-ai/design";
 import styles from "./index.module.less";
@@ -448,10 +447,6 @@ export default function Header() {
               {t("header.github")}
             </Button>
           </Tooltip>
-          <div className={styles.headerDivider} />
-          <span className={styles.hideOnMobile}>
-            <CodingModeToggle />
-          </span>
           <div className={styles.headerDivider} />
           <span className={styles.hideOnMobile}>
             <LanguageSwitcher />

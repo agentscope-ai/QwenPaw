@@ -522,14 +522,14 @@ NapCat  ──reverse WS──▶  QwenPaw (:6199/ws)
 
 3. Go to **Network Config** → **New** → **WebSocket Client** (reverse WS):
    - URL: `ws://<qwenpaw_host>:6199/ws`
-   - Access Token: same as `access_token` in QwenPaw config (optional)
+   - Access Token: same as `access_token` in QwenPaw config (required unless QwenPaw listens on loopback)
 
 ### Fill agent.json
 
 ```json
 "onebot": {
   "enabled": true,
-  "ws_host": "0.0.0.0",
+  "ws_host": "127.0.0.1",
   "ws_port": 6199,
   "access_token": "",
   "share_session_in_group": false
@@ -538,14 +538,38 @@ NapCat  ──reverse WS──▶  QwenPaw (:6199/ws)
 
 **OneBot-specific fields:**
 
-| Field                    | Type   | Default   | Description                                                                                              |
-| ------------------------ | ------ | --------- | -------------------------------------------------------------------------------------------------------- |
-| `ws_host`                | string | `0.0.0.0` | WebSocket server listen address                                                                          |
-| `ws_port`                | int    | `6199`    | WebSocket server listen port                                                                             |
-| `access_token`           | string | `""`      | Optional token for authentication (must match NapCat config)                                             |
-| `share_session_in_group` | bool   | `false`   | If `true`, all members in a group share one session; if `false`, each member gets an independent session |
+| Field                    | Type   | Default     | Description                                                                                              |
+| ------------------------ | ------ | ----------- | -------------------------------------------------------------------------------------------------------- |
+| `ws_host`                | string | `127.0.0.1` | WebSocket server listen address. Loopback by default so the port is not reachable from the network       |
+| `ws_port`                | int    | `6199`      | WebSocket server listen port                                                                             |
+| `access_token`           | string | `""`        | Shared token sent by the OneBot client. **Required when `ws_host` is not a loopback address**            |
+| `share_session_in_group` | bool   | `false`     | If `true`, all members in a group share one session; if `false`, each member gets an independent session |
 
-> **Docker Compose tip:** When running QwenPaw and NapCat in Docker Compose, set the NapCat reverse WS URL to `ws://qwenpaw:6199/ws` (using the service name).
+### Security
+
+The reverse WebSocket server accepts OneBot events, and those events drive the
+agent. An unauthenticated listener that is reachable from the network therefore
+lets anyone drive your agent.
+
+- **Keep `ws_host` on `127.0.0.1`** whenever the OneBot implementation runs on
+  the same machine. This is the default and needs no token.
+- **Setting `ws_host` to any other address requires `access_token`.** While the
+  token is empty, the server keeps listening but rejects every connection with
+  `401` and logs how to fix it.
+- **Pass the token in the `Authorization` header**, which is what the OneBot
+  v11 reverse WebSocket spec defines. Configure it in the Token field of your
+  OneBot client; both `Bearer <token>` and `Token <token>` are accepted.
+  A token placed in the URL query string (`?access_token=...`) is not accepted,
+  because query strings are recorded in proxy and container access logs.
+- **Prefer a private network or a reverse proxy** over exposing the port
+  directly: `ws://` traffic is unencrypted, so a token sent over the public
+  internet can be intercepted.
+
+> **Docker Compose tip:** When running QwenPaw and NapCat in Docker Compose, the
+> two containers are not on the same loopback interface, so set `ws_host` to
+> `0.0.0.0`, **set `access_token`**, and point the NapCat reverse WS URL at
+> `ws://qwenpaw:6199/ws` (using the service name). Do not publish port 6199 to
+> the host, or publish it as `127.0.0.1:6199:6199` so it stays local.
 
 **Multimodal support:**
 

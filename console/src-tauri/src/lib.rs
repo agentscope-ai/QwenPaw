@@ -45,6 +45,7 @@ pub fn run() {
             workspace::open_workspace_directory,
             workspace::open_workspace_artifact,
             workspace::reveal_workspace_artifact,
+            external_link::open_workspace_html,
             updates::check_desktop_update,
             updates::install_desktop_update,
             updates::download_desktop_update,

@@ -130,6 +130,51 @@ class ChatPage(BasePage):
     MODEL_OPTION = '.qwenpaw-dropdown-menu-item'
     AGENT_SELECTOR = '.qwenpaw-select-selector'
 
+    # --- Sidebar agent switcher (components/AgentSelector) ---
+    # The antd Select sits inside a CSS-module wrapper whose hashed class
+    # keeps the "agentSelector" basename; scoping avoids other Selects.
+    AGENT_SWITCHER = '[class*="agentSelector"] .qwenpaw-select-selector'
+    AGENT_SWITCHER_VALUE = (
+        '[class*="agentSelector"] .qwenpaw-select-selection-item'
+    )
+    AGENT_SWITCHER_OPTION = (
+        '.qwenpaw-select-dropdown:not(.qwenpaw-select-dropdown-hidden) '
+        '.qwenpaw-select-item-option'
+    )
+
+    # --- Slash-command suggestion popup (@ant-design/x Suggestion) ---
+    # Opens while the input starts with "/" and has no whitespace yet.
+    # Two nodes carry .qwenpaw-suggestion (inline content + the cascader
+    # dropdown); anchor on the dropdown, excluding its hidden state.
+    SUGGESTION_POPUP = (
+        '.qwenpaw-suggestion.qwenpaw-select-dropdown'
+        ':not(.qwenpaw-select-dropdown-hidden)'
+    )
+    SUGGESTION_ITEM = '.qwenpaw-suggestion-item'
+
+    # --- Sidebar session date groups — upstream #5643 ---
+    # SidebarSessionList renders one <button class={styles.groupLabel}> per
+    # non-empty bucket (Pinned / Today / Within 7 days / Within 30 days /
+    # Earlier); clicking toggles collapse. "month" + "older" start collapsed.
+    SIDEBAR_GROUP_LABEL = 'button[class*="groupLabel"]'
+    SIDEBAR_GROUP_CHEVRON = 'span[class*="groupChevron"]'
+    SIDEBAR_GROUP_TEXTS = {
+        "pinned": ("Pinned", "置顶"),
+        "today": ("Today", "今天"),
+        "week": ("Within 7 days", "7天内"),
+        "month": ("Within 30 days", "30天内"),
+        "older": ("Earlier", "更早"),
+    }
+
+    # --- Non-owner tab banner — upstream #5664 ---
+    # antd <Alert type="info" banner> injected into the sender beforeUI slot
+    # when this tab lost the qwenpaw:queue-owner:<sessionId> Web Lock. Appears
+    # only after a 300ms ownershipResolved fallback timer.
+    QUEUE_BANNER = '.qwenpaw-alert-banner'
+    _QUEUE_BANNER_RE = re.compile(
+        r"This tab queues only|当前标签页仅入队"
+    )
+
     # Action buttons
     COPY_BTN = 'span[title="复制"]'
 
@@ -1131,6 +1176,45 @@ class ChatPage(BasePage):
                 return out;
             }"""
         )
+
+    # ========== Sidebar date groups (upstream #5643) ==========
+
+    def get_sidebar_group_header(self, group: str) -> Locator:
+        """Locator for one sidebar date-group header button.
+
+        Args:
+            group: bucket key — pinned / today / week / month / older.
+        """
+        en, zh = self.SIDEBAR_GROUP_TEXTS[group]
+        return self.page.locator(
+            f'{self.SIDEBAR_GROUP_LABEL}:has-text("{en}"), '
+            f'{self.SIDEBAR_GROUP_LABEL}:has-text("{zh}")'
+        ).first
+
+    def toggle_sidebar_group(self, group: str) -> "ChatPage":
+        """Click a sidebar group header to collapse / expand it."""
+        logger.info(f"Toggling sidebar group '{group}'")
+        self.get_sidebar_group_header(group).click()
+        self.wait(300)
+        return self
+
+    def get_sidebar_session_by_name(self, name: str) -> Locator:
+        """Sidebar session row matched by its display name.
+
+        Scoped away from the All-Chats drawer by requiring the row to sit
+        under the sidebar group list (sibling of ``groupLabel`` buttons).
+        """
+        return self.page.locator(
+            f'div[role="button"][class*="item"]:has-text("{name}")'
+        ).first
+
+    # ========== Non-owner tab banner (upstream #5664) ==========
+
+    def get_queue_banner(self) -> Locator:
+        """The queue-only info banner in the sender area (non-owner tab)."""
+        return self.page.locator(self.QUEUE_BANNER).filter(
+            has_text=self._QUEUE_BANNER_RE
+        ).first
 
     # ========== Model and Agent switching ==========
     

@@ -81,6 +81,7 @@ class ProbeResult:
     supports_video: bool = False
     image_message: str = ""
     video_message: str = ""
+    probe_source: str = "probed"
 
     @property
     def supports_multimodal(self) -> bool:
