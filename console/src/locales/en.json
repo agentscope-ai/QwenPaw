@@ -2734,6 +2734,11 @@
     "system": "System"
   },
   "chat": {
+    "request": {
+      "expand": "Show full message",
+      "collapse": "Collapse",
+      "charCount": "{{count}} characters"
+    },
     "modelSelectTooltip": "Select model",
     "newChatTooltip": "New chat",
     "searchTooltip": "Search all chats",

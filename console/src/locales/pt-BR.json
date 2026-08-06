@@ -2559,6 +2559,11 @@
     "fullMode": "Modo completo"
   },
   "chat": {
+    "request": {
+      "expand": "Mostrar mensagem completa",
+      "collapse": "Recolher",
+      "charCount": "{{count}} caracteres"
+    },
     "modelSelectTooltip": "Selecionar Modelo",
     "newChatTooltip": "Novo Chat",
     "searchTooltip": "Pesquisar Todos chats",

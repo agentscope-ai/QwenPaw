@@ -2331,6 +2331,11 @@
     "fullMode": "Полный режим"
   },
   "chat": {
+    "request": {
+      "expand": "Показать сообщение полностью",
+      "collapse": "Свернуть",
+      "charCount": "{{count}} символов"
+    },
     "modelSelectTooltip": "Выбор модели",
     "newChatTooltip": "Новый чат",
     "searchTooltip": "Поиск во всех чатах",

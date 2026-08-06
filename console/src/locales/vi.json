@@ -250,6 +250,11 @@
     "wrongCurrentPassword": "Mật khẩu hiện tại không đúng"
   },
   "chat": {
+    "request": {
+      "expand": "Hiển thị đầy đủ tin nhắn",
+      "collapse": "Thu gọn",
+      "charCount": "{{count}} ký tự"
+    },
     "modelSelectTooltip": "Chọn mô hình",
     "newChatTooltip": "Cuộc trò chuyện mới",
     "searchTooltip": "Tìm kiếm tất cả cuộc trò chuyện",

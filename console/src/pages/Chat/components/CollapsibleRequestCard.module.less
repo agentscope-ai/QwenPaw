@@ -1,0 +1,46 @@
+// Styles for CollapsibleRequestCard — collapsed oversized user bubbles.
+// Colors use antd theme CSS variables so light/dark mode follow the theme.
+
+.collapsibleRequest {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.summary {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ant-color-text, rgba(0, 0, 0, 0.88));
+  background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.04));
+  border-radius: 8px;
+  padding: 8px 12px;
+  max-height: 160px;
+  overflow: hidden;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.charCount {
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+}
+
+.toggle {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--ant-color-primary, #1677ff);
+
+  &:hover {
+    opacity: 0.8;
+  }
+}

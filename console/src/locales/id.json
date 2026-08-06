@@ -244,6 +244,11 @@
     "unauthorized": "Tidak berwenang, silakan masuk"
   },
   "chat": {
+    "request": {
+      "expand": "Tampilkan pesan lengkap",
+      "collapse": "Ciutkan",
+      "charCount": "{{count}} karakter"
+    },
     "modelSelectTooltip": "Pilih model",
     "newChatTooltip": "Chat baru",
     "searchTooltip": "Cari semua chat",

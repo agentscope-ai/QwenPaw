@@ -2593,6 +2593,11 @@
     "system": "跟随系统"
   },
   "chat": {
+    "request": {
+      "expand": "显示完整消息",
+      "collapse": "收起",
+      "charCount": "{{count}} 个字符"
+    },
     "modelSelectTooltip": "模型选择",
     "newChatTooltip": "新建聊天",
     "searchTooltip": "搜索所有聊天",
