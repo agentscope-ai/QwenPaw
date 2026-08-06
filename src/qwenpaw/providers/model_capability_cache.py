@@ -120,6 +120,20 @@ class ModelCapabilityCache:
             else:
                 self._learned.pop(model_key, None)
 
+    def forget(self, model_key: str, capability: str) -> None:
+        """Drop a single capability entry for *model_key*.
+
+        Unlike :meth:`clear`, this preserves other learned capabilities
+        (e.g. ``needs_reasoning_content``) and all entries for other models.
+        """
+        with self._data_lock:
+            bucket = self._learned.get(model_key)
+            if bucket is None:
+                return
+            bucket.pop(capability, None)
+            if not bucket:
+                self._learned.pop(model_key, None)
+
 
 def get_capability_cache() -> ModelCapabilityCache:
     """Return the global :class:`ModelCapabilityCache` singleton."""

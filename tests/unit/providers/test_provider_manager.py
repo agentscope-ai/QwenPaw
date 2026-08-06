@@ -932,11 +932,11 @@ async def test_update_config_persists_api_key_prefixes(
     assert info.api_key_prefixes == ["ghp_", "github_pat_"]
 
 
-async def test_activate_model_clears_capability_cache(
+async def test_activate_model_clears_rejects_media_for_selected_model(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
-    """Switching the active model must discard stale capability findings."""
+    """Re-selecting a model drops its stale rejects_media entry."""
     from qwenpaw.providers.model_capability_cache import (
         ModelCapabilityCache,
         get_capability_cache,
@@ -956,12 +956,8 @@ async def test_activate_model_clears_capability_cache(
         lambda self, timeout=5: fake_client,
     )
 
-    # Replace the global singleton with a fresh instance so prior tests
-    # cannot leak state into this assertion.
     fresh = ModelCapabilityCache()
-    monkeypatch.setattr(
-        ModelCapabilityCache, "_instance", fresh
-    )
+    monkeypatch.setattr(ModelCapabilityCache, "_instance", fresh)
     cache = get_capability_cache()
     cache.learn("openai:gpt-5", "rejects_media", True)
     assert cache.get("openai:gpt-5", "rejects_media", False) is True
@@ -970,3 +966,45 @@ async def test_activate_model_clears_capability_cache(
     await manager.activate_model("openai", "gpt-5")
 
     assert cache.get("openai:gpt-5", "rejects_media", False) is False
+
+
+async def test_activate_model_preserves_other_models_and_capabilities(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    """Activating one model must not evict capabilities of other models."""
+    from qwenpaw.providers.model_capability_cache import (
+        ModelCapabilityCache,
+        get_capability_cache,
+    )
+    from qwenpaw.providers.openai_provider import OpenAIProvider
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            return SimpleNamespace(id="ok", request=kwargs)
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions()),
+    )
+    monkeypatch.setattr(
+        OpenAIProvider,
+        "_client",
+        lambda self, timeout=5: fake_client,
+    )
+
+    fresh = ModelCapabilityCache()
+    monkeypatch.setattr(ModelCapabilityCache, "_instance", fresh)
+    cache = get_capability_cache()
+    cache.learn("openai:gpt-5", "rejects_media", True)
+    cache.learn("openai:gpt-5", "needs_reasoning_content", True)
+    cache.learn("ollama:llama3", "rejects_media", True)
+
+    manager = ProviderManager()
+    await manager.activate_model("openai", "gpt-5")
+
+    # rejects_media for the selected model is cleared
+    assert cache.get("openai:gpt-5", "rejects_media", False) is False
+    # needs_reasoning_content for the same model is preserved
+    assert cache.get("openai:gpt-5", "needs_reasoning_content", False) is True
+    # another model's entries are untouched
+    assert cache.get("ollama:llama3", "rejects_media", False) is True
