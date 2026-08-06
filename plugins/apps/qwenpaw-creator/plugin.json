@@ -315,7 +315,7 @@
       },
       {
         "name": "creator_tts_model",
-        "description": "QwenPaw Creator text-to-speech configuration for narration and character voices",
+        "description": "NousAIPaw Creator text-to-speech configuration for narration and character voices",
         "icon": "🔊",
         "requires_config": false,
         "config_fields": [
@@ -327,7 +327,7 @@
       },
       {
         "name": "creator_s2v_model",
-        "description": "QwenPaw Creator digital-human lip-sync (Wan2.2-S2V) configuration",
+        "description": "NousAIPaw Creator digital-human lip-sync (Wan2.2-S2V) configuration",
         "icon": "🧍",
         "requires_config": false,
         "config_fields": [
@@ -339,7 +339,7 @@
       },
       {
         "name": "creator_embedding_model",
-        "description": "QwenPaw Creator text embedding configuration for long-source graph memory",
+        "description": "NousAIPaw Creator text embedding configuration for long-source graph memory",
         "icon": "🧠",
         "requires_config": false,
         "config_fields": [
