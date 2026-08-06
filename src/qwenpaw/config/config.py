@@ -279,7 +279,18 @@ class FeishuConfig(BaseChannelConfig):
     encrypt_key: str = ""
     verification_token: str = ""
     media_dir: Optional[str] = None
-    domain: Literal["feishu", "lark"] = "feishu"
+    # "feishu" / "lark", or a full http(s) base URL for custom gateways.
+    domain: str = "feishu"
+
+    @field_validator("domain")
+    @classmethod
+    def _check_domain(cls, v: str) -> str:
+        if v in ("feishu", "lark") or v.startswith(("http://", "https://")):
+            return v
+        raise ValueError(
+            "domain must be 'feishu', 'lark', or an http(s) base URL",
+        )
+
     streaming_enabled: bool = False
     share_session_in_group: bool = False
 
@@ -355,6 +366,7 @@ class WecomConfig(BaseChannelConfig):
 
     bot_id: str = ""
     secret: str = ""
+    ws_url: str = ""
     media_dir: Optional[str] = None
     welcome_text: str = ""
     # If True (default), all group members share one chat; set to
@@ -444,6 +456,8 @@ class XiaoYiConfig(BaseChannelConfig):
     ak: str = ""  # Access Key
     sk: str = ""  # Secret Key
     agent_id: str = ""  # Agent ID from XiaoYi platform
+    # Custom WS gateway (empty = official endpoints); disables backup.
+    ws_url: str = ""
     task_timeout_ms: int = 3600000  # 1 hour task timeout
 
 
@@ -457,6 +471,8 @@ class YuanbaoConfig(BaseChannelConfig):
     app_id: str = ""
     app_secret: str = ""
     api_domain: str = "bot.yuanbao.tencent.com"
+    # Custom WebSocket gateway (empty = official wss endpoint).
+    ws_url: str = ""
     media_dir: Optional[str] = None
     accept_bot_messages: bool = False
 
