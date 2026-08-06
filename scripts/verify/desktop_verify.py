@@ -272,6 +272,7 @@ class PlaywrightDriver(UIDriver):
         cdp_url: str = "",
     ) -> None:
         self._screenshot_dir = screenshot_dir
+        self._browser_name = browser
         if screenshot_dir:
             os.makedirs(screenshot_dir, exist_ok=True)
 
@@ -538,6 +539,37 @@ class PlaywrightDriver(UIDriver):
         if dismissed_steps:
             print(f"INFO  dismissed product tour ({dismissed_steps} step(s))")
 
+    def _replace_webkit_input(self, input_box, message: str) -> None:
+        """Replace Lexical content without WebKit's hanging input protocol."""
+        print("INFO  replacing WebKit rich-editor content", flush=True)
+        input_box.evaluate(
+            """(element, value) => {
+              element.focus();
+              const selection = window.getSelection();
+              if (!selection) throw new Error('Selection API is unavailable');
+              const range = document.createRange();
+              range.selectNodeContents(element);
+              selection.removeAllRanges();
+              selection.addRange(range);
+              document.execCommand('insertText', false, value);
+              if (element.textContent !== value) {
+                throw new Error('insertText did not update the rich editor');
+              }
+            }""",
+            message,
+            timeout=5_000,
+        )
+        self._page.wait_for_function(
+            """({ selector, value }) => {
+              const editor = document.querySelector(selector);
+              const textarea = editor?.parentElement?.querySelector('textarea');
+              return editor?.textContent === value && textarea?.value === value;
+            }""",
+            arg={"selector": SEL_INPUT, "value": message},
+            timeout=5_000,
+        )
+        print("INFO  WebKit rich-editor content synchronized", flush=True)
+
     def chat_one_round(self, message: str, timeout: int) -> str:
         self._dismiss_open_tour()
         self._wait_previous_round_idle()
@@ -545,16 +577,17 @@ class PlaywrightDriver(UIDriver):
         ai_count_before = self._page.locator(SEL_AI_BUBBLE).count()
         user_count_before = self._page.locator(SEL_USER_BUBBLE).count()
 
-        # Drive the contenteditable through keyboard events.  Playwright's
-        # click() and fill() can hang against Lexical on WebKit even after
-        # completing their actionability checks.
         input_box = self._page.locator(SEL_INPUT).first
-        input_box.focus()
-        time.sleep(0.2)
-        select_all = "Meta+A" if sys.platform == "darwin" else "Control+A"
-        self._page.keyboard.press(select_all)
-        self._page.keyboard.press("Backspace")
-        self._page.keyboard.insert_text(message)
+        if self._browser_name == "webkit":
+            # WebKit v2251 on macos-14 can hang indefinitely in Playwright's
+            # click(), fill(), and keyboard input protocols for Lexical.
+            self._replace_webkit_input(input_box, message)
+        else:
+            input_box.focus()
+            time.sleep(0.2)
+            input_box.fill("")
+            time.sleep(0.2)
+            input_box.fill(message)
         time.sleep(0.5)
 
         # Reset Gate 2 state-machine caches so a fresh round starts
