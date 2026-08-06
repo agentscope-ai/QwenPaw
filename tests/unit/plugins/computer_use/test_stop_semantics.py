@@ -26,6 +26,10 @@ from computer_use.transport import (
     ReverseRequestHandler,
 )
 from qwenpaw.app.computer_use import set_current_computer_use_turn_id
+from qwenpaw.app.computer_use.runtime import (
+    HostRuntimeProvider,
+    RuntimeCapability,
+)
 
 
 class _StallingTransport(ComputerUseTransport):
@@ -96,6 +100,39 @@ async def test_stop_lands_while_an_action_is_still_waiting() -> None:
             await asyncio.wait_for(action, timeout=2)
         assert failure.value.code == "runtime_disconnected"
         assert transport.closed is True
+    finally:
+        set_current_computer_use_turn_id(None)
+
+
+@pytest.mark.asyncio
+async def test_stop_restarts_the_exact_native_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Closing a connection alone must not leave its native call running."""
+    transport = _StallingTransport()
+    client = ComputerUseClient("session-reap", lambda: transport)
+    capability = RuntimeCapability("pipe-reap", "secret", 1)
+    client._capability = capability
+    restarted: list[RuntimeCapability] = []
+
+    def restart(value: RuntimeCapability) -> bool:
+        restarted.append(value)
+        return True
+
+    monkeypatch.setattr(
+        HostRuntimeProvider,
+        "restart_if_current",
+        restart,
+    )
+    set_current_computer_use_turn_id("turn-reap")
+    try:
+        action = asyncio.create_task(client.execute("observe_window", {}))
+        await asyncio.wait_for(transport.in_flight.wait(), timeout=2)
+
+        assert await asyncio.wait_for(client.stop_turn(), timeout=2) is True
+        assert restarted == [capability]
+        with pytest.raises(ComputerUseProtocolError):
+            await asyncio.wait_for(action, timeout=2)
     finally:
         set_current_computer_use_turn_id(None)
 

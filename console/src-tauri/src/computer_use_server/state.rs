@@ -11,6 +11,7 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 /// Native accessibility element handle stored with an observation.
 /// Windows uses a UI Automation element; macOS uses an AXUIElement wrapper.
@@ -40,11 +41,27 @@ pub(super) const BMP_HEADER_BYTES: usize = 54;
 /// portion is what identifies the current state.
 pub(super) const DOC_TEXT_MAX: usize = 4000;
 
+/// Minimum idle time after our own input before another action may run.
+///
+/// The input guard uses the same boundary. Keeping one value prevents a normal
+/// observe-after-action cycle from mistaking the helper's synthetic event for
+/// fresh user input.
+pub(super) const INPUT_GUARD_GRACE_MS: u32 = 750;
+// A macOS application can paint a changed view before its accessibility
+// children are ready. Keep observations behind that short lag; Windows UIA
+// settles inside the existing input-grace window and should not pay it.
+#[cfg(target_os = "macos")]
+const ACTION_SETTLE_DELAY: Duration = Duration::from_millis(1_500);
+#[cfg(windows)]
+const ACTION_SETTLE_DELAY: Duration = Duration::from_millis(INPUT_GUARD_GRACE_MS as u64);
+
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone)]
 pub(super) struct WindowInfo {
     pub(super) hwnd: isize,
+    #[cfg(target_os = "macos")]
+    pub(super) owner_pid: i32,
     pub(super) app_id: String,
     pub(super) display_name: String,
     pub(super) title: String,
@@ -56,6 +73,10 @@ pub(super) struct WindowInfo {
 }
 
 impl WindowInfo {
+    pub(super) fn matches_app(&self, value: &str) -> bool {
+        self.app_id == value || self.display_name.eq_ignore_ascii_case(value)
+    }
+
     pub(super) fn to_json(&self) -> Value {
         json!({
             "app_id": self.app_id,
@@ -85,9 +106,90 @@ pub(super) struct Observation {
     pub(super) elements: HashMap<String, NativeElement>,
 }
 
+/// A native edit that changed a control's buffer but still needs the control's
+/// semantic completion action before the surrounding application owns it.
+///
+/// The shared runtime only knows that `invoke_element` must finish the action.
+/// Element identity and the completion mechanism remain native concerns, so
+/// this applies to any application exposing the same accessibility semantics
+/// without naming an application or control type here.
+pub(super) struct PendingAction {
+    pub(super) hwnd: isize,
+    pub(super) element: NativeElement,
+    pub(super) expected_value: String,
+}
+
+impl PendingAction {
+    pub(super) fn to_json(&self) -> Value {
+        json!({
+            "status": "requires_completion",
+            "required_action": "invoke",
+            "expected_value": self.expected_value,
+        })
+    }
+}
+
 #[derive(Default)]
 pub(super) struct ServerState {
     pub(super) observations: HashMap<String, Observation>,
+    pending_action: Option<PendingAction>,
+    last_action_at: HashMap<isize, Instant>,
+    global_action_at: Option<Instant>,
+}
+
+impl ServerState {
+    /// A desktop mutation makes every snapshot of that window stale.
+    pub(super) fn note_action(&mut self, hwnd: isize) {
+        self.observations
+            .retain(|_, observation| observation.window.hwnd != hwnd);
+        self.last_action_at.insert(hwnd, Instant::now());
+    }
+
+    pub(super) fn note_global_action(&mut self) {
+        self.observations.clear();
+        self.global_action_at = Some(Instant::now());
+    }
+
+    pub(super) fn pending_action(&self) -> Option<&PendingAction> {
+        self.pending_action.as_ref()
+    }
+
+    pub(super) fn set_pending_action(&mut self, action: PendingAction) {
+        self.pending_action = Some(action);
+    }
+
+    pub(super) fn clear_pending_action(&mut self) {
+        self.pending_action = None;
+    }
+
+    /// Wait out only the remainder of the short post-action settling window.
+    pub(super) fn settle_before_observe(&mut self, hwnd: isize) {
+        let started = self
+            .last_action_at
+            .remove(&hwnd)
+            .or_else(|| self.global_action_at.take());
+        let Some(started) = started else { return };
+        if let Some(remaining) = ACTION_SETTLE_DELAY.checked_sub(started.elapsed()) {
+            std::thread::sleep(remaining);
+        }
+    }
+
+    pub(super) fn clear_turn(&mut self) {
+        self.observations.clear();
+        self.pending_action = None;
+        self.last_action_at.clear();
+        self.global_action_at = None;
+    }
+
+    /// Discard point-in-time state after input outside the current action.
+    ///
+    /// This is deliberately not a sticky turn stop. The refused action may
+    /// have had no effect or may have raced with the user, so callers must
+    /// observe again before deciding what to do next.
+    pub(super) fn invalidate_observations(&mut self) {
+        self.observations.clear();
+        self.pending_action = None;
+    }
 }
 
 /// Bound document text by character count, flagging that more remains.
@@ -167,6 +269,13 @@ pub(super) fn map_point(
     x: i64,
     y: i64,
 ) -> Result<(f64, f64), (&'static str, String)> {
+    if observation.display_width == 0 || observation.display_height == 0 {
+        return Err((
+            "visual_unavailable",
+            "Coordinate input requires a window screenshot; use an accessibility element instead."
+                .to_string(),
+        ));
+    }
     let display_width = i64::from(observation.display_width.max(1));
     let display_height = i64::from(observation.display_height.max(1));
     if x < 0 || y < 0 || x >= display_width || y >= display_height {
@@ -197,6 +306,8 @@ mod tests {
         Observation {
             window: WindowInfo {
                 hwnd: 1,
+                #[cfg(target_os = "macos")]
+                owner_pid: 1,
                 app_id: "app:test".to_string(),
                 display_name: "Test".to_string(),
                 title: String::new(),
@@ -212,6 +323,8 @@ mod tests {
     fn window(app_id: &str, display_name: &str, hwnd: isize) -> WindowInfo {
         WindowInfo {
             hwnd,
+            #[cfg(target_os = "macos")]
+            owner_pid: 1,
             app_id: app_id.to_string(),
             display_name: display_name.to_string(),
             title: String::new(),

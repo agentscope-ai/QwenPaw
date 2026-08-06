@@ -74,8 +74,9 @@ async def test_a_busy_desktop_is_retried_until_it_frees_up(
         "session-1",
         transport_factory=lambda: transport,
     )
+    client._observation_id = "observation-1"
 
-    result = await client.execute("click", {"observation_id": "observation-1"})
+    result = await client.execute("click", {})
 
     assert result == {"done": True}
     assert transport.attempts == 3, "should have retried past both refusals"
@@ -96,9 +97,10 @@ async def test_a_desktop_busy_for_too_long_is_reported(
         "session-1",
         transport_factory=lambda: transport,
     )
+    client._observation_id = "observation-1"
 
     with pytest.raises(ComputerUseProtocolError) as refusal:
-        await client.execute("click", {"observation_id": "observation-1"})
+        await client.execute("click", {})
 
     assert refusal.value.code == "desktop_busy"
     assert transport.attempts == client_module._DESKTOP_BUSY_ATTEMPTS
@@ -124,6 +126,7 @@ async def test_a_stop_ends_the_retrying(
         "session-1",
         transport_factory=lambda: transport,
     )
+    client._observation_id = "observation-1"
 
     async def _stop_once_contended() -> None:
         while transport.attempts < 1:
@@ -132,7 +135,7 @@ async def test_a_stop_ends_the_retrying(
 
     stopper = asyncio.create_task(_stop_once_contended())
     with pytest.raises(ComputerUseProtocolError) as refusal:
-        await client.execute("click", {"observation_id": "observation-1"})
+        await client.execute("click", {})
     await stopper
 
     assert refusal.value.code == "turn_stopped"
@@ -166,9 +169,10 @@ async def test_other_failures_are_not_retried(
         "session-1",
         transport_factory=lambda: transport,
     )
+    client._observation_id = "observation-1"
 
     with pytest.raises(ComputerUseProtocolError) as failure:
-        await client.execute("click", {"observation_id": "observation-1"})
+        await client.execute("click", {})
 
     assert failure.value.code == "request_timeout"
     assert transport.attempts == 1, "a timeout must be reported, not repeated"
@@ -226,9 +230,10 @@ async def test_user_intervention_is_a_retryable_soft_refusal(
         "session-1",
         transport_factory=lambda: transport,
     )
+    client._observation_id = "observation-1"
 
     with pytest.raises(ComputerUseProtocolError) as refusal:
-        await client.execute("click", {"observation_id": "observation-1"})
+        await client.execute("click", {})
     assert refusal.value.code == "user_intervention"
     # The connection is intact: not closed, and not retried behind the caller's
     # back -- a soft refusal, not a transport failure.
@@ -241,10 +246,8 @@ async def test_user_intervention_is_a_retryable_soft_refusal(
         "observe_window",
         {"window_id": "window-1"},
     )
-    result = await client.execute(
-        "click",
-        {"observation_id": observed["observation_id"]},
-    )
+    result = await client.execute("click", {})
+    assert observed == {}
     assert result == {"done": True}
     assert transport.methods == ["click", "observe_window", "click"]
     assert transport.attempts == 3

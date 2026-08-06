@@ -15,11 +15,16 @@ use core_foundation::base::{CFType, TCFType};
 use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
 use core_foundation::number::CFNumber;
 use core_foundation::string::{CFString, CFStringRef};
+use core_graphics::geometry::CGPoint;
 use core_graphics::window::{
-    copy_window_info, kCGWindowBounds, kCGWindowListOptionIncludingWindow, kCGWindowNumber,
+    copy_window_info, kCGNullWindowID, kCGWindowBounds, kCGWindowListExcludeDesktopElements,
+    kCGWindowListOptionIncludingWindow, kCGWindowListOptionOnScreenOnly, kCGWindowNumber,
     kCGWindowOwnerPID, CGWindowID,
 };
 use serde_json::{Map, Value};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
+use std::time::Duration;
 
 mod accessibility_tree;
 mod capture;
@@ -27,10 +32,10 @@ mod input;
 mod permissions;
 mod window;
 
-pub(super) use accessibility_tree::{invoke_element, set_value, AxElement};
+pub(super) use accessibility_tree::{set_value, AxElement};
 pub(super) use capture::observe_window;
 pub(super) use input::{
-    click, desktop_locked, drag, last_input_age_ms, press_key, scroll, type_text,
+    click, desktop_locked, drag, invoke_element, last_input_age_ms, press_key, scroll, type_text,
 };
 pub(super) use permissions::ensure_for as ensure_permissions;
 pub(super) use window::{
@@ -42,6 +47,119 @@ pub(super) use window::{
 /// An unresponsive application would otherwise block the helper indefinitely,
 /// since these calls are synchronous round trips into that process.
 const AX_MESSAGING_TIMEOUT_SECONDS: f32 = 2.0;
+const CONTROL_MAX_MESSAGE_BYTES: usize = 4096;
+const CONTROL_TIMEOUT: Duration = Duration::from_millis(750);
+
+/// A short host-owned lease for an operation that must take foreground focus.
+/// Normal completion releases it here; the desktop independently expires it
+/// if this process hangs or dies, so host visibility never depends on Drop.
+pub(super) struct HostFocusLease {
+    id: String,
+}
+
+impl HostFocusLease {
+    pub(super) fn begin(target_pid: i32) -> Result<Self, (&'static str, String)> {
+        let response = host_control_request("begin_focus", Some(target_pid), None)?;
+        let id = response
+            .get("lease_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or((
+                "focus_failed",
+                "Desktop host did not issue a foreground lease.".to_string(),
+            ))?;
+        Ok(Self { id: id.to_string() })
+    }
+}
+
+impl Drop for HostFocusLease {
+    fn drop(&mut self) {
+        let _ = host_control_request("end_focus", None, Some(&self.id));
+    }
+}
+
+fn host_control_request(
+    action: &str,
+    target_pid: Option<i32>,
+    lease_id: Option<&str>,
+) -> Result<Value, (&'static str, String)> {
+    let host = std::env::var("QWENPAW_COMPUTER_USE_CONTROL_HOST").unwrap_or_default();
+    let token = std::env::var("QWENPAW_COMPUTER_USE_CONTROL_TOKEN").unwrap_or_default();
+    let port = std::env::var("QWENPAW_COMPUTER_USE_CONTROL_PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok());
+    if host != "127.0.0.1" || token.is_empty() || port.is_none() {
+        return Err((
+            "runtime_unavailable",
+            "Desktop host control is unavailable.".to_string(),
+        ));
+    }
+    let mut stream = TcpStream::connect((host.as_str(), port.unwrap())).map_err(|error| {
+        (
+            "runtime_unavailable",
+            format!("Could not reach desktop host control: {error}"),
+        )
+    })?;
+    stream.set_read_timeout(Some(CONTROL_TIMEOUT)).ok();
+    stream.set_write_timeout(Some(CONTROL_TIMEOUT)).ok();
+    let request = serde_json::json!({
+        "token": token,
+        "action": action,
+        "helper_pid": std::process::id(),
+        "target_pid": target_pid,
+        "lease_id": lease_id,
+    });
+    serde_json::to_writer(&mut stream, &request).map_err(|error| {
+        (
+            "runtime_unavailable",
+            format!("Could not encode desktop host control request: {error}"),
+        )
+    })?;
+    stream
+        .write_all(b"\n")
+        .and_then(|_| stream.flush())
+        .map_err(|error| {
+            (
+                "runtime_unavailable",
+                format!("Could not send desktop host control request: {error}"),
+            )
+        })?;
+    let mut payload = Vec::new();
+    BufReader::new(stream)
+        .take((CONTROL_MAX_MESSAGE_BYTES + 1) as u64)
+        .read_until(b'\n', &mut payload)
+        .map_err(|error| {
+            (
+                "runtime_unavailable",
+                format!("Could not read desktop host control response: {error}"),
+            )
+        })?;
+    if payload.is_empty() || payload.len() > CONTROL_MAX_MESSAGE_BYTES || !payload.ends_with(b"\n")
+    {
+        return Err((
+            "runtime_unavailable",
+            "Desktop host returned an invalid control response.".to_string(),
+        ));
+    }
+    let response: Value = serde_json::from_slice(&payload).map_err(|error| {
+        (
+            "runtime_unavailable",
+            format!("Could not decode desktop host control response: {error}"),
+        )
+    })?;
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        let code = match response.get("error").and_then(Value::as_str) {
+            Some("desktop_busy") => "desktop_busy",
+            Some("stale_helper") => "runtime_unavailable",
+            _ => "focus_failed",
+        };
+        return Err((
+            code,
+            "Desktop host refused the foreground lease.".to_string(),
+        ));
+    }
+    Ok(response)
+}
 
 // Private ApplicationServices API mapping an accessibility window element to
 // its CoreGraphics window id. It is the reliable way to match a CGWindowID
@@ -115,19 +233,37 @@ fn dict_f64(dict: &CFDictionary<CFString, CFType>, key: &str) -> Option<f64> {
         .and_then(|number| number.to_f64())
 }
 
-fn window_owner_pid(window_id: i64) -> Option<i32> {
-    let list = copy_window_info(kCGWindowListOptionIncludingWindow, window_id as CGWindowID)?;
-    for item in list.iter() {
-        let dict_ref = (*item) as CFDictionaryRef;
-        if dict_ref.is_null() {
-            continue;
-        }
-        let dict = unsafe { CFDictionary::<CFString, CFType>::wrap_under_get_rule(dict_ref) };
-        if dict_i64(&dict, unsafe { kCGWindowNumber }) == Some(window_id) {
-            return dict_i64(&dict, unsafe { kCGWindowOwnerPID }).map(|pid| pid as i32);
-        }
-    }
-    None
+/// Centers of the target application's on-screen transient surfaces.
+///
+/// Menus and popovers are separate CoreGraphics windows rather than children
+/// of the normal content window. Some applications report those surfaces at
+/// the normal window layer, so the owning content window is excluded by id
+/// instead of filtering on layer. The list remains front-to-back, allowing
+/// accessibility hit testing to prefer the surface a person can act on.
+fn transient_surface_points(pid: i32, content_window: i64) -> Vec<CGPoint> {
+    let option = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+    let Some(list) = copy_window_info(option, kCGNullWindowID) else {
+        return Vec::new();
+    };
+    list.iter()
+        .filter_map(|item| {
+            let dict_ref = (*item) as CFDictionaryRef;
+            if dict_ref.is_null() {
+                return None;
+            }
+            let dict = unsafe { CFDictionary::<CFString, CFType>::wrap_under_get_rule(dict_ref) };
+            if dict_i64(&dict, unsafe { kCGWindowOwnerPID }) != Some(i64::from(pid))
+                || dict_i64(&dict, unsafe { kCGWindowNumber }) == Some(content_window)
+            {
+                return None;
+            }
+            let (x, y, width, height) = bounds_from_dict(&dict)?;
+            (width > 0.0 && height > 0.0).then_some(CGPoint {
+                x: x + width / 2.0,
+                y: y + height / 2.0,
+            })
+        })
+        .collect()
 }
 
 fn integer_param(params: &Map<String, Value>, key: &str) -> Result<i64, (&'static str, String)> {

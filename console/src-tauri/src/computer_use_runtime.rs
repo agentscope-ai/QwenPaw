@@ -31,6 +31,9 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
+
 use crate::computer_use_protocol::VERSION as PROTOCOL_VERSION;
 
 #[cfg(windows)]
@@ -41,6 +44,9 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const CAPABILITY_ENV: &str = "QWENPAW_CU_CAPABILITY";
 #[cfg(all(not(debug_assertions), target_os = "macos"))]
 const HELPER_HOST_PID_ENV: &str = "QWENPAW_CU_HOST_PID";
+const CONTROL_HOST_ENV: &str = "QWENPAW_COMPUTER_USE_CONTROL_HOST";
+const CONTROL_PORT_ENV: &str = "QWENPAW_COMPUTER_USE_CONTROL_PORT";
+const CONTROL_TOKEN_ENV: &str = "QWENPAW_COMPUTER_USE_CONTROL_TOKEN";
 const CONTROL_MAX_MESSAGE_BYTES: usize = 4096;
 // This is emitted by the direct helper child after it has created an endpoint
 // that the Python client can connect to. Keep it in step with the helper's
@@ -48,6 +54,8 @@ const CONTROL_MAX_MESSAGE_BYTES: usize = 4096;
 #[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 const HELPER_READY_PREFIX: &str = "QWENPAW_COMPUTER_USE_READY ";
 const HELPER_READY_TIMEOUT: Duration = Duration::from_secs(8);
+#[cfg(target_os = "macos")]
+const FOCUS_LEASE_TIMEOUT: Duration = Duration::from_secs(12);
 #[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 const MAX_CAPTURED_HELPER_STDERR_CHARS: usize = 4096;
 
@@ -68,6 +76,19 @@ pub(crate) struct ComputerUseRuntimeState {
 struct RuntimeInner {
     child: Option<Child>,
     capability: Option<RuntimeCapability>,
+    helper_pid: Option<u32>,
+    #[cfg(target_os = "macos")]
+    focus_lease: Option<FocusLease>,
+}
+
+#[cfg(target_os = "macos")]
+struct FocusLease {
+    id: String,
+    helper_pid: u32,
+    target_pid: i32,
+    previous_frontmost_pid: Option<i32>,
+    host_was_visible: bool,
+    expires_at: Instant,
 }
 
 #[derive(Clone)]
@@ -87,6 +108,14 @@ struct ControlEndpoint {
 struct ControlRequest {
     token: String,
     action: String,
+    #[serde(default)]
+    endpoint: Option<String>,
+    #[serde(default)]
+    helper_pid: Option<u32>,
+    #[serde(default)]
+    target_pid: Option<i32>,
+    #[serde(default)]
+    lease_id: Option<String>,
 }
 
 #[cfg(not(all(not(debug_assertions), target_os = "macos")))]
@@ -103,6 +132,8 @@ struct ControlResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     capability: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    lease_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<&'static str>,
 }
 
@@ -112,7 +143,25 @@ impl ControlResponse {
             ok: true,
             pipe_name: Some(capability.pipe_name),
             capability: Some(capability.secret),
+            lease_id: None,
             error: None,
+        }
+    }
+
+    fn success() -> Self {
+        Self {
+            ok: true,
+            pipe_name: None,
+            capability: None,
+            lease_id: None,
+            error: None,
+        }
+    }
+
+    fn lease(lease_id: String) -> Self {
+        Self {
+            lease_id: Some(lease_id),
+            ..Self::success()
         }
     }
 
@@ -121,6 +170,7 @@ impl ControlResponse {
             ok: false,
             pipe_name: None,
             capability: None,
+            lease_id: None,
             error: Some(error),
         }
     }
@@ -169,6 +219,7 @@ pub(crate) fn prepare(app: &tauri::AppHandle) -> Result<(), String> {
 
 /// Start the host-owned native helper when its packaged artifact is available.
 pub(crate) fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
+    let (control_port, control_token) = helper_control_environment(app)?;
     let state = app.state::<ComputerUseRuntimeState>();
     let mut inner = state
         .inner
@@ -179,6 +230,11 @@ pub(crate) fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
             Ok(None) => return Ok(()),
             Ok(Some(status)) => {
                 log::warn!("[computer-use] helper exited before next acquire: {status}");
+                inner.helper_pid.take();
+                #[cfg(target_os = "macos")]
+                if let Some(lease) = inner.focus_lease.take() {
+                    restore_focus_lease(app, lease);
+                }
             }
             Err(error) => {
                 return Err(format!("failed to inspect Computer Use helper: {error}"));
@@ -199,6 +255,10 @@ pub(crate) fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
         secret: random_hex(32),
     };
     let mut command = helper_command(&helper, &capability);
+    command
+        .env(CONTROL_HOST_ENV, Ipv4Addr::LOCALHOST.to_string())
+        .env(CONTROL_PORT_ENV, control_port.to_string())
+        .env(CONTROL_TOKEN_ENV, control_token);
     #[cfg(all(not(debug_assertions), target_os = "macos"))]
     command.stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(not(all(not(debug_assertions), target_os = "macos")))]
@@ -214,14 +274,18 @@ pub(crate) fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
     );
     #[cfg(all(not(debug_assertions), target_os = "macos"))]
     {
-        if let Err(error) = wait_for_macos_helper_ready(&mut child, &capability.pipe_name) {
-            log::warn!("[computer-use] helper did not become ready: {error}");
-            stop_unready_helper(&mut child);
-            cleanup_endpoint(&capability.pipe_name);
-            return Err(error);
-        }
+        let helper_pid = match wait_for_macos_helper_ready(&mut child, &capability.pipe_name) {
+            Ok(pid) => pid,
+            Err(error) => {
+                log::warn!("[computer-use] helper did not become ready: {error}");
+                stop_unready_helper(&mut child);
+                cleanup_endpoint(&capability.pipe_name);
+                return Err(error);
+            }
+        };
         inner.child = Some(child);
         inner.capability = Some(capability);
+        inner.helper_pid = Some(helper_pid);
         return Ok(());
     }
     #[cfg(not(all(not(debug_assertions), target_os = "macos")))]
@@ -242,6 +306,7 @@ pub(crate) fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
         }
         #[cfg(windows)]
         assign_helper_to_job(&state, &child);
+        inner.helper_pid = Some(child.id());
         inner.child = Some(child);
         inner.capability = Some(capability);
         Ok(())
@@ -264,6 +329,18 @@ fn helper_command(helper: &Path, capability: &RuntimeCapability) -> Command {
     command
 }
 
+fn helper_control_environment(app: &tauri::AppHandle) -> Result<(u16, String), String> {
+    let state = app.state::<ComputerUseRuntimeState>();
+    let control = state
+        .control
+        .lock()
+        .map_err(|_| "computer use control state poisoned")?;
+    let control = control
+        .as_ref()
+        .ok_or_else(|| "Computer Use control endpoint is unavailable".to_string())?;
+    Ok((control.port, control.token.clone()))
+}
+
 #[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 fn helper_command(helper: &Path, capability: &RuntimeCapability) -> Command {
     let mut command = Command::new(helper);
@@ -279,10 +356,11 @@ fn helper_command(helper: &Path, capability: &RuntimeCapability) -> Command {
 }
 
 #[cfg(all(not(debug_assertions), target_os = "macos"))]
-fn wait_for_macos_helper_ready(child: &mut Child, endpoint: &str) -> Result<(), String> {
+fn wait_for_macos_helper_ready(child: &mut Child, endpoint: &str) -> Result<u32, String> {
     use std::os::unix::fs::FileTypeExt;
 
     let deadline = Instant::now() + HELPER_READY_TIMEOUT;
+    let pid_path = helper_pid_path(endpoint);
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
@@ -298,19 +376,33 @@ fn wait_for_macos_helper_ready(child: &mut Child, endpoint: &str) -> Result<(), 
             }
         }
 
-        match std::fs::symlink_metadata(endpoint) {
-            Ok(metadata) if metadata.file_type().is_socket() => {
-                log::info!("[computer-use] helper announced readiness");
-                return Ok(());
-            }
+        let socket_ready = match std::fs::symlink_metadata(endpoint) {
+            Ok(metadata) if metadata.file_type().is_socket() => true,
             Ok(_) => {
                 return Err("Computer Use helper endpoint is not a Unix socket".to_string());
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
             Err(error) => {
                 return Err(format!(
                     "failed to inspect Computer Use helper endpoint: {error}"
                 ));
+            }
+        };
+        if socket_ready {
+            match std::fs::read_to_string(&pid_path) {
+                Ok(value) => match value.trim().parse::<u32>() {
+                    Ok(pid) if pid > 0 => {
+                        log::info!("[computer-use] helper announced readiness pid={pid}");
+                        return Ok(pid);
+                    }
+                    Ok(_) | Err(_) => {}
+                },
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(format!(
+                        "failed to inspect Computer Use helper pid marker: {error}"
+                    ));
+                }
             }
         }
 
@@ -655,20 +747,114 @@ pub(crate) fn stop(app: &tauri::AppHandle) {
             log::warn!("[computer-use] control endpoint stopped unexpectedly");
         }
     }
-    let (child, capability) = state.inner.lock().ok().map_or((None, None), |mut inner| {
-        (inner.child.take(), inner.capability.take())
-    });
+    if let Err(error) = stop_helper(app, None) {
+        log::warn!("[computer-use] failed to stop helper: {error}");
+    }
+}
+
+/// Terminate the currently managed helper, optionally only when it still owns
+/// the endpoint named by a caller. The endpoint comparison prevents a delayed
+/// stop from killing a replacement process that belongs to a newer turn.
+fn stop_helper(app: &tauri::AppHandle, expected_endpoint: Option<&str>) -> Result<bool, String> {
+    let state = app.state::<ComputerUseRuntimeState>();
+    let mut inner = state
+        .inner
+        .lock()
+        .map_err(|_| "computer use runtime state poisoned")?;
+    if expected_endpoint.is_some_and(|expected| {
+        inner
+            .capability
+            .as_ref()
+            .is_none_or(|capability| capability.pipe_name != expected)
+    }) {
+        return Ok(false);
+    }
+    let child = inner.child.take();
+    let capability = inner.capability.take();
+    let helper_pid = inner.helper_pid.take();
+    #[cfg(target_os = "macos")]
+    let focus_lease = inner.focus_lease.take();
+    drop(inner);
+
+    #[cfg(target_os = "macos")]
+    if let Some(lease) = focus_lease {
+        restore_focus_lease(app, lease);
+    }
+
     if let Some(mut child) = child {
-        if let Err(err) = child.kill() {
-            log::warn!("[computer-use] failed to stop helper: {err}");
-        }
-        if let Err(err) = child.wait() {
-            log::warn!("[computer-use] failed to reap helper: {err}");
-        }
+        stop_managed_child(&mut child, helper_pid)?;
     }
     if let Some(capability) = capability {
         cleanup_endpoint(&capability.pipe_name);
     }
+    Ok(true)
+}
+
+#[cfg(target_os = "macos")]
+fn stop_managed_child(child: &mut Child, helper_pid: Option<u32>) -> Result<(), String> {
+    if let Some(pid) = helper_pid.and_then(|pid| i32::try_from(pid).ok()) {
+        let result = unsafe { libc::kill(pid, libc::SIGTERM) };
+        if result != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                return Err(format!(
+                    "failed to terminate Computer Use helper {pid}: {error}"
+                ));
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline {
+            if unsafe { libc::kill(pid, 0) } != 0
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            {
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        if unsafe { libc::kill(pid, 0) } == 0 {
+            let _ = unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+    } else if let Err(error) = child.kill() {
+        if error.kind() != std::io::ErrorKind::InvalidInput {
+            return Err(format!("failed to stop Computer Use launcher: {error}"));
+        }
+    }
+
+    // The release build is started through `open -W`, so `child` is the
+    // launcher rather than the helper itself. Do not let a broken launcher
+    // turn cancellation or app shutdown into an unbounded wait.
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(_)) => return Ok(()),
+            Ok(None) => thread::sleep(Duration::from_millis(20)),
+            Err(error) => {
+                return Err(format!("failed to inspect Computer Use launcher: {error}"));
+            }
+        }
+    }
+    if let Err(error) = child.kill() {
+        if error.kind() != std::io::ErrorKind::InvalidInput {
+            return Err(format!("failed to stop Computer Use launcher: {error}"));
+        }
+    }
+    child
+        .wait()
+        .map(|_| ())
+        .map_err(|error| format!("failed to reap Computer Use launcher: {error}"))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn stop_managed_child(child: &mut Child, _helper_pid: Option<u32>) -> Result<(), String> {
+    if let Err(error) = child.kill() {
+        if error.kind() != std::io::ErrorKind::InvalidInput {
+            return Err(format!("failed to stop Computer Use helper: {error}"));
+        }
+    }
+    child
+        .wait()
+        .map(|_| ())
+        .map_err(|error| format!("failed to reap Computer Use helper: {error}"))
 }
 
 fn random_hex(byte_count: usize) -> String {
@@ -739,6 +925,11 @@ fn cleanup_endpoint(_endpoint: &str) {
 }
 
 #[cfg(not(windows))]
+fn helper_pid_path(endpoint: &str) -> PathBuf {
+    Path::new(endpoint).with_extension("pid")
+}
+
+#[cfg(not(windows))]
 fn cleanup_endpoint(endpoint: &str) {
     let path = Path::new(endpoint);
     match std::fs::remove_file(path) {
@@ -747,6 +938,15 @@ fn cleanup_endpoint(endpoint: &str) {
         Err(error) => log::warn!(
             "[computer-use] failed to remove helper socket {}: {error}",
             path.display()
+        ),
+    }
+    let pid_path = helper_pid_path(endpoint);
+    match std::fs::remove_file(&pid_path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => log::warn!(
+            "[computer-use] failed to remove helper pid marker {}: {error}",
+            pid_path.display()
         ),
     }
 
@@ -774,6 +974,190 @@ fn cleanup_endpoint(endpoint: &str) {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn frontmost_pid() -> Option<i32> {
+    NSWorkspace::sharedWorkspace()
+        .frontmostApplication()
+        .map(|application| application.processIdentifier())
+}
+
+#[cfg(target_os = "macos")]
+fn begin_focus_lease(
+    app: &tauri::AppHandle,
+    helper_pid: u32,
+    target_pid: i32,
+) -> Result<String, &'static str> {
+    expire_focus_lease(app);
+    let state = app.state::<ComputerUseRuntimeState>();
+    let stale_lease = {
+        let mut inner = state.inner.lock().map_err(|_| "runtime_unavailable")?;
+        if inner.helper_pid != Some(helper_pid) || inner.child.is_none() {
+            return Err("stale_helper");
+        }
+        inner.focus_lease.take()
+    };
+    if let Some(lease) = stale_lease {
+        // The helper serializes all desktop mutations before asking for a
+        // lease, so a second request from the current helper cannot overlap
+        // the action that owned this one. Recover a release message that was
+        // lost or timed out instead of stalling the rest of the turn.
+        log::warn!("[computer-use] recovering unreleased foreground lease");
+        restore_focus_lease(app, lease);
+    }
+
+    let previous_frontmost_pid = frontmost_pid();
+    let window = app.get_webview_window("main");
+    let host_was_visible = window
+        .as_ref()
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    if host_was_visible {
+        window
+            .as_ref()
+            .ok_or("runtime_unavailable")?
+            .hide()
+            .map_err(|_| "focus_failed")?;
+    }
+
+    let mut inner = state.inner.lock().map_err(|_| "runtime_unavailable")?;
+    if inner.helper_pid != Some(helper_pid) || inner.child.is_none() {
+        return Err("stale_helper");
+    }
+    let id = random_hex(16);
+    inner.focus_lease = Some(FocusLease {
+        id: id.clone(),
+        helper_pid,
+        target_pid,
+        previous_frontmost_pid,
+        host_was_visible,
+        expires_at: Instant::now() + FOCUS_LEASE_TIMEOUT,
+    });
+    Ok(id)
+}
+
+#[cfg(target_os = "macos")]
+fn end_focus_lease(
+    app: &tauri::AppHandle,
+    helper_pid: u32,
+    lease_id: &str,
+) -> Result<(), &'static str> {
+    let state = app.state::<ComputerUseRuntimeState>();
+    let lease = {
+        let mut inner = state.inner.lock().map_err(|_| "runtime_unavailable")?;
+        let Some(lease) = inner.focus_lease.as_ref() else {
+            return Ok(());
+        };
+        if lease.helper_pid != helper_pid || lease.id != lease_id {
+            return Err("stale_lease");
+        }
+        inner.focus_lease.take()
+    };
+    if let Some(lease) = lease {
+        restore_focus_lease(app, lease);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn expire_focus_lease(app: &tauri::AppHandle) {
+    let state = app.state::<ComputerUseRuntimeState>();
+    let lease = state.inner.lock().ok().and_then(|mut inner| {
+        inner
+            .focus_lease
+            .as_ref()
+            .is_some_and(|lease| Instant::now() >= lease.expires_at)
+            .then(|| inner.focus_lease.take())
+            .flatten()
+    });
+    if let Some(lease) = lease {
+        log::warn!("[computer-use] restoring expired foreground lease");
+        restore_focus_lease(app, lease);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn restore_focus_lease(app: &tauri::AppHandle, lease: FocusLease) {
+    let current_frontmost_pid = frontmost_pid();
+    let host_pid = i32::try_from(std::process::id()).ok();
+    let window = app.get_webview_window("main");
+    if lease.host_was_visible {
+        if let Some(window) = window.as_ref() {
+            if let Err(error) = window.show() {
+                log::warn!("[computer-use] failed to restore host window: {error}");
+            }
+        }
+    }
+
+    // Do not steal focus back after the person has already switched to a
+    // third application. Restoration is only needed while the target that the
+    // helper activated still owns the foreground.
+    if !should_restore_previous_frontmost(
+        current_frontmost_pid,
+        lease.target_pid,
+        lease.previous_frontmost_pid,
+    ) {
+        return;
+    }
+    if lease.previous_frontmost_pid == host_pid {
+        if lease.host_was_visible {
+            if let Some(window) = window {
+                if let Err(error) = window.set_focus() {
+                    log::warn!("[computer-use] failed to restore host focus: {error}");
+                }
+            }
+        }
+        return;
+    }
+    if let Some(previous_pid) = lease.previous_frontmost_pid {
+        if let Some(application) =
+            NSRunningApplication::runningApplicationWithProcessIdentifier(previous_pid)
+        {
+            let _ = application.activateWithOptions(NSApplicationActivationOptions::empty());
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn should_restore_previous_frontmost(
+    current_frontmost_pid: Option<i32>,
+    target_pid: i32,
+    previous_frontmost_pid: Option<i32>,
+) -> bool {
+    current_frontmost_pid == Some(target_pid) && previous_frontmost_pid != Some(target_pid)
+}
+
+fn reap_exited_helper(app: &tauri::AppHandle) {
+    let state = app.state::<ComputerUseRuntimeState>();
+    let reaped = state.inner.lock().ok().and_then(|mut inner| {
+        let exited = inner
+            .child
+            .as_mut()
+            .and_then(|child| child.try_wait().ok().flatten());
+        let status = exited?;
+        let capability = inner.capability.take();
+        inner.child.take();
+        inner.helper_pid.take();
+        #[cfg(target_os = "macos")]
+        let focus_lease = inner.focus_lease.take();
+        #[cfg(not(target_os = "macos"))]
+        let focus_lease = ();
+        Some((status, capability, focus_lease))
+    });
+    let Some((status, capability, focus_lease)) = reaped else {
+        return;
+    };
+    log::warn!("[computer-use] helper exited: {status}");
+    #[cfg(target_os = "macos")]
+    if let Some(lease) = focus_lease {
+        restore_focus_lease(app, lease);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = focus_lease;
+    if let Some(capability) = capability {
+        cleanup_endpoint(&capability.pipe_name);
+    }
+}
+
 fn serve_control(
     listener: TcpListener,
     app: tauri::AppHandle,
@@ -781,6 +1165,9 @@ fn serve_control(
     stop: Arc<AtomicBool>,
 ) {
     while !stop.load(Ordering::Acquire) {
+        reap_exited_helper(&app);
+        #[cfg(target_os = "macos")]
+        expire_focus_lease(&app);
         match listener.accept() {
             Ok((stream, address)) if address.ip().is_loopback() => {
                 if let Err(err) = serve_control_connection(stream, &app, &token) {
@@ -812,8 +1199,9 @@ fn serve_control_connection(
         .map_err(|err| err.to_string())?;
 
     let response = match read_control_request(&stream) {
-        Ok(request) if request.token == token && request.action == "acquire" => {
-            match ensure(app).and_then(|_| {
+        Ok(request) if request.token != token => ControlResponse::error("unauthorized"),
+        Ok(request) => match request.action.as_str() {
+            "acquire" => match ensure(app).and_then(|_| {
                 runtime_capability(app)
                     .ok_or_else(|| "Computer Use helper did not expose a capability".to_string())
             }) {
@@ -822,9 +1210,39 @@ fn serve_control_connection(
                     log::warn!("[computer-use] control acquire failed: {err}");
                     ControlResponse::error("runtime_unavailable")
                 }
-            }
-        }
-        Ok(_) => ControlResponse::error("unauthorized"),
+            },
+            "restart_if_current" => match request.endpoint.as_deref() {
+                Some(endpoint) => match stop_helper(app, Some(endpoint)) {
+                    Ok(_) => ControlResponse::success(),
+                    Err(error) => {
+                        log::warn!("[computer-use] helper restart failed: {error}");
+                        ControlResponse::error("runtime_unavailable")
+                    }
+                },
+                None => ControlResponse::error("invalid_request"),
+            },
+            #[cfg(target_os = "macos")]
+            "begin_focus" => match (request.helper_pid, request.target_pid) {
+                (Some(helper_pid), Some(target_pid)) if target_pid > 0 => {
+                    match begin_focus_lease(app, helper_pid, target_pid) {
+                        Ok(lease_id) => ControlResponse::lease(lease_id),
+                        Err(error) => ControlResponse::error(error),
+                    }
+                }
+                _ => ControlResponse::error("invalid_request"),
+            },
+            #[cfg(target_os = "macos")]
+            "end_focus" => match (request.helper_pid, request.lease_id.as_deref()) {
+                (Some(helper_pid), Some(lease_id)) => {
+                    match end_focus_lease(app, helper_pid, lease_id) {
+                        Ok(()) => ControlResponse::success(),
+                        Err(error) => ControlResponse::error(error),
+                    }
+                }
+                _ => ControlResponse::error("invalid_request"),
+            },
+            _ => ControlResponse::error("invalid_request"),
+        },
         Err(_) => ControlResponse::error("invalid_request"),
     };
     let payload = serde_json::to_vec(&response)
@@ -935,5 +1353,25 @@ mod tests {
 
         assert!(buffer.chars().count() <= MAX_CAPTURED_HELPER_STDERR_CHARS);
         assert!(buffer.ends_with("latest\n"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn focus_restoration_never_overrides_a_user_takeover() {
+        assert!(should_restore_previous_frontmost(Some(20), 20, Some(10)));
+        assert!(!should_restore_previous_frontmost(Some(30), 20, Some(10)));
+        assert!(!should_restore_previous_frontmost(Some(20), 20, Some(20)));
+    }
+
+    #[test]
+    fn control_requests_keep_lifecycle_fields_optional() {
+        let request: ControlRequest = serde_json::from_str(
+            r#"{"token":"token","action":"restart_if_current","endpoint":"pipe-1"}"#,
+        )
+        .expect("control request should parse");
+
+        assert_eq!(request.endpoint.as_deref(), Some("pipe-1"));
+        assert!(request.helper_pid.is_none());
+        assert!(request.lease_id.is_none());
     }
 }

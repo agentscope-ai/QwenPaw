@@ -1,8 +1,8 @@
 ---
 name: computer_use
-description: "Read before using computer_use. Work through approved Apps and fresh observations; element and coordinate actions use the observation context."
+description: "Read before using computer_use. Work through approved Apps and fresh observations; the runtime keeps each action bound to its current observation."
 metadata:
-  builtin_skill_version: "5.1"
+  builtin_skill_version: "5.4"
   qwenpaw:
     requires: {}
 ---
@@ -18,7 +18,13 @@ approved application at a time and never accepts a free-form screen target.
    Each entry reports whether it `is_running`; a running one also lists its
    open windows.
 2. Call `list_windows` and choose the returned `window_id` that matches the
-   requested task.
+   requested task. Pass the canonical App ID as `app` to limit the result to
+   that application when `list_apps` returned more than one candidate.
+   When an application has multiple plausible windows and the request
+   identifies the target by its content or state rather than an exact title,
+   observe candidates read-only until one supplies matching evidence. Never
+   act on the first or most-recent window merely because it belongs to the
+   right application; keep using the matched `window_id` for that workflow.
 3. Call `observe_window` for that window. The user may be asked to approve
    access to the application. If access is denied, stop and report the
    blocker.
@@ -45,13 +51,12 @@ all. If a path is refused, say so rather than guessing repeatedly.
 
 `observe_window` returns a point-in-time observation:
 
-- `observation_id` identifies the complete action context.
 - `window` identifies the observed target for reference only.
 - `accessibility.elements` lists controls when the application exposes them.
 
-Use `observation_id` for every subsequent action. The desktop runtime keeps
-the associated window, visual frame, and accessibility handles together, so
-they cannot be accidentally combined from different observations.
+The desktop runtime keeps the associated window, visual frame, accessibility
+handles, and concurrency token together. The token is advanced internally
+after every action; never invent or pass one in a tool call.
 
 Start with the summary fields when they are present, because they answer the
 most common questions without reading the whole listing:
@@ -65,6 +70,11 @@ most common questions without reading the whole listing:
   document.
 
 `accessibility.elements` is a listing with one control per line:
+
+When `visual.available` is `false`, the window could not be captured but its
+accessibility observation is still valid. Continue only with listed elements,
+semantic actions, or verified keyboard focus; coordinate actions are disabled
+for that observation.
 
 ```
 uia-12 Edit "File name:" screen@980,1290
@@ -80,21 +90,49 @@ the screenshot's own `viewport` coordinates. On macOS the locator is `=value`,
 the control's current value, because that platform reports values rather than
 pixel bounds.
 
-Two optional markers may follow. `[disabled]` means the control is present but
+Additional markers may follow. `[disabled]` means the control is present but
 cannot be acted on right now, so choose another route instead of retrying it.
 `[offscreen]` means the control exists outside the visible area; scroll it into
-view before acting on it.
+view before acting on it. `[selected]` confirms the application selected that
+exact element. `[settable]` explicitly confirms that `set_value` is
+supported; runtimes that do not publish capability markers may omit it.
+`[resource-backed]` means the displayed value names an object owned by the
+application. Do not use `set_value` on it: changing its accessibility label can
+repaint the text without changing the underlying object. Select the object and
+invoke the application's edit or rename command instead.
+`[actions=...]` lists the accessibility actions the element exposes; never
+guess a semantic action when that list is present.
+
+When more than one element has the same name, discard every `[disabled]`
+candidate before choosing by control type and actions. In particular, a
+disabled structural `Group` is not a substitute for its enabled actionable
+child.
 
 Read this listing when you need to locate a specific control. Prefer acting on
 these elements over blind keyboard navigation. The screenshot is delivered as a
 separate image attachment for visual context; the actionable structure lives in
 `accessibility.elements`.
 
-Refresh the state after navigation, an action that can alter layout or focus,
-an error about stale state, or any user interruption. Do not retry an old
-coordinate or element identifier after a stale-state error. When an action
-opens a new window or dialog, list windows again and observe that target before
-acting. Standard macOS sheets are observed as their own target.
+For `click`, `double_click`, and `right_click`, pass `element_id` whenever the
+target appears in `accessibility.elements`. Native resolves the element's
+current clickable point and verifies that the observed window still owns it.
+Use `x` and `y` only when no matching element exists.
+
+After creating an item or changing views, the screenshot may update before the
+application publishes the new accessibility control. If the visual result is
+present but the matching element is not, call `wait` once, then observe the
+window again. Do not type into or click a screenshot-only control while waiting
+for its actionable element to appear.
+
+Every successful action that can change the desktop invalidates its input
+observation. When the target remains open, the same response includes its
+settled screenshot and accessibility state, while the runtime installs the
+replacement observation internally. Inspect that state before the next
+action. Fields such as `dispatched: true` alone only confirm that native input
+was sent. If an action reports `next_action: list_windows`, the original
+window was closed or replaced; list windows and observe the new target. When
+an action opens a separate window or dialog, list windows and observe that
+target before acting. Standard macOS sheets are observed as their own target.
 
 ## Choose One Target Channel
 
@@ -103,33 +141,59 @@ Use UI Automation when the desired element is present in
 then act on it by `element_id`. Use `invoke` for a `Button`, `MenuItem`, or
 similar control; use `set_value` for an `Edit` or `ComboBox` that holds text.
 This is preferred over keystrokes when a matching element exists.
+Menu commands may remain semantically invokable even when the application does
+not publish a stable rectangle for them; invoke the matching enabled
+`MenuItem`, then verify its replacement observation instead of substituting a
+coordinate click.
 
 ```json
 {
   "action": "invoke",
-  "observation_id": "observation-7",
   "element_id": "uia-12"
 }
 ```
 
-For an editable control that supports its Value pattern:
+For a matching editable control, especially one marked `[settable]`:
 
 ```json
 {
   "action": "set_value",
-  "observation_id": "observation-7",
   "element_id": "uia-18",
   "value": "hello"
 }
 ```
 
+`set_value` replaces the complete edit buffer. Never send `CTRL+A` or
+`WIN+A` first: if focus has not settled, that shortcut can select unrelated
+objects in the surrounding application instead of text.
+
+`set_value` updates and reads back the control's edit buffer; it does not prove
+the application committed that value. A response with
+`confirmation_required: true`, or an observation containing `pending_action`,
+means the edit is pending. The runtime will reject unrelated mutations until
+it is completed. In the replacement observation, locate the element whose
+value matches `pending_action.expected_value`, then use `invoke` on that
+element. The native adapter verifies its identity and uses the element's
+semantic completion action. Treat its replacement observation as committed
+only when the surrounding application state shows the requested value. Do not substitute
+`ENTER` for a semantic completion action. This follow-up is mandatory: do not
+claim success or start another operation while confirmation remains pending.
+On macOS, only use `set_value` when `[settable]` is present. A
+`[resource-backed]` label must first be selected and put into edit mode through
+an explicit application command, such as an accessible edit or rename menu
+item. Use the replacement observation returned after invoking that command.
+Some inline editors are visible
+before macOS publishes their accessibility element; when you just invoked an
+explicit edit command and the screenshot clearly shows that editor, typing one
+value is allowed even if `focused_element` is temporarily absent. Verify the
+value in the replacement observation before confirming it.
+
 Use visual coordinates only when UI Automation is unavailable or unsuitable.
-Every visual action uses the `observation_id` returned by `observe_window`.
+Every visual action uses the current observation retained by the runtime.
 
 ```json
 {
   "action": "click",
-  "observation_id": "observation-7",
   "x": 420,
   "y": 260
 }
@@ -139,11 +203,28 @@ The native runtime validates current window geometry and the hit window just
 before input. It will reject changed, covered, or interrupted targets. Never
 try to bypass those failures by reusing the same coordinate; observe again.
 
+For drag and drop, pass `source_element_id` and `target_element_id` whenever
+both objects appear in `accessibility.elements`. The runtime resolves and
+revalidates both endpoints and performs a paced native drag. Use coordinate
+endpoints only when one of the objects has no accessibility element, and verify
+the requested state change in the replacement observation.
+
 ## Keyboard Input
 
 `type` and `press_key` target the observed window through the native runtime.
-Focus the intended control first, then send the smallest useful batch and
-observe again when confirmation is needed.
+They bring that window to the foreground themselves, so do not add a click
+merely to focus the window. If a control inside the window must first be
+selected, click it, inspect the replacement observation, then type or press the
+key with that new identifier. Send the smallest useful batch and confirm what
+arrived in the replacement observation.
+
+Use `type` only when `accessibility.focused_element` identifies the intended
+editable control. A missing focus summary, a focused list, or a selected row is
+not an editor. In those cases, wait for or select the correct control, or try
+`set_value` once on the matching editable element; an unsupported-operation
+response means that path is unavailable. If a fresh observation does not show
+the text where expected, the input did not succeed; do not continue with a
+confirm key.
 
 `press_key` takes a single key or a chord of up to four names joined with `+`.
 Recognized names include modifiers (`CTRL`, `ALT`, `SHIFT`, `WIN`), letters and
@@ -152,12 +233,19 @@ and editing or navigation keys such as `ENTER`, `TAB`, `ESC`, `SPACE`,
 `BACKSPACE`, `DELETE`, `INSERT`, `HOME`, `END`, `PAGEUP`, `PAGEDOWN`, and the
 arrow keys `UP`/`DOWN`/`LEFT`/`RIGHT`.
 
+A chord must end with a non-modifier key; never send a modifier by itself or
+try to hold it across calls. On macOS, express the Command key as `WIN`, for
+example `WIN+SHIFT+N`.
+`press_key` accepts keyboard keys only: never encode a mouse action such as
+`click` inside a chord. When the tool has no modifier-click action, operate
+items individually instead of inventing one.
+
 ```json
-{"action": "press_key", "observation_id": "observation-7", "key": "CTRL+L"}
+{"action": "press_key", "key": "CTRL+L"}
 ```
 
 ```json
-{"action": "type", "observation_id": "observation-7", "text": "https://example.com"}
+{"action": "type", "text": "https://example.com"}
 ```
 
 ## Finish Cleanly
@@ -173,7 +261,7 @@ close the applications you launched during this task. Leave windows the user
 already had open alone unless the user asked you to close them.
 
 ```json
-{"action": "close_window", "observation_id": "observation-7"}
+{"action": "close_window"}
 ```
 
 `close_window` asks the window to close the same way its own close button
@@ -212,7 +300,13 @@ Judge each action by its effect and choose one of three responses:
 If the user already asked for that exact outcome, treat it as confirmed and do
 not ask again.
 
-Use `stop` immediately when the user asks to stop. When a desktop action is
-blocked, re-observe with `observe_window` and act on an
-`accessibility.elements` entry. Do not fall back to shell commands, to saving
-screenshots as files, or to `view_image` on non-image files.
+Use `stop` immediately when the user asks to stop. `user_intervention` cancels
+only the current action and invalidates its observation. Never replay that
+action: list or observe once more, then decide from fresh state whether the
+requested work still needs to continue. If intervention is detected again,
+stop and report that the user has control. If the user explicitly says to stop
+on any failure, every tool error or unmet observed postcondition is terminal
+and must not be retried by a different method. A stale-observation error is
+always terminal because its target snapshot is no longer valid; report the
+failure and do not switch strategies. Do not fall back to shell commands, to
+saving screenshots as files, or to `view_image` on non-image files.

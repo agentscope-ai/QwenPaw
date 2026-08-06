@@ -150,12 +150,23 @@ class WindowsPipeTransport(ComputerUseTransport):
                     asyncio.to_thread(self._write_message, dict(message)),
                     timeout,
                 )
-            except Exception:
+            except asyncio.TimeoutError:
                 # A failed or timed-out write may leave a partial frame on the
                 # pipe, so the connection can no longer be trusted.
                 future.cancel()
                 await self.close()
                 raise
+            except ComputerUseProtocolError:
+                future.cancel()
+                await self.close()
+                raise
+            except Exception as exc:  # noqa: BLE001 - transport boundary
+                future.cancel()
+                await self.close()
+                raise ComputerUseProtocolError(
+                    "runtime_disconnected",
+                    "Computer Use connection failed while sending a request.",
+                ) from exc
             return await self._await_response(future, timeout)
         except TimeoutError as exc:
             raise ComputerUseProtocolError(
