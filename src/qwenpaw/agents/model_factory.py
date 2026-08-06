@@ -1142,15 +1142,25 @@ def _create_file_block_support_formatter(
                         if ec:
                             tc["extra_content"] = ec
 
+            relay_reasoning = getattr(
+                self,
+                "relay_reasoning_content",
+                True,
+            )
+            require_reasoning = getattr(
+                self,
+                "_qwenpaw_require_reasoning_content",
+                False,
+            )
+            should_inject_reasoning = has_reasoning or require_reasoning
+            formatter_supports_reasoning = (
+                not is_anthropic_formatter and not _is_response_formatter
+            )
+            should_relay_reasoning = relay_reasoning or require_reasoning
             if (
-                has_reasoning
-                and not is_anthropic_formatter
-                and not _is_response_formatter
-                and getattr(
-                    self,
-                    "relay_reasoning_content",
-                    True,
-                )
+                should_inject_reasoning
+                and formatter_supports_reasoning
+                and should_relay_reasoning
             ):
                 aligned_reasoning = []
                 for m in (
@@ -1171,13 +1181,18 @@ def _create_file_block_support_formatter(
                     logger.warning(
                         "Assistant message count mismatch after formatting "
                         "(%d expected survivors, %d actual). "
-                        "Skipping reasoning_content injection for this turn. "
+                        "%s reasoning_content injection for this turn. "
                         "A block type may be dropped by the base formatter "
                         "without being handled by "
                         "_is_block_dropped_by_formatter, "
                         "or a new split pattern needs to be predicted.",
                         len(aligned_reasoning),
                         len(out_assistant),
+                        (
+                            "Falling back to placeholder"
+                            if require_reasoning
+                            else "Skipping"
+                        ),
                     )
                     if logger.isEnabledFor(logging.DEBUG):
                         for _i, m in enumerate(
@@ -1195,10 +1210,19 @@ def _create_file_block_support_formatter(
                                 _i,
                                 types,
                             )
+                    if require_reasoning:
+                        # Positional reasoning is unsafe when source and wire
+                        # counts differ.  A provider that already rejected the
+                        # request still needs the field, so use placeholders
+                        # without mutating the original AgentScope messages.
+                        for out_msg in out_assistant:
+                            out_msg.setdefault("reasoning_content", " ")
                 else:
                     for i, out_msg in enumerate(out_assistant):
-                        if aligned_reasoning[i]:
+                        if relay_reasoning and aligned_reasoning[i]:
                             out_msg["reasoning_content"] = aligned_reasoning[i]
+                        elif require_reasoning:
+                            out_msg.setdefault("reasoning_content", " ")
 
             return _strip_top_level_message_name(messages)
 
@@ -1425,6 +1449,13 @@ def create_model_and_formatter(
     # ``__init__``), so we just wrap that one with file-block support
     # instead of class-resolving via a brittle map.
     formatter = _create_formatter_instance(model)
+    # Keep the provider model and the separately returned formatter on the
+    # same instance.  AgentScope formats ``Msg`` objects through
+    # ``model.formatter`` inside every API call, while QwenPaw's retry layer
+    # toggles request-time fallback flags on that same formatter.  Binding it
+    # here makes the contract hold for every factory caller, including those
+    # that intentionally ignore the second return value.
+    model.formatter = formatter
 
     # agentscope 2.0 ChatModelBase has its own retry loop
     # (model/_base.py:162: ``for attempt in range(self.max_retries + 1)``)
