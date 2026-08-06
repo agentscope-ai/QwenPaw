@@ -48,12 +48,6 @@ the plugin first:
 > plugin acts on pages in your browser on your behalf — do not grant that to a
 > ZIP file of unknown origin.
 
-<!-- SCREENSHOT: plugin-manager-official-chrome
-     Capture: Console Settings → Plugin Manager → Official Plugins tab, showing
-     the Chrome row (name, description, Install button).
-     Must show: the Official Plugins tab selected, and the Install button on the
-     Chrome entry. -->
-
 ---
 
 ## Install the extension
@@ -65,13 +59,13 @@ Store** shows **Coming soon**.
 
 Follow the **Local install steps** — you only need to do this once:
 
-1. **Open extensions page** — select **Chrome extensions page** to open
-   `chrome://extensions`.
+1. **Copy extensions page address** — select **Copy chrome://extensions**, then
+   paste it into Chrome's address bar and press Enter.
 2. **Enable Developer mode** — turn on **Developer mode** in the upper-right
    corner.
 3. **Click load button** — select **Load unpacked** in Chrome.
-4. **Paste path and open** — select **Copy Path** in QwenPaw first, then follow
-   your platform:
+4. **Paste path and open** — follow the **Quick paste path tips** on the right
+   and select **Copy QwenPaw extension path** first, then follow your platform:
 
 | Platform | In the folder picker                                                              |
 | -------- | --------------------------------------------------------------------------------- |
@@ -81,23 +75,12 @@ Follow the **Local install steps** — you only need to do this once:
 
 Return to the QwenPaw page and select **I've installed it, refresh status**.
 
-> You can also select **Open Folder** to have QwenPaw open the extension folder
-> for you.
+> You can also use **Copy Path** or **Open Folder** to get at the extension
+> folder directly.
 
-<!-- SCREENSHOT: chrome-page-not-installed
-     Capture: the Console Chrome page before the extension is loaded (full page
-     in one shot).
-     Must show: the "Install Chrome Extension" status card, both Install method
-     cards (Local install with the Recommended badge, Chrome Web Store with
-     Coming soon), the four Local install steps, the Quick paste path tips
-     panel, and the Copy Path / Open Folder buttons. -->
+![Console Chrome page showing install methods and local install steps](https://img.alicdn.com/imgextra/i2/O1CN018PXoUzHJ5WH68fdG_!!6000000004186-0-tps-3024-1654.jpg)
 
-<!-- SCREENSHOT: chrome-extensions-load-unpacked
-     Capture: Chrome's own chrome://extensions page.
-     Must show: Developer mode toggled on in the upper-right corner, and the
-     Load unpacked button clearly visible in the upper-left.
-     Optional: the QwenPaw extension card after loading, including its version.
-     Redaction: hide or remove your other personal extensions first. -->
+![Chrome extensions page with Developer mode on and Load unpacked available](https://img.alicdn.com/imgextra/i1/O1CN015fXKuBrqFoI68fdG_!!6000000006443-0-tps-3024-1654.jpg)
 
 ---
 
@@ -131,19 +114,7 @@ It is worth revisiting this page after upgrading QwenPaw: if **Extension
 assets** reports a version mismatch, rerun setup and reload the extension in
 Chrome.
 
-<!-- SCREENSHOT: chrome-page-connected
-     Capture: the Console Chrome page in the connected state.
-     Must show: the "Chrome Connected" status card with extension version and
-     connect time, plus all four Connection checks marked Ready. A second shot
-     with one check in "Needs attention" and its repair advice is welcome. -->
-
-<!-- SCREENSHOT: chrome-toolbar-popup
-     Capture: the small popup opened from the QwenPaw extension icon in the
-     Chrome toolbar.
-     Must show: Status as Connected (green dot), a non-zero QwenPaw tabs count,
-     and a version in Version.
-     Framing: crop to the popup and the nearby toolbar so your personal tab
-     titles stay out of frame. -->
+![Console Chrome page connected, with all four connection checks ready](https://img.alicdn.com/imgextra/i3/O1CN01wTb1PytQ6VK68fdG_!!6000000000485-0-tps-3024-1654.jpg)
 
 ---
 
@@ -170,14 +141,6 @@ that step back to you.
 | Local connection config | macOS: `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.qwenpaw.browser.json`<br>Linux: `~/.config/google-chrome/NativeMessagingHosts/com.qwenpaw.browser.json`<br>Windows: `~/.qwenpaw/com.qwenpaw.browser.json` (also registered under `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.qwenpaw.browser`) |
 | Local settings file     | `~/.qwenpaw/nm-bridge.json`                                                                                                                                                                                                                                                                                                           |
 | Connection endpoint     | Derived from the address the service actually listens on, for example `ws://127.0.0.1:8088/api/ws/chrome`                                                                                                                                                                                                                             |
-
-<!-- SCREENSHOT: chrome-advanced-info
-     Capture: the expanded Advanced information block at the bottom of the
-     Chrome page.
-     Must show: extension folder, local connection config, local connection
-     helper, local settings file, and connection endpoint.
-     Redaction: the paths contain a real username — blur it or capture with a
-     neutral account. -->
 
 ---
 

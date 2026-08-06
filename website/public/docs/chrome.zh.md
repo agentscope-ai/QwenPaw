@@ -2,7 +2,7 @@
 
 Chrome 扩展把 QwenPaw 连接到你自己的 Chrome。连接之后，Agent 可以在你已经登录的浏览器里开标签页、点击和填写，你能全程看见它在做什么，也可以随时接手。
 
-> **Beta 功能**：目前只支持本地安装（在 Chrome 里加载已解压的扩展程序）。Chrome Web Store 版本尚未发布。
+> **Beta 功能**：目前只支持本地安装（在 Chrome 里加载未打包的扩展程序）。Chrome Web Store 版本尚未发布。
 
 ---
 
@@ -34,10 +34,6 @@ Chrome 连接能力由官方 **Chrome** 插件提供，需要先安装插件：
 
 > 请仅安装来自官方插件列表或其他可信来源的插件。该插件会在你的浏览器中代你操作页面，不要为来历不明的 ZIP 文件授予这项能力。
 
-<!-- SCREENSHOT: plugin-manager-official-chrome
-     截图内容：控制台 设置 → 插件管理 → 官方插件 标签页，列表中 Chrome 插件那一行（含名称、描述、安装按钮）。
-     要点：能看清「官方插件」标签处于选中态，以及 Chrome 条目的 安装 按钮。 -->
-
 ---
 
 ## 安装扩展
@@ -46,10 +42,10 @@ Chrome 连接能力由官方 **Chrome** 插件提供，需要先安装插件：
 
 按 **本地安装步骤** 操作，只需要完成一次：
 
-1. **打开扩展页** — 点击 **Chrome 扩展页**，进入 `chrome://extensions`；
+1. **复制扩展页地址** — 点击 **复制 chrome://extensions**，在 Chrome 地址栏粘贴并按 Enter；
 2. **开启开发者模式** — 在页面右上角打开 **开发者模式** 开关；
-3. **点击加载按钮** — 点击 Chrome 页面里的 **加载已解压的扩展程序**；
-4. **粘贴路径并打开** — 先在 QwenPaw 页面点 **复制路径**，再按你的系统操作：
+3. **点击加载按钮** — 点击 Chrome 页面里的 **加载未打包的扩展程序**；
+4. **粘贴路径并打开** — 按右侧 **快捷粘贴路径 Tips**，先点 **复制 QwenPaw 扩展路径**，再按你的系统操作：
 
 | 系统    | 在选择目录的窗口中                                                |
 | ------- | ----------------------------------------------------------------- |
@@ -59,19 +55,11 @@ Chrome 连接能力由官方 **Chrome** 插件提供，需要先安装插件：
 
 完成后回到 QwenPaw 页面，点 **我已安装，刷新状态**。
 
-> 你也可以点 **打开目录**，让 QwenPaw 直接打开扩展所在的文件夹。
+> 扩展目录也可以用 **复制路径** 或 **打开目录** 直接取用。
 
-<!-- SCREENSHOT: chrome-page-not-installed
-     截图内容：控制台「Chrome浏览器」页面在扩展尚未加载时的完整状态（一屏截全）。
-     要点：包含「安装 Chrome 扩展」状态卡、「安装方式」两张卡片（本地安装 + 推荐标记、
-     Chrome Web Store + Coming soon）、「本地安装步骤」四步、右侧「快捷粘贴路径 Tips」
-     以及「复制路径」「打开目录」按钮。 -->
+![控制台「Chrome浏览器」页面：安装方式与本地安装步骤](https://img.alicdn.com/imgextra/i1/O1CN016GrqlLntuqC68fdG_!!6000000005448-0-tps-3024-1654.jpg)
 
-<!-- SCREENSHOT: chrome-extensions-load-unpacked
-     截图内容：Chrome 自身的 chrome://extensions 页面。
-     要点：右上角「开发者模式」开关处于打开状态，左上角「加载已解压的扩展程序」按钮清晰可见。
-     可选：加载完成后 QwenPaw 扩展卡片出现在列表中的样子（含扩展版本号）。
-     遮挡要求：截图前请隐藏或移除你个人的其他扩展。 -->
+![Chrome 扩展页：开启开发者模式后点击「加载未打包的扩展程序」](https://img.alicdn.com/imgextra/i1/O1CN015fXKuBrqFoI68fdG_!!6000000006443-0-tps-3024-1654.jpg)
 
 ---
 
@@ -95,20 +83,12 @@ Chrome 连接能力由官方 **Chrome** 插件提供，需要先安装插件：
 | ------------------------- | ---------------------------------------------- | -------------------------------------------------- |
 | **扩展桥接**              | 扩展与 QwenPaw 之间的连接                      | 重新加载扩展，或重新打开目标浏览器标签页           |
 | **Native Messaging 宿主** | 本机连接助手是否已安装且可用                   | 重新安装 Native Messaging 宿主（回到本页重新安装） |
-| **扩展资产**              | Chrome 中加载的扩展版本是否与 QwenPaw 自带一致 | 在 `chrome://extensions` 重新加载已解压的扩展      |
+| **扩展资产**              | Chrome 中加载的扩展版本是否与 QwenPaw 自带一致 | 在 `chrome://extensions` 重新加载未打包的扩展      |
 | **桥接生命周期**          | 连接是否稳定                                   | 稍候片刻或重启 Chrome                              |
 
 升级 QwenPaw 之后建议回到这个页面看一眼：如果 **扩展资产** 提示版本不一致，重新安装一次并在 Chrome 里重新加载扩展即可。
 
-<!-- SCREENSHOT: chrome-page-connected
-     截图内容：控制台「Chrome浏览器」页面在已连接状态下的样子。
-     要点：顶部「Chrome 已连接」状态卡（含扩展版本、连接时间），以及下方「连接检查」四项
-     全部显示「就绪」。若能同时截到一项「需要处理」及其修复建议更好（可另出一张）。 -->
-
-<!-- SCREENSHOT: chrome-toolbar-popup
-     截图内容：Chrome 工具栏上 QwenPaw 扩展图标点开后的小弹窗。
-     要点：Status 显示 Connected（绿点）、QwenPaw tabs 显示非 0 的数字、Version 有版本号。
-     构图要求：只截弹窗及其附近的工具栏区域，避免带出你的个人标签页标题。 -->
+![控制台「Chrome浏览器」页面：Chrome 已连接且连接检查全部就绪](https://img.alicdn.com/imgextra/i1/O1CN01ajUI7OojR1G68fdG_!!6000000006862-0-tps-3024-1654.jpg)
 
 ---
 
@@ -131,11 +111,6 @@ Agent 会在你的 Chrome 里新开标签页工作。遇到登录、验证码、
 | 本机连接配置 | macOS：`~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.qwenpaw.browser.json`<br>Linux：`~/.config/google-chrome/NativeMessagingHosts/com.qwenpaw.browser.json`<br>Windows：`~/.qwenpaw/com.qwenpaw.browser.json`（同时写入注册表 `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.qwenpaw.browser`） |
 | 本地设置文件 | `~/.qwenpaw/nm-bridge.json`                                                                                                                                                                                                                                                                                                     |
 | 连接端点     | 由服务实际监听地址自动推导，例如 `ws://127.0.0.1:8088/api/ws/chrome`                                                                                                                                                                                                                                                            |
-
-<!-- SCREENSHOT: chrome-advanced-info
-     截图内容：「Chrome浏览器」页面底部「高级信息」展开后的路径列表。
-     要点：扩展目录、本机连接配置、本机连接助手、本地设置文件、连接端点五行都可见。
-     遮挡要求：路径里含真实用户名，请把用户名部分打码或改用一个中性账号截图。 -->
 
 ---
 
