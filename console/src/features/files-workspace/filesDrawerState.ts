@@ -8,6 +8,13 @@ export function filesDrawerReducer(
 ): FilesDrawerState {
   switch (event.type) {
     case "OPEN_PREVIEW":
+      if (state.kind === "workspace") {
+        return {
+          kind: "workspace",
+          target: event.target,
+          trigger: event.trigger,
+        };
+      }
       return {
         kind: "preview",
         target: event.target,

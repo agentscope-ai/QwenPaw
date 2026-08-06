@@ -67,8 +67,6 @@ export const FilePreviewLink: React.FC<FileAttachmentPreviewProps> = ({
   const { t } = useTranslation();
   const filePath = getFileOperationPath(content);
   const media = getMediaInfo(content);
-  if (media && media.type !== "file") return null;
-
   const target = targetForPath(filePath, media?.url);
   const previewPath = filePath || media?.name || "";
   if (!previewPath || !target) return null;

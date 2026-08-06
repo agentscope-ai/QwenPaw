@@ -6,7 +6,6 @@ import {
   ToolCardShell,
   FileAttachmentPreview,
   FilePreviewLink,
-  hasMultimediaPreview,
 } from "../shared";
 import { shortFileName } from "../shared/utils";
 import styles from "../shared/toolCards.module.less";
@@ -63,7 +62,6 @@ const EditFileCard: React.FC<EditFileCardProps> = ({
       title={title}
       badges={badges}
       summaryAction={<FilePreviewLink content={content} />}
-      defaultExpanded={hasMultimediaPreview(content)}
     >
       <FileAttachmentPreview content={content} />
       {params && (

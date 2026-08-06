@@ -7,7 +7,6 @@ import {
   DefaultBlock,
   FileAttachmentPreview,
   FilePreviewLink,
-  hasMultimediaPreview,
 } from "../shared";
 import { shortFileName, countLines, stringifyResult } from "../shared/utils";
 import styles from "../shared/toolCards.module.less";
@@ -55,7 +54,6 @@ const ReadFileCard: React.FC<ReadFileCardProps> = ({
       title={title}
       badges={badge}
       summaryAction={<FilePreviewLink content={content} />}
-      defaultExpanded={hasMultimediaPreview(content)}
     >
       <FileAttachmentPreview content={content} />
       {resultText && <DefaultBlock title="Output" content={resultText} />}
