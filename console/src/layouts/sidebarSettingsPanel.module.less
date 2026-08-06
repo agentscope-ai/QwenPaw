@@ -65,10 +65,10 @@
     }
   }
 
-  /* Block variant for mode toggle buttons */
+  /* Full-width block variant for mode toggle */
   &Block {
-    flex: 1;
-    justify-content: center;
+    width: 100%;
+    justify-content: flex-start;
   }
 }
 
@@ -81,6 +81,12 @@
   display: flex;
   flex-direction: row;
   gap: 4px;
+
+  .optBtnBlock {
+    flex: 1;
+    width: auto;
+    justify-content: center;
+  }
 }
 
 .desktopModeBtn {
