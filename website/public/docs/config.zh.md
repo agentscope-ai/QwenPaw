@@ -410,12 +410,19 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `api_key`          | string | `""`       | Embedding 提供商的 API Key。OpenAI 兼容和 Gemini 后端必填                             |
 | `base_url`         | string | `""`       | OpenAI 兼容后端的可选自定义 API 地址；Ollama 后端会作为 host 传递                     |
 | `model_name`       | string | `""`       | Embedding 模型名称（如 `"text-embedding-3-small"`）                                   |
-| `dimensions`       | int    | `1024`     | Embedding 向量维度                                                                    |
+| `dimensions`       | int    | `1024`     | 预期的 Embedding 向量维度，用于返回值校验、索引和缓存                                 |
 | `enable_cache`     | bool   | `true`     | 是否启用 Embedding 缓存                                                               |
-| `use_dimensions`   | bool   | `false`    | 是否使用自定义维度                                                                    |
+| `use_dimensions`   | bool   | `false`    | OpenAI 后端是否在 API 请求中传递 `dimensions` 参数                                    |
 | `max_cache_size`   | int    | `10000`    | 最大缓存大小                                                                          |
-| `max_input_length` | int    | `8192`     | Embedding 的最大输入长度                                                              |
+| `max_input_length` | int    | `8192`     | 单条 Embedding 输入的近似字符预算，并非精确的 Token 上限                              |
 | `max_batch_size`   | int    | `10`       | 批处理的最大批量大小                                                                  |
+
+`use_dimensions` 仅控制 OpenAI 兼容请求中是否携带 `dimensions` 参数。关闭后，`dimensions`
+仍用于校验服务返回的向量长度以及配置索引和缓存，因此必须填写模型实际输出的维度。部分 vLLM
+等 OpenAI 兼容服务不支持该请求参数，此时应关闭 `use_dimensions`。
+
+每条 Embedding 文本会在请求前按照 `max_input_length` 分别截断。该值按字符近似计算，中文、CJK
+及其他全角字符会使用更保守的权重并预留安全余量，不会调用模型 tokenizer 计算精确 Token 数。
 
 向量检索只有在当前后端具备最低可运行配置时才会启用；这些条件与 AgentScope credential 要求保持一致：
 
@@ -428,7 +435,12 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 不满足启用条件时，ReMe 仍会保留关键词索引和 wikilink 图谱索引，但不会启用 embedding 向量索引。
 
 这些配置也可以在控制台的 **智能体 → 运行配置** 页面中修改。直接从 `agent.json` 读取的字段，例如自动记忆间隔和自动搜索条数，
-保存后会在后续对话轮次生效。目录和 Embedding 等嵌入式 ReMe 组件配置需要重启 Agent 进程，让 ReMe 应用用新配置重新构造。
+保存后会在后续对话轮次生效。对于 Embedding 配置，如果当前服务参数已经通过“测试 Embedding 服务”验证、本次保存只修改了
+Embedding 配置且测试后的服务参数没有变化，系统会尝试热更新；首次启用、关闭、未先测试、测试后又修改服务参数，或同时修改其他
+运行配置时，系统会保存配置并自动重载 Agent，无需用户手动重启。目录等其他需要重新构造的嵌入式 ReMe 组件配置也会走自动重载。
+
+控制台中的 Embedding“已开启/未开启”状态会根据当前未保存表单实时计算，只表示 Backend、模型名称和必要凭证是否满足上述启用条件，
+不表示服务已经连通或配置已经应用到运行中的 Agent。“已验证”表示真实测试请求成功；只有保存配置后，变更才会应用到运行状态。
 
 ---
 

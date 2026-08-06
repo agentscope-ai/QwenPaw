@@ -458,12 +458,21 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `api_key`          | string | `""`       | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends         |
 | `base_url`         | string | `""`       | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host |
 | `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`)                                        |
-| `dimensions`       | int    | `1024`     | Embedding vector dimensions                                                                    |
+| `dimensions`       | int    | `1024`     | Expected Embedding vector dimensions, used for response validation, indexes, and caches        |
 | `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                                                              |
-| `use_dimensions`   | bool   | `false`    | Whether to use custom dimensions                                                               |
+| `use_dimensions`   | bool   | `false`    | Whether the OpenAI backend sends the `dimensions` parameter in API requests                    |
 | `max_cache_size`   | int    | `10000`    | Maximum cache size                                                                             |
-| `max_input_length` | int    | `8192`     | Maximum input length for embeddings                                                            |
+| `max_input_length` | int    | `8192`     | Approximate character budget per Embedding input, not an exact token limit                     |
 | `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                                                        |
+
+`use_dimensions` only controls whether OpenAI-compatible requests include the `dimensions` parameter. When it is
+disabled, `dimensions` is still used to validate returned vectors and configure indexes and caches, so it must match
+the model's actual output dimensions. Disable `use_dimensions` for OpenAI-compatible services, including some vLLM
+deployments, that do not support this request parameter.
+
+Each Embedding input is truncated separately before the request according to `max_input_length`. This is a
+character-based estimate: Chinese, CJK, and other full-width characters use a more conservative weight with a safety
+margin. ReMe does not invoke the model tokenizer to calculate an exact token count.
 
 Vector retrieval is enabled only when the selected backend has the minimum runnable configuration. These conditions are aligned with AgentScope credential requirements:
 
@@ -476,9 +485,18 @@ Vector retrieval is enabled only when the selected backend has the minimum runna
 When the enable condition is not met, ReMe still keeps keyword indexes and wikilink graph indexes, but the embedding vector index is disabled.
 
 These settings can also be changed in the Console under **Agent → Runtime Config**. Fields read directly from
-`agent.json`, such as auto-memory cadence and auto-search limits, apply to later turns after saving. Embedded ReMe
-component settings, such as directories and embedding configuration, require restarting the agent process so the ReMe
-application is constructed with the new configuration.
+`agent.json`, such as auto-memory cadence and auto-search limits, apply to later turns after saving. For Embedding
+settings, QwenPaw attempts a hot update when the current service parameters have passed **Test Embedding Service**,
+the save changes only Embedding settings, and the tested service parameters remain unchanged. First-time enablement,
+disabling Embedding, saving without a current test, changing service parameters after testing, or changing other
+runtime settings at the same time causes QwenPaw to save the configuration and automatically reload the agent; no
+manual restart is required. Other embedded ReMe component settings that require reconstruction, such as directories,
+also use the automatic reload path.
+
+The Console's Embedding **Enabled/Disabled** status is calculated in real time from the current unsaved form. It only
+indicates whether the Backend, model name, and required credentials meet the enable conditions above; it does not prove
+that the service is reachable or that the draft has been applied to the running agent. **Verified** means a real test
+request succeeded. Changes affect runtime state only after the configuration is saved.
 
 ---
 
