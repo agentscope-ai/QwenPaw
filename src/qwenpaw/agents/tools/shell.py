@@ -28,6 +28,7 @@ from ...config.context import (
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 from ...sandbox import ExecutionResult
+from ...sandbox.config import SandboxConfig
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -814,6 +815,12 @@ async def execute_shell_command(
         # PyInstaller's PYTHONHOME would make the bundled CPython look for
         # stdlib in the backend directory, which fatally crashes it.
         env.pop("PYTHONHOME", None)
+
+    if sandbox_config is not None and not isinstance(
+        sandbox_config,
+        SandboxConfig,
+    ):
+        sandbox_config = None
 
     if sandbox_config is not None:
         # Create a copy with resolved shell and timeout to avoid mutating
