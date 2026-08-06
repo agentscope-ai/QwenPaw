@@ -177,7 +177,7 @@ def test_install_subprocess_guard_clears_pythonhome_in_frozen(monkeypatch):
     """_install_subprocess_guard must remove PYTHONHOME when frozen."""
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setenv("PYTHONHOME", "/fake/backend")
-    monkeypatch.setenv("QWENPAW_DESKTOP", "1")
+    monkeypatch.setenv("QWENPAW_DESKTOP_APP", "1")
 
     entry._install_subprocess_guard()
 
