@@ -212,7 +212,7 @@ export default function SidebarSettingsPanel({
           >
             <Monitor size={14} />
             <span className={styles.optLabel}>
-              {t("sidebar.settings.enterDesktopMode", "Enter Desktop Mode")}
+              {t("sidebar.settings.desktopMode", "Desktop Mode")}
             </span>
           </button>
         </div>

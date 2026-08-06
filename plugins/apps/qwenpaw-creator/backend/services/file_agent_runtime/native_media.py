@@ -229,4 +229,63 @@ async def source_intelligence_content_parts(
     return parts
 
 
-__all__ = ["source_intelligence_content_parts"]
+async def document_page_content_parts(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    tool_result: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Turn a read_document tool result into native image parts.
+
+    Rendered page images live as Runtime files (doc-pages/); they enter the
+    outer VLM context through the existing multimodal user-message mechanism
+    instead of inline base64 in the tool return body.
+    """
+
+    from services.source_analysis.service import resolve_document_page_ref
+
+    refs = tool_result.get("pageImageRefs")
+    if not isinstance(refs, list) or not refs:
+        return []
+    api_key = model_config.get_vlm_api_key().strip()
+    if not api_key:
+        raise ValidationError(
+            "文档页图传给素材理解 Agent 需要配置 Creator VLM API key",
+        )
+    model_name = (model_config.get_vlm_model_name() or "qwen3.7-plus").strip()
+    project_root = services.projects.project_root(project_id)
+    parts: list[dict[str, Any]] = []
+    for ref in refs:
+        resolved = resolve_document_page_ref(project_root, str(ref))
+        if resolved is None:
+            raise StorageIntegrityError(f"非法文档页图引用: {ref}")
+        _checksum, page, local_path = resolved
+        if not local_path.is_file():
+            raise StorageIntegrityError(f"文档页图不存在: {ref}")
+        public_url = await upload_local_file_to_dashscope_temp(
+            local_path,
+            api_key=api_key,
+            model_name=model_name,
+            media_type="image/png",
+        )
+        parts.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": public_url,
+                    "mediaType": "image/png",
+                    "page": page,
+                },
+                "attachment": {
+                    "documentPageRef": str(ref),
+                    "mediaType": "image/png",
+                },
+            },
+        )
+    return parts
+
+
+__all__ = [
+    "document_page_content_parts",
+    "source_intelligence_content_parts",
+]

@@ -251,7 +251,7 @@
       "language": "Language",
       "theme": "Theme",
       "mode": "Mode",
-      "enterDesktopMode": "Enter Desktop Mode"
+      "desktopMode": "Desktop Mode"
     },
     "desktopModeHint": {
       "title": "Try Desktop Mode",

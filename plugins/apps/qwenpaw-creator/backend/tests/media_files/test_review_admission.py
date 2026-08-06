@@ -9,14 +9,18 @@ import logging
 
 import pytest
 
-from domain.errors import ConflictError, ReviewPendingError
+from domain.errors import ConflictError, ReviewPendingError, ValidationError
 from services.media_files.image_execution import FileImageExecutionService
 from services.media_files.review_admission import assert_media_review_admission
+from services.media_files.visual_reference_resolution import (
+    resolve_r2v_visual_reference_version_ids,
+)
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import (
     ArtifactVersion,
     EntityCollection,
     Project,
+    R2VCreation,
     VisualEntity,
     VisualVariant,
 )
@@ -234,6 +238,10 @@ def test_image_execution_freezes_only_the_pending_variant(
         entity_id="char:hero",
         kind="character",
         name="Hero",
+        required_variant_ids=[
+            "variant:hero-peak",
+            "variant:hero-fallen",
+        ],
         variants=variants,
     )
     project.visual.entities.order.append("char:hero")
@@ -294,3 +302,58 @@ def test_image_execution_freezes_only_the_pending_variant(
         ].metadata["variantId"]
         == "variant:hero-fallen"
     )
+    peak_variant = snapshot.visual.entities.items["char:hero"].variants.items[
+        "variant:hero-peak"
+    ]
+    fallen_variant = snapshot.visual.entities.items[
+        "char:hero"
+    ].variants.items["variant:hero-fallen"]
+    assert peak_variant.selected_artifact_version_id == (
+        first.artifact_version_id
+    )
+    assert fallen_variant.selected_artifact_version_id == (
+        fallen.artifact_version_id
+    )
+    assert (
+        snapshot.assets.artifact_versions_by_id[
+            first.artifact_version_id
+        ].slot_id
+        != snapshot.assets.artifact_versions_by_id[
+            fallen.artifact_version_id
+        ].slot_id
+    )
+    assert (
+        snapshot.visual.entities.items[
+            "char:hero"
+        ].selected_artifact_version_id
+        is None
+    )
+
+    resolved = resolve_r2v_visual_reference_version_ids(
+        snapshot,
+        R2VCreation(
+            character_refs=["char:hero"],
+            visual_variant_refs={
+                "char:hero": "variant:hero-fallen",
+            },
+        ),
+        [
+            first.artifact_version_id,
+            fallen.artifact_version_id,
+        ],
+    )
+    assert resolved == (fallen.artifact_version_id,)
+
+
+def test_visual_reference_resolution_fails_closed_for_missing_entity() -> None:
+    broken = Project.new(
+        project_id="project-missing-visual",
+        name="Missing visual",
+    )
+
+    with pytest.raises(ValidationError, match="视觉引用实体不存在"):
+        resolve_r2v_visual_reference_version_ids(
+            broken,
+            R2VCreation(character_refs=["char:hero"]),
+            [],
+        )

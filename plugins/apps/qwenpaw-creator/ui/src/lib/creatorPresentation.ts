@@ -4,48 +4,53 @@ import type {
   TaskStatus,
   TaskView,
 } from "@/contracts/creator";
+import i18n from "@/i18n";
 
-const TASK_KIND_LABELS: Record<TaskView["kind"], string> = {
-  asset_ingest: "素材入库",
-  asset_import: "素材导入",
-  source_intelligence: "素材理解",
-  image_generation: "画面生成",
-  r2v_generation: "视频生成",
-  ai_edit_plan: "剪辑规划",
-  ai_edit_execute: "剪辑合成",
-  compose: "成片合成",
+const TASK_KIND_LABEL_KEYS: Record<TaskView["kind"], string> = {
+  asset_ingest: "presentation.taskKinds.asset_ingest",
+  asset_import: "presentation.taskKinds.asset_import",
+  source_intelligence: "presentation.taskKinds.source_intelligence",
+  source_memory_build: "presentation.taskKinds.source_memory_build",
+  image_generation: "presentation.taskKinds.image_generation",
+  r2v_generation: "presentation.taskKinds.r2v_generation",
+  ai_edit_plan: "presentation.taskKinds.ai_edit_plan",
+  ai_edit_execute: "presentation.taskKinds.ai_edit_execute",
+  compose: "presentation.taskKinds.compose",
 };
 
 export function taskKindLabel(kind: string): string {
-  return TASK_KIND_LABELS[kind as TaskView["kind"]] ?? "任务执行";
+  const key = TASK_KIND_LABEL_KEYS[kind as TaskView["kind"]];
+  return key ? i18n.t(key) : i18n.t("presentation.taskExecution");
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  IDLE: "待命",
-  QUEUED: "等待中",
-  QUEUED_CAPACITY: "排队等待资源",
-  RUNNING: "处理中",
-  RUNNING_MODEL: "正在构思",
-  WAITING_RUNTIME: "等待制作结果",
-  WAITING_AUTHORIZATION: "等待确认",
-  WAITING_USER_INPUT: "等待补充信息",
-  WAITING_EXECUTION_AUTH: "等待执行确认",
-  PENDING_REVIEW: "等待审阅",
-  RESUMING: "继续处理中",
-  INTERRUPT_REQUESTED: "正在停止",
-  SUCCEEDED: "已完成",
-  BLOCKED: "需要处理",
-  FAILED: "失败",
-  STALE: "已被新版本替换",
-  CANCELLED: "已取消",
-  QUARANTINED: "需要复核",
-  ERROR: "发生错误",
+const STATUS_LABEL_KEYS: Record<string, string> = {
+  IDLE: "presentation.statuses.IDLE",
+  QUEUED: "presentation.statuses.QUEUED",
+  QUEUED_CAPACITY: "presentation.statuses.QUEUED_CAPACITY",
+  RUNNING: "presentation.statuses.RUNNING",
+  RUNNING_MODEL: "presentation.statuses.RUNNING_MODEL",
+  WAITING_RUNTIME: "presentation.statuses.WAITING_RUNTIME",
+  WAITING_AUTHORIZATION: "presentation.statuses.WAITING_AUTHORIZATION",
+  WAITING_USER_INPUT: "presentation.statuses.WAITING_USER_INPUT",
+  WAITING_EXECUTION_AUTH: "presentation.statuses.WAITING_EXECUTION_AUTH",
+  PENDING_REVIEW: "presentation.statuses.PENDING_REVIEW",
+  RESUMING: "presentation.statuses.RESUMING",
+  INTERRUPTED: "presentation.statuses.INTERRUPTED",
+  SUCCEEDED: "presentation.statuses.SUCCEEDED",
+  BLOCKED: "presentation.statuses.BLOCKED",
+  FAILED: "presentation.statuses.FAILED",
+  STALE: "presentation.statuses.STALE",
+  CANCELLED: "presentation.statuses.CANCELLED",
+  QUARANTINED: "presentation.statuses.QUARANTINED",
+  ERROR: "presentation.statuses.ERROR",
 };
 
 export function creatorStatusLabel(
   status: SpecialistRunStatus | TaskStatus | string | null | undefined,
 ): string {
-  return status ? STATUS_LABELS[status] ?? "处理中" : "—";
+  if (!status) return i18n.t("presentation.dash");
+  const key = STATUS_LABEL_KEYS[status];
+  return key ? i18n.t(key) : i18n.t("presentation.processing");
 }
 
 function elementName(
@@ -55,7 +60,8 @@ function elementName(
   if (!project) return null;
   for (const timeline of Object.values(project.timelines.items)) {
     const element = timeline.elements_by_id[elementId];
-    if (element) return element.label || "时间线内容";
+    if (element)
+      return element.label || i18n.t("presentation.targets.timelineContent");
   }
   return null;
 }
@@ -64,172 +70,215 @@ export function creatorTargetLabel(
   ref: string,
   project?: ProjectDocument | null,
 ): string {
-  if (!ref || ref === "project") return "当前项目";
-  if (ref === "project:assets") return "素材与生成结果";
-  if (ref === "project:plan") return "视频方案";
+  if (!ref || ref === "project")
+    return i18n.t("presentation.targets.currentProject");
+  if (ref === "project:assets")
+    return i18n.t("presentation.targets.assetsAndResults");
+  if (ref === "project:plan") return i18n.t("presentation.targets.videoPlan");
   if (ref.startsWith("element:"))
-    return elementName(project, ref.slice("element:".length)) ?? "时间线内容";
-  if (ref.startsWith("timeline:")) return "主时间轴";
+    return (
+      elementName(project, ref.slice("element:".length)) ??
+      i18n.t("presentation.targets.timelineContent")
+    );
+  if (ref.startsWith("timeline:"))
+    return i18n.t("presentation.targets.mainTimeline");
   if (ref.startsWith("source:")) {
     const sourceId = ref.slice("source:".length);
-    return project?.sources.sources.items[sourceId]?.display_name || "当前素材";
+    return (
+      project?.sources.sources.items[sourceId]?.display_name ||
+      i18n.t("presentation.targets.currentSource")
+    );
   }
   if (ref.startsWith("asset:")) {
     const logicalAssetId = ref.slice("asset:".length);
-    // For visual entities (scene/character/prop), resolve asset:xxx targets
-    // to the entity's real name first, so users never see codes like
-    // asset:char:fox.
     const entity = project?.visual?.entities?.items?.[logicalAssetId];
     if (entity?.name) return entity.name;
     return (
       Object.values(project?.assets.source_versions_by_id ?? {}).find(
         (version) => version.logical_asset_id === logicalAssetId,
-      )?.name || "当前素材"
+      )?.name || i18n.t("presentation.targets.currentSource")
     );
   }
   if (ref.startsWith("visual-entity:")) {
     const entityId = ref.slice("visual-entity:".length);
-    return project?.visual?.entities?.items?.[entityId]?.name || "视觉设定";
+    return (
+      project?.visual?.entities?.items?.[entityId]?.name ||
+      i18n.t("presentation.targets.visualSetting")
+    );
   }
   if (ref.startsWith("asset-version:")) {
     return (
       project?.assets.source_versions_by_id[ref.slice("asset-version:".length)]
-        ?.name || "素材版本"
+        ?.name || i18n.t("presentation.targets.sourceVersion")
     );
   }
   if (ref.startsWith("artifact-version:")) {
     return (
       project?.assets.artifact_versions_by_id[
         ref.slice("artifact-version:".length)
-      ]?.name || "生成结果"
+      ]?.name || i18n.t("presentation.targets.genResult")
     );
   }
-  if (ref.startsWith("file:")) return "素材文件";
-  if (ref.startsWith("artifact:")) return "生成结果";
-  return "当前项目";
+  if (ref.startsWith("file:")) return i18n.t("presentation.targets.sourceFile");
+  if (ref.startsWith("artifact:"))
+    return i18n.t("presentation.targets.genResult");
+  return i18n.t("presentation.targets.currentProject");
 }
 
 export function creatorToolLabel(name: string): string {
   const labels: Record<string, string> = {
-    read_project: "查看视频方案",
-    read_project_file: "读取素材分析",
-    jq_project: "更新视频方案",
-    elements_at: "查看当前时间点",
-    delegate_to_agent: "安排专业制作",
-    analyze_source_media: "理解素材",
-    source_intelligence: "理解素材",
-    ai_edit: "执行剪辑",
-    r2v_generation: "生成视频",
-    image_generation: "生成画面",
-    read_file: "读取文件",
-    write_file: "写入文件",
-    edit_file: "编辑文件",
-    append_file: "追加内容",
-    grep_search: "搜索内容",
-    glob_search: "搜索文件",
-    ast_search: "搜索代码结构",
-    plan: "制定计划",
-    final: "整理回复",
-    finalize_video: "合成视频",
-    yield_until_runtime_event: "等待执行",
-    complete_current_change: "完成检查",
-    ground_prompt_context: "核对画面上下文",
-    transcribe_source_audio: "音频转写",
-    commit_source_intelligence: "写入理解结果",
+    read_project: i18n.t("presentation.tools.read_project"),
+    read_project_file: i18n.t("presentation.tools.read_project_file"),
+    jq_project: i18n.t("presentation.tools.jq_project"),
+    elements_at: i18n.t("presentation.tools.elements_at"),
+    delegate_to_agent: i18n.t("presentation.tools.delegate_to_agent"),
+    analyze_source_media: i18n.t("presentation.tools.analyze_source_media"),
+    source_intelligence: i18n.t("presentation.tools.source_intelligence"),
+    ai_edit: i18n.t("presentation.tools.ai_edit"),
+    r2v_generation: i18n.t("presentation.tools.r2v_generation"),
+    image_generation: i18n.t("presentation.tools.image_generation"),
+    read_file: i18n.t("presentation.tools.read_file"),
+    write_file: i18n.t("presentation.tools.write_file"),
+    edit_file: i18n.t("presentation.tools.edit_file"),
+    append_file: i18n.t("presentation.tools.append_file"),
+    grep_search: i18n.t("presentation.tools.grep_search"),
+    glob_search: i18n.t("presentation.tools.glob_search"),
+    ast_search: i18n.t("presentation.tools.ast_search"),
+    plan: i18n.t("presentation.tools.plan"),
+    final: i18n.t("presentation.tools.final"),
+    finalize_video: i18n.t("presentation.tools.finalize_video"),
+    yield_until_runtime_event: i18n.t(
+      "presentation.tools.yield_until_runtime_event",
+    ),
+    complete_current_change: i18n.t(
+      "presentation.tools.complete_current_change",
+    ),
+    ground_prompt_context: i18n.t("presentation.tools.ground_prompt_context"),
+    transcribe_source_audio: i18n.t(
+      "presentation.tools.transcribe_source_audio",
+    ),
+    commit_source_intelligence: i18n.t(
+      "presentation.tools.commit_source_intelligence",
+    ),
   };
-  return labels[name] ?? "处理中";
+  return labels[name] ?? i18n.t("presentation.processing");
 }
 
 export function creatorRoleLabel(name: string): string {
   const labels: Record<string, string> = {
-    source_intelligence_agent: "素材理解",
-    visual_development_agent: "视觉开发",
-    v_generation_director: "视频制作",
-    ai_editing_director: "剪辑制作",
-    r2v_generation_director: "视频制作",
-    story_planning_agent: "规划故事",
-    unit_planning_routing_agent: "规划单元",
-    review_consistency_agent: "一致性检查",
+    source_intelligence_agent: i18n.t(
+      "presentation.roles.source_intelligence_agent",
+    ),
+    visual_development_agent: i18n.t(
+      "presentation.roles.visual_development_agent",
+    ),
+    v_generation_director: i18n.t("presentation.roles.v_generation_director"),
+    ai_editing_director: i18n.t("presentation.roles.ai_editing_director"),
+    r2v_generation_director: i18n.t(
+      "presentation.roles.r2v_generation_director",
+    ),
+    story_planning_agent: i18n.t("presentation.roles.story_planning_agent"),
+    unit_planning_routing_agent: i18n.t(
+      "presentation.roles.unit_planning_routing_agent",
+    ),
+    review_consistency_agent: i18n.t(
+      "presentation.roles.review_consistency_agent",
+    ),
   };
-  return labels[name] ?? "专业制作";
+  return labels[name] ?? i18n.t("presentation.specialistProduction");
 }
 
-const TOOL_RUNNING_LABELS: Record<string, string> = {
-  read_project: "正在查看项目…",
-  read_project_file: "正在阅读素材分析…",
-  jq_project: "正在修改项目…",
-  elements_at: "正在查看时间轴…",
-  ground_prompt_context: "正在核对画面上下文…",
-  analyze_source_media: "素材理解中…",
-  source_intelligence: "素材理解中…",
-  transcribe_source_audio: "素材音频转写中…",
-  commit_source_intelligence: "素材理解写入中…",
-  ai_edit: "剪辑执行中…",
-  read_file: "正在读取文件…",
-  write_file: "正在写入文件…",
-  edit_file: "正在编辑文件…",
-  append_file: "正在追加内容…",
-  grep_search: "正在搜索内容…",
-  glob_search: "正在搜索文件…",
-  ast_search: "正在搜索代码结构…",
-  plan: "正在制定计划…",
-  final: "正在整理回复…",
-  finalize_video: "正在合成视频…",
-  yield_until_runtime_event: "等待执行中…",
-  complete_current_change: "正在完成检查…",
+const TOOL_RUNNING_LABEL_KEYS: Record<string, string> = {
+  read_project: "presentation.toolRunning.read_project",
+  read_project_file: "presentation.toolRunning.read_project_file",
+  jq_project: "presentation.toolRunning.jq_project",
+  elements_at: "presentation.toolRunning.elements_at",
+  ground_prompt_context: "presentation.toolRunning.ground_prompt_context",
+  analyze_source_media: "presentation.toolRunning.analyze_source_media",
+  source_intelligence: "presentation.toolRunning.source_intelligence",
+  transcribe_source_audio: "presentation.toolRunning.transcribe_source_audio",
+  commit_source_intelligence:
+    "presentation.toolRunning.commit_source_intelligence",
+  ai_edit: "presentation.toolRunning.ai_edit",
+  read_file: "presentation.toolRunning.read_file",
+  write_file: "presentation.toolRunning.write_file",
+  edit_file: "presentation.toolRunning.edit_file",
+  append_file: "presentation.toolRunning.append_file",
+  grep_search: "presentation.toolRunning.grep_search",
+  glob_search: "presentation.toolRunning.glob_search",
+  ast_search: "presentation.toolRunning.ast_search",
+  plan: "presentation.toolRunning.plan",
+  final: "presentation.toolRunning.final",
+  finalize_video: "presentation.toolRunning.finalize_video",
+  yield_until_runtime_event:
+    "presentation.toolRunning.yield_until_runtime_event",
+  complete_current_change: "presentation.toolRunning.complete_current_change",
 };
 
 export function getToolRunningLabel(name: string): string | null {
-  return TOOL_RUNNING_LABELS[name] ?? null;
+  const key = TOOL_RUNNING_LABEL_KEYS[name];
+  return key ? i18n.t(key) : null;
 }
 
 export function getRoleRunningLabel(name: string): string | null {
   const roleLabel = creatorRoleLabel(name);
-  if (!roleLabel || roleLabel === "制作助手") return null;
-  return `${roleLabel}中`;
+  if (!roleLabel || roleLabel === i18n.t("presentation.productionAssistant"))
+    return null;
+  return i18n.t("presentation.roleRunningSuffix", { role: roleLabel });
 }
 
 export function getEstimatedDuration(toolName: string): string | null {
   const durations: Record<string, string> = {
-    image_generation: "预计 30-60 秒",
-    r2v_generation: "预计 2-5 分钟",
-    analyze_source_media: "预计 10-30 秒",
-    ai_edit: "预计 30-60 秒",
-    finalize_video: "预计 1-3 分钟",
-    plan: "预计 5-15 秒",
-    grep_search: "预计 1-5 秒",
-    glob_search: "预计 1-5 秒",
-    ast_search: "预计 1-5 秒",
+    image_generation: i18n.t(
+      "presentation.estimatedDurations.image_generation",
+    ),
+    r2v_generation: i18n.t("presentation.estimatedDurations.r2v_generation"),
+    analyze_source_media: i18n.t(
+      "presentation.estimatedDurations.analyze_source_media",
+    ),
+    ai_edit: i18n.t("presentation.estimatedDurations.ai_edit"),
+    finalize_video: i18n.t("presentation.estimatedDurations.finalize_video"),
+    plan: i18n.t("presentation.estimatedDurations.plan"),
+    grep_search: i18n.t("presentation.estimatedDurations.grep_search"),
+    glob_search: i18n.t("presentation.estimatedDurations.glob_search"),
+    ast_search: i18n.t("presentation.estimatedDurations.ast_search"),
   };
   return durations[toolName] ?? null;
 }
 
 export function creatorEventLabel(type: string): string {
   const labels: Record<string, string> = {
-    "workspace.project_committed": "视频方案已更新",
-    "workspace.project_changed": "视频方案已更新",
-    "review.created": "已生成待审改动",
-    "review.applied": "改动已应用",
-    "review.resolved": "审阅已完成",
-    "task.queued": "制作任务已排队",
-    "task.started": "制作任务已开始",
-    "task.completed": "制作任务已完成",
-    "task.failed": "制作任务失败",
+    "workspace.project_committed": i18n.t(
+      "presentation.events.workspace.project_committed",
+    ),
+    "workspace.project_changed": i18n.t(
+      "presentation.events.workspace.project_changed",
+    ),
+    "review.created": i18n.t("presentation.events.review.created"),
+    "review.applied": i18n.t("presentation.events.review.applied"),
+    "review.resolved": i18n.t("presentation.events.review.resolved"),
+    "task.queued": i18n.t("presentation.events.task.queued"),
+    "task.started": i18n.t("presentation.events.task.started"),
+    "task.completed": i18n.t("presentation.events.task.completed"),
+    "task.failed": i18n.t("presentation.events.task.failed"),
   };
   if (labels[type]) return labels[type];
-  if (type.startsWith("workspace.")) return "视频方案已更新";
-  if (type.startsWith("review.")) return "审阅状态已更新";
-  if (type.startsWith("task.")) return "制作状态已更新";
-  return "项目动态";
+  if (type.startsWith("workspace."))
+    return i18n.t("presentation.eventFallbacks.workspace");
+  if (type.startsWith("review."))
+    return i18n.t("presentation.eventFallbacks.review");
+  if (type.startsWith("task."))
+    return i18n.t("presentation.eventFallbacks.task");
+  return i18n.t("presentation.projectActivity");
 }
 
 export function outputLabel(name: string): string {
   const labels: Record<string, string> = {
-    storyboard: "分镜图",
-    main: "主画面",
-    overlay: "字幕与动效",
-    render: "成片",
-    audio: "音频",
+    storyboard: i18n.t("presentation.outputs.storyboard"),
+    main: i18n.t("presentation.outputs.main"),
+    overlay: i18n.t("presentation.outputs.overlay"),
+    render: i18n.t("presentation.outputs.render"),
+    audio: i18n.t("presentation.outputs.audio"),
   };
-  return labels[name] ?? "生成结果";
+  return labels[name] ?? i18n.t("presentation.genResult");
 }

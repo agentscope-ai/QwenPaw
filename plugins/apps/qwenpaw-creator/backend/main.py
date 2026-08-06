@@ -65,6 +65,9 @@ from services.source_analysis import (  # noqa: E402
     recover_interrupted_source_analysis,
     shutdown_source_analysis_services,
 )
+from services.media.source_memory import (  # noqa: E402
+    recover_interrupted_source_memory,
+)
 from utils.logger import configure_creator_file_logging  # noqa: E402
 
 
@@ -182,6 +185,7 @@ async def _startup() -> None:
     try:
         await start_file_media_execution_services(services)
         await start_creator_agent_runtime(services)
+        recover_interrupted_source_memory(services)
     except BaseException as exc:
         trace_event(
             "creator.runtime.startup_failed",
@@ -236,6 +240,7 @@ async def _startup() -> None:
             "TEXT_API_KEY",
             "VLM_API_KEY",
             "ASR_API_KEY",
+            "TTS_API_KEY",
             "IMAGE_API_KEY",
             "VIDEO_API_KEY",
             "OSS_POLICY_API_KEY",

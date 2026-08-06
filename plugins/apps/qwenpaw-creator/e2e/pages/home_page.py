@@ -23,12 +23,9 @@ class HomePage:
         return ComposerModal(self.page).wait_visible()
 
     def open_model_config(self):
-        # origin/main intentionally renders the compact settings control as an
-        # icon-only button.  Anchor it to the retained Ant Design icon instead
-        # of inventing an accessible name that the production DOM does not have.
-        self.page.locator("header button").filter(
-            has=self.page.locator(".anticon-setting"),
-        ).click()
+        # The header renders the model badges strip as one icon-only button
+        # titled “模型配置”; anchor on the title the production DOM ships.
+        self.page.locator('header button[title="模型配置"]').click()
         self.page.get_by_text("模型配置", exact=True).last.wait_for()
         return self
 

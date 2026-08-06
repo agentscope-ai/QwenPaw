@@ -441,7 +441,6 @@ jobs:
             QwenPaw-[0-9]*-macOS.zip
             QwenPaw-Tauri-*-Windows-setup.exe
             QwenPaw-Tauri-*-macOS.zip
-            QwenPaw-Tauri-*-macOS.app.tar.gz
             qwenpaw-tauri-latest.json
           fail_on_unmatched_files: false
         env:

@@ -6,11 +6,13 @@ import {
   newClientId,
   patchProject,
 } from "@/api/creator";
+import { useCreatorEditBufferStore } from "@/store/creatorEditBufferStore";
 import type {
   ProjectDocument,
   ProjectPatchResponse,
   ProjectServerSyncStatus,
 } from "@/contracts/creator";
+import i18n from "@/i18n";
 
 export type ProjectSnapshotSyncStatus =
   | "idle"
@@ -338,10 +340,10 @@ export const useProjectSnapshotStore = create<ProjectSnapshotState>(
       ensureProject(projectId);
       const state = get();
       if (!state.project || state.generation === null || !state.etag) {
-        throw new Error("Project 快照尚未加载");
+        throw new Error(i18n.t("store.snapshotNotLoad"));
       }
       if (!edits.length) {
-        throw new Error("没有需要应用的 Project 修改");
+        throw new Error(i18n.t("store.noOpsToApply"));
       }
       set({ patching: true, patchError: null });
       try {
@@ -363,6 +365,14 @@ export const useProjectSnapshotStore = create<ProjectSnapshotState>(
           baseGeneration: state.generation,
           baseEtag: state.etag,
           operations,
+        });
+        // Every successful frontend patch is a manual user edit; buffer it so
+        // the next AgentDock message can carry the change history as context.
+        useCreatorEditBufferStore.getState().recordPatch({
+          projectId,
+          projectBefore: state.project,
+          operations: edits,
+          generation: response.generation,
         });
         set((current) => {
           if (current.projectId !== projectId) return {};
