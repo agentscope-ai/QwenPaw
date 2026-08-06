@@ -801,7 +801,8 @@ async def execute_shell_command(
         env["PATH"] = python_bin_dir
 
     if sandbox_config is not None and not isinstance(
-        sandbox_config, SandboxConfig
+        sandbox_config,
+        SandboxConfig,
     ):
         sandbox_config = None
 
