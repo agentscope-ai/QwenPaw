@@ -50,7 +50,7 @@ export default function TopNav() {
     <header className="relative z-[200] grid h-[58px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-[var(--color-border)] bg-white/88 px-3 backdrop-blur-xl dark:bg-[var(--color-bg-primary)] md:px-4">
       <div className="flex min-w-0 items-center gap-2">
         <Link
-          href="/"
+          href="/?view=projects"
           className="icon-button shrink-0"
           aria-label="返回项目列表"
         >

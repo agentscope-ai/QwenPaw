@@ -211,6 +211,35 @@
   }
 }
 
+/* Fix #6583: Keep enough attachment cards visible to verify a multi-file
+ * selection, while bounding very large drops to three scrollable rows. */
+.chatMessagesArea :global {
+  .qwenpaw-sender-header .qwenpaw-attachment {
+    width: 100%;
+    overflow: visible;
+  }
+
+  .qwenpaw-sender-header .qwenpaw-attachment-list {
+    flex-wrap: wrap;
+    align-content: flex-start;
+    max-height: 208px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+}
+
+@media (max-width: 600px) {
+  .chatMessagesArea :global {
+    .qwenpaw-sender-header .qwenpaw-attachment-list {
+      column-gap: 8px;
+      padding-inline: 6px;
+    }
+  }
+}
+/* End #6583 */
+
 /* ---- Rate-limit guidance banner ---- */
 .rateLimitBanner {
   display: flex;

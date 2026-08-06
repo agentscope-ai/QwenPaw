@@ -477,6 +477,8 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
     base = _projects_base(workspace.workspace_dir)
     dest = safe_project_dest(base, dest_name)
 
+    excluded_sensitive: list[str] = []
+
     def _copy() -> Path:
         import shutil
         import stat
@@ -533,12 +535,13 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
             # Skip symlinks and Windows junctions.
             ignored |= {c for c in contents if _is_link_or_junction(d / c)}
             # Skip sensitive directory and file names.
-            ignored |= {
+            sensitive_hits = {
                 c
                 for c in contents
                 if c.lower() in _SENSITIVE_DIR_NAMES
                 or c.lower() in _SENSITIVE_FILE_NAMES
             }
+            ignored |= sensitive_hits
             # Skip entries that complete a sensitive
             # multi-component directory sequence.
             dir_low = _dir_parts_lower(directory)
@@ -549,7 +552,15 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
                 for seq in _SENSITIVE_DIR_SEQUENCES:
                     if _match_dir_sequence(full, seq):
                         ignored.add(c)
+                        sensitive_hits.add(c)
                         break
+            # Record excluded sensitive entries with relative path.
+            if sensitive_hits:
+                rel_dir = Path(directory).relative_to(source)
+                for name in sorted(sensitive_hits):
+                    excluded_sensitive.append(
+                        str(rel_dir / name) if str(rel_dir) != "." else name,
+                    )
             return ignored
 
         base.mkdir(parents=True, exist_ok=True)
@@ -566,16 +577,26 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    if excluded_sensitive:
+        excluded_sensitive = sorted(set(excluded_sensitive))
+        logger.info(
+            "import-local excluded sensitive entries: %s",
+            ", ".join(excluded_sensitive),
+        )
+
     await asyncio.to_thread(
         _save_project_dir,
         workspace.agent_id,
         str(project_path),
     )
 
-    return {
+    result: dict = {
         "path": str(project_path),
         "name": project_path.name,
     }
+    if excluded_sensitive:
+        result["excluded"] = excluded_sensitive
+    return result
 
 
 @router.post(

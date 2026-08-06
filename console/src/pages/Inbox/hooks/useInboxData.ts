@@ -8,6 +8,11 @@ import {
   DEFAULT_AGENT_ID,
   getAgentDisplayName,
 } from "../../../utils/agentDisplayName";
+import {
+  INBOX_EVENT_QUERY_LIMIT,
+  PUSH_MESSAGE_SOURCES,
+  isPushMessageEvent,
+} from "../../../utils/inboxEvents";
 import type { HarvestInstance, InboxSummary, PushMessage } from "../types";
 
 const PUSH_POLLING_INTERVAL_MS = 6000;
@@ -245,17 +250,16 @@ export const useInboxData = () => {
 
   const loadPushMessages = useCallback(async () => {
     try {
-      // Clean expired trash first
+      // Clean expired trash first.
       const currentTrashed = readIdMap(LS_TRASHED_KEY);
       const cleanedTrash = await cleanExpiredTrash(currentTrashed);
       setTrashedMap(cleanedTrash);
 
-      const res = await api.getInboxEvents({ limit: 200 });
-      const events = [...(res?.events || [])].filter((event) =>
-        ["cron", "heartbeat", "memory", "skill_autoupdate"].includes(
-          event.source_type,
-        ),
-      );
+      const res = await api.getInboxEvents({
+        limit: INBOX_EVENT_QUERY_LIMIT,
+        source_types: [...PUSH_MESSAGE_SOURCES],
+      });
+      const events = [...(res?.events || [])].filter(isPushMessageEvent);
       events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
 
       // Prune stale entries from localStorage maps

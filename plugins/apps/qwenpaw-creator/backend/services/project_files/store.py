@@ -286,6 +286,7 @@ class ProjectStore:
                 # Project even if a later directory fsync reports failure.
                 shutil.rmtree(staged_project, ignore_errors=True)
                 raise
+        logger.info("project created: %s", candidate.project_id)
         return _snapshot(candidate)
 
     def read(self, project_id: str) -> ProjectSnapshot:
@@ -511,6 +512,7 @@ class ProjectStore:
                 raise ProjectStoreError(
                     f"Project was removed but tombstone cleanup failed: {safe_id}",
                 ) from exc
+        logger.info("project deleted: %s", safe_id)
 
     def export(self, project_id: str) -> tuple[int, Iterator[bytes]]:
         """Compress the whole Project folder into a zip under ``CREATOR_DATA_ROOT``/exports/.

@@ -345,3 +345,96 @@ def test_reconcile_returns_a_wedged_resuming_session_to_idle(
 
     assert session.status.value == "IDLE"
     assert session.active_run_id is None
+
+
+def test_restart_orphaned_interrupt_with_queued_run_completes_the_stop(
+    tmp_path,
+) -> None:
+    """A durable stop finishes even when its run owner died with the backend.
+
+    Production wedge: the user pressed stop right after a run was queued,
+    then the backend restarted. The queued run had no local handle, so the
+    old reconcile branch treated it as another process's lease and waited
+    forever — the dock showed 「正在停止所有 Agent」 indefinitely. An
+    ownerless QUEUED run must be cancelled and the stop served.
+    """
+
+    async def callback(_messages, _tools) -> AgentModelTurn:
+        return AgentModelTurn(content="完成")
+
+    async def scenario():
+        services = _create_project(tmp_path, initial_goal=None)
+        appended = services.sessions.append_message(
+            PROJECT_ID,
+            SESSION_ID,
+            CONVERSATION_ID,
+            role="user",
+            content_parts=[{"type": "text", "text": "继续主线"}],
+        ).message
+        goal = services.sessions.create_goal(
+            PROJECT_ID,
+            SESSION_ID,
+            CONVERSATION_ID,
+            root_message_seq=appended.message_seq,
+            intent="继续主线",
+            goal_id="goal-stop",
+        )
+        snapshot = services.projects.read(PROJECT_ID)
+        runs = CreatorAgentRunStore(services.root)
+        runs.create(
+            CreatorAgentRunRecord(
+                run_id="agent-run-stop-orphan",
+                project_id=PROJECT_ID,
+                session_id=SESSION_ID,
+                goal_id=goal.goal_id,
+                conversation_id=CONVERSATION_ID,
+                round_id="round-stop-orphan",
+                caused_by_message_id=appended.message_id,
+                caused_by_message_seq=appended.message_seq,
+                origin=ChangeOrigin.AGENTDOCK_IDLE_GOAL,
+                review_policy=ReviewPolicy.AUTO_FIX,
+                input_generation=snapshot.generation,
+                input_etag=snapshot.etag,
+            ),
+        )
+        services.sessions.activate_run(
+            PROJECT_ID,
+            SESSION_ID,
+            goal_id=goal.goal_id,
+            run_id="agent-run-stop-orphan",
+        )
+        # The user's stop arrived while the run sat QUEUED; the backend
+        # restarted before any dispatcher picked it up.
+        services.sessions.set_session_status(
+            PROJECT_ID,
+            SESSION_ID,
+            "INTERRUPT_REQUESTED",
+        )
+
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: services.sessions.get_project_session(
+                PROJECT_ID,
+            ).status.value
+            == "CANCELLED",
+        )
+        orphan = runs.get(PROJECT_ID, "agent-run-stop-orphan")
+        session = services.sessions.get_project_session(PROJECT_ID)
+        await driver.stop()
+        return orphan, session
+
+    orphan, session = asyncio.run(scenario())
+
+    assert orphan.status.value == "CANCELLED"
+    assert (orphan.error or {}).get("code") == "INTERRUPTED"
+    assert session.status.value == "CANCELLED"
+    assert session.active_run_id is None
+    # The hard stop consumed every pending message, as a served interrupt
+    # always does.
+    assert session.last_consumed_message_seq == session.last_message_seq

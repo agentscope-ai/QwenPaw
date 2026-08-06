@@ -34,7 +34,6 @@ concurrency:
 env:
   PLUGIN_DIR: plugins/apps/qwenpaw-creator
   PLUGIN_ID: qwenpaw-creator
-  CDN_BASE: https://download.qwenpaw.agentscope.io
 
 jobs:
   check-version:
@@ -57,18 +56,40 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Creator plugin version: $version"
 
+      - name: Install ossutil
+        run: |
+          wget -q https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil-v1.7.18-linux-amd64.zip
+          unzip -q ossutil-v1.7.18-linux-amd64.zip
+          chmod +x ossutil-v1.7.18-linux-amd64/ossutil64
+          sudo mv ossutil-v1.7.18-linux-amd64/ossutil64 /usr/local/bin/ossutil
+          ossutil --version
+
+      - name: Configure ossutil
+        run: |
+          ossutil config -e ${{ secrets.OSS_ENDPOINT }} \
+            -i ${{ secrets.OSS_ACCESS_KEY_ID }} \
+            -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
+            -L CH
+
       - name: Decide whether to publish
         id: decide
         env:
           VERSION: ${{ steps.version.outputs.version }}
           FORCE: ${{ github.event.inputs.force }}
         run: |
-          # Publish only when this exact version is missing from the CDN
+          # Publish only when this exact version is missing from the plugins
           # index (or when forced via workflow_dispatch). Keeps re-runs and
           # non-version edits to plugin.json idempotent.
           #
-          # Fail closed: only an explicit HTTP 404 counts as "not published
-          # yet". Network, auth or JSON failures abort the run instead of
+          # Read the authoritative index straight from OSS, matching
+          # release.yml / plugins-release.yml / desktop-promote.yml. The
+          # public CDN is NOT trustworthy here: overseas edges were observed
+          # serving gzip bodies without content negotiation and intermittent
+          # 403s on origin pulls, both of which broke this check on
+          # GitHub-hosted runners.
+          #
+          # Fail closed: only a confirmed NoSuchKey/404 counts as "no index
+          # yet". Auth, network or JSON failures abort the run instead of
           # being misread as a green light to overwrite published objects.
           file_id="${PLUGIN_ID}-${VERSION}"
           if [[ "$FORCE" == "true" ]]; then
@@ -76,21 +97,20 @@ jobs:
             echo "Force publish requested for ${file_id}."
             exit 0
           fi
-          http_code=$(curl -sSL --retry 3 -o plugins-index.json \
-            -w '%{http_code}' "${CDN_BASE}/metadata/plugins/index.json") || {
-            echo "ERROR: could not reach the CDN plugins index." >&2
-            exit 1
-          }
-          if [[ "$http_code" == "404" ]]; then
-            published="false"
-          elif [[ "$http_code" == "200" ]]; then
+          if stat_out=$(ossutil stat \
+            "oss://qwenpaw-download/metadata/plugins/index.json" 2>&1); then
+            ossutil cp "oss://qwenpaw-download/metadata/plugins/index.json" \
+              plugins-index.json
             published=$(jq -r --arg id "$file_id" '.files | has($id)' \
               plugins-index.json) || {
-              echo "ERROR: CDN plugins index is not valid JSON." >&2
+              echo "ERROR: OSS plugins index is not valid JSON." >&2
               exit 1
             }
+          elif grep -qiE 'NoSuchKey|StatusCode=404' <<< "$stat_out"; then
+            published="false"
           else
-            echo "ERROR: unexpected HTTP ${http_code} reading the plugins index." >&2
+            echo "ERROR: could not stat the plugins index on OSS:" >&2
+            echo "$stat_out" >&2
             exit 1
           fi
           if [[ "$published" == "true" ]]; then

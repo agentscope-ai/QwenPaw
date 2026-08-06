@@ -16,6 +16,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import type { InboxEvent } from "../../../api/modules/console";
+import { PUSH_MESSAGE_SOURCES } from "../../../utils/inboxEvents";
 
 const { stableT, mockGetInboxEvents, mockMarkInboxRead, mockDeleteInboxEvent } =
   vi.hoisted(() => ({
@@ -101,7 +102,10 @@ describe("useInboxData", () => {
 
     await waitFor(() => expect(result.current.pushMessages).toHaveLength(2));
 
-    expect(mockGetInboxEvents).toHaveBeenCalledWith({ limit: 200 });
+    expect(mockGetInboxEvents).toHaveBeenCalledWith({
+      limit: 200,
+      source_types: [...PUSH_MESSAGE_SOURCES],
+    });
     expect(result.current.summary.pushMessages.total).toBe(2);
     expect(result.current.summary.pushMessages.unread).toBe(1);
   });
@@ -275,6 +279,30 @@ describe("useInboxData", () => {
     expect(deleted).toBe(0);
     expect(mockDeleteInboxEvent).not.toHaveBeenCalled();
     expect(result.current.pushMessages).toHaveLength(1);
+  });
+
+  it("uses only visible messages for the summary after archiving", async () => {
+    const events = [
+      makeEvent({ id: "visible", read: false }),
+      makeEvent({ id: "archived", read: false }),
+    ];
+    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
+
+    const { result } = renderHook(() => useInboxData());
+
+    await waitFor(() => expect(result.current.pushMessages).toHaveLength(2));
+
+    act(() => {
+      result.current.archiveMessage("archived");
+    });
+
+    expect(result.current.pushMessages.map((message) => message.id)).toEqual([
+      "visible",
+    ]);
+    expect(result.current.summary.pushMessages).toEqual({
+      total: 1,
+      unread: 1,
+    });
   });
 
   it("polls getInboxEvents a second time after 6000ms", async () => {

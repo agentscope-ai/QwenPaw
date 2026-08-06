@@ -15,6 +15,7 @@ import orjson
 
 from ..app.chats.repo import JsonChatRepository
 from ..token_usage import get_token_usage_manager
+from ..token_usage.turn_usage import TURN_USAGE_META_KEY
 from .models import (
     AgentStatsSummary,
     ChannelStats,
@@ -108,6 +109,27 @@ def _should_skip_by_content_range(
     return False
 
 
+def _extract_turn_usage_tokens(msg_data: dict) -> tuple[int, int] | None:
+    """Return (prompt, completion) from turn-usage metadata, or None."""
+    meta = msg_data.get("metadata")
+    if not isinstance(meta, dict):
+        return None
+    turn_meta = meta.get(TURN_USAGE_META_KEY)
+    if not isinstance(turn_meta, dict):
+        return None
+    usage = turn_meta.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    try:
+        pt = int(usage.get("prompt_tokens", 0) or 0)
+        ct = int(usage.get("completion_tokens", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    if pt <= 0 and ct <= 0:
+        return None
+    return pt, ct
+
+
 # pylint:disable=too-many-statements,too-many-branches
 def _process_session_file(
     session_data: dict,
@@ -118,9 +140,12 @@ def _process_session_file(
     channel: str,
     session_stem: str,
     active_sessions: dict[str, set[str]],
-) -> tuple[int, bool]:
+) -> tuple[int, bool, int, int, int]:
     tool_call_count = 0
     has_messages_in_range = False
+    agent_prompt_tokens = 0
+    agent_completion_tokens = 0
+    agent_llm_calls = 0
     try:
         memories = _extract_session_messages(session_data)
 
@@ -171,6 +196,17 @@ def _process_session_file(
                 stats["assistant_messages"] += 1
                 stats["total_messages"] += 1
 
+                # Current-agent token totals from per-turn metadata.
+                # Do not write into daily_stats global token fields (overlay).
+                tokens = _extract_turn_usage_tokens(msg_data)
+                if tokens is not None:
+                    pt, ct = tokens
+                    agent_prompt_tokens += pt
+                    agent_completion_tokens += ct
+                    agent_llm_calls += 1
+                    ds["agent_prompt_tokens"] += pt
+                    ds["agent_completion_tokens"] += ct
+
             if isinstance(content, list):
                 for block in content:
                     btype = (
@@ -183,12 +219,18 @@ def _process_session_file(
                         tool_call_count += 1
 
     except Exception as e:
-        logger.debug("Failed to count messages in session: %s", e)
+        logger.warning("Failed to count messages in session: %s", e)
 
     if has_messages_in_range and channel in channel_stats:
         channel_stats[channel]["session_count"] += 1
 
-    return tool_call_count, has_messages_in_range
+    return (
+        tool_call_count,
+        has_messages_in_range,
+        agent_prompt_tokens,
+        agent_completion_tokens,
+        agent_llm_calls,
+    )
 
 
 class AgentStatsService:
@@ -219,6 +261,8 @@ class AgentStatsService:
                 "completion_tokens": 0,
                 "llm_calls": 0,
                 "tool_calls": 0,
+                "agent_prompt_tokens": 0,
+                "agent_completion_tokens": 0,
             }
 
         start_date_str = start_date.isoformat()
@@ -228,6 +272,9 @@ class AgentStatsService:
         total_tool_calls = 0
         active_sessions: dict[str, set[str]] = {}
         total_active_sessions = 0
+        agent_prompt_tokens = 0
+        agent_completion_tokens = 0
+        agent_llm_calls = 0
 
         if chats_file.exists():
             try:
@@ -270,14 +317,16 @@ class AgentStatsService:
 
                 session_fd_sem = asyncio.Semaphore((os.cpu_count() or 4) * 2)
 
-                async def _process_one(session_file: Path) -> tuple[int, bool]:
+                async def _process_one(
+                    session_file: Path,
+                ) -> tuple[int, bool, int, int, int]:
                     async with session_fd_sem:
                         if _should_skip_by_mtime(
                             session_file,
                             start_date,
                             end_date,
                         ):
-                            return 0, False
+                            return 0, False, 0, 0, 0
 
                         try:
                             async with aiofiles.open(
@@ -292,14 +341,14 @@ class AgentStatsService:
                                 session_file,
                                 e,
                             )
-                            return 0, False
+                            return 0, False, 0, 0, 0
 
                         if _should_skip_by_content_range(
                             session_data,
                             start_date_str,
                             end_date_str,
                         ):
-                            return 0, False
+                            return 0, False, 0, 0, 0
 
                         stem = session_file.stem
                         # Check if session is in a channel subdirectory
@@ -319,11 +368,20 @@ class AgentStatsService:
                 tasks = [_process_one(sf) for sf in session_files]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 for result in results:
-                    if isinstance(result, tuple) and len(result) == 2:
-                        tool_calls, has_messages = result
+                    if isinstance(result, tuple) and len(result) == 5:
+                        (
+                            tool_calls,
+                            has_messages,
+                            sess_prompt,
+                            sess_completion,
+                            sess_llm_calls,
+                        ) = result
                         total_tool_calls += tool_calls
                         if has_messages:
                             total_active_sessions += 1
+                        agent_prompt_tokens += sess_prompt
+                        agent_completion_tokens += sess_completion
+                        agent_llm_calls += sess_llm_calls
                     elif isinstance(result, Exception):
                         logger.debug("Failed to process session: %s", result)
             except Exception as e:
@@ -375,6 +433,9 @@ class AgentStatsService:
             ],
             start_date=start_date_str,
             end_date=end_date_str,
+            agent_prompt_tokens=agent_prompt_tokens,
+            agent_completion_tokens=agent_completion_tokens,
+            agent_llm_calls=agent_llm_calls,
         )
 
 

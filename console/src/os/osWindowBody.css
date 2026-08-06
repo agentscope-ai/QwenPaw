@@ -1,0 +1,31 @@
+/* osWindowBody.css
+ * Scoped fallback styles for pages rendered inside OS windows.
+ * Tables scroll horizontally instead of squeezing CJK text into vertical
+ * one-character columns; page paddings tighten to fit the window chrome.
+ * Classic layout is untouched (the class only exists inside WindowFrame). */
+
+.os-window-body .ant-table-content {
+  overflow-x: auto;
+}
+
+.os-window-body .ant-table-cell {
+  white-space: nowrap;
+}
+
+.os-window-body .page-container {
+  padding-right: 0;
+  padding-bottom: 0;
+}
+
+/* In-window app overlays (see OsAppHost.tsx). Modal/Drawer mounted into
+ * the window's overlay root via useOverlayContainer() position against the
+ * window instead of the viewport; the window root's overflow keeps them
+ * clipped to the window (App overlay semantics). */
+.os-window-overlay-root .ant-modal-root .ant-modal-wrap,
+.os-window-overlay-root .ant-modal-root .ant-modal-mask {
+  position: absolute;
+}
+
+.os-window-overlay-root > .ant-drawer {
+  position: absolute;
+}

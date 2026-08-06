@@ -153,7 +153,7 @@ class LocalMediaInput:
     duration_seconds: float | None = None
     original_sound: str = "preserve"
     location: Mapping[str, Any] | None = None
-    overlay: Mapping[str, Any] | None = None
+    overlays: tuple[Mapping[str, Any], ...] = ()
     motions: tuple[Mapping[str, Any], ...] = ()
 
 
@@ -178,10 +178,11 @@ def _input_render_element_ids(item: LocalMediaInput) -> frozenset[str]:
         ids.add(item.source_ref.removeprefix("element:"))
     else:
         ids.add(f"input:{item.version_id}")
-    if isinstance(item.overlay, Mapping):
-        element_id = item.overlay.get("element_id")
-        if isinstance(element_id, str) and element_id:
-            ids.add(element_id)
+    for overlay in item.overlays:
+        if isinstance(overlay, Mapping):
+            element_id = overlay.get("element_id")
+            if isinstance(element_id, str) and element_id:
+                ids.add(element_id)
     for motion in item.motions:
         element_id = motion.get("element_id")
         if isinstance(element_id, str) and element_id:
@@ -265,7 +266,7 @@ class FfmpegLocalMediaRunner:
         ) or any(
             item.start_seconds is not None
             or item.location is not None
-            or item.overlay is not None
+            or item.overlays
             or item.motions
             for item in spec.inputs
         ):
@@ -325,8 +326,7 @@ class FfmpegLocalMediaRunner:
                     ],
                     cwd=spec.work_dir,
                 )
-                warning = self._apply_overlay(item, segment)
-                if warning is not None:
+                for warning in self._apply_overlay(item, segment):
                     overlay_warnings.append(
                         f"{item.source_ref or item.version_id}: {warning}",
                     )
@@ -582,84 +582,100 @@ class FfmpegLocalMediaRunner:
         self,
         item: LocalMediaInput,
         segment: Path,
-    ) -> str | None:
-        overlay = self._normalized_overlay(item)
-        if overlay is None:
-            return None
-        video_size = self._probe_video_size(segment)
-        rendered = segment.with_name(f"{segment.stem}-overlay.mp4")
-        styled_error: str | None = None
-        motion = overlay.get("motion")
-        if (
-            isinstance(motion, Mapping)
-            and str(motion.get("html") or "").strip()
-            and not _motion_document_matches_text(
-                str(motion["html"]),
-                str(overlay.get("text") or ""),
-            )
-        ):
-            # The copy changed but the motion document is stale: skip the
-            # outdated document and burn the current copy in via the fallback
-            # template. Never ship stale copy to the user.
-            motion = None
-            styled_error = f"{overlay['kind']} 动效文档与当前文案不一致，" "已用回退样式渲染最新文案"
-        if (
-            isinstance(motion, Mapping)
-            and str(motion.get("html") or "").strip()
-        ):
-            # A text overlay carrying a generated motion document renders
-            # through the deterministic motion pipeline; the procedural
-            # template below stays as the fallback so the required text
-            # bubble never silently disappears.
-            result = render_motion_overlay(
-                ffmpeg_path=self.executable,
-                input_path=segment,
-                output_path=rendered,
-                html=str(motion["html"]),
-                fps=min(60, max(8, int(motion.get("fps") or 24))),
-                loop=bool(motion.get("loop", True)),
-                video_size=video_size,
-                appear_at=overlay["appear_at"],
-                duration=overlay["duration"],
-                location=overlay.get("location"),
-                viewport_inset=0.05,
-            )
-            if result.success:
-                os.replace(rendered, segment)
-                return None
-            rendered.unlink(missing_ok=True)
-            styled_error = (
-                f"{overlay['kind']} 生成样式渲染失败，已回退固定样式: "
-                f"{result.error or '未知错误'}"
-            )
-        if overlay["kind"] == "pet_os":
-            result = render_pet_os_overlay(
-                ffmpeg_path=self.executable,
-                input_path=segment,
-                output_path=rendered,
-                text=overlay["text"],
-                vibe=overlay["vibe"],
-                video_size=video_size,
-                appear_at=overlay["appear_at"],
-                duration=overlay["duration"],
-                location=overlay.get("location"),
-            )
-        else:
-            result = render_interview_summary_overlay(
-                ffmpeg_path=self.executable,
-                input_path=segment,
-                output_path=rendered,
-                text=overlay["text"],
-                video_size=video_size,
-                appear_at=overlay["appear_at"],
-                duration=overlay["duration"],
-                location=overlay.get("location"),
-            )
-        if not result.success:
-            rendered.unlink(missing_ok=True)
-            return result.error or f"{overlay['kind']} overlay 渲染失败"
-        os.replace(rendered, segment)
-        return styled_error
+    ) -> list[str]:
+        """Burn every text overlay into one prepared segment.
+
+        Overlays are applied sequentially; each reads the segment produced by
+        the previous one so they stack in z_index order.
+        """
+        warnings: list[str] = []
+        segment_duration = (
+            item.end_seconds - item.start_seconds
+            if item.start_seconds is not None and item.end_seconds is not None
+            else item.duration_seconds
+        )
+        video_size: tuple[int, int] | None = None
+        for raw in item.overlays:
+            overlay = self._normalized_overlay(raw, segment_duration)
+            if overlay is None:
+                continue
+            if video_size is None:
+                video_size = self._probe_video_size(segment)
+            rendered = segment.with_name(f"{segment.stem}-overlay.mp4")
+            styled_error: str | None = None
+            motion = overlay.get("motion")
+            if (
+                isinstance(motion, Mapping)
+                and str(motion.get("html") or "").strip()
+                and not _motion_document_matches_text(
+                    str(motion["html"]),
+                    str(overlay.get("text") or ""),
+                )
+            ):
+                motion = None
+                styled_error = (
+                    f"{overlay['kind']} 动效文档与当前文案不一致，" "已用回退样式渲染最新文案"
+                )
+            if (
+                isinstance(motion, Mapping)
+                and str(motion.get("html") or "").strip()
+            ):
+                result = render_motion_overlay(
+                    ffmpeg_path=self.executable,
+                    input_path=segment,
+                    output_path=rendered,
+                    html=str(motion["html"]),
+                    fps=min(60, max(8, int(motion.get("fps") or 24))),
+                    loop=bool(motion.get("loop", True)),
+                    video_size=video_size,
+                    appear_at=overlay["appear_at"],
+                    duration=overlay["duration"],
+                    location=overlay.get("location"),
+                    viewport_inset=0.05,
+                )
+                if result.success:
+                    os.replace(rendered, segment)
+                    if styled_error is not None:
+                        warnings.append(styled_error)
+                    continue
+                rendered.unlink(missing_ok=True)
+                styled_error = (
+                    f"{overlay['kind']} 生成样式渲染失败，已回退固定样式: "
+                    f"{result.error or '未知错误'}"
+                )
+            if overlay["kind"] == "pet_os":
+                result = render_pet_os_overlay(
+                    ffmpeg_path=self.executable,
+                    input_path=segment,
+                    output_path=rendered,
+                    text=overlay["text"],
+                    vibe=overlay["vibe"],
+                    video_size=video_size,
+                    appear_at=overlay["appear_at"],
+                    duration=overlay["duration"],
+                    location=overlay.get("location"),
+                )
+            else:
+                result = render_interview_summary_overlay(
+                    ffmpeg_path=self.executable,
+                    input_path=segment,
+                    output_path=rendered,
+                    text=overlay["text"],
+                    video_size=video_size,
+                    appear_at=overlay["appear_at"],
+                    duration=overlay["duration"],
+                    location=overlay.get("location"),
+                )
+            if not result.success:
+                rendered.unlink(missing_ok=True)
+                warnings.append(
+                    result.error or f"{overlay['kind']} overlay 渲染失败",
+                )
+                continue
+            os.replace(rendered, segment)
+            if styled_error is not None:
+                warnings.append(styled_error)
+        return warnings
 
     def _apply_motion_overlays(
         self,
@@ -764,19 +780,16 @@ class FfmpegLocalMediaRunner:
         }
 
     @staticmethod
-    def _normalized_overlay(item: LocalMediaInput) -> dict[str, Any] | None:
-        raw = item.overlay
+    def _normalized_overlay(
+        raw: Mapping[str, Any] | None,
+        segment_duration: float | None,
+    ) -> dict[str, Any] | None:
         if not isinstance(raw, Mapping):
             return None
         kind = str(raw.get("kind") or "").strip().casefold()
         text = str(raw.get("text") or "").strip()
         if kind not in {"pet_os", "interview_summary"} or not text:
             return None
-        segment_duration = (
-            item.end_seconds - item.start_seconds
-            if item.start_seconds is not None and item.end_seconds is not None
-            else item.duration_seconds
-        )
         if segment_duration is None or not math.isfinite(segment_duration):
             return None
         try:
@@ -985,7 +998,7 @@ class _FrozenInput:
     duration_seconds: float | None = None
     original_sound: str = "preserve"
     location: Mapping[str, Any] | None = None
-    overlay: Mapping[str, Any] | None = None
+    overlays: tuple[Mapping[str, Any], ...] = ()
     motions: tuple[Mapping[str, Any], ...] = ()
 
 
@@ -1204,15 +1217,14 @@ def _motion_document_matches_text(html: str, text: str) -> bool:
     return needle in re.sub(r"\s+", "", plain)
 
 
-def _edit_overlay(
+def _edit_overlays(
     timeline: Timeline,
     element: TimelineElement,
-) -> Mapping[str, Any] | None:
-    """Project one independently persisted Overlay onto one edit input.
+) -> tuple[Mapping[str, Any], ...]:
+    """Project all matching text Overlays onto one edit input.
 
-    The domain permits any number of overlapping Elements.  The current local
-    runner can burn in one text overlay per source segment, so it fails clearly
-    when the Timeline asks it to render more than that.
+    Overlays are returned in z_index order so the caller can burn them
+    sequentially and have them stack correctly.
     """
 
     def _owned(candidate: TimelineElement) -> bool:
@@ -1239,36 +1251,41 @@ def _edit_overlay(
         ),
         key=lambda candidate: (candidate.z_index, candidate.element_id),
     )
-    if not overlays:
-        return None
-    if len(overlays) > 1:
-        raise ValidationError(
-            f"本地 runner 暂不支持在 Element {element.element_id} 上叠加多个 Overlay Element",
+    result: list[Mapping[str, Any]] = []
+    for overlay in overlays:
+        intersection_start = max(
+            element.span.start_tick,
+            overlay.span.start_tick,
         )
-    overlay = overlays[0]
-    intersection_start = max(element.span.start_tick, overlay.span.start_tick)
-    intersection_end = min(element.span.end_tick, overlay.span.end_tick)
-    motion = overlay.creation.motion
-    return {
-        "kind": overlay.creation.overlay_kind,
-        "text": overlay.creation.text,
-        "vibe": overlay.creation.vibe,
-        "location": (
-            overlay.location.model_dump(mode="json")
-            if overlay.location is not None
-            else None
-        ),
-        "motion": (
-            {"html": motion.html, "fps": motion.fps, "loop": motion.loop}
-            if motion is not None
-            else None
-        ),
-        "appear_at": (intersection_start - element.span.start_tick)
-        / timeline.ticks_per_second,
-        "duration": (intersection_end - intersection_start)
-        / timeline.ticks_per_second,
-        "element_id": overlay.element_id,
-    }
+        intersection_end = min(element.span.end_tick, overlay.span.end_tick)
+        motion = overlay.creation.motion
+        result.append(
+            {
+                "kind": overlay.creation.overlay_kind,
+                "text": overlay.creation.text,
+                "vibe": overlay.creation.vibe,
+                "location": (
+                    overlay.location.model_dump(mode="json")
+                    if overlay.location is not None
+                    else None
+                ),
+                "motion": (
+                    {
+                        "html": motion.html,
+                        "fps": motion.fps,
+                        "loop": motion.loop,
+                    }
+                    if motion is not None
+                    else None
+                ),
+                "appear_at": (intersection_start - element.span.start_tick)
+                / timeline.ticks_per_second,
+                "duration": (intersection_end - intersection_start)
+                / timeline.ticks_per_second,
+                "element_id": overlay.element_id,
+            },
+        )
+    return tuple(result)
 
 
 def _plan_timeline_transitions(
@@ -1527,7 +1544,7 @@ def _timeline_execution(
                     if element.location is not None
                     else None
                 ),
-                overlay=_edit_overlay(timeline, element),
+                overlays=_edit_overlays(timeline, element),
                 motions=_edit_motion_overlays(timeline, element),
             ),
         )
@@ -1665,7 +1682,7 @@ def _resolved_fingerprint(resolved: _ResolvedExecution) -> str:
                     "end": item.end_seconds,
                     "originalSound": item.original_sound,
                     "location": item.location,
-                    "overlay": item.overlay,
+                    "overlays": [dict(o) for o in item.overlays],
                     "motions": [dict(motion) for motion in item.motions],
                 }
                 for item in resolved.inputs
@@ -1844,6 +1861,12 @@ class FileLocalMediaExecutionService:
             reference_version_ids=tuple(
                 item.version_id for item in resolved.inputs
             ),
+        )
+        logger.info(
+            "local_media execute: project=%s task=%s command=%s",
+            project_id,
+            ids["task_id"],
+            command_value.value,
         )
         request_fingerprint = _resolved_fingerprint(resolved)
         reuse = await asyncio.to_thread(
@@ -2320,7 +2343,7 @@ class FileLocalMediaExecutionService:
                     duration_seconds=frozen.duration_seconds,
                     original_sound=frozen.original_sound,
                     location=frozen.location,
-                    overlay=frozen.overlay,
+                    overlays=frozen.overlays,
                     motions=frozen.motions,
                 ),
             )
@@ -2381,7 +2404,7 @@ class FileLocalMediaExecutionService:
                         "end": item.end_seconds,
                         "originalSound": item.original_sound,
                         "location": item.location,
-                        "overlay": item.overlay,
+                        "overlays": [dict(o) for o in item.overlays],
                         "motions": [dict(motion) for motion in item.motions],
                     }
                     for item in local_inputs

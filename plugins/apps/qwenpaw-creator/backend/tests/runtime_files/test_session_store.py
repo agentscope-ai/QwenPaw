@@ -712,6 +712,27 @@ def test_cancelled_session_feedback_still_captures_review_boundary(tmp_path):
     assert feedback.review_boundary.interrupted_run_id is None
 
 
+def test_review_revise_interrupts_the_active_run(tmp_path):
+    root, snapshot, store, _bootstrap = _runtime(tmp_path)
+    _activate_runtime(root, snapshot, store)
+
+    feedback = store.admit_user_request(
+        PROJECT_ID,
+        SESSION_ID,
+        CONVERSATION_ID,
+        request_id="request-review-regenerate",
+        client_message_id="client-review-regenerate",
+        content_parts=_text("按审阅意见重做目标"),
+        channel=MessageChannel.AGENTDOCK,
+        classification=MessageClassification.REVIEW_REVISE,
+        source="review_rejection_feedback",
+    )
+
+    assert feedback.review_policy is ReviewPolicy.REQUIRE_REVIEW
+    assert feedback.review_boundary is not None
+    assert feedback.review_boundary.interrupted_run_id == "run-1"
+
+
 def test_first_mainline_request_without_goal_skips_review_boundary(tmp_path):
     """A Session with no Goal yet is receiving its mainline kick-off.
 

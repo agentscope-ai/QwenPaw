@@ -29,7 +29,7 @@ from domain.enums import (
     SpecialistRunStatus,
     TaskStatus,
 )
-from domain.errors import ConflictError
+from domain.errors import ConflictError, ReviewPendingError
 from models.config import (
     CREATION_CHECKPOINT_REQUIRED,
     EXECUTION_AUTHORIZATION_ALLOW_ALL,
@@ -138,6 +138,25 @@ logger = setup_logger("creator.agent_runtime")
 GROUND_PROMPT_CONTEXT_TOOL_NAME = "ground_prompt_context"
 GROUNDING_VISUAL_MAX_BYTES = 16 * 1024 * 1024
 MAX_MALFORMED_JQ_PROJECT_RETRIES = 2
+
+
+def _specialist_waiting_review_summary(
+    role: SpecialistRole,
+    target_refs: list[str],
+) -> str:
+    target = "、".join(target_refs) or "当前目标"
+    if role is SpecialistRole.R2V_GENERATION_DIRECTOR:
+        return f"{target} 的分镜图已生成，视频尚未开始。" "请先审阅分镜图；审阅通过后将自动继续生成视频。"
+    return f"{target} 的产物已生成，后续步骤尚未开始。请先完成审阅；审阅通过后将自动继续。"
+
+
+def _agent_waiting_review_summary(
+    specialist_summary: str | None,
+) -> str:
+    summary = (specialist_summary or "").strip()
+    if not summary:
+        summary = "当前产物已生成，后续步骤尚未开始。请先完成审阅；审阅通过后系统将自动继续。"
+    return f"{summary}\n\n无需另行发送消息。"
 
 
 def _grounding_stable_id(prefix: str, project_id: str, identity: str) -> str:
@@ -789,6 +808,10 @@ class FileCreatorAgentRuntime:
                         # A per-Project failure is persisted by its run whenever
                         # possible and must not starve unrelated Projects.
                         continue
+                logger.debug(
+                    "dispatch loop tick: projects=%d",
+                    len(project_ids),
+                )
         except asyncio.CancelledError:
             return
 
@@ -888,6 +911,40 @@ class FileCreatorAgentRuntime:
             return False
         return True
 
+    async def _reconcile_admission_state(
+        self,
+        project_id: str,
+        session: Any,
+        handle: Any,
+    ) -> Any | None:
+        """Settle durable pauses before reconcile may dispatch anything.
+
+        Returns the converged Session, or ``None`` while the Session is
+        paused — a durable interrupt is being served, or an active Review
+        keeps the mainline waiting for the user.
+        """
+
+        if session.status is CreatorSessionStatus.INTERRUPT_REQUESTED:
+            if handle is not None:
+                await self.interrupt(project_id, reason="durable_interrupt")
+            else:
+                # No local handle: the pointed-at run either belongs to
+                # another live process (RUNNING — leave it to cancel itself)
+                # or is ownerless after a restart (QUEUED/terminal — serve
+                # the durable stop here, or nobody ever will).
+                await self._record_idle_interrupt(
+                    project_id,
+                    reason="durable_interrupt",
+                )
+            return None
+        session = await self._converge_resolved_review(project_id, session)
+        # Pending Review is a durable, recoverable pause. Messages may be
+        # queued while the user decides, but none may start until every active
+        # Review is resolved and the Session projection has converged.
+        if session.status is CreatorSessionStatus.PENDING_REVIEW:
+            return None
+        return session
+
     async def _reconcile_project(self, project_id: str) -> None:
         handle = self._active.get(project_id)
         if handle is not None and handle.task.done():
@@ -903,16 +960,13 @@ class FileCreatorAgentRuntime:
             self.sessions.get_project_session_snapshot,
             project_id,
         )
-        if session.status is CreatorSessionStatus.INTERRUPT_REQUESTED:
-            if handle is not None:
-                await self.interrupt(project_id, reason="durable_interrupt")
-            elif session.active_run_id is None:
-                await self._record_idle_interrupt(
-                    project_id,
-                    reason="durable_interrupt",
-                )
+        session = await self._reconcile_admission_state(
+            project_id,
+            session,
+            handle,
+        )
+        if session is None:
             return
-        session = await self._converge_resolved_review(project_id, session)
         pending = await asyncio.to_thread(
             self.sessions.list_messages,
             project_id,
@@ -1339,6 +1393,7 @@ class FileCreatorAgentRuntime:
         ]
         tool_call_count = 0
         review_ids: list[str] = []
+        waiting_review_summary: str | None = None
         malformed_jq_attempts = 0
         malformed_jq_fingerprints: set[str] = set()
         for _turn_number in range(1, self.max_model_turns + 1):
@@ -1373,6 +1428,12 @@ class FileCreatorAgentRuntime:
                 delta_index += 1
 
             async def persist_text_delta(delta: str) -> None:
+                # Once a tool has opened a Review, the Runtime owns the pause
+                # and resume contract. Suppress the model's free-form final
+                # CTA so it cannot ask the user to send "continue"; the
+                # canonical review summary is emitted after the turn ends.
+                if review_ids:
+                    return
                 await persist_message_delta("text", delta)
 
             async def persist_thinking_delta(delta: str) -> None:
@@ -1416,6 +1477,20 @@ class FileCreatorAgentRuntime:
                 raise AgentModelError(
                     "Creator Agent returned more than one tool call in one turn",
                 )
+            if not turn.tool_calls and turn.content is None:
+                raise AgentModelError(
+                    "Creator Agent returned no final content or tool calls",
+                )
+            if not turn.tool_calls and review_ids:
+                canonical_summary = _agent_waiting_review_summary(
+                    waiting_review_summary,
+                )
+                turn = AgentModelTurn(
+                    content=canonical_summary,
+                    thinking=turn.thinking,
+                    provider_message_id=turn.provider_message_id,
+                )
+                await persist_message_delta("text", canonical_summary)
             await self._persist_assistant_turn(
                 project_id,
                 session_id,
@@ -1434,10 +1509,6 @@ class FileCreatorAgentRuntime:
                 ]
             messages.append(assistant_wire)
             if not turn.tool_calls:
-                if turn.content is None:
-                    raise AgentModelError(
-                        "Creator Agent returned no final content or tool calls",
-                    )
                 return _LoopResult(
                     summary=turn.content,
                     tool_call_count=tool_call_count,
@@ -1449,6 +1520,16 @@ class FileCreatorAgentRuntime:
                 tool_failed = False
                 malformed_budget_exhausted = False
                 self._assert_epoch(project_id, run_id, epoch)
+                logger.info(
+                    "tool: project=%s run=%s tool=%s call_id=%s args=%s",
+                    project_id,
+                    run_id,
+                    call.name,
+                    call.call_id,
+                    _prompt_preview(call.arguments, limit=200)
+                    if call.name != DELEGATE_TOOL_NAME
+                    else call.arguments.get("task"),
+                )
                 await self._event(
                     project_id,
                     session_id,
@@ -1545,6 +1626,13 @@ class FileCreatorAgentRuntime:
                         and review_id not in review_ids
                     ):
                         review_ids.append(review_id)
+                    if result.get("status") == "WAITING_REVIEW":
+                        candidate_summary = result.get("summary")
+                        if (
+                            isinstance(candidate_summary, str)
+                            and candidate_summary.strip()
+                        ):
+                            waiting_review_summary = candidate_summary
                     await self._persist_tool_result(
                         project_id,
                         session_id,
@@ -1986,6 +2074,14 @@ class FileCreatorAgentRuntime:
     ) -> dict[str, Any]:
         delegated = DelegateToAgentInput.model_validate(dict(arguments))
         delegated.validate_contract(project_id=project_id)
+        feedback_target_refs = _review_feedback_target_refs(request)
+        if feedback_target_refs and not set(delegated.target_refs).issubset(
+            feedback_target_refs,
+        ):
+            raise FileAgentRuntimeError(
+                "review regeneration may only delegate the rejected targets: "
+                + ", ".join(sorted(feedback_target_refs)),
+            )
         role = delegated.role
         role_name = role.value
         snapshot = await asyncio.to_thread(
@@ -2000,6 +2096,17 @@ class FileCreatorAgentRuntime:
             project=snapshot.project,
             workspace_schema=tools.schema_prompt.text,
         )
+        record_metadata: dict[str, Any] = {"parentActionId": parent_action_id}
+        if request.source == "review_rejection_feedback":
+            record_metadata.update(
+                {
+                    "reviewId": request.metadata.get("reviewId"),
+                    "reviewDecisionId": request.metadata.get("decisionId"),
+                    "rejectionFeedback": request.metadata.get(
+                        "rejectionFeedback",
+                    ),
+                },
+            )
         record = SpecialistRunRecord(
             run_id=specialist_run_id,
             project_id=project_id,
@@ -2014,7 +2121,7 @@ class FileCreatorAgentRuntime:
             caused_by_message_id=request.message_id,
             caused_by_message_seq=request.message_seq,
             review_policy=tools.context.review_policy,
-            metadata={"parentActionId": parent_action_id},
+            metadata=record_metadata,
         )
         await asyncio.to_thread(self.executions.create_specialist_run, record)
         common = {
@@ -2054,6 +2161,9 @@ class FileCreatorAgentRuntime:
             f"本次委派：\n{delegated.task}\n\n"
             f"目标对象：{', '.join(delegated.target_refs)}"
         )
+        feedback_constraint = _review_feedback_constraint(request)
+        if feedback_constraint:
+            user_text += "\n\n" + feedback_constraint
         native_media_parts: list[dict[str, Any]] = []
         if role is SpecialistRole.SOURCE_INTELLIGENCE:
             native_media_parts = await source_intelligence_content_parts(
@@ -2310,29 +2420,70 @@ class FileCreatorAgentRuntime:
                         "BLOCKED": SpecialistRunStatus.BLOCKED,
                         "FAILED": SpecialistRunStatus.FAILED,
                     }[marker]
+                    waiting_review_id: str | None = None
+                    if status is SpecialistRunStatus.BLOCKED and review_ids:
+                        pending_reviews = await asyncio.to_thread(
+                            self.services.reviews.all_pending,
+                            project_id,
+                        )
+                        pending_review_ids = {
+                            review.review_id for review in pending_reviews
+                        }
+                        waiting_review_id = next(
+                            (
+                                review_id
+                                for review_id in reversed(review_ids)
+                                if review_id in pending_review_ids
+                            ),
+                            None,
+                        )
+                    waiting_for_review = waiting_review_id is not None
+                    if waiting_for_review:
+                        summary = _specialist_waiting_review_summary(
+                            role,
+                            delegated.target_refs,
+                        )
+                    transition_updates: dict[str, Any] = {
+                        "final_marker": marker,
+                        "final_summary_text": summary,
+                    }
+                    if waiting_for_review:
+                        transition_updates["metadata"] = {
+                            **record_metadata,
+                            "waitingReview": True,
+                            "waitingReviewId": waiting_review_id,
+                        }
                     await asyncio.to_thread(
                         self.executions.transition_specialist_run,
                         project_id,
                         specialist_run_id,
                         expected_status=SpecialistRunStatus.RUNNING_MODEL,
                         status=status,
-                        updates={
-                            "final_marker": marker,
-                            "final_summary_text": summary,
-                        },
+                        updates=transition_updates,
                     )
                     terminal_event = {
                         SpecialistRunStatus.SUCCEEDED: "subagent.completed",
                         SpecialistRunStatus.BLOCKED: "subagent.blocked",
                         SpecialistRunStatus.FAILED: "subagent.failed",
                     }[status]
+                    terminal_payload: dict[str, Any] = {
+                        **common,
+                        "summary": summary,
+                    }
+                    if waiting_for_review:
+                        terminal_payload.update(
+                            {
+                                "waitingReview": True,
+                                "reviewId": waiting_review_id,
+                            },
+                        )
                     await self._event(
                         project_id,
                         session_id,
                         terminal_event,
                         parent_run_id,
                         request,
-                        {**common, "summary": summary},
+                        terminal_payload,
                     )
                     if latest is None:
                         latest = await asyncio.to_thread(
@@ -2340,19 +2491,39 @@ class FileCreatorAgentRuntime:
                             project_id,
                         )
                     return {
-                        "ok": status is SpecialistRunStatus.SUCCEEDED,
+                        "ok": (
+                            status is SpecialistRunStatus.SUCCEEDED
+                            or waiting_for_review
+                        ),
                         "runId": specialist_run_id,
                         "role": role_name,
-                        "status": status.value,
+                        "status": (
+                            "WAITING_REVIEW"
+                            if waiting_for_review
+                            else status.value
+                        ),
+                        "waitingReview": waiting_for_review,
                         "summary": summary,
                         "toolCallCount": tool_call_count,
                         "generation": latest.generation,
                         "etag": latest.etag,
-                        "reviewId": review_ids[-1] if review_ids else None,
+                        "reviewId": (
+                            waiting_review_id
+                            or (review_ids[-1] if review_ids else None)
+                        ),
                     }
 
                 call = turn.tool_calls[0]
                 tool_call_count += 1
+                logger.info(
+                    "tool: project=%s run=%s role=%s tool=%s call_id=%s args=%s",
+                    project_id,
+                    specialist_run_id,
+                    role_name,
+                    call.name,
+                    call.call_id,
+                    _prompt_preview(call.arguments, limit=200),
+                )
                 await self._event(
                     project_id,
                     session_id,
@@ -2368,6 +2539,7 @@ class FileCreatorAgentRuntime:
                 )
                 failed = False
                 malformed_budget_exhausted = False
+                waiting_review: ReviewPendingError | None = None
                 try:
                     if call.parse_error is not None:
                         raise ToolArgumentsJSONError(call.parse_error)
@@ -2451,13 +2623,40 @@ class FileCreatorAgentRuntime:
                 except (asyncio.CancelledError, StaleAgentRun):
                     raise
                 except Exception as exc:
-                    failed = True
-                    if isinstance(exc, MalformedJqProjectArguments):
+                    if isinstance(exc, ReviewPendingError):
+                        waiting_review = exc
+                        review_id = exc.details.get("reviewId")
+                        logger.info(
+                            "review required: project=%s run=%s role=%s "
+                            "tool=%s call_id=%s review_id=%s target=%s",
+                            project_id,
+                            specialist_run_id,
+                            role_name,
+                            call.name,
+                            call.call_id,
+                            review_id,
+                            exc.details.get("targetRef"),
+                        )
+                        if (
+                            isinstance(review_id, str)
+                            and review_id
+                            and review_id not in review_ids
+                        ):
+                            review_ids.append(review_id)
+                        result = {
+                            "ok": True,
+                            "status": "WAITING_REVIEW",
+                            "message": exc.message,
+                            **exc.details,
+                        }
+                    elif isinstance(exc, MalformedJqProjectArguments):
+                        failed = True
                         result = exc.tool_result()
                         malformed_budget_exhausted = (
                             exc.attempt > MAX_MALFORMED_JQ_PROJECT_RETRIES
                         )
                     else:
+                        failed = True
                         result = {
                             "ok": False,
                             "error": {
@@ -2523,6 +2722,80 @@ class FileCreatorAgentRuntime:
                         "failed": failed,
                     },
                 )
+                if waiting_review is not None:
+                    target_ref = str(
+                        waiting_review.details.get("targetRef") or "当前目标",
+                    )
+                    command_type = str(
+                        waiting_review.details.get("commandType") or "",
+                    )
+                    if command_type == "GENERATE_R2V_VIDEO":
+                        summary = _specialist_waiting_review_summary(
+                            role,
+                            [target_ref],
+                        )
+                    else:
+                        summary = (
+                            f"{target_ref} 的前置产物已生成，"
+                            "本步骤尚未开始。请先完成审阅；"
+                            "审阅通过后将自动继续。"
+                        )
+                    waiting_metadata = {
+                        **record_metadata,
+                        "waitingReview": True,
+                        "waitingReviewId": waiting_review.details.get(
+                            "reviewId",
+                        ),
+                        "waitingArtifactVersionId": (
+                            waiting_review.details.get("artifactVersionId")
+                        ),
+                    }
+                    await asyncio.to_thread(
+                        self.executions.transition_specialist_run,
+                        project_id,
+                        specialist_run_id,
+                        expected_status=SpecialistRunStatus.RUNNING_MODEL,
+                        status=SpecialistRunStatus.BLOCKED,
+                        updates={
+                            "final_marker": "BLOCKED",
+                            "final_summary_text": summary,
+                            "metadata": waiting_metadata,
+                        },
+                    )
+                    await self._event(
+                        project_id,
+                        session_id,
+                        "subagent.blocked",
+                        parent_run_id,
+                        request,
+                        {
+                            **common,
+                            "summary": summary,
+                            "waitingReview": True,
+                            "reviewId": waiting_review.details.get(
+                                "reviewId",
+                            ),
+                            "artifactVersionId": waiting_review.details.get(
+                                "artifactVersionId",
+                            ),
+                        },
+                    )
+                    latest = await asyncio.to_thread(
+                        self.services.projects.read,
+                        project_id,
+                    )
+                    return {
+                        "ok": True,
+                        "runId": specialist_run_id,
+                        "role": role_name,
+                        "status": "WAITING_REVIEW",
+                        "waitingReview": True,
+                        "summary": summary,
+                        "toolCallCount": tool_call_count,
+                        "generation": latest.generation,
+                        "etag": latest.etag,
+                        "reviewId": waiting_review.details.get("reviewId"),
+                    }
                 if malformed_budget_exhausted:
                     raise AgentModelError(
                         "jq_project produced structurally corrupted tool "
@@ -2612,6 +2885,11 @@ class FileCreatorAgentRuntime:
     ) -> dict[str, Any]:
         """Invoke one role-owned tool through generic guard/wait protocols."""
 
+        arguments, feedback_applied = _apply_review_feedback_to_tool_arguments(
+            request,
+            name=name,
+            arguments=arguments,
+        )
         spec = self.specialist_tools.spec_for(role, name)
         authorization_id: str | None = None
         if spec is not None:
@@ -2735,6 +3013,11 @@ class FileCreatorAgentRuntime:
                 )
             if authorization_id is not None:
                 result["executionAuthorizationId"] = authorization_id
+            if feedback_applied:
+                result["reviewFeedbackApplied"] = True
+                result["reviewDecisionId"] = request.metadata.get(
+                    "decisionId",
+                )
             return result
         finally:
             if waiting_runtime:
@@ -2800,6 +3083,18 @@ class FileCreatorAgentRuntime:
             if authorization.status is ExecutionAuthorizationStatus.APPROVED:
                 continue
             if authorization.status is ExecutionAuthorizationStatus.PENDING:
+                logger.info(
+                    "approval required: project=%s run=%s role=%s tool=%s "
+                    "phase=%s call_id=%s operation=%s summary=%s",
+                    project_id,
+                    specialist_run_id,
+                    common.get("role"),
+                    spec.name,
+                    phase,
+                    call_id,
+                    authorization.operation,
+                    authorization.summary,
+                )
                 await self._event(
                     project_id,
                     session_id,
@@ -2831,6 +3126,17 @@ class FileCreatorAgentRuntime:
                     authorization=authorization,
                     decided_event="creation.checkpoint_decided",
                     decided_payload={"checkpointPhase": phase},
+                )
+                logger.info(
+                    "approval decided: project=%s run=%s role=%s "
+                    "tool=%s phase=%s call_id=%s status=%s",
+                    project_id,
+                    specialist_run_id,
+                    common.get("role"),
+                    spec.name,
+                    phase,
+                    call_id,
+                    authorization.status.value,
                 )
             if (
                 authorization.status
@@ -3081,6 +3387,20 @@ class FileCreatorAgentRuntime:
                 "toolCallId": call_id,
             },
         )
+        logger.info(
+            "approval required: project=%s run=%s role=%s tool=%s call_id=%s "
+            "operation=%s target=%s provider=%s/%s summary=%s",
+            project_id,
+            specialist_run_id,
+            common.get("role"),
+            spec.name,
+            call_id,
+            authorization.operation,
+            target_ref,
+            provider,
+            model,
+            authorization.summary,
+        )
         authorization = await self._await_authorization_decision(
             project_id=project_id,
             session_id=session_id,
@@ -3091,6 +3411,15 @@ class FileCreatorAgentRuntime:
             common=common,
             call_id=call_id,
             authorization=authorization,
+        )
+        logger.info(
+            "approval decided: project=%s run=%s role=%s tool=%s call_id=%s status=%s",
+            project_id,
+            specialist_run_id,
+            common.get("role"),
+            spec.name,
+            call_id,
+            authorization.status.value,
         )
         if authorization.status is not ExecutionAuthorizationStatus.APPROVED:
             raise FileAgentRuntimeError(
@@ -3702,15 +4031,64 @@ class FileCreatorAgentRuntime:
         reason: str,
     ) -> None:
         try:
+            # Snapshot read (shared lock): the full get_project_session
+            # recovery holds the exclusive Runtime lock while it replays
+            # the whole event stream, which loses the lock race against
+            # steady UI polling on large sessions — the stop then never
+            # completes (observed live: LockTimeoutError on every poll
+            # while the dock showed 「正在停止所有 Agent」 forever).  The
+            # cleanup below only needs head pointers; each write takes
+            # its own short exclusive lock.
             session = await asyncio.to_thread(
-                self.sessions.get_project_session,
+                self.sessions.get_project_session_snapshot,
                 project_id,
             )
-            # An active_run_id without a local handle is owned by another
-            # process sharing this Runtime root.  Leave the durable interrupt
-            # request in place so that owner cancels itself on its next poll.
             if session.active_run_id is not None:
-                return
+                # A RUNNING run without a local handle is owned by another
+                # live process: leave the durable interrupt in place so that
+                # owner cancels itself.  A QUEUED or terminal run is
+                # ownerless (typically orphaned by a backend restart while
+                # the stop was pending) — no dispatcher will ever start or
+                # finish it, so the stop must be served here.
+                try:
+                    run = await asyncio.to_thread(
+                        self.runs.get,
+                        project_id,
+                        session.active_run_id,
+                    )
+                except Exception:
+                    return
+                if run.status is AgentRunStatus.QUEUED:
+                    try:
+                        await asyncio.to_thread(
+                            self.runs.transition,
+                            project_id,
+                            run.run_id,
+                            expected_status=AgentRunStatus.QUEUED,
+                            status=AgentRunStatus.CANCELLED,
+                            updates={
+                                "error": {
+                                    "code": "INTERRUPTED",
+                                    "message": (
+                                        "queued run cancelled by a durable "
+                                        "interrupt served after restart"
+                                    ),
+                                },
+                            },
+                        )
+                    except AgentRunStateConflict:
+                        # Another process started it first; that owner now
+                        # serves the interrupt.
+                        return
+                elif run.status not in TERMINAL_AGENT_RUN_STATUSES:
+                    return
+                session = await asyncio.to_thread(
+                    self.sessions.clear_active_run,
+                    project_id,
+                    session.session_id,
+                    expected_run_id=run.run_id,
+                    status=CreatorSessionStatus.INTERRUPT_REQUESTED,
+                )
             if session.last_consumed_message_seq < session.last_message_seq:
                 await asyncio.to_thread(
                     self.sessions.mark_messages_consumed,
@@ -3844,6 +4222,66 @@ def _message_text(message: CreatorMessageRecord) -> str:
     return "\n".join(chunks).strip() or "请处理本消息中的项目请求。"
 
 
+# A conversation accumulates full project.json echoes from runtime
+# actions; a 50-element Project makes each echo ~400KB and the sum
+# overflows the model input window (observed: 2.09MB of history against a
+# 0.98MB limit, every run failing instantly with an invalid-parameter
+# 400). Only the newest echo can describe the current Project, so older
+# ones are pure — and misleading — weight. They are elided at prompt
+# assembly only; the durable history keeps every byte.
+_SNAPSHOT_SOURCE = "runtime_action_result"
+_SNAPSHOT_ELISION_MIN_CHARS = 4096
+
+
+def _snapshot_generation(text: str) -> int | None:
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    project = payload.get("project")
+    document = project if isinstance(project, dict) else payload
+    generation = document.get("generation")
+    return generation if isinstance(generation, int) else None
+
+
+def _elide_stale_snapshots(
+    prior_context: list[CreatorMessageRecord],
+) -> dict[int, str]:
+    """Map message seq → stub for every superseded project echo."""
+
+    candidates = [
+        item
+        for item in prior_context
+        if item.role == "tool"
+        and item.source == _SNAPSHOT_SOURCE
+        and sum(
+            len(part.text or "")
+            for part in item.content_parts
+            if part.text is not None
+        )
+        >= _SNAPSHOT_ELISION_MIN_CHARS
+    ]
+    stubs: dict[int, str] = {}
+    for item in candidates[:-1]:
+        generation = next(
+            (
+                _snapshot_generation(part.text)
+                for part in item.content_parts
+                if part.text
+            ),
+            None,
+        )
+        marker = (
+            f"generation {generation} 时点" if generation is not None else "历史时点"
+        )
+        stubs[item.message_seq] = (
+            f"[已省略{marker}的项目快照；它早已过期，" "当前项目状态请用 read_project 获取]"
+        )
+    return stubs
+
+
 def _continuation_message_text(
     request: CreatorMessageRecord,
     prior_context: list[CreatorMessageRecord],
@@ -3853,15 +4291,20 @@ def _continuation_message_text(
     current = _message_text(request)
     if not prior_context:
         return current
+    stubs = _elide_stale_snapshots(prior_context)
     history = [
         {
             "messageSeq": item.message_seq,
             "role": item.role,
             "source": item.source,
-            "content": [
-                part.model_dump(mode="json", exclude_none=True)
-                for part in item.content_parts
-            ],
+            "content": (
+                [{"type": "text", "text": stubs[item.message_seq]}]
+                if item.message_seq in stubs
+                else [
+                    part.model_dump(mode="json", exclude_none=True)
+                    for part in item.content_parts
+                ]
+            ),
             "metadata": dict(item.metadata),
         }
         for item in prior_context
@@ -3929,6 +4372,98 @@ def _require_source_intelligence_associations(
                 "Source Intelligence SUCCESS requires an indexed analysis file for "
                 f"asset:{logical_asset_id}",
             )
+
+
+def _review_feedback_target_refs(
+    request: CreatorMessageRecord,
+) -> frozenset[str]:
+    if request.source != "review_rejection_feedback":
+        return frozenset()
+    feedback = request.metadata.get("rejectionFeedback")
+    if not isinstance(feedback, Mapping) or (
+        feedback.get("action") != "UNDO_AND_REGENERATE"
+    ):
+        return frozenset()
+    raw_targets = request.metadata.get("targets")
+    if not isinstance(raw_targets, list):
+        return frozenset()
+    target_refs = {
+        target_ref.strip()
+        for item in raw_targets
+        if isinstance(item, Mapping)
+        for target_ref in [item.get("target_ref") or item.get("targetRef")]
+        if isinstance(target_ref, str) and target_ref.strip()
+    }
+    # Legacy visual reviews used visual-entity:<id>, while the current
+    # Specialist contract admits the same logical entity as asset:<id>.
+    target_refs.update(
+        "asset:" + target_ref.removeprefix("visual-entity:")
+        for target_ref in tuple(target_refs)
+        if target_ref.startswith("visual-entity:")
+    )
+    return frozenset(target_refs)
+
+
+def _review_feedback_constraint(
+    request: CreatorMessageRecord,
+) -> str | None:
+    """Render the durable rejection facts as a non-optional run constraint."""
+
+    target_refs = _review_feedback_target_refs(request)
+    if not target_refs:
+        return None
+    feedback = request.metadata.get("rejectionFeedback")
+    if not isinstance(feedback, Mapping):
+        return None
+    lines = [
+        "【Runtime 强制约束 · 审阅重做】",
+        "本轮只允许重做这些 targetRef：" + ", ".join(sorted(target_refs)),
+        "生成工具的最终 prompt 必须明确吸收下面的用户反馈；不能复用原 prompt。",
+    ]
+    feedback_note = feedback.get("feedbackNote") or feedback.get(
+        "feedback_note",
+    )
+    problem_note = feedback.get("problemNote") or feedback.get("problem_note")
+    instruction = feedback.get("regenerationInstruction") or feedback.get(
+        "regeneration_instruction",
+    )
+    if isinstance(feedback_note, str) and feedback_note.strip():
+        lines.append("必须吸收的用户反馈：" + feedback_note.strip())
+    if isinstance(problem_note, str) and problem_note.strip():
+        lines.append("需要修正的问题：" + problem_note.strip())
+    if isinstance(instruction, str) and instruction.strip():
+        lines.append("必须执行的重做要求：" + instruction.strip())
+    return "\n".join(lines)
+
+
+def _apply_review_feedback_to_tool_arguments(
+    request: CreatorMessageRecord,
+    *,
+    name: str,
+    arguments: Mapping[str, Any],
+) -> tuple[Mapping[str, Any], bool]:
+    """Deterministically carry rejection feedback into paid media prompts."""
+
+    if name not in {"image_generation", "r2v_generation"}:
+        return arguments, False
+    constraint = _review_feedback_constraint(request)
+    if constraint is None:
+        return arguments, False
+    raw_payload = arguments.get("arguments")
+    if not isinstance(raw_payload, Mapping):
+        return arguments, False
+    prompt = raw_payload.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return arguments, False
+    decision_id = str(request.metadata.get("decisionId") or "unknown")
+    marker = f"[review-decision:{decision_id}]"
+    if marker in prompt:
+        return arguments, True
+    payload = dict(raw_payload)
+    payload["prompt"] = f"{prompt.rstrip()}\n\n{marker}\n{constraint}"
+    enriched = dict(arguments)
+    enriched["arguments"] = payload
+    return enriched, True
 
 
 def _specialist_terminal(content: str) -> tuple[str, str]:

@@ -20,11 +20,20 @@ export function useSyncCodingMode(): void {
   useEffect(() => {
     if (!selectedAgent) return;
     let cancelled = false;
+    const startRevision =
+      useCodingModeStore.getState().codingModeRevisionByAgent[selectedAgent] ??
+      0;
     void codingModeApi
       .get()
       .then((state) => {
         if (cancelled) return;
-        setCodingMode(selectedAgent, state.enabled);
+        const currentRevision =
+          useCodingModeStore.getState().codingModeRevisionByAgent[
+            selectedAgent
+          ] ?? 0;
+        if (currentRevision === startRevision) {
+          setCodingMode(selectedAgent, state.enabled);
+        }
         // null = explicit workspace default; string = specific path.
         setProjectDir(selectedAgent, state.project_dir);
       })
@@ -35,7 +44,13 @@ export function useSyncCodingMode(): void {
         // DefaultRedirect spinner and CodingModeToggle stay disabled
         // forever on any GET failure.
         console.warn("Failed to sync coding mode state:", err);
-        setCodingMode(selectedAgent, false);
+        const currentRevision =
+          useCodingModeStore.getState().codingModeRevisionByAgent[
+            selectedAgent
+          ] ?? 0;
+        if (currentRevision === startRevision) {
+          setCodingMode(selectedAgent, false);
+        }
         setProjectDir(selectedAgent, null);
       });
     return () => {
