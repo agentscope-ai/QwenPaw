@@ -122,26 +122,20 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
     "port": 8088
   },
   "show_tool_details": true,
-  "user_timezone": "Asia/Shanghai",
-  "last_dispatch": {
-    "channel": "console",
-    "user_id": "user1",
-    "session_id": "session123"
-  }
+  "user_timezone": "Asia/Shanghai"
 }
 ```
 
 **全局 config.json 字段说明：**
 
-| 字段                  | 类型           | 默认值         | 说明                                             |
-| --------------------- | -------------- | -------------- | ------------------------------------------------ |
-| `agents.active_agent` | string         | `"default"`    | 当前激活的智能体 ID                              |
-| `agents.profiles`     | object         | `{}`           | 智能体配置引用字典（key 为 agent_id）            |
-| `last_api.host`       | string \| null | `null`         | 上次 `qwenpaw app` 启动的主机地址                |
-| `last_api.port`       | int \| null    | `null`         | 上次 `qwenpaw app` 启动的端口                    |
-| `show_tool_details`   | bool           | `true`         | 是否在频道消息中显示工具调用/返回详情            |
-| `user_timezone`       | string         | _（系统时区）_ | IANA 时区名称（如 `"Asia/Shanghai"`）            |
-| `last_dispatch`       | object \| null | `null`         | 最近一次消息分发目标（用于心跳 `target="last"`） |
+| 字段                  | 类型           | 默认值         | 说明                                  |
+| --------------------- | -------------- | -------------- | ------------------------------------- |
+| `agents.active_agent` | string         | `"default"`    | 当前激活的智能体 ID                   |
+| `agents.profiles`     | object         | `{}`           | 智能体配置引用字典（key 为 agent_id） |
+| `last_api.host`       | string \| null | `null`         | 上次 `qwenpaw app` 启动的主机地址     |
+| `last_api.port`       | int \| null    | `null`         | 上次 `qwenpaw app` 启动的端口         |
+| `show_tool_details`   | bool           | `true`         | 是否在频道消息中显示工具调用/返回详情 |
+| `user_timezone`       | string         | _（系统时区）_ | IANA 时区名称（如 `"Asia/Shanghai"`） |
 
 **`agents.profiles[agent_id]`** 引用字段：
 
@@ -237,8 +231,7 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
       "mode": "warn"
     },
     "allow_no_auth_hosts": ["127.0.0.1", "::1"]
-  },
-  "last_dispatch": null
+  }
 }
 ```
 
@@ -494,9 +487,10 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 ---
 
-#### `last_dispatch` — 最近一次消息分发目标
+#### `state/last_dispatch.json` — 最近一次消息分发状态
 
 记录最近用户消息来源，用于心跳 `target = "last"` 时的消息发送。
+该运行状态位于智能体工作区，不属于 `agent.json` 配置。
 
 | 字段         | 类型   | 默认值 | 说明                                     |
 | ------------ | ------ | ------ | ---------------------------------------- |
@@ -504,7 +498,7 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `user_id`    | string | `""`   | 该频道中的用户 ID                        |
 | `session_id` | string | `""`   | 会话/对话 ID                             |
 
-自动更新，无需手动配置。
+系统以原子写方式自动更新，无需手动配置。
 
 ---
 

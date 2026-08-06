@@ -20,6 +20,7 @@ from typing import (
     Union,
     AsyncIterator,
     AsyncGenerator,
+    Awaitable,
     Callable,
     TYPE_CHECKING,
 )
@@ -45,7 +46,7 @@ from ...config.utils import load_config
 EnqueueCallback = Optional[Callable[[Any], None]]
 
 # Called when a user-originated reply was sent (channel, user_id, session_id)
-OnReplySent = Optional[Callable[[str, str, str], None]]
+OnReplySent = Optional[Callable[[str, str, str], Awaitable[None]]]
 
 logger = logging.getLogger(__name__)
 
@@ -1012,7 +1013,7 @@ class BaseChannel(ABC):
 
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
-                self._on_reply_sent(self.channel, *args)
+                await self._on_reply_sent(self.channel, *args)
 
         except asyncio.CancelledError:
             logger.info(
@@ -1589,7 +1590,7 @@ class BaseChannel(ABC):
                 )
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
-                self._on_reply_sent(self.channel, *args)
+                await self._on_reply_sent(self.channel, *args)
         except asyncio.CancelledError:
             logger.info(
                 "channel task cancelled: session=%s",

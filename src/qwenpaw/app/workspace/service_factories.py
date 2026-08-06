@@ -6,8 +6,10 @@ and initialize service components. Extracted from local functions to
 improve testability and code organization.
 """
 
-from typing import TYPE_CHECKING
 import logging
+from typing import TYPE_CHECKING
+
+from ...utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from .workspace import Workspace
@@ -160,8 +162,9 @@ async def create_channel_service(ws: "Workspace", _):
         show_tool_details=root_config.show_tool_details,
     )
 
-    def on_last_dispatch(channel, user_id, session_id):
-        update_last_dispatch(
+    async def on_last_dispatch(channel, user_id, session_id):
+        await run_sync_io(
+            update_last_dispatch,
             channel=channel,
             user_id=user_id,
             session_id=session_id,

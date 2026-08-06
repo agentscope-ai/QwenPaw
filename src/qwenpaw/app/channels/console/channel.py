@@ -499,7 +499,7 @@ class ConsoleChannel(BaseChannel):
 
             to_handle = request.user_id or ""
             if self._on_reply_sent:
-                self._on_reply_sent(
+                await self._on_reply_sent(
                     self.channel,
                     to_handle,
                     request.session_id or f"{self.channel}:{to_handle}",

@@ -4,8 +4,7 @@
 Delegates to ``MultiAgentManager.reload_agent`` so disk-edit reloads
 go through the same atomic workspace swap as frontend saves and wait
 for in-flight tasks. Only triggers when ``channels`` or ``heartbeat``
-hashes change, so runtime bookkeeping rewrites (e.g. ``last_dispatch``)
-do not cause spurious reloads.
+hashes change.
 """
 
 from __future__ import annotations
@@ -16,6 +15,7 @@ from pathlib import Path
 from typing import Any, Optional, TYPE_CHECKING
 
 from ..config.config import load_agent_config
+from ..utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from ..config.config import HeartbeatConfig
@@ -68,7 +68,6 @@ class AgentConfigWatcher:
         self._poll_interval = poll_interval
         self._task: Optional[asyncio.Task] = None
 
-        self._last_mtime: float = 0.0
         self._last_channels_hash: Optional[int] = None
         self._last_heartbeat_hash: Optional[int] = None
 
@@ -77,7 +76,7 @@ class AgentConfigWatcher:
 
     async def start(self) -> None:
         """Take initial snapshot and start the polling task."""
-        self._snapshot()
+        await self._snapshot()
         self._task = asyncio.create_task(
             self._poll_loop(),
             name=f"agent_config_watcher_{self._agent_id}",
@@ -109,18 +108,13 @@ class AgentConfigWatcher:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _read_mtime(self) -> float:
-        """Return current mtime of agent.json, 0.0 if missing."""
+    async def _snapshot(self) -> None:
+        """Record current section hashes as the new baseline."""
         try:
-            return self._config_path.stat().st_mtime
-        except FileNotFoundError:
-            return 0.0
-
-    def _snapshot(self) -> None:
-        """Record current mtime and section hashes as the new baseline."""
-        self._last_mtime = self._read_mtime()
-        try:
-            agent_config = load_agent_config(self._agent_id)
+            agent_config = await run_sync_io(
+                load_agent_config,
+                self._agent_id,
+            )
         except Exception:
             logger.exception(
                 f"AgentConfigWatcher ({self._agent_id}): "
@@ -155,13 +149,11 @@ class AgentConfigWatcher:
 
     async def _check(self) -> None:
         """Check for meaningful config changes and trigger a reload."""
-        mtime = self._read_mtime()
-        if mtime == self._last_mtime:
-            return
-        self._last_mtime = mtime
-
         try:
-            agent_config = load_agent_config(self._agent_id)
+            agent_config = await run_sync_io(
+                load_agent_config,
+                self._agent_id,
+            )
         except Exception:
             logger.exception(
                 f"AgentConfigWatcher ({self._agent_id}): "
@@ -184,8 +176,7 @@ class AgentConfigWatcher:
             or new_heartbeat_hash != old_heartbeat_hash
         )
 
-        # Refresh hashes regardless so non-meaningful rewrites
-        # (e.g. last_dispatch) re-baseline silently.
+        # Refresh hashes regardless so unrelated changes re-baseline silently.
         self._last_channels_hash = new_channels_hash
         self._last_heartbeat_hash = new_heartbeat_hash
 
