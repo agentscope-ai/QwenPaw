@@ -6,11 +6,11 @@
  */
 import { hostFetch } from "../hostSdk/fetch";
 import type { PawStorageApi } from "./types";
+import { getActivePawAppId } from "./context";
 
 /** Get the current PawApp ID from page context. */
 function getAppId(): string {
-  const match = window.location.pathname.match(/\/apps\/([^/]+)/);
-  return match?.[1] ?? "";
+  return getActivePawAppId();
 }
 
 /**

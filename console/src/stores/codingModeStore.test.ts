@@ -8,7 +8,11 @@ import {
 import { useAgentStore } from "./agentStore";
 
 beforeEach(() => {
-  useCodingModeStore.setState({ codingModeByAgent: {}, projectDirByAgent: {} });
+  useCodingModeStore.setState({
+    codingModeByAgent: {},
+    codingModeRevisionByAgent: {},
+    projectDirByAgent: {},
+  });
   useAgentStore.setState({ selectedAgent: "test-agent", agents: [] });
 });
 
@@ -69,6 +73,7 @@ describe("codingModeStore", () => {
     useAgentStore.setState({ selectedAgent: "a1", agents: [] });
     useCodingModeStore.setState({
       codingModeByAgent: { a1: false },
+      codingModeRevisionByAgent: {},
       projectDirByAgent: {},
     });
     const { result } = renderHook(() => useCodingMode());

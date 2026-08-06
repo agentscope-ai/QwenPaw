@@ -500,21 +500,29 @@ async def get_inbox_events(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     source_type: str | None = Query(None),
+    source_types: list[str] | None = Query(None),
     status: str | None = Query(None),
     agent_id: str | None = Query(None),
     unread_only: bool = Query(False),
 ):
-    from ..inbox_store import list_events
+    from ..inbox_store import query_events
 
-    events = await list_events(
+    selected_sources = set(source_types or [])
+    if source_type:
+        selected_sources.add(source_type)
+    events, total, unread_count = await query_events(
         limit=limit,
         offset=offset,
-        source_type=source_type,
+        source_types=selected_sources or None,
         status=status,
         agent_id=agent_id,
         unread_only=unread_only,
     )
-    return {"events": events}
+    return {
+        "events": events,
+        "total": total,
+        "unread_count": unread_count,
+    }
 
 
 @router.post("/inbox/read")

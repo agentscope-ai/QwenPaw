@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 from agentscope.message import ToolResultState
+from agentscope.tool import FunctionTool
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.memoryspace import MemorySpace
@@ -36,7 +37,12 @@ def history_db(tmp_path: Path) -> Path:
         session_id="s1",
         agent_id="ag1",
         dedup_key="u1",
-        entry=LogEntry(kind="context_msg", role="user", content="hello there"),
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="hello there",
+            created_at="2024-11-05T09:00:00+00:00",
+        ),
     )
     h.append(
         session_id="s1",
@@ -47,6 +53,7 @@ def history_db(tmp_path: Path) -> Path:
             role="assistant",
             content="the flight is AA231",
             headline="flight AA231",
+            created_at="2024-11-05T09:01:00+00:00",
         ),
     )
     h.append(
@@ -59,6 +66,7 @@ def history_db(tmp_path: Path) -> Path:
             name="grep",
             tool_call_id="call_abc",
             content="RESULT-FULL",
+            created_at="2024-11-05T09:02:00+00:00",
         ),
     )
     # The active turn: a later user request (search must never surface it).
@@ -70,6 +78,7 @@ def history_db(tmp_path: Path) -> Path:
             kind="context_msg",
             role="user",
             content="what was the flight again",
+            created_at="2024-11-06T09:00:00+00:00",
         ),
     )
     h.close()
@@ -97,21 +106,324 @@ async def test_expand_returns_full_turns(tool):
     assert "the flight is AA231" in text
     assert "RESULT-FULL" in text
     assert "seq=1" in text
+    assert "created_at=2024-11-05T09:00:00+00:00" in text
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi"),
+    [
+        ("1", "3"),
+        ("001", 3),
+        (1, "3"),
+    ],
+)
+async def test_expand_accepts_ascii_decimal_string_seqs(tool, lo, hi):
+    chunk = await tool(op="expand", lo=lo, hi=hi)
+
+    assert chunk.state == ToolResultState.SUCCESS
+    assert "expand [1, 3]" in _text(chunk)
+    assert "the flight is AA231" in _text(chunk)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [True, 0, -1, 1.0, "", " 1", "1 ", "+1", "-1", "1.0", "１"],
+)
+@pytest.mark.parametrize("argument", ["lo", "hi"])
+async def test_expand_rejects_non_positive_or_non_decimal_seqs(
+    tool,
+    argument,
+    value,
+):
+    kwargs = {"lo": 1, "hi": 3, argument: value}
+
+    chunk = await tool(op="expand", **kwargs)
+
+    assert chunk.state == ToolResultState.ERROR
+    assert 'invalid op="expand" seq span' in _text(chunk)
+    assert argument in _text(chunk)
+
+
+def test_expand_schema_accepts_integer_or_string_seqs(tool):
+    properties = FunctionTool(tool).input_schema["properties"]
+
+    for argument in ("lo", "hi"):
+        accepted_types = {
+            item["type"] for item in properties[argument]["anyOf"]
+        }
+        assert accepted_types == {"integer", "string", "null"}
 
 
 async def test_search_finds_evicted_turn_not_active_turn(tool):
     chunk = await tool(op="search", query="flight", k=10)
     assert chunk.state == ToolResultState.SUCCESS
     text = _text(chunk)
+    assert "turn_seq=1–3" in text
+    assert "matched_seq=2" in text
+    assert "hello there" in text
     assert "the flight is AA231" in text
+    assert "RESULT-FULL" in text
     # The active turn (latest user request) is excluded from hits.
     assert "what was the flight again" not in text
+
+
+async def test_search_user_hit_returns_same_complete_turn(tool):
+    chunk = await tool(op="search", query="hello", k=10)
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "matched_seq=1" in text
+    assert "hello there" in text
+    assert "the flight is AA231" in text
+    assert "RESULT-FULL" in text
+
+
+async def test_search_filters_and_displays_created_at(tool):
+    chunk = await tool(
+        op="search",
+        query="flight",
+        created_on="2024-11-05",
+        k=10,
+    )
+    wrong_date = await tool(
+        op="search",
+        query="flight",
+        created_on="2024-11-04",
+        k=10,
+    )
+    date_only = await tool(
+        op="search",
+        query="",
+        created_from="2024-11-05",
+        created_to="2024-11-05",
+        k=10,
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    assert "created_at=2024-11-05T09:01:00+00:00" in _text(chunk)
+    assert "the flight is AA231" in _text(chunk)
+    assert wrong_date.state == ToolResultState.SUCCESS
+    assert _text(wrong_date).startswith("0 rows")
+    assert date_only.state == ToolResultState.SUCCESS
+    assert "hello there" in _text(date_only)
+    assert "RESULT-FULL" in _text(date_only)
+
+
+async def test_date_search_renders_safe_blocks_only_turn(tmp_path: Path):
+    db_path = tmp_path / "blocks-only.db"
+    history = HistoryStore(db_path)
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="structured",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content=None,
+            blocks=[
+                {"type": "text", "text": "structured history"},
+                {
+                    "type": "tool_call",
+                    "id": "call-structured",
+                    "name": "lookup",
+                    "input": {"topic": "launch"},
+                },
+                {
+                    "type": "data",
+                    "name": "diagram.png",
+                    "source": {
+                        "type": "url",
+                        "media_type": "image/png",
+                        "url": "https://example.invalid/diagram.png",
+                    },
+                },
+                {
+                    "type": "data",
+                    "name": "embedded.png",
+                    "source": {
+                        "type": "url",
+                        "media_type": "image/png",
+                        "url": "data:image/png;base64,DO-NOT-RENDER",
+                    },
+                },
+            ],
+            created_at="2024-11-05T08:00:00Z",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="next-day",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="next boundary",
+            created_at="2024-11-06T08:00:00Z",
+        ),
+    )
+    history.close()
+    recall = make_recall_history(
+        history_db_path=str(db_path),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    chunk = await recall(
+        op="search",
+        query="",
+        created_on="2024-11-05",
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "structured history" in text
+    assert "[tool_call name=lookup id=call-structured]" in text
+    assert 'input={"topic":"launch"}' in text
+    assert "[image: diagram.png — https://example.invalid/diagram.png]" in text
+    assert "[image: embedded.png — <image/png>]" in text
+    assert "DO-NOT-RENDER" not in text
+
+
+async def test_search_rejects_invalid_created_at_filters(tool):
+    invalid = await tool(
+        op="search",
+        query="flight",
+        created_on="2024-02-30",
+    )
+    conflicting = await tool(
+        op="search",
+        query="flight",
+        created_on="2024-11-05",
+        created_from="2024-11-01",
+    )
+
+    assert invalid.state == ToolResultState.ERROR
+    assert "invalid ISO date" in _text(invalid)
+    assert conflicting.state == ToolResultState.ERROR
+    assert "cannot be combined" in _text(conflicting)
+
+
+async def test_search_saved_tool_output_keeps_match_excerpt(tmp_path: Path):
+    artifact = tmp_path / "saved-tool-output.txt"
+    artifact.write_text("the deepneedle is here\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="u1",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="inspect the saved output",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="t1",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            name="shell",
+            tool_call_id="call-saved",
+            content=(
+                "[tool output truncated]\n"
+                "If more content is needed, call `read_file` with "
+                f"file_path={artifact} start_line=1 to read more."
+            ),
+        ),
+    )
+    history.close()
+    saved_tool = make_recall_history(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    chunk = await saved_tool(op="search", query="deepneedle", k=10)
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "[matched content excerpt]" in text
+    assert "deepneedle" in text
+    assert "inspect the saved output" in text
+    assert str(artifact) in text
 
 
 async def test_recall_tool_by_call_id(tool):
     chunk = await tool(op="recall_tool", tool_call_id="call_abc")
     assert chunk.state == ToolResultState.SUCCESS
     assert "RESULT-FULL" in _text(chunk)
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        ("2024-11-01", "2024-12-16", 45),
+        ("2024-12-16", "2024-11-01", -45),
+        (
+            "2024-02-28T23:00:00-08:00",
+            "2024-03-01T01:00:00Z",
+            2,
+        ),
+    ],
+)
+async def test_days_between_uses_shared_date_semantics(
+    tool,
+    start: str,
+    end: str,
+    expected: int,
+):
+    chunk = await tool(op="days_between", start=start, end=end)
+
+    assert chunk.state == ToolResultState.SUCCESS
+    assert _text(chunk).endswith(f"= {expected}")
+    assert chunk.metadata == {}
+
+
+async def test_days_between_supports_signed_inclusive_ranges(tool):
+    chunk = await tool(
+        op="days_between",
+        start="2024-11-02",
+        end="2024-11-01",
+        inclusive=True,
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    assert _text(chunk).endswith("= -2")
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (None, "2024-12-16"),
+        ("2024-11-01", None),
+        ("2024-02-30", "2024-12-16"),
+        ("2024-11-01 12:00:00Z", "2024-12-16"),
+    ],
+)
+async def test_days_between_rejects_missing_or_invalid_dates(
+    tool,
+    start: str | None,
+    end: str | None,
+):
+    chunk = await tool(op="days_between", start=start, end=end)
+
+    assert chunk.state == ToolResultState.ERROR
+    assert _text(chunk).startswith("RECALL FAILED")
+    assert "history genuinely holds nothing" not in _text(chunk)
+
+
+async def test_days_between_rejects_pagination_cursor(tool):
+    chunk = await tool(
+        op="days_between",
+        start="2024-11-01",
+        end="2024-12-16",
+        cursor="not-used-for-date-math",
+    )
+
+    assert chunk.state == ToolResultState.ERROR
+    assert "does not paginate" in _text(chunk)
 
 
 async def test_duplicate_recall_is_blocked_only_within_current_turn(
@@ -126,7 +438,7 @@ async def test_duplicate_recall_is_blocked_only_within_current_turn(
         loop_guard=guard,
     )
 
-    first = await guarded_tool(op="expand", lo=1, hi=3)
+    first = await guarded_tool(op="expand", lo="1", hi="3")
     duplicate = await guarded_tool(op="expand", lo=1, hi=3)
     narrower = await guarded_tool(op="expand", lo=1, hi=2)
 
@@ -182,6 +494,57 @@ async def test_concurrent_duplicate_recall_executes_query_once(
     assert calls == 1
 
 
+async def test_cancelled_recall_keeps_claim_until_worker_finishes(
+    history_db: Path,
+    monkeypatch,
+):
+    guard = RecallLoopGuard()
+    guard.begin_turn("user-1")
+    guarded_tool = make_recall_history(
+        history_db_path=str(history_db),
+        session_id="s1",
+        agent_id="ag1",
+        loop_guard=guard,
+    )
+    started = threading.Event()
+    release = threading.Event()
+    calls = 0
+    original_expand = MemorySpace.expand
+
+    def blocking_first_expand(self, lo, hi):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            assert release.wait(timeout=5)
+        return original_expand(self, lo, hi)
+
+    monkeypatch.setattr(MemorySpace, "expand", blocking_first_expand)
+    first_task = asyncio.create_task(
+        guarded_tool(op="expand", lo=1, hi=3),
+    )
+    assert await asyncio.to_thread(started.wait, 5)
+
+    first_task.cancel()
+    await asyncio.sleep(0)
+    try:
+        duplicate = await guarded_tool(op="expand", lo=1, hi=3)
+
+        assert duplicate.state == ToolResultState.ERROR
+        assert "already running" in _text(duplicate)
+        assert calls == 1
+        assert not first_task.done()
+    finally:
+        release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await first_task
+
+    retry = await guarded_tool(op="expand", lo=1, hi=3)
+    assert retry.state == ToolResultState.SUCCESS
+    assert calls == 2
+
+
 async def test_large_recall_is_cursor_paginated(
     tmp_path: Path,
 ):
@@ -207,7 +570,7 @@ async def test_large_recall_is_cursor_paginated(
         page_max_bytes=1024,
     )
 
-    chunk = await bounded_tool(op="expand", lo=1, hi=1)
+    chunk = await bounded_tool(op="expand", lo="1", hi="1")
     assert len(_text(chunk).encode("utf-8")) <= 1024
     assert "[recall page incomplete]" in _text(chunk)
     page = chunk.metadata[RECALL_PAGE_METADATA_KEY]
@@ -374,6 +737,16 @@ async def test_cursor_is_bound_to_original_search_arguments(tmp_path: Path):
     )
     assert changed_k.state == ToolResultState.ERROR
     assert "different recall request" in _text(changed_k)
+
+    changed_date = await bounded_tool(
+        op="search",
+        query="alpha",
+        k=10,
+        created_on="2024-11-05",
+        cursor=cursor,
+    )
+    assert changed_date.state == ToolResultState.ERROR
+    assert "different recall request" in _text(changed_date)
 
 
 async def test_cursor_detects_result_snapshot_drift(tmp_path: Path):

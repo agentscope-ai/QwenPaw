@@ -77,6 +77,24 @@
   line-height: 1;
 }
 
+.modeActions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.desktopModeBtn {
+  border-color: rgba(255, 127, 22, 0.36);
+  color: #d95f00;
+  background: rgba(255, 127, 22, 0.06);
+
+  &:hover {
+    border-color: #ff7f16;
+    color: #d95f00;
+    background: rgba(255, 127, 22, 0.12);
+  }
+}
+
 /* ── Dark mode ──────────────────────────────────────────────────────────── */
 
 :global(.dark-mode) {
@@ -102,6 +120,18 @@
       &:hover {
         background: rgba(255, 127, 22, 0.18);
       }
+    }
+  }
+
+  .desktopModeBtn {
+    border-color: rgba(255, 127, 22, 0.38);
+    color: #ff9a47;
+    background: rgba(255, 127, 22, 0.08);
+
+    &:hover {
+      border-color: #ff7f16;
+      color: #ffad6b;
+      background: rgba(255, 127, 22, 0.15);
     }
   }
 }
