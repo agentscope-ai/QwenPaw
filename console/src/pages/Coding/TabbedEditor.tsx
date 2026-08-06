@@ -190,6 +190,7 @@ export default function TabbedEditor({
   const { t } = useTranslation();
   const { isDark } = useTheme();
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const tabElementsRef = useRef(new Map<string, HTMLDivElement>());
   const activeTabPathRef = useRef(activeTabPath);
   const activeDisplayPathRef = useRef(activeTabPath);
   const navigationRef = useRef(navigation);
@@ -879,6 +880,14 @@ export default function TabbedEditor({
     projectDirOverride,
   );
 
+  useEffect(() => {
+    const activeTabElement = tabElementsRef.current.get(activeTabPath);
+    activeTabElement?.scrollIntoView?.({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [activeTabPath, tabs.length]);
+
   // ---- Empty state --------------------------------------------------------
 
   if (tabs.length === 0) {
@@ -933,6 +942,10 @@ export default function TabbedEditor({
               }}
             >
               <div
+                ref={(element) => {
+                  if (element) tabElementsRef.current.set(tab.path, element);
+                  else tabElementsRef.current.delete(tab.path);
+                }}
                 className={`${styles.tab} ${active ? styles.tabActive : ""} ${
                   hasDiff ? styles.tabDiff : ""
                 }`}
