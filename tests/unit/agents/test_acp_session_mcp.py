@@ -29,6 +29,8 @@ from qwenpaw.drivers.constants import (
     DRIVER_SCOPE_CONTEXT_KEY,
     POLICY_EFFECT_ASK,
 )
+from qwenpaw.drivers.credentials.store import AsyncCredentialStore
+from qwenpaw.drivers.manager import DriverManager
 
 
 def _stdio_server(name: str = "tools") -> McpServerStdio:
@@ -77,6 +79,16 @@ def test_build_acp_mcp_driver_cards_normalizes_all_transports() -> None:
     )
     assert all(card.config["transient"] is True for card in cards)
     assert len({card.name for card in cards}) == len(cards)
+
+
+def test_build_acp_mcp_driver_cards_preserves_session_cwd() -> None:
+    cards = build_acp_mcp_driver_cards(
+        "session-1",
+        [_stdio_server()],
+        session_cwd="/workspace ",
+    )
+
+    assert cards[0].endpoint["cwd"] == "/workspace "
 
 
 def test_build_acp_mcp_driver_cards_rejects_duplicate_names() -> None:
@@ -244,6 +256,96 @@ async def test_acp_session_mcp_lifecycle_and_request_scope(tmp_path) -> None:
 
     await agent.close_session(session_id=response.session_id)
     assert workspace.driver_manager.removals[-1] == scope_id
+
+
+# pylint: disable-next=too-many-statements
+async def test_acp_session_cleanup_cancellation_preserves_committed_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    old_cwd = tmp_path / "old"
+    new_cwd = tmp_path / "new"
+    old_cwd.mkdir()
+    new_cwd.mkdir()
+    teardown_started = asyncio.Event()
+    allow_teardown = asyncio.Event()
+    close_started = asyncio.Event()
+    allow_close = asyncio.Event()
+    close_finished = asyncio.Event()
+    manager = DriverManager(
+        tmp_path / "drivers",
+        AsyncCredentialStore(tmp_path / "credentials.yaml"),
+    )
+
+    class _BlockingHandler:
+        def __init__(self, card) -> None:
+            self.card = card
+            self.name = card.name
+
+        async def shutdown(self) -> None:
+            if self.card.endpoint["cwd"] == str(old_cwd):
+                teardown_started.set()
+                await allow_teardown.wait()
+            else:
+                close_started.set()
+                await allow_close.wait()
+                close_finished.set()
+
+    async def build_handler(card):
+        return _BlockingHandler(card)
+
+    monkeypatch.setattr(manager, "_build_and_init_handler", build_handler)
+    workspace = _FakeWorkspace()
+    workspace.driver_manager = manager
+    agent = _TestACPAgent(workspace)
+    response = await agent.new_session(
+        cwd=str(old_cwd),
+        mcp_servers=[_stdio_server()],
+    )
+    scope_id = acp_mcp_scope_id(response.session_id)
+    load_task = asyncio.create_task(
+        agent.load_session(
+            cwd=str(new_cwd),
+            session_id=response.session_id,
+            mcp_servers=[_stdio_server()],
+        ),
+    )
+    try:
+        await asyncio.wait_for(teardown_started.wait(), timeout=1)
+
+        assert load_task.done()
+        load_task.cancel()
+        await load_task
+        assert agent._sessions[response.session_id]["cwd"] == str(new_cwd)
+        handler_name = next(iter(manager._scope_handlers[scope_id]))
+        assert manager._handlers[handler_name].card.endpoint["cwd"] == str(
+            new_cwd,
+        )
+
+        allow_teardown.set()
+        await manager._wait_for_handler_cleanups()
+        close_task = asyncio.create_task(
+            agent.close_session(session_id=response.session_id),
+        )
+        await asyncio.wait_for(close_started.wait(), timeout=1)
+
+        assert scope_id not in manager._scope_handlers
+        assert handler_name not in manager._handlers
+        assert not close_task.done()
+        close_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await close_task
+        assert response.session_id in agent._sessions
+
+        allow_close.set()
+        await manager._wait_for_handler_cleanups()
+        assert close_finished.is_set()
+        await agent.close_session(session_id=response.session_id)
+        assert response.session_id not in agent._sessions
+    finally:
+        allow_teardown.set()
+        allow_close.set()
+        await manager.shutdown_all()
 
 
 async def test_acp_new_session_rolls_back_failed_mcp_registration(

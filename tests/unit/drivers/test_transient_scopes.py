@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+# Tests verify managed cleanup ownership directly.
+# pylint: disable=protected-access
+
+import asyncio
 from pathlib import Path
 from typing import ClassVar
 
@@ -191,6 +195,50 @@ async def test_transient_replace_is_atomic_on_init_failure(
     assert "broken" in _FakeHandler.shutdown_names
 
 
+async def test_transient_replace_commits_before_retired_cleanup(
+    tmp_path: Path,
+) -> None:
+    teardown_started = asyncio.Event()
+    allow_teardown = asyncio.Event()
+
+    class _BlockingHandler(_FakeHandler):
+        async def _teardown(self) -> None:
+            if self.name == "old":
+                teardown_started.set()
+                await allow_teardown.wait()
+            await super()._teardown()
+
+    manager = _manager(tmp_path)
+    manager.register_handler_type("fake", _BlockingHandler)
+    await manager.replace_transient_drivers(
+        "scope-a",
+        [_card("old")],
+    )
+
+    replace_task = asyncio.create_task(
+        manager.replace_transient_drivers(
+            "scope-a",
+            [_card("new")],
+        ),
+    )
+    try:
+        await asyncio.wait_for(teardown_started.wait(), timeout=1)
+
+        assert replace_task.done()
+        replace_task.cancel()
+        await replace_task
+        names = {
+            item.driver_name
+            for item in await manager.list_capabilities(
+                request_context=_scope_context("scope-a"),
+            )
+        }
+        assert names == {"new"}
+    finally:
+        allow_teardown.set()
+        await manager.shutdown_all()
+
+
 async def test_transient_remove_shuts_down_without_persisting(
     tmp_path: Path,
 ) -> None:
@@ -210,6 +258,55 @@ async def test_transient_remove_shuts_down_without_persisting(
         )
         == []
     )
+    await manager.shutdown_all()
+    assert _FakeHandler.shutdown_names == ["transient-a"]
+
+
+async def test_transient_remove_commits_before_handler_cleanup(
+    tmp_path: Path,
+) -> None:
+    teardown_started = asyncio.Event()
+    allow_teardown = asyncio.Event()
+
+    class _BlockingHandler(_FakeHandler):
+        async def _teardown(self) -> None:
+            teardown_started.set()
+            await allow_teardown.wait()
+            await super()._teardown()
+
+    manager = _manager(tmp_path)
+    manager.register_handler_type("fake", _BlockingHandler)
+    await manager.replace_transient_drivers(
+        "scope-a",
+        [_card("transient-a")],
+    )
+    handler = manager._handlers["transient-a"]
+
+    remove_task = asyncio.create_task(
+        manager.remove_transient_drivers("scope-a"),
+    )
+    try:
+        await asyncio.wait_for(teardown_started.wait(), timeout=1)
+
+        assert not remove_task.done()
+        assert (
+            manager._schedule_handler_cleanup(
+                [handler],
+            )
+            is None
+        )
+        remove_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await remove_task
+        assert (
+            await manager.list_capabilities(
+                request_context=_scope_context("scope-a"),
+            )
+            == []
+        )
+    finally:
+        allow_teardown.set()
+        await manager.shutdown_all()
     assert _FakeHandler.shutdown_names == ["transient-a"]
 
 

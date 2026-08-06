@@ -336,10 +336,8 @@ class QwenPawACPAgent(Agent):
         project_dir = meta.get(ACP_PROJECT_DIR_META_KEY)
         if project_dir is None:
             project_dir = cwd
-        if isinstance(project_dir, str):
-            project_dir = project_dir.strip()
-            if project_dir:
-                info[ACP_PROJECT_DIR_META_KEY] = project_dir
+        if isinstance(project_dir, str) and project_dir.strip():
+            info[ACP_PROJECT_DIR_META_KEY] = project_dir
         if (
             meta.get(ACP_EPHEMERAL_META_KEY) is True
             or self._runtime_provider is not None
@@ -749,10 +747,8 @@ class QwenPawACPAgent(Agent):
             candidate_session = dict(previous_session)
             candidate_session["cwd"] = cwd
             project_dir = kwargs.get(ACP_PROJECT_DIR_META_KEY)
-            if isinstance(project_dir, str):
-                project_dir = project_dir.strip()
-                if project_dir:
-                    candidate_session[ACP_PROJECT_DIR_META_KEY] = project_dir
+            if isinstance(project_dir, str) and project_dir.strip():
+                candidate_session[ACP_PROJECT_DIR_META_KEY] = project_dir
         self._sessions[session_id] = candidate_session
         try:
             await self._sync_session_mcp(session_id, mcp_servers)
@@ -884,10 +880,8 @@ class QwenPawACPAgent(Agent):
             request_context["_headless_tool_guard"] = "false"
 
         project_dir = session_info.get(ACP_PROJECT_DIR_META_KEY)
-        if isinstance(project_dir, str):
-            project_dir = project_dir.strip()
-            if project_dir:
-                request_context["project_dir"] = project_dir
+        if isinstance(project_dir, str) and project_dir.strip():
+            request_context["project_dir"] = project_dir
 
         if session_info.get(ACP_EPHEMERAL_META_KEY) is True:
             request_context[ACP_EPHEMERAL_META_KEY] = True

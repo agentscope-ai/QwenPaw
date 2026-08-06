@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from .approval import ApprovalGate
@@ -70,6 +70,8 @@ class DriverManager:
         self._handlers: dict[str, DriverHandler] = {}
         self._handler_scopes: dict[str, str] = {}
         self._scope_handlers: dict[str, set[str]] = {}
+        self._cleanup_tasks: set[asyncio.Task[None]] = set()
+        self._cleanup_handler_ids: set[int] = set()
         self._lock = asyncio.Lock()
 
     def register_handler_type(
@@ -292,9 +294,11 @@ class DriverManager:
     ) -> None:
         """Atomically replace all non-persistent Drivers for one scope.
 
-        Every new handler is initialized before publication. Failure leaves
-        the previous scope untouched and shuts down any newly built handlers.
-        Transient cards and credentials are never written to persistent stores.
+        Every new handler is initialized before publication. Failure before
+        publication leaves the previous scope untouched and shuts down any
+        newly built handlers. After publication, retired handlers are cleaned
+        up by managed tasks. Transient cards and credentials are never written
+        to persistent stores.
         """
         if not scope_id.strip():
             raise ValueError("Transient Driver scope must be non-empty")
@@ -352,10 +356,10 @@ class DriverManager:
             await self._shutdown_handlers(built.values())
             raise
 
-        await self._shutdown_handlers(old_handlers)
+        self._schedule_handler_cleanup(old_handlers)
 
     async def remove_transient_drivers(self, scope_id: str) -> None:
-        """Remove and shut down all transient Drivers owned by one scope."""
+        """Unpublish a scope and wait for its managed handler cleanup."""
         async with self._lock:
             names = self._scope_handlers.pop(scope_id, set())
             handlers = []
@@ -364,16 +368,19 @@ class DriverManager:
                 self._handler_scopes.pop(name, None)
                 if handler is not None:
                     handlers.append(handler)
-        await self._shutdown_handlers(handlers)
+        cleanup_task = self._schedule_handler_cleanup(handlers)
+        if cleanup_task is not None:
+            await asyncio.shield(cleanup_task)
 
     async def shutdown_all(self) -> None:
-        """Shutdown all handlers and clear manager state."""
+        """Unpublish all handlers and wait for every managed cleanup."""
         async with self._lock:
             handlers = list(self._handlers.values())
             self._handlers.clear()
             self._handler_scopes.clear()
             self._scope_handlers.clear()
-        await self._shutdown_handlers(handlers)
+        self._schedule_handler_cleanup(handlers)
+        await self._wait_for_handler_cleanups()
 
     async def list_drivers(
         self,
@@ -597,13 +604,63 @@ class DriverManager:
         return self._card_store
 
     async def _shutdown_handlers(self, handlers) -> None:
-        await asyncio.gather(
+        results = await asyncio.gather(
             *[
                 self._shutdown_handler_with_timeout(handler)
                 for handler in handlers
             ],
             return_exceptions=True,
         )
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.warning(
+                    "Managed Driver handler cleanup returned an error: %s",
+                    result,
+                )
+
+    def _schedule_handler_cleanup(
+        self,
+        handlers: Iterable[DriverHandler],
+    ) -> asyncio.Task[None] | None:
+        retired = [
+            handler
+            for handler in handlers
+            if id(handler) not in self._cleanup_handler_ids
+        ]
+        if not retired:
+            return None
+        handler_ids = {id(handler) for handler in retired}
+        self._cleanup_handler_ids.update(handler_ids)
+        task = asyncio.create_task(
+            self._shutdown_handlers(retired),
+            name="driver-handler-cleanup",
+        )
+        self._cleanup_tasks.add(task)
+        task.add_done_callback(
+            lambda done: self._finish_handler_cleanup(done, handler_ids),
+        )
+        return task
+
+    def _finish_handler_cleanup(
+        self,
+        task: asyncio.Task[None],
+        handler_ids: set[int],
+    ) -> None:
+        self._cleanup_tasks.discard(task)
+        self._cleanup_handler_ids.difference_update(handler_ids)
+        if task.cancelled():
+            logger.warning("Managed Driver handler cleanup was cancelled")
+            return
+        error = task.exception()
+        if error is not None:
+            logger.error("Managed Driver handler cleanup failed: %s", error)
+
+    async def _wait_for_handler_cleanups(self) -> None:
+        while self._cleanup_tasks:
+            tasks = tuple(self._cleanup_tasks)
+            await asyncio.shield(
+                asyncio.gather(*tasks, return_exceptions=True),
+            )
 
     @staticmethod
     async def _shutdown_handler(handler: DriverHandler) -> None:

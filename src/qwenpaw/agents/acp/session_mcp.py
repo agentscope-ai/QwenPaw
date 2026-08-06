@@ -140,7 +140,7 @@ def _named_values(
 def _required_session_cwd(value: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("ACP session cwd must be non-empty")
-    return value.strip()
+    return value
 
 
 __all__ = [

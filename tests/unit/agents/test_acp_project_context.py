@@ -57,15 +57,16 @@ async def test_acp_project_dir_flows_to_request_context(tmp_path):
     assert workspace.requests[0].request_context["project_dir"] == project_dir
 
 
-async def test_acp_project_dir_is_stripped(tmp_path):
+async def test_acp_project_dir_preserves_trailing_space(tmp_path):
     project_dir = str(tmp_path)
+    provided_project_dir = f"{project_dir} "
     workspace = _FakeWorkspace()
     agent = _TestACPAgent(workspace)
     agent.on_connect(_FakeConn())
 
     response = await agent.new_session(
         cwd=project_dir,
-        **{ACP_PROJECT_DIR_META_KEY: f"  {project_dir}  "},
+        **{ACP_PROJECT_DIR_META_KEY: provided_project_dir},
     )
 
     await agent.prompt(
@@ -73,11 +74,15 @@ async def test_acp_project_dir_is_stripped(tmp_path):
         session_id=response.session_id,
     )
 
-    assert workspace.requests[0].request_context["project_dir"] == project_dir
+    assert (
+        workspace.requests[0].request_context["project_dir"]
+        == provided_project_dir
+    )
 
 
-async def test_acp_resume_project_dir_is_stripped(tmp_path):
+async def test_acp_resume_project_dir_preserves_trailing_space(tmp_path):
     project_dir = str(tmp_path)
+    provided_project_dir = f"{project_dir} "
     workspace = _FakeWorkspace()
     agent = _TestACPAgent(workspace)
     agent.on_connect(_FakeConn())
@@ -86,7 +91,7 @@ async def test_acp_resume_project_dir_is_stripped(tmp_path):
     await agent.resume_session(
         cwd=project_dir,
         session_id=response.session_id,
-        **{ACP_PROJECT_DIR_META_KEY: f"  {project_dir}  "},
+        **{ACP_PROJECT_DIR_META_KEY: provided_project_dir},
     )
 
     await agent.prompt(
@@ -94,7 +99,10 @@ async def test_acp_resume_project_dir_is_stripped(tmp_path):
         session_id=response.session_id,
     )
 
-    assert workspace.requests[0].request_context["project_dir"] == project_dir
+    assert (
+        workspace.requests[0].request_context["project_dir"]
+        == provided_project_dir
+    )
 
 
 async def test_acp_ephemeral_metadata_flows_to_request_context(tmp_path):
