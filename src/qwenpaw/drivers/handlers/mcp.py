@@ -52,10 +52,13 @@ class MCPDriverHandler(DriverHandler):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._client: Any | None = None
-        self._capability_cache: tuple[
-            float,
-            list[DriverCapability],
-        ] | None = None
+        self._capability_cache: (
+            tuple[
+                float,
+                list[DriverCapability],
+            ]
+            | None
+        ) = None
 
     async def _setup(self) -> None:
         """Create and connect StdIOStatefulClient or HttpStatefulClient."""
@@ -374,8 +377,9 @@ def _mcp_tool_to_capability(
         name=name,
         description=description,
         input_schema=input_schema,
-        # tool_name is sanitized to satisfy OpenAI's ^[a-zA-Z0-9_-]+$
-        # constraint.
+        # A letter-led namespace keeps the complete name compatible with
+        # stricter OpenAI-compatible providers without discarding valid
+        # leading characters from the original MCP tool name.
         exposure=CapabilityExposure(
             as_tool=True,
             namespace=display_namespace,
@@ -393,20 +397,31 @@ def _mcp_tool_to_capability(
 # _TOOL_NAME_ALLOWED matches a string composed *entirely* of allowed
 # characters (for fast-path check).
 _TOOL_NAME_SAFE_CHARS = re.compile(r"[^A-Za-z0-9_-]+")
-_TOOL_NAME_ALLOWED = re.compile(r"[a-zA-Z0-9_-]+")
+_TOOL_NAME_ALLOWED = re.compile(r"[A-Za-z0-9_-]+")
 
 
 def _sanitize_tool_name(name: str) -> str:
-    """Rewrite an MCP tool name to satisfy OpenAI's ``^[a-zA-Z0-9_-]+$``.
+    """Rewrite an MCP tool name using provider-compatible characters.
 
     Names that already match the pattern are returned unchanged.
     Characters outside the allowed set are replaced with ``_`` and leading/
-    trailing underscores are stripped.  An empty result falls back to
-    ``"tool"``.
+    trailing replacement underscores are stripped. An empty result falls
+    back to ``"tool"``. Valid leading characters are preserved so distinct
+    MCP tool names remain distinct after exposure.
     """
     if _TOOL_NAME_ALLOWED.fullmatch(name):
         return name
     return _TOOL_NAME_SAFE_CHARS.sub("_", name).strip("_") or "tool"
+
+
+def _sanitize_tool_namespace(name: str) -> str:
+    """Return a letter-led namespace for strict provider compatibility."""
+    cleaned = _TOOL_NAME_SAFE_CHARS.sub("_", name.strip())
+    if not cleaned:
+        return "tool"
+    if re.match(r"[A-Za-z]", cleaned):
+        return cleaned
+    return f"tool_{cleaned}"
 
 
 def _tool_namespace_from_display_name(
@@ -414,5 +429,7 @@ def _tool_namespace_from_display_name(
     *,
     fallback: str,
 ) -> str:
-    namespace = _TOOL_NAME_SAFE_CHARS.sub("_", display_name.strip()).strip("_")
-    return namespace or _sanitize_tool_name(fallback)
+    cleaned = _TOOL_NAME_SAFE_CHARS.sub("_", display_name.strip())
+    if not cleaned.strip("_"):
+        cleaned = fallback
+    return _sanitize_tool_namespace(cleaned)

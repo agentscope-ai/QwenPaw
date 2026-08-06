@@ -166,11 +166,19 @@ class ManualEditBufferStore:
                 existing is not None
                 and existing.head_generation != base_generation
             ):
-                raise ManualEditGenerationConflict(
-                    "Manual Edit commit does not continue the Buffer head: "
-                    f"expected base={existing.head_generation}, "
-                    f"actual base={base_generation}",
-                )
+                if base_generation > existing.head_generation:
+                    # Upgrade/crash gap: the Project advanced while the
+                    # Buffer was offline, so buffered entries no longer
+                    # describe a user-authored baseline-to-current value.
+                    # Restart the Buffer instead of fail-closing edits.
+                    durable_unlink(self._buffer_path(project_id))
+                    existing = None
+                else:
+                    raise ManualEditGenerationConflict(
+                        "Manual Edit commit does not continue the Buffer "
+                        f"head: expected base={existing.head_generation}, "
+                        f"actual base={base_generation}",
+                    )
             merged = _merge_changes(
                 existing.changes if existing is not None else (),
                 incoming,
@@ -233,6 +241,11 @@ class ManualEditBufferStore:
             if existing.head_generation == head_generation:
                 return existing
             if existing.head_generation != base_generation:
+                if base_generation > existing.head_generation:
+                    # Same upgrade/crash gap as record_frontend_commit: the
+                    # stale Buffer cannot be reconciled; drop it.
+                    durable_unlink(self._buffer_path(project_id))
+                    return None
                 raise ManualEditGenerationConflict(
                     "Non-frontend commit does not continue the Buffer head: "
                     f"expected base={existing.head_generation}, "

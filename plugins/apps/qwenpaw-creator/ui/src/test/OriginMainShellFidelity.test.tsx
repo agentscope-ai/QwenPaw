@@ -36,6 +36,7 @@ const modelConfig = {
     reuse_llm: true,
     validation_source: "llm",
     tavily_api_key: "",
+    serper_api_key: "",
     native_search_enabled: true,
     search_provider: "dashscope_qwen",
     search_reuse_llm: true,
@@ -81,6 +82,8 @@ const modelConfig = {
     policy_api_key: "",
   },
   executionAuthorization: { mode: "allow_all" },
+  creationCheckpoints: { mode: "skip" },
+  mediaReview: { mode: "auto_approve" },
 };
 
 describe("origin/main visible shell fidelity", () => {
@@ -234,7 +237,7 @@ describe("origin/main visible shell fidelity", () => {
       "!border-x-0",
       "!bg-transparent",
     );
-    expect(screen.getByPlaceholderText(/^目标描述：/)).toHaveClass(
+    expect(screen.getByPlaceholderText(/^例：霸道总裁短剧/)).toHaveClass(
       "!border-none",
       "!p-4",
     );
@@ -254,6 +257,10 @@ describe("origin/main visible shell fidelity", () => {
   it("keeps the origin model modal with direct single-file values", async () => {
     installMockFetch([
       { match: "/models/config", response: { json: modelConfig } },
+      {
+        match: "/models/config/permission-mode",
+        response: { json: { ok: true } },
+      },
     ]);
     const { container } = render(<ModelConfigModal open onClose={vi.fn()} />);
     await waitFor(() =>
@@ -267,19 +274,16 @@ describe("origin/main visible shell fidelity", () => {
     expect(
       screen.getByRole("button", { name: /保存配置/ }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /取\s*消/ })).toBeInTheDocument();
-    const authorizationToggle = screen.getByRole("checkbox", {
-      name: "高花费模型执行授权",
+    expect(screen.getByRole("button", { name: /关闭/ })).toBeInTheDocument();
+    // allow_all + skip + auto_approve maps to the top (YOLO) stop.
+    const permissionSlider = screen.getByRole("slider", {
+      name: "执行确认模式：",
     });
-    expect(authorizationToggle).not.toBeChecked();
-    expect(
-      screen.getByText("开启后，高花费模型的执行需要确认。"),
-    ).toBeInTheDocument();
-    fireEvent.click(authorizationToggle);
-    expect(authorizationToggle).toBeChecked();
-    expect(
-      screen.getByText("开启后，高花费模型的执行需要确认。"),
-    ).toBeInTheDocument();
+    expect(permissionSlider).toHaveValue("3");
+    expect(screen.getByText(/完全无人值守/)).toBeInTheDocument();
+    fireEvent.change(permissionSlider, { target: { value: "0" } });
+    expect(permissionSlider).toHaveValue("0");
+    expect(screen.getByText(/逐次授权/)).toBeInTheDocument();
     const keyInput = screen.getByPlaceholderText("sk-...");
     expect(keyInput).toHaveValue("saved-secret");
     expect(keyInput).toHaveAttribute("type", "password");

@@ -8,6 +8,7 @@ from services.file_agent_runtime.subagents import (
     DelegateToAgentInput,
     delegate_tool_manifest,
 )
+from services.project_files.models import Project, VisualEntity
 
 
 pytestmark = pytest.mark.unit
@@ -133,3 +134,52 @@ def test_unknown_target_kinds_still_fail_the_contract() -> None:
     )
     with pytest.raises(ValueError, match="does not allow targetRef"):
         delegated.validate_contract(project_id="project-1")
+
+
+def test_visual_target_must_resolve_to_visual_entity() -> None:
+    project = Project.new(project_id="project-1", name="Test")
+    project.visual.entities.items["char:wembanyama"] = VisualEntity(
+        entity_id="char:wembanyama",
+        kind="character",
+        name="Victor Wembanyama",
+        required_variant_ids=[],
+    )
+    project.visual.entities.order.append("char:wembanyama")
+
+    valid = DelegateToAgentInput.model_validate(
+        {
+            "role": "visual_development_agent",
+            "target_refs": ["asset:char:wembanyama"],
+            "task": "生成定妆图",
+        },
+    )
+    valid.validate_contract(project_id="project-1")
+    valid.validate_project_targets(project=project)
+
+    wrong_source_asset = DelegateToAgentInput.model_validate(
+        {
+            "role": "visual_development_agent",
+            "target_refs": ["asset:asset-84e7f53cb"],
+            "task": "生成定妆图",
+        },
+    )
+    wrong_source_asset.validate_contract(project_id="project-1")
+    with pytest.raises(
+        ValueError,
+        match=r"Source logical Asset ids belong in referenceVersionIds",
+    ):
+        wrong_source_asset.validate_project_targets(project=project)
+
+
+def test_project_assets_visual_target_does_not_require_one_entity() -> None:
+    delegated = DelegateToAgentInput.model_validate(
+        {
+            "role": "visual_development_agent",
+            "target_refs": ["project:assets"],
+            "task": "建立整体视觉设定",
+        },
+    )
+    delegated.validate_contract(project_id="project-1")
+    delegated.validate_project_targets(
+        project=Project.new(project_id="project-1", name="Test"),
+    )

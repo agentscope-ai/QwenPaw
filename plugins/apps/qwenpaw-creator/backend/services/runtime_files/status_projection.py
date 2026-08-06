@@ -44,6 +44,7 @@ _TASK_PRESENTATION: dict[TaskKind, tuple[str, str]] = {
     TaskKind.ASSET_INGEST: ("source_ingest", "附件入库"),
     TaskKind.ASSET_IMPORT: ("source_ingest", "素材导入"),
     TaskKind.SOURCE_INTELLIGENCE: ("source_intelligence", "素材理解"),
+    TaskKind.SOURCE_MEMORY_BUILD: ("source_intelligence", "长素材记忆构建"),
     TaskKind.IMAGE_GENERATION: ("visual_development", "图片生成"),
     TaskKind.R2V_GENERATION: ("timeline_render", "视频生成"),
     TaskKind.AI_EDIT_EXECUTE: ("timeline_edit", "AI 剪辑执行"),

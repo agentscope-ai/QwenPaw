@@ -114,7 +114,8 @@ def test_project_assets_scope_admits_image_asset_children(tmp_path) -> None:
 
     assert spec is not None
     assert "enum" not in target
-    assert target["pattern"] == r"^asset:.+$"
+    # Cast lineups joined the Project-assets scope alongside entities.
+    assert target["pattern"] == r"^(asset|lineup):.+$"
     assert "不能直接使用 project:assets" in target["description"]
     assert image_arguments["properties"]["variantId"]["minLength"] == 1
     assert "多个" in image_arguments["properties"]["variantId"]["description"]
@@ -133,6 +134,35 @@ def test_project_assets_scope_admits_image_asset_children(tmp_path) -> None:
         target_ref="timeline:char-cat",
         admitted_target_refs=["project:assets"],
     )
+
+
+def test_image_generation_arguments_expose_modes(tmp_path) -> None:
+    registry = FileSpecialistToolRegistry(
+        CreatorFileServices.create(tmp_path.resolve()),
+    )
+    manifest = registry.manifest_for(
+        SpecialistRole.VISUAL_DEVELOPMENT,
+        admitted_target_refs=["asset:hero"],
+    )
+    tool = next(
+        item
+        for item in manifest
+        if item["function"]["name"] == "image_generation"
+    )["function"]
+    arguments = tool["parameters"]["properties"]["arguments"]
+
+    assert arguments["properties"]["mode"]["enum"] == [
+        "generate",
+        "edit",
+        "translate",
+    ]
+    refs = arguments["properties"]["referenceImageRefs"]
+    assert refs["maxItems"] == 3
+    assert refs["items"]["minLength"] == 1
+    assert "sourceLang" in arguments["properties"]
+    assert "targetLang" in arguments["properties"]
+    # mode stays optional so existing generate callers keep working.
+    assert arguments["required"] == ["prompt"]
 
 
 def test_project_assets_scope_does_not_expand_for_r2v_image_tool(
@@ -169,7 +199,7 @@ def test_ai_edit_rules_are_dynamic_specialist_prompt_not_runtime_state() -> (
 
     assert "当前内容类型是 `interview`" in prompt
     assert "60 至 120 秒" in prompt
-    assert "interview_summary" in prompt
+    assert "采访要点台词卡" in prompt
     assert "不超过 30 个汉字" in prompt
     # Pure orchestration role: the prompt must not mention removed
     # composition tools.

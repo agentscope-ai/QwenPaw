@@ -19,13 +19,16 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Body, Header, Request, Response, status
+from pydantic import ValidationError as PydanticValidationError
 
 from domain.errors import ConflictError, StorageIntegrityError, ValidationError
 from models import config as model_config
 from schemas.models import (
     AsrConfig,
+    EmbeddingConfig,
     ExecutionAuthorizationConfig,
     GroundingConfig,
+    ImageConfig,
     LlmConfig,
     ModelConfigData,
     ModelConfigItem,
@@ -89,7 +92,18 @@ router = APIRouter(
 )
 
 
-_SECTIONS = ("llm", "vlm", "grounding", "asr", "image", "video", "oss")
+_SECTIONS = (
+    "llm",
+    "vlm",
+    "grounding",
+    "asr",
+    "tts",
+    "s2v",
+    "embedding",
+    "image",
+    "video",
+    "oss",
+)
 _ENV_MAPPING: dict[str, dict[str, tuple[str, ...]]] = {
     "llm": {
         "base_url": ("TEXT_BASE_URL",),
@@ -106,6 +120,10 @@ _ENV_MAPPING: dict[str, dict[str, tuple[str, ...]]] = {
         "tavily_api_key": (
             "TAVILY_API_KEY",
             "WEB_GROUNDING_TAVILY_API_KEY",
+        ),
+        "serper_api_key": (
+            "SERPER_API_KEY",
+            "WEB_GROUNDING_SERPER_API_KEY",
         ),
         "reuse_llm": (
             "WEB_GROUNDING_REUSE_LLM",
@@ -137,6 +155,24 @@ _ENV_MAPPING: dict[str, dict[str, tuple[str, ...]]] = {
         "api_key": ("ASR_API_KEY",),
         "model_name": ("ASR_MODEL_NAME",),
     },
+    "tts": {
+        "base_url": ("TTS_BASE_URL",),
+        "api_key": ("TTS_API_KEY",),
+        "model_name": ("TTS_MODEL_NAME",),
+        "voice": ("TTS_VOICE",),
+        "vc_model_name": ("TTS_VC_MODEL_NAME",),
+    },
+    "s2v": {
+        "base_url": ("S2V_BASE_URL",),
+        "api_key": ("S2V_API_KEY",),
+        "model_name": ("S2V_MODEL_NAME",),
+        "detect_model_name": ("S2V_DETECT_MODEL_NAME",),
+    },
+    "embedding": {
+        "base_url": ("EMBEDDING_BASE_URL",),
+        "api_key": ("EMBEDDING_API_KEY",),
+        "model_name": ("EMBEDDING_MODEL_NAME",),
+    },
     "image": {
         "base_url": (
             "DASHSCOPE_IMAGE_BASE_URL",
@@ -153,6 +189,7 @@ _ENV_MAPPING: dict[str, dict[str, tuple[str, ...]]] = {
             "OPENAI_IMAGE_MODEL_NAME",
             "IMAGE_MODEL_NAME",
         ),
+        "translate_model": ("IMAGE_TRANSLATE_MODEL_NAME",),
     },
     "video": {
         "base_url": ("VIDEO_BASE_URL",),
@@ -212,9 +249,16 @@ def _defaults() -> ModelConfigData:
             protocol="DashScope Fun-ASR",
             reuse_llm_key=True,
         ),
-        image=ModelConfigItem(
+        image=ImageConfig(
             enabled=False,
             protocol="OpenAI 协议",
+        ),
+        embedding=EmbeddingConfig(
+            enabled=False,
+            model_name="qwen3-vl-embedding",
+            base_url="https://dashscope.aliyuncs.com/api/v1",
+            protocol="DashScope（百炼）",
+            reuse_vlm_key=True,
         ),
         video=ModelConfigItem(
             enabled=False,
@@ -358,6 +402,9 @@ def _assemble_model_config(
     checkpoints = configs.get("creation_checkpoints")
     if isinstance(checkpoints, dict):
         base["creation_checkpoints"].update(checkpoints)
+    media_review = configs.get("media_review")
+    if isinstance(media_review, dict):
+        base["media_review"].update(media_review)
     if base["vlm"].get("use_llm"):
         for field in ("base_url", "api_key", "model_name"):
             if not base["vlm"].get(field):
@@ -449,7 +496,13 @@ def get_host_provider_api_key(provider_id: str) -> str | None:
 # Placeholder returned instead of persisted secrets; a submitted placeholder
 # means "keep the stored value".
 SECRET_MASK = "__CREATOR_SECRET__"
-_SECRET_FIELDS = ("api_key", "access_key_secret", "policy_api_key")
+_SECRET_FIELDS = (
+    "api_key",
+    "access_key_secret",
+    "policy_api_key",
+    "tavily_api_key",
+    "serper_api_key",
+)
 
 
 def _decrypt_secret_fields(data: dict) -> dict:
@@ -605,20 +658,20 @@ def _ensure_grounding_model_configured(data: ModelConfigData) -> None:
         raise ValidationError(
             f"Grounding 默认启用；请完整配置 {source} 的 Base URL、API Key 和模型名称，或关闭 Grounding",
         )
-    if grounding.tavily_api_key:
+    if grounding.tavily_api_key or grounding.serper_api_key:
         return
     search_model = _grounding_search_model(data)
     if not grounding.native_search_enabled:
         raise ValidationError(
-            "Grounding 搜索未配置；请配置 Tavily，或启用 Qwen/DashScope 原生搜索",
+            "Grounding 搜索未配置；请配置 Tavily/Serper，或启用 Qwen/DashScope 原生搜索",
         )
     if not _model_config_complete(search_model):
         raise ValidationError(
-            "Grounding 搜索未配置；请配置 Tavily，或完整配置 Qwen/DashScope 搜索模型",
+            "Grounding 搜索未配置；请配置 Tavily/Serper，或完整配置 Qwen/DashScope 搜索模型",
         )
     if not _supports_dashscope_native_search(search_model):
         raise ValidationError(
-            "当前搜索模型不支持 Qwen/DashScope 原生 web_search；请配置 Tavily，或选择 DashScope（百炼）搜索模型",
+            "当前搜索模型不支持 Qwen/DashScope 原生 web_search；请配置 Tavily/Serper，或选择 DashScope（百炼）搜索模型",
         )
 
 
@@ -629,6 +682,7 @@ def request_tool_configs() -> dict[str, dict[str, Any]]:
         "llm": model_config.CREATOR_TEXT_CONFIG_TOOL,
         "vlm": model_config.CREATOR_VLM_CONFIG_TOOL,
         "asr": model_config.CREATOR_ASR_CONFIG_TOOL,
+        "embedding": model_config.CREATOR_EMBEDDING_CONFIG_TOOL,
         "image": model_config.CREATOR_IMAGE_CONFIG_TOOL,
         "video": model_config.CREATOR_VIDEO_CONFIG_TOOL,
     }
@@ -650,8 +704,18 @@ def request_tool_configs() -> dict[str, dict[str, Any]]:
                     "reuse_llm_key": item.reuse_llm_key,
                 },
             )
+        if section == "tts":
+            tool_config.update(
+                {
+                    "voice": item.voice,
+                    "vc_model_name": item.vc_model_name,
+                    "reuse_llm_key": item.reuse_llm_key,
+                },
+            )
         if section == "image" and "dashscope" in item.protocol.casefold():
             tool_config["_image_backend"] = "DASHSCOPE"
+        if section == "image" and item.translate_model:
+            tool_config["translate_model"] = item.translate_model
         if section == "video":
             tool_config["_video_backend"] = (
                 "seedance2"
@@ -664,6 +728,7 @@ def request_tool_configs() -> dict[str, dict[str, Any]]:
     configs[model_config.CREATOR_GROUNDING_CONFIG_TOOL] = {
         "enabled": grounding.enabled,
         "tavily_api_key": grounding.tavily_api_key,
+        "serper_api_key": grounding.serper_api_key,
         "reuse_llm": grounding.reuse_llm,
         "validation_source": grounding.validation_source,
         "api_key": grounding.api_key,
@@ -789,11 +854,15 @@ async def _validate_section_connectivity(
         except Exception as exc:
             exc_str = str(exc)
             if "InvalidAccessKeyId" in exc_str or "AccessDenied" in exc_str:
-                raise ValidationError("OSS: Access Key 无效或权限不足，请检查配置")
+                raise ValidationError(
+                    "OSS: Access Key 无效或权限不足，请检查配置",
+                )
             if "NoSuchBucket" in exc_str:
                 raise ValidationError("OSS: Bucket 不存在，请检查 Bucket 名称")
             if "connect" in exc_str.lower() or "timeout" in exc_str.lower():
-                raise ValidationError("OSS: 无法连接到 OSS 服务，请检查 Endpoint 和网络")
+                raise ValidationError(
+                    "OSS: 无法连接到 OSS 服务，请检查 Endpoint 和网络",
+                )
             raise ValidationError(f"OSS: {exc_str}")
         return
 
@@ -802,10 +871,17 @@ async def _validate_section_connectivity(
         return
 
     api_key = item.get("api_key", "")
-    if section == "asr" and item.get("reuse_llm_key") and not api_key:
+    if section in ("asr", "tts") and item.get("reuse_llm_key") and not api_key:
         api_key = config.get("llm", {}).get("api_key", "")
+    if section == "embedding" and item.get("reuse_vlm_key") and not api_key:
+        api_key = config.get("vlm", {}).get("api_key", "") or config.get(
+            "llm",
+            {},
+        ).get("api_key", "")
     if not item.get("base_url") or not api_key:
-        raise ValidationError(f"{section}: 缺少 Base URL 或 API Key，请检查配置")
+        raise ValidationError(
+            f"{section}: 缺少 Base URL 或 API Key，请检查配置",
+        )
 
     probe = ModelConnectionTestRequest(
         type=section,
@@ -844,9 +920,13 @@ async def _validate_section_connectivity(
                     f"{section}: HTTP {resp.status_code}: {msg or '请求失败'}",
                 )
         except httpx.ConnectError:
-            raise ValidationError(f"{section}: 无法连接到服务，请检查 Base URL 是否正确")
+            raise ValidationError(
+                f"{section}: 无法连接到服务，请检查 Base URL 是否正确",
+            )
         except httpx.TimeoutException:
-            raise ValidationError(f"{section}: 连接超时，请检查网络或 Base URL")
+            raise ValidationError(
+                f"{section}: 连接超时，请检查网络或 Base URL",
+            )
         except httpx.HTTPError as exc:
             raise ValidationError(f"{section}: {exc}")
 
@@ -868,13 +948,62 @@ async def get_resolved_models() -> dict[str, Any]:
 
     Unlike ``/models/config`` (persisted-only), this reflects request-scoped
     host tool config, environment overrides and defaults — i.e. the value
-    ``get_video_model_name()`` returns at submission time.  Read-only.
+    ``get_video_model_name()`` returns at submission time.  ``byMode``
+    carries the per-mode derived names (a configured ``wan2.7-r2v`` submits
+    as ``wan2.7-t2v`` for a t2v element), and ``s2v`` names the digital-human
+    model, so mode workbenches can show the model their element will bill
+    against.  Read-only.
     """
+    from models.video_capabilities import (
+        effective_video_model_name,
+        video_backend_key,
+    )
+
+    video_model = model_config.get_video_model_name()
+    backend_key = video_backend_key(video_model)
     return {
         "video": {
             "provider": model_config.get_video_backend(),
-            "model": model_config.get_video_model_name(),
+            "model": video_model,
+            "byMode": {
+                mode: effective_video_model_name(
+                    video_model,
+                    mode,
+                    backend_key,
+                )
+                for mode in ("r2v", "t2v", "i2v", "video_edit")
+            },
         },
+        "s2v": {
+            "model": model_config.get_s2v_model_name(),
+        },
+    }
+
+
+@router.get("/tts-capabilities")
+async def get_tts_capabilities() -> dict[str, Any]:
+    """Speech models this build supports, and what each of them can do.
+
+    The UI renders its model choices from this list so the two never disagree
+    about which models exist, which have system voices, and which companion
+    models a created voice binds to (users never name those).
+    """
+
+    from models.tts_capabilities import DEFAULT_TTS_MODEL, supported_models
+
+    return {
+        "default": DEFAULT_TTS_MODEL,
+        "models": [
+            {
+                "model": item.model,
+                "label": item.label,
+                "family": item.family,
+                "transport": item.transport,
+                "systemVoices": list(item.system_voices),
+                "supportsDesign": item.supports_design,
+            }
+            for item in supported_models()
+        ],
     }
 
 
@@ -944,7 +1073,89 @@ async def patch_creation_checkpoints(
     def mutate(current: ModelConfigData) -> ModelConfigData:
         merged = current.model_dump()
         merged["creation_checkpoints"] = {"mode": mode}
-        return ModelConfigData.model_validate(merged)
+        try:
+            return ModelConfigData.model_validate(merged)
+        except PydanticValidationError as exc:
+            first_error = exc.errors()[0] if exc.errors() else {}
+            field = ".".join(str(loc) for loc in first_error.get("loc", []))
+            message = first_error.get("msg", str(exc))
+            raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
+
+    def transaction() -> None:
+        mutate_model_config(mutate)
+        _notify_agent_model_config_changed()
+
+    await asyncio.to_thread(transaction)
+    return {"ok": True}
+
+
+@router.patch("/config/permission-mode")
+async def patch_permission_mode(
+    data: dict[str, Any] = Body(...),
+) -> dict[str, bool]:
+    """Atomically persist one stop of the permission ladder.
+
+    The slider writes three coupled fields; saving them through separate
+    PATCH calls can strand the server in a mixed state when one call
+    fails (worst case: a stale media_review=auto_approve hiding behind a
+    conservative-looking UI). One mutate transaction removes the class.
+    """
+
+    execution = data.get("execution_authorization")
+    checkpoints = data.get("creation_checkpoints")
+    media_review = data.get("media_review")
+    if execution not in ("required", "allow_all"):
+        raise ValidationError(
+            "execution_authorization 必须是 'required' 或 'allow_all'",
+        )
+    if checkpoints not in ("required", "skip"):
+        raise ValidationError(
+            "creation_checkpoints 必须是 'required' 或 'skip'",
+        )
+    if media_review not in ("required", "auto_approve"):
+        raise ValidationError(
+            "media_review 必须是 'required' 或 'auto_approve'",
+        )
+
+    def mutate(current: ModelConfigData) -> ModelConfigData:
+        merged = current.model_dump()
+        merged["execution_authorization"] = {"mode": execution}
+        merged["creation_checkpoints"] = {"mode": checkpoints}
+        merged["media_review"] = {"mode": media_review}
+        try:
+            return ModelConfigData.model_validate(merged)
+        except PydanticValidationError as exc:
+            first_error = exc.errors()[0] if exc.errors() else {}
+            field = ".".join(str(loc) for loc in first_error.get("loc", []))
+            message = first_error.get("msg", str(exc))
+            raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
+
+    def transaction() -> None:
+        mutate_model_config(mutate)
+        _notify_agent_model_config_changed()
+
+    await asyncio.to_thread(transaction)
+    return {"ok": True}
+
+
+@router.patch("/config/media-review")
+async def patch_media_review(
+    data: dict[str, Any] = Body(...),
+) -> dict[str, bool]:
+    mode = data.get("mode")
+    if mode not in ("required", "auto_approve"):
+        raise ValidationError("mode 必须是 'required' 或 'auto_approve'")
+
+    def mutate(current: ModelConfigData) -> ModelConfigData:
+        merged = current.model_dump()
+        merged["media_review"] = {"mode": mode}
+        try:
+            return ModelConfigData.model_validate(merged)
+        except PydanticValidationError as exc:
+            first_error = exc.errors()[0] if exc.errors() else {}
+            field = ".".join(str(loc) for loc in first_error.get("loc", []))
+            message = first_error.get("msg", str(exc))
+            raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
     def transaction() -> None:
         mutate_model_config(mutate)
@@ -965,7 +1176,13 @@ async def patch_execution_authorization(
     def mutate(current: ModelConfigData) -> ModelConfigData:
         merged = current.model_dump()
         merged["execution_authorization"] = {"mode": mode}
-        return ModelConfigData.model_validate(merged)
+        try:
+            return ModelConfigData.model_validate(merged)
+        except PydanticValidationError as exc:
+            first_error = exc.errors()[0] if exc.errors() else {}
+            field = ".".join(str(loc) for loc in first_error.get("loc", []))
+            message = first_error.get("msg", str(exc))
+            raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
     def transaction() -> None:
         mutate_model_config(mutate)
@@ -986,6 +1203,7 @@ async def patch_model_config_section(
         "vlm",
         "grounding",
         "asr",
+        "embedding",
         "image",
         "video",
         "oss",
@@ -1003,10 +1221,16 @@ async def patch_model_config_section(
         merged[section] = {**merged.get(section, {}), **data}
         if section == "llm":
             merged["llm"]["enabled"] = True
-        resolved = _resolve_secret_masks(
-            ModelConfigData.model_validate(merged),
-            current,
-        )
+        try:
+            resolved = _resolve_secret_masks(
+                ModelConfigData.model_validate(merged),
+                current,
+            )
+        except PydanticValidationError as exc:
+            first_error = exc.errors()[0] if exc.errors() else {}
+            field = ".".join(str(loc) for loc in first_error.get("loc", []))
+            message = first_error.get("msg", str(exc))
+            raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
         _ensure_grounding_model_configured(resolved)
         return resolved
 
@@ -1096,6 +1320,61 @@ def _probe_payload(
         if provider == "whisper":
             return _openai_model_probe(body, headers)
         return _dashscope_policy_probe(body, headers)
+    if body.type == "tts":
+        # The upload-policy probe accepts any model string, so it cannot catch a
+        # mistyped model name. Synthesizing one character costs a fraction of a
+        # cent and actually validates the model/voice pair. Models without
+        # system voices cannot synthesize at all until a character voice
+        # exists, so for those verify the credential against the voice-listing
+        # surface instead.
+        from models.tts_capabilities import require_capability
+
+        parsed = urlparse(body.base_url)
+        capability = require_capability(body.model_name)
+        if not capability.has_system_voices:
+            action = (
+                "list_voice" if capability.family == "cosyvoice" else "list"
+            )
+            management = (
+                "voice-enrollment"
+                if capability.family == "cosyvoice"
+                else "qwen-voice-enrollment"
+            )
+            return (
+                f"{parsed.scheme}://{parsed.netloc}"
+                "/api/v1/services/audio/tts/customization",
+                headers,
+                {"model": management, "input": {"action": action}},
+            )
+        return (
+            f"{parsed.scheme}://{parsed.netloc}"
+            "/api/v1/services/aigc/multimodal-generation/generation",
+            headers,
+            {
+                "model": body.model_name,
+                "input": {
+                    "text": "嗨",
+                    "voice": body.voice or capability.system_voices[0],
+                },
+                "parameters": {},
+            },
+        )
+    if body.type == "embedding":
+        # Minimal real embedding request: the one-token spend is the only
+        # reliable probe on the native multimodal-embedding endpoint.
+        suffix = (
+            "/services/embeddings/multimodal-embedding/multimodal-embedding"
+        )
+        endpoint = base if base.endswith(suffix) else f"{base}{suffix}"
+        return (
+            endpoint,
+            headers,
+            {
+                "model": body.model_name,
+                "input": {"contents": [{"text": "ping"}]},
+                "parameters": {"dimension": 2560},
+            },
+        )
     if body.type in {"llm", "vlm"}:
         content: Any = "Reply with pong only."
         if body.type == "vlm":
@@ -1141,7 +1420,11 @@ async def test_model_connection(
     loaded = await asyncio.to_thread(load_model_config)
     item = getattr(loaded, body.type)
     fallback_api_key = item.api_key
-    if body.type == "asr" and item.reuse_llm_key and not fallback_api_key:
+    if (
+        body.type in ("asr", "tts", "s2v")
+        and getattr(item, "reuse_llm_key", False)
+        and not fallback_api_key
+    ):
         fallback_api_key = loaded.llm.api_key
     request_api_key = "" if body.api_key == SECRET_MASK else body.api_key
     selected = body.model_copy(
@@ -1151,6 +1434,7 @@ async def test_model_connection(
             "model_name": body.model_name or item.model_name,
             "protocol": body.protocol or item.protocol,
             "provider": body.provider or getattr(item, "provider", None),
+            "voice": body.voice or getattr(item, "voice", ""),
         },
     )
     if (
@@ -1303,7 +1587,16 @@ async def get_real_api_key(section: str) -> dict[str, str]:
     API key to run connection tests, because it only stores the mask
     "__CREATOR_SECRET__".
     """
-    valid_sections = {"llm", "vlm", "asr", "image", "video", "grounding"}
+    valid_sections = {
+        "llm",
+        "vlm",
+        "asr",
+        "tts",
+        "embedding",
+        "image",
+        "video",
+        "grounding",
+    }
     if section not in valid_sections:
         raise ValidationError(
             f"不支持的配置项: {section}，必须是 {', '.join(valid_sections)} 之一",

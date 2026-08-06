@@ -9,6 +9,7 @@ import {
   saveModelConfig,
   testModelConnection,
 } from "@/api/creator";
+import type { DocumentMetadata } from "@/contracts/creator/assets";
 
 describe("new Creator API contract", () => {
   it("uses Project Patch and file Review routes with stable idempotency ids", async () => {
@@ -216,6 +217,7 @@ describe("new Creator API contract", () => {
         reuse_llm: true,
         validation_source: "llm",
         tavily_api_key: "",
+        serper_api_key: "",
         native_search_enabled: true,
         search_provider: "dashscope_qwen",
         search_reuse_llm: true,
@@ -235,6 +237,36 @@ describe("new Creator API contract", () => {
         language: "",
         reuse_llm_key: true,
       },
+      tts: {
+        enabled: false,
+        model_name: "qwen3-tts-flash",
+        api_key: "",
+        base_url: "https://dashscope.aliyuncs.com/api/v1",
+        protocol: "DashScope（百炼）",
+        custom_protocol: "",
+        voice: "",
+        reuse_llm_key: true,
+        vc_model_name: "",
+      },
+      s2v: {
+        enabled: false,
+        model_name: "",
+        api_key: "",
+        base_url: "",
+        protocol: "DashScope（百炼）",
+        custom_protocol: "",
+        detect_model_name: "",
+        reuse_llm_key: true,
+      },
+      embedding: {
+        enabled: false,
+        model_name: "qwen3-vl-embedding",
+        api_key: "",
+        base_url: "https://dashscope.aliyuncs.com/api/v1",
+        protocol: "DashScope（百炼）",
+        custom_protocol: "",
+        reuse_vlm_key: true,
+      },
       image: {
         enabled: false,
         model_name: "",
@@ -242,6 +274,7 @@ describe("new Creator API contract", () => {
         base_url: "",
         protocol: "OpenAI 协议",
         custom_protocol: "",
+        translate_model: "",
       },
       video: {
         enabled: false,
@@ -261,6 +294,8 @@ describe("new Creator API contract", () => {
         policy_api_key: "",
       },
       executionAuthorization: { mode: "required" },
+      creationCheckpoints: { mode: "required" },
+      mediaReview: { mode: "required" },
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
@@ -279,5 +314,12 @@ describe("new Creator API contract", () => {
       access_key_secret: "oss-secret",
       endpoint: "https://oss-cn-hangzhou.aliyuncs.com",
     });
+  });
+
+  it("mirrors the backend document metadata contract", () => {
+    // schemas/assets.py DocumentMetadata serializes as camelCase pageCount.
+    const document: DocumentMetadata = { format: "pdf", pageCount: 4 };
+    expect(document).toEqual({ format: "pdf", pageCount: 4 });
+    expect(Object.keys(document).sort()).toEqual(["format", "pageCount"]);
   });
 });

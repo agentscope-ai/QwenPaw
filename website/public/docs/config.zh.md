@@ -34,7 +34,8 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
 │   │   ├── skills/                      # 本地技能目录
 │   │   ├── skill.json                   # 技能启用状态与配置
 │   │   ├── memory/                      # 每日记忆文件
-│   │   └── browser/                     # 浏览器数据（cookies、缓存等）
+│   │   ├── .browser-profile/            # 浏览器持久化 profile（统一浏览器）
+│   │   └── browser/                     # 浏览器数据（旧版兼容模式）
 │   └── abc123/                          # 其他智能体工作区
 │       └── ...
 └── skill_pool/                          # 本地共享技能池
@@ -564,6 +565,36 @@ QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/
 设置好的变量会在应用启动时自动加载，所有工具和子进程都可以通过 `os.environ` 读取。
 
 > **注意：** 环境变量的值（如第三方 API Key）的有效性需要用户自行保证。QwenPaw 只负责存储和注入，不会校验其正确性。
+
+---
+
+## 浏览器
+
+浏览器配置写在全局 `~/.qwenpaw/config.json` 的 `browser` 段，对所有智能体生效：
+
+```json
+{
+  "browser": {
+    "experimental": true,
+    "backend": "auto",
+    "identity": "auto",
+    "headless": "auto"
+  }
+}
+```
+
+常用字段：
+
+| 字段           | 类型   | 默认值   | 说明                                                                    |
+| -------------- | ------ | -------- | ----------------------------------------------------------------------- |
+| `experimental` | bool   | `true`   | 是否使用新版统一浏览器；`false` 切回旧版实现。**改动需重启服务**        |
+| `backend`      | string | `"auto"` | 独立浏览器的获取方式：`auto` / `launch` / `managed_cdp` / `connect_cdp` |
+| `identity`     | string | `"auto"` | 浏览器身份：`auto` / `user` / `avatar` / `guest`                        |
+| `headless`     | string | `"auto"` | `auto` 表示容器内或无图形界面时无头运行；也可写 `"true"` / `"false"`    |
+
+浏览器数据按智能体工作区隔离，存放在 `workspaces/{agent_id}/.browser-profile/`（`managed_cdp` 用 `.browser-cdp/`，旧版兼容模式用 `browser/`）。`user` 身份使用你自己 Chrome 的 profile，不落这些目录。
+
+> **完整配置说明：** 启动参数、视口、代理、空闲回收等全部字段，以及浏览器身份与接入方式的选择，请参见 [浏览器](./browser)。接入自己的 Chrome 需要安装 [Chrome 浏览器扩展](./chrome)。
 
 ---
 

@@ -100,6 +100,39 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
     return first_text[:10], first_text
 
 
+async def _apply_session_project_dir(
+    workspace,
+    chat,
+    native_payload: dict[str, Any],
+):
+    """Persist a Session project selection before dispatch."""
+    request_context = native_payload["meta"].get("request_context")
+    if not isinstance(request_context, dict):
+        return chat
+    raw_value = request_context.pop("session_project_dir", None)
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        return chat
+
+    def _resolve_target() -> Path:
+        target = Path(raw_value).expanduser().resolve()
+        if not target.is_dir():
+            raise NotADirectoryError(str(target))
+        return target
+
+    try:
+        target = await asyncio.to_thread(_resolve_target)
+    except NotADirectoryError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project directory is unavailable: {exc}",
+        ) from exc
+    updated = await workspace.chat_manager.set_project_dir(
+        chat.id,
+        str(target),
+    )
+    return updated or chat
+
+
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     """Extract run_key (ChatSpec.id), session_id, and native payload.
 
@@ -268,20 +301,6 @@ async def post_console_chat(
         name=name,
     )
     tracker = workspace.task_tracker
-
-    # Kick off an LLM-backed title generation in the background when the chat
-    # was just created with the truncated placeholder. This runs detached so
-    # the streaming response is never blocked by title generation latency.
-    if first_text and chat.name == name:
-        asyncio.create_task(
-            generate_and_update_title(
-                workspace=workspace,
-                chat_id=chat.id,
-                user_message=first_text,
-                placeholder_name=name,
-            ),
-        )
-
     is_reconnect = _is_reconnect_request(request_data)
 
     if is_reconnect:
@@ -293,6 +312,44 @@ async def post_console_chat(
             # history. Returning a JSON null here left the chat blank.
             return _empty_sse_response()
     else:
+        chat = await _apply_session_project_dir(
+            workspace,
+            chat,
+            native_payload,
+        )
+        from ...config.config import load_agent_config
+        from ...services.project_directory import (
+            resolve_effective_project_dir,
+            session_project_dir,
+        )
+
+        agent_config = await asyncio.to_thread(
+            load_agent_config,
+            workspace.agent_id,
+        )
+        project_dir, project_source = await asyncio.to_thread(
+            resolve_effective_project_dir,
+            workspace.workspace_dir,
+            agent_config.project_dir,
+            session_project_dir(chat.meta),
+        )
+        request_context = dict(
+            native_payload["meta"].get("request_context") or {},
+        )
+        request_context["project_dir"] = str(project_dir)
+        request_context["project_dir_source"] = project_source
+        native_payload["meta"]["request_context"] = request_context
+
+        # Title generation is only needed when starting a new run.
+        if first_text and chat.name == name:
+            asyncio.create_task(
+                generate_and_update_title(
+                    workspace=workspace,
+                    chat_id=chat.id,
+                    user_message=first_text,
+                    placeholder_name=name,
+                ),
+            )
         queue, _ = await tracker.attach_or_start(
             chat.id,
             native_payload,
@@ -610,11 +667,16 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         channel_meta=native_payload["meta"],
     )
     name, _ = _extract_placeholder_name(native_payload["content_parts"])
-    await workspace.chat_manager.get_or_create_chat(
+    chat = await workspace.chat_manager.get_or_create_chat(
         session_id,
         native_payload["sender_id"],
         native_payload["channel_id"],
         name=name,
+    )
+    chat = await _apply_session_project_dir(
+        workspace,
+        chat,
+        native_payload,
     )
 
     task_timeout: Optional[float] = None
@@ -639,6 +701,32 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
                 rc.get("fork_worktree_branch") or "",
             )
             fork_scope_id = str(rc.get("fork_scope_id") or "")
+
+    from ...config.config import load_agent_config
+    from ...services.project_directory import (
+        resolve_effective_project_dir,
+        session_project_dir,
+    )
+
+    agent_config = await asyncio.to_thread(
+        load_agent_config,
+        workspace.agent_id,
+    )
+    project_dir, project_source = await asyncio.to_thread(
+        resolve_effective_project_dir,
+        workspace.workspace_dir,
+        agent_config.project_dir,
+        session_project_dir(chat.meta),
+        None,
+        None,
+        fork_project_dir or None,
+    )
+    request_context = dict(
+        native_payload["meta"].get("request_context") or {},
+    )
+    request_context["project_dir"] = str(project_dir)
+    request_context["project_dir_source"] = project_source
+    native_payload["meta"]["request_context"] = request_context
 
     bg = _BackgroundTask(
         status="running",

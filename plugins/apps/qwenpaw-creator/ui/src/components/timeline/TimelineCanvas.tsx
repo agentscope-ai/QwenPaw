@@ -1,47 +1,47 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { createPortal } from "react-dom";
+import { message } from "antd";
 import {
   ChevronDown,
   ChevronUp,
   Loader2,
-  MessageSquarePlus,
+  Magnet,
   Pause,
   Play,
+  SkipBack,
+  SkipForward,
   Volume2,
   VolumeX,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import type {
   ProjectDocument,
   TaskView,
   TimelineDocument,
-  TimelineElementDocument,
+  TimelineSpanDocument,
 } from "@/contracts/creator";
 import { getArtifactVersionMediaUrl } from "@/api/creator";
+import { renderTimeline } from "@/api/creator/tasks";
 import {
   elementsAtTick,
-  elementsOverlappingRange,
-  groupElementsByTracks,
-  resolveElementVisualMeta,
+  groupDisplayTracks,
   resolveTimelineRender,
 } from "@/selectors/timelineElementSelectors";
 import type { ElementPlaybackStatus } from "@/selectors/elementPlaybackSelectors";
-import {
-  ELEMENT_PLAYBACK_STATUS_LABEL,
-  resolveElementPlayback,
-} from "@/selectors/elementPlaybackSelectors";
+import { resolveElementPlayback } from "@/selectors/elementPlaybackSelectors";
 import TimelineLivePreview from "@/components/timeline/TimelineLivePreview";
-import { projectJsonPointer } from "@/lib/projectJsonPointer";
-import { useAgentDockUiStore } from "@/store/agentDockUiStore";
-import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
-import { useOnboardingStore } from "@/store/onboardingStore";
+import TimelineTracks from "@/components/timeline/TimelineTracks";
+import {
+  buildSpanOperations,
+  computeRippleChanges,
+  type SpanChange,
+} from "@/lib/timelineEditing";
+import { formatSeconds } from "@/lib/timecode";
+import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
+import { useCreatorEditBufferStore } from "@/store/creatorEditBufferStore";
 import { useAgentWorkingState } from "@/selectors/agentWorkingSelectors";
-
-interface TimelineSelection {
-  startTick: number;
-  endTick: number;
-  kind: "point" | "range";
-}
+import { useTranslation } from "react-i18next";
 
 interface TimelineCanvasProps {
   project: ProjectDocument;
@@ -49,21 +49,57 @@ interface TimelineCanvasProps {
   durationTick: number;
   playheadTick: number;
   selectedElementId: string | null;
-  activeElementIds: string[];
   previewOpen: boolean;
   tasks: TaskView[];
   onPreviewOpenChange: (open: boolean) => void;
   onPlayheadChange: (tick: number) => void;
   onSelectElement: (elementId: string) => void;
-  onActiveElementIdsChange: (ids: string[]) => void;
+  onActiveElementIdsChange: (ids: string[] | null) => void;
 }
 
-const LABEL_WIDTH = 68;
-const CHART_PADDING = 12;
-const SELECTION_TOOLBAR_GAP = 6;
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 4;
+/** Undo history depth for immediate write-back span edits. */
+const HISTORY_LIMIT = 50;
+const ZOOM_STEP = 0.5;
+/** A final render that already painted a ready frame keeps that frame during
+ * transient seeks/buffer stalls; the opaque locating cover only appears when
+ * the gap persists this long. First loads still cover immediately. */
+const FINAL_COVER_DELAY_MS = 300;
 
-function seconds(tick: number, ticksPerSecond: number, digits = 1): string {
-  return (tick / ticksPerSecond).toFixed(digits).replace(/\.0$/, "");
+/** One committed span edit: inverse spans plus the values it applied. */
+interface SpanHistoryEntry {
+  undoChanges: SpanChange[];
+  redoChanges: SpanChange[];
+}
+
+function spansMatch(
+  timeline: TimelineDocument | null | undefined,
+  changes: SpanChange[],
+): boolean {
+  if (!timeline) return false;
+  return changes.every((change) => {
+    const span = timeline.elements_by_id[change.elementId]?.span;
+    return (
+      span !== undefined &&
+      span.start_tick === change.span.start_tick &&
+      span.duration_tick === change.span.duration_tick
+    );
+  });
+}
+
+function seconds(tick: number, ticksPerSecond: number): string {
+  return formatSeconds(tick, ticksPerSecond);
+}
+
+/** NLE-style timecode `MM:SS.t`, matching the reference transport display. */
+function timecode(tick: number, ticksPerSecond: number): string {
+  const totalSeconds = Math.max(0, tick / Math.max(1, ticksPerSecond));
+  const minutes = Math.floor(totalSeconds / 60);
+  const rest = totalSeconds - minutes * 60;
+  return `${String(minutes).padStart(2, "0")}:${
+    rest < 10 ? "0" : ""
+  }${rest.toFixed(1)}`;
 }
 
 function percent(tick: number, durationTick: number): number {
@@ -72,26 +108,12 @@ function percent(tick: number, durationTick: number): number {
     : 0;
 }
 
-function timelineRef(timeline: TimelineDocument): string {
-  return `timeline:${timeline.timeline_id}`;
-}
-
-function niceScaleStep(secondsValue: number): number {
-  if (!Number.isFinite(secondsValue) || secondsValue <= 0) return 1;
-  const power = 10 ** Math.floor(Math.log10(secondsValue));
-  const normalized = secondsValue / power;
-  const nice =
-    normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
-  return nice * power;
-}
-
 export default function TimelineCanvas({
   project,
   timeline,
   durationTick,
   playheadTick,
   selectedElementId,
-  activeElementIds,
   previewOpen,
   tasks,
   onPreviewOpenChange,
@@ -99,39 +121,60 @@ export default function TimelineCanvas({
   onSelectElement,
   onActiveElementIdsChange,
 }: TimelineCanvasProps) {
+  const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
   const [muted, setMuted] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [finalFrameReady, setFinalFrameReady] = useState(false);
-  const [selection, setSelection] = useState<TimelineSelection | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [snapEnabled, setSnapEnabled] = useState(true);
+  const [dragOverrides, setDragOverrides] = useState<Map<
+    string,
+    TimelineSpanDocument
+  > | null>(null);
 
   const agentWorking = useAgentWorkingState();
-  const [toolbarPos, setToolbarPos] = useState<{
-    left: number;
-    top: number;
-  } | null>(null);
-  const [pointCandidates, setPointCandidates] = useState<
-    TimelineElementDocument[]
-  >([]);
-  const drag = useRef<{
-    pointerId: number;
-    startX: number;
-    startTick: number;
-    moved: boolean;
-  } | null>(null);
-  const chartRef = useRef<HTMLDivElement>(null);
-  const toolbarRef = useRef<HTMLDivElement>(null);
+  const patch = useProjectSnapshotStore((state) => state.patch);
+  const pollOnce = useProjectSnapshotStore((state) => state.pollOnce);
+  const commitChain = useRef<Promise<void>>(Promise.resolve());
+  // Undo/redo stacks hold committed edit entries; replays run through the
+  // same serialized commit chain. Entries only leave a stack once the
+  // replay patch succeeded, so a failed request never loses history.
+  const undoStack = useRef<SpanHistoryEntry[]>([]);
+  const redoStack = useRef<SpanHistoryEntry[]>([]);
+  useEffect(() => {
+    undoStack.current = [];
+    redoStack.current = [];
+  }, [project.project_id, timeline.timeline_id]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const previewScrubberRef = useRef<HTMLDivElement>(null);
   const previewScrub = useRef<{
     pointerId: number;
     resumeAfterScrub: boolean;
   } | null>(null);
-  const tracks = useMemo(() => groupElementsByTracks(timeline), [timeline]);
+
+  // Effective timeline: authoritative document plus in-flight drag overrides,
+  // so both the track blocks and the live preview follow the pointer without
+  // waiting for the patch round-trip.
+  const effectiveTimeline = useMemo(() => {
+    if (!dragOverrides?.size) return timeline;
+    const elements = { ...timeline.elements_by_id };
+    dragOverrides.forEach((span, elementId) => {
+      const element = elements[elementId];
+      if (element) elements[elementId] = { ...element, span };
+    });
+    return { ...timeline, elements_by_id: elements };
+  }, [timeline, dragOverrides]);
+
+  const { tracks } = useMemo(
+    () => groupDisplayTracks(effectiveTimeline),
+    [effectiveTimeline],
+  );
   const totalLanes = tracks.reduce((sum, track) => sum + track.lanes.length, 0);
+  const scrollable = totalLanes > 4;
   const active = useMemo(
-    () => elementsAtTick(timeline, playheadTick),
-    [playheadTick, timeline],
+    () => elementsAtTick(effectiveTimeline, playheadTick),
+    [playheadTick, effectiveTimeline],
   );
   const renderOutput = useMemo(
     () => resolveTimelineRender(project, timeline),
@@ -152,9 +195,32 @@ export default function TimelineCanvas({
         : [],
     );
   }, [renderedVersion]);
+  // Locally recorded edit ranges (union of pre/post spans of edited elements):
+  // old final-render frames inside them are wrong even when the element has
+  // since moved away from the playhead's current tick.
+  const localAffectedRanges = useCreatorEditBufferStore((state) =>
+    state.projectId === project.project_id
+      ? state.affectedRangesByTimeline[timeline.timeline_id]
+      : undefined,
+  );
+  const clearAffectedRanges = useCreatorEditBufferStore(
+    (state) => state.clearAffectedRanges,
+  );
+  const playheadLocallyAffected = (localAffectedRanges ?? []).some(
+    (range) => playheadTick >= range.startTick && playheadTick < range.endTick,
+  );
+  useEffect(() => {
+    if (renderedVersion && !renderedVersion.stale) {
+      clearAffectedRanges(
+        timeline.timeline_id,
+        renderedVersion.based_on_generation,
+      );
+    }
+  }, [clearAffectedRanges, renderedVersion, timeline.timeline_id]);
   const staleFrameIsUnaffected =
     Boolean(renderedVersion?.stale) &&
     pendingAffectedElementIds.size > 0 &&
+    !playheadLocallyAffected &&
     active.every(
       (element) => !pendingAffectedElementIds.has(element.element_id),
     );
@@ -171,15 +237,15 @@ export default function TimelineCanvas({
   // generating/failed styling of track blocks.
   const playbackStates = useMemo(() => {
     const states = new Map<string, ElementPlaybackStatus>();
-    Object.values(timeline.elements_by_id).forEach((element) => {
+    Object.values(effectiveTimeline.elements_by_id).forEach((element) => {
       states.set(
         element.element_id,
-        resolveElementPlayback(project, timeline, element, tasks).status,
+        resolveElementPlayback(project, effectiveTimeline, element, tasks)
+          .status,
       );
     });
     return states;
-  }, [project, tasks, timeline]);
-  const scrollable = totalLanes > 4;
+  }, [project, tasks, effectiveTimeline]);
   const timelineDuration = Math.max(1, durationTick);
   const finalVideo = videoRef.current;
   const finalPreviewReady =
@@ -194,138 +260,161 @@ export default function TimelineCanvas({
             finalVideo.currentTime - playheadTick / timeline.ticks_per_second,
           ) <= 0.35),
     );
-
-  const tickAt = (clientX: number): number => {
-    const rect = chartRef.current?.getBoundingClientRect();
-    if (!rect) return 0;
-    const inner = Math.max(1, rect.width - LABEL_WIDTH - CHART_PADDING * 2);
-    const x = Math.min(
-      inner,
-      Math.max(0, clientX - rect.left - CHART_PADDING - LABEL_WIDTH),
-    );
-    return Math.round((x / inner) * timelineDuration);
-  };
-
-  const clearSelection = () => {
-    setSelection(null);
-    setPointCandidates([]);
-  };
-
-  const beginSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (
-      (event.target as HTMLElement).closest(
-        "[data-element-block], [data-timeline-selection-toolbar]",
-      )
-    )
-      return;
-    const tick = tickAt(event.clientX);
-    drag.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startTick: tick,
-      moved: false,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setSelection(null);
-    setPointCandidates([]);
-  };
-
-  const moveSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const current = drag.current;
-    if (!current || current.pointerId !== event.pointerId) return;
-    if (Math.abs(event.clientX - current.startX) > 5) current.moved = true;
-    if (!current.moved) return;
-    const tick = tickAt(event.clientX);
-    setSelection({
-      kind: "range",
-      startTick: Math.min(current.startTick, tick),
-      endTick: Math.max(current.startTick, tick),
-    });
-  };
-
-  const endSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const current = drag.current;
-    if (!current || current.pointerId !== event.pointerId) return;
-    drag.current = null;
-    const tick = tickAt(event.clientX);
-    if (current.moved) {
-      const startTick = Math.min(current.startTick, tick);
-      const endTick = Math.max(current.startTick, tick);
-      setSelection(
-        endTick > startTick
-          ? { kind: "range", startTick, endTick }
-          : { kind: "point", startTick, endTick: startTick },
-      );
-      setPointCandidates([]);
-      const selectedElements =
-        endTick > startTick
-          ? elementsOverlappingRange(timeline, startTick, endTick)
-          : elementsAtTick(timeline, startTick);
-      const elementIds = selectedElements.map((element) => element.element_id);
-      onActiveElementIdsChange(elementIds);
+  // Debounced locating cover: once this render URL has shown a ready frame,
+  // a transient seek or buffer stall keeps the last frame on screen instead
+  // of flashing the opaque cover for a few frames.
+  const hadReadyFinalFrame = useRef(false);
+  const [finalCoverArmed, setFinalCoverArmed] = useState(true);
+  useEffect(() => {
+    hadReadyFinalFrame.current = false;
+  }, [renderUrl]);
+  useEffect(() => {
+    if (finalPreviewReady) {
+      hadReadyFinalFrame.current = true;
+      setFinalCoverArmed(false);
       return;
     }
+    if (!hadReadyFinalFrame.current) {
+      setFinalCoverArmed(true);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setFinalCoverArmed(true),
+      FINAL_COVER_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [finalPreviewReady]);
+  // First paint has no effect pass yet: the no-ready-frame rule keeps a
+  // fresh load covered from the very first frame.
+  const showFinalCover =
+    !finalPreviewReady && (finalCoverArmed || !hadReadyFinalFrame.current);
 
-    onPlayheadChange(tick);
-    const candidates = elementsAtTick(timeline, tick);
-    setSelection({ kind: "point", startTick: tick, endTick: tick });
-    setPointCandidates(collapsed ? candidates : []);
-    const elementIds = candidates.map((element) => element.element_id);
-    onActiveElementIdsChange(elementIds);
+  // ------------------------------------------------------------------
+  // Direct write-back: span changes coming from the track surface commit to
+  // project.json immediately (default-apply), serialized so consecutive drags
+  // never race each other's base generation.
+  // ------------------------------------------------------------------
+  const performSpanCommit = async (
+    changes: SpanChange[],
+    history?: { kind: "undo" | "redo"; entry: SpanHistoryEntry },
+  ) => {
+    const snapshot = useProjectSnapshotStore.getState();
+    const latestTimeline =
+      snapshot.projectId === project.project_id
+        ? snapshot.project?.timelines.items[timeline.timeline_id]
+        : null;
+    const clearCommitted = () =>
+      setDragOverrides((previous) => {
+        if (!previous) return null;
+        const next = new Map(previous);
+        changes.forEach((change) => next.delete(change.elementId));
+        return next.size ? next : null;
+      });
+    if (!latestTimeline) {
+      clearCommitted();
+      return;
+    }
+    const rippleChanges = computeRippleChanges(latestTimeline, changes);
+    const allChanges = [...changes, ...rippleChanges];
+    const operations = buildSpanOperations(
+      latestTimeline,
+      timeline.timeline_id,
+      allChanges,
+    );
+    if (!operations.length) {
+      clearCommitted();
+      return;
+    }
+    // Inverse spans captured before the patch make the edit undoable.
+    const applied = allChanges.filter(
+      (change) => latestTimeline.elements_by_id[change.elementId],
+    );
+    const inverseChanges: SpanChange[] = applied.map((change) => ({
+      elementId: change.elementId,
+      span: { ...latestTimeline.elements_by_id[change.elementId].span },
+    }));
+    try {
+      const response = await patch(project.project_id, operations);
+      if (history?.kind === "undo") {
+        redoStack.current.push(history.entry);
+      } else if (history?.kind === "redo") {
+        undoStack.current.push(history.entry);
+      } else {
+        undoStack.current.push({
+          undoChanges: inverseChanges,
+          redoChanges: applied.map((change) => ({
+            elementId: change.elementId,
+            span: { ...change.span },
+          })),
+        });
+        if (undoStack.current.length > HISTORY_LIMIT) {
+          undoStack.current.shift();
+        }
+        redoStack.current = [];
+      }
+      clearCommitted();
+      if (response.editImpact?.regenerationRequired) {
+        message.success(t("timeline.timingAppliedRegenRequired"));
+      } else if (response.editImpact?.renderTimelineIds.length) {
+        message.success(t("timeline.timingAppliedRecomposing"));
+        // Auto-trigger recompose so the final render stays in sync
+        void renderTimeline(project.project_id, timeline.timeline_id).catch(
+          () => undefined,
+        );
+      } else {
+        message.success(t("timeline.timingApplied"));
+      }
+    } catch (error) {
+      // A failed replay must not lose history: the entry goes back onto
+      // the stack it came from.
+      if (history?.kind === "undo") undoStack.current.push(history.entry);
+      if (history?.kind === "redo") redoStack.current.push(history.entry);
+      clearCommitted();
+      message.error(
+        t("timeline.applyTimingFailed", { detail: (error as Error).message }),
+      );
+      void pollOnce(project.project_id);
+    }
   };
 
-  const addSelectionToConversation = () => {
-    if (!selection) return;
-    const selectedElements =
-      selection.kind === "point"
-        ? elementsAtTick(timeline, selection.startTick)
-        : elementsOverlappingRange(
-            timeline,
-            selection.startTick,
-            selection.endTick,
-          );
-    const isPoint = selection.kind === "point";
-    const startText = seconds(selection.startTick, timeline.ticks_per_second);
-    const endText = seconds(selection.endTick, timeline.ticks_per_second);
-    const attachment = {
-      kind: isPoint ? ("timeline_point" as const) : ("timeline_range" as const),
-      text: isPoint
-        ? `${startText}s · ${selectedElements.length} 项同时出现的内容`
-        : `${startText}s – ${endText}s · ${selectedElements.length} 项时间线内容`,
-      ref: timelineRef(timeline),
-      field: isPoint
-        ? `${timelineRef(timeline)}@${selection.startTick}`
-        : `${timelineRef(timeline)}@[${selection.startTick},${
-            selection.endTick
-          })`,
-      path: projectJsonPointer("timelines", "items", timeline.timeline_id),
-      start: selection.startTick,
-      end: selection.endTick,
-      label: isPoint ? "时间点" : "时间区间",
-      timelineId: timeline.timeline_id,
-      startTick: selection.startTick,
-      endTick: selection.endTick,
-      elementIds: selectedElements.map((element) => element.element_id),
-    };
-    useAgentDockUiStore.getState().setSelection(attachment);
-    useCreatorInteractionStore.getState().setSelection(attachment);
-    clearSelection();
+  const commitSpans = (changes: SpanChange[]) => {
+    commitChain.current = commitChain.current.then(() =>
+      performSpanCommit(changes),
+    );
   };
 
-  useEffect(() => {
-    const close = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (
-        chartRef.current?.contains(target) ||
-        target.closest("[data-timeline-selection-toolbar]") ||
-        target.closest("[data-timeline-point-candidates]")
-      )
+  /**
+   * Undo/redo run entirely inside the serialized commit chain: the stack is
+   * only read after every queued edit has settled, and the collaboration
+   * guard re-checks the freshest snapshot right before the patch. This
+   * prevents a queued undo from reverting past an edit that was still
+   * committing when the key was pressed.
+   */
+  const replayHistory = (kind: "undo" | "redo") => {
+    commitChain.current = commitChain.current.then(async () => {
+      const stack = kind === "undo" ? undoStack.current : redoStack.current;
+      const entry = stack.pop();
+      if (!entry) return;
+      const snapshot = useProjectSnapshotStore.getState();
+      const latest =
+        snapshot.projectId === project.project_id
+          ? snapshot.project?.timelines.items[timeline.timeline_id]
+          : null;
+      const expected = kind === "undo" ? entry.redoChanges : entry.undoChanges;
+      if (!spansMatch(latest, expected)) {
+        message.warning(
+          kind === "undo"
+            ? t("timeline.undoCancelled")
+            : t("timeline.redoCancelled"),
+        );
         return;
-      clearSelection();
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, []);
+      }
+      await performSpanCommit(
+        kind === "undo" ? entry.undoChanges : entry.redoChanges,
+        { kind, entry },
+      );
+    });
+  };
 
   const seekPreviewToPlayhead = (video: HTMLVideoElement) => {
     if (!Number.isFinite(video.duration)) return;
@@ -477,108 +566,129 @@ export default function TimelineCanvas({
     onPlayheadChange(Math.min(timelineDuration, Math.max(0, nextTick)));
   };
 
-  useLayoutEffect(() => {
-    if (!selection) {
-      setToolbarPos(null);
+  const adjustZoom = (delta: number) => {
+    setZoom((value) =>
+      Math.min(
+        ZOOM_MAX,
+        Math.max(ZOOM_MIN, Number((value + delta).toFixed(2))),
+      ),
+    );
+  };
+  const changeZoom = (next: number) => {
+    setZoom(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next)));
+  };
+
+  const togglePlayback = () => {
+    if (!previewOpen) {
+      onPreviewOpenChange(true);
+      if (previewMode === "live") setPlaying(true);
       return;
     }
-    const update = () => {
-      const rect = chartRef.current?.getBoundingClientRect();
-      const bar = toolbarRef.current;
-      if (!rect || !bar) return;
-      const width = bar.offsetWidth || 116;
-      const height = bar.offsetHeight || 32;
-      const anchorTick =
-        selection.kind === "point" ? selection.startTick : selection.endTick;
-      const inner = Math.max(1, rect.width - LABEL_WIDTH - CHART_PADDING * 2);
-      const anchorX =
-        rect.left +
-        CHART_PADDING +
-        LABEL_WIDTH +
-        (inner * percent(anchorTick, timelineDuration)) / 100;
-      const rightSide = anchorX + 8;
-      const left =
-        rightSide + width <= window.innerWidth - 8
-          ? rightSide
-          : Math.max(8, anchorX - width - 8);
-      const above = rect.top - height - SELECTION_TOOLBAR_GAP;
-      const top =
-        above >= 8
-          ? above
-          : Math.min(
-              Math.max(8, rect.top + SELECTION_TOOLBAR_GAP),
-              window.innerHeight - height - 8,
-            );
-      setToolbarPos({ left, top });
-    };
-    update();
-    window.addEventListener("resize", update);
-    document.addEventListener("scroll", update, true);
-    return () => {
-      window.removeEventListener("resize", update);
-      document.removeEventListener("scroll", update, true);
-    };
-  }, [selection, timelineDuration]);
-
-  const scale = useMemo(() => {
-    const ticksPerSecond = Math.max(1, timeline.ticks_per_second);
-    const durationSeconds = timelineDuration / ticksPerSecond;
-    const majorStepSeconds = niceScaleStep(durationSeconds / 6);
-    const majorStepTick = Math.max(
-      1,
-      Math.round(majorStepSeconds * ticksPerSecond),
+    if (previewMode === "live") {
+      if (!playing && playheadTick >= timelineDuration) onPlayheadChange(0);
+      setPlaying((value) => !value);
+      return;
+    }
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) void video.play();
+    else video.pause();
+  };
+  const togglePlaybackRef = useRef(togglePlayback);
+  togglePlaybackRef.current = togglePlayback;
+  const undoRef = useRef(() => {});
+  undoRef.current = () => replayHistory("undo");
+  const redoRef = useRef(() => {});
+  redoRef.current = () => replayHistory("redo");
+  const seekByRef = useRef((deltaTick: number) => {
+    onPlayheadChange(
+      Math.min(timelineDuration, Math.max(0, playheadTick + deltaTick)),
     );
-    const minorStepTick = Math.max(1, Math.round(majorStepTick / 5));
-    const ticks: Array<{ tick: number; major: boolean }> = [];
-    for (let tick = 0; tick <= timelineDuration; tick += minorStepTick) {
-      ticks.push({
-        tick,
-        major: tick % majorStepTick === 0,
-      });
-    }
-    if (ticks[ticks.length - 1]?.tick !== timelineDuration) {
-      ticks.push({ tick: timelineDuration, major: true });
-    }
-    return {
-      ticks,
-      labelDigits: majorStepSeconds < 1 ? 1 : 0,
+  });
+  seekByRef.current = (deltaTick: number) => {
+    onPlayheadChange(
+      Math.min(timelineDuration, Math.max(0, playheadTick + deltaTick)),
+    );
+  };
+
+  // NLE keyboard shortcuts: Space play/pause, ←/→ ±1s (Shift ±0.1s),
+  // Home/End. Ignored while typing or when another control owns the key.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(
+          "input, textarea, select, [contenteditable='true'], [role='slider']",
+        )
+      )
+        return;
+      const tps = Math.max(1, timeline.ticks_per_second);
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        (event.key === "z" || event.key === "Z")
+      ) {
+        // Standard NLE history: ⌘/Ctrl+Z undo, ⌘/Ctrl+Shift+Z redo.
+        event.preventDefault();
+        if (event.shiftKey) redoRef.current();
+        else undoRef.current();
+        return;
+      }
+      if (event.key === " " || event.code === "Space") {
+        if (target?.closest("button, a")) return;
+        event.preventDefault();
+        togglePlaybackRef.current();
+        return;
+      }
+      const stepTick = Math.max(1, Math.round(event.shiftKey ? tps / 10 : tps));
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        seekByRef.current(-stepTick);
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        seekByRef.current(stepTick);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        seekByRef.current(Number.NEGATIVE_INFINITY);
+      } else if (event.key === "End") {
+        event.preventDefault();
+        seekByRef.current(Number.POSITIVE_INFINITY);
+      }
     };
-  }, [timeline.ticks_per_second, timelineDuration]);
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [timeline.ticks_per_second]);
 
   return (
     <section
       data-timeline-panel
-      className={`mx-4 mt-3 shrink-0 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-sm ${
+      className={`relative mx-4 mt-3 shrink-0 overflow-visible rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-sm ${
         previewOpen ? "flex max-h-[66vh] flex-col" : ""
       }`}
     >
       <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] px-3 py-1.5 text-[11px] text-[var(--color-text-tertiary)]">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <b className="text-[var(--color-text-primary)]">时间轴</b>
-          <span className="rounded-full bg-[var(--color-accent-soft)] px-2 py-0.5 font-semibold text-[var(--color-accent)]">
-            {seconds(playheadTick, timeline.ticks_per_second)}s · 该时刻有
-            {activeElementIds.length}项内容
+          <b className="text-[var(--color-text-primary)]">
+            {t("timeline.timeline")}
+          </b>
+          <span
+            data-timeline-playhead-summary
+            className="rounded-full bg-[var(--color-accent-soft)] px-2 py-0.5 font-semibold text-[var(--color-accent)]"
+          >
+            {/* Pure playhead semantics: derived from the timeline at the
+                playhead tick, never from an explicit selection. */}
+            {seconds(playheadTick, timeline.ticks_per_second)}s ·{" "}
+            {t("timeline.itemsCount", { count: active.length })}
           </span>
           <span
             className={`rounded-full bg-[var(--color-bg-secondary)] px-2 py-0.5 ${
               scrollable ? "ring-1 ring-[var(--color-border)]" : ""
             }`}
           >
-            {tracks.length} 轨{scrollable ? " · 可上下滚动" : ""}
+            {tracks.length} {t("timeline.track")}
+            {scrollable ? t("timeline.scrollable") : ""}
           </span>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 pr-3">
-          <div className="hidden flex-wrap items-center gap-2 xl:flex">
-            {tracks.map((track) => (
-              <span key={track.type} className="whitespace-nowrap">
-                <i
-                  className="mr-1 inline-block h-2 w-2 rounded-sm"
-                  style={{ background: track.color }}
-                />
-                {track.label}
-              </span>
-            ))}
-          </div>
           <button
             type="button"
             onClick={() => onPreviewOpenChange(!previewOpen)}
@@ -593,17 +703,18 @@ export default function TimelineCanvas({
             ) : (
               <ChevronDown className="h-3 w-3" />
             )}
-            {previewOpen ? "收起预览" : "视频预览"}
+            {previewOpen
+              ? t("timeline.collapsePreview")
+              : t("timeline.videoPreview")}
           </button>
           <button
             type="button"
-            onClick={() => {
-              setCollapsed((value) => !value);
-              clearSelection();
-            }}
+            onClick={() => setCollapsed((value) => !value)}
             className="rounded-md border border-[var(--color-border)] px-2 py-1 font-semibold text-[var(--color-text-secondary)]"
           >
-            {collapsed ? "展开时间轴" : "收起时间轴"}
+            {collapsed
+              ? t("timeline.expandTimeline")
+              : t("timeline.collapseTimeline")}
           </button>
         </div>
       </div>
@@ -616,7 +727,7 @@ export default function TimelineCanvas({
           {previewMode === "live" ? (
             <TimelineLivePreview
               project={project}
-              timeline={timeline}
+              timeline={effectiveTimeline}
               durationTick={timelineDuration}
               playheadTick={playheadTick}
               playing={playing}
@@ -666,10 +777,10 @@ export default function TimelineCanvas({
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_center,#28221e_0,#151210_64%,#0d0b0a_100%)] text-center text-sm text-white/58">
-              <span>暂无成片预览</span>
+              <span>{t("timeline.noPreview")}</span>
             </div>
           )}
-          {previewMode === "final" && renderUrl && !finalPreviewReady && (
+          {previewMode === "final" && renderUrl && showFinalCover && (
             <div
               data-final-preview-incomplete
               role="status"
@@ -678,10 +789,10 @@ export default function TimelineCanvas({
             >
               <Loader2 className="h-7 w-7 animate-spin text-white/75" />
               <span className="text-sm font-semibold text-white/90">
-                正在定位画面
+                {t("timeline.locatingFrame")}
               </span>
               <span className="text-xs leading-5 text-white/60">
-                成片已渲染完成，正在加载该时间点的画面，无需重新渲染。
+                {t("timeline.renderDoneDesc")}
               </span>
             </div>
           )}
@@ -691,9 +802,9 @@ export default function TimelineCanvas({
             title={
               previewMode === "final"
                 ? renderedVersion?.stale
-                  ? "当前时间点未受本次修改影响，显示上一版已完成成片"
-                  : "正在播放已合成的成片"
-                : "实时拼装与成片同口径渲染；成片合成后自动切换"
+                  ? t("timeline.notAffected")
+                  : t("timeline.playingFinal")
+                : t("timeline.liveRenderDesc")
             }
           >
             <span
@@ -705,479 +816,187 @@ export default function TimelineCanvas({
             />
             {previewMode === "final"
               ? renderedVersion?.stale
-                ? "未受影响 · 已完成画面"
-                : "成片"
+                ? t("timeline.notAffectedLabel")
+                : t("timeline.finalCut")
               : renderedVersion?.stale
-              ? "内容已更新 · 实时预览"
-              : "实时预览"}
-          </div>
-          <div className="absolute inset-x-0 bottom-0 z-20 flex items-center gap-2 bg-gradient-to-b from-transparent to-black/80 px-4 pb-3 pt-12">
-            <button
-              type="button"
-              disabled={
-                previewMode === "final"
-                  ? !videoRef.current && !renderUrl
-                  : timelineDuration <= 1
-              }
-              onClick={() => {
-                if (previewMode === "live") {
-                  if (!playing && playheadTick >= timelineDuration)
-                    onPlayheadChange(0);
-                  setPlaying((value) => !value);
-                  return;
-                }
-                const video = videoRef.current;
-                if (!video) return;
-                if (video.paused) void video.play();
-                else video.pause();
-              }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-accent)] text-white disabled:opacity-40"
-              aria-label="播放或暂停预览"
-            >
-              {playing ? (
-                <Pause className="h-3.5 w-3.5" />
-              ) : (
-                <Play className="h-3.5 w-3.5 fill-current" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setMuted((value) => !value)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/25 bg-black/30 text-white"
-              aria-label={muted ? "取消静音" : "静音"}
-            >
-              {muted ? (
-                <VolumeX className="h-3.5 w-3.5" />
-              ) : (
-                <Volume2 className="h-3.5 w-3.5" />
-              )}
-            </button>
-            <div
-              ref={previewScrubberRef}
-              data-preview-scrubber
-              role="slider"
-              tabIndex={0}
-              aria-label="拖动预览时间轴"
-              aria-valuemin={0}
-              aria-valuemax={timelineDuration}
-              aria-valuenow={Math.min(playheadTick, timelineDuration)}
-              aria-valuetext={`${seconds(
-                playheadTick,
-                timeline.ticks_per_second,
-              )} 秒`}
-              onPointerDown={beginPreviewScrub}
-              onPointerMove={movePreviewScrub}
-              onPointerUp={(event) => finishPreviewScrub(event, true)}
-              onPointerCancel={(event) => finishPreviewScrub(event, false)}
-              onKeyDown={movePreviewScrubberByKeyboard}
-              className="relative h-7 flex-1 cursor-pointer touch-none rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]"
-            >
-              <span className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-white/30">
-                <i
-                  className="block h-full rounded-full bg-[var(--color-accent)]"
-                  style={{
-                    width: `${percent(playheadTick, timelineDuration)}%`,
-                  }}
-                />
-              </span>
-              <i
-                aria-hidden
-                className="pointer-events-none absolute top-1/2 block h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[var(--color-accent)] shadow-sm"
-                style={{
-                  left: `${percent(playheadTick, timelineDuration)}%`,
-                }}
-              />
-            </div>
-            <span className="font-mono text-[11px] text-white">
-              {seconds(playheadTick, timeline.ticks_per_second)} /{" "}
-              {seconds(timelineDuration, timeline.ticks_per_second)}s
-            </span>
+              ? t("timeline.contentUpdated")
+              : t("timeline.livePreview")}
           </div>
         </div>
       )}
 
+      {/* Transport bar mirrors the reference design: playback controls and
+          the shared progress in the center, snapping/zoom on the right. */}
       <div
-        ref={chartRef}
-        data-timeline-chart
-        className={`relative shrink-0 cursor-crosshair select-none px-3 pb-2 ${
-          previewOpen ? "max-h-[280px] overflow-hidden" : ""
-        }`}
-        onPointerDown={beginSelection}
-        onPointerMove={moveSelection}
-        onPointerUp={endSelection}
-        onPointerCancel={() => {
-          drag.current = null;
-        }}
+        data-timeline-transport
+        className="flex min-h-[38px] flex-wrap items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/45 px-2.5 py-1 text-[11px]"
       >
-        <div
-          data-timeline-scale
-          className="relative ml-[68px] h-7 border-b border-[var(--color-border)]"
-        >
-          {scale.ticks.map(({ tick, major }) => (
-            <span
-              key={tick}
-              data-timeline-scale-tick
-              data-major={major ? "true" : "false"}
-              aria-hidden={!major}
-              className="absolute inset-y-0 -translate-x-1/2"
-              style={{ left: `${percent(tick, timelineDuration)}%` }}
-            >
-              <i
-                className={`absolute bottom-0 left-1/2 w-px -translate-x-1/2 ${
-                  major
-                    ? "h-2.5 bg-[var(--color-border-strong)]"
-                    : "h-1.5 bg-[var(--color-border)]"
-                }`}
-              />
-              {major && (
-                <b className="absolute left-1/2 top-0 -translate-x-1/2 whitespace-nowrap text-[9px] font-medium text-[var(--color-text-tertiary)]">
-                  {seconds(tick, timeline.ticks_per_second, scale.labelDigits)}s
-                </b>
-              )}
-            </span>
-          ))}
-        </div>
-        <div
-          aria-hidden
-          data-timeline-grid
-          className="pointer-events-none absolute bottom-2 top-7 z-0"
-          style={{
-            left: CHART_PADDING + LABEL_WIDTH,
-            right: CHART_PADDING,
-          }}
-        >
-          {scale.ticks
-            .filter(
-              ({ major, tick }) => major && tick > 0 && tick < timelineDuration,
-            )
-            .map(({ tick }) => (
-              <i
-                key={tick}
-                className="absolute inset-y-0 w-px bg-[var(--color-border)]/45"
-                style={{ left: `${percent(tick, timelineDuration)}%` }}
-              />
-            ))}
-        </div>
-        {collapsed ? (
-          <div className="relative flex h-8 border-b border-[var(--color-border)]/65">
-            <div className="flex w-[68px] shrink-0 items-center justify-center text-[10px] font-semibold text-[var(--color-text-tertiary)]">
-              概览
-            </div>
-            <div
-              className="relative min-w-0 flex-1"
-              aria-label="紧凑时间轴概览；点击任意时刻查看同时出现的内容"
-            >
-              {Object.values(timeline.elements_by_id).map((element) => {
-                const meta = resolveElementVisualMeta(element);
-                const left = percent(element.span.start_tick, timelineDuration);
-                const width = Math.max(
-                  0.7,
-                  (element.span.duration_tick / timelineDuration) * 100,
-                );
-                return (
-                  <i
-                    key={element.element_id}
-                    aria-hidden
-                    className={`pointer-events-none absolute inset-y-2 rounded-sm ${
-                      element.enabled ? "opacity-55" : "opacity-20"
-                    }`}
-                    style={{
-                      left: `${left}%`,
-                      width: `${Math.min(100 - left, width)}%`,
-                      background: meta.color,
-                    }}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          <div
-            className={
-              scrollable
-                ? `${
-                    previewOpen ? "max-h-[180px]" : "max-h-[320px]"
-                  } overflow-y-auto overscroll-contain [scrollbar-gutter:stable]`
-                : ""
-            }
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              onPlayheadChange(
+                Math.max(0, playheadTick - timeline.ticks_per_second),
+              );
+            }}
+            className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
+            aria-label={t("timeline.skipBack1s")}
           >
-            {tracks.length === 0 ? (
-              agentWorking.working ? (
-                <div
-                  data-timeline-working
-                  className="flex h-14 flex-col items-center justify-center gap-2 text-xs text-[var(--color-text-secondary)]"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--color-warning)]" />
-                    Agent 正在编排时间轴，内容生成后会自动出现
-                  </span>
-                  <div className="agent-working-shimmer h-1.5 w-3/5 rounded-full bg-[var(--color-bg-secondary)]" />
-                </div>
-              ) : (
-                <div className="flex h-14 items-center justify-center text-xs text-[var(--color-text-tertiary)]">
-                  时间轴中还没有内容
-                </div>
-              )
+            <SkipBack className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={togglePlayback}
+            className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-accent)] text-white"
+            aria-label={t("timeline.playPause")}
+          >
+            {playing ? (
+              <Pause className="h-3.5 w-3.5" />
             ) : (
-              tracks.map((track) => (
-                <div key={track.type} data-track={track.type}>
-                  {track.lanes.map((lane, laneIndex) => (
-                    <div
-                      key={lane.id}
-                      className="relative flex h-[35px] border-b border-[var(--color-border)]/65 last:border-b-0"
-                    >
-                      <div
-                        title={`选取整行 ${track.label}`}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={() => {
-                          const laneElementIds = lane.elements.map(
-                            (element) => element.element_id,
-                          );
-                          onActiveElementIdsChange(laneElementIds);
-                          onPlayheadChange(0);
-                        }}
-                        className="flex w-[68px] shrink-0 items-center justify-center text-[10px] font-semibold hover:text-[12px] hover:font-bold"
-                        style={{ color: track.color }}
-                      >
-                        {track.label}-{laneIndex + 1}
-                      </div>
-                      <div className="relative min-w-0 flex-1">
-                        {lane.elements.map((element) => {
-                          const meta = resolveElementVisualMeta(element);
-                          const playbackState =
-                            playbackStates.get(element.element_id) ?? "pending";
-                          const left = percent(
-                            element.span.start_tick,
-                            timelineDuration,
-                          );
-                          const width = Math.max(
-                            0.7,
-                            (element.span.duration_tick / timelineDuration) *
-                              100,
-                          );
-                          const selected =
-                            element.element_id === selectedElementId;
-                          // Transition blocks are usually under 2% wide, so two lines
-                          // of text get clipped into a solid color block; use a centered
-                          // crossed-triangle transition glyph instead — hover still shows
-                          // the full title tooltip.
-                          const isTransition =
-                            element.creation.type === "transition";
-                          return (
-                            <button
-                              key={element.element_id}
-                              type="button"
-                              data-element-block={element.element_id}
-                              data-element-block-state={playbackState}
-                              title={`${
-                                element.label || "时间线内容"
-                              } · ${seconds(
-                                element.span.start_tick,
-                                timeline.ticks_per_second,
-                              )}s – ${seconds(
-                                element.span.start_tick +
-                                  element.span.duration_tick,
-                                timeline.ticks_per_second,
-                              )}s${
-                                playbackState === "ready"
-                                  ? ""
-                                  : ` · ${ELEMENT_PLAYBACK_STATUS_LABEL[playbackState]}`
-                              }`}
-                              onPointerDown={(event) => event.stopPropagation()}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                // Element selection reuses the single playhead; the old
-                                // point/range selection no longer leaves a separate marker line.
-                                clearSelection();
-                                onSelectElement(element.element_id);
-                                onActiveElementIdsChange([element.element_id]);
-                              }}
-                              className={`absolute top-0.5 flex h-[30px] min-w-3 overflow-hidden rounded-[7px] border text-[10px] font-semibold shadow-sm transition ${
-                                isTransition
-                                  ? "items-center justify-center px-0"
-                                  : "flex-col justify-center px-2 text-left"
-                              } ${
-                                selected
-                                  ? "z-20 border-[var(--color-accent)] ring-2 ring-[var(--color-accent)]/20"
-                                  : "z-10"
-                              } ${element.enabled ? "" : "opacity-45"} ${
-                                playbackState === "queued"
-                                  ? "border-dashed"
-                                  : ""
-                              }`}
-                              style={{
-                                left: `${left}%`,
-                                width: `${Math.min(100 - left, width)}%`,
-                                color: meta.color,
-                                borderColor: selected
-                                  ? undefined
-                                  : playbackState === "failed"
-                                  ? "var(--color-danger)"
-                                  : `${meta.color}80`,
-                                background: meta.soft,
-                              }}
-                            >
-                              {playbackState === "generating" && (
-                                <i
-                                  aria-hidden
-                                  className="element-generating-stripes pointer-events-none absolute inset-0"
-                                  style={{ color: meta.color }}
-                                />
-                              )}
-                              {isTransition ? (
-                                <svg
-                                  aria-hidden
-                                  data-transition-glyph
-                                  viewBox="0 0 20 12"
-                                  className="h-3 w-5 shrink-0"
-                                  fill="currentColor"
-                                >
-                                  <path d="M1 1 L9 6 L1 11 Z" opacity="0.9" />
-                                  <path
-                                    d="M19 1 L11 6 L19 11 Z"
-                                    opacity="0.45"
-                                  />
-                                </svg>
-                              ) : (
-                                <>
-                                  <span className="min-w-0 truncate">
-                                    {(playbackState === "generating" ||
-                                      playbackState === "queued") && (
-                                      <span
-                                        aria-hidden
-                                        className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-warning)] align-middle"
-                                      />
-                                    )}
-                                    {playbackState === "failed" && (
-                                      <span
-                                        aria-hidden
-                                        className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-[var(--color-danger)] align-middle"
-                                      />
-                                    )}
-                                    {element.label || "时间线内容"}
-                                  </span>
-                                  <span className="truncate whitespace-nowrap text-[9px] font-medium opacity-75">
-                                    {seconds(
-                                      element.span.start_tick,
-                                      timeline.ticks_per_second,
-                                    )}
-                                    s –{" "}
-                                    {seconds(
-                                      element.span.start_tick +
-                                        element.span.duration_tick,
-                                      timeline.ticks_per_second,
-                                    )}
-                                    s
-                                  </span>
-                                </>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ))
+              <Play className="h-3.5 w-3.5 fill-current" />
             )}
-          </div>
-        )}
-        <div
-          aria-hidden
-          data-timeline-playhead
-          className="pointer-events-none absolute bottom-2 top-7 z-[22] w-0 -translate-x-1/2 border-l-2 border-[var(--color-accent)] drop-shadow-[0_0_3px_var(--color-accent)]"
-          style={{
-            left: `calc(${CHART_PADDING + LABEL_WIDTH}px + (100% - ${
-              LABEL_WIDTH + CHART_PADDING * 2
-            }px) * ${percent(playheadTick, timelineDuration) / 100})`,
-          }}
-        />
-        {selection && (
-          <>
-            {selection.kind === "range" && (
-              <div
-                aria-hidden
-                data-timeline-selection-range
-                className="pointer-events-none absolute bottom-2 top-7 z-[21] border border-[var(--color-accent)] bg-[var(--color-accent)]/15"
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onPlayheadChange(
+                Math.min(
+                  timelineDuration,
+                  playheadTick + timeline.ticks_per_second,
+                ),
+              );
+            }}
+            className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
+            aria-label={t("timeline.skipForward1s")}
+          >
+            <SkipForward className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setMuted((value) => !value)}
+            className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
+            aria-label={muted ? t("timeline.unmute") : t("timeline.mute")}
+          >
+            {muted ? (
+              <VolumeX className="h-3.5 w-3.5" />
+            ) : (
+              <Volume2 className="h-3.5 w-3.5" />
+            )}
+          </button>
+          <div
+            ref={previewScrubberRef}
+            data-preview-scrubber
+            role="slider"
+            tabIndex={0}
+            aria-label={t("timeline.dragTimeline")}
+            aria-valuemin={0}
+            aria-valuemax={timelineDuration}
+            aria-valuenow={Math.min(playheadTick, timelineDuration)}
+            aria-valuetext={`${seconds(
+              playheadTick,
+              timeline.ticks_per_second,
+            )} ${t("timeline.seconds")}`}
+            onPointerDown={beginPreviewScrub}
+            onPointerMove={movePreviewScrub}
+            onPointerUp={(event) => finishPreviewScrub(event, true)}
+            onPointerCancel={(event) => finishPreviewScrub(event, false)}
+            onKeyDown={movePreviewScrubberByKeyboard}
+            className="relative h-6 min-w-[80px] flex-1 cursor-pointer touch-none rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]"
+          >
+            <span className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-[var(--color-border)]">
+              <i
+                className="block h-full rounded-full bg-[var(--color-accent)]"
                 style={{
-                  left: `calc(${CHART_PADDING + LABEL_WIDTH}px + (100% - ${
-                    LABEL_WIDTH + CHART_PADDING * 2
-                  }px) * ${
-                    percent(selection.startTick, timelineDuration) / 100
-                  })`,
-                  width: `calc((100% - ${
-                    LABEL_WIDTH + CHART_PADDING * 2
-                  }px) * ${
-                    (selection.endTick - selection.startTick) / timelineDuration
-                  })`,
+                  width: `${percent(playheadTick, timelineDuration)}%`,
                 }}
               />
-            )}
-            {createPortal(
-              <div
-                ref={toolbarRef}
-                data-timeline-selection-toolbar
-                className="flex flex-col rounded-lg border border-[var(--color-border)] bg-white p-0.5 shadow-lg"
-                style={{
-                  position: "fixed",
-                  top: toolbarPos?.top ?? -9999,
-                  left: toolbarPos?.left ?? -9999,
-                  visibility: toolbarPos ? "visible" : "hidden",
-                  // Above the tour mask (antd Tour defaults to 1001) so the bar is
-                  // visible when box-selecting a time range during the tour.
-                  zIndex: 1100,
-                }}
-              >
-                <button
-                  type="button"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    useOnboardingStore
-                      .getState()
-                      .markHintSeen("addToConversation");
-                    addSelectionToConversation();
-                  }}
-                  className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
-                >
-                  <MessageSquarePlus className="h-3.5 w-3.5" />
-                  添加到对话
-                </button>
-              </div>,
-              document.body,
-            )}
-          </>
-        )}
+            </span>
+            <i
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 block h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[var(--color-accent)] shadow-sm"
+              style={{
+                left: `${percent(playheadTick, timelineDuration)}%`,
+              }}
+            />
+          </div>
+          <span
+            data-timeline-timecode
+            className="shrink-0 font-mono text-[11px] tabular-nums text-[var(--color-text-secondary)]"
+          >
+            {timecode(playheadTick, timeline.ticks_per_second)} /{" "}
+            {timecode(timelineDuration, timeline.ticks_per_second)}
+          </span>
+        </div>
+        <label
+          className="flex cursor-pointer items-center gap-1.5 text-[var(--color-text-secondary)]"
+          title={t("timeline.snapTooltip")}
+        >
+          <button
+            type="button"
+            data-timeline-snap-toggle
+            aria-pressed={snapEnabled}
+            onClick={() => setSnapEnabled((value) => !value)}
+            className={`inline-flex h-7 items-center gap-1 rounded-[7px] px-2 font-semibold ${
+              snapEnabled
+                ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+                : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
+            }`}
+          >
+            <Magnet className="h-3.5 w-3.5" />
+            {t("timeline.snap")}
+          </button>
+        </label>
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            data-timeline-zoom-out
+            disabled={zoom <= ZOOM_MIN}
+            onClick={() => adjustZoom(-ZOOM_STEP)}
+            className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-30"
+            aria-label={t("timeline.zoomOut")}
+          >
+            <ZoomOut className="h-3.5 w-3.5" />
+          </button>
+          <span
+            data-timeline-zoom-value
+            className="min-w-[34px] text-center text-[10px] font-semibold text-[var(--color-text-secondary)]"
+          >
+            {Math.round(zoom * 100)}%
+          </span>
+          <button
+            type="button"
+            data-timeline-zoom-in
+            disabled={zoom >= ZOOM_MAX}
+            onClick={() => adjustZoom(ZOOM_STEP)}
+            className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-30"
+            aria-label={t("timeline.zoomIn")}
+          >
+            <ZoomIn className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
 
-      {collapsed && pointCandidates.length > 0 && (
-        <div
-          data-timeline-point-candidates
-          className="flex flex-nowrap items-center gap-1.5 overflow-x-auto border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]/70 px-3 py-2 text-[11px]"
-        >
-          <span className="mr-1 shrink-0 text-[var(--color-text-tertiary)]">
-            该时刻有 {pointCandidates.length} 项内容：
-          </span>
-          {pointCandidates.map((element) => {
-            const meta = resolveElementVisualMeta(element);
-            return (
-              <button
-                key={element.element_id}
-                type="button"
-                onClick={() => onSelectElement(element.element_id)}
-                className={`max-w-48 shrink-0 truncate rounded-full border px-2 py-0.5 font-medium ${
-                  selectedElementId === element.element_id
-                    ? "border-[var(--color-accent)] text-[var(--color-accent)]"
-                    : "border-[var(--color-border)] text-[var(--color-text-secondary)]"
-                }`}
-                style={{ background: meta.soft }}
-              >
-                {element.label || element.element_id}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <TimelineTracks
+        project={project}
+        timeline={effectiveTimeline}
+        authorityTimeline={timeline}
+        durationTick={timelineDuration}
+        playheadTick={playheadTick}
+        zoom={zoom}
+        snapEnabled={snapEnabled}
+        collapsed={collapsed}
+        previewOpen={previewOpen}
+        editable
+        selectedElementId={selectedElementId}
+        playbackStates={playbackStates}
+        agentWorking={agentWorking.working}
+        onPlayheadChange={onPlayheadChange}
+        onSelectElement={onSelectElement}
+        onActiveElementIdsChange={onActiveElementIdsChange}
+        onDragOverridesChange={setDragOverrides}
+        onCommitSpans={commitSpans}
+        onZoomChange={changeZoom}
+      />
     </section>
   );
 }

@@ -17,9 +17,10 @@ Project
 ├── settings                          # 画幅、分辨率、平台、语言、目标时长、内容类型
 ├── strategy                          # brief、受众、创意方向、约束、成功标准
 ├── sources.sources                   # ProjectSource 的 EntityCollection
-├── visual                            # visual_bible、style、entities
-│   └── entities.items[entityId]      # VisualEntity：kind(character/scene/prop)、name、description、continuity
-│       └── variants.items[variantId] # VisualVariant：requirements、prompt、参考与生成版本引用
+├── visual                            # visual_bible、style、entities、cast_lineups
+│   ├── entities.items[entityId]      # VisualEntity：kind、name、description、continuity、required_variant_ids、canonical_variant_id
+│   │   └── variants.items[variantId] # VisualVariant：requirements、prompt、参考、生成版本与独立 selected_artifact_version_id、derived_from_variant_id
+│   └── cast_lineups.items[lineupId]  # VisualCastLineup：多角色阵容图（群体锚点）：character_refs 顺序即站位、relative_notes、生成/选定版本
 ├── timelines                         # Timeline 的 EntityCollection
 │   └── items[timelineId].elements_by_id
 │       └── span, location, z_index, creation, outputs, render_source
@@ -30,27 +31,44 @@ Project
 
 - `EntityCollection` 始终由 `items` 和 `order` 组成；两者 ID 集合必须完全一致且顺序不重复。
 - `variants` 只存在于 `visual.entities.items[<entityId>].variants`；`visual` 顶层没有 `variants` 字段。
+- `required_variant_ids` 是用户需求中全部必需视觉状态的结构化合同。先完整列出，再逐项建立 `variants`；不得把它缩减成当前已经创建的 Variant。每个实际 Variant ID 都必须已在该清单中声明。
+- R2V Element 通过 `creation.visual_variant_refs[entityId]=variantId` 绑定本段使用的角色/场景/道具状态；引用多 Variant 实体时不得依赖实体级默认图。`visual_variant_refs` 的每个 entityId 必须同时出现在本 creation 顶层的 `character_refs`/`prop_refs`/`scene_ref` 中；Shot 级 `character_refs` 不能替代 creation 级引用，绑定前先把实体加入对应引用列表。
+- 多角色同框的 R2V Element 可声明 `creation.cast_lineup_refs[]` 引用 `visual.cast_lineups` 中的阵容图：它是角色间相对身高/体型比例与风格基准的群体锚点，生成分镜/视频时 Runtime 会自动将其选定图注入参考链首位。引用的 lineup 必须已存在。
+- 每个 VisualVariant 的 `selected_artifact_version_id` 只选择该 Variant 的 `generated_artifact_version_ids`；实体级选择仅用于无 Variant 或单 Variant 旧数据兼容。
+- 生成任何分镜图前，所有启用 R2V Element 引用实体的必需 Variant 必须已建立并选中真实视觉产物；无 Variant 的实体必须有实体级选中产物；多 Variant 引用必须显式绑定。后端会确定性拒绝未完成的视觉计划。
 - `schema_version`、`project_id`、`generation`、`created_at` 和 `updated_at` 是受保护字段。
 - Element ID 在全部 Timeline 中唯一；时间区间统一使用整数 tick 和半开区间。
 - `location.x/y` 是内容框锚点在归一化成片画面中的位置，`anchor_x/anchor_y` 指定框内哪个点对齐到该位置并作为旋转基点；全画面内容使用 `x=0.5, y=0.5, width=1, height=1, anchor_x=0.5, anchor_y=0.5`。
 - Edit 的 `span.duration_tick` 必须等于 `round((source_out_tick-source_in_tick)/playback_rate)`。
 - Project 不持久化额外的内容分组、轨道、独立 Content、ProductionFlow 或顺序 Composition。
 - `creation.type` 表达 r2v/edit/overlay/transition/audio 的创作语义；执行器与任务状态不属于该结构。
-- Overlay `creation` 结构（`type="overlay"`）：字段只有 `overlay_kind`、`text`、`vibe`、`prompt`、`reference_version_ids`、`motion`。`emotion`、`entrance`、`exit`、`intensity`、`theme`、`variant`、`motif`、`html`、`fps`、`loop`、`design_notes` 等动效字段属于 `MotionGraphic`，必须放在 `creation.motion` 子对象内，不得直接写在 `creation` 上。`overlay_kind=motion` 或 `media` 的 Overlay 必须携带非空 `prompt`。正确示例：
+- Overlay `creation` 结构（`type="overlay"`）：字段只有 `text`、`vibe`、`prompt`、`reference_version_ids`、`motion`，没有 kind 字段——角色由数据决定。常用形式：台词卡（宠物 OS 内心独白、采访要点摘要等）把权威文案写入 `text`；无文字装饰动效把 `text` 留空、创意写入 `prompt`、动效文档在 `creation.motion`；媒体贴片把 `text` 留空并用 Element 的 `render_source` 引用媒体版本。`text` 为空的 Overlay 必须携带非空 `prompt` 或引用版本。`emotion`、`entrance`、`exit`、`intensity`、`theme`、`variant`、`motif`、`html`、`fps`、`loop`、`design_notes` 等动效字段属于 `MotionGraphic`，必须放在 `creation.motion` 子对象内，不得直接写在 `creation` 上。正确示例：
   ```json
-  {"type":"overlay","overlay_kind":"motion","prompt":"聚焦标记动效","motion":{"html":"<html>…</html>","emotion":"curious","entrance":"pop","exit":"soft_fade","intensity":0.6}}
+  {"type":"overlay","prompt":"聚焦标记动效","motion":{"html":"<html>…</html>","emotion":"curious","entrance":"pop","exit":"soft_fade","intensity":0.6}}
   ```
 - Transition 元素的 `span` 必须完全包含在其两个端点元素 span 的交集中，即 `max(from.start, to.start) <= transition.start` 且 `transition.end <= min(from.end, to.end)`。创建 transition 前必须确保 `from_element_id` 和 `to_element_id` 对应的两个元素存在时间重叠，并将 transition 的 span 设在该重叠区间内。
 - outputs 通过 ArtifactSlot 表达具名产物，render_source 表达当前实际渲染来源。
 - source、visual、artifact、file 等引用必须指向当前 Project 中已经存在的实体或版本。
 - `assets` 中的文件和版本记录来自素材入库、素材理解或媒体生成结果；未产出的结果保持 `null` 或空集合。
 - 禁止使用 `pending-render`、`todo`、`placeholder` 等虚构 ID。
+- R2V Creation 的 `storyboard_reference_version_ids` 和 `video_reference_version_ids` 属于 `creation.r2v` 层级（与 `storyboard_prompt`、`video_prompt` 同级），不属于 `shots` 层级。`shots` 只包含 Shot 对象（shot_id、description、camera、framing、camera_description、dialogue、duration_seconds、character_refs、scene_ref、prop_refs），不包含 reference_version_ids 字段。
+- 视频生成按 creation 类型区分，每个类型只包含其模型真正消费的字段：
+  - `type=r2v`（参考生视频）：完整的 shots/分镜/参考链路。
+  - `type=t2v`（纯文本生视频）：只有 intent/narrative/continuity/video_prompt/recipe，无 shots、无分镜、无参考。
+  - `type=i2v`（首帧生视频）：在 t2v 字段基础上增加 `first_frame_version_id`（exact 图片 version id）。
+  - `type=s2v`（数字人口播）：`character_ref`（角色实体）、`portrait_version_id`（人物图 exact version，s2v 的 reference）、`script`（台词，经 TTS 变成驱动音频）、`audio_version_id`（驱动音频 exact version）、recipe；无 shots、无分镜 prompt。
+  类型声明即生成模式：提交工具的 mode 必须与 creation 类型一致，不得在提交时替换。
+- `type=audio`（音频）：`source_asset_version_id`（exact 音频 version）、`script`（合成旁白的文稿；上传素材音频留空）、`speech_rate`（语速倍率 0.5–2.0，默认 1.0，仅 CosyVoice 系列模型生效）、`gain_db`、`pan`。合成的旁白必须把最终文稿写入 `script`，用户编辑 script 后会触发重新合成。
+- Shot 的 `framing` 字段只能使用以下 4 个枚举值之一：`全景`、`中景`、`近景`、`特写`。不得使用其他景别描述（如"中近景"、"大特写"、"远景"等）。
 
 ### jq_project 输出约束
 
+- 日常结构化写入（新建/更新实体、Variant、Element、改字段）优先使用 `patch_project`：扁平 op 列表、逐 op 定位错误、无需输出完整 Project；`upsert_entity` 会自动同步 EntityCollection 的 items/order。只有需要计算或批量条件修改时才用 `jq_project`。
 - jq 的唯一输出必须仍是完整 Project 根对象；不得以 `.timelines...`、`$timeline`、`$element` 等子对象选择结束 program。
 - 受保护根字段必须与刚读取的 Project 完全一致。批量新增内容时把对象集合放进 `jsonArgs`，program 只做结构化赋值并自然返回 Project 根对象。
-- Runtime 自动基于你最近读取的快照提交，无需回传 ETag；若单次参数体量极大，可拆分为少量几次调用。
+- `jsonArgs` 中的 object 已经是 jq object，直接赋值或合并；仅对真正的 `[{"key":...,"value":...}]` 数组使用 `from_entries`。
+- Runtime 自动基于你最近读取的快照提交，无需回传 ETag；单次参数 JSON 应控制在 4KB 以内；创建 Timeline Element 时每次调用只写 1 个 Element，其他批量内容按实体拆分为多次调用，调用间重新读取 Project。
+- 创建带多个 Shot 的 R2V Element 时分两步提交，降低嵌套深度与括号出错率：第一步写 Element 骨架（element_id/span/label/location 与 creation 基本字段，shots 用空集合 `{"items":{},"order":[]}`）；第二步再用一次调用补全该 Element 的 `creation.shots`。
 
 ### Specialist target
 
