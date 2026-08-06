@@ -331,7 +331,7 @@ def test_finalize_does_not_resurrect_pruned_fork(
 
 
 def test_matching_agent_dual_root_bind(tmp_path: Path, monkeypatch) -> None:
-    """Active agent may bind coding project only when workspace matches."""
+    """Active agent may bind its project only when workspace matches."""
     workspace = tmp_path / "agent_ws"
     project = tmp_path / "code_proj"
     workspace.mkdir()
@@ -343,10 +343,7 @@ def test_matching_agent_dual_root_bind(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         "qwenpaw.config.config.load_agent_config",
         lambda _aid: SimpleNamespace(
-            coding_mode=SimpleNamespace(
-                enabled=True,
-                project_dir=str(project),
-            ),
+            project_dir=str(project),
             workspace_dir=str(workspace),
         ),
     )
