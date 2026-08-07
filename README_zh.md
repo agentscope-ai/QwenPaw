@@ -37,7 +37,7 @@
 | **本地云端，自由运行**                    | QwenPaw-Flash 模型（2B / 4B / 9B）面向 Agent 场景专项训练。内置 QwenPaw Local 运行时，无需 API Key、不依赖云端。同时支持 Ollama、LM Studio 及 14+ 云端模型供应商。                  |
 | **安全机制**                         | 内核级 Sandbox、Tool Guard、File Guard 与 Skill Scanner。危险命令在执行前即被拦截。                                        |
 | **多智能体与并行**                        | 创建拥有独立记忆与技能的 Agent；运行时生成子 Agent；通过 Agent Communication Protocol（ACP）实现跨系统编排。                                                                         |
-| **代码模式**                        | 三面板 Web IDE，含文件树、Diff 预览与对话区。内置跳转定义、查找引用与结构化代码搜索。                                                                                                 |
+| **通用文件工作区**                    | 在项目文件与 Agent 文件中统一提供文件导航、预览、编辑、Diff、上传和下载。                                                                                                           |
 | **能力扩展**                        | Skills 覆盖定时任务、文档、浏览器、新闻等。插件架构带 Plugin Market。MCP 集成外部工具。自由组合成面向场景的工作流。                                                                    |
 | **随处可达**                        | 钉钉、飞书、微信、Discord、Telegram、iMessage、QQ — 一个实例，全频道连接。Console、TUI 与桌面应用可直接访问。                                                                         |
 | **你的，不是我们的**                      | 本地部署，数据留在你的机器，无第三方托管，无数据上传。                                                                                                         |
@@ -48,7 +48,7 @@
 <br>
 
 - **自动化与定时任务**：设置定时任务 — 新闻摘要、报告生成、多频道广播 — 全部按你的时间表自动运行。
-- **代码与开发**：在项目中阅读、编辑、审查与测试代码；Coding 模式帮你快速定位和理解代码。
+- **代码与开发**：通过通用文件工作区在项目中阅读、编辑、审查与测试代码。
 - **文档处理**：读取、写入与转换 PDF、Word、Excel、PowerPoint 文件。
 - **信息收集**：搜索网页、关注资讯订阅、总结视频内容，并从个人知识库中检索所需信息。
 - **多频道运营**：向钉钉、飞书、Discord、Telegram 等推送告警、摘要或 AI 生成内容 — 可同时或按频道分发。
@@ -334,7 +334,6 @@ docker run -p 127.0.0.1:8088:8088 \
 - [添加 Skills](https://qwenpaw.agentscope.io/docs/skills) 扩展能力（PDF、Office、浏览器、新闻等）
 - [配置频道](https://qwenpaw.agentscope.io/docs/channels) 连接钉钉、飞书、Discord 等
 - [配置 Cron](https://qwenpaw.agentscope.io/docs/cron) 实现定时任务与自动化
-- [体验 Coding 模式](https://qwenpaw.agentscope.io/docs/coding-mode) 进行 IDE 式代码协作
 - 查看完整 [快速开始指南](https://qwenpaw.agentscope.io/docs/quickstart) 了解所有选项与验证步骤
 
 ---
@@ -408,7 +407,6 @@ QwenPaw 内置四层核心安全防护：
 | [桌面应用](https://qwenpaw.agentscope.io/docs/desktop)               | 桌面应用安装与使用                               |
 | [模型](https://qwenpaw.agentscope.io/docs/models)                    | 配置云端、本地与自定义提供商                     |
 | [频道配置](https://qwenpaw.agentscope.io/docs/channels)              | 钉钉、飞书、QQ、Discord、iMessage 等             |
-| [Coding 模式](https://qwenpaw.agentscope.io/docs/coding-mode)        | 面向代码任务的三面板 Web IDE                     |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                  | 扩展与自定义能力                                 |
 | [插件系统](https://qwenpaw.agentscope.io/docs/plugins)               | 插件体系与 Plugin Market                         |
 | [MCP 和工具](https://qwenpaw.agentscope.io/docs/mcp)                 | 管理 MCP 客户端                                  |

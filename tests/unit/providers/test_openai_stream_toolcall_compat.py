@@ -15,9 +15,16 @@ from qwenpaw.providers.openai_chat_model_compat import (
     OpenAIChatModelCompat,
     _sanitize_tool_call,
 )
+from qwenpaw.utils.tool_call_extra import collect_transient_tool_call_extras
 
 
 class CompatHarnessOpenAIChatModel(OpenAIChatModelCompat):
+    async def _call_api(self, *args: Any, **kwargs: Any) -> Any:
+        stream = getattr(self, "_test_stream", None)
+        if stream is not None:
+            return self._parse_stream_response(datetime.now(), stream)
+        return await super()._call_api(*args, **kwargs)
+
     async def parse_stream_for_test(
         self,
         start_datetime: datetime,
@@ -30,6 +37,18 @@ class CompatHarnessOpenAIChatModel(OpenAIChatModelCompat):
         ):
             responses.append(response)
         return responses
+
+    async def call_stream_for_test(self, stream: Any) -> list[Any]:
+        object.__setattr__(self, "_test_stream", stream)
+        try:
+            response = await self(messages=[])
+            return [chunk async for chunk in response]
+        finally:
+            object.__delattr__(self, "_test_stream")
+
+    def relay_stream_for_test(self, response: Any) -> Any:
+        """Expose the compatibility relay for lifecycle assertions."""
+        return self._relay_stream_tool_call_extras(response)
 
 
 class FakeAsyncStream:
@@ -123,6 +142,120 @@ async def test_stream_parser_skips_tool_call_without_function() -> None:
     if isinstance(block_input, str):
         block_input = json.loads(block_input)
     assert block_input == {"x": 1}
+
+
+async def test_stream_parser_carries_extra_content_on_strict_block() -> None:
+    """Gemini thought signatures survive strict ToolCallBlock parsing."""
+    model = CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            id="qwenpaw-example",
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        model="dummy",
+        stream=True,
+    )
+    tool_call = SimpleNamespace(
+        index=0,
+        id="call_sig",
+        function=SimpleNamespace(name="ping", arguments='{"x":1}'),
+        extra_content={"thought_signature": "signature-abc"},
+    )
+
+    responses = await model.parse_stream_for_test(
+        datetime.now(),
+        FakeAsyncStream([_make_chunk([tool_call])]),
+    )
+
+    tool_blocks = [
+        block
+        for response in responses
+        for block in response.content
+        if getattr(block, "type", None) in ("tool_use", "tool_call")
+    ]
+    assert tool_blocks
+    assert not hasattr(tool_blocks[0], "extra_content")
+    assert collect_transient_tool_call_extras(tool_blocks) == {
+        "call_sig": {
+            "provider_id": "example",
+            "extra_content": {"thought_signature": "signature-abc"},
+        },
+    }
+
+
+@pytest.mark.parametrize("repeat_tool_id", [True, False])
+async def test_full_stream_preserves_extra_from_later_chunk(
+    repeat_tool_id: bool,
+) -> None:
+    """The final AgentScope accumulator receives late thought signatures."""
+    model = CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            id="qwenpaw-credential-name",
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        provider_id="configured-name",
+        model="dummy",
+        stream=True,
+    )
+    first = SimpleNamespace(
+        index=0,
+        id="call_sig",
+        function=SimpleNamespace(name="ping", arguments='{"x":'),
+    )
+    second = SimpleNamespace(
+        index=0,
+        id="call_sig" if repeat_tool_id else None,
+        function=SimpleNamespace(name=None, arguments="1}"),
+        extra_content={"thought_signature": "signature-late"},
+    )
+
+    responses = await model.call_stream_for_test(
+        FakeAsyncStream([_make_chunk([first]), _make_chunk([second])]),
+    )
+
+    final = responses[-1]
+    assert final.is_last
+    tool_block = next(
+        block
+        for block in final.content
+        if getattr(block, "type", None) in ("tool_use", "tool_call")
+    )
+    assert tool_block.input == '{"x":1}'
+    assert collect_transient_tool_call_extras([tool_block]) == {
+        "call_sig": {
+            "provider_id": "configured-name",
+            "extra_content": {"thought_signature": "signature-late"},
+        },
+    }
+
+
+async def test_stream_relay_closes_inner_generator_immediately() -> None:
+    """Closing the public stream promptly releases the provider stream."""
+    model = CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        model="dummy",
+        stream=True,
+    )
+    inner_closed = False
+
+    async def inner_stream():
+        nonlocal inner_closed
+        try:
+            yield SimpleNamespace(content=[], is_last=False)
+            yield SimpleNamespace(content=[], is_last=True)
+        finally:
+            inner_closed = True
+
+    response = inner_stream()
+    relay = model.relay_stream_for_test(response)
+    await anext(relay)
+    await relay.aclose()
+
+    assert inner_closed
 
 
 def test_sanitize_tool_call_normalizes_non_string_arguments() -> None:

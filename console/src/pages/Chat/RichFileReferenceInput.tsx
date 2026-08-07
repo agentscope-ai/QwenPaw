@@ -579,6 +579,7 @@ function EditableSurface({
   return (
     <ContentEditable
       className={styles.richEditor}
+      role="textbox"
       aria-multiline="true"
       spellCheck={false}
       onKeyDown={(event) => {
