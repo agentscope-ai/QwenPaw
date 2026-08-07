@@ -17,7 +17,6 @@ Covers:
 
 # pylint: disable=protected-access,unused-argument
 
-import base64
 import os
 import shlex
 import signal
@@ -405,18 +404,22 @@ def test_windows_background_handles_are_eventually_deleted(
 
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     release_path = tmp_path / "release.signal"
-    escaped_release_path = str(release_path).replace("'", "''")
-    child_script = (
-        f"while (-not (Test-Path -LiteralPath "
-        f"'{escaped_release_path}')) "
-        f"{{ Start-Sleep -Milliseconds 50 }}"
+    child_script_path = tmp_path / "wait_for_release.py"
+    child_script_path.write_text(
+        "from pathlib import Path\n"
+        "import time\n"
+        "\n"
+        "release_path = Path('release.signal')\n"
+        "while not release_path.exists():\n"
+        "    time.sleep(0.05)\n",
+        encoding="utf-8",
     )
-    encoded_script = base64.b64encode(
-        child_script.encode("utf-16-le"),
-    ).decode("ascii")
+    escaped_python = sys.executable.replace("'", "''")
+    escaped_working_dir = str(tmp_path).replace("'", "''")
     command = (
-        "$child = Start-Process -FilePath powershell.exe "
-        f"-ArgumentList '-NoProfile','-EncodedCommand','{encoded_script}' "
+        f"$child = Start-Process -FilePath '{escaped_python}' "
+        "-ArgumentList 'wait_for_release.py' "
+        f"-WorkingDirectory '{escaped_working_dir}' "
         "-NoNewWindow -PassThru; Write-Output done"
     )
 
