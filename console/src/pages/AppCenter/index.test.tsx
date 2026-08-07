@@ -85,7 +85,7 @@ function makeApp(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function renderPage(initialEntries: string[] = ["/apps"]) {
+function renderPage(initialEntries: string[] = ["/market"]) {
   return renderWithProviders(
     <>
       <AppCenterPage />
@@ -106,7 +106,7 @@ describe("AppCenterPage", () => {
       total: 2,
     });
     hoisted.fetchMarketPlugins.mockResolvedValue({ plugins: [], total: 0 });
-    window.history.replaceState({}, "", "/apps");
+    window.history.replaceState({}, "", "/market");
   });
 
   it("renders installed apps by default without mounting external views", async () => {
@@ -115,7 +115,7 @@ describe("AppCenterPage", () => {
     expect(await screen.findByText("alpha-app")).toBeInTheDocument();
     expect(screen.getByText("beta-app")).toBeInTheDocument();
 
-    // Neither market channel may load on /apps.
+    // Neither external market channel may load on the default market tab.
     expect(
       screen.queryByLabelText("appCenter.searchMarket"),
     ).not.toBeInTheDocument();
@@ -149,7 +149,7 @@ describe("AppCenterPage", () => {
     );
 
     expect(screen.getByTestId("location")).toHaveTextContent(
-      "/apps?view=official",
+      "/market?view=official",
     );
     expect(await screen.findByText("Agent Kanban")).toBeInTheDocument();
     await waitFor(() =>
@@ -158,8 +158,8 @@ describe("AppCenterPage", () => {
     expect(screen.queryByText("alpha-app")).not.toBeInTheDocument();
   });
 
-  it("shows the official view when visiting /apps?view=official directly", async () => {
-    renderPage(["/apps?view=official"]);
+  it("shows the official view when visiting /market?view=official directly", async () => {
+    renderPage(["/market?view=official"]);
 
     expect(
       await screen.findByLabelText("appCenter.searchOfficial"),
@@ -173,7 +173,7 @@ describe("AppCenterPage", () => {
   });
 
   it("falls back to installed apps for unknown view values", async () => {
-    renderPage(["/apps?view=bogus"]);
+    renderPage(["/market?view=bogus"]);
 
     expect(await screen.findByText("alpha-app")).toBeInTheDocument();
     expect(hoisted.fetchMarketPlugins).not.toHaveBeenCalled();
@@ -186,7 +186,7 @@ describe("AppCenterPage", () => {
     fireEvent.click(screen.getByRole("tab", { name: /appCenter.appMarket/ }));
 
     expect(screen.getByTestId("location")).toHaveTextContent(
-      "/apps?view=market",
+      "/market?view=market",
     );
     expect(
       await screen.findByLabelText("appCenter.searchMarket"),
@@ -197,8 +197,8 @@ describe("AppCenterPage", () => {
     expect(screen.queryByText("alpha-app")).not.toBeInTheDocument();
   });
 
-  it("shows the market when visiting /apps?view=market directly", async () => {
-    renderPage(["/apps?view=market"]);
+  it("shows the market when visiting /market?view=market directly", async () => {
+    renderPage(["/market?view=market"]);
 
     expect(
       await screen.findByLabelText("appCenter.searchMarket"),
@@ -209,16 +209,18 @@ describe("AppCenterPage", () => {
   });
 
   it("returns to installed apps and preserves unrelated query params", async () => {
-    renderPage(["/apps?foo=1"]);
+    renderPage(["/market?foo=1"]);
     await screen.findByText("alpha-app");
 
     fireEvent.click(screen.getByRole("tab", { name: /appCenter.appMarket/ }));
     expect(screen.getByTestId("location")).toHaveTextContent(
-      "/apps?foo=1&view=market",
+      "/market?foo=1&view=market",
     );
 
     fireEvent.click(screen.getByRole("tab", { name: /appCenter.myApps/ }));
-    expect(screen.getByTestId("location")).toHaveTextContent(/\/apps\?foo=1$/);
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      /\/market\?foo=1$/,
+    );
     expect(await screen.findByText("alpha-app")).toBeInTheDocument();
   });
 
@@ -236,7 +238,7 @@ describe("AppCenterPage", () => {
     fireEvent.click(goToOfficial);
 
     expect(screen.getByTestId("location")).toHaveTextContent(
-      "/apps?view=official",
+      "/market?view=official",
     );
     expect(
       await screen.findByText("appCenter.officialAppsEmpty"),

@@ -31,7 +31,7 @@ import {
   Store,
   X,
 } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
+import { MarketplaceHeader } from "@/pages/Market/components/MarketplaceHeader";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { pawappApi } from "../../api/modules/pawapp";
 import { useRoutes } from "../../plugins/registry/hooks";
@@ -187,7 +187,7 @@ export default function AppCenterPage() {
   const handleBack = () => {
     const browserPath = isOsPath(window.location.pathname)
       ? getOsRootHref(window.location.pathname)
-      : addRouterBasename(window.location.pathname, "/apps");
+      : addRouterBasename(window.location.pathname, "/market");
     window.history.pushState({}, "", browserPath);
     setActiveApp(null);
   };
@@ -488,7 +488,7 @@ export default function AppCenterPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader current={t("nav.apps", "Apps")} />
+      <MarketplaceHeader activeSection="apps" />
 
       <div className={styles.pageBody}>
         <div className={styles.pageInner}>

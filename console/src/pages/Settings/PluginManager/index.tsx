@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Button, Empty, Spin, Table, Tabs } from "antd";
 import { ExternalLink, Package, Plus } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
+import { MarketplaceHeader } from "@/pages/Market/components/MarketplaceHeader";
 import { usePluginManager } from "./hooks/usePluginManager";
 import { usePluginColumns } from "./hooks/usePluginColumns";
 import { useInstallModal } from "./hooks/useInstallModal";
@@ -61,9 +61,8 @@ export default function PluginManagerPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader
-        parent={t("nav.settings")}
-        current={t("nav.pluginManager")}
+      <MarketplaceHeader
+        activeSection="plugins"
         extra={
           <>
             <Button

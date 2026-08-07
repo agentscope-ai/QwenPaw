@@ -1,0 +1,52 @@
+import type { ReactNode } from "react";
+import { Tabs, type TabsProps } from "@agentscope-ai/design";
+import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
+import { PageHeader } from "@/components/PageHeader";
+import styles from "./index.module.less";
+
+export type MarketplaceSection = "apps" | "plugins" | "skills";
+
+const SECTION_PATHS: Record<MarketplaceSection, string> = {
+  apps: "/market",
+  plugins: "/market?tab=plugins",
+  skills: "/market?tab=skills",
+};
+
+interface MarketplaceHeaderProps {
+  activeSection: MarketplaceSection;
+  extra?: ReactNode;
+}
+
+export function MarketplaceHeader({
+  activeSection,
+  extra,
+}: MarketplaceHeaderProps) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const items: TabsProps["items"] = [
+    { key: "apps", label: t("nav.apps", "Apps") },
+    { key: "plugins", label: t("nav.plugins", "Plugins") },
+    { key: "skills", label: t("nav.skills", "Skills") },
+  ];
+
+  const handleChange = (section: string) => {
+    navigate(SECTION_PATHS[section as MarketplaceSection]);
+  };
+
+  return (
+    <PageHeader
+      current={t("nav.marketplace", "Marketplace")}
+      center={
+        <Tabs
+          className={styles.sectionSwitch}
+          activeKey={activeSection}
+          items={items}
+          onChange={handleChange}
+          type="segmented"
+        />
+      }
+      extra={extra}
+    />
+  );
+}
