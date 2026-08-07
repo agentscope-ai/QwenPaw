@@ -587,6 +587,7 @@ def _base_components() -> dict[str, Any]:
             "default": {
                 "backend": "agentscope",
                 "as_llm": "default",
+                "builtin_tools": False,
                 "permission_mode": "bypass",
                 "react_config": {"max_iters": 30},
                 "context_config": {
