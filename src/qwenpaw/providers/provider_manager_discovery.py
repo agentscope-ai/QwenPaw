@@ -333,7 +333,7 @@ class ProviderManagerDiscoveryMixin:
             )
         finally:
             if save and generation == self._discovery_generations.get(
-                provider_id
+                provider_id,
             ):
                 current = self.get_provider(provider_id)
                 if current is provider:
