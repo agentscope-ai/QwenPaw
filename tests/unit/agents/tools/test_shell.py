@@ -17,6 +17,7 @@ Covers:
 
 # pylint: disable=protected-access,unused-argument
 
+import base64
 import os
 import shlex
 import signal
@@ -403,32 +404,46 @@ def test_windows_background_handles_are_eventually_deleted(
     import time
 
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    release_path = tmp_path / "release.signal"
+    escaped_release_path = str(release_path).replace("'", "''")
+    child_script = (
+        f"while (-not (Test-Path -LiteralPath "
+        f"'{escaped_release_path}')) "
+        f"{{ Start-Sleep -Milliseconds 50 }}"
+    )
+    encoded_script = base64.b64encode(
+        child_script.encode("utf-16-le"),
+    ).decode("ascii")
     command = (
         "$child = Start-Process -FilePath powershell.exe "
-        "-ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 4' "
+        f"-ArgumentList '-NoProfile','-EncodedCommand','{encoded_script}' "
         "-NoNewWindow -PassThru; Write-Output done"
     )
 
-    started = time.monotonic()
     returncode, stdout, stderr = _execute_subprocess_sync(
         command,
         str(tmp_path),
-        timeout=5.0,
+        timeout=15.0,
         env=os.environ.copy(),
         shell_executable="powershell.exe",
     )
-    elapsed = time.monotonic() - started
-
-    assert returncode == 0
-    assert stdout == "done"
-    assert stderr == ""
-    assert elapsed < 3.0
+    pending_paths = list(tmp_path.glob("qwenpaw_*"))
+    release_path.touch()
 
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
         if not list(tmp_path.glob("qwenpaw_*")):
             break
         time.sleep(0.1)
+
+    details = f"stdout={stdout!r}, stderr={stderr!r}"
+    assert returncode == 0, details
+    assert stdout == "done", details
+    assert stderr == "", details
+    assert pending_paths, (
+        f"Background process did not retain temporary output handles; "
+        f"{details}"
+    )
     assert not list(tmp_path.glob("qwenpaw_*"))
 
 
@@ -678,17 +693,22 @@ async def test_execute_posix_host_bounds_continuously_growing_output(
         max_bytes,
     )
     pid_path = tmp_path / "background.pid"
+    ready_path = tmp_path / "writer.ready"
     writer_code = (
-        "import os,time\n"
+        "import os,sys,time\n"
         "chunk=b'x'*4096\n"
+        "os.write(1,chunk)\n"
+        "open(sys.argv[1],'wb').close()\n"
         "while True:\n"
         " os.write(1,chunk)\n"
         " time.sleep(0.005)"
     )
     command = (
-        f"{shlex.quote(sys.executable)} -c {shlex.quote(writer_code)} & "
+        f"{shlex.quote(sys.executable)} -c {shlex.quote(writer_code)} "
+        f"{shlex.quote(str(ready_path))} & "
         f"echo $! > {shlex.quote(str(pid_path))}; "
-        "sleep 0.1; printf done"
+        f"while [ ! -e {shlex.quote(str(ready_path))} ]; "
+        f"do sleep 0.01; done; printf done"
     )
 
     started = time.monotonic()
