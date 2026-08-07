@@ -341,7 +341,8 @@ class FallbackChatModel(ChatModelBase):
         if not failures:
             return
         logger.info(
-            "LLM fallback: switched to candidate %d %s " "(previous failures: %d)",
+            "LLM fallback: switched to candidate %d %s "
+            "(previous failures: %d)",
             index,
             candidate.label,
             len(failures),

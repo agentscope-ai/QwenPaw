@@ -506,7 +506,9 @@ def _substitute_video_blocks(
             continue
         for i, blk in enumerate(msg.content):
             btype = (
-                blk.get("type") if isinstance(blk, dict) else getattr(blk, "type", None)
+                blk.get("type")
+                if isinstance(blk, dict)
+                else getattr(blk, "type", None)
             )
             is_video = False
             if btype == "video":
@@ -524,7 +526,9 @@ def _substitute_video_blocks(
 
             if is_video:
                 ph = f"__QWENPAW_VID_{id(blk)}__"
-                video_subs[ph] = blk if isinstance(blk, dict) else blk.model_dump()
+                video_subs[ph] = (
+                    blk if isinstance(blk, dict) else blk.model_dump()
+                )
                 msg.content[i] = TextBlock(type="text", text=ph)
     return video_subs
 
@@ -539,10 +543,14 @@ def _restore_video_blocks(
             continue
         for i, blk in enumerate(msg.content):
             btype = (
-                blk.get("type") if isinstance(blk, dict) else getattr(blk, "type", None)
+                blk.get("type")
+                if isinstance(blk, dict)
+                else getattr(blk, "type", None)
             )
             text = (
-                blk.get("text") if isinstance(blk, dict) else getattr(blk, "text", None)
+                blk.get("text")
+                if isinstance(blk, dict)
+                else getattr(blk, "text", None)
             )
             if btype == "text" and text in video_subs:
                 msg.content[i] = video_subs[text]
@@ -578,17 +586,27 @@ def _promote_tool_result_videos(
                 )
                 for item in output
                 if (
-                    (item if isinstance(item, dict) else _block_to_dict(item)).get(
+                    (
+                        item
+                        if isinstance(item, dict)
+                        else _block_to_dict(item)
+                    ).get(
                         "type",
                     )
                     in ("video", "data")
                     and (
-                        (item if isinstance(item, dict) else _block_to_dict(item))
+                        (
+                            item
+                            if isinstance(item, dict)
+                            else _block_to_dict(item)
+                        )
                         .get("source", {})
                         .get("media_type", "")
                         .startswith("video/")
                         or (
-                            item if isinstance(item, dict) else _block_to_dict(item)
+                            item
+                            if isinstance(item, dict)
+                            else _block_to_dict(item)
                         ).get("type")
                         == "video"
                     )
@@ -763,7 +781,9 @@ def _is_block_dropped_by_formatter(
     message drops and stay in sync with the formatted output.  #5858
     """
     btype = (
-        block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+        block.get("type")
+        if isinstance(block, dict)
+        else getattr(block, "type", None)
     )
 
     if btype in _SURVIVOR_BLOCK_TYPES:
@@ -774,7 +794,9 @@ def _is_block_dropped_by_formatter(
 
     if btype == "data":
         source = getattr(block, "source", None)
-        media_type = (getattr(source, "media_type", "") or "") if source else ""
+        media_type = (
+            (getattr(source, "media_type", "") or "") if source else ""
+        )
         supported = getattr(formatter, "supported_input_media_types", [])
         if not supported:
             return True
@@ -880,13 +902,15 @@ def _fixup_media_list(items: list) -> None:
                 ("http://", "https://", "data:"),
             ) and not os.path.exists(url):
                 logger.warning(
-                    "Media file no longer exists, " "replacing with placeholder: %s",
+                    "Media file no longer exists, "
+                    "replacing with placeholder: %s",
                     url,
                 )
                 items[i] = TextBlock(
                     type="text",
                     text=(
-                        f"[{btype.title()} unavailable" f" — file deleted from disk]"
+                        f"[{btype.title()} unavailable"
+                        f" — file deleted from disk]"
                     ),
                 )
         elif btype == "data":
@@ -918,7 +942,9 @@ def _fixup_media_list(items: list) -> None:
         elif btype == "file":
             if isinstance(block, dict):
                 source = block.get("source") or {}
-                file_url = source.get("url", "") if isinstance(source, dict) else ""
+                file_url = (
+                    source.get("url", "") if isinstance(source, dict) else ""
+                )
                 fname_hint = block.get("filename") or block.get("name")
             else:
                 source = getattr(block, "source", None)
@@ -1022,7 +1048,8 @@ def _create_file_block_support_formatter(
                     return {
                         "type": "text",
                         "text": (
-                            f"[{main_type.title()} omitted — " f"already shown above]"
+                            f"[{main_type.title()} omitted — "
+                            f"already shown above]"
                         ),
                     }
                 seen.add(key)
@@ -1100,7 +1127,9 @@ def _create_file_block_support_formatter(
             # this dance — Anthropic now handles video via our
             # ``_format_anthropic_data_block`` override, Gemini accepts
             # video natively.
-            _needs_video = not _is_gemini_formatter and not (is_anthropic_formatter)
+            _needs_video = not _is_gemini_formatter and not (
+                is_anthropic_formatter
+            )
             video_subs: dict[str, dict] = {}
             if _needs_video:
                 video_subs = _substitute_video_blocks(normalized_msgs)
@@ -1165,13 +1194,19 @@ def _create_file_block_support_formatter(
                 and should_relay_reasoning
             ):
                 aligned_reasoning = []
-                for m in (msg for msg in normalized_msgs if msg.role == "assistant"):
-                    blocks = list(m.content) if isinstance(m.content, list) else []
+                for m in (
+                    msg for msg in normalized_msgs if msg.role == "assistant"
+                ):
+                    blocks = (
+                        list(m.content) if isinstance(m.content, list) else []
+                    )
                     aligned_reasoning.extend(
                         _reasoning_by_assistant_segment(blocks, self),
                     )
 
-                out_assistant = [m for m in messages if m.get("role") == "assistant"]
+                out_assistant = [
+                    m for m in messages if m.get("role") == "assistant"
+                ]
 
                 if len(aligned_reasoning) != len(out_assistant):
                     logger.warning(
@@ -1192,7 +1227,9 @@ def _create_file_block_support_formatter(
                     )
                     if logger.isEnabledFor(logging.DEBUG):
                         for _i, m in enumerate(
-                            msg for msg in normalized_msgs if msg.role == "assistant"
+                            msg
+                            for msg in normalized_msgs
+                            if msg.role == "assistant"
                         ):
                             types = (
                                 [_battr(b, "type") for b in m.content]
@@ -1388,7 +1425,8 @@ def _is_fallback_candidate_available(
         # Check if the model is available in the provider
         models = provider.list_models() or []
         return any(
-            m.get("model") == model_id or m.get("name") == model_id for m in models
+            m.get("model") == model_id or m.get("name") == model_id
+            for m in models
         )
     except Exception:
         logger.debug(
