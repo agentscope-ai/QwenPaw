@@ -1204,4 +1204,4 @@ def smart_decode(data: bytes) -> str:
         encoding = locale.getpreferredencoding(False) or "utf-8"
         decoded_str = data.decode(encoding, errors="replace")
 
-    return decoded_str.strip("\n")
+    return decoded_str.strip("\r\n")

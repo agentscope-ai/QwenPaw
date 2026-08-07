@@ -495,6 +495,10 @@ class TestSmartDecode:
         result = smart_decode("hello\n\n".encode("utf-8"))
         assert result == "hello"
 
+    def test_strips_windows_newline_and_preserves_internal_crlf(self):
+        result = smart_decode("first\r\nsecond\r\n".encode("utf-8"))
+        assert result == "first\r\nsecond"
+
     def test_non_utf8_fallback(self):
         # Bytes that are invalid UTF-8 should fall back to
         # locale encoding with error replacement
