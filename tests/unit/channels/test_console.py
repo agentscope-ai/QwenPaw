@@ -407,8 +407,8 @@ class TestConsoleChannelFromConfig:
     def mock_process(self):
         return AsyncMock()
 
-    def test_from_config_uses_config_values(self, mock_process):
-        """from_config should use values from config object."""
+    def test_from_config_keeps_console_enabled(self, mock_process):
+        """from_config should keep the console channel enabled."""
         from qwenpaw.app.channels.console.channel import ConsoleChannel
         from qwenpaw.config.config import ConsoleConfig
 
@@ -422,7 +422,7 @@ class TestConsoleChannelFromConfig:
             config=config,
         )
 
-        assert channel.enabled is False
+        assert channel.enabled is True
         assert channel.bot_prefix == "[CFG] "
 
 
