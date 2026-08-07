@@ -52,13 +52,14 @@ def validate_plugin_module(
     module_name = f"_plugin_validation_{safe_id}"
     plugin_dir_str = str(plugin_path)
     # Nested entry files (e.g. ``backend/main.py``) resolve their bare
-    # imports against the entry directory — mirror PluginLoader.
+    # imports against the entry directory — mirror PluginLoader,
+    # including entry-directory-first precedence.
     entry_dir_str = str(backend_path.parent)
-    search_paths = [plugin_dir_str]
+    search_paths = [entry_dir_str]
     if os.path.normcase(os.path.realpath(entry_dir_str)) != os.path.normcase(
         os.path.realpath(plugin_dir_str),
     ):
-        search_paths.append(entry_dir_str)
+        search_paths.append(plugin_dir_str)
 
     spec = importlib.util.spec_from_file_location(
         module_name,

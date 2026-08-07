@@ -297,6 +297,39 @@ class TestBareImportNamespaceIsolation:
         assert sys.modules["plugin_nested_entry"].VALUE == "nested"
 
     @pytest.mark.asyncio
+    async def test_nested_entry_dir_precedes_plugin_root(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """When the plugin root and the entry directory both ship the same
+        bare module name, the entry directory wins — matching the
+        ``sys.path.insert(0, dirname(__file__))`` semantics nested-entry
+        plugins rely on."""
+        plugin_dir = tmp_path / "nested-priority"
+        backend = plugin_dir / "backend"
+        backend.mkdir(parents=True)
+        (plugin_dir / "helper.py").write_text(
+            "VALUE = 'plugin-root'\n",
+            encoding="utf-8",
+        )
+        (backend / "helper.py").write_text(
+            "VALUE = 'entry-dir'\n",
+            encoding="utf-8",
+        )
+        _write_manifest(plugin_dir, backend_entry="backend/main.py")
+        (backend / "main.py").write_text(
+            "import os, sys\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "from helper import VALUE\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        await _load(loader, plugin_dir, backend_entry="backend/main.py")
+
+        assert sys.modules["plugin_nested_priority"].VALUE == "entry-dir"
+
+    @pytest.mark.asyncio
     async def test_failed_load_unregisters_namespace(
         self,
         loader,

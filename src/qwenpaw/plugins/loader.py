@@ -516,11 +516,14 @@ class PluginLoader:
         plugin_dir_str = str(source_path)
         # Plugins with a nested entry (e.g. ``backend/main.py``) resolve
         # their bare imports against the entry file's directory, so it
-        # must be searchable alongside the plugin root.
+        # must be searchable alongside the plugin root.  The entry
+        # directory comes first: nested-entry plugins put it at
+        # ``sys.path[0]``, so it must win over a same-named module in
+        # the plugin root.
         entry_dir_str = str(backend_entry_file.parent)
-        search_paths = [plugin_dir_str]
+        search_paths = [entry_dir_str]
         if _norm_realpath(entry_dir_str) != _norm_realpath(plugin_dir_str):
-            search_paths.append(entry_dir_str)
+            search_paths.append(plugin_dir_str)
 
         spec = importlib.util.spec_from_file_location(
             module_name,
