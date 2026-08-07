@@ -104,9 +104,7 @@ def teaching_from_strict_violation(exc: Exception) -> BrowserError | None:
     )
 
 
-_DRIVER_DEAD_MARKERS = (
-    "connection closed while reading from the driver",
-)
+_DRIVER_DEAD_MARKERS = ("connection closed while reading from the driver",)
 
 
 def _driver_connection_dead(exc: BaseException) -> bool:
