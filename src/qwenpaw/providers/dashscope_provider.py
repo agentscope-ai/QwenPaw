@@ -85,6 +85,42 @@ class DashScopeProvider(OpenAIProvider):
             return model_info.relay_reasoning
         return False
 
+    def _map_agent_thinking_level(
+        self,
+        effective: dict,
+        model_id: str,
+        level: str,
+        budget: int,
+    ) -> None:
+        """Map agent thinking levels to the model-specific DashScope API."""
+        model_info = self.get_model_info(model_id)
+        param_style = (
+            model_info.thinking_param_style
+            if model_info and model_info.thinking_param_style
+            else self.thinking_param_style
+        )
+        if param_style == "effort":
+            extra_body = effective.get("extra_body")
+            if not isinstance(extra_body, dict):
+                extra_body = {}
+            extra_body["thinking"] = {
+                "type": "disabled" if level == "off" else "enabled",
+            }
+            if level == "off":
+                extra_body.pop("reasoning_effort", None)
+            else:
+                extra_body["reasoning_effort"] = level
+            effective.pop("thinking_enable", None)
+            effective.pop("thinking_budget", None)
+            effective["extra_body"] = extra_body
+            return
+
+        if level == "off":
+            effective["thinking_enable"] = False
+            return
+        effective["thinking_enable"] = True
+        effective["thinking_budget"] = budget
+
     async def add_model(
         self,
         model_info: ModelInfo,

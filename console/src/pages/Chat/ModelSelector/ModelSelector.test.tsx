@@ -961,7 +961,11 @@ describe("ModelSelector", () => {
       {
         ...mockProvider,
         models: [
-          { ...mockProvider.models[0], thinking_enabled: true },
+          {
+            ...mockProvider.models[0],
+            thinking_enabled: true,
+            supports_agent_thinking: true,
+          },
           mockProvider.models[1],
         ],
       },
@@ -1240,6 +1244,58 @@ describe("ModelSelector", () => {
     expect(agentsApi.updateAgent).toHaveBeenCalledWith(
       "default",
       expect.objectContaining({ thinking_level: "inherit" }),
+    );
+  });
+
+  it("keeps thinking enabled for an unknown DashScope model", async () => {
+    const dashscopeProvider = {
+      ...mockProvider,
+      id: "dashscope",
+      name: "DashScope",
+      chat_model: "DashScopeChatModel",
+      models: [
+        {
+          ...mockProvider.models[0],
+          id: "new-dashscope-model",
+          name: "New DashScope Model",
+          supports_agent_thinking: true,
+        },
+      ],
+    };
+    vi.mocked(providerApi.listProviders).mockResolvedValue([dashscopeProvider]);
+    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
+      active_llm: {
+        provider_id: "dashscope",
+        model: "new-dashscope-model",
+      },
+    });
+    vi.mocked(agentsApi.getAgent).mockResolvedValue({
+      id: "default",
+      name: "Default",
+      fallback_models: [],
+      fallback_policy: { enabled: true, target_scope: "configured" },
+      subagent_model: null,
+      thinking_level: "high",
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("New DashScope Model");
+    await user.click(screen.getAllByText("New DashScope Model")[0]);
+    await user.click(
+      await screen.findByRole("button", {
+        name: /modelSelector.agentModelSettings/,
+      }),
+    );
+
+    expect(
+      await screen.findByLabelText("modelSelector.thinkingLevel"),
+    ).not.toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /common.save/ }));
+
+    await waitFor(() => expect(agentsApi.updateAgent).toHaveBeenCalledOnce());
+    expect(agentsApi.updateAgent).toHaveBeenCalledWith(
+      "default",
+      expect.objectContaining({ thinking_level: "high" }),
     );
   });
 

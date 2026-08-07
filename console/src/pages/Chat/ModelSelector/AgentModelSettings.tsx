@@ -48,19 +48,8 @@ function slotKey(providerId: string, modelId: string): string {
   return `${providerId}:${modelId}`;
 }
 
-function supportsThinking(provider: SettingsProvider, model: ModelInfo) {
-  if (model.thinking_enabled !== null || model.thinking_param_style != null) {
-    return true;
-  }
-  if (["AnthropicChatModel", "GeminiChatModel"].includes(provider.chatModel)) {
-    return true;
-  }
-  const segments = model.id.toLowerCase().split("/");
-  const normalized = segments[segments.length - 1] || model.id;
-  return (
-    ["OpenAIChatModel", "OpenAIResponseModel"].includes(provider.chatModel) &&
-    (normalized.startsWith("gpt-5") || /^o\d/.test(normalized))
-  );
+function supportsThinking(_provider: SettingsProvider, model: ModelInfo) {
+  return model.supports_agent_thinking === true;
 }
 
 export function AgentModelSettings({
@@ -234,7 +223,9 @@ export function AgentModelSettings({
           target_scope: fallbackScope,
         },
         subagent_model: subagentSlot ?? null,
-        thinking_level: thinkingSupported ? thinkingLevel : "inherit",
+        thinking_level: thinkingSupported
+          ? thinkingLevel
+          : config.thinking_level ?? "inherit",
       });
       if (
         revision !== saveRevision.current ||

@@ -383,6 +383,7 @@ class ProviderManager(
         while (
             resolved_id in self.builtin_providers
             or resolved_id in self.custom_providers
+            or resolved_id in self.plugin_providers
         ):
             resolved_id = f"{resolved_id}-new"
 

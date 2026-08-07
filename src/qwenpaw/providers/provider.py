@@ -240,6 +240,13 @@ class ModelInfo(BaseModel):
         description="Override provider-level thinking_budget_range [min, max] "
         "for this model.",
     )
+    supports_agent_thinking: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the provider can apply an agent-level thinking override "
+            "to this model. Derived in ProviderInfo responses."
+        ),
+    )
 
 
 class ExtendedModelInfo(ModelInfo):
@@ -794,8 +801,8 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         if info is None:
             return False
         if (
-            info.thinking_enabled is not None
-            or info.thinking_param_style is not None
+            getattr(info, "thinking_enabled", None) is not None
+            or getattr(info, "thinking_param_style", None) is not None
         ):
             return True
         if self.chat_model in {"AnthropicChatModel", "GeminiChatModel"}:
@@ -838,19 +845,29 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 "thinking",
             ):
                 extra_body.pop(key, None)
+        self._map_agent_thinking_level(
+            effective,
+            model_id,
+            level,
+            AGENT_THINKING_BUDGETS.get(level, 0),
+        )
+
+    def _map_agent_thinking_level(
+        self,
+        effective: Dict[str, Any],
+        model_id: str,
+        level: str,
+        budget: int,
+    ) -> None:
+        """Map an agent level to the provider's wire parameters."""
+        _ = model_id
         if level == "off":
-            if self.chat_model == "DashScopeChatModel":
-                effective["thinking_enable"] = False
-            elif self.chat_model == "AnthropicChatModel":
+            if self.chat_model == "AnthropicChatModel":
                 effective["thinking_enable"] = False
             elif self.chat_model == "GeminiChatModel":
                 effective["thinking_config"] = {"thinking_budget": 0}
             return
-        budget = AGENT_THINKING_BUDGETS[level]
-        if self.chat_model == "DashScopeChatModel":
-            effective["thinking_enable"] = True
-            effective["thinking_budget"] = budget
-        elif self.chat_model == "AnthropicChatModel":
+        if self.chat_model == "AnthropicChatModel":
             effective["thinking_enable"] = True
             effective["thinking_budget"] = budget
         elif self.chat_model == "GeminiChatModel":
@@ -1088,6 +1105,14 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         else:
             api_key = self.api_key
         removed = set(self.removed_model_ids)
+
+        def serialize_model(model: ModelInfo) -> dict[str, Any]:
+            payload = model.model_dump()
+            payload["supports_agent_thinking"] = self.supports_agent_thinking(
+                model.id,
+            )
+            return payload
+
         # Serialize models/extra_models to plain dicts so that
         # ProviderInfo constructs fresh ModelInfo instances using
         # the class in its own module scope.  This avoids pydantic
@@ -1103,17 +1128,17 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             # Discovery is a separate catalog used by the add-model form.
             # Do not expose it as configured models to selectors or lists.
             models=[
-                model.model_dump()
+                serialize_model(model)
                 for model in self.models
                 if model.id not in removed
             ],
             extra_models=[
-                model.model_dump()
+                serialize_model(model)
                 for model in self.extra_models
                 if model.id not in removed
             ],
             discovered_models=[
-                model.model_dump()
+                serialize_model(model)
                 for model in self.discovered_models
                 if model.id not in removed
             ],

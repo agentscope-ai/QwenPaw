@@ -332,7 +332,9 @@ class ProviderManagerDiscoveryMixin:
                 error_kind=classify_discovery_error(exc, error),
             )
         finally:
-            if save:
+            if save and generation == self._discovery_generations.get(
+                provider_id
+            ):
                 current = self.get_provider(provider_id)
                 if current is provider:
                     current.models_syncing = False

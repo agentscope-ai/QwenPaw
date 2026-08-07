@@ -45,6 +45,8 @@ export interface ModelInfo {
   reasoning_effort_options?: string[] | null;
   /** Per-model override for thinking_budget [min, max] range. */
   thinking_budget_range?: [number, number] | null;
+  /** Backend-derived support for agent-level thinking overrides. */
+  supports_agent_thinking?: boolean | null;
 }
 
 export interface ProviderInfo {

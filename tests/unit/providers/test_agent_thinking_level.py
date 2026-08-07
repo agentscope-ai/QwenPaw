@@ -50,6 +50,51 @@ def test_dashscope_unknown_model_uses_family_thinking_support() -> None:
     assert kwargs["thinking_budget"] == AGENT_THINKING_BUDGETS["high"]
 
 
+def test_dashscope_effort_model_uses_extra_body_only() -> None:
+    provider = PROVIDER_DASHSCOPE.model_copy(deep=True)
+    model_id = "deepseek-v4-pro-test"
+    provider.extra_models.append(
+        PROVIDER_OPENAI.models[0].model_copy(
+            update={
+                "id": model_id,
+                "thinking_enabled": True,
+                "thinking_param_style": "effort",
+            },
+        ),
+    )
+
+    with agent_thinking_level("high"):
+        kwargs = provider.get_effective_generate_kwargs(model_id)
+
+    assert kwargs["extra_body"] == {
+        "thinking": {"type": "enabled"},
+        "reasoning_effort": "high",
+    }
+    assert "thinking_enable" not in kwargs
+    assert "thinking_budget" not in kwargs
+
+
+def test_dashscope_effort_model_off_disables_thinking() -> None:
+    provider = PROVIDER_DASHSCOPE.model_copy(deep=True)
+    model_id = "glm-5.2-test"
+    provider.extra_models.append(
+        PROVIDER_OPENAI.models[0].model_copy(
+            update={
+                "id": model_id,
+                "thinking_enabled": True,
+                "thinking_param_style": "effort",
+            },
+        ),
+    )
+
+    with agent_thinking_level("off"):
+        kwargs = provider.get_effective_generate_kwargs(model_id)
+
+    assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert "thinking_enable" not in kwargs
+    assert "thinking_budget" not in kwargs
+
+
 def test_thinking_budget_levels_are_stable() -> None:
     assert AGENT_THINKING_BUDGETS == {
         "low": 2_048,

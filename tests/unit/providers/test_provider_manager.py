@@ -847,6 +847,61 @@ async def test_add_custom_provider_conflict_resolution_loops_until_unique(
     assert manager.get_provider("openai-custom-new-new") is not None
 
 
+async def test_add_custom_provider_avoids_plugin_id_collision(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    plugin_id = "plugin-openai"
+    plugin_info = ProviderInfo(
+        id=plugin_id,
+        name="Plugin OpenAI",
+        base_url="https://plugin.example/v1",
+    )
+    manager.plugin_providers[plugin_id] = {
+        "info": plugin_info,
+        "class": OpenAIProvider,
+    }
+    plugin_path = manager.plugin_path / f"{plugin_id}.json"
+    plugin_path.write_text(
+        json.dumps(plugin_info.model_dump()),
+        encoding="utf-8",
+    )
+
+    created = await manager.add_custom_provider(
+        OpenAIProvider(
+            id=plugin_id,
+            name="Custom OpenAI",
+            base_url="https://custom.example/v1",
+        ),
+    )
+
+    assert created.id == "plugin-openai-new"
+    assert json.loads(plugin_path.read_text(encoding="utf-8"))["name"] == (
+        "Plugin OpenAI"
+    )
+    assert (manager.custom_path / "plugin-openai-new.json").exists()
+
+
+async def test_provider_info_exposes_derived_thinking_capability(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("dashscope")
+    assert provider is not None
+    model_id = "newly-discovered-dashscope-model"
+    provider.extra_models.append(
+        ModelInfo(
+            id=model_id,
+            name="Discovered DashScope Model",
+        ),
+    )
+
+    info = await provider.get_info()
+    model = next(model for model in info.extra_models if model.id == model_id)
+
+    assert model.supports_agent_thinking is True
+
+
 def test_update_provider_for_builtin_persists_to_builtin_path(
     isolated_secret_dir,
 ) -> None:
@@ -1212,6 +1267,52 @@ async def test_discovery_keeps_user_models_and_persists_cache(
     assert not reloaded.has_model("remote-new")
     assert reloaded.get_discovered_model_info("remote-new") is not None
     assert reloaded.models_last_synced_at == result.last_synced_at
+
+
+async def test_overlapping_discovery_keeps_latest_syncing_state(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    first_started = asyncio.Event()
+    second_started = asyncio.Event()
+    first_release = asyncio.Event()
+    second_release = asyncio.Event()
+    calls = 0
+
+    async def fetch_models(_self, timeout=5):
+        nonlocal calls
+        _ = timeout
+        calls += 1
+        call_number = calls
+        if call_number == 1:
+            first_started.set()
+            await first_release.wait()
+        else:
+            second_started.set()
+            await second_release.wait()
+        return [ModelInfo(id=f"remote-{call_number}", name="Remote")]
+
+    monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
+    first = asyncio.create_task(
+        manager.discover_provider_models("openai"),
+    )
+    await first_started.wait()
+    second = asyncio.create_task(
+        manager.discover_provider_models("openai"),
+    )
+    await second_started.wait()
+
+    assert provider.models_syncing is True
+    first_release.set()
+    await first
+    assert provider.models_syncing is True
+
+    second_release.set()
+    await second
+    assert provider.models_syncing is False
 
 
 async def test_failed_discovery_preserves_last_cache_and_user_models(
