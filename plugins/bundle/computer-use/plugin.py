@@ -18,9 +18,9 @@ from typing import Any
 from qwenpaw.plugins.api import PluginApi
 
 # Use a qwenpaw.* logger name so desktop log config actually captures us.
-# ``__name__`` under plugin loading is ``plugin_computer_use_tool``, which
+# ``__name__`` under plugin loading is ``plugin_computer_use``, which
 # currently never appears in qwenpaw.log.
-logger = logging.getLogger("qwenpaw.plugins.computer_use_tool")
+logger = logging.getLogger("qwenpaw.plugins.computer_use")
 
 _PLUGIN_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 
@@ -31,7 +31,7 @@ _TOOL_DESCRIPTION = (
 
 
 def _ensure_importable() -> None:
-    """Expose the bundled ``computer_use_tool`` package on ``sys.path``."""
+    """Expose the bundled ``computer_use`` package on ``sys.path``."""
     plugin_dir = str(_PLUGIN_DIR)
     if plugin_dir not in sys.path:
         sys.path.insert(0, plugin_dir)
@@ -106,7 +106,7 @@ class ComputerUseToolPlugin:
         _ensure_importable()
 
         from qwenpaw.app.computer_use import HostRuntimeProvider
-        from computer_use_tool.router import build_router
+        from computer_use.router import build_router
 
         api.register_http_router(
             build_router(),
@@ -127,8 +127,8 @@ class ComputerUseToolPlugin:
             )
             return
 
-        from computer_use_tool import computer_use
-        from computer_use_tool.lifecycle import ComputerUseTurnEndHook
+        from computer_use import computer_use
+        from computer_use.lifecycle import ComputerUseTurnEndHook
 
         # One call carries the whole pipeline: governance (classified
         # internal, approval rules gate on the ``action`` argument),

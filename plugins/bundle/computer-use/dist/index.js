@@ -72,7 +72,7 @@ function a(t, n) {
   }
   return I[t][n];
 }
-const B = "2.0.0", D = {
+const B = "1.0.0", D = {
   version: B
 }, o = window.QwenPaw.host, e = o.React, {
   Badge: J,
@@ -449,14 +449,14 @@ function oe() {
 }
 var O;
 (O = window.QwenPaw.chat) == null || O.approval.render(
-  "computer-use-tool",
+  "computer-use",
   "computer_use_app_access",
   se
 );
 var L, N;
-(N = (L = window.QwenPaw).registerRoutes) == null || N.call(L, "computer-use-tool", [
+(N = (L = window.QwenPaw).registerRoutes) == null || N.call(L, "computer-use", [
   {
-    path: "/plugin/computer-use-tool",
+    path: "/plugin/computer-use",
     component: oe,
     label: a(te(), "routeLabel"),
     icon: "🖥️",

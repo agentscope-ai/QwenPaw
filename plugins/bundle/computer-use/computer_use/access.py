@@ -72,7 +72,7 @@ def _default_persistent_path() -> Path:
     return (
         Path(WORKING_DIR)
         / "plugin_runtime"
-        / "computer-use-tool"
+        / "computer-use"
         / "app_access.json"
     )
 

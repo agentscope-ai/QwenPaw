@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from typing import Any
 
@@ -18,6 +19,8 @@ from .access import (
     get_computer_use_access_store,
 )
 
+_POST_APPROVAL_SETTLE_SECONDS = 0.8
+
 
 def _agent_context():
     """Load request-scoped context only while resolving an approval."""
@@ -29,10 +32,9 @@ def _agent_context():
 class ComputerUseApprovalCoordinator:
     """The plugin-side adapter for native-originated App approval events.
 
-    Holds no state: the recency guard on the helper no longer takes a
-    post-approval exemption, so there is nothing to arm here. An action issued
-    right after an approval is refused as retryable ``user_intervention`` and
-    succeeds once the caller observes again and reissues.
+    Holds no exemption state. A newly approved request waits out the native
+    recency window before returning, so the approval click does not cause a
+    spurious refusal while later user input remains guarded normally.
     """
 
     async def decide(self, message: Mapping[str, Any]) -> dict[str, Any]:
@@ -58,6 +60,10 @@ class ComputerUseApprovalCoordinator:
             decision = ApprovalDecision.DENIED
         allowed = decision == ApprovalDecision.APPROVED
         store.record_session(request, allowed=allowed)
+        if allowed:
+            # The approving click is real user input. Let the native recency
+            # guard age it out instead of weakening that guard with a bypass.
+            await asyncio.sleep(_POST_APPROVAL_SETTLE_SECONDS)
         return {"allowed": allowed, "source": "session"}
 
     @staticmethod

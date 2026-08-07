@@ -38,6 +38,47 @@ _DEFAULT_DEADLINE_MS = 10000
 # frozen backends still use a short per-attempt socket timeout, so retry
 # the idempotent acquire a few times to cover that cold-start window.
 _ACQUIRE_ATTEMPTS = 5
+# A capability can name a helper that exited after announcing readiness but
+# before the client connected.  Starting a native session is still idempotent
+# at that point: only the hello handshake has been sent, so discard the dead
+# endpoint and ask the host to start a fresh helper within the same tool call.
+_START_ATTEMPTS = 3
+# A broken connection can be replaced transparently only when repeating the
+# request cannot change the desktop. Mutating requests may have reached the
+# helper before the connection failed, so replaying them could act twice.
+_READ_ONLY_METHODS = frozenset(
+    {"list_apps", "list_windows", "observe_window"},
+)
+_OBSERVED_METHODS = frozenset(
+    {
+        "click",
+        "close_window",
+        "drag",
+        "invoke_element",
+        "press_key",
+        "scroll",
+        "set_value",
+        "type_text",
+    },
+)
+_REQUEST_ATTEMPTS = 2
+_BROKEN_TRANSPORT_ERRORS = frozenset(
+    {
+        "invalid_frame",
+        "request_timeout",
+        "runtime_disconnected",
+        "runtime_unavailable",
+    },
+)
+_RETRYABLE_READ_ONLY_ERRORS = _BROKEN_TRANSPORT_ERRORS | {
+    # ScreenCaptureKit can miss its first callback while the capture service
+    # wakes up. Observation is side-effect free, so one retry is safe; input
+    # methods still never replay after an ambiguous failure.
+    "capture_failed",
+}
+_DEAD_ENDPOINT_ERRORS = frozenset(
+    {"invalid_frame", "runtime_disconnected", "runtime_unavailable"},
+)
 
 # The helper refuses rather than queues when another session holds the desktop,
 # so the waiting is done here. Five attempts with doubling delays give a little
@@ -64,10 +105,14 @@ class ComputerUseClient:
         # endpoint can be reported back rather than reconnected to forever.
         self._capability: RuntimeCapability | None = None
         self._turn_id: str | None = None
-        # The turn a stop applied to. Kept here rather than only in the helper
-        # because a stop drops the connection, and the helper holds that fact
-        # per connection -- a later action in the same turn would otherwise be
-        # allowed straight through on a fresh one.
+        # Native observations are concurrency tokens, not model input. Keeping
+        # the current token beside the connection prevents an agent from
+        # copying, guessing, or crossing it with another action while native
+        # still rejects stale state at the trust boundary.
+        self._observation_id: str | None = None
+        # The turn a stop applied to. Kept client-side so requests already
+        # queued on this lock cannot cross the turn boundary after Native has
+        # released its per-connection state.
         self._stopped_turn: str | None = None
         self._lock = asyncio.Lock()
         # The loop that created the transport, its reader task and this lock.
@@ -84,78 +129,169 @@ class ComputerUseClient:
         deadline_ms: int = _DEFAULT_DEADLINE_MS,
     ) -> dict[str, Any]:
         """Execute one native operation through the authenticated transport."""
-        transport = await self._ensure_transport()
         turn_id = get_current_computer_use_turn_id()
         if not turn_id:
             raise ComputerUseProtocolError(
                 "turn_unavailable",
                 "Computer Use is unavailable outside an active agent turn.",
             )
-        if turn_id == self._stopped_turn:
-            raise ComputerUseProtocolError(
-                "turn_stopped",
-                "Computer Use was stopped for this turn.",
-            )
+        self._check_turn_active(turn_id)
         async with self._lock:
+            # A stop can arrive while this request is queued behind another
+            # operation. Recheck after acquiring the lock so queued work cannot
+            # cross the turn boundary and recreate a transport afterwards.
+            self._check_turn_active(turn_id, clear_previous=True)
+            transport = await self._ensure_transport()
             if self._turn_id and self._turn_id != turn_id:
                 await self._end_turn(transport, self._turn_id)
+                self._observation_id = None
             self._turn_id = turn_id
-            for attempt in range(_DESKTOP_BUSY_ATTEMPTS):
-                request = NativeRequest(
-                    request_id=uuid.uuid4().hex,
-                    method=method,
-                    params=params,
-                    session_id=self._session_id,
-                    turn_id=turn_id,
-                    deadline_ms=max(100, deadline_ms),
-                )
+            native_params = self._native_params(method, params)
+            request_attempts = (
+                _REQUEST_ATTEMPTS if method in _READ_ONLY_METHODS else 1
+            )
+            for request_attempt in range(request_attempts):
                 try:
-                    return parse_response(
-                        await transport.request(request.to_message()),
+                    result = await self._request_with_contention(
+                        transport,
+                        method,
+                        native_params,
+                        turn_id,
+                        deadline_ms,
                     )
+                    self._check_turn_active(turn_id)
+                    return self._accept_result(method, result)
                 except asyncio.CancelledError:
-                    # Release the native pipe instance so the helper's serve
-                    # thread can exit and future turns can open a fresh one.
+                    # The native operation may already have changed the
+                    # desktop. Stop this turn and abandon only its connection;
+                    # the shared helper lets the bounded operation finish and
+                    # remains available to other sessions.
+                    self._stopped_turn = turn_id
                     await self._discard_transport()
                     raise
                 except ComputerUseProtocolError as error:
                     if error.code in {
-                        "runtime_disconnected",
-                        "runtime_unavailable",
-                        "request_timeout",
-                        "invalid_frame",
+                        "stale_observation",
+                        "turn_stopped",
+                        "user_intervention",
                     }:
+                        self._observation_id = None
+                    if error.code == "request_timeout":
+                        if method not in _READ_ONLY_METHODS:
+                            self._stopped_turn = turn_id
                         await self._discard_transport()
-                    if error.code in {"runtime_disconnected", "invalid_frame"}:
-                        # The connection went away mid-request rather than the
-                        # action failing, so the endpoint itself is suspect. A
-                        # timeout is not: the helper may simply be working.
+                    elif error.code in _BROKEN_TRANSPORT_ERRORS:
+                        await self._discard_transport()
+                    if error.code in _DEAD_ENDPOINT_ERRORS:
+                        # The endpoint is unusable, so the next acquire must
+                        # ask the host to verify or restart the helper.
                         self._forget_capability()
-                    if error.code != "desktop_busy":
+                    if (
+                        error.code not in _RETRYABLE_READ_ONLY_ERRORS
+                        or request_attempt + 1 >= request_attempts
+                        or turn_id == self._stopped_turn
+                    ):
                         raise
-                    if attempt + 1 >= _DESKTOP_BUSY_ATTEMPTS:
-                        raise
-                    # Another session holds the desktop. The helper refuses
-                    # rather than queueing, so the waiting happens here, where
-                    # a stop can end it -- a thread parked inside the helper
-                    # could not be reached and would act after the user said
-                    # no.
-                    #
-                    # Retrying is safe only because the refusal comes before
-                    # the helper touches anything: unlike a timeout, it carries
-                    # no chance of an action already half performed.
-                    await asyncio.sleep(
-                        _DESKTOP_BUSY_DELAY_SECONDS * (2**attempt),
-                    )
-                    if turn_id == self._stopped_turn:
-                        raise ComputerUseProtocolError(
-                            "turn_stopped",
-                            "Computer Use was stopped for this turn.",
-                        ) from error
+                    transport = await self._ensure_transport()
+                    self._turn_id = turn_id
+        raise ComputerUseProtocolError(
+            "runtime_unavailable",
+            "Computer Use native runtime is unavailable.",
+        )
+
+    def _check_turn_active(
+        self,
+        turn_id: str,
+        *,
+        clear_previous: bool = False,
+    ) -> None:
+        """Reject the stopped turn and optionally retire an older marker."""
+        if turn_id == self._stopped_turn:
+            self._observation_id = None
             raise ComputerUseProtocolError(
-                "desktop_busy",
-                "Another Computer Use session is using the desktop.",
+                "turn_stopped",
+                "Computer Use was stopped for this turn.",
             )
+        if clear_previous:
+            self._stopped_turn = None
+
+    def _native_params(
+        self,
+        method: str,
+        params: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Attach the current native observation without exposing its ID."""
+        native_params = dict(params)
+        if method not in _OBSERVED_METHODS:
+            return native_params
+        if not self._observation_id:
+            raise ComputerUseProtocolError(
+                "observation_required",
+                "Observe a window before performing this action.",
+            )
+        native_params["observation_id"] = self._observation_id
+        return native_params
+
+    def _accept_result(
+        self,
+        method: str,
+        result: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Advance the observation and return only model-facing data."""
+        public_result = dict(result)
+        observation_id = public_result.pop("observation_id", None)
+        if method == "observe_window" or method in _OBSERVED_METHODS:
+            self._observation_id = (
+                observation_id
+                if isinstance(observation_id, str) and observation_id
+                else None
+            )
+        elif method == "launch_app":
+            self._observation_id = None
+        return public_result
+
+    async def _request_with_contention(
+        self,
+        transport: ComputerUseTransport,
+        method: str,
+        params: Mapping[str, Any],
+        turn_id: str,
+        deadline_ms: int,
+    ) -> dict[str, Any]:
+        """Send once, except for refusals known to happen before any action."""
+        for attempt in range(_DESKTOP_BUSY_ATTEMPTS):
+            request = NativeRequest(
+                request_id=uuid.uuid4().hex,
+                method=method,
+                params=params,
+                session_id=self._session_id,
+                turn_id=turn_id,
+                deadline_ms=max(100, deadline_ms),
+            )
+            try:
+                return parse_response(
+                    await transport.request(request.to_message()),
+                )
+            except ComputerUseProtocolError as error:
+                if error.code != "desktop_busy":
+                    raise
+                if attempt + 1 >= _DESKTOP_BUSY_ATTEMPTS:
+                    raise
+                # Another session holds the desktop. The helper refuses before
+                # touching it, so retrying cannot duplicate an action. Waiting
+                # here also lets a stop interrupt the retry promptly.
+                await asyncio.sleep(
+                    _DESKTOP_BUSY_DELAY_SECONDS * (2**attempt),
+                )
+                if turn_id == self._stopped_turn:
+                    raise ComputerUseProtocolError(
+                        "turn_stopped",
+                        "Computer Use was stopped for this turn.",
+                    ) from error
+        raise ComputerUseProtocolError(
+            "desktop_busy",
+            "Another Computer Use session is using the desktop.",
+        )
 
     @property
     def has_active_turn(self) -> bool:
@@ -163,28 +299,23 @@ class ComputerUseClient:
         return self._transport is not None and self._turn_id is not None
 
     async def stop_turn(self) -> bool:
-        """Tell Native to stop this session's active turn immediately."""
+        """Stop this session's active turn without affecting other clients."""
         return await self._on_owner_loop(self._stop_turn_here)
 
     async def _stop_turn_here(self) -> bool:
-        """Stop the active turn, on the loop that owns the transport.
-
-        Deliberately takes no lock. An action holds ``_lock`` for its whole
-        round trip, and that round trip may be waiting on a person answering an
-        approval prompt -- so a stop that queued behind it could not arrive
-        until the thing it was meant to interrupt had finished.
-
-        Signal first, then reap. Recording the stop and dropping the connection
-        ends any wait at once: closing the transport fails the request still
-        in flight, and the helper reaps that turn when its own read fails.
-        Asking the helper politely instead would not work -- it serves one
-        request per connection, so a stop frame would sit behind the action.
-        """
+        """Stop this turn after any already-dispatched operation settles."""
         turn_id = self._turn_id
         if self._transport is None or not turn_id:
             return False
+        # Mark before waiting: requests already queued on the lock will see the
+        # marker when they acquire it and must not reach the native connection.
         self._stopped_turn = turn_id
-        await self._discard_transport()
+        self._observation_id = None
+        async with self._lock:
+            transport = self._transport
+            if transport is not None and self._turn_id == turn_id:
+                await self._end_turn(transport, turn_id)
+                self._turn_id = None
         return True
 
     async def close(self) -> None:
@@ -202,13 +333,15 @@ class ComputerUseClient:
         return await self._on_owner_loop(self._end_turn_here)
 
     async def _end_turn_here(self) -> bool:
-        transport = self._transport
-        turn_id = self._turn_id
-        if transport is None or not turn_id:
-            return False
-        self._turn_id = None
-        await self._end_turn(transport, turn_id)
-        return True
+        async with self._lock:
+            transport = self._transport
+            turn_id = self._turn_id
+            if transport is None or not turn_id:
+                return False
+            self._turn_id = None
+            self._observation_id = None
+            await self._end_turn(transport, turn_id)
+            return True
 
     @property
     def owner_loop(self) -> asyncio.AbstractEventLoop | None:
@@ -225,6 +358,7 @@ class ComputerUseClient:
                 await self._end_turn(transport, self._turn_id)
         finally:
             self._turn_id = None
+            self._observation_id = None
             self._transport = None
             await transport.close()
 
@@ -260,7 +394,12 @@ class ComputerUseClient:
         self._loop = asyncio.get_running_loop()
         if self._transport_factory is not None:
             transport = self._transport_factory()
-        else:
+            transport.set_reverse_request_handler(self._approvals.decide)
+            await transport.connect()
+            self._transport = transport
+            return transport
+
+        for attempt in range(_START_ATTEMPTS):
             capability = await self._acquire_capability()
             if capability is None:
                 raise ComputerUseProtocolError(
@@ -275,16 +414,37 @@ class ComputerUseClient:
             # Remembered so a dead endpoint can be reported back to the
             # provider; the next acquire then asks the host for a live one.
             self._capability = capability
-        transport.set_reverse_request_handler(self._approvals.decide)
-        try:
-            await transport.connect()
-        except ComputerUseProtocolError:
-            # The endpoint named by this capability did not answer, which is
-            # what a helper that has gone away looks like from here.
-            self._forget_capability()
-            raise
-        self._transport = transport
-        return transport
+            transport.set_reverse_request_handler(self._approvals.decide)
+            try:
+                await transport.connect()
+            except ComputerUseProtocolError as error:
+                try:
+                    await transport.close()
+                except Exception:  # noqa: BLE001 - preserve connect failure
+                    pass
+                # The endpoint named by this capability did not answer, which
+                # is what a helper that has gone away looks like from here. A
+                # later acquire must ask the host again.
+                self._forget_capability()
+                if (
+                    error.code
+                    not in {
+                        "invalid_frame",
+                        "request_timeout",
+                        "runtime_disconnected",
+                        "runtime_unavailable",
+                    }
+                    or attempt + 1 >= _START_ATTEMPTS
+                ):
+                    raise
+                await asyncio.sleep(_ACQUIRE_RETRY_DELAY_SECONDS)
+                continue
+            self._transport = transport
+            return transport
+        raise ComputerUseProtocolError(
+            "runtime_unavailable",
+            "Computer Use native runtime is unavailable.",
+        )
 
     def _forget_capability(self) -> None:
         """Report this client's endpoint as dead, so a fresh one is issued."""
@@ -336,6 +496,7 @@ class ComputerUseClient:
         transport = self._transport
         self._transport = None
         self._turn_id = None
+        self._observation_id = None
         if transport is None:
             return
         try:

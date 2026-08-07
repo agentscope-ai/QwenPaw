@@ -150,12 +150,23 @@ class WindowsPipeTransport(ComputerUseTransport):
                     asyncio.to_thread(self._write_message, dict(message)),
                     timeout,
                 )
-            except Exception:
+            except asyncio.TimeoutError:
                 # A failed or timed-out write may leave a partial frame on the
                 # pipe, so the connection can no longer be trusted.
                 future.cancel()
                 await self.close()
                 raise
+            except ComputerUseProtocolError:
+                future.cancel()
+                await self.close()
+                raise
+            except Exception as exc:  # noqa: BLE001 - transport boundary
+                future.cancel()
+                await self.close()
+                raise ComputerUseProtocolError(
+                    "runtime_disconnected",
+                    "Computer Use connection failed while sending a request.",
+                ) from exc
             return await self._await_response(future, timeout)
         except TimeoutError as exc:
             raise ComputerUseProtocolError(
@@ -506,7 +517,7 @@ def _run_io(
             if deadline is not None and time.monotonic() >= deadline:
                 _cancel_and_drain(kernel32, handle, overlapped)
                 raise TimeoutError("Computer Use pipe I/O timed out")
-    transferred = wintypes.DWORD()
+    transferred = wintypes.DWORD(0)
     if not kernel32.GetOverlappedResult(
         handle,
         ctypes.byref(overlapped),
@@ -524,7 +535,7 @@ def _cancel_and_drain(
 ) -> None:
     """Cancel and drain the pending operation before buffers are freed."""
     kernel32.CancelIoEx(handle, ctypes.byref(overlapped))
-    drained = wintypes.DWORD()
+    drained = wintypes.DWORD(0)
     kernel32.GetOverlappedResult(
         handle,
         ctypes.byref(overlapped),

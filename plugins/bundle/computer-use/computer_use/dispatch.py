@@ -12,10 +12,10 @@ import json
 import logging
 import threading
 import time
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 from agentscope.message import DataBlock, TextBlock, ToolResultState, URLSource
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
 
 from qwenpaw.runtime.tool_registry import tool_descriptor
 
@@ -28,6 +28,25 @@ _MAX_ACTIONS_PER_MINUTE = 60
 _action_times: list[float] = []
 _rate_limit_lock = threading.Lock()
 _SCREENSHOT_URL_PLACEHOLDER = "<image delivered as a separate attachment>"
+
+ComputerUseAction = Literal[
+    "list_apps",
+    "list_windows",
+    "observe_window",
+    "launch_app",
+    "close_window",
+    "click",
+    "double_click",
+    "right_click",
+    "scroll",
+    "drag",
+    "type",
+    "press_key",
+    "invoke",
+    "set_value",
+    "wait",
+    "stop",
+]
 
 
 def _check_rate_limit() -> None:
@@ -102,6 +121,17 @@ def _element_line(element: Mapping[str, Any]) -> str:
         parts.append("[disabled]")
     if element.get("offscreen") is True:
         parts.append("[offscreen]")
+    if element.get("selected") is True:
+        parts.append("[selected]")
+    if element.get("settable") is True:
+        parts.append("[settable]")
+    if element.get("resource_backed") is True:
+        parts.append("[resource-backed]")
+    actions = element.get("actions")
+    if isinstance(actions, list):
+        names = [str(action) for action in actions if str(action)]
+        if names:
+            parts.append(f"[actions={','.join(names)}]")
     return " ".join(parts)
 
 
@@ -130,7 +160,7 @@ def _response(
     *,
     include_images: bool = False,
     state: ToolResultState = ToolResultState.SUCCESS,
-) -> ToolResponse:
+) -> ToolChunk:
     content: list[Any] = []
     if include_images:
         for screenshot in payload.get("screenshots", []):
@@ -156,10 +186,10 @@ def _response(
             ),
         ),
     )
-    return ToolResponse(content=content, state=state)
+    return ToolChunk(content=content, state=state, is_last=True)
 
 
-def _error(code: str, message: str) -> ToolResponse:
+def _error(code: str, message: str) -> ToolChunk:
     return _response(
         {
             "ok": False,
@@ -175,15 +205,15 @@ def _error(code: str, message: str) -> ToolResponse:
     async_execution=True,
     description=(
         "Control approved desktop applications through the native "
-        "Computer Use runtime."
+        "Computer Use runtime. Observe a window before acting; the runtime "
+        "keeps the current observation synchronized between actions."
     ),
     requires_skills=("computer_use",),
 )
 async def computer_use(
-    action: str,
+    action: ComputerUseAction,
     app: str = "",
     window_id: str = "",
-    observation_id: str = "",
     element_id: str = "",
     x: int = 0,
     y: int = 0,
@@ -191,6 +221,8 @@ async def computer_use(
     start_y: int = 0,
     end_x: int = 0,
     end_y: int = 0,
+    source_element_id: str = "",
+    target_element_id: str = "",
     button: str = "left",
     count: int = 1,
     delta_y: int = 0,
@@ -199,15 +231,14 @@ async def computer_use(
     key: str = "",
     wait_ms: int = 500,
     timeout_ms: int = 10000,
-) -> ToolResponse:
+) -> ToolChunk:
     """Control one observed window at a time.
 
     Use ``list_apps`` or ``list_windows`` first. Observe a target with
-    ``observe_window`` before acting. Every later action uses the returned
-    ``observation_id``; Native keeps the associated window, screenshot, and
-    accessibility state together and rejects stale observations.
+    ``observe_window`` before acting. The client advances the native
+    observation after every successful action; native rejects stale state.
     ``launch_app`` accepts an App ID returned by ``list_apps`` or an absolute
-    ``.exe`` path.
+    platform-native application path.
     """
     # Each early return maps to one refusal reason the model must be able to
     # tell apart, so they are reported individually rather than merged.
@@ -238,7 +269,6 @@ async def computer_use(
             action,
             app=app,
             window_id=window_id,
-            observation_id=observation_id,
             element_id=element_id,
             x=x,
             y=y,
@@ -246,6 +276,8 @@ async def computer_use(
             start_y=start_y,
             end_x=end_x,
             end_y=end_y,
+            source_element_id=source_element_id,
+            target_element_id=target_element_id,
             button=button,
             count=count,
             delta_y=delta_y,
@@ -259,7 +291,10 @@ async def computer_use(
             deadline_ms=max(100, min(timeout_ms, 30_000)),
         )
         payload = {"ok": True, "action": action, **result}
-        return _response(payload, include_images=include_images)
+        return _response(
+            payload,
+            include_images=include_images or bool(result.get("screenshots")),
+        )
     except ComputerUseProtocolError as error:
         return _error(error.code, str(error))
     except ValueError as error:
@@ -282,9 +317,13 @@ def _native_request(
 ) -> tuple[str, dict[str, Any], bool]:
     # One branch per action keeps the whole request contract readable in a
     # single place; splitting it per action would scatter the protocol.
-    # pylint: disable=too-many-return-statements, too-many-branches
-    if action in {"list_apps", "list_windows"}:
+    # pylint: disable=too-many-return-statements
+    # pylint: disable=too-many-branches, too-many-statements
+    if action == "list_apps":
         return action, {}, False
+    if action == "list_windows":
+        app = str(values["app"] or "").strip()
+        return action, ({"app": app} if app else {}), False
     if action == "launch_app":
         app = str(values["app"] or "").strip()
         if not app:
@@ -300,40 +339,50 @@ def _native_request(
                 "observe_window requires window_id from list_windows.",
             )
         return action, {"window_id": window_id}, True
-    observation_id = str(values["observation_id"] or "").strip()
-    if not observation_id:
-        raise ValueError(
-            f"{action} requires observation_id from observe_window.",
-        )
     if action == "close_window":
-        return action, {"observation_id": observation_id}, False
+        return action, {}, False
     if action in {"click", "double_click", "right_click"}:
-        params = {
-            "observation_id": observation_id,
-            "x": values["x"],
-            "y": values["y"],
-        }
+        params = {}
+        element_id = str(values.get("element_id") or "").strip()
+        if element_id:
+            params["element_id"] = element_id
+        else:
+            params["x"] = values["x"]
+            params["y"] = values["y"]
         params["button"] = (
             "right" if action == "right_click" else values["button"]
         )
         params["count"] = 2 if action == "double_click" else values["count"]
         return "click", params, False
     if action == "scroll":
-        params = {
-            "observation_id": observation_id,
-            "x": values["x"],
-            "y": values["y"],
-        }
+        params = {"x": values["x"], "y": values["y"]}
         params["delta_y"] = values["delta_y"]
         return action, params, False
     if action == "drag":
-        params = {
-            "observation_id": observation_id,
-            "start_x": values["start_x"],
-            "start_y": values["start_y"],
-            "end_x": values["end_x"],
-            "end_y": values["end_y"],
-        }
+        source_element_id = str(
+            values.get("source_element_id") or "",
+        ).strip()
+        target_element_id = str(
+            values.get("target_element_id") or "",
+        ).strip()
+        if bool(source_element_id) != bool(target_element_id):
+            raise ValueError(
+                "drag requires both source_element_id and "
+                "target_element_id, or neither.",
+            )
+        params = {}
+        if source_element_id:
+            params.update(
+                source_element_id=source_element_id,
+                target_element_id=target_element_id,
+            )
+        else:
+            params.update(
+                start_x=values["start_x"],
+                start_y=values["start_y"],
+                end_x=values["end_x"],
+                end_y=values["end_y"],
+            )
         return action, params, False
     if action == "type":
         text = str(values["text"] or "")
@@ -341,7 +390,7 @@ def _native_request(
             raise ValueError("type requires non-empty text.")
         return (
             "type_text",
-            {"observation_id": observation_id, "text": text},
+            {"text": text},
             False,
         )
     if action in {"invoke", "set_value"}:
@@ -350,10 +399,7 @@ def _native_request(
             raise ValueError(
                 f"{action} requires element_id from observe_window.",
             )
-        params = {
-            "observation_id": observation_id,
-            "element_id": element_id,
-        }
+        params = {"element_id": element_id}
         if action == "set_value":
             params["value"] = str(values["value"] or "")
         return (
@@ -365,7 +411,7 @@ def _native_request(
         key = str(values["key"] or "").strip()
         if not key:
             raise ValueError("press_key requires key.")
-        return action, {"observation_id": observation_id, "key": key}, False
+        return action, {"key": key}, False
     raise ValueError(
         "Unknown action. Valid actions: list_apps, list_windows, "
         "observe_window, launch_app, close_window, click, "

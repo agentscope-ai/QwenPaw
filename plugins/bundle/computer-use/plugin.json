@@ -1,5 +1,5 @@
 {
-  "id": "computer-use-tool",
+  "id": "computer-use",
   "name": "Computer Use",
   "version": "1.0.0",
   "description": "Control approved desktop applications through the native runtime (Windows and macOS)",

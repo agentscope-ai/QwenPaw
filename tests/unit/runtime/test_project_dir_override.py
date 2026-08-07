@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from qwenpaw.agents.acp.meta import ACP_CODING_PROJECT_META_KEY
+from qwenpaw.agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.runtime.builder import AgentBuilder
 from qwenpaw.runtime.prompt_contributors import CodingModeContributor
@@ -21,7 +21,7 @@ def test_request_project_override_does_not_enable_coding_tools(tmp_path):
 
     updated = AgentBuilder._apply_request_project(
         config,
-        {ACP_CODING_PROJECT_META_KEY: str(tmp_path)},
+        {ACP_PROJECT_DIR_META_KEY: str(tmp_path)},
     )
 
     assert updated is not config
@@ -62,12 +62,12 @@ def test_active_mode_project_precedes_session_project(tmp_path):
     assert updated.project_dir == str(active_dir.resolve())
 
 
-def test_request_coding_project_ignores_non_directory(tmp_path):
+def test_request_project_ignores_non_directory(tmp_path):
     config = AgentProfileConfig(id="default", name="Default")
 
     updated = AgentBuilder._apply_request_project(
         config,
-        {ACP_CODING_PROJECT_META_KEY: str(tmp_path / "missing")},
+        {ACP_PROJECT_DIR_META_KEY: str(tmp_path / "missing")},
     )
 
     assert updated is config
@@ -75,7 +75,7 @@ def test_request_coding_project_ignores_non_directory(tmp_path):
 
 
 @pytest.mark.usefixtures("capture_qwenpaw_logs")
-def test_request_coding_project_warns_for_unsupported_config(
+def test_request_project_warns_for_unsupported_config(
     caplog,
     tmp_path,
 ):
@@ -83,7 +83,7 @@ def test_request_coding_project_warns_for_unsupported_config(
 
     updated = AgentBuilder._apply_request_project(
         config,
-        {ACP_CODING_PROJECT_META_KEY: str(tmp_path)},
+        {ACP_PROJECT_DIR_META_KEY: str(tmp_path)},
     )
 
     assert updated is config

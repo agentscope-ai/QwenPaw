@@ -15,7 +15,7 @@ from the host (a named pipe on Windows, a Unix domain socket on macOS).
 ```text
 computer-use/
 |- plugin.py                    Plugin registration
-|- computer_use_tool/           Protocol adapter and approval bridge
+|- computer_use/                Protocol adapter and approval bridge
 |- frontend/                    Console UI sources (approval card, settings)
 |- dist/index.js                Built console UI bundle (committed artifact)
 `- skills/computer_use/         Tool operating guidance
