@@ -330,6 +330,112 @@ class TestBareImportNamespaceIsolation:
         assert sys.modules["plugin_nested_priority"].VALUE == "entry-dir"
 
     @pytest.mark.asyncio
+    async def test_data_directory_does_not_shadow_stdlib(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """A bare data directory (no __init__.py, no code) must not be
+        treated as a plugin-local module: ``import wave`` with a
+        ``wave/`` assets dir present still resolves to the stdlib."""
+        plugin_dir = tmp_path / "data-dir"
+        (plugin_dir / "wave").mkdir(parents=True)
+        (plugin_dir / "wave" / "sample.bin").write_bytes(b"\x00")
+        _write_manifest(plugin_dir)
+        (plugin_dir / "plugin.py").write_text(
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "import wave\n"
+            "WAVE = wave\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        await _load(loader, plugin_dir)
+
+        import wave as real_wave
+
+        assert sys.modules["plugin_data_dir"].WAVE is real_wave
+        assert "plugin_data_dir.wave" not in sys.modules
+
+    @pytest.mark.asyncio
+    async def test_loader_forwards_resource_access(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """importlib.resources works on namespaced plugin packages: the
+        wrapping loader must forward get_resource_reader etc."""
+        import importlib.resources
+
+        plugin_dir = tmp_path / "res-plug"
+        pkg = plugin_dir / "assets_pkg"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "data.txt").write_text("hello-resource", encoding="utf-8")
+        _write_manifest(plugin_dir)
+        (plugin_dir / "plugin.py").write_text(
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "import assets_pkg\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        await _load(loader, plugin_dir)
+
+        mod = sys.modules["plugin_res_plug.assets_pkg"]
+        text = importlib.resources.files(mod).joinpath("data.txt").read_text()
+        assert text == "hello-resource"
+
+    @pytest.mark.asyncio
+    async def test_bare_import_of_entry_aliases_running_module(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """A submodule bare-importing the entry file gets the running
+        entry module, not a second freshly-executed copy."""
+        plugin_dir = tmp_path / "self-imp"
+        plugin_dir.mkdir()
+        (plugin_dir / "helper.py").write_text(
+            "import plugin\nplugin.X.append(1)\n",
+            encoding="utf-8",
+        )
+        _write_manifest(plugin_dir)
+        (plugin_dir / "plugin.py").write_text(
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "X = []\n"
+            "import helper\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        await _load(loader, plugin_dir)
+
+        assert sys.modules["plugin_self_imp"].X == [1]
+        assert "plugin_self_imp.plugin" not in sys.modules
+
+    @pytest.mark.asyncio
+    async def test_dotted_import_as_binding(self, loader, tmp_path):
+        """``import a.b as c`` binds the submodule under the alias."""
+        plugin_dir = tmp_path / "dotted-as"
+        pkg = plugin_dir / "a"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "b.py").write_text("V = 7\n", encoding="utf-8")
+        _write_manifest(plugin_dir)
+        (plugin_dir / "plugin.py").write_text(
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "import a.b as c\n"
+            "VAL = c.V\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        await _load(loader, plugin_dir)
+
+        assert sys.modules["plugin_dotted_as"].VAL == 7
+
+    @pytest.mark.asyncio
     async def test_failed_load_unregisters_namespace(
         self,
         loader,

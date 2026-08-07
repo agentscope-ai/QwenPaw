@@ -79,7 +79,11 @@ def validate_plugin_module(
     module.__path__ = search_paths
     # Same bare-import redirection as PluginLoader (#6683) so the plugin
     # is validated under the exact conditions it will run in.
-    plugin_builtins = build_plugin_builtins(module_name, search_paths)
+    plugin_builtins = build_plugin_builtins(
+        module_name,
+        search_paths,
+        entry_file=backend_path,
+    )
     module.__dict__["__builtins__"] = plugin_builtins
     get_namespace_finder().register(module_name, plugin_builtins)
     try:

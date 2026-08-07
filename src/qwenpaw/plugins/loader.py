@@ -540,7 +540,11 @@ class PluginLoader:
         # Redirect the plugin's bare absolute imports (``import utils``)
         # into its private ``plugin_<id>`` namespace so plugins cannot
         # collide with each other's top-level module names (#6683).
-        plugin_builtins = build_plugin_builtins(module_name, search_paths)
+        plugin_builtins = build_plugin_builtins(
+            module_name,
+            search_paths,
+            entry_file=backend_entry_file,
+        )
         module.__dict__["__builtins__"] = plugin_builtins
         get_namespace_finder().register(module_name, plugin_builtins)
 
@@ -624,9 +628,6 @@ class PluginLoader:
             plugin_id,
         )
 
-        # 0. Import redirection for the plugin's private namespace
-        unregister_namespace(module_name)
-
         # 1. Registry (manifest, providers, hooks, middleware, routes, …)
         self.registry.unregister_plugin(plugin_id)
 
@@ -653,10 +654,20 @@ class PluginLoader:
         for k in stale_by_file:
             sys.modules.pop(k, None)
 
-        # 4. sys.path — remove the plugin directory if it was added
+        # 4. Import redirection — after the sys.modules sweeps, so a
+        #    concurrent lazy import cannot resolve a plugin submodule
+        #    without the plugin builtins in the window between the two.
+        unregister_namespace(module_name)
+
+        # 5. sys.path — remove the plugin directory and any of its
+        #    subdirectories (nested-entry plugins insert e.g. backend/)
         plugin_dir_real = _norm_realpath(source_path)
+        plugin_dir_prefix = plugin_dir_real + os.sep
         sys.path[:] = [
-            p for p in sys.path if _norm_realpath(p) != plugin_dir_real
+            p
+            for p in sys.path
+            if _norm_realpath(p) != plugin_dir_real
+            and not _norm_realpath(p).startswith(plugin_dir_prefix)
         ]
 
     async def load_plugin(
@@ -1289,7 +1300,6 @@ class PluginLoader:
         # Remove Python module and all sub-modules so the next import
         # gets a fresh copy (e.g. plugin_foo.utils must not be reused).
         module_name = f"plugin_{plugin_id.replace('-', '_')}"
-        unregister_namespace(module_name)
         prefix = module_name + "."
         stale = [
             k for k in sys.modules if k == module_name or k.startswith(prefix)
@@ -1316,12 +1326,23 @@ class PluginLoader:
         for k in stale_by_file:
             sys.modules.pop(k, None)
 
-        # Remove the plugin directory from sys.path (plugins add it at
-        # import time for sibling imports; leaving it leaks into later
-        # imports and prevents clean hot-reload).
+        # Drop the import redirection after the sys.modules sweeps, so
+        # a concurrent lazy import cannot resolve a plugin submodule
+        # without the plugin builtins in the window between the two.
+        unregister_namespace(module_name)
+
+        # Remove the plugin directory — and any of its subdirectories,
+        # e.g. the backend/ dir nested-entry plugins insert — from
+        # sys.path (plugins add these at import time for sibling
+        # imports; leaving them leaks into later imports and prevents
+        # clean hot-reload).
         plugin_dir_real = _norm_realpath(record.source_path)
+        plugin_dir_prefix = plugin_dir_real + os.sep
         sys.path[:] = [
-            p for p in sys.path if _norm_realpath(p) != plugin_dir_real
+            p
+            for p in sys.path
+            if _norm_realpath(p) != plugin_dir_real
+            and not _norm_realpath(p).startswith(plugin_dir_prefix)
         ]
 
         # Remove tools from agents.tools + runtime registries while
