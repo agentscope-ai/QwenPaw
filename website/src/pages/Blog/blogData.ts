@@ -8,6 +8,8 @@ export type BlogPostMeta = {
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
     slug: "qwenpaw-scroll-executable-memory",
+  },
+  {
     slug: "qwenpaw-os-shell",
     cover:
       "https://img.alicdn.com/imgextra/i1/O1CN01KdzUBgLJLmH3OTaP_!!6000000003854-2-tps-1672-941.png",
