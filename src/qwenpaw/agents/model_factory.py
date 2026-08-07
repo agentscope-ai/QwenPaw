@@ -10,6 +10,7 @@ Example:
 """
 
 import base64
+from collections import defaultdict, deque
 import hashlib
 import logging
 import os
@@ -39,6 +40,7 @@ from .utils.message_request_normalizer import (
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
 from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
+from ..utils.tool_call_extra import tool_call_extras_for_provider
 from ..providers.retry_chat_model import (
     RetryChatModel,
     RetryConfig,
@@ -977,6 +979,7 @@ def _fixup_media_list(items: list) -> None:
 # pylint: disable-next=too-many-statements
 def _create_file_block_support_formatter(
     base_formatter_class: Type[FormatterBase],
+    provider_id: str | None = None,
 ) -> Type[FormatterBase]:
     """Create a formatter class with file block support.
 
@@ -984,7 +987,10 @@ def _create_file_block_support_formatter(
     in tool results, which are not natively supported by AgentScope.
 
     Args:
-        base_formatter_class: Base formatter class to extend
+        base_formatter_class: Base formatter class to extend.
+        provider_id: Provider owning the formatter. Provider-specific
+            tool-call metadata is relayed only when this matches the
+            provider that originally emitted it.
 
     Returns:
         Enhanced formatter class with file block support
@@ -1075,10 +1081,17 @@ def _create_file_block_support_formatter(
             )
 
             has_reasoning = False
-            extra_contents: dict[str, Any] = {}
+            # Tool-call IDs are required to be unique within one assistant
+            # response. A deque still preserves FIFO order when historical
+            # messages from separate turns happen to reuse the same ID.
+            extra_contents: dict[str, deque[Any]] = defaultdict(deque)
             for msg in normalized_msgs:
                 if msg.role != "assistant":
                     continue
+                persisted_extras = tool_call_extras_for_provider(
+                    msg,
+                    provider_id,
+                )
                 for block in msg.content or []:
                     if _battr(block, "type") == "thinking":
                         thinking = _battr(block, "thinking", "")
@@ -1088,9 +1101,13 @@ def _create_file_block_support_formatter(
                     btype = _battr(block, "type")
                     if btype in ("tool_use", "tool_call"):
                         ec = _battr(block, "extra_content")
+                        if ec is None:
+                            ec = persisted_extras.get(
+                                _battr(block, "id", ""),
+                            )
                         if ec is not None:
                             bid = _battr(block, "id", "")
-                            extra_contents[bid] = ec
+                            extra_contents[bid].append(ec)
 
             # Convert file:// URLs to paths for all media blocks,
             # and replace deleted local files with text placeholders.
@@ -1135,11 +1152,19 @@ def _create_file_block_support_formatter(
             messages = _reorder_tool_and_promoted_messages(messages)
             _fix_image_mime_types(messages)
 
-            if extra_contents and _is_gemini_formatter:
+            # ``extra_content`` is an OpenAI-chat wire extension. Persisted
+            # values entered ``extra_contents`` only when ``provider_id``
+            # matched their origin, so other compatible providers never see
+            # the field merely because they share this formatter family.
+            if extra_contents and issubclass(
+                base_formatter_class,
+                OpenAIChatFormatter,
+            ):
                 for message in messages:
                     for tc in message.get("tool_calls", []):
-                        ec = extra_contents.get(tc.get("id"))
-                        if ec:
+                        queued = extra_contents.get(tc.get("id"))
+                        if queued:
+                            ec = queued.popleft()
                             tc["extra_content"] = ec
 
             relay_reasoning = getattr(
@@ -1349,6 +1374,22 @@ def _resolve_model_slot_override(model_slot_override: Any):
     return slot
 
 
+def _bind_provider_id_to_model(
+    model: ChatModelBase,
+    provider_id: str,
+) -> str:
+    """Bind the provider identity resolved by ``ProviderManager``."""
+    bind_provider_id = getattr(model, "bind_qwenpaw_provider_id", None)
+    if callable(bind_provider_id):
+        bind_provider_id(provider_id)
+    return provider_id
+
+
+def _resolved_provider_id(provider: Any, configured_provider_id: str) -> str:
+    """Return the canonical ID exposed by a resolved provider instance."""
+    return str(getattr(provider, "id", "") or configured_provider_id)
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
@@ -1429,7 +1470,7 @@ def create_model_and_formatter(
             )
 
         model = provider.get_chat_model_instance(model_slot.model)
-        provider_id = model_slot.provider_id
+        provider_id = _resolved_provider_id(provider, model_slot.provider_id)
     else:
         # Fallback to global active model
         model = ProviderManager.get_active_chat_model()
@@ -1442,13 +1483,20 @@ def create_model_and_formatter(
                     "or set an agent-specific model."
                 ),
             )
-        provider_id = global_model.provider_id
+        provider_id = _resolved_provider_id(
+            ProviderManager.get_instance().get_provider(
+                global_model.provider_id,
+            ),
+            global_model.provider_id,
+        )
+
+    provider_id = _bind_provider_id_to_model(model, provider_id)
 
     # Create the formatter based on the model's native one.  In 2.0 every
     # ``ChatModelBase`` carries its own ``self.formatter`` (set by its
     # ``__init__``), so we just wrap that one with file-block support
     # instead of class-resolving via a brittle map.
-    formatter = _create_formatter_instance(model)
+    formatter = _create_formatter_instance(model, provider_id=provider_id)
     # Keep the provider model and the separately returned formatter on the
     # same instance.  AgentScope formats ``Msg`` objects through
     # ``model.formatter`` inside every API call, while QwenPaw's retry layer
@@ -1483,6 +1531,7 @@ def create_model_and_formatter(
 
 def _create_formatter_instance(
     model: ChatModelBase,
+    provider_id: str | None = None,
 ) -> FormatterBase:
     """Wrap the model's native formatter with file-block support.
 
@@ -1516,6 +1565,7 @@ def _create_formatter_instance(
     base_formatter_class = type(base_formatter)
     formatter_class = _create_file_block_support_formatter(
         base_formatter_class,
+        provider_id=provider_id,
     )
     # Carry over all Pydantic field values (max_bytes,
     # relay_reasoning_content, etc.) from the provider-constructed
