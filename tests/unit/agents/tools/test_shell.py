@@ -28,9 +28,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import qwenpaw.agents.tools.shell as shell_module
 from qwenpaw.agents.tools.shell import (
     _cancel_stderr_message,
     _collapse_embedded_newlines,
+    _create_job_object_win32,
     _execute_in_sandbox,
     _execute_posix_host,
     _execute_subprocess_sync,
@@ -39,6 +41,7 @@ from qwenpaw.agents.tools.shell import (
     _is_cmd,
     _is_dangerous_self_kill,
     _is_powershell,
+    _kill_process_tree_win32,
     _PosixTempOutputs,
     _open_temp_output,
     _open_windows_temp_output,
@@ -47,6 +50,7 @@ from qwenpaw.agents.tools.shell import (
     _read_temp_output,
     _sanitize_win_cmd,
     _shell_basename,
+    _sweep_stale_temp_files_once,
     smart_decode,
 )
 from qwenpaw.sandbox import (
@@ -1964,7 +1968,7 @@ def test_execute_subprocess_sync_honors_stop_event(tmp_path):
 
     killed_pids: list[int] = []
 
-    def _fake_kill(pid: int) -> None:
+    def _fake_kill(pid: int, job_handle=None) -> None:
         killed_pids.append(pid)
         if sys.platform == "win32":
             subprocess.call(
@@ -2439,3 +2443,244 @@ async def test_non_dataclass_sandbox_config_ignored(
     )
 
     assert "hello" in result.content[0].text
+
+
+# ---------------------------------------------------------------------------
+# Output disk cap (runaway-command protection)
+# ---------------------------------------------------------------------------
+
+
+class TestShellOutputLimit:
+    """The captured-output disk cap must terminate runaway writers."""
+
+    _WRITER_CODE = (
+        "import sys\n"
+        "while True:\n"
+        "    sys.stdout.write('x' * 4096 + '\\n')\n"
+        "    sys.stdout.flush()\n"
+    )
+
+    def test_output_exceeded_terminates_command(self, tmp_path, monkeypatch):
+        import time
+
+        monkeypatch.setattr(
+            "qwenpaw.agents.tools.shell.SHELL_MAX_OUTPUT_BYTES",
+            64 * 1024,
+        )
+        # Isolate mkstemp so leftover checks are deterministic.
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+        if sys.platform == "win32":
+            # cmd.exe cannot carry newlines: run a script file instead.
+            script = tmp_path / "writer.py"
+            script.write_text(self._WRITER_CODE, encoding="utf-8")
+            cmd = f'"{sys.executable}" "{script}"'
+            shell_executable = None
+        else:
+            # Use Python itself as the "shell" so the writer is the
+            # direct child and a plain SIGKILL reaches it.
+            cmd = self._WRITER_CODE
+            shell_executable = sys.executable
+
+        def _posix_kill(pid, job_handle=None):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+        started = time.monotonic()
+        if sys.platform == "win32":
+            code, stdout, stderr = _execute_subprocess_sync(
+                cmd,
+                str(tmp_path),
+                timeout=60.0,
+                shell_executable=shell_executable,
+            )
+        else:
+            with patch.object(
+                shell_module,
+                "_kill_process_tree_win32",
+                side_effect=_posix_kill,
+            ):
+                code, stdout, stderr = _execute_subprocess_sync(
+                    cmd,
+                    str(tmp_path),
+                    timeout=60.0,
+                    shell_executable=shell_executable,
+                )
+        elapsed = time.monotonic() - started
+
+        assert code == -1
+        assert "exceeded the limit" in stderr
+        # Read-back is bounded by the snapshot cap (with its notice).
+        assert len(stdout) <= shell_module._SHELL_OUTPUT_MAX_BYTES + 200
+        # Terminated quickly, not by the 60s timeout.
+        assert elapsed < 30.0
+        # Temp files are cleaned up once the writer is dead.
+        leftovers = [
+            entry.name
+            for entry in os.scandir(tmp_path)
+            if entry.name.startswith(("qwenpaw_out_", "qwenpaw_err_"))
+        ]
+        assert leftovers == []
+
+    def test_output_under_limit_not_affected(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        if sys.platform == "win32":
+            cmd, shell_executable = "echo small output", None
+        else:
+            cmd, shell_executable = "echo small output", "/bin/sh"
+        code, stdout, _stderr = _execute_subprocess_sync(
+            cmd,
+            str(tmp_path),
+            timeout=30.0,
+            shell_executable=shell_executable,
+        )
+        assert code == 0
+        assert "small output" in stdout
+        assert "exceeded the limit" not in stdout
+
+
+# ---------------------------------------------------------------------------
+# Temp-file cleanup, unlink-failure visibility and stale-file sweep
+# ---------------------------------------------------------------------------
+
+
+class TestShellTempFileCleanup:
+    """Temp files must be deleted; failures must be visible, not silent."""
+
+    def test_temp_files_removed_after_command(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        if sys.platform == "win32":
+            cmd, shell_executable = "echo hello", None
+        else:
+            cmd, shell_executable = "echo hello", "/bin/sh"
+        code, stdout, _stderr = _execute_subprocess_sync(
+            cmd,
+            str(tmp_path),
+            timeout=30.0,
+            shell_executable=shell_executable,
+        )
+        assert code == 0
+        assert "hello" in stdout
+        leftovers = [
+            entry.name
+            for entry in os.scandir(tmp_path)
+            if entry.name.startswith(("qwenpaw_out_", "qwenpaw_err_"))
+        ]
+        assert leftovers == []
+
+    def test_unlink_failure_logged_and_cleared(
+        self,
+        tmp_path,
+        monkeypatch,
+        caplog,
+    ):
+        import logging
+
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        first = tmp_path / "qwenpaw_out_first"
+        first.write_bytes(b"a")
+        second = tmp_path / "qwenpaw_err_second"
+        second.write_bytes(b"b")
+        outputs = _PosixTempOutputs(
+            stdout_path=str(first),
+            stderr_path=str(second),
+        )
+
+        real_unlink = os.unlink
+
+        def _guarded_unlink(path):
+            name = os.path.basename(str(path))
+            if name.startswith(("qwenpaw_out_", "qwenpaw_err_")):
+                raise PermissionError(13, "Permission denied", str(path))
+            return real_unlink(path)
+
+        monkeypatch.setattr(os, "unlink", _guarded_unlink)
+
+        with caplog.at_level(
+            logging.WARNING,
+            logger="qwenpaw.agents.tools.shell",
+        ):
+            outputs.cleanup()
+
+        # Both failures are logged — never silent.
+        messages = [r.message for r in caplog.records]
+        assert (
+            sum("Could not remove shell temp file" in m for m in messages) == 2
+        )
+        # Files remain on disk because the (simulated) lock persists.
+        assert first.exists()
+        assert second.exists()
+        # Paths are reset so a second cleanup does not retry.
+        assert outputs.stdout_path is None
+        assert outputs.stderr_path is None
+
+
+class TestStaleTempFileSweep:
+    """Startup sweep reclaims orphaned files from earlier runs."""
+
+    def _make_stale(self, path):
+        import time
+
+        path.write_bytes(b"x")
+        old = time.time() - shell_module._STALE_TEMP_FILE_AGE_SECS - 60
+        os.utime(path, (old, old))
+
+    def test_sweep_removes_stale_files_only(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        monkeypatch.setattr(shell_module, "_sweep_done", False)
+
+        stale_out = tmp_path / "qwenpaw_out_stale"
+        self._make_stale(stale_out)
+        stale_err = tmp_path / "qwenpaw_err_stale"
+        self._make_stale(stale_err)
+        fresh = tmp_path / "qwenpaw_out_fresh"
+        fresh.write_bytes(b"y")
+        other = tmp_path / "qwenpaw_random_stale"
+        self._make_stale(other)
+        subdir = tmp_path / "qwenpaw_out_dir"
+        subdir.mkdir()
+
+        _sweep_stale_temp_files_once()
+
+        assert not stale_out.exists()
+        assert not stale_err.exists()
+        assert fresh.exists()
+        assert other.exists()
+        assert subdir.is_dir()
+
+    def test_sweep_runs_only_once(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        monkeypatch.setattr(shell_module, "_sweep_done", False)
+        _sweep_stale_temp_files_once()
+
+        stale = tmp_path / "qwenpaw_out_second"
+        self._make_stale(stale)
+        _sweep_stale_temp_files_once()  # already ran: must be a no-op
+        assert stale.exists()
+
+
+class TestKillProcessTreeHelpers:
+    """Kill helpers must never raise, on or off Windows."""
+
+    def test_kill_missing_pid_does_not_raise(self):
+        _kill_process_tree_win32(99999999)  # no exception
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="POSIX-only availability check",
+    )
+    def test_job_object_unavailable_off_windows(self):
+        assert _create_job_object_win32() is None
+
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="Windows-only job object lifecycle",
+    )
+    def test_job_object_lifecycle_on_windows(self):
+        from qwenpaw.agents.tools.shell import _close_handle_win32
+
+        handle = _create_job_object_win32()
+        assert handle
+        _close_handle_win32(handle)  # must not raise
