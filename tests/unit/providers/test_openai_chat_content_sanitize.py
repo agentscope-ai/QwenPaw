@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
 from copy import deepcopy
@@ -135,7 +136,9 @@ def test_sanitizing_does_not_mutate_original_messages() -> None:
     assert sanitized[0] is not messages[0]
     assert sanitized[0]["content"] is not messages[0]["content"]
     assert messages == original
-    assert messages[0]["content"][0]["delta"] is True
+    original_content = messages[0]["content"]
+    assert isinstance(original_content, list)
+    assert original_content[0]["delta"] is True
 
 
 async def test_call_api_passes_sanitized_messages_to_base(monkeypatch) -> None:
@@ -168,4 +171,6 @@ async def test_call_api_passes_sanitized_messages_to_base(monkeypatch) -> None:
             "content": [{"type": "text", "text": "system prompt"}],
         },
     ]
-    assert messages[0]["content"][0]["type"] == "input_text"
+    original_content = messages[0]["content"]
+    assert isinstance(original_content, list)
+    assert original_content[0]["type"] == "input_text"
