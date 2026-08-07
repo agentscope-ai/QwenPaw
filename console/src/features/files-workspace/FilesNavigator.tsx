@@ -38,6 +38,7 @@ import SessionProjectDirectory from "../project-directory/SessionProjectDirector
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
 import { directoriesMatch, workspaceRoots } from "./directorySources";
 import FileGlyph from "./FileGlyph";
+import { isWorkspaceMarkdown } from "./defaultWorkspaceMarkdown";
 import {
   filesWorkspaceScopeKey,
   type FilesWorkspaceScope,
@@ -482,14 +483,16 @@ export default function FilesNavigator({
         workspaceApi.getSystemPromptFiles(),
       ]);
       const order = Array.isArray(enabled) ? enabled : [];
-      const mappedFiles = files.map((file) => ({
-        name: file.filename.split("/").pop() ?? file.filename,
-        path: file.filename,
-        kind: "file" as const,
-        size: file.size,
-        modified_at: file.modified_time,
-        preview_kind: "text" as const,
-      }));
+      const mappedFiles = files
+        .filter((file) => isWorkspaceMarkdown(file.filename))
+        .map((file) => ({
+          name: file.filename.split("/").pop() ?? file.filename,
+          path: file.filename,
+          kind: "file" as const,
+          size: file.size,
+          modified_at: file.modified_time,
+          preview_kind: "text" as const,
+        }));
       setEnabledFiles(order);
       setAllProfileFiles(mappedFiles);
     } finally {

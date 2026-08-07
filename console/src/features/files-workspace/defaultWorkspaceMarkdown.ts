@@ -7,10 +7,6 @@ export const DEFAULT_WORKSPACE_MARKDOWN_FILENAMES = [
   "BOOTSTRAP.md",
 ] as const;
 
-const defaultWorkspaceMarkdownFilenames = new Set<string>(
-  DEFAULT_WORKSPACE_MARKDOWN_FILENAMES,
-);
-
-export function isDefaultWorkspaceMarkdown(filename: string): boolean {
-  return defaultWorkspaceMarkdownFilenames.has(filename);
+export function isWorkspaceMarkdown(filename: string): boolean {
+  return filename.endsWith(".md");
 }
