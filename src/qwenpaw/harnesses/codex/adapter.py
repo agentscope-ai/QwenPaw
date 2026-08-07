@@ -49,6 +49,11 @@ _TOOL_PROGRESS_METHODS = {
     "item/mcpToolCall/progress": "message",
 }
 
+_CODEX_CLI_INSTALL_MESSAGE = (
+    "Codex runtime not found. Install qwenpaw[codex] or provide a "
+    "standalone Codex CLI."
+)
+
 
 class CodexAdapter(HarnessAdapter):
     """Run Codex threads through one workspace-scoped app-server."""
@@ -76,6 +81,13 @@ class CodexAdapter(HarnessAdapter):
                 self._handle_server_request,
             )
 
+    @property
+    def capability_unavailable_message(self) -> str | None:
+        """Explain why Codex capability discovery is unavailable."""
+        if not self._client.installed:
+            return _CODEX_CLI_INSTALL_MESSAGE
+        return None
+
     async def status(self) -> HarnessProvider:
         """Return Codex installation and local account status."""
         resolution = getattr(self._client, "binary_resolution", None)
@@ -87,6 +99,7 @@ class CodexAdapter(HarnessAdapter):
                 name="Codex",
                 available=True,
                 installed=False,
+                error=_CODEX_CLI_INSTALL_MESSAGE,
                 runtime_path=runtime_path,
                 runtime_source=runtime_source,
             )

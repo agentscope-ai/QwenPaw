@@ -153,6 +153,7 @@ def _session_view(session: Any) -> dict[str, Any]:
         "lastMessageSeq": session.last_message_seq,
         "lastEventSeq": session.last_event_seq,
         "lastConsumedMessageSeq": session.last_consumed_message_seq,
+        "error": session.error,
     }
 
 

@@ -134,5 +134,4 @@ Files 的下一阶段不是简单地堆叠更多按钮，而是让用户在不�
 
 相关实现与设计记录：
 
-- [统一 Files Workspace 设计与实现交接文档](https://github.com/agentscope-ai/QwenPaw/blob/main/docs/design/unified-files/UNIFIED_FILES_IMPLEMENTATION_HANDOFF.md)
 - [QwenPaw #6504：统一 Files Workspace](https://github.com/agentscope-ai/QwenPaw/pull/6504)

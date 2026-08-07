@@ -134,5 +134,4 @@ From expanding a directory to previewing, editing, diffing, uploading, downloadi
 
 Related implementation notes:
 
-- [Unified Files Workspace implementation handoff](https://github.com/agentscope-ai/QwenPaw/blob/main/docs/design/unified-files/UNIFIED_FILES_IMPLEMENTATION_HANDOFF.md)
 - [QwenPaw #6504: Unified Files Workspace](https://github.com/agentscope-ai/QwenPaw/pull/6504)

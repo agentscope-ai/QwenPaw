@@ -75,9 +75,7 @@ Approval controls the pending critical action; it does not close the conversatio
 
 In QwenPaw OS Shell, every Agent has its own **Agent Space**. Each space preserves that Agent's open windows and desktop layout, so switching Agents means switching an entire working scene—not just changing a name.
 
-Press **F3** to open Mission Control. The top section shows the available Agent Spaces and their window counts. Click a card to switch spaces, or use **Ctrl + ← / →** to move between them.
-
-![Multiple Agent Spaces in Mission Control](https://img.alicdn.com/imgextra/i2/O1CN01jnjtfSXqu8I5CGAn_!!6000000002700-0-tps-2560-1229.jpg)
+Move the pointer to the top edge of the desktop to reveal the Agent Space strip, then click a space name directly. Each space shows its current window count, making it easy to choose the workspace you want to resume.
 
 For example, you can use the Default Agent for everyday conversations and a QA Agent for product questions or document verification. The QA Agent has its own window arrangement, so its workspace does not disrupt the Default Agent's desktop.
 
@@ -95,7 +93,7 @@ QwenPaw OS Shell provides a unified **App Market** for managing desktop apps and
 - PawApps already installed in the current instance;
 - Apps available to install from the plugin market.
 
-![App Market in QwenPaw OS Shell](https://img.alicdn.com/imgextra/i4/O1CN01cdBqxyGYmYF5Bkx3_!!6000000006074-0-tps-2556-1217.jpg)
+![App Market in QwenPaw OS Shell](https://img.alicdn.com/imgextra/i4/O1CN01HGGw9SrWaUK5CGAi_!!6000000006930-0-tps-2560-1224.jpg)
 
 The installation flow is similar to using a regular desktop app store:
 
@@ -107,7 +105,7 @@ The installation flow is similar to using a regular desktop app store:
 
 During this walkthrough, we installed **Agent Kanban**. As soon as the installation finished, it appeared on the QwenPaw OS Shell desktop and could be opened in its own window without leaving the current Agent Space.
 
-![Agent Kanban opened after installation](https://img.alicdn.com/imgextra/i1/O1CN01zkuicI4BdzH5C8Mk_!!6000000003201-0-tps-2559-1219.jpg)
+![Agent Kanban opened after installation](https://img.alicdn.com/imgextra/i4/O1CN01ry1ahIYcqPE5CGAk_!!6000000007395-0-tps-2560-1226.jpg)
 
 Apps still run through QwenPaw's plugin and routing system underneath OS Shell. Before installing one, confirm its source, version compatibility, and required permissions. If you no longer need an app, return to App Market to uninstall it.
 
@@ -154,7 +152,7 @@ Closing and minimizing are different. Closing removes the window from the curren
 
 ### Manage Multiple Windows with Mission Control
 
-When the desktop becomes busy, press **F3** to open Mission Control. The lower section shows every window in the current Agent Space. Click a window card to close Mission Control and focus that app directly.
+When the desktop becomes busy, move the pointer to the top edge of the desktop to reveal the Agent Space strip, then click the current space name. Mission Control lists every window in the current Agent Space; click any window card to focus that app directly.
 
 The top of Mission Control also shows how many windows are preserved in each Agent Space. This makes it both a window switcher and the main entry point for moving between different Agents' working scenes.
 

@@ -16,7 +16,6 @@ const pending = {
   authorizationToken: "token-1",
   provider: "dashscope",
   model: "wan2.7-r2v",
-  estimatedCost: 2.5,
   currency: "CNY",
   maxCandidates: 2,
   createdAt: "now",
@@ -55,7 +54,7 @@ describe("file-native execution authorization decisions", () => {
       authorizationToken: "token-1",
       provider: "dashscope",
       model: "wan2.7-r2v",
-      maxCost: 2.5,
+      maxCost: 0,
       maxCandidates: 2,
     });
   });

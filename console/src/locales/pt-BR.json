@@ -2643,7 +2643,7 @@
       "language": "Idioma",
       "theme": "Tema",
       "mode": "Modo",
-      "enterDesktopMode": "Entrar no Modo Desktop"
+      "desktopMode": "Modo Desktop"
     },
     "desktopModeHint": {
       "title": "Experimente o Modo Desktop",

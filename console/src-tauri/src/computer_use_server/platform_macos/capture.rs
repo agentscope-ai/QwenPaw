@@ -16,7 +16,8 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use super::super::state::{
-    next_id, Observation, ServerState, WindowInfo, SCREENSHOT_JPEG_QUALITY, SCREENSHOT_MAX_EDGE,
+    accessibility_revision, next_id, Observation, ServerState, WindowInfo, SCREENSHOT_JPEG_QUALITY,
+    SCREENSHOT_MAX_EDGE,
 };
 use super::accessibility_tree::collect_accessibility;
 use super::window_bounds;
@@ -36,64 +37,88 @@ pub(crate) fn observe_window(
     let (capture_width, capture_height) = point_bounds
         .map(|bounds| bounded_capture_dimensions(bounds[2], bounds[3]))
         .unwrap_or((SCREENSHOT_MAX_EDGE as usize, SCREENSHOT_MAX_EDGE as usize));
-    let capture = capture_window_image(window_id, capture_width, capture_height)
-        .map_err(|error| ("capture_failed", error))?;
-    let width = capture.width;
-    let height = capture.height;
+    let capture = capture_window_image(window_id, capture_width, capture_height);
+    let accessibility = collect_accessibility(window);
+    if let (Err(capture_error), Err(accessibility_error)) = (&capture, &accessibility) {
+        return Err((
+            "capture_failed",
+            format!("{capture_error} Accessibility was also unavailable: {accessibility_error}",),
+        ));
+    }
 
-    // Bound the longest edge to keep the payload and image-token cost small,
-    // matching the Windows leaf. Nearest-neighbor is adequate for on-screen
-    // text/control legibility at this scale.
-    let longest = width.max(height) as u32;
-    let (display_width, display_height) = if longest > SCREENSHOT_MAX_EDGE {
-        let scale = SCREENSHOT_MAX_EDGE as f64 / longest as f64;
-        (
-            ((width as f64 * scale).round() as usize).max(1),
-            ((height as f64 * scale).round() as usize).max(1),
-        )
-    } else {
-        (width, height)
-    };
-
-    let rgb = downscale_bgra_to_rgb(
-        &capture.pixels,
-        width,
-        height,
-        capture.bytes_per_row,
-        capture.bytes_per_pixel,
-        display_width,
-        display_height,
-    )?;
-
-    let mut jpeg = Vec::new();
-    let quality = (SCREENSHOT_JPEG_QUALITY * 100.0).round().clamp(1.0, 100.0) as u8;
-    Encoder::new(&mut jpeg, quality)
-        .encode(
-            &rgb,
-            display_width as u16,
-            display_height as u16,
-            ColorType::Rgb,
-        )
-        .map_err(|error| ("capture_failed", format!("JPEG encoding failed: {error}")))?;
-
-    let observation_id = next_id("observation");
-    // Store the window's on-screen bounds in points so coordinate input can map
-    // display-space fractions back to the global point coordinates CGEvent uses.
-    let point_bounds = point_bounds.unwrap_or([0, 0, width as i32, height as i32]);
-    let (accessibility, elements) = match collect_accessibility(window) {
-        Ok((description, elements)) => (description, elements),
+    let (accessibility, elements) = match accessibility {
+        Ok(result) => result,
         Err(reason) => (
             json!({"available": false, "reason": reason, "elements": []}),
             Default::default(),
         ),
     };
+    let point_bounds = point_bounds.unwrap_or([0, 0, capture_width as i32, capture_height as i32]);
+    let accessibility_revision = accessibility_revision(&accessibility);
+    let (display_width, display_height, visual, screenshots) = match capture {
+        Ok(capture) => {
+            let width = capture.width;
+            let height = capture.height;
+            // Bound the longest edge to keep payload and image-token cost
+            // small while leaving desktop controls legible.
+            let longest = width.max(height) as u32;
+            let (display_width, display_height) = if longest > SCREENSHOT_MAX_EDGE {
+                let scale = SCREENSHOT_MAX_EDGE as f64 / longest as f64;
+                (
+                    ((width as f64 * scale).round() as usize).max(1),
+                    ((height as f64 * scale).round() as usize).max(1),
+                )
+            } else {
+                (width, height)
+            };
+            let rgb = downscale_bgra_to_rgb(
+                &capture.pixels,
+                width,
+                height,
+                capture.bytes_per_row,
+                capture.bytes_per_pixel,
+                display_width,
+                display_height,
+            )?;
+            let mut jpeg = Vec::new();
+            let quality = (SCREENSHOT_JPEG_QUALITY * 100.0).round().clamp(1.0, 100.0) as u8;
+            Encoder::new(&mut jpeg, quality)
+                .encode(
+                    &rgb,
+                    display_width as u16,
+                    display_height as u16,
+                    ColorType::Rgb,
+                )
+                .map_err(|error| ("capture_failed", format!("JPEG encoding failed: {error}")))?;
+            (
+                display_width as u32,
+                display_height as u32,
+                json!({"available": true}),
+                json!([{
+                    "url": format!(
+                        "data:image/jpeg;base64,{}",
+                        base64::engine::general_purpose::STANDARD.encode(&jpeg),
+                    ),
+                }]),
+            )
+        }
+        Err(reason) => (
+            0,
+            0,
+            json!({"available": false, "reason": reason}),
+            json!([]),
+        ),
+    };
+
+    let observation_id = next_id("observation");
     state.observations.insert(
         observation_id.clone(),
         Observation {
             window: window.clone(),
             bounds: point_bounds,
-            display_width: display_width as u32,
-            display_height: display_height as u32,
+            display_width,
+            display_height,
+            accessibility_revision,
             elements,
         },
     );
@@ -102,13 +127,9 @@ pub(crate) fn observe_window(
         "observation_id": observation_id,
         "window": window.to_json(),
         "viewport": {"width": display_width, "height": display_height},
+        "visual": visual,
         "accessibility": accessibility,
-        "screenshots": [{
-            "url": format!(
-                "data:image/jpeg;base64,{}",
-                base64::engine::general_purpose::STANDARD.encode(&jpeg),
-            ),
-        }],
+        "screenshots": screenshots,
     }))
 }
 
@@ -150,6 +171,12 @@ fn capture_window_image(
                 ));
                 return;
             };
+            if !unsafe { target.isOnScreen() } {
+                let _ = sender.send(Err(
+                    "The selected window is not on the active desktop.".to_string()
+                ));
+                return;
+            }
 
             let filter = unsafe {
                 SCContentFilter::initWithDesktopIndependentWindow(SCContentFilter::alloc(), &target)
@@ -181,7 +208,7 @@ fn capture_window_image(
     unsafe {
         SCShareableContent::getShareableContentExcludingDesktopWindows_onScreenWindowsOnly_completionHandler(
             true,
-            true,
+            false,
             &content_handler,
         );
     }

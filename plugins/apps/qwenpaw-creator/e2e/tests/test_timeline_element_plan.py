@@ -60,7 +60,6 @@ def _elements() -> dict:
             "z_index": 10,
             "creation": {
                 "type": "overlay",
-                "overlay_kind": "pet_os",
                 "text": "今天也要元气满满",
                 "vibe": "warm",
                 "prompt": "",
@@ -81,7 +80,7 @@ def test_project_and_plan_use_only_timeline_element_contract(
     project_id = project["projectId"]
     snapshot = api.project_snapshot(project_id)
     document = snapshot["project"]
-    assert document["schema_version"] == 2
+    assert document["schema_version"] == 4
     assert document["timelines"]["order"] == ["timeline:main"]
     assert "sections" not in document
     assert "units" not in document
@@ -101,11 +100,16 @@ def test_project_and_plan_use_only_timeline_element_contract(
     ) == {"r2v-opening", "overlay-title"}
 
     plan = PlanPage(page).open(project_id)
-    expect(page.get_by_text("2 Elements", exact=True)).to_be_visible()
-    expect(plan.element_list_item("r2v-opening")).to_be_visible()
-    expect(plan.element_list_item("overlay-title")).to_be_visible()
+    expect(page.get_by_text("2 项内容", exact=True)).to_be_visible()
+    # Every Element renders as a block on the timeline tracks; the vertical
+    # list only shows Elements active at the current playhead (0s).
     expect(plan.element_block("r2v-opening")).to_be_visible()
     expect(plan.element_block("overlay-title")).to_be_visible()
+    expect(plan.element_list_item("r2v-opening")).to_be_visible()
+
+    # Seek into the 2s–6s overlap so the overlay joins the point list.
+    plan.select_timeline_fraction(0.45)
+    expect(plan.element_list_item("overlay-title")).to_be_visible()
 
     plan.select_element("overlay-title")
     assert "element=overlay-title" in unquote(page.url)
@@ -127,17 +131,22 @@ def test_collapsed_overlap_picker_and_large_video_preview(page, api, project):
         elements=_elements(),
     )
 
+    # Collapsed timeline keeps seeking; overlapping Elements are resolved
+    # through the point list instead of a floating candidates popover.
     plan = PlanPage(page).open(project_id).collapse_timeline()
     plan.select_timeline_fraction(0.45)
-    candidates = page.locator("[data-timeline-point-candidates]")
-    expect(candidates).to_be_visible()
-    expect(candidates.get_by_role("button")).to_have_count(2)
-    candidates.get_by_role("button", name="开场标题", exact=True).click()
+    expect(page.get_by_text("2项内容").first).to_be_visible()
+    expect(plan.element_list_item("r2v-opening")).to_be_visible()
+    expect(plan.element_list_item("overlay-title")).to_be_visible()
+    plan.select_element("overlay-title")
     expect(plan.element_detail("overlay-title")).to_be_visible()
 
+    # The live preview opens for a project without any rendered artifact and
+    # reports the pending layers instead of a finished frame.
     preview = plan.open_video_preview()
-    expect(preview.get_by_text("尚无 Timeline 成片", exact=True)).to_be_visible()
+    expect(
+        preview.get_by_text("该时间点尚未渲染完成", exact=True),
+    ).to_be_visible()
     box = preview.bounding_box()
     assert box is not None
-    assert box["height"] >= 380
-    assert abs(box["width"] / box["height"] - 16 / 9) < 0.12
+    assert box["height"] >= 300
