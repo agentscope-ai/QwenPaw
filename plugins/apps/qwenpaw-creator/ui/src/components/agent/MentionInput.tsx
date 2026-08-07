@@ -4,7 +4,9 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
 } from "react";
+import { useTranslation } from "react-i18next";
 import type { SelectionAttachment } from "@/store/agentDockUiStore";
+import i18n from "@/i18n";
 
 export interface MentionRef {
   ref: string;
@@ -66,7 +68,7 @@ function createMentionPill(obj: MentionRef): HTMLSpanElement {
   if (obj.type) pill.dataset.type = obj.type;
   if (obj.thumbnailUrl) pill.dataset.thumb = obj.thumbnailUrl;
   pill.textContent = `@${obj.name}`;
-  pill.title = "点击移除引用";
+  pill.title = i18n.t("agent.clickRemoveRef");
   return pill;
 }
 
@@ -85,7 +87,9 @@ function createSelectionPill(selection: SelectionAttachment): HTMLSpanElement {
   // Preserve the special structure used by the cutover tests and clipboard round-trip.
   pill.dataset.selectionRef = encodedSelection(selection);
   pill.textContent = `“${clip(selection.text)}”`;
-  pill.title = `引用文本 · ${selection.label}\n可复制粘贴\n${selection.text}`;
+  pill.title = `${i18n.t("agent.refText")}${selection.label}\n${
+    selection.text
+  }`;
   return pill;
 }
 
@@ -106,7 +110,7 @@ function selectionFromElement(element: HTMLElement): SelectionAttachment {
     path: element.dataset.selPath ?? null,
     start: Number(element.dataset.selStart ?? -1),
     end: Number(element.dataset.selEnd ?? -1),
-    label: element.dataset.selLabel ?? "选中文本",
+    label: element.dataset.selLabel ?? i18n.t("agent.selectedText"),
   };
 }
 
@@ -134,7 +138,7 @@ function serialize(root: HTMLElement) {
       }
       if (element.dataset.sel) {
         const selection = selectionFromElement(element);
-        text += `「引用·${selection.label}」`;
+        text += `「${i18n.t("agent.refText")}${selection.label}」`;
         selections.push(selection);
         return;
       }
@@ -154,7 +158,7 @@ function serialize(root: HTMLElement) {
 const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
   function MentionInput(
     {
-      placeholder = "输入修改意图，@ 可引用对象…",
+      placeholder,
       disabled,
       onQueryChange,
       onSubmit,
@@ -166,6 +170,8 @@ const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
     },
     ref,
   ) {
+    const { t } = useTranslation();
+    const resolvedPlaceholder = placeholder ?? t("agent.inputPlaceholder");
     const editorRef = useRef<HTMLDivElement>(null);
     const savedRange = useRef<Range | null>(null);
     const composing = useRef(false);
@@ -487,7 +493,7 @@ const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
           <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-card)] p-1 shadow-lg">
             <img
               src={hoverThumb}
-              alt="引用预览"
+              alt={t("agent.mentionPreview")}
               className="max-h-36 max-w-[200px] rounded object-contain"
             />
           </div>
@@ -497,7 +503,7 @@ const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
           contentEditable={!disabled}
           suppressContentEditableWarning
           role="textbox"
-          aria-label={placeholder}
+          aria-label={resolvedPlaceholder}
           onInput={() => {
             saveRange();
             detectQuery();
@@ -528,7 +534,7 @@ const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
         />
         {empty && (
           <span className="pointer-events-none absolute left-2.5 top-1.5 text-[11px] leading-5 text-[var(--color-text-tertiary)]">
-            {placeholder}
+            {resolvedPlaceholder}
           </span>
         )}
       </div>

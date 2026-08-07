@@ -2,10 +2,16 @@ import type {
   ArtifactSlotDocument,
   ArtifactVersionDocument,
   ElementCreationDocument,
+  OverlayCreationDocument,
   ProjectDocument,
   TimelineDocument,
   TimelineElementDocument,
 } from "@/contracts/creator";
+import {
+  splitTransitionsForDisplay,
+  type TransitionJunction,
+} from "@/lib/timelineEditing";
+import i18n from "@/i18n";
 
 export interface DisplayLane {
   id: string;
@@ -129,13 +135,54 @@ export const TRACK_TYPE_META: Record<
   TimelineTrackType,
   { label: string; color: string; soft: string }
 > = {
-  ai: { label: "AI 画面", color: "#ff7f16", soft: "rgba(255,127,22,.12)" },
-  clip: { label: "素材剪辑", color: "#3b82f6", soft: "rgba(59,130,246,.12)" },
-  subtitle: { label: "字幕", color: "#8b5cf6", soft: "rgba(139,92,246,.12)" },
-  motion: { label: "动效", color: "#f59e0b", soft: "rgba(245,158,11,.12)" },
-  transition: { label: "转场", color: "#0d9488", soft: "rgba(13,148,136,.12)" },
-  audio: { label: "音频", color: "#12b76a", soft: "rgba(18,183,106,.12)" },
+  ai: {
+    label: "timeline.trackTypes.ai",
+    color: "#ff7f16",
+    soft: "rgba(255,127,22,.12)",
+  },
+  clip: {
+    label: "timeline.trackTypes.clip",
+    color: "#3b82f6",
+    soft: "rgba(59,130,246,.12)",
+  },
+  subtitle: {
+    label: "timeline.trackTypes.subtitle",
+    color: "#8b5cf6",
+    soft: "rgba(139,92,246,.12)",
+  },
+  motion: {
+    label: "timeline.trackTypes.motion",
+    color: "#f59e0b",
+    soft: "rgba(245,158,11,.12)",
+  },
+  transition: {
+    label: "timeline.trackTypes.transition",
+    color: "#0d9488",
+    soft: "rgba(13,148,136,.12)",
+  },
+  audio: {
+    label: "timeline.trackTypes.audio",
+    color: "#12b76a",
+    soft: "rgba(18,183,106,.12)",
+  },
 };
+
+/**
+ * Semantic overlay category tolerant of schema v3, where overlay_kind was
+ * dropped: copy bubbles render deterministically, motion documents carry
+ * inline HTML, media overlays reference generated footage.
+ */
+export function overlayContentKind(
+  creation: OverlayCreationDocument,
+): "copy" | "motion" | "media" {
+  // Committed snapshots derive overlay roles from data; the legacy
+  // overlay_kind tag is only honored for pre-migration payloads.
+  const kind = creation.overlay_kind as string | undefined;
+  if (kind === "pet_os" || kind === "interview_summary") return "copy";
+  if (kind === "motion") return "motion";
+  if (kind === "media") return "media";
+  return creation.text?.trim() ? "copy" : "motion";
+}
 
 export function classifyElementTrack(
   element: TimelineElementDocument,
@@ -143,6 +190,9 @@ export function classifyElementTrack(
   const { creation } = element;
   switch (creation.type) {
     case "r2v":
+    case "t2v":
+    case "i2v":
+    case "s2v":
       return "ai";
     case "edit":
       return "clip";
@@ -151,19 +201,10 @@ export function classifyElementTrack(
     case "audio":
       return "audio";
     case "overlay":
-      if (
-        creation.overlay_kind === "pet_os" ||
-        creation.overlay_kind === "interview_summary"
-      ) {
-        return "subtitle";
-      }
-      if (
-        creation.overlay_kind === "motion" ||
-        creation.overlay_kind === "media"
-      ) {
-        return "motion";
-      }
-      return null;
+      // Overlay roles derive from data (legacy tags stay recognized in
+      // overlayContentKind): copy rides the subtitle track, decorations
+      // and media stickers ride the motion track.
+      return overlayContentKind(creation) === "copy" ? "subtitle" : "motion";
     default:
       return null;
   }
@@ -209,23 +250,29 @@ export function resolveElementVisualMeta(element: TimelineElementDocument): {
   soft: string;
 } {
   const trackType = classifyElementTrack(element);
-  if (trackType) return TRACK_TYPE_META[trackType];
-  if (element.creation.type === "overlay") {
-    const kind = element.creation.overlay_kind;
-    if (kind === "pet_os" || kind === "interview_summary") {
-      return TRACK_TYPE_META.subtitle;
-    }
-    if (kind === "motion" || kind === "media") {
-      return TRACK_TYPE_META.motion;
-    }
+  if (trackType) {
+    const meta = TRACK_TYPE_META[trackType];
+    return { ...meta, label: i18n.t(meta.label) };
   }
-  return ELEMENT_TYPE_META[
-    element.creation.type as Exclude<ElementCreationDocument["type"], "overlay">
-  ];
+  if (element.creation.type === "overlay") {
+    const meta = element.creation.text.trim()
+      ? TRACK_TYPE_META.subtitle
+      : TRACK_TYPE_META.motion;
+    return { ...meta, label: i18n.t(meta.label) };
+  }
+  const meta =
+    ELEMENT_TYPE_META[
+      element.creation.type as Exclude<
+        ElementCreationDocument["type"],
+        "overlay"
+      >
+    ];
+  return { ...meta, label: i18n.t(meta.label) };
 }
 
 export function groupElementsByTracks(
   timeline: TimelineDocument | null | undefined,
+  bridgedPairs?: Set<string>,
 ): TimelineTrack[] {
   if (!timeline) return [];
   const grouped = new Map<TimelineTrackType, TimelineElementDocument[]>();
@@ -241,23 +288,36 @@ export function groupElementsByTracks(
     const meta = TRACK_TYPE_META[type];
     const laneMap: Array<{
       endTick: number;
+      lastElementId: string;
       elements: TimelineElementDocument[];
     }> = [];
     for (const element of elements) {
+      // Clips joined by a transition overlap on purpose; like the reference
+      // design they stay adjacent on one track row instead of being split
+      // into stacked lanes.
       const lane = laneMap.find(
-        (candidate) => candidate.endTick <= element.span.start_tick,
+        (candidate) =>
+          candidate.endTick <= element.span.start_tick ||
+          bridgedPairs?.has(
+            `${candidate.lastElementId}\u0000${element.element_id}`,
+          ),
       );
       const endTick = element.span.start_tick + element.span.duration_tick;
       if (lane) {
         lane.elements.push(element);
-        lane.endTick = endTick;
+        lane.endTick = Math.max(lane.endTick, endTick);
+        lane.lastElementId = element.element_id;
       } else {
-        laneMap.push({ endTick, elements: [element] });
+        laneMap.push({
+          endTick,
+          lastElementId: element.element_id,
+          elements: [element],
+        });
       }
     }
     return {
       type,
-      label: meta.label,
+      label: i18n.t(meta.label),
       color: meta.color,
       soft: meta.soft,
       lanes: laneMap.map((lane, index) => ({
@@ -266,6 +326,44 @@ export function groupElementsByTracks(
       })),
     };
   });
+}
+
+export interface DisplayTrackGroups {
+  tracks: TimelineTrack[];
+  junctions: TransitionJunction[];
+}
+
+/**
+ * Track grouping for the editing surface: transitions whose from/to elements
+ * both exist are lifted out of the track rows and rendered as junction badges
+ * between the two clips; only orphan transitions keep an ordinary row. Clips
+ * bridged by a transition share one lane despite their overlap.
+ */
+export function groupDisplayTracks(
+  timeline: TimelineDocument | null | undefined,
+): DisplayTrackGroups {
+  if (!timeline) return { tracks: [], junctions: [] };
+  const { junctions } = splitTransitionsForDisplay(timeline);
+  if (!junctions.length)
+    return { tracks: groupElementsByTracks(timeline), junctions };
+  const junctionIds = new Set(
+    junctions.map((junction) => junction.transition.element_id),
+  );
+  const bridgedPairs = new Set(
+    junctions.map((junction) => `${junction.fromId}\u0000${junction.toId}`),
+  );
+  const filtered: TimelineDocument = {
+    ...timeline,
+    elements_by_id: Object.fromEntries(
+      Object.entries(timeline.elements_by_id).filter(
+        ([elementId]) => !junctionIds.has(elementId),
+      ),
+    ),
+  };
+  return {
+    tracks: groupElementsByTracks(filtered, bridgedPairs),
+    junctions,
+  };
 }
 
 export function selectedSlotVersion(
@@ -321,13 +419,13 @@ export function resolveTimelineRender(
  * "fade" is a synonym of crossfade.
  */
 export const TRANSITION_KIND_LABEL: Record<string, string> = {
-  crossfade: "交叉溶解",
-  fade: "交叉溶解",
-  fadeblack: "经黑场",
-  fadewhite: "经白场",
-  dissolve: "颗粒溶解",
-  wipeleft: "左划",
-  cut: "硬切",
+  crossfade: "timeline.transitionKinds.crossfade",
+  fade: "timeline.transitionKinds.fade",
+  fadeblack: "timeline.transitionKinds.fadeblack",
+  fadewhite: "timeline.transitionKinds.fadewhite",
+  dissolve: "timeline.transitionKinds.dissolve",
+  wipeleft: "timeline.transitionKinds.wipeleft",
+  cut: "timeline.transitionKinds.cut",
 };
 
 export function elementCreationSummary(
@@ -335,18 +433,30 @@ export function elementCreationSummary(
 ): string {
   switch (creation.type) {
     case "r2v":
+    case "t2v":
+    case "i2v":
       return creation.narrative || creation.intent || creation.video_prompt;
+    case "s2v":
+      return creation.script || creation.intent;
     case "edit":
       return creation.intent || creation.reason;
     case "overlay":
-      return creation.text || creation.prompt || creation.overlay_kind;
-    case "transition":
-      return `${
-        TRANSITION_KIND_LABEL[creation.transition_kind] ??
-        creation.transition_kind
-      } 转场`;
+      return (
+        creation.text || creation.prompt || i18n.t("timeline.trackTypes.motion")
+      );
+    case "transition": {
+      const key = TRANSITION_KIND_LABEL[creation.transition_kind];
+      const label = key ? i18n.t(key) : creation.transition_kind ?? "";
+      return `${label} ${i18n.t("timeline.elementSummary.transition")}`;
+    }
     case "audio":
-      return "时间线音频";
+      return i18n.t("timeline.elementSummary.audio");
+    case "motion_clip":
+      return (
+        creation.prompt ||
+        creation.intent ||
+        i18n.t("timeline.trackTypes.motion")
+      );
   }
 }
 
@@ -358,12 +468,44 @@ export const ELEMENT_TYPE_META: Record<
     soft: string;
   }
 > = {
-  r2v: { label: "AI 生成画面", color: "#ff7f16", soft: "rgba(255,127,22,.12)" },
-  edit: { label: "素材剪辑", color: "#3b82f6", soft: "rgba(59,130,246,.12)" },
+  r2v: {
+    label: "timeline.elementTypes.r2v",
+    color: "#ff7f16",
+    soft: "rgba(255,127,22,.12)",
+  },
+  t2v: {
+    label: "timeline.elementTypes.t2v",
+    color: "#ff7f16",
+    soft: "rgba(255,127,22,.12)",
+  },
+  i2v: {
+    label: "timeline.elementTypes.i2v",
+    color: "#ff7f16",
+    soft: "rgba(255,127,22,.12)",
+  },
+  s2v: {
+    label: "timeline.elementTypes.s2v",
+    color: "#ff7f16",
+    soft: "rgba(255,127,22,.12)",
+  },
+  edit: {
+    label: "timeline.elementTypes.edit",
+    color: "#3b82f6",
+    soft: "rgba(59,130,246,.12)",
+  },
+  motion_clip: {
+    label: "timeline.trackTypes.motion",
+    color: "#8b5cf6",
+    soft: "rgba(139,92,246,.12)",
+  },
   transition: {
-    label: "转场",
+    label: "timeline.elementTypes.transition",
     color: "#0d9488",
     soft: "rgba(13,148,136,.12)",
   },
-  audio: { label: "音频", color: "#12b76a", soft: "rgba(18,183,106,.12)" },
+  audio: {
+    label: "timeline.elementTypes.audio",
+    color: "#12b76a",
+    soft: "rgba(18,183,106,.12)",
+  },
 };

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import TimelineCanvas from "@/components/timeline/TimelineCanvas";
 import { projectDocument } from "@/test/creatorFixtures";
@@ -12,7 +18,6 @@ describe("TimelineCanvas preview scrubber", () => {
       timeline,
       durationTick: 20000,
       selectedElementId: null,
-      activeElementIds: [],
       previewOpen: true,
       tasks: [],
       onPreviewOpenChange: vi.fn(),
@@ -47,7 +52,6 @@ describe("TimelineCanvas preview scrubber", () => {
         durationTick={20000}
         playheadTick={2000}
         selectedElementId={null}
-        activeElementIds={[]}
         previewOpen
         tasks={[]}
         onPreviewOpenChange={vi.fn()}
@@ -105,7 +109,6 @@ describe("TimelineCanvas preview scrubber", () => {
         durationTick={20000}
         playheadTick={2000}
         selectedElementId={null}
-        activeElementIds={[]}
         previewOpen={false}
         tasks={[]}
         onPreviewOpenChange={vi.fn()}
@@ -141,7 +144,6 @@ describe("TimelineCanvas preview scrubber", () => {
         durationTick={20000}
         playheadTick={2000}
         selectedElementId={null}
-        activeElementIds={[]}
         previewOpen
         tasks={[]}
         onPreviewOpenChange={vi.fn()}
@@ -200,7 +202,6 @@ describe("TimelineCanvas preview scrubber", () => {
         durationTick={20000}
         playheadTick={2000}
         selectedElementId={null}
-        activeElementIds={[]}
         previewOpen
         tasks={[]}
         onPreviewOpenChange={vi.fn()}
@@ -222,47 +223,73 @@ describe("TimelineCanvas preview scrubber", () => {
   });
 
   it("covers the final render until the requested frame finishes seeking", () => {
-    const project = structuredClone(projectDocument);
-    const timeline = project.timelines.items["timeline:main"];
-    const { container } = render(
-      <TimelineCanvas
-        project={project}
-        timeline={timeline}
-        durationTick={20000}
-        playheadTick={2000}
-        selectedElementId={null}
-        activeElementIds={[]}
-        previewOpen
-        tasks={[]}
-        onPreviewOpenChange={vi.fn()}
-        onPlayheadChange={vi.fn()}
-        onSelectElement={vi.fn()}
-        onActiveElementIdsChange={vi.fn()}
-      />,
-    );
-    const video = container.querySelector(
-      "[data-timeline-video-preview] video",
-    ) as HTMLVideoElement;
+    vi.useFakeTimers();
+    try {
+      const project = structuredClone(projectDocument);
+      const timeline = project.timelines.items["timeline:main"];
+      const { container } = render(
+        <TimelineCanvas
+          project={project}
+          timeline={timeline}
+          durationTick={20000}
+          playheadTick={2000}
+          selectedElementId={null}
+          previewOpen
+          tasks={[]}
+          onPreviewOpenChange={vi.fn()}
+          onPlayheadChange={vi.fn()}
+          onSelectElement={vi.fn()}
+          onActiveElementIdsChange={vi.fn()}
+        />,
+      );
+      const video = container.querySelector(
+        "[data-timeline-video-preview] video",
+      ) as HTMLVideoElement;
 
-    expect(
-      container.querySelector("[data-final-preview-incomplete]"),
-    ).toHaveTextContent("正在定位画面");
+      expect(
+        container.querySelector("[data-final-preview-incomplete]"),
+      ).toHaveTextContent("正在定位画面");
 
-    Object.defineProperties(video, {
-      duration: { configurable: true, value: 20 },
-      readyState: { configurable: true, value: 2 },
-    });
-    fireEvent.loadedData(video);
-    fireEvent.seeked(video);
+      Object.defineProperties(video, {
+        duration: { configurable: true, value: 20 },
+        readyState: { configurable: true, value: 2 },
+      });
+      fireEvent.loadedData(video);
+      fireEvent.seeked(video);
 
-    expect(
-      container.querySelector("[data-final-preview-incomplete]"),
-    ).not.toBeInTheDocument();
+      expect(
+        container.querySelector("[data-final-preview-incomplete]"),
+      ).not.toBeInTheDocument();
 
-    fireEvent.seeking(video);
-    expect(
-      container.querySelector("[data-final-preview-incomplete]"),
-    ).toBeInTheDocument();
+      // A transient seek keeps the last painted frame: the opaque cover only
+      // returns when the gap outlives the debounce window.
+      Object.defineProperty(video, "seeking", {
+        configurable: true,
+        value: true,
+      });
+      fireEvent.seeking(video);
+      expect(
+        container.querySelector("[data-final-preview-incomplete]"),
+      ).not.toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(
+        container.querySelector("[data-final-preview-incomplete]"),
+      ).toBeInTheDocument();
+
+      // Finishing the seek clears the cover again.
+      Object.defineProperty(video, "seeking", {
+        configurable: true,
+        value: false,
+      });
+      fireEvent.seeked(video);
+      expect(
+        container.querySelector("[data-final-preview-incomplete]"),
+      ).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("recovers when media becomes ready without another canplay event", async () => {
@@ -275,7 +302,6 @@ describe("TimelineCanvas preview scrubber", () => {
         durationTick={20000}
         playheadTick={0}
         selectedElementId={null}
-        activeElementIds={[]}
         previewOpen
         tasks={[]}
         onPreviewOpenChange={vi.fn()}
@@ -314,7 +340,6 @@ describe("TimelineCanvas preview scrubber", () => {
       timeline,
       durationTick: 20000,
       selectedElementId: null,
-      activeElementIds: [],
       previewOpen: true,
       tasks: [],
       onPreviewOpenChange: vi.fn(),

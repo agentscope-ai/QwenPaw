@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -13,6 +15,7 @@ from domain.enums import SpecialistRole
 from models import config as model_config
 from models.video_capabilities import video_model_prompt_guidance
 from services.file_agent_runtime.prompts import render_file_agent_prompt
+from services.file_agent_runtime.prompts import tts_guidance
 from services.project_files.models import Project
 from services.project_files.schema_prompt import build_project_schema_prompt
 
@@ -40,7 +43,7 @@ _TARGET_GUIDANCE = {
     SpecialistRole.SOURCE_INTELLIGENCE: "asset:<logicalAssetId>",
     SpecialistRole.VISUAL_DEVELOPMENT: (
         "overall visuals: project:assets; or element:<id>, "
-        "asset:<id>, artifact:<id>"
+        "asset:<VisualEntity.entity_id>, artifact:<id>"
     ),
     SpecialistRole.R2V_GENERATION_DIRECTOR: "an existing r2v element:<id>",
     SpecialistRole.AI_EDITING_DIRECTOR: "an existing timeline:<id>",
@@ -57,6 +60,16 @@ _ROLE_PROMPT_IDS = {
 # UI displays them as visual-entity:<id>, so models keep deriving targetRefs
 # in those spellings. They map onto exactly one canonical asset ref.
 _VISUAL_ENTITY_ALIAS_KINDS = frozenset({"char", "scene", "prop"})
+
+# TTS guidance is built per render from the configured model's
+# capabilities (see prompts.tts_guidance): a model without system voices
+# turns designing a character voice from an option into a prerequisite.
+_TTS_GUIDANCE_ROLES = frozenset(
+    {
+        SpecialistRole.VISUAL_DEVELOPMENT,
+        SpecialistRole.AI_EDITING_DIRECTOR,
+    },
+)
 
 
 def _normalize_asset_target_ref(target_ref: str) -> str:
@@ -114,6 +127,41 @@ class DelegateToAgentInput(BaseModel):
                     f"use {_TARGET_GUIDANCE[self.role]}",
                 )
 
+    def validate_project_targets(self, *, project: Project) -> None:
+        """Resolve role-sensitive refs against the current Project snapshot.
+
+        ``asset:`` names two different domains in the public tool surface:
+        Source Intelligence receives a source logical Asset, while Visual
+        Development receives a ``VisualEntity.entity_id``.  Syntax validation
+        alone cannot distinguish them, so a source Asset id could previously
+        start a Visual SpecialistRun and fail every image call.  Resolve the
+        ambiguous visual spelling before the run is created.
+        """
+
+        if self.role is not SpecialistRole.VISUAL_DEVELOPMENT:
+            return
+        entity_ids = project.visual.entities.items
+        for target_ref in self.target_refs:
+            kind, _, identifier = target_ref.partition(":")
+            if kind != "asset" or identifier in entity_ids:
+                continue
+            valid_targets = [
+                f"asset:{entity_id}"
+                for entity_id in project.visual.entities.order
+            ]
+            valid_hint = (
+                ", ".join(valid_targets[:8])
+                if valid_targets
+                else "no VisualEntity exists yet; create one with jq_project"
+            )
+            raise ValueError(
+                f"{self.role.value} targetRef {target_ref!r} does not resolve "
+                "to project.visual.entities.items; use "
+                "asset:<VisualEntity.entity_id>. Source logical Asset ids "
+                "belong in referenceVersionIds, not target_refs. Valid "
+                f"visual targets: {valid_hint}",
+            )
+
 
 def delegate_tool_manifest() -> dict[str, Any]:
     return {
@@ -123,7 +171,9 @@ def delegate_tool_manifest() -> dict[str, Any]:
             "description": (
                 "把一个边界明确的素材理解、视觉媒体、R2V 或 AI 剪辑任务委派给"
                 "对应 Creator Specialist。source_intelligence_agent 使用 asset:<id>；"
-                "visual_development_agent 的整体视觉使用 project:assets；"
+                "visual_development_agent 的整体视觉使用 project:assets，单个视觉实体"
+                "必须使用 asset:<VisualEntity.entity_id>；来源素材 logicalAssetId 只能"
+                "作为 referenceVersionIds，不能作为 Visual Specialist target_ref；"
                 "r2v_generation_director 使用 element:<id>，"
                 "ai_editing_director 使用 timeline:<id>。"
             ),
@@ -163,6 +213,8 @@ def specialist_system_prompt(
     project_id: str,
     project: Project | None = None,
     workspace_schema: str | None = None,
+    project_root: Path | None = None,
+    target_refs: Sequence[str] | None = None,
 ) -> str:
     if role not in _DELEGATABLE_ROLES:
         raise ValueError(f"specialist role has no active prompt: {role.value}")
@@ -171,6 +223,23 @@ def specialist_system_prompt(
         "workspace_schema": workspace_schema
         or build_project_schema_prompt().text,
     }
+    if role in _TTS_GUIDANCE_ROLES:
+        # Guidance depends on the configured model's capabilities and on the
+        # project scenario, so it is built per render rather than templated.
+        values["tts_guidance"] = tts_guidance.specialist_guidance(
+            role,
+            project.scenario if project is not None else "general",
+        )
+    if role is SpecialistRole.SOURCE_INTELLIGENCE:
+        # Memory usage rules are injected only when the delegated asset
+        # actually has a built graph memory for its current intelligence.
+        from services.media.source_memory import memory_guidance_for_targets
+
+        values["memory_guidance"] = memory_guidance_for_targets(
+            project_root,
+            project,
+            list(target_refs or ()),
+        )
     if role is SpecialistRole.R2V_GENERATION_DIRECTOR:
         # Model-specific prompt rules (e.g. HappyHorse [Image N] citations)
         # are injected from the runtime-resolved video model so the static

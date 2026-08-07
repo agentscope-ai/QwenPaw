@@ -39,7 +39,6 @@ import type {
   CommitInfo,
   GitChangedFile,
 } from "../../api/modules/git";
-import { useProjectDir } from "../../stores/codingModeStore";
 import styles from "./GitPanel.module.less";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -61,8 +60,7 @@ function StatusBadge({ status }: { status: string }) {
 
 // ---------------------------------------------------------------------------
 
-export default function GitPanel() {
-  const { projectDir } = useProjectDir();
+export default function GitPanel({ chatId }: { chatId?: string }) {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [branches, setBranches] = useState<BranchInfo[]>([]);
@@ -86,30 +84,33 @@ export default function GitPanel() {
 
   const refresh = useCallback(async () => {
     try {
-      const [s, b] = await Promise.all([gitApi.status(), gitApi.branches()]);
+      const [s, b] = await Promise.all([
+        gitApi.status(chatId),
+        gitApi.branches(chatId),
+      ]);
       setStatus(s);
       setBranches(b);
     } catch {
       // Not a git repo or git not available – silently hide
       setStatus(null);
     }
-  }, []);
+  }, [chatId]);
 
   const refreshLog = useCallback(async () => {
     try {
-      setLog(await gitApi.log(50));
+      setLog(await gitApi.log(50, chatId));
     } catch {
       setLog([]);
     }
-  }, []);
+  }, [chatId]);
 
-  // Re-fetch everything when the active coding project changes
+  // Re-fetch when the active chat changes because it may override project_dir.
   useEffect(() => {
     setStatus(null);
     setLog([]);
     void refresh();
     void refreshLog();
-  }, [projectDir, refresh, refreshLog]);
+  }, [chatId, refresh, refreshLog]);
 
   useEffect(() => {
     // Poll every 10 s — reduced from 5 s to cut API load
@@ -124,20 +125,20 @@ export default function GitPanel() {
   const handleCheckout = useCallback(
     async (branch: string) => {
       try {
-        await gitApi.checkout(branch);
+        await gitApi.checkout(branch, false, chatId);
         await refresh();
         void msgApi.success(`Switched to ${branch}`);
       } catch (e: unknown) {
         void msgApi.error(String(e));
       }
     },
-    [refresh, msgApi],
+    [chatId, refresh, msgApi],
   );
 
   const handleCreateBranch = useCallback(async () => {
     if (!newBranchName.trim()) return;
     try {
-      await gitApi.checkout(newBranchName.trim(), true);
+      await gitApi.checkout(newBranchName.trim(), true, chatId);
       setNewBranchModal(false);
       setNewBranchName("");
       await refresh();
@@ -145,83 +146,94 @@ export default function GitPanel() {
     } catch (e: unknown) {
       void msgApi.error(String(e));
     }
-  }, [newBranchName, refresh, msgApi]);
+  }, [chatId, newBranchName, refresh, msgApi]);
 
   // ---- Stage / unstage ------------------------------------------------------
 
   const handleStage = useCallback(
     async (file: GitChangedFile) => {
-      await gitApi.stage([file.path]);
+      await gitApi.stage([file.path], chatId);
       await refresh();
     },
-    [refresh],
+    [chatId, refresh],
   );
 
   const handleUnstage = useCallback(
     async (file: GitChangedFile) => {
-      await gitApi.unstage([file.path]);
+      await gitApi.unstage([file.path], chatId);
       await refresh();
     },
-    [refresh],
+    [chatId, refresh],
   );
 
   const handleStageAll = useCallback(async () => {
-    await gitApi.stage([]);
+    await gitApi.stage([], chatId);
     await refresh();
-  }, [refresh]);
+  }, [chatId, refresh]);
 
   // ---- Discard --------------------------------------------------------------
 
   const handleDiscard = useCallback(
     async (file: GitChangedFile) => {
       try {
-        await gitApi.discard([file.path]);
+        await gitApi.discard([file.path], chatId);
         await refresh();
         void msgApi.success(`Discarded changes in ${file.path}`);
       } catch (e: unknown) {
         void msgApi.error(String(e));
       }
     },
-    [refresh, msgApi],
+    [chatId, refresh, msgApi],
   );
 
   // ---- Diff -----------------------------------------------------------------
 
-  const handleShowDiff = useCallback(async (file: GitChangedFile) => {
-    try {
-      const isUntracked = file.status === "?";
-      const res = await gitApi.diff(file.path, file.staged, isUntracked);
-      setDiffFile({
-        path: file.path,
-        staged: file.staged,
-        diff: res.diff,
-        title: `${file.path}${file.staged ? " (staged)" : ""}`,
-      });
-    } catch {
-      // ignore
-    }
-  }, []);
+  const handleShowDiff = useCallback(
+    async (file: GitChangedFile) => {
+      try {
+        const isUntracked = file.status === "?";
+        const res = await gitApi.diff(
+          file.path,
+          file.staged,
+          isUntracked,
+          chatId,
+        );
+        setDiffFile({
+          path: file.path,
+          staged: file.staged,
+          diff: res.diff,
+          title: `${file.path}${file.staged ? " (staged)" : ""}`,
+        });
+      } catch {
+        // ignore
+      }
+    },
+    [chatId],
+  );
 
-  const handleShowCommitDiff = useCallback(async (commit: CommitInfo) => {
-    try {
-      const res = await gitApi.commitDiff(commit.hash);
-      setDiffFile({
-        path: commit.hash,
-        staged: false,
-        diff: res.diff,
-        title: `${commit.hash} · ${commit.message}`,
-      });
-    } catch {
-      // ignore
-    }
-  }, []);
+  const handleShowCommitDiff = useCallback(
+    async (commit: CommitInfo) => {
+      try {
+        const res = await gitApi.commitDiff(commit.hash, chatId);
+        setDiffFile({
+          path: commit.hash,
+          staged: false,
+          diff: res.diff,
+          title: `${commit.hash} · ${commit.message}`,
+        });
+      } catch {
+        // ignore
+      }
+    },
+    [chatId],
+  );
 
   // ---- Revert ---------------------------------------------------------------
 
   const handleRevert = useCallback(
     async (commit: CommitInfo) => {
       try {
-        await gitApi.revert(commit.hash);
+        await gitApi.revert(commit.hash, chatId);
         await refresh();
         await refreshLog();
         void msgApi.success(`Reverted commit ${commit.hash}`);
@@ -229,7 +241,7 @@ export default function GitPanel() {
         void msgApi.error(String(e));
       }
     },
-    [refresh, refreshLog, msgApi],
+    [chatId, refresh, refreshLog, msgApi],
   );
 
   // ---- Commit ---------------------------------------------------------------
@@ -246,7 +258,7 @@ export default function GitPanel() {
     }
     setCommitting(true);
     try {
-      await gitApi.commit(commitMsg.trim());
+      await gitApi.commit(commitMsg.trim(), chatId);
       setCommitMsg("");
       await refresh();
       await refreshLog();
@@ -265,7 +277,7 @@ export default function GitPanel() {
     } finally {
       setCommitting(false);
     }
-  }, [commitMsg, status, refresh, refreshLog, msgApi]);
+  }, [chatId, commitMsg, status, refresh, refreshLog, msgApi]);
 
   // ---- Render ---------------------------------------------------------------
 
@@ -357,7 +369,9 @@ export default function GitPanel() {
                         <button
                           type="button"
                           className={styles.iconBtn}
-                          onClick={() => void gitApi.unstage([]).then(refresh)}
+                          onClick={() =>
+                            void gitApi.unstage([], chatId).then(refresh)
+                          }
                         >
                           <Minus size={11} />
                         </button>

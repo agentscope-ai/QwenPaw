@@ -519,14 +519,14 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 3. 进入 **网络配置** → **新建** → **WebSocket 客户端**（反向 WS）：
    - URL：`ws://<qwenpaw地址>:6199/ws`
-   - Access Token：与 QwenPaw 配置中的 `access_token` 保持一致（可选）
+   - Access Token：与 QwenPaw 配置中的 `access_token` 保持一致（QwenPaw 监听回环地址时可不填，否则必填）
 
 ### 填写 agent.json
 
 ```json
 "onebot": {
   "enabled": true,
-  "ws_host": "0.0.0.0",
+  "ws_host": "127.0.0.1",
   "ws_port": 6199,
   "access_token": "",
   "share_session_in_group": false
@@ -535,14 +535,23 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 **OneBot 专属字段说明：**
 
-| 字段                     | 类型   | 默认值    | 说明                                                          |
-| ------------------------ | ------ | --------- | ------------------------------------------------------------- |
-| `ws_host`                | string | `0.0.0.0` | WebSocket 服务器监听地址                                      |
-| `ws_port`                | int    | `6199`    | WebSocket 服务器监听端口                                      |
-| `access_token`           | string | `""`      | 可选的认证 Token（需与 NapCat 配置一致）                      |
-| `share_session_in_group` | bool   | `false`   | 为 `true` 时群成员共享一个会话；为 `false` 时每个成员独立会话 |
+| 字段                     | 类型   | 默认值      | 说明                                                            |
+| ------------------------ | ------ | ----------- | --------------------------------------------------------------- |
+| `ws_host`                | string | `127.0.0.1` | WebSocket 服务器监听地址。默认仅监听回环地址，端口不对网络开放  |
+| `ws_port`                | int    | `6199`      | WebSocket 服务器监听端口                                        |
+| `access_token`           | string | `""`        | OneBot 客户端携带的共享 Token。**`ws_host` 不是回环地址时必填** |
+| `share_session_in_group` | bool   | `false`     | 为 `true` 时群成员共享一个会话；为 `false` 时每个成员独立会话   |
 
-> **Docker Compose 提示：** QwenPaw 和 NapCat 一起用 Docker Compose 部署时，NapCat 的反向 WS 地址填 `ws://qwenpaw:6199/ws`（使用服务名）。
+### 安全说明
+
+反向 WebSocket 服务接收 OneBot 事件，而这些事件会驱动 agent 执行。因此一个可从网络访问、又未开启鉴权的监听端口，等于允许任何人驱动你的 agent。
+
+- **OneBot 实现与 QwenPaw 同机时，`ws_host` 保持 `127.0.0.1`**。这是默认值，无需设置 Token。
+- **`ws_host` 填写其他地址时，`access_token` 必填。** Token 为空期间，服务仍照常监听，但会以 `401` 拒绝所有连接并在日志中给出修正指引。
+- **Token 通过 `Authorization` 请求头传递**，这是 OneBot v11 反向 WebSocket 规范定义的方式：在 OneBot 客户端的 Token 字段配置即可，`Bearer <token>` 和 `Token <token>` 两种形式均可。将 Token 写在 URL query（`?access_token=...`）中的方式不被接受，因为 query 会被反向代理和容器的 access log 记录下来。
+- **优先使用内网或反向代理**，而不是直接把端口暴露到公网：`ws://` 是明文传输，在公网链路上传递的 Token 可被中途窃取。
+
+> **Docker Compose 提示：** QwenPaw 和 NapCat 一起用 Docker Compose 部署时，两个容器不在同一个回环网口上，因此需将 `ws_host` 设为 `0.0.0.0` 并**同时设置 `access_token`**，NapCat 的反向 WS 地址填 `ws://qwenpaw:6199/ws`（使用服务名）。不要将 6199 端口 publish 到宿主机，或按 `127.0.0.1:6199:6199` 的形式 publish 以保持仅本机可访问。
 
 **多模态支持：**
 

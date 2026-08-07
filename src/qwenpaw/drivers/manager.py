@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from .approval import ApprovalGate
@@ -19,6 +19,7 @@ from .capabilities import (
 from .constants import (
     CREDENTIAL_ALIAS_DEFAULT,
     CREDENTIAL_KIND_NONE,
+    DRIVER_SCOPE_CONTEXT_KEY,
 )
 from .credentials.providers import build_provider
 from .credentials.store import AsyncCredentialStore
@@ -67,6 +68,10 @@ class DriverManager:
         self._handler_types: dict[str, type[DriverHandler]] = {}
         self._endpoint_validators: dict[str, EndpointValidator] = {}
         self._handlers: dict[str, DriverHandler] = {}
+        self._handler_scopes: dict[str, str] = {}
+        self._scope_handlers: dict[str, set[str]] = {}
+        self._cleanup_tasks: set[asyncio.Task[None]] = set()
+        self._cleanup_handler_ids: set[int] = set()
         self._lock = asyncio.Lock()
 
     def register_handler_type(
@@ -117,11 +122,32 @@ class DriverManager:
                     exc_info=True,
                 )
 
+        collisions: set[str] = set()
+        old_handlers: list[DriverHandler] = []
         async with self._lock:
-            old_handlers = self._handlers
-            self._handlers = built
+            transient = {
+                name: handler
+                for name, handler in self._handlers.items()
+                if name in self._handler_scopes
+            }
+            collisions = set(built) & set(transient)
+            if not collisions:
+                old_handlers = [
+                    handler
+                    for name, handler in self._handlers.items()
+                    if name not in self._handler_scopes
+                ]
+                self._handlers = {**built, **transient}
 
-        await self._shutdown_handlers(old_handlers.values())
+        if collisions:
+            await self._shutdown_handlers(built.values())
+            names = ", ".join(sorted(collisions))
+            raise ValueError(
+                f"Persistent Drivers collide with transient Drivers: "
+                f"{names}",
+            )
+
+        await self._shutdown_handlers(old_handlers)
 
     async def upsert_driver(
         self,
@@ -137,15 +163,33 @@ class DriverManager:
     async def register_driver(self, card: DriverCard) -> None:
         """Persist card, build handler, then publish after init success."""
         card = self._validate_card_for_registered_protocol(card)
-        await self._card_store.save(card)
+        async with self._lock:
+            if card.name in self._handler_scopes:
+                raise ValueError(
+                    f"Persistent Driver '{card.name}' collides with "
+                    f"a transient Driver",
+                )
+            await self._card_store.save(card)
+
         handler = None
         if card.enabled:
             handler = await self._build_and_init_handler(card)
 
-        async with self._lock:
-            old = self._handlers.pop(card.name, None)
+        old = None
+        try:
+            async with self._lock:
+                if card.name in self._handler_scopes:
+                    raise ValueError(
+                        f"Persistent Driver '{card.name}' collides with "
+                        f"a transient Driver",
+                    )
+                old = self._handlers.pop(card.name, None)
+                if handler is not None:
+                    self._handlers[card.name] = handler
+        except BaseException:
             if handler is not None:
-                self._handlers[card.name] = handler
+                await self._shutdown_handler(handler)
+            raise
 
         if old is not None:
             await self._shutdown_handler(old)
@@ -160,14 +204,24 @@ class DriverManager:
         handler = None
         if card.enabled:
             handler = await self._build_and_init_handler(card)
-        await self._card_store.save(card)
-
-        async with self._lock:
-            old = self._handlers.get(name)
-            if handler is None:
-                old = self._handlers.pop(name, None)
-            else:
-                self._handlers[name] = handler
+        old = None
+        try:
+            async with self._lock:
+                if name in self._handler_scopes:
+                    raise ValueError(
+                        f"Persistent Driver '{name}' collides with "
+                        f"a transient Driver",
+                    )
+                await self._card_store.save(card)
+                old = self._handlers.get(name)
+                if handler is None:
+                    old = self._handlers.pop(name, None)
+                else:
+                    self._handlers[name] = handler
+        except BaseException:
+            if handler is not None:
+                await self._shutdown_handler(handler)
+            raise
 
         if old is not None:
             await self._shutdown_handler(old)
@@ -200,6 +254,11 @@ class DriverManager:
         """
         card = self._validate_card_for_registered_protocol(card)
         async with self._lock:
+            if card.name in self._handler_scopes:
+                raise ValueError(
+                    f"Persistent Driver '{card.name}' collides with "
+                    f"a transient Driver",
+                )
             await self._card_store.save(card)
             handler = self._handlers.get(card.name)
             if handler is None or handler.card.protocol != card.protocol:
@@ -218,18 +277,110 @@ class DriverManager:
 
     async def delete_driver(self, name: str) -> None:
         """Delete persisted card and shutdown a published handler."""
-        await self._card_store.delete(name)
         async with self._lock:
+            if name in self._handler_scopes:
+                raise ValueError(
+                    f"Transient Driver '{name}' must be removed by scope",
+                )
+            await self._card_store.delete(name)
             old = self._handlers.pop(name, None)
         if old is not None:
             await self._shutdown_handler(old)
 
+    async def replace_transient_drivers(
+        self,
+        scope_id: str,
+        cards: list[DriverCard],
+    ) -> None:
+        """Atomically replace all non-persistent Drivers for one scope.
+
+        Every new handler is initialized before publication. Failure before
+        publication leaves the previous scope untouched and shuts down any
+        newly built handlers. After publication, retired handlers are cleaned
+        up by managed tasks. Transient cards and credentials are never written
+        to persistent stores.
+        """
+        if not scope_id.strip():
+            raise ValueError("Transient Driver scope must be non-empty")
+
+        names = [card.name for card in cards]
+        if len(names) != len(set(names)):
+            raise ValueError(
+                f"Transient Driver names must be unique in scope "
+                f"'{scope_id}'",
+            )
+
+        built: dict[str, DriverHandler] = {}
+        try:
+            for card in cards:
+                built[card.name] = await self._build_and_init_handler(card)
+        except BaseException:
+            await self._shutdown_handlers(built.values())
+            raise
+
+        old_handlers: list[DriverHandler] = []
+        try:
+            async with self._lock:
+                owned_names = self._scope_handlers.get(scope_id, set())
+                persistent_names = {
+                    name
+                    for name in built
+                    if await self._card_store.stored_path(name) is not None
+                }
+                unavailable = {
+                    name
+                    for name in built
+                    if name in self._handlers and name not in owned_names
+                } | persistent_names
+                if unavailable:
+                    joined = ", ".join(sorted(unavailable))
+                    raise ValueError(
+                        f"Transient Driver names already exist: {joined}",
+                    )
+
+                for name in owned_names:
+                    old = self._handlers.pop(name, None)
+                    if old is not None:
+                        old_handlers.append(old)
+                    self._handler_scopes.pop(name, None)
+
+                for name, handler in built.items():
+                    self._handlers[name] = handler
+                    self._handler_scopes[name] = scope_id
+
+                if built:
+                    self._scope_handlers[scope_id] = set(built)
+                else:
+                    self._scope_handlers.pop(scope_id, None)
+        except BaseException:
+            await self._shutdown_handlers(built.values())
+            raise
+
+        self._schedule_handler_cleanup(old_handlers)
+
+    async def remove_transient_drivers(self, scope_id: str) -> None:
+        """Unpublish a scope and wait for its managed handler cleanup."""
+        async with self._lock:
+            names = self._scope_handlers.pop(scope_id, set())
+            handlers = []
+            for name in names:
+                handler = self._handlers.pop(name, None)
+                self._handler_scopes.pop(name, None)
+                if handler is not None:
+                    handlers.append(handler)
+        cleanup_task = self._schedule_handler_cleanup(handlers)
+        if cleanup_task is not None:
+            await asyncio.shield(cleanup_task)
+
     async def shutdown_all(self) -> None:
-        """Shutdown all handlers and clear manager state."""
+        """Unpublish all handlers and wait for every managed cleanup."""
         async with self._lock:
             handlers = list(self._handlers.values())
             self._handlers.clear()
-        await self._shutdown_handlers(handlers)
+            self._handler_scopes.clear()
+            self._scope_handlers.clear()
+        self._schedule_handler_cleanup(handlers)
+        await self._wait_for_handler_cleanups()
 
     async def list_drivers(
         self,
@@ -262,7 +413,10 @@ class DriverManager:
         request_context: dict[str, str] | None = None,
     ) -> list[DriverCapability]:
         """Return capabilities exposed by active handlers."""
-        handlers = self._iter_handlers(protocol)
+        scope_id = str(
+            (request_context or {}).get(DRIVER_SCOPE_CONTEXT_KEY) or "",
+        )
+        handlers = self._iter_handlers(protocol, scope_id=scope_id)
         capabilities: list[DriverCapability] = []
         for handler in handlers:
             for capability in await handler.list_capabilities(
@@ -281,6 +435,12 @@ class DriverManager:
     ) -> list[DriverCapability]:
         """Return capabilities from one active Driver only."""
         handler = self._get_handler(name)
+        scope_id = self._handler_scopes.get(name)
+        request_scope = str(
+            (request_context or {}).get(DRIVER_SCOPE_CONTEXT_KEY) or "",
+        )
+        if scope_id is not None and request_scope != scope_id:
+            raise DriverNotFoundError(name)
         capabilities = await handler.list_capabilities(
             request_context=request_context,
         )
@@ -317,6 +477,20 @@ class DriverManager:
                 message=str(exc),
                 metadata={"driver_name": exc.name},
             )
+        scope_id = self._handler_scopes.get(driver_name)
+        request_scope = str(
+            invocation.request_context.get(DRIVER_SCOPE_CONTEXT_KEY) or "",
+        )
+        if scope_id is not None and request_scope != scope_id:
+            return DriverInvocationResult(
+                ok=False,
+                error_type="driver_scope_mismatch",
+                message=(
+                    f"Driver '{driver_name}' is not available in the "
+                    f"current request scope"
+                ),
+                metadata={"driver_name": driver_name},
+            )
         return await handler.invoke_capability(invocation)
 
     def _get_handler(self, name: str) -> DriverHandler:
@@ -328,8 +502,15 @@ class DriverManager:
     def _iter_handlers(
         self,
         protocol: str | None = None,
+        *,
+        scope_id: str = "",
     ) -> list[DriverHandler]:
-        handlers = list(self._handlers.values())
+        handlers = [
+            handler
+            for name, handler in self._handlers.items()
+            if name not in self._handler_scopes
+            or self._handler_scopes[name] == scope_id
+        ]
         if protocol is not None:
             handlers = [
                 handler
@@ -423,13 +604,63 @@ class DriverManager:
         return self._card_store
 
     async def _shutdown_handlers(self, handlers) -> None:
-        await asyncio.gather(
+        results = await asyncio.gather(
             *[
                 self._shutdown_handler_with_timeout(handler)
                 for handler in handlers
             ],
             return_exceptions=True,
         )
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.warning(
+                    "Managed Driver handler cleanup returned an error: %s",
+                    result,
+                )
+
+    def _schedule_handler_cleanup(
+        self,
+        handlers: Iterable[DriverHandler],
+    ) -> asyncio.Task[None] | None:
+        retired = [
+            handler
+            for handler in handlers
+            if id(handler) not in self._cleanup_handler_ids
+        ]
+        if not retired:
+            return None
+        handler_ids = {id(handler) for handler in retired}
+        self._cleanup_handler_ids.update(handler_ids)
+        task = asyncio.create_task(
+            self._shutdown_handlers(retired),
+            name="driver-handler-cleanup",
+        )
+        self._cleanup_tasks.add(task)
+        task.add_done_callback(
+            lambda done: self._finish_handler_cleanup(done, handler_ids),
+        )
+        return task
+
+    def _finish_handler_cleanup(
+        self,
+        task: asyncio.Task[None],
+        handler_ids: set[int],
+    ) -> None:
+        self._cleanup_tasks.discard(task)
+        self._cleanup_handler_ids.difference_update(handler_ids)
+        if task.cancelled():
+            logger.warning("Managed Driver handler cleanup was cancelled")
+            return
+        error = task.exception()
+        if error is not None:
+            logger.error("Managed Driver handler cleanup failed: %s", error)
+
+    async def _wait_for_handler_cleanups(self) -> None:
+        while self._cleanup_tasks:
+            tasks = tuple(self._cleanup_tasks)
+            await asyncio.shield(
+                asyncio.gather(*tasks, return_exceptions=True),
+            )
 
     @staticmethod
     async def _shutdown_handler(handler: DriverHandler) -> None:

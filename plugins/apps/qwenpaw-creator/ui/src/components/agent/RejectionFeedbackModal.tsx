@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Input, Modal } from "antd";
+import { useTranslation } from "react-i18next";
 import type {
   FileProjectReviewRejectionAction,
   FileProjectReviewRejectionFeedback,
@@ -18,6 +19,7 @@ export default function RejectionFeedbackModal({
   onCancel: () => void;
   onSubmit: (feedback: FileProjectReviewRejectionFeedback) => void;
 }) {
+  const { t } = useTranslation();
   const [feedbackNote, setFeedbackNote] = useState("");
   const [pendingAction, setPendingAction] =
     useState<FileProjectReviewRejectionAction | null>(null);
@@ -60,10 +62,10 @@ export default function RejectionFeedbackModal({
       title={
         <div className="min-w-0 pr-10">
           <div className="text-base font-semibold leading-6 text-[var(--color-text-primary)]">
-            撤销内容
+            {t("rejectionFeedback.undoContent")}
           </div>
           <div className="mt-0.5 text-xs font-normal leading-5 text-[var(--color-text-tertiary)]">
-            将撤销 {targetCount} 项内容
+            {t("rejectionFeedback.willUndoCount", { count: targetCount })}
           </div>
         </div>
       }
@@ -79,19 +81,19 @@ export default function RejectionFeedbackModal({
       <div className="pt-1">
         <label className="block text-sm text-[var(--color-text-primary)]">
           <span className="block font-medium leading-5">
-            反馈与调整要求
+            {t("rejectionFeedback.feedbackAndAdjustment")}
             <span className="ml-1 font-normal text-[var(--color-text-tertiary)]">
-              可选
+              {t("rejectionFeedback.optional")}
             </span>
           </span>
           <span
             id="rejection-feedback-help"
             className="mb-2 mt-1 block text-xs leading-5 text-[var(--color-text-tertiary)]"
           >
-            可以同时说明哪里不对，以及希望如何调整。
+            {t("rejectionFeedback.feedbackHint")}
           </span>
           <Input.TextArea
-            aria-label="反馈与调整要求"
+            aria-label={t("rejectionFeedback.feedbackAndAdjustment")}
             aria-describedby="rejection-feedback-help"
             value={feedbackNote}
             maxLength={2000}
@@ -99,19 +101,19 @@ export default function RejectionFeedbackModal({
             autoFocus
             autoSize={{ minRows: 4, maxRows: 8 }}
             onChange={(event) => setFeedbackNote(event.target.value)}
-            placeholder="例如：人物仍像巅峰时期；请保持同一角色身份，改为衣衫褴褛、面容憔悴。"
+            placeholder={t("rejectionFeedback.feedbackPlaceholder")}
           />
         </label>
 
         <div className="mt-5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-xs leading-5 text-[var(--color-text-secondary)]">
           <span className="font-medium text-[var(--color-text-primary)]">
-            仅撤销
+            {t("rejectionFeedback.undoOnly")}
           </span>
-          不会唤醒 Agent；
+          {t("rejectionFeedback.undoOnlyDesc")}
           <span className="ml-1 font-medium text-[var(--color-text-primary)]">
-            撤销并重做
+            {t("rejectionFeedback.undoAndRedo")}
           </span>
-          会把以上反馈作为强制约束继续执行。
+          {t("rejectionFeedback.undoAndRedoDesc")}
         </div>
 
         <div className="mt-5 flex flex-col-reverse gap-2 border-t border-[var(--color-border)] pt-4 sm:flex-row sm:flex-wrap sm:justify-end">
@@ -121,7 +123,7 @@ export default function RejectionFeedbackModal({
             onClick={onCancel}
             className="min-h-10 w-full rounded-lg border border-[var(--color-border)] px-4 py-2 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-secondary)] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
-            取消
+            {t("rejectionFeedback.cancel")}
           </button>
           <button
             type="button"
@@ -130,8 +132,8 @@ export default function RejectionFeedbackModal({
             className="min-h-10 w-full rounded-lg border border-[var(--color-border)] px-4 py-2 text-sm font-medium text-[var(--color-text-primary)] transition-colors hover:border-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-secondary)] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
             {submitting && pendingAction === "UNDO_ONLY"
-              ? "正在撤销…"
-              : "仅撤销"}
+              ? t("rejectionFeedback.undoing")
+              : t("rejectionFeedback.undoOnlyBtn")}
           </button>
           <button
             type="button"
@@ -140,8 +142,8 @@ export default function RejectionFeedbackModal({
             className="min-h-10 w-full rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
             {submitting && pendingAction === "UNDO_AND_REGENERATE"
-              ? "正在提交…"
-              : "撤销并重做"}
+              ? t("rejectionFeedback.submitting")
+              : t("rejectionFeedback.undoAndRedoBtn")}
           </button>
         </div>
       </div>

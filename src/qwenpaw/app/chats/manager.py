@@ -237,6 +237,31 @@ class ChatManager:
         """Refresh updated_at without rewriting other chat fields."""
         return await self.patch_chat(chat_id, ChatUpdate())
 
+    async def set_project_dir(
+        self,
+        chat_id: str,
+        project_dir: str | None,
+    ) -> Optional[ChatSpec]:
+        """Set or clear the controlled Session project directory override."""
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            meta = dict(existing.meta)
+            runtime_context = dict(meta.get("runtime_context") or {})
+            if project_dir is None:
+                runtime_context.pop("project_dir", None)
+            else:
+                runtime_context["project_dir"] = project_dir
+            if runtime_context:
+                meta["runtime_context"] = runtime_context
+            else:
+                meta.pop("runtime_context", None)
+            updated = existing.model_copy(update={"meta": meta})
+            updated.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(updated)
+            return updated
+
     async def delete_chats(self, chat_ids: list[str]) -> bool:
         """Delete a chat spec.
 
