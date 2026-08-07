@@ -50,8 +50,7 @@ jobs:
           shopt -s nullglob
           mv QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip . 2>/dev/null || true
-          mv tauri-updater-meta-macos/QwenPaw-Tauri-*-macOS.app.tar.gz . 2>/dev/null || true
-          files=(QwenPaw-Tauri-*-Windows-setup.exe QwenPaw-Tauri-*-macOS.zip QwenPaw-Tauri-*-macOS.app.tar.gz)
+          files=(QwenPaw-Tauri-*-Windows-setup.exe QwenPaw-Tauri-*-macOS.zip)
           if [ ${#files[@]} -eq 0 ]; then
             echo "::error::No desktop installers found to attach to the release"
             exit 1

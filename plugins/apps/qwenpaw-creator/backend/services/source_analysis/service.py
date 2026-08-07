@@ -48,11 +48,17 @@ from domain.errors import (
 from models import config as model_config
 from models import asr_model
 from schemas.assets import (
+    DocumentMetadata,
+    DocumentTextCoverage,
     SourceAgentIntelligenceInput,
     SourceIndexQueryResult,
     SourceIntelligenceIndex,
     SourceMediaMetadata,
     SourceModelRunRef,
+)
+from services.document_reader import (
+    is_supported_document,
+    read_document,
 )
 from services.project_files.assets import (
     AssetAlreadyExists,
@@ -255,6 +261,18 @@ def _probe_media(
     path: Path,
     version: SourceAssetVersion,
 ) -> SourceMediaMetadata:
+    if version.media_kind in {"document", "text"}:
+        # Documents and text files carry no probeable AV streams; ffprobe
+        # would reject them before read_document ever runs. Page facts
+        # arrive later from the document reader module result. Legacy
+        # "text" sources with a readable extension analyze as documents.
+        readable = version.media_kind == "document" or is_supported_document(
+            version.name or "",
+        )
+        return SourceMediaMetadata(
+            mediaKind="document" if readable else "other",
+            mediaType=version.media_type,
+        )
     try:
         probe = probe_media(os.fspath(path))
     except MediaProbeUnavailable as error:
@@ -295,6 +313,88 @@ def _source_module_result_ref(
         ),
     ).hex
     return f"source-module-result:{identity}"
+
+
+# One pseudo-page occupies this many milliseconds on the document timeline:
+# page N maps to the half-open range [(N-1)*1000, N*1000).
+DOCUMENT_PAGE_INTERVAL_MS = 1000
+
+
+def document_page_ref(source_checksum: str, page: int) -> str:
+    """Stable evidence ref for one rendered document page image."""
+    return f"doc-page://{source_checksum}/{page:04d}"
+
+
+def document_pages_dir(project_root: Path, source_checksum: str) -> Path:
+    return project_root / "runtime" / "doc-pages" / source_checksum[:16]
+
+
+def document_page_path(
+    project_root: Path,
+    source_checksum: str,
+    page: int,
+) -> Path:
+    return (
+        document_pages_dir(
+            project_root,
+            source_checksum,
+        )
+        / f"page-{page:04d}.png"
+    )
+
+
+def resolve_document_page_ref(
+    project_root: Path,
+    ref: str,
+) -> tuple[str, int, Path] | None:
+    """Parse a doc-page:// evidence ref into (checksum, page, local path)."""
+    text = str(ref or "").strip()
+    if not text.startswith("doc-page://"):
+        return None
+    remainder = text.removeprefix("doc-page://")
+    checksum, _, page_text = remainder.partition("/")
+    if not checksum or not page_text.isdigit():
+        return None
+    page = int(page_text)
+    return checksum, page, document_page_path(project_root, checksum, page)
+
+
+# Deterministic document-text semantic entries are bounded per chunk so the
+# canonical index stays line-oriented and retrievable.
+DOCUMENT_TEXT_CHUNK_CHARS = 2000
+
+
+def document_indexed_text_path(
+    project_root: Path,
+    source_checksum: str,
+    result_ref: str,
+) -> Path:
+    """Runtime file holding the full extracted text of one read_document."""
+    identity = uuid5(NAMESPACE_URL, result_ref).hex[:16]
+    return (
+        document_pages_dir(project_root, source_checksum)
+        / f"text-{identity}.txt"
+    )
+
+
+def _document_text_chunks(text: str) -> list[str]:
+    """Split extracted document text into bounded, paragraph-aligned chunks."""
+    chunks: list[str] = []
+    current = ""
+    for paragraph in text.split("\n\n"):
+        candidate = f"{current}\n\n{paragraph}" if current else paragraph
+        if len(candidate) <= DOCUMENT_TEXT_CHUNK_CHARS:
+            current = candidate
+            continue
+        if current.strip():
+            chunks.append(current.strip())
+        while len(paragraph) > DOCUMENT_TEXT_CHUNK_CHARS:
+            chunks.append(paragraph[:DOCUMENT_TEXT_CHUNK_CHARS].strip())
+            paragraph = paragraph[DOCUMENT_TEXT_CHUNK_CHARS:]
+        current = paragraph
+    if current.strip():
+        chunks.append(current.strip())
+    return [chunk for chunk in chunks if chunk]
 
 
 def _covered_ratio(
@@ -495,6 +595,116 @@ class SourceMediaAnalysisService:
             "transcript": transcript,
         }
 
+    async def read_source_document(
+        self,
+        *,
+        project_id: str,
+        target_ref: str,
+        arguments: Mapping[str, Any],
+        context: SourceAgentToolContext,
+    ) -> dict[str, Any]:
+        """Render the admitted document Source into page images + text."""
+
+        file_ref = str(arguments.get("fileRef") or "").strip()
+        pages = arguments.get("pages")
+        pages = str(pages).strip() if pages is not None else None
+        budget = str(arguments.get("budget") or "normal")
+        if budget not in {"small", "normal", "large"}:
+            raise ValidationError(
+                "read_document budget 必须是 small/normal/large",
+            )
+        (
+            _snapshot,
+            _source,
+            version,
+            _indexed,
+            local_path,
+            _source_url,
+            _media,
+        ) = await asyncio.to_thread(
+            self._resolve_agent_source_sync,
+            project_id,
+            target_ref,
+        )
+        if version.media_kind not in {"document", "text"}:
+            raise ValidationError(
+                "read_document 只适用于文档/文本 Source，当前类型为 "
+                f"{version.media_kind}",
+            )
+        expected_ref = f"asset-version:{version.version_id}"
+        if file_ref != expected_ref:
+            raise ValidationError(
+                "fileRef 超出本 Run 准入边界：必须逐字使用当前 Source 选中的 " f"{expected_ref}",
+            )
+        if local_path is None:
+            raise ValidationError(
+                "文档尚未缓存到本地，无法渲染页图；请等待缓存任务完成后重试",
+            )
+        if not is_supported_document(version.name or local_path.name):
+            raise ValidationError(
+                f"不支持的文档格式: {version.name or local_path.name}",
+            )
+        result_ref = _source_module_result_ref(context, "document")
+        project_root = self.services.projects.project_root(project_id)
+        output_dir = document_pages_dir(project_root, version.checksum)
+        source_path = local_path
+        suffix = Path(version.name or "").suffix
+        if suffix and source_path.suffix.lower() != suffix.lower():
+            # Renderer dispatch is extension-based; give cached blobs their
+            # declared extension via a hard link/copy next to the pages.
+            output_dir.mkdir(parents=True, exist_ok=True)
+            aliased = output_dir / f"source{suffix.lower()}"
+            if not aliased.exists():
+                shutil.copyfile(source_path, aliased)
+            source_path = aliased
+        rendered = await read_document(
+            source_path,
+            output_dir=output_dir,
+            pages=pages,
+            budget=budget,  # type: ignore[arg-type]
+        )
+        page_refs = [
+            document_page_ref(version.checksum, page)
+            for page in rendered.pages_rendered
+        ]
+        # Persist the bounded indexed text as a Runtime file: the excerpt
+        # below is for model context only, while commit chunks this file
+        # into the semantic index (coverage reflects any truncation).
+        indexed_text_path = document_indexed_text_path(
+            project_root,
+            version.checksum,
+            result_ref,
+        )
+        indexed_text_path.parent.mkdir(parents=True, exist_ok=True)
+        # Byte-level write: text-mode IO would translate newlines and break
+        # the sha256 integrity contract for sources containing \r.
+        await asyncio.to_thread(
+            indexed_text_path.write_bytes,
+            rendered.indexed_text.encode("utf-8"),
+        )
+        return {
+            "ok": True,
+            "module": "document",
+            "resultRef": result_ref,
+            "sourceAssetVersionId": version.version_id,
+            "sourceChecksum": version.checksum,
+            "format": rendered.format,
+            "pageCount": rendered.page_count,
+            "pagesRendered": list(rendered.pages_rendered),
+            "pageImageRefs": page_refs,
+            "textExcerpt": rendered.text_excerpt,
+            "textCoverage": {
+                "indexedChars": len(rendered.indexed_text),
+                "extractedChars": rendered.extracted_chars,
+                "extractionComplete": rendered.extraction_complete,
+                "extractionFraction": rendered.extraction_fraction,
+                "sha256": sha256(
+                    rendered.indexed_text.encode("utf-8"),
+                ).hexdigest(),
+            },
+            "notes": list(rendered.notes),
+        }
+
     def _module_result_sync(
         self,
         *,
@@ -549,6 +759,14 @@ class SourceMediaAnalysisService:
                 raise ValidationError(
                     "视频素材理解必须包含带时间范围的 semanticEntries",
                 )
+        elif kind == "document":
+            # Page-analog shots are validated against the read_document
+            # module result inside commit_agent_intelligence.
+            if not payload.shots:
+                raise ValidationError(
+                    "文档素材理解必须提交页伪时间线 shots：有页图时每渲染页"
+                    "一条，无页图的文本型文档恰好一条 [0,1000)",
+                )
         elif payload.shots:
             raise ValidationError("非视频素材不得提交 shots 时间线")
 
@@ -573,9 +791,10 @@ class SourceMediaAnalysisService:
                 raise ValidationError(
                     f"semanticEntries[{number}] 缺少 startMs/endMs",
                 )
-            if kind == "image" and item.start_ms is not None:
+            if kind in {"image", "document"} and item.start_ms is not None:
                 raise ValidationError(
-                    f"图片 semanticEntries[{number}] 不得包含时间范围",
+                    f"{'图片' if kind == 'image' else '文档'} "
+                    f"semanticEntries[{number}] 不得包含时间范围",
                 )
             if item.start_ms is not None:
                 assert_range(
@@ -640,7 +859,7 @@ class SourceMediaAnalysisService:
             source,
             version,
             indexed,
-            _local_path,
+            local_path,
             _source_url,
             media,
         ) = await asyncio.to_thread(
@@ -705,14 +924,201 @@ class SourceMediaAnalysisService:
                     )
                     transcript.append(item)
 
-        visual_available = media.media_kind in {"image", "video"}
+        visual_available = media.media_kind in {"image", "video", "document"}
         asr_applicable = media.media_kind in {"video", "audio"}
+
+        is_document = media.media_kind == "document"
+        document_page_refs: list[str] = []
+        document_ratio: float | None = None
+        document_run: SourceModelRunRef | None = None
+        document_indexed_text = ""
+        document_text_available = False
+        document_text_ratio: float | None = None
+        document_ref = agent_payload.module_result_refs.document
+        if is_document:
+            if not document_ref:
+                raise ValidationError(
+                    "文档素材理解必须先调用 read_document，并在 "
+                    "moduleResultRefs.document 引用其 resultRef",
+                )
+            module = await asyncio.to_thread(
+                self._module_result_sync,
+                project_id=project_id,
+                context=context,
+                result_ref=document_ref,
+                tool_name="read_document",
+            )
+            if (
+                module.get("sourceAssetVersionId") != version.version_id
+                or module.get("sourceChecksum") != version.checksum
+            ):
+                raise ValidationError(
+                    "read_document 结果不属于当前 SourceAssetVersion",
+                )
+            try:
+                document_pages = [
+                    int(item) for item in module.get("pagesRendered") or ()
+                ]
+                document_page_refs = [
+                    str(item) for item in module.get("pageImageRefs") or ()
+                ]
+                page_count = int(module.get("pageCount") or 0)
+                document_format = str(module.get("format") or "")
+            except (TypeError, ValueError) as error:
+                raise ValidationError(
+                    f"read_document 结果结构不合法: {error}",
+                ) from error
+            if (
+                len(document_pages) != len(document_page_refs)
+                or page_count < max(1, len(document_pages))
+                or not document_format
+            ):
+                raise ValidationError(
+                    "read_document 结果结构不合法，无法产出文档素材理解",
+                )
+            if document_pages:
+                expected_intervals = [
+                    (
+                        (page - 1) * DOCUMENT_PAGE_INTERVAL_MS,
+                        page * DOCUMENT_PAGE_INTERVAL_MS,
+                    )
+                    for page in document_pages
+                ]
+                document_ratio = len(document_pages) / page_count
+            else:
+                # Text-flavored documents (subtitles, plain text, code)
+                # render no page images; the whole extracted text maps to a
+                # single pseudo-page shot.
+                expected_intervals = [(0, DOCUMENT_PAGE_INTERVAL_MS)]
+                document_ratio = 1.0
+            actual_intervals = [
+                (item.start_ms, item.end_ms) for item in agent_payload.shots
+            ]
+            if actual_intervals != expected_intervals:
+                raise ValidationError(
+                    "文档 shots 必须使用页伪时间区间 [(页号-1)*1000, 页号*1000)："
+                    "有页图时按 pagesRendered 页序每页恰好一条，无页图的文本型文档"
+                    f"恰好一条 [0,1000)；期望 {expected_intervals}，"
+                    f"实际 {actual_intervals}",
+                )
+            # Text-extraction coverage is persisted honestly. New-format
+            # results must be backed by the intact Runtime text file; the
+            # excerpt fallback exists only for legacy results without
+            # textCoverage.
+            indexed_text_path = document_indexed_text_path(
+                self.services.projects.project_root(project_id),
+                version.checksum,
+                document_ref,
+            )
+            if "textCoverage" in module:
+                # Key present (any value, including null) marks a new-format
+                # result, so a null can never be mistaken for a legacy result
+                # and skip the integrity check.
+                raw_text_coverage = module["textCoverage"]
+                # New-format results carry a strict integrity contract: any
+                # missing or malformed field rejects the commit instead of
+                # silently degrading the checks (fail-closed).
+                try:
+                    text_coverage = DocumentTextCoverage.model_validate(
+                        raw_text_coverage,
+                    )
+                except ValueError as error:
+                    raise ValidationError(
+                        f"read_document textCoverage 不合法: {error}",
+                    ) from error
+                indexed_chars = text_coverage.indexed_chars
+                extracted_chars = text_coverage.extracted_chars
+                if not indexed_text_path.is_file():
+                    raise ValidationError(
+                        "文档索引文本的 Runtime 文件缺失，无法提交；请重新调用 "
+                        "read_document 后再提交",
+                    )
+                # Byte-level read: read_text() applies universal-newline
+                # translation (\r\n/\r -> \n), which changes both length and
+                # sha256 for documents whose text layer contains \r and made
+                # this integrity check reject every commit.
+                document_indexed_text_bytes = await asyncio.to_thread(
+                    indexed_text_path.read_bytes,
+                )
+                document_indexed_text = document_indexed_text_bytes.decode(
+                    "utf-8",
+                )
+                actual_sha = sha256(document_indexed_text_bytes).hexdigest()
+                if (
+                    len(document_indexed_text) != indexed_chars
+                    or actual_sha != text_coverage.sha256
+                ):
+                    raise ValidationError(
+                        "文档索引文本与 read_document 的 textCoverage 不一致"
+                        "（Runtime 文件被修改或截断）；请重新调用 "
+                        "read_document 后再提交",
+                    )
+                # Conservative merge of both truncation stages: character
+                # indexing bound x renderer extraction share. An unknowable
+                # extraction total yields an honest unknown ratio.
+                char_ratio = (
+                    min(1.0, indexed_chars / extracted_chars)
+                    if extracted_chars > 0
+                    else None
+                )
+                if text_coverage.extraction_complete:
+                    document_text_ratio = char_ratio
+                else:
+                    fraction = text_coverage.extraction_fraction
+                    document_text_ratio = (
+                        min(1.0, char_ratio * fraction)
+                        if char_ratio is not None and fraction is not None
+                        else None
+                    )
+            else:
+                if indexed_text_path.is_file():
+                    document_indexed_text = (
+                        await asyncio.to_thread(
+                            indexed_text_path.read_bytes,
+                        )
+                    ).decode("utf-8")
+                else:
+                    document_indexed_text = str(
+                        module.get("textExcerpt") or "",
+                    )
+                if document_indexed_text:
+                    document_text_ratio = 1.0
+            document_text_available = bool(document_indexed_text)
+            document_run = SourceModelRunRef(
+                id=f"docreader-{uuid5(NAMESPACE_URL, document_ref).hex}",
+                provider="document_reader",
+                model=document_format,
+            )
+            additional_runs.append(document_run)
+            media = media.model_copy(
+                update={
+                    "document": DocumentMetadata.model_validate(
+                        {
+                            "format": document_format,
+                            "pageCount": page_count,
+                        },
+                    ),
+                },
+            )
+        elif document_ref:
+            raise ValidationError(
+                "moduleResultRefs.document 只适用于文档 Source",
+            )
+
         coverage = {
             "visual": {
                 "mode": "available" if visual_available else "not_applicable",
-                "producer": "model_native" if visual_available else None,
+                "producer": (
+                    "document_reader"
+                    if is_document
+                    else "model_native"
+                    if visual_available
+                    else None
+                ),
                 "ratio": (
-                    visual_ratio
+                    document_ratio
+                    if is_document
+                    else visual_ratio
                     if media.media_kind == "video"
                     else 1.0
                     if media.media_kind == "image"
@@ -731,11 +1137,25 @@ class SourceMediaAnalysisService:
                 "ratio": 1.0 if asr_available else None,
             },
             "ocr": {
-                "mode": "unavailable"
-                if visual_available
-                else "not_applicable",
-                "producer": None,
-                "ratio": None,
+                "mode": (
+                    "available"
+                    if is_document and document_text_available
+                    else "unavailable"
+                    if visual_available
+                    else "not_applicable"
+                ),
+                "producer": (
+                    "document_reader"
+                    if is_document and document_text_available
+                    else None
+                ),
+                # None with mode=available means the coverage share is
+                # honestly unknown (renderer cap with unknowable total).
+                "ratio": (
+                    document_text_ratio
+                    if is_document and document_text_available
+                    else None
+                ),
             },
             "audio": {
                 "mode": "unavailable" if asr_applicable else "not_applicable",
@@ -750,10 +1170,20 @@ class SourceMediaAnalysisService:
                 "endMs": item.end_ms,
                 "description": item.description.strip(),
                 "events": [value.strip() for value in item.events],
-                "keyframeRef": evidence_ref,
+                "keyframeRef": (
+                    document_page_refs[number - 1]
+                    if is_document and document_page_refs
+                    else evidence_ref
+                ),
                 "confidence": item.confidence,
                 "modelRunId": visual_run.id,
-                "evidenceFrameRefs": [evidence_ref],
+                "evidenceFrameRefs": [
+                    (
+                        document_page_refs[number - 1]
+                        if is_document and document_page_refs
+                        else evidence_ref
+                    ),
+                ],
             }
             for number, item in enumerate(agent_payload.shots, 1)
         ]
@@ -790,6 +1220,24 @@ class SourceMediaAnalysisService:
             }
             for number, item in enumerate(agent_payload.semantic_entries, 1)
         ]
+        if document_run is not None:
+            # The extracted document text enters the index deterministically:
+            # retrieval must not depend on the model re-typing the content.
+            offset = len(semantic)
+            semantic.extend(
+                {
+                    "id": f"semantic-{offset + number:06d}",
+                    "text": chunk,
+                    "tags": ["document-text", f"chunk-{number}"],
+                    "confidence": 1.0,
+                    "modelRunId": document_run.id,
+                    "evidenceFrameRefs": [evidence_ref],
+                }
+                for number, chunk in enumerate(
+                    _document_text_chunks(document_indexed_text),
+                    1,
+                )
+            )
         raw = {
             "summary": agent_payload.summary.strip(),
             "coverage": coverage,
@@ -818,7 +1266,7 @@ class SourceMediaAnalysisService:
             created_at=created_at.isoformat().replace("+00:00", "Z"),
             media=media,
             coverage_policy=coverage,
-            provenance_refs=(evidence_ref,),
+            provenance_refs=(evidence_ref, *document_page_refs),
         )
         job = SourceAnalysisJob(
             project_id=project_id,
@@ -854,14 +1302,51 @@ class SourceMediaAnalysisService:
             created_at,
             False,
         )
+        memory_build = await self._schedule_memory_build(
+            project_id=project_id,
+            index=index,
+            local_path=local_path,
+            command_id=command_id,
+        )
         return {
             "ok": True,
             "status": "SUCCEEDED",
             "summary": index.summary,
             "shotCount": len(index.shots),
             "semanticEntryCount": len(index.semantic_entries),
+            **({"memoryBuild": memory_build} if memory_build else {}),
             **published,
         }
+
+    async def _schedule_memory_build(
+        self,
+        *,
+        project_id: str,
+        index: SourceIntelligenceIndex,
+        local_path: Path | None,
+        command_id: str,
+    ) -> dict[str, Any] | None:
+        """Queue the long-source memory build; never blocks the index."""
+
+        from services.media.source_memory import source_memory_service
+
+        try:
+            return await source_memory_service(
+                self.services,
+            ).maybe_schedule_build(
+                project_id=project_id,
+                index=index,
+                local_path=local_path,
+                caused_by_request_id=command_id,
+            )
+        except Exception as error:  # pylint: disable=broad-except
+            import logging
+
+            logging.getLogger("creator.source_memory").warning(
+                "memory build scheduling failed (non-fatal): %s",
+                error,
+            )
+            return None
 
     async def dispatch(
         self,
@@ -1111,6 +1596,24 @@ class SourceMediaAnalysisService:
             raise StorageIntegrityError(
                 "Source Intelligence 文件与 project.json 索引不一致",
             )
+        # Hydrate the read-only memory pointer AFTER the canonical byte
+        # check: memory artifacts live outside the immutable index file and
+        # invalidate themselves on sourceChecksum change.
+        from services.media.source_memory import (
+            load_memory_ref,
+            merge_projection_semantics,
+        )
+
+        project_root = self.services.projects.project_root(project_id)
+        index.memory_ref = load_memory_ref(
+            project_root,
+            index.id,
+            index.source_checksum,
+        )
+        # Fold the P3 Root/SuperEvent drafts into the semantic surface
+        # (producer=source_memory) so downstream consumers review them
+        # alongside the outer-VLM entries.
+        merge_projection_semantics(project_root, index)
         return index
 
     def query(

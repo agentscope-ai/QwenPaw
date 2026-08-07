@@ -4,7 +4,6 @@
 This module handles system commands like /compact, /new, /clear, etc.
 """
 
-import asyncio
 import json
 import logging
 from pathlib import Path
@@ -1386,9 +1385,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         if not args or args == "on":
             try:
+                workspace = getattr(self._prompt_context, "workspace", None)
                 result = enable_proactive_for_session(
                     self.agent_name,
                     30,
+                    workspace=workspace,
                 )
                 return await self._make_system_msg(
                     msgs["enabled"].format(
@@ -1404,18 +1405,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         elif args == "off":
             try:
-                from .memory import proactive_tasks
+                from .memory import disable_proactive_for_session
 
-                if self.agent_name in proactive_tasks:
-                    task = proactive_tasks[self.agent_name]
-                    if not task.done():
-                        task.cancel()
-                        try:
-                            await task
-                        except asyncio.CancelledError:
-                            pass
-                    del proactive_tasks[self.agent_name]
-
+                result = await disable_proactive_for_session(
+                    self.agent_name,
+                )
                 return await self._make_system_msg(
                     msgs["disabled"],
                 )
@@ -1429,9 +1423,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 if minutes <= 0:
                     raise ValueError("Minutes must be a positive integer")
 
+                workspace = getattr(self._prompt_context, "workspace", None)
                 result = enable_proactive_for_session(
                     self.agent_name,
                     minutes,
+                    workspace=workspace,
                 )
                 return await self._make_system_msg(
                     msgs["enabled"].format(

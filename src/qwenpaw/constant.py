@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Load .env file from project root before reading any env vars
@@ -405,6 +406,20 @@ try:
     )
 except (TypeError, ValueError):
     TOOL_GUARD_APPROVAL_HEARTBEAT_INTERVAL = 15.0
+
+# TTL for learned model capability cache entries (seconds).
+# 0 disables expiry. Stale entries from transient upstream failures
+# (e.g. a gateway routing a multimodal model to a text-only backend)
+# are discarded after this duration.
+try:
+    CAPABILITY_CACHE_TTL_SECONDS = max(
+        float(
+            _get_env("QWENPAW_CAPABILITY_CACHE_TTL_SECONDS", "1800"),
+        ),
+        0.0,
+    )
+except (TypeError, ValueError):
+    CAPABILITY_CACHE_TTL_SECONDS = 1800.0
 
 # Marker prepended to every truncation notice.
 # Format:

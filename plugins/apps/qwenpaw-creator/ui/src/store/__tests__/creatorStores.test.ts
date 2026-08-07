@@ -104,7 +104,7 @@ describe("bounded frontend caches", () => {
     });
   });
 
-  it("assembles native Sub-agent tool argument deltas before tool start completes", () => {
+  it("tracks Sub-agent tool progress and canonical arguments", () => {
     useCreatorSessionStore.setState({ projectId: "p1", lastEventSeq: 0 });
     act(() =>
       useCreatorSessionStore.getState().ingestEvents([
@@ -122,9 +122,9 @@ describe("bounded frontend caches", () => {
           },
         },
         {
-          eventId: "tool-delta-0",
+          eventId: "tool-progress",
           seq: 2,
-          type: "subagent.tool_delta",
+          type: "subagent.tool_progress",
           projectId: "p1",
           creatorSessionId: "s1",
           at: "now",
@@ -132,12 +132,11 @@ describe("bounded frontend caches", () => {
             parentActionId: "delegate-1",
             runId: "run-1",
             role: "visual_development_agent",
-            messageId: "message-1",
             toolCallId: "tool-1",
             tool: "read_project_file",
-            deltaIndex: 0,
-            argumentsDelta: '{"path":"story/',
-            state: "streaming",
+            receivedBytes: 2048,
+            providerChunkCount: 12,
+            complete: false,
           },
         },
       ]),
@@ -149,53 +148,17 @@ describe("bounded frontend caches", () => {
       ];
     expect(tool).toMatchObject({
       status: "started",
-      argumentDeltas: { 0: '{"path":"story/' },
+      receivedBytes: 2048,
+      providerChunkCount: 12,
+      argumentStreamComplete: false,
     });
     expect(tool.arguments).toBeUndefined();
 
     act(() =>
       useCreatorSessionStore.getState().ingestEvents([
         {
-          eventId: "tool-delta-1",
-          seq: 3,
-          type: "subagent.tool_delta",
-          projectId: "p1",
-          creatorSessionId: "s1",
-          at: "now",
-          data: {
-            parentActionId: "delegate-1",
-            runId: "run-1",
-            role: "visual_development_agent",
-            messageId: "message-1",
-            toolCallId: "tool-1",
-            tool: "read_project_file",
-            deltaIndex: 1,
-            argumentsDelta: 'outline.md"}',
-            state: "streaming",
-          },
-        },
-        {
-          eventId: "tool-delta-duplicate",
-          seq: 4,
-          type: "subagent.tool_delta",
-          projectId: "p1",
-          creatorSessionId: "s1",
-          at: "now",
-          data: {
-            parentActionId: "delegate-1",
-            runId: "run-1",
-            role: "visual_development_agent",
-            messageId: "message-1",
-            toolCallId: "tool-1",
-            tool: "read_project_file",
-            deltaIndex: 1,
-            argumentsDelta: 'ignored"}',
-            state: "streaming",
-          },
-        },
-        {
           eventId: "tool-started",
-          seq: 5,
+          seq: 3,
           type: "subagent.tool_started",
           projectId: "p1",
           creatorSessionId: "s1",
@@ -218,46 +181,28 @@ describe("bounded frontend caches", () => {
       useCreatorSessionStore.getState().subagentActivities["delegate-1"].tools[
         "run-1:tool-1"
       ];
-    expect(tool.argumentDeltas).toEqual({
-      0: '{"path":"story/',
-      1: 'outline.md"}',
-    });
     expect(tool.arguments).toEqual({ path: "story/outline.md" });
     expect(tool.firstEventSeq).toBe(2);
   });
 
-  it("assembles native main-agent tool deltas into the streaming assistant boundary", () => {
+  it("projects aggregated tool progress without retaining raw fragments", () => {
     useCreatorSessionStore.setState({ projectId: "p1", lastEventSeq: 0 });
     act(() =>
       useCreatorSessionStore.getState().ingestEvents([
         {
-          eventId: "main-tool-delta-0",
+          eventId: "main-tool-progress-1",
           seq: 1,
-          type: "agent.tool_delta",
+          type: "agent.tool_progress",
           projectId: "p1",
           creatorSessionId: "s1",
           at: "now",
           data: {
-            messageId: "assistant-1",
-            toolCallId: "call-plan",
-            tool: "plan",
-            deltaIndex: 0,
-            argumentsDelta: '{"summary":"计划",',
-          },
-        },
-        {
-          eventId: "main-tool-delta-1",
-          seq: 2,
-          type: "agent.tool_delta",
-          projectId: "p1",
-          creatorSessionId: "s1",
-          at: "now",
-          data: {
-            messageId: "assistant-1",
-            toolCallId: "call-plan",
-            tool: "plan",
-            deltaIndex: 1,
-            argumentsDelta: '"steps":["执行"],"scope":["project:plan"]}',
+            messageId: "assistant-progress",
+            toolCallId: "call-jq",
+            tool: "jq_project",
+            receivedBytes: 24_576,
+            providerChunkCount: 2_021,
+            complete: false,
           },
         },
       ]),
@@ -265,19 +210,15 @@ describe("bounded frontend caches", () => {
 
     expect(
       useCreatorSessionStore.getState().streamingAssistantMessages[
-        "assistant-1"
-      ],
-    ).toMatchObject({
-      messageId: "assistant-1",
-      toolCall: {
-        id: "call-plan",
-        name: "plan",
-        arguments: {
-          summary: "计划",
-          steps: ["执行"],
-          scope: ["project:plan"],
-        },
-      },
+        "assistant-progress"
+      ].toolCall,
+    ).toEqual({
+      id: "call-jq",
+      name: "jq_project",
+      arguments: undefined,
+      receivedBytes: 24_576,
+      providerChunkCount: 2_021,
+      argumentStreamComplete: false,
     });
   });
 

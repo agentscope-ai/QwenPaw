@@ -32,7 +32,6 @@ export const DOC_GROUPS: DocGroup[] = [
         slug: "memory-evolving-and-proactive",
         titleKey: "docs.memoryEvolvingAndProactive",
       },
-      { slug: "coding-mode", titleKey: "docs.codingMode" },
     ],
   },
   {
@@ -62,8 +61,12 @@ export const DOC_GROUPS: DocGroup[] = [
     ],
   },
   {
-    titleKey: "docs.groupPlugins",
-    children: [{ slug: "computer-use", titleKey: "docs.computerUse" }],
+    titleKey: "docs.groupBrowserDesktop",
+    children: [
+      { slug: "browser", titleKey: "docs.browser" },
+      { slug: "chrome", titleKey: "docs.chrome" },
+      { slug: "computer-use", titleKey: "docs.computerUse" },
+    ],
   },
   {
     titleKey: "docs.groupPractice",

@@ -16,7 +16,7 @@ import pytest
 
 from qwenpaw.agents.acp.meta import (
     ACP_APPROVAL_EXPIRES_AT_META_KEY,
-    ACP_CODING_PROJECT_META_KEY,
+    ACP_PROJECT_DIR_META_KEY,
 )
 from qwenpaw.cli.tui.events import (
     BackendWarmed,
@@ -47,7 +47,7 @@ def test_session_kwargs_include_project_dir():
         project_dir="/tmp/project",
     )
     assert transport._session_kwargs() == {
-        ACP_CODING_PROJECT_META_KEY: "/tmp/project",
+        ACP_PROJECT_DIR_META_KEY: "/tmp/project",
     }
 
 

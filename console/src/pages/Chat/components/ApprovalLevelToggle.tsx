@@ -37,12 +37,14 @@ interface ApprovalLevelToggleProps {
   runningConfigApprovalLevel: ToolExecutionLevel;
   /** null = no session override, backend uses running-config */
   onChange?: (sessionOverride: ToolExecutionLevel | null) => void;
+  compact?: boolean;
 }
 
 const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   sessionId,
   runningConfigApprovalLevel,
   onChange,
+  compact = false,
 }) => {
   const { t } = useTranslation();
   const [sessionLevel, setSessionLevel] = useState<ToolExecutionLevel | null>(
@@ -139,6 +141,7 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
         trigger={["click"]}
       >
         <Tag
+          aria-label={t("agentConfig.toolExecutionLevelTitle")}
           style={{
             cursor: "pointer",
             userSelect: "none",
@@ -149,14 +152,23 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
             alignItems: "center",
             gap: 4,
             lineHeight: "22px",
+            width: compact ? 30 : undefined,
+            height: compact ? 30 : undefined,
+            padding: compact ? 0 : undefined,
+            marginInlineEnd: 0,
+            justifyContent: "center",
           }}
         >
           {meta.icon}
-          {t(
-            `agentConfig.toolExecutionLevel.${effectiveLevel.toLowerCase()}`,
-            effectiveLevel,
+          {!compact && (
+            <>
+              {t(
+                `agentConfig.toolExecutionLevel.${effectiveLevel.toLowerCase()}`,
+                effectiveLevel,
+              )}
+              <DownOutlined style={{ fontSize: 10 }} />
+            </>
           )}
-          <DownOutlined style={{ fontSize: 10 }} />
         </Tag>
       </Dropdown>
     </Tooltip>

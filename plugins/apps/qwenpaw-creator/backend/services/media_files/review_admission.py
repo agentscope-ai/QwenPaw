@@ -7,14 +7,36 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from domain.errors import ReviewPendingError
+from models.config import (
+    MEDIA_REVIEW_AUTO_APPROVE,
+    get_media_review_mode,
+)
 from services.project_files.models import ArtifactVersion
-from services.runtime_files.models import ReviewRecord, ReviewStatus
+from services.runtime_files.models import (
+    ReviewPolicy,
+    ReviewRecord,
+    ReviewStatus,
+)
 from utils.logger import setup_logger
 
 
 logger = setup_logger("services.media_files.review_admission")
 
 _ARTIFACT_VERSION_POINTER_PREFIX = "/assets/artifact_versions_by_id/"
+
+
+def media_review_policy() -> ReviewPolicy:
+    """Commit policy for generated media, honoring the unattended mode.
+
+    ``auto_approve`` reuses the existing AUTO_FIX acceptance path — the
+    commit lands without a pending Review record — so fully unattended
+    (YOLO) runs never park on a human quality gate. Every other value
+    keeps the deliberate REQUIRE_REVIEW default.
+    """
+
+    if get_media_review_mode() == MEDIA_REVIEW_AUTO_APPROVE:
+        return ReviewPolicy.AUTO_FIX
+    return ReviewPolicy.REQUIRE_REVIEW
 
 
 @dataclass(frozen=True, slots=True)

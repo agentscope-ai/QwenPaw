@@ -36,6 +36,7 @@ from domain.errors import (
 from domain.enums import TaskKind, TaskStatus
 from schemas.assets import TextOrUrlAssetRequest
 from schemas.common import StrictModel
+from services.document_reader import is_supported_document
 from services.project_files.assets import (
     AssetAlreadyExists,
     AssetFileError,
@@ -373,22 +374,51 @@ def _asset_size_bytes(item: _AssetInput | _StagedAssetInput) -> int:
     return len(item.content)
 
 
-def _media_kind(media_type: str) -> str:
+_AV_MIME_PREFIXES = (
+    ("image/", "image"),
+    ("video/", "video"),
+    ("audio/", "audio"),
+)
+_DOCUMENT_MIME_MARKERS = (
+    "document",
+    "presentation",
+    "spreadsheet",
+    "powerpoint",
+    "ms-excel",
+)
+
+
+def _media_kind(media_type: str, name: str = "") -> str:
     normalized = media_type.casefold()
-    if normalized.startswith("image/"):
-        return "image"
-    if normalized.startswith("video/"):
-        return "video"
-    if normalized.startswith("audio/"):
-        return "audio"
-    if normalized.startswith("text/"):
-        return "text"
-    if (
-        normalized in {"application/pdf", "application/msword"}
-        or "document" in normalized
+    # SVG is a renderable document (vendored resvg renderer), not a raster
+    # image: the image/* prefix would lock it out of read_document.
+    if normalized == "image/svg+xml" or name.casefold().endswith(".svg"):
+        return "document"
+    for prefix, kind in _AV_MIME_PREFIXES:
+        if normalized.startswith(prefix):
+            return kind
+    # Extension carries the format for documents: CSV/subtitles/plain text
+    # arrive as text/*, and legacy Office MIME types would otherwise fall
+    # into "other", locking them out of the read_document flow.
+    if name and is_supported_document(name):
+        return "document"
+    if normalized in {"application/pdf", "application/msword"} or any(
+        marker in normalized for marker in _DOCUMENT_MIME_MARKERS
     ):
         return "document"
+    if normalized.startswith("text/"):
+        return "text"
     return "other"
+
+
+def _assert_supported_source_upload(name: str, media_type: str) -> None:
+    """Source uploads must be analyzable creative material, not opaque blobs."""
+    if _media_kind(media_type, name) != "other":
+        return
+    raise ValidationError(
+        f"不支持的来源素材格式: {name}（{media_type}）。"
+        "支持图片、视频、音频，以及 PDF/Office/表格/字幕/纯文本等可读文档。",
+    )
 
 
 def _extension(name: str, media_type: str) -> str:
@@ -544,7 +574,7 @@ def _ingest_many_locked(
                     name=item.name,
                     file_id=file_id,
                     checksum=checksum,
-                    media_kind=_media_kind(item.media_type),
+                    media_kind=_media_kind(item.media_type, item.name),
                     media_type=item.media_type,
                     created_at=created_at,
                     metadata={"clientRequestId": key},
@@ -866,7 +896,7 @@ def _register_remote_asset_sync(
         name=name,
         file_id=None,
         checksum=checksum,
-        media_kind=_media_kind(media_type),
+        media_kind=_media_kind(media_type, name),
         media_type=media_type,
         provenance_refs=[url],
         created_at=created_at,
@@ -1231,6 +1261,8 @@ async def ingest_asset(
             media_type=media_type,
             size_bytes=upload.size,
         )
+        if post_action == "ATTACH_SOURCE":
+            _assert_supported_source_upload(name, media_type)
         upload_store = await _upload_file_store(services, project_id)
         input_item: _AssetInput | _StagedAssetInput = await _stage_upload(
             upload,
@@ -1389,6 +1421,8 @@ async def import_assets(
                 media_type=media_type,
                 size_bytes=upload.size,
             )
+            if post_action == "ATTACH_SOURCE":
+                _assert_supported_source_upload(name, media_type)
             item = await _stage_upload(
                 upload,
                 name=name,

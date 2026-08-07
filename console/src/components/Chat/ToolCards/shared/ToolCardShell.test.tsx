@@ -41,6 +41,57 @@ const content: ToolCallContent = {
 };
 
 describe("ToolCardShell lazy body", () => {
+  it("opens file-facing results by default when requested", () => {
+    render(
+      <ToolCardShell
+        content={content}
+        icon={<span />}
+        title="Send file"
+        defaultExpanded
+      >
+        <div>hello.txt</div>
+      </ToolCardShell>,
+    );
+
+    const details = screen.getByText("hello.txt").closest("details");
+    expect(details).toHaveAttribute("open");
+  });
+
+  it("keeps ordinary tool details collapsed and unmounted", () => {
+    const { container } = render(
+      <ToolCardShell content={content} icon={<span />} title="Ordinary tool">
+        <div>raw output</div>
+      </ToolCardShell>,
+    );
+
+    expect(container.querySelector("details")).not.toHaveAttribute("open");
+    expect(screen.queryByText("raw output")).not.toBeInTheDocument();
+  });
+
+  it("does not toggle the tool when its summary action is clicked", () => {
+    const { container } = render(
+      <ToolCardShell
+        content={content}
+        icon={<span />}
+        title="Read file"
+        summaryAction={
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            Preview
+          </button>
+        }
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    expect(container.querySelector("details")).not.toHaveAttribute("open");
+  });
+
   it("keeps the full tool title available when the label is truncated", () => {
     const title = `Run ${"long-command-argument ".repeat(40)}`;
 

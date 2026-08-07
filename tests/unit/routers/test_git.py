@@ -147,7 +147,15 @@ async def test_commit_endpoint_passes_identity_args(
         fake_run_command_async,
     )
     monkeypatch.setattr(git_router, "get_agent_for_request", fake_get_agent)
-    monkeypatch.setattr(git_router, "get_coding_dir", lambda _ws: tmp_path)
+
+    async def fake_get_project_dir(_request, _workspace):
+        return tmp_path
+
+    monkeypatch.setattr(
+        git_router,
+        "get_project_dir_for_request",
+        fake_get_project_dir,
+    )
 
     result = await git_router.commit_changes(
         CommitRequest(message="fix identity"),

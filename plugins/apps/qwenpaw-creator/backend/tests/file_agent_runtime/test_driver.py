@@ -13,7 +13,7 @@ import pytest
 from PIL import Image
 
 from api.file_asset_routes import _AssetInput, _ingest_many_sync
-from domain.errors import ReviewPendingError
+from domain.errors import NotFoundError, ReviewPendingError
 from schemas.assets import SourceMediaMetadata, SourceModelRunRef
 from services.file_agent_runtime import (
     AgentModelConfigurationError,
@@ -25,15 +25,18 @@ from services.file_agent_runtime import (
 )
 from services.file_agent_runtime.driver import (
     MalformedJqProjectArguments,
+    _ToolArgumentProgressReporter,
     _apply_review_feedback_to_tool_arguments,
     _jq_project_argument_diagnosis,
+    _jq_project_recovery,
     _review_feedback_target_refs,
     _specialist_tool_recovery,
+    _tool_call_transport_metadata,
 )
 from services.file_agent_runtime.prompts import render_creator_system_prompt
 from services.observability import read_trace_records
 from services.project_files.facade import CreatorFileServices
-from services.project_files.models import Project
+from services.project_files.models import Project, VisualEntity
 from services.project_files.review import ReviewDecisionItem
 from services.runtime_files.atomic_store import AtomicJsonRecordStore
 from services.runtime_files.models import (
@@ -58,6 +61,63 @@ PROJECT_ID = "project-1"
 SESSION_ID = "session-1"
 CONVERSATION_ID = "conversation-1"
 GOAL_ID = "goal-1"
+
+
+def _png_bytes_for_grounding() -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (16, 12), color="white").save(output, format="PNG")
+    return output.getvalue()
+
+
+def test_tool_argument_fragments_are_aggregated_and_persisted_once() -> None:
+    emitted: list[tuple[str, int, int, bool]] = []
+    fragment = "abcdefghijkl"
+    raw = fragment * 2_140
+
+    async def scenario() -> None:
+        async def emit(tool_call_id, state, complete) -> None:
+            emitted.append(
+                (
+                    tool_call_id,
+                    state.received_bytes,
+                    state.provider_chunk_count,
+                    complete,
+                ),
+            )
+
+        reporter = _ToolArgumentProgressReporter(emit)
+        for _ in range(2_140):
+            await reporter.feed("call-large", "jq_project", fragment)
+        await reporter.finish(
+            (
+                AgentToolCall(
+                    call_id="call-large",
+                    name="jq_project",
+                    arguments={"projectId": PROJECT_ID},
+                    raw_arguments=raw,
+                    raw_arguments_bytes=len(raw.encode("utf-8")),
+                    provider_chunk_count=2_140,
+                ),
+            ),
+        )
+
+    asyncio.run(scenario())
+
+    assert len(emitted) < 30
+    assert emitted[0][3] is False
+    assert emitted[-1] == ("call-large", len(raw), 2_140, True)
+    transport = _tool_call_transport_metadata(
+        AgentToolCall(
+            call_id="call-large",
+            name="jq_project",
+            arguments={"projectId": PROJECT_ID},
+            raw_arguments=raw,
+            raw_arguments_bytes=len(raw),
+            provider_chunk_count=2_140,
+        ),
+    )
+    assert transport["rawArguments"] == raw
+    assert transport["providerChunkCount"] == 2_140
 
 
 def test_rejection_feedback_is_fenced_and_injected_into_media_prompt() -> None:
@@ -148,15 +208,22 @@ def test_stale_project_snapshots_are_elided_from_the_continuation() -> None:
     A 50-element production run accumulated 18 full project.json echoes
     (2.09MB) in one Conversation and every model call failed with an
     input-length 400. Older echoes carry no information the model cannot
-    get from read_project, so they collapse to a one-line stub; durable
-    history keeps every byte.
+    get from the latest snapshot, so they collapse to change receipts;
+    durable history keeps every byte.
     """
 
     from services.file_agent_runtime.driver import (
         _continuation_message_text,
     )
 
-    def message(seq: int, *, role: str, source: str, text: str):
+    def message(
+        seq: int,
+        *,
+        role: str,
+        source: str,
+        text: str,
+        metadata: dict | None = None,
+    ):
         return CreatorMessageRecord(
             message_id=f"message-{seq}",
             project_id=PROJECT_ID,
@@ -167,13 +234,32 @@ def test_stale_project_snapshots_are_elided_from_the_continuation() -> None:
             content_parts=[{"type": "text", "text": text}],
             source=source,
             channel=MessageChannel.RUNTIME,
+            metadata=metadata or {},
         )
 
     old_snapshot = json.dumps(
-        {"project": {"generation": 11, "padding": "x" * 8000}},
+        {
+            "project": {
+                "project_id": PROJECT_ID,
+                "generation": 11,
+                "padding": "x" * 8000,
+            },
+            "generation": 11,
+            "etag": "etag-11",
+            "transactionId": "transaction-11",
+            "changedPointers": ["/name"],
+        },
     )
     new_snapshot = json.dumps(
-        {"project": {"generation": 113, "padding": "y" * 8000}},
+        {
+            "project": {
+                "project_id": PROJECT_ID,
+                "generation": 113,
+                "padding": "y" * 8000,
+            },
+            "generation": 113,
+            "etag": "etag-113",
+        },
     )
     prior = [
         message(1, role="user", source="user", text="把故事写完"),
@@ -182,6 +268,12 @@ def test_stale_project_snapshots_are_elided_from_the_continuation() -> None:
             role="tool",
             source="runtime_action_result",
             text=old_snapshot,
+            metadata={
+                "toolName": "jq_project",
+                "resultKind": "project_snapshot",
+                "transactionId": "transaction-11",
+                "changedPointers": ["/name"],
+            },
         ),
         message(3, role="assistant", source="creator_agent", text="写好了"),
         message(
@@ -189,20 +281,375 @@ def test_stale_project_snapshots_are_elided_from_the_continuation() -> None:
             role="tool",
             source="runtime_action_result",
             text=new_snapshot,
+            metadata={
+                "toolName": "read_project",
+                "resultKind": "project_snapshot",
+            },
         ),
     ]
     request = message(5, role="user", source="user", text="继续")
 
     rendered = _continuation_message_text(request, prior)
 
-    # The stale echo is gone, replaced by a stub that names its vintage.
+    # The stale echo is gone, replaced by a deterministic change receipt.
     assert "x" * 100 not in rendered
-    assert "generation 11 时点" in rendered
-    assert "read_project" in rendered
+    assert "project_change_receipt" in rendered
+    assert "transaction-11" in rendered
+    assert "changedPointers" in rendered
+    assert "/name" in rendered
     # The newest echo and ordinary messages survive verbatim.
     assert "y" * 100 in rendered
     assert "把故事写完" in rendered
     assert "写好了" in rendered
+
+
+def test_large_non_snapshot_tool_results_survive_snapshot_compaction() -> None:
+    from services.file_agent_runtime.driver import (
+        _continuation_message_text,
+    )
+
+    def message(
+        seq: int,
+        *,
+        role: str,
+        source: str,
+        text: str,
+        metadata: dict | None = None,
+    ):
+        return CreatorMessageRecord(
+            message_id=f"message-{seq}",
+            project_id=PROJECT_ID,
+            creator_session_id=SESSION_ID,
+            conversation_id=CONVERSATION_ID,
+            message_seq=seq,
+            role=role,
+            content_parts=[{"type": "text", "text": text}],
+            source=source,
+            channel=MessageChannel.RUNTIME,
+            metadata=metadata or {},
+        )
+
+    def snapshot(generation: int, padding: str) -> str:
+        return json.dumps(
+            {
+                "project": {
+                    "project_id": PROJECT_ID,
+                    "generation": generation,
+                    "padding": padding * 8000,
+                },
+                "generation": generation,
+                "etag": f"etag-{generation}",
+            },
+        )
+
+    source_marker = "SOURCE_FACT_MARKER"
+    grounding_marker = "GROUNDING_FACT_MARKER"
+    unknown_marker = "UNKNOWN_TOOL_MARKER"
+    prior = [
+        message(
+            1,
+            role="tool",
+            source="runtime_action_result",
+            text=json.dumps(
+                {"content": source_marker + "s" * 6000},
+            ),
+            metadata={"toolName": "read_project_file"},
+        ),
+        message(
+            2,
+            role="tool",
+            source="runtime_action_result",
+            text=snapshot(1, "x"),
+            metadata={
+                "toolName": "read_project",
+                "resultKind": "project_snapshot",
+            },
+        ),
+        message(
+            3,
+            role="tool",
+            source="runtime_action_result",
+            text=json.dumps(
+                {"sources": [grounding_marker + "g" * 6000]},
+            ),
+            metadata={
+                "toolName": "ground_prompt_context",
+                "resultKind": "web_grounding",
+            },
+        ),
+        message(
+            4,
+            role="tool",
+            source="runtime_action_result",
+            text=json.dumps({"value": unknown_marker + "u" * 6000}),
+            metadata={"toolName": "future_large_tool"},
+        ),
+        message(
+            5,
+            role="tool",
+            source="runtime_action_result",
+            text=snapshot(2, "y"),
+            metadata={
+                "toolName": "jq_project",
+                "resultKind": "project_snapshot",
+            },
+        ),
+    ]
+    request = message(6, role="user", source="user", text="继续")
+
+    rendered = _continuation_message_text(request, prior)
+
+    assert source_marker in rendered
+    assert grounding_marker in rendered
+    assert unknown_marker in rendered
+    assert "x" * 100 not in rendered
+    assert "y" * 100 in rendered
+    assert "project_change_receipt" in rendered
+
+
+def test_small_superseded_project_snapshot_is_compacted() -> None:
+    from services.file_agent_runtime.driver import _elide_stale_snapshots
+
+    def snapshot_message(seq: int, generation: int) -> CreatorMessageRecord:
+        return CreatorMessageRecord(
+            message_id=f"message-{seq}",
+            project_id=PROJECT_ID,
+            creator_session_id=SESSION_ID,
+            conversation_id=CONVERSATION_ID,
+            message_seq=seq,
+            role="tool",
+            content_parts=[
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "project": {
+                                "project_id": PROJECT_ID,
+                                "generation": generation,
+                            },
+                            "generation": generation,
+                            "etag": f"etag-{generation}",
+                        },
+                    ),
+                },
+            ],
+            source="runtime_action_result",
+            channel=MessageChannel.RUNTIME,
+            metadata={
+                "toolName": "read_project",
+                "resultKind": "project_snapshot",
+            },
+        )
+
+    receipts = _elide_stale_snapshots(
+        [snapshot_message(1, 1), snapshot_message(2, 2)],
+    )
+
+    assert set(receipts) == {1}
+    assert "project_change_receipt" in receipts[1]
+
+
+def test_invalid_snapshot_payload_is_not_compacted() -> None:
+    from services.file_agent_runtime.driver import (
+        _continuation_message_text,
+    )
+
+    def message(seq: int, text: str, metadata: dict):
+        return CreatorMessageRecord(
+            message_id=f"message-{seq}",
+            project_id=PROJECT_ID,
+            creator_session_id=SESSION_ID,
+            conversation_id=CONVERSATION_ID,
+            message_seq=seq,
+            role="tool",
+            content_parts=[{"type": "text", "text": text}],
+            source="runtime_action_result",
+            channel=MessageChannel.RUNTIME,
+            metadata=metadata,
+        )
+
+    invalid_marker = "INVALID_SNAPSHOT_MARKER"
+    invalid = json.dumps(
+        {
+            "project": {
+                "generation": 1,
+                "padding": invalid_marker + "x" * 8000,
+            },
+            "generation": 1,
+            "etag": "etag-1",
+        },
+    )
+    valid = json.dumps(
+        {
+            "project": {
+                "project_id": PROJECT_ID,
+                "generation": 2,
+                "padding": "y" * 8000,
+            },
+            "generation": 2,
+            "etag": "etag-2",
+        },
+    )
+    metadata = {
+        "toolName": "read_project",
+        "resultKind": "project_snapshot",
+    }
+    request = CreatorMessageRecord(
+        message_id="message-3",
+        project_id=PROJECT_ID,
+        creator_session_id=SESSION_ID,
+        conversation_id=CONVERSATION_ID,
+        message_seq=3,
+        role="user",
+        content_parts=[{"type": "text", "text": "继续"}],
+        source="user",
+        channel=MessageChannel.RUNTIME,
+    )
+
+    rendered = _continuation_message_text(
+        request,
+        [message(1, invalid, metadata), message(2, valid, metadata)],
+    )
+
+    assert invalid_marker in rendered
+
+
+def test_active_run_compacts_only_superseded_project_snapshots() -> None:
+    from services.file_agent_runtime.driver import (
+        _compact_wire_project_snapshots,
+    )
+
+    def snapshot(generation: int, padding: str) -> str:
+        return json.dumps(
+            {
+                "project": {
+                    "project_id": PROJECT_ID,
+                    "generation": generation,
+                    "padding": padding * 8000,
+                },
+                "generation": generation,
+                "etag": f"etag-{generation}",
+                "changedPointers": ["/generationMarker"],
+            },
+        )
+
+    grounding_marker = "ACTIVE_GROUNDING_MARKER"
+    messages = [
+        {"role": "tool", "name": "jq_project", "content": snapshot(1, "x")},
+        {
+            "role": "tool",
+            "name": "ground_prompt_context",
+            "content": grounding_marker + "g" * 6000,
+        },
+        {"role": "tool", "name": "read_project", "content": snapshot(2, "y")},
+    ]
+
+    _compact_wire_project_snapshots(messages)
+
+    assert "x" * 100 not in messages[0]["content"]
+    assert "project_change_receipt" in messages[0]["content"]
+    assert "changedPointers" in messages[0]["content"]
+    assert grounding_marker in messages[1]["content"]
+    assert "y" * 100 in messages[2]["content"]
+
+
+def test_active_run_compacts_snapshot_inside_multipart_tool_content() -> None:
+    from services.file_agent_runtime.driver import (
+        _compact_wire_project_snapshots,
+    )
+
+    def snapshot(generation: int, padding: str) -> str:
+        return json.dumps(
+            {
+                "project": {
+                    "project_id": PROJECT_ID,
+                    "generation": generation,
+                    "padding": padding * 8000,
+                },
+                "generation": generation,
+                "etag": f"etag-{generation}",
+            },
+        )
+
+    messages = [
+        {
+            "role": "tool",
+            "name": "jq_project",
+            "content": [
+                {"type": "text", "text": "preserved supplemental text"},
+                {
+                    "type": "text",
+                    "text": snapshot(1, "x"),
+                    "cache_control": {"type": "ephemeral"},
+                },
+            ],
+        },
+        {
+            "role": "tool",
+            "name": "read_project",
+            "content": [{"type": "text", "text": snapshot(2, "y")}],
+        },
+    ]
+
+    _compact_wire_project_snapshots(messages)
+
+    old_content = messages[0]["content"]
+    assert isinstance(old_content, list)
+    assert old_content[0]["text"] == "preserved supplemental text"
+    assert "project_change_receipt" in old_content[1]["text"]
+    assert "x" * 100 not in old_content[1]["text"]
+    assert old_content[1]["cache_control"] == {"type": "ephemeral"}
+    latest_content = messages[1]["content"]
+    assert isinstance(latest_content, list)
+    assert "y" * 100 in latest_content[0]["text"]
+
+
+def test_runtime_action_result_kind_requires_a_valid_snapshot() -> None:
+    from services.file_agent_runtime.driver import (
+        _runtime_action_result_kind,
+    )
+
+    valid_snapshot = {
+        "project": {
+            "project_id": PROJECT_ID,
+            "generation": 3,
+        },
+        "generation": 3,
+        "etag": "etag-3",
+    }
+
+    assert (
+        _runtime_action_result_kind(
+            "read_project",
+            valid_snapshot,
+            failed=False,
+        )
+        == "project_snapshot"
+    )
+    assert (
+        _runtime_action_result_kind(
+            "read_project_file",
+            valid_snapshot,
+            failed=False,
+        )
+        is None
+    )
+    assert (
+        _runtime_action_result_kind(
+            "read_project",
+            {"project": valid_snapshot["project"]},
+            failed=False,
+        )
+        is None
+    )
+    assert (
+        _runtime_action_result_kind(
+            "read_project",
+            valid_snapshot,
+            failed=True,
+        )
+        is None
+    )
 
 
 def test_small_runtime_results_are_never_elided() -> None:
@@ -303,6 +750,53 @@ def test_message_text_includes_exact_project_json_selection_locator() -> None:
     )
 
 
+def test_message_text_includes_buffered_user_edits() -> None:
+    from services.file_agent_runtime.driver import _message_text
+
+    message = CreatorMessageRecord(
+        message_id="message-user-edits",
+        project_id=PROJECT_ID,
+        creator_session_id=SESSION_ID,
+        conversation_id=CONVERSATION_ID,
+        message_seq=2,
+        role="user",
+        content_parts=[{"type": "text", "text": "继续优化节奏"}],
+        metadata={
+            "context": {
+                "userEdits": {
+                    "count": 1,
+                    "truncated": 0,
+                    "edits": [
+                        {
+                            "at": "2026-07-31T03:00:00Z",
+                            "op": "replace",
+                            "path": (
+                                "/timelines/items/timeline:main"
+                                "/elements_by_id/edit-1/span/start_tick"
+                            ),
+                            "target": {
+                                "kind": "element",
+                                "id": "edit-1",
+                                "label": "开场",
+                            },
+                            "field": "span/start_tick",
+                            "before": 0,
+                            "after": 2000,
+                        },
+                    ],
+                },
+            },
+        },
+    )
+
+    rendered = _message_text(message)
+
+    assert "userEdits" in rendered
+    assert "手动应用且已生效" in rendered
+    assert '"field":"span/start_tick"' in rendered
+    assert '"after":2000' in rendered
+
+
 def test_ai_edit_idempotency_can_be_scoped_to_one_model_tool_call() -> None:
     from services.file_agent_runtime.driver import (
         _specialist_tool_invocation_id,
@@ -361,16 +855,24 @@ def _create_project(tmp_path, *, initial_goal: str | None):
             conversation_id=CONVERSATION_ID,
             initial_goal=initial_goal,
             goal_id=GOAL_ID if initial_goal is not None else None,
-            initial_message_id="message-initial"
-            if initial_goal is not None
-            else None,
+            initial_message_id=(
+                "message-initial" if initial_goal is not None else None
+            ),
             initial_client_message_id=(
                 "client-initial" if initial_goal is not None else None
             ),
         )
 
+    project = Project.new(project_id=PROJECT_ID, name="Initial")
+    project.visual.entities.items["hero"] = VisualEntity(
+        entity_id="hero",
+        kind="character",
+        name="Hero",
+        required_variant_ids=[],
+    )
+    project.visual.entities.order.append("hero")
     snapshot = services.projects.create(
-        Project.new(project_id=PROJECT_ID, name="Initial"),
+        project,
         initialize_staged_project=initialize,
     )
     services.poller.note_commit(snapshot)
@@ -386,7 +888,9 @@ def _edit_client(*, description: str):
             "read_project",
             "read_project_file",
             "jq_project",
+            "patch_project",
             "ground_prompt_context",
+            "ground_image_objects",
             "elements_at",
             "delegate_to_agent",
         }
@@ -396,6 +900,7 @@ def _edit_client(*, description: str):
         )
         assert "# Workspace 基础 Schema" in messages[0]["content"]
         assert "PROJECT_JSON_SCHEMA=" in messages[0]["content"]
+        assert "ground_image_objects" in messages[0]["content"]
         turn += 1
         if turn == 1:
             return AgentModelTurn(
@@ -426,6 +931,221 @@ def _edit_client(*, description: str):
         return AgentModelTurn(content="项目说明已更新。")
 
     return CallbackAgentChatClient(callback)
+
+
+def test_visual_delegation_rejects_source_logical_asset_target(
+    tmp_path,
+) -> None:
+    parent_turn = 0
+
+    async def callback(messages, tools):
+        nonlocal parent_turn
+        names = {item["function"]["name"] for item in tools}
+        assert (
+            "image_generation" not in names
+        ), "an invalid visual target must fail before a specialist starts"
+        parent_turn += 1
+        if parent_turn == 1:
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="delegate-wrong-asset-domain",
+                        name="delegate_to_agent",
+                        arguments={
+                            "role": "visual_development_agent",
+                            "target_refs": ["asset:asset-source-logical-id"],
+                            "task": "生成角色定妆图",
+                        },
+                    ),
+                ),
+            )
+        tool_result = json.loads(messages[-1]["content"])
+        assert tool_result["ok"] is False
+        assert "VisualEntity.entity_id" in tool_result["error"]["message"]
+        return AgentModelTurn(content="已识别错误的视觉目标。")
+
+    async def scenario():
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="为来源素材中的人物生成定妆图",
+        )
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
+        )
+        await driver.wait_until_idle(PROJECT_ID)
+        specialist_runs = driver.executions.list_specialist_runs(PROJECT_ID)
+        await driver.stop()
+        return specialist_runs
+
+    assert asyncio.run(scenario()) == []
+
+
+def test_specialist_stops_after_repeated_non_retryable_tool_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import services.file_agent_runtime.driver as driver_module
+
+    monkeypatch.setattr(
+        driver_module,
+        "get_execution_authorization_mode",
+        lambda: "allow_all",
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "get_creation_checkpoint_mode",
+        lambda: "skip",
+    )
+    parent_turn = 0
+    specialist_turn = 0
+
+    async def callback(messages, tools):
+        nonlocal parent_turn, specialist_turn
+        names = {item["function"]["name"] for item in tools}
+        if "image_generation" in names:
+            specialist_turn += 1
+            assert specialist_turn <= 2, "a third model turn must not start"
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id=f"missing-image-{specialist_turn}",
+                        name="image_generation",
+                        arguments={
+                            "projectId": PROJECT_ID,
+                            "targetRef": "asset:hero",
+                            "arguments": {"prompt": "hero portrait"},
+                        },
+                    ),
+                ),
+            )
+        parent_turn += 1
+        if parent_turn == 1:
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="delegate-visual",
+                        name="delegate_to_agent",
+                        arguments={
+                            "role": "visual_development_agent",
+                            "target_refs": ["asset:hero"],
+                            "task": "生成角色图",
+                        },
+                    ),
+                ),
+            )
+        return AgentModelTurn(content="视觉任务已明确失败，停止重试。")
+
+    async def scenario():
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="生成角色图",
+        )
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+
+        async def missing_visual_entity(**_kwargs):
+            raise NotFoundError("视觉 Asset 不存在")
+
+        driver.specialist_tools.invoke = (  # type: ignore[method-assign]
+            missing_visual_entity
+        )
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
+        )
+        await driver.wait_until_idle(PROJECT_ID)
+        specialist = driver.executions.list_specialist_runs(PROJECT_ID)[0]
+        await driver.stop()
+        return specialist
+
+    specialist = asyncio.run(scenario())
+    assert specialist_turn == 2
+    assert specialist.status.value == "FAILED"
+    assert "repeated the same non-retryable" in (
+        specialist.final_summary_text or ""
+    )
+
+
+def test_specialist_model_turn_has_a_wall_clock_timeout(tmp_path) -> None:
+    parent_turn = 0
+    specialist_started = asyncio.Event()
+
+    async def callback(_messages, tools):
+        nonlocal parent_turn
+        names = {item["function"]["name"] for item in tools}
+        if "image_generation" in names:
+            specialist_started.set()
+            await asyncio.Event().wait()
+        parent_turn += 1
+        if parent_turn == 1:
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="delegate-hanging-visual",
+                        name="delegate_to_agent",
+                        arguments={
+                            "role": "visual_development_agent",
+                            "target_refs": ["asset:hero"],
+                            "task": "生成角色图",
+                        },
+                    ),
+                ),
+            )
+        return AgentModelTurn(content="视觉模型超时，当前运行已结束。")
+
+    async def scenario():
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="生成角色图",
+        )
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+            model_turn_timeout_seconds=0.02,
+        )
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await asyncio.wait_for(specialist_started.wait(), timeout=2.0)
+        await _wait_for(
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
+        )
+        await driver.wait_until_idle(PROJECT_ID)
+        specialist = driver.executions.list_specialist_runs(PROJECT_ID)[0]
+        await driver.stop()
+        return specialist
+
+    specialist = asyncio.run(scenario())
+    assert specialist.status.value == "FAILED"
+    assert "model turn exceeded 0.02 seconds" in (
+        specialist.final_summary_text or ""
+    )
 
 
 def _corrupted_jq_call(*, call_id: str, etag: str) -> AgentToolCall:
@@ -637,6 +1357,34 @@ def test_r2v_real_face_rejection_gets_targeted_recovery() -> None:
     assert "video_reference_version_ids" not in generic
 
 
+def test_image_safety_rejection_gets_targeted_recovery() -> None:
+    """A provider safety refusal names the reference-image fix.
+
+    Deterministic safety rejections (for example real-person photos used
+    as references) can never succeed with identical arguments; the
+    recovery must say to drop person-bearing references instead of the
+    generic retry text.
+    """
+
+    targeted = _specialist_tool_recovery(
+        "image_generation",
+        "Task task-1 ended as FAILED: {'code': 'IMAGE_GENERATION_FAILED', "
+        "'message': 'Image generation failed with status 400: Your request "
+        "was rejected by the safety system.'}",
+    )
+    assert "safety system" in targeted
+    assert "do not resubmit the same arguments" in targeted.casefold()
+    assert "remove" in targeted.casefold()
+    assert "scene or prop" in targeted
+
+    # Other image failures keep the generic guidance.
+    generic = _specialist_tool_recovery(
+        "image_generation",
+        "Task task-2 ended as FAILED: provider timeout",
+    )
+    assert "safety system" not in generic
+
+
 def test_extra_data_recovery_names_the_premature_close() -> None:
     """An "Extra data" strict error gets the premature-close hint.
 
@@ -672,7 +1420,157 @@ def test_extra_data_recovery_names_the_premature_close() -> None:
 
     assert "closed the top-level JSON object too early" in recovery
     assert "char 5756" in recovery
-    assert "one jq_project call per timeline" in recovery
+    assert "9364 bytes" in recovery
+    assert "under 4096 bytes" in recovery
+    assert (
+        "one timeline element or settings change per jq_project call"
+        in recovery
+    )
+
+
+def test_large_payload_advisory_fires_at_twice_prompt_guidance() -> None:
+    """The advisory threshold tracks the prompt's 4KB argument guidance.
+
+    An 11KB payload (the size observed truncating in production) must
+    surface ``largePayloadAdvisory`` instead of staying silent until the
+    former 256KB threshold.
+    """
+
+    def diagnosis_for(raw_bytes: int):
+        return _jq_project_argument_diagnosis(
+            AgentToolCall(
+                call_id=f"advisory-{raw_bytes}",
+                name="jq_project",
+                arguments={
+                    "projectId": PROJECT_ID,
+                    "program": ".description = $description",
+                    "stringArgs": {"description": "compact"},
+                },
+                raw_arguments_bytes=raw_bytes,
+            ),
+        )
+
+    assert diagnosis_for(11_260).event_payload()["largePayloadAdvisory"] is (
+        True
+    )
+    assert diagnosis_for(4_096).event_payload()["largePayloadAdvisory"] is (
+        False
+    )
+
+
+def test_jq_argument_diagnosis_reports_component_sizes() -> None:
+    payload = "x" * (256 * 1024)
+    diagnosis = _jq_project_argument_diagnosis(
+        AgentToolCall(
+            call_id="large-jq-write",
+            name="jq_project",
+            arguments={
+                "projectId": PROJECT_ID,
+                "program": ".description = $description",
+                "jsonArgs": {"description": payload},
+            },
+        ),
+    )
+
+    event = diagnosis.event_payload()
+    assert event["programBytes"] == len(
+        ".description = $description".encode(),
+    )
+    assert event["jsonArgsBytes"] > 256 * 1024
+    assert event["largePayloadAdvisory"] is True
+
+
+def test_generic_jq_recovery_only_describes_jq_call_repair() -> None:
+    recovery = _jq_project_recovery(None)
+
+    assert "complete Project root" in recovery
+    assert "duration_tick" not in recovery
+    assert "playback_rate" not in recovery
+
+
+def test_main_agent_stops_repeating_deterministic_jq_failure(
+    tmp_path,
+) -> None:
+    turn = 0
+    failed_program = ".visual.entities.items = ($entities | from_entries)"
+    failed_arguments = {
+        "projectId": PROJECT_ID,
+        "program": failed_program,
+        "jsonArgs": {
+            "entities": {"char:hero": {"entity_id": "char:hero"}},
+        },
+    }
+
+    async def callback(messages, _tools):
+        nonlocal turn
+        turn += 1
+        assert turn <= 2, "a third model turn must not start"
+        if turn == 2:
+            first_failure = json.loads(messages[-1]["content"])
+            assert first_failure["error"]["code"] == (
+                "JQ_ARGUMENT_TYPE_MISMATCH"
+            )
+            assert first_failure["error"]["retryable"] is False
+            assert (
+                "assign or merge it directly"
+                in first_failure["error"]["recovery"]
+            )
+        return AgentModelTurn(
+            tool_calls=(
+                AgentToolCall(
+                    call_id=f"repeat-invalid-jq-{turn}",
+                    name="jq_project",
+                    arguments=failed_arguments,
+                ),
+            ),
+        )
+
+    async def scenario():
+        services, snapshot = _create_project(
+            tmp_path,
+            initial_goal="更新视觉实体",
+        )
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).status.value
+                == "ERROR"
+            ),
+        )
+        await driver.wait_until_idle(PROJECT_ID)
+        session = services.sessions.get_project_session(PROJECT_ID)
+        project = services.projects.read(PROJECT_ID)
+        tool_results = [
+            json.loads(message.content_parts[0].text or "{}")
+            for message in services.sessions.list_messages(
+                PROJECT_ID,
+                SESSION_ID,
+            )
+            if message.role == "tool"
+            and message.metadata.get("toolName") == "jq_project"
+        ]
+        await driver.stop()
+        return session, project, snapshot, tool_results
+
+    session, project, snapshot, tool_results = asyncio.run(scenario())
+    assert turn == 2
+    assert session.error is not None
+    assert session.error["code"] == "TOOL_NON_PROGRESS"
+    assert session.error["retryable"] is False
+    assert project.etag == snapshot.etag
+    assert len(tool_results) == 2
+    assert all(
+        result["error"]["code"] == "JQ_ARGUMENT_TYPE_MISMATCH"
+        for result in tool_results
+    )
 
 
 def test_repaired_jq_project_arguments_never_execute_even_when_schema_valid(
@@ -734,7 +1632,12 @@ def test_repaired_jq_project_arguments_never_execute_even_when_schema_valid(
             recovery = rejected["error"]["recovery"]
             assert "cut off" in recovery
             assert "Unterminated string at EOF" in recovery
-            assert "one jq_project call per timeline" in recovery
+            assert "18522 bytes" in recovery
+            assert "under 4096 bytes" in recovery
+            assert (
+                "one timeline element or settings change "
+                "per jq_project call" in recovery
+            )
             return AgentModelTurn(
                 tool_calls=(
                     AgentToolCall(
@@ -872,8 +1775,8 @@ def test_repeated_malformed_jq_project_arguments_stop_after_two_retries(
     assert project.generation == 0
     assert turn == 4
     assert session.error is not None
-    assert session.error["code"] == "MODEL_REQUEST_FAILED"
-    assert session.error["retryable"] is True
+    assert session.error["code"] == "TOOL_NON_PROGRESS"
+    assert session.error["retryable"] is False
     assert "after 2 bounded retries" in session.error["message"]
     errors = [
         json.loads(message.content_parts[0].text or "{}")["error"]
@@ -897,7 +1800,9 @@ def test_repeated_malformed_jq_project_arguments_stop_after_two_retries(
     assert "Do not resend it" in errors[-1]["recovery"]
 
 
-async def _wait_for(predicate, *, timeout: float = 5.0) -> None:
+async def _wait_for(predicate, *, timeout: float = 30.0) -> None:
+    # Generous ceiling: the loop returns as soon as the predicate holds,
+    # while parallel full-suite runs need headroom under load.
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while not predicate():
@@ -913,7 +1818,10 @@ def test_initial_creation_runs_auto_fix_tool_loop_without_review(
     monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path))
 
     async def scenario():
-        services, _snapshot = _create_project(tmp_path, initial_goal="请完善项目说明")
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="请完善项目说明",
+        )
         driver = FileCreatorAgentRuntime(
             services,
             model_client=_edit_client(description="由初始任务生成"),
@@ -959,7 +1867,7 @@ def test_initial_creation_runs_auto_fix_tool_loop_without_review(
     event_types = {item.event_type for item in events}
     assert {
         "agent.message_delta",
-        "agent.tool_delta",
+        "agent.tool_progress",
         "message.completed",
         "agent.tool_started",
         "agent.tool_completed",
@@ -985,11 +1893,15 @@ def test_initial_creation_runs_auto_fix_tool_loop_without_review(
     )
     assert assistant_turns[0].source == "creator_agent"
     assert assistant_turns[0].metadata["actionId"] == "read-1"
-    assert assistant_turns[0].metadata["toolCall"] == {
+    persisted_tool_call = assistant_turns[0].metadata["toolCall"]
+    assert {
+        key: persisted_tool_call[key] for key in ("id", "name", "arguments")
+    } == {
         "id": "read-1",
         "name": "read_project",
         "arguments": {"projectId": PROJECT_ID},
     }
+    assert persisted_tool_call["transport"]["rawArgumentsCaptured"] is False
     assert all(item.source == "runtime_action_result" for item in tool_results)
     assert all(
         isinstance(json.loads(item.content_parts[0].text or ""), dict)
@@ -1131,6 +2043,240 @@ def test_creator_agent_can_call_ground_prompt_context_tool(
     )
 
 
+def test_creator_agent_can_call_object_grounding_tool(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from services.file_agent_runtime import driver as driver_module
+
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path))
+
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (100, 50), color="white").save(
+        image_buffer,
+        format="PNG",
+    )
+    image_bytes = image_buffer.getvalue()
+
+    async def fake_resolve(self, project_id, image_ref):
+        assert project_id == PROJECT_ID
+        assert image_ref == "https://images.example.test/frame.png"
+        return image_bytes
+
+    async def fake_ground(content, image_url, prompt):
+        assert content == image_bytes
+        assert image_url.startswith(
+            f"/generated/projects/{PROJECT_ID}/task-work/",
+        )
+        assert prompt == "the red car"
+        return {
+            "imageSize": {"width": 100, "height": 50},
+            "detections": [
+                {
+                    "label": "red car",
+                    "bbox_normalized": [100, 200, 900, 800],
+                    "bbox_pixel": [10, 10, 90, 40],
+                },
+            ],
+            "rawResponse": (
+                '[{"label":"red car","bbox_2d":[100,200,900,800]}]'
+            ),
+            "model": "qwen-test-vl",
+        }
+
+    monkeypatch.setattr(
+        driver_module.FileCreatorAgentRuntime,
+        "_resolve_object_grounding_image",
+        fake_resolve,
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "ground_image_objects",
+        fake_ground,
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "render_object_grounding_annotation",
+        lambda content, detections: image_bytes,
+    )
+
+    turn = 0
+
+    async def callback(messages, tools):
+        nonlocal turn
+        manifests = {
+            item["function"]["name"]: item["function"] for item in tools
+        }
+        assert "ground_image_objects" in manifests
+        schema = manifests["ground_image_objects"]["parameters"]
+        assert schema["required"] == ["projectId", "imageRef", "prompt"]
+        turn += 1
+        if turn == 1:
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="object-ground-1",
+                        name="ground_image_objects",
+                        arguments={
+                            "projectId": PROJECT_ID,
+                            "imageRef": (
+                                "https://images.example.test/frame.png"
+                            ),
+                            "prompt": "the red car",
+                            "returnImage": True,
+                        },
+                    ),
+                ),
+            )
+        result = json.loads(messages[-1]["content"])
+        assert result.get("detections", [])[0]["bbox_normalized"] == [
+            100,
+            200,
+            900,
+            800,
+        ]
+        assert result["annotatedImageUrl"].startswith(
+            f"/generated/projects/{PROJECT_ID}/task-work/",
+        )
+        return AgentModelTurn(content="对象定位已完成")
+
+    async def scenario():
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="定位图片中的红色汽车",
+        )
+        runtime = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+        await runtime.start()
+        runtime.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
+        )
+        await runtime.wait_until_idle(PROJECT_ID)
+        messages = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
+        events = services.sessions.list_events(PROJECT_ID, SESSION_ID)
+        await runtime.stop()
+        return messages, events
+
+    messages, events = asyncio.run(scenario())
+    tool_results = [
+        item
+        for item in messages
+        if item.source == "runtime_action_result"
+        and item.metadata.get("tool") == "ground_image_objects"
+    ]
+    assert len(tool_results) == 1
+    assert tool_results[0].metadata["resultKind"] == "object_grounding"
+    payload = json.loads(tool_results[0].content_parts[0].text or "")
+    assert payload["status"] == "success"
+    assert payload["inputImageUrl"].startswith("/generated/projects/")
+    assert any(
+        event.event_type == "agent.tool_completed"
+        and event.payload.get("tool") == "ground_image_objects"
+        for event in events
+    )
+
+
+def test_object_grounding_generated_url_is_scoped_to_current_project(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from services.file_agent_runtime import driver as driver_module
+
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path))
+    services, _snapshot = _create_project(tmp_path, initial_goal=None)
+    runtime = FileCreatorAgentRuntime(services, poll_interval_seconds=0.01)
+    image_bytes = _png_bytes_for_grounding()
+    ingested, _ = _ingest_many_sync(
+        services,
+        project_id=PROJECT_ID,
+        key="object-grounding-image",
+        inputs=[
+            _AssetInput(
+                name="input.png",
+                content=image_bytes,
+                media_type="image/png",
+            ),
+        ],
+        attach_source=False,
+        scope="object-grounding-ref-test",
+    )
+    asset_id = ingested["items"][0]["assetId"]
+    version_id = ingested["items"][0]["assetVersionId"]
+    current_image = (
+        services.projects.project_root(PROJECT_ID)
+        / "runtime"
+        / "task-work"
+        / "request-1"
+        / "input.png"
+    )
+    current_image.parent.mkdir(parents=True)
+    current_image.write_bytes(image_bytes)
+    current_url = (
+        f"/generated/projects/{PROJECT_ID}/task-work/request-1/input.png"
+    )
+
+    assert (
+        asyncio.run(
+            runtime._resolve_object_grounding_image(PROJECT_ID, current_url),
+        )
+        == current_image.read_bytes()
+    )
+    assert (
+        asyncio.run(
+            runtime._resolve_object_grounding_image(
+                PROJECT_ID,
+                f"asset-version:{version_id}",
+            ),
+        )
+        == image_bytes
+    )
+    assert (
+        asyncio.run(
+            runtime._resolve_object_grounding_image(
+                PROJECT_ID,
+                f"asset://{asset_id}@{version_id}",
+            ),
+        )
+        == image_bytes
+    )
+    with pytest.raises(
+        driver_module.FileAgentRuntimeError,
+        match="outside the current Project",
+    ):
+        asyncio.run(
+            runtime._resolve_object_grounding_image(
+                PROJECT_ID,
+                "/generated/projects/other-project/task-work/request-1/input.png",
+            ),
+        )
+
+
+def test_object_grounding_version_ref_requires_exact_version() -> None:
+    from services.file_agent_runtime import driver as driver_module
+
+    assert driver_module._object_grounding_version_ref(
+        "asset-version:source-version-1",
+    ) == ("asset", "source-version-1")
+    assert driver_module._object_grounding_version_ref(
+        "artifact://artifact-1@artifact-version-1",
+    ) == ("artifact", "artifact-version-1")
+    assert (
+        driver_module._object_grounding_version_ref("asset://asset-1") is None
+    )
+    assert (
+        driver_module._object_grounding_version_ref("/tmp/local.png") is None
+    )
+
+
 def test_grounding_visual_promotion_requires_explicit_acceptance() -> None:
     from services.file_agent_runtime import driver as driver_module
 
@@ -1202,7 +2348,10 @@ def test_stream_persistence_failure_is_not_reported_as_a_model_failure(
         return AgentModelTurn(content="完整结果")
 
     async def scenario():
-        services, _snapshot = _create_project(tmp_path, initial_goal="请生成结果")
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="请生成结果",
+        )
         driver = FileCreatorAgentRuntime(
             services,
             model_client=CallbackAgentChatClient(callback),
@@ -1255,7 +2404,9 @@ def test_parent_authors_timeline_elements_without_planning_specialists(
             "read_project",
             "read_project_file",
             "jq_project",
+            "patch_project",
             "ground_prompt_context",
+            "ground_image_objects",
             "elements_at",
             "delegate_to_agent",
         }
@@ -1427,10 +2578,14 @@ def test_source_intelligence_receives_every_user_media_part_directly(
             content = messages[1]["content"]
             assert isinstance(content, list)
             observed_source_content.extend(content)
-            return AgentModelTurn(content="[SUCCESS]\n已直接观察全部用户素材。")
+            return AgentModelTurn(
+                content="[SUCCESS]\n已直接观察全部用户素材。",
+            )
         assert messages[-1]["role"] == "user"
         observed_correction = str(messages[-1]["content"])
-        return AgentModelTurn(content="[FAILED]\n测试未提供可提交的 ProjectSource。")
+        return AgentModelTurn(
+            content="[FAILED]\n测试未提供可提交的 ProjectSource。",
+        )
 
     async def scenario():
         services, _snapshot = _create_project(tmp_path, initial_goal=None)
@@ -1770,7 +2925,12 @@ def test_parent_reads_persisted_source_intelligence_and_links_project_structure(
                                         "startMs": 0,
                                         "endMs": 5000,
                                         "text": "人物在海边日落中完成走向镜头的动作",
-                                        "tags": ["海边", "日落", "行走", "接近镜头"],
+                                        "tags": [
+                                            "海边",
+                                            "日落",
+                                            "行走",
+                                            "接近镜头",
+                                        ],
                                         "confidence": 0.95,
                                     },
                                 ],
@@ -1837,7 +2997,9 @@ def test_parent_reads_persisted_source_intelligence_and_links_project_structure(
             SESSION_ID,
             CONVERSATION_ID,
             role="user",
-            content_parts=[{"type": "text", "text": "把上传素材剪成一个短视频"}],
+            content_parts=[
+                {"type": "text", "text": "把上传素材剪成一个短视频"},
+            ],
             source="initial_creation",
             channel=MessageChannel.COMPOSER,
             classification=MessageClassification.MUTATION_INSTRUCTION,
@@ -2196,7 +3358,10 @@ def test_intervention_completion_queues_mainline_resume(tmp_path) -> None:
 
 def test_interrupt_revokes_stale_run_before_late_tool_commit(tmp_path) -> None:
     async def scenario():
-        services, snapshot = _create_project(tmp_path, initial_goal="请修改项目")
+        services, snapshot = _create_project(
+            tmp_path,
+            initial_goal="请修改项目",
+        )
         started = asyncio.Event()
 
         async def stubborn_model(_messages, _tools):
@@ -2247,7 +3412,10 @@ def test_interrupt_revokes_stale_run_before_late_tool_commit(tmp_path) -> None:
 
 def test_interrupt_returns_before_slow_task_cleanup_finishes(tmp_path) -> None:
     async def scenario():
-        services, _snapshot = _create_project(tmp_path, initial_goal="请修改项目")
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="请修改项目",
+        )
         started = asyncio.Event()
         cleanup_started = asyncio.Event()
         release_cleanup = asyncio.Event()
@@ -2294,7 +3462,10 @@ def test_specialist_cancel_emits_terminal_event(tmp_path) -> None:
     """
 
     async def scenario():
-        services, _snapshot = _create_project(tmp_path, initial_goal="生成角色图")
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="生成角色图",
+        )
         specialist_started = asyncio.Event()
         cancel_entered = asyncio.Event()
 
@@ -2394,7 +3565,10 @@ def test_specialist_cancel_while_waiting_runtime_emits_terminal_event(
     )
 
     async def scenario():
-        services, _snapshot = _create_project(tmp_path, initial_goal="生成角色图")
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="生成角色图",
+        )
         invoke_started = asyncio.Event()
         cancel_entered = asyncio.Event()
 
@@ -2639,7 +3813,9 @@ def test_agentdock_message_after_interrupt_reuses_goal_and_conversation_context(
             CONVERSATION_ID,
             request_id="continue-request",
             client_message_id="continue-message",
-            content_parts=[{"type": "text", "text": "继续刚才的任务，开始剪辑。"}],
+            content_parts=[
+                {"type": "text", "text": "继续刚才的任务，开始剪辑。"},
+            ],
             channel=MessageChannel.AGENTDOCK,
             classification=MessageClassification.MUTATION_INSTRUCTION,
         )
@@ -2709,7 +3885,10 @@ def test_durable_interrupt_stops_remote_owner_without_restarting_message(
     tmp_path,
 ) -> None:
     async def scenario():
-        services, _snapshot = _create_project(tmp_path, initial_goal="请修改项目")
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="请修改项目",
+        )
         started = asyncio.Event()
         cancelled = asyncio.Event()
 
@@ -2776,7 +3955,10 @@ def test_durable_interrupt_stops_remote_owner_without_restarting_message(
 
 def test_missing_model_configuration_persists_session_error(tmp_path) -> None:
     async def scenario():
-        services, _snapshot = _create_project(tmp_path, initial_goal="请修改项目")
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="请修改项目",
+        )
 
         async def missing(_messages, _tools):
             raise AgentModelConfigurationError(
@@ -2835,7 +4017,10 @@ def test_failed_run_is_not_relaunched_after_restart_or_notify(
         return AgentModelTurn(content="不应被调用")
 
     async def scenario():
-        services, _snapshot = _create_project(tmp_path, initial_goal="请修改项目")
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="请修改项目",
+        )
         first = FileCreatorAgentRuntime(
             services,
             model_client=CallbackAgentChatClient(failing),
@@ -2898,7 +4083,10 @@ def test_legacy_unconsumed_failed_head_is_consumed_instead_of_relaunched(
         return AgentModelTurn(content="不应被调用")
 
     async def scenario():
-        services, _snapshot = _create_project(tmp_path, initial_goal="请修改项目")
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="请修改项目",
+        )
         first = FileCreatorAgentRuntime(
             services,
             model_client=CallbackAgentChatClient(failing),
@@ -3012,7 +4200,10 @@ def test_costly_specialist_tool_waits_for_file_authorization(
         return AgentModelTurn(content="视觉 Specialist 已完成。")
 
     async def scenario():
-        services, _snapshot = _create_project(tmp_path, initial_goal="生成角色图")
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="生成角色图",
+        )
         driver = FileCreatorAgentRuntime(
             services,
             model_client=CallbackAgentChatClient(callback),
@@ -3088,6 +4279,133 @@ def test_costly_specialist_tool_waits_for_file_authorization(
     event_types = {item.event_type for item in events}
     assert "execution.authorization_required" in event_types
     assert "execution.authorization_decided" in event_types
+
+
+def test_approved_billing_arguments_do_not_trip_the_drift_guard(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """An unchanged authorized r2v call must run (review M1 regression).
+
+    The drift guard compares billing-sensitive arguments (durationSeconds /
+    resolution / mode) against ``authorization.scope["parameters"]``; the
+    scope stores the full billing arguments, so a request whose terms did
+    not change between approval and invocation must never be rejected.
+    """
+
+    import services.file_agent_runtime.driver as driver_module
+
+    monkeypatch.setattr(
+        driver_module,
+        "get_execution_authorization_mode",
+        lambda: "required",
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "get_creation_checkpoint_mode",
+        lambda: "skip",
+    )
+    parent_turn = 0
+    specialist_turn = 0
+
+    async def callback(_messages, tools):
+        nonlocal parent_turn, specialist_turn
+        names = {item["function"]["name"] for item in tools}
+        if "r2v_generation" in names:
+            specialist_turn += 1
+            if specialist_turn == 1:
+                return AgentModelTurn(
+                    tool_calls=(
+                        AgentToolCall(
+                            call_id="generate-ep1-video",
+                            name="r2v_generation",
+                            arguments={
+                                "projectId": PROJECT_ID,
+                                "targetRef": "element:ep1",
+                                "arguments": {
+                                    "prompt": "ep1 video",
+                                    "durationSeconds": 5,
+                                    "resolution": "720P",
+                                    "mode": "r2v",
+                                },
+                            },
+                        ),
+                    ),
+                )
+            return AgentModelTurn(content="[SUCCESS]\n视频已生成。")
+        parent_turn += 1
+        if parent_turn == 1:
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="delegate-ep1-video",
+                        name="delegate_to_agent",
+                        arguments={
+                            "role": "r2v_generation_director",
+                            "target_refs": ["element:ep1"],
+                            "task": "生成 ep1 视频",
+                        },
+                    ),
+                ),
+            )
+        return AgentModelTurn(content="R2V Specialist 已完成。")
+
+    async def scenario():
+        services, _snapshot = _create_project(tmp_path, initial_goal="生成视频")
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+
+        async def fake_invoke(**_kwargs):
+            return SpecialistToolResult(
+                payload={
+                    "ok": True,
+                    "status": "SUCCEEDED",
+                    "artifactVersionId": "artifact-version-1",
+                },
+            )
+
+        driver.specialist_tools.invoke = fake_invoke  # type: ignore[method-assign]
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: bool(
+                driver.executions.list_execution_authorizations(PROJECT_ID),
+            ),
+        )
+        authorization = driver.executions.list_execution_authorizations(
+            PROJECT_ID,
+        )[0]
+        driver.executions.decide_execution_authorization(
+            PROJECT_ID,
+            authorization.authorization_id,
+            authorization_token=authorization.authorization_token,
+            status=ExecutionAuthorizationStatus.APPROVED,
+            decision={
+                "provider": authorization.requested_provider,
+                "model": authorization.requested_model,
+                "maxCost": 0,
+                "maxCandidates": 1,
+            },
+        )
+        await driver.wait_until_idle(PROJECT_ID)
+        completed_run = driver.executions.get_specialist_run(
+            PROJECT_ID,
+            authorization.run_id,
+        )
+        await driver.stop()
+        return authorization, completed_run
+
+    authorization, completed_run = asyncio.run(scenario())
+    # The billed terms were recorded in full on the approval scope…
+    approved = authorization.scope["parameters"]
+    assert approved["durationSeconds"] == 5
+    assert approved["resolution"] == "720P"
+    assert approved["mode"] == "r2v"
+    # …so the unchanged invocation passes the drift guard and completes.
+    assert completed_run.status.value == "SUCCEEDED"
 
 
 def test_review_pending_is_a_neutral_specialist_pause(
@@ -3307,7 +4625,11 @@ def test_model_blocked_with_its_pending_review_is_a_neutral_pause(
     assert specialist.status.value == "BLOCKED"
     assert specialist.metadata["waitingReview"] is True
     assert specialist.metadata["waitingReviewId"] == "review-ep22-storyboard"
-    waiting_summary = "element:ep22 的分镜图已生成，视频尚未开始。请先审阅分镜图；审阅通过后将自动继续生成视频。"
+    waiting_summary = (
+        "element:ep22 的分镜图已生成，视频尚未开始。请先审阅分镜图；"
+        "审阅通过后，主线需对该 Element 重新委派 R2V 生成 Director 以继续生成视频；"
+        "这不算重新生成已通过产物。"
+    )
     assert specialist.final_summary_text == waiting_summary
     blocked = [
         item for item in events if item.event_type == "subagent.blocked"

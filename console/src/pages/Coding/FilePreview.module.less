@@ -2,6 +2,29 @@
 // FilePreview styles
 // ---------------------------------------------------------------------------
 
+.previewStatus {
+  height: 100%;
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.52));
+  background: var(--layout-body-background, #f7f8f7);
+  font-size: 13px;
+}
+
+.spinning {
+  display: inline-flex;
+  animation: preview-spin 900ms linear infinite;
+}
+
+@keyframes preview-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 // ---- Image ----------------------------------------------------------------
 
 .imageWrap {
@@ -29,6 +52,53 @@
   height: 100%;
   border: none;
   display: block;
+}
+
+// ---- HTML -----------------------------------------------------------------
+
+.htmlWrap {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+.htmlToolbar {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  background: var(--header-background, #fafafa);
+  flex-shrink: 0;
+}
+
+.htmlOpenButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+  border-radius: 6px;
+  padding: 5px 9px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.65));
+  background: var(--body-background, #fff);
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--files-accent, #f36b21);
+    border-color: var(--files-accent, #f36b21);
+  }
+}
+
+.htmlFrame {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  border: 0;
+  background: #fff;
 }
 
 // ---- Markdown -------------------------------------------------------------
@@ -71,7 +141,7 @@
   }
 
   a {
-    color: var(--primary-color, #1677ff);
+    color: var(--files-accent, #f36b21);
     text-decoration: none;
     &:hover {
       text-decoration: underline;
@@ -90,8 +160,8 @@
   blockquote {
     margin: 0.75em 0;
     padding: 0.4em 1em;
-    border-left: 3px solid var(--primary-color, #1677ff);
-    background: var(--primary-bg, rgba(22, 119, 255, 0.04));
+    border-left: 3px solid var(--files-accent, #f36b21);
+    background: var(--files-accent-soft, rgba(243, 107, 33, 0.08));
     color: var(--text-secondary, rgba(0, 0, 0, 0.65));
   }
 
@@ -150,6 +220,38 @@
     border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
     margin: 1.5em 0;
   }
+}
+
+.frontmatter {
+  margin: 0 0 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-radius: 8px;
+  background: var(--table-header-bg, rgba(0, 0, 0, 0.025));
+}
+
+.frontmatterRow {
+  display: grid;
+  grid-template-columns: minmax(88px, max-content) minmax(0, 1fr);
+  gap: 16px;
+
+  & + & {
+    margin-top: 8px;
+  }
+}
+
+.frontmatterKey {
+  color: var(--text-secondary, rgba(0, 0, 0, 0.52));
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.frontmatterValue {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 // ---- CSV ------------------------------------------------------------------
@@ -212,6 +314,11 @@
 
 // ---- Dark mode -----------------------------------------------------------
 :global(.dark-mode) {
+  .previewStatus {
+    color: rgba(255, 255, 255, 0.62);
+    background: #141816;
+  }
+
   .imageWrap {
     background: #141414;
   }
@@ -242,7 +349,7 @@
 
     blockquote {
       border-left-color: #4da3ff;
-      background: rgba(22, 119, 255, 0.08);
+      background: rgba(243, 107, 33, 0.08);
       color: rgba(255, 255, 255, 0.65);
     }
 

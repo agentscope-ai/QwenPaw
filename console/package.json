@@ -21,7 +21,7 @@
     "test:coverage": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --coverage"
   },
   "dependencies": {
-    "@agentscope-ai/chat": "1.1.72-beta.1783494781362",
+    "@agentscope-ai/chat": "1.1.73-beta.1785913513600",
     "@agentscope-ai/design": "^1.0.14",
     "@agentscope-ai/icons": "^1.0.67",
     "@ant-design/icons": "^5.0.1",
@@ -30,6 +30,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@lexical/react": "0.48.0",
     "@monaco-editor/react": "^4.7.0",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
@@ -41,9 +42,11 @@
     "dayjs": "^1.11.13",
     "i18next": "^25.8.4",
     "jszip": "^3.10.1",
+    "lexical": "0.48.0",
     "lucide-react": "^0.562.0",
     "mermaid": "^11.12.2",
     "monaco-editor": "0.55.1",
+    "motion": "^12.42.2",
     "pretty-bytes": "^7.1.0",
     "react": "^18",
     "react-dom": "^18",
