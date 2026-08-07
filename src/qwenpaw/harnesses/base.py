@@ -27,6 +27,11 @@ class HarnessOperationNotSupportedError(RuntimeError):
 class HarnessAdapter(ABC):
     """Provider adapter used by the workspace harness runtime."""
 
+    @property
+    def capability_unavailable_message(self) -> str | None:
+        """Explain why provider capability discovery is unavailable."""
+        return None
+
     @abstractmethod
     async def status(self) -> HarnessProvider:
         """Return installation and authentication status."""
