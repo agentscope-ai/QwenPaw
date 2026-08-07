@@ -41,7 +41,7 @@ describe("RichFileReferenceInput", () => {
       screen.getByRole("button", { name: /Code snippet · 1 line/i }),
     ).toBeInTheDocument();
 
-    const editor = screen.getByTestId("qwenpaw-chat-input");
+    const editor = screen.getByRole("textbox");
     expect(editor).toHaveAttribute("contenteditable", "true");
     expect(editor).not.toHaveTextContent("/work/app.ts");
     expect(container.querySelector("textarea")).toHaveValue(raw);

@@ -43,7 +43,7 @@ class ChatPage(BasePage):
     SESSION_LIST_BTN = 'button:has(.spark-icon-spark-history-line), button:has(.anticon-history), button:has([class*="history"])'
 
     # Input area
-    CHAT_INPUT = '[data-testid="qwenpaw-chat-input"]'
+    CHAT_INPUT = '.qwenpaw-sender [role="textbox"][contenteditable="true"]:visible'
     SEND_BTN = 'button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary'
     FILE_INPUT = 'input[type="file"]'
     UPLOAD_WRAPPER = 'span.qwenpaw-upload-wrapper'
@@ -55,7 +55,7 @@ class ChatPage(BasePage):
     MESSAGE_LIST = '.qwenpaw-bubble-list-scroll'
 
     # Welcome screen (check input visibility)
-    WELCOME_TEXT = '[data-testid="qwenpaw-chat-input"]'
+    WELCOME_TEXT = CHAT_INPUT
     QUICK_ACTIONS = '.quick-action'
 
     # Session management (right-side "All Chats" drawer).
