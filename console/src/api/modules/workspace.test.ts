@@ -113,6 +113,29 @@ describe("workspaceApi.getWatchUrl", () => {
   });
 });
 
+describe("workspaceApi artifact URLs", () => {
+  it("selects the artifact root", () => {
+    expect(
+      workspaceApi.getArtifactFileUrl(
+        "agent-1",
+        "reports/final.txt",
+        "project",
+      ),
+    ).toBe(
+      "/api/agents/agent-1/workspace/artifacts/reports/final.txt?root=project",
+    );
+    expect(
+      workspaceApi.getArtifactPreviewUrl(
+        "agent-1",
+        "reports/final.txt",
+        "workspace",
+      ),
+    ).toBe(
+      "/api/agents/agent-1/workspace/artifact-previews/reports/final.txt?root=workspace",
+    );
+  });
+});
+
 describe("workspaceApi.loadFileText", () => {
   afterEach(() => vi.clearAllMocks());
 

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use tauri_plugin_shell::ShellExt;
 
 use crate::workspace_resolver::{
-    get_agent_workspace_directory, resolve_agent_workspace_file_path,
+    get_agent_workspace_directory, resolve_agent_artifact_file_path,
 };
 
 /// Open a validated workspace directory through the operating system shell.
@@ -25,18 +25,7 @@ pub(crate) async fn open_workspace_directory(
         err
     })?;
 
-    #[allow(deprecated)]
-    let open_result = app
-        .shell()
-        .open(workspace_path.to_string_lossy().into_owned(), None);
-
-    match open_result {
-        Ok(()) => Ok(()),
-        Err(err) => {
-            log::warn!("[workspace] open failed: {err}");
-            Err(err.to_string())
-        }
-    }
+    open_with_shell(app, workspace_path).await
 }
 
 #[tauri::command]
@@ -44,32 +33,57 @@ pub(crate) async fn open_workspace_artifact(
     app: tauri::AppHandle,
     agent_id: String,
     file_path: String,
+    root: Option<String>,
 ) -> Result<(), String> {
-    let artifact = resolve_artifact_path(agent_id, file_path).await?;
-    #[allow(deprecated)]
-    app.shell()
-        .open(artifact.to_string_lossy().into_owned(), None)
-        .map_err(|err| err.to_string())
+    let artifact = resolve_artifact_path(agent_id, file_path, root).await?;
+    open_with_shell(app, artifact).await
 }
 
 #[tauri::command]
 pub(crate) async fn reveal_workspace_artifact(
     agent_id: String,
     file_path: String,
+    root: Option<String>,
 ) -> Result<(), String> {
-    let artifact = resolve_artifact_path(agent_id, file_path).await?;
-    reveal_file(&artifact)
+    let artifact = resolve_artifact_path(agent_id, file_path, root).await?;
+    tauri::async_runtime::spawn_blocking(move || reveal_file(&artifact))
+        .await
+        .map_err(|err| format!("artifact reveal task failed: {err}"))?
 }
 
 async fn resolve_artifact_path(
     agent_id: String,
     file_path: String,
+    root: Option<String>,
 ) -> Result<PathBuf, String> {
+    let artifact_root = root.unwrap_or_else(|| "workspace".into());
     tauri::async_runtime::spawn_blocking(move || {
-        resolve_agent_workspace_file_path(&file_path, &agent_id)
+        resolve_agent_artifact_file_path(
+            &file_path,
+            &agent_id,
+            &artifact_root,
+        )
     })
     .await
     .map_err(|err| format!("artifact resolver task failed: {err}"))?
+}
+
+async fn open_with_shell(
+    app: tauri::AppHandle,
+    path: PathBuf,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[allow(deprecated)]
+        app.shell()
+            .open(path.to_string_lossy().into_owned(), None)
+            .map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| format!("workspace open task failed: {err}"))?
+    .map_err(|err| {
+        log::warn!("[workspace] open failed: {err}");
+        err
+    })
 }
 
 #[cfg(target_os = "windows")]

@@ -12,10 +12,13 @@ export interface ArtifactEntry {
   modified_ns: number;
   change: "created" | "modified";
   preview: WorkspaceArtifactPreviewKind;
+  root: ArtifactRoot;
 }
 
+export type ArtifactRoot = "workspace" | "project";
+
 export interface ArtifactManifest {
-  version: number;
+  version: 1 | 2;
   agent_id: string;
   chat_id: string;
   turn_id: string;
@@ -24,6 +27,7 @@ export interface ArtifactManifest {
   changes: Array<{
     path: string;
     change: "created" | "modified" | "deleted";
+    root: ArtifactRoot;
   }>;
   truncated: boolean;
 }
@@ -46,9 +50,16 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-function isArtifactEntry(value: unknown): value is ArtifactEntry {
-  if (!isRecord(value)) return false;
-  return (
+function isArtifactRoot(value: unknown): value is ArtifactRoot {
+  return value === "workspace" || value === "project";
+}
+
+function parseArtifactEntry(
+  value: unknown,
+  version: 1 | 2,
+): ArtifactEntry | null {
+  if (!isRecord(value)) return null;
+  if (
     isNonEmptyString(value.path) &&
     isNonEmptyString(value.name) &&
     typeof value.extension === "string" &&
@@ -56,8 +67,22 @@ function isArtifactEntry(value: unknown): value is ArtifactEntry {
     isNonNegativeSafeInteger(value.size) &&
     isNonNegativeFiniteNumber(value.modified_ns) &&
     (value.change === "created" || value.change === "modified") &&
-    isWorkspaceArtifactPreviewKind(value.preview)
-  );
+    isWorkspaceArtifactPreviewKind(value.preview) &&
+    (version === 1 || isArtifactRoot(value.root))
+  ) {
+    return {
+      path: value.path,
+      name: value.name,
+      extension: value.extension,
+      mime_type: value.mime_type,
+      size: value.size,
+      modified_ns: value.modified_ns,
+      change: value.change,
+      preview: value.preview,
+      root: version === 1 ? "workspace" : (value.root as ArtifactRoot),
+    };
+  }
+  return null;
 }
 
 function isArtifactChange(
@@ -66,12 +91,23 @@ function isArtifactChange(
   return value === "created" || value === "modified" || value === "deleted";
 }
 
-function isArtifactChangeEntry(value: unknown): value is ArtifactChangeEntry {
-  return (
+function parseArtifactChangeEntry(
+  value: unknown,
+  version: 1 | 2,
+): ArtifactChangeEntry | null {
+  if (
     isRecord(value) &&
     isNonEmptyString(value.path) &&
-    isArtifactChange(value.change)
-  );
+    isArtifactChange(value.change) &&
+    (version === 1 || isArtifactRoot(value.root))
+  ) {
+    return {
+      path: value.path,
+      change: value.change,
+      root: version === 1 ? "workspace" : (value.root as ArtifactRoot),
+    };
+  }
+  return null;
 }
 
 export function parseManifest(result: unknown): ArtifactManifest | null {
@@ -82,8 +118,9 @@ export function parseManifest(result: unknown): ArtifactManifest | null {
     const manifest = isRecord(parsed.manifest) ? parsed.manifest : parsed;
     const artifacts = manifest.artifacts;
     const changes = manifest.changes;
+    const version = manifest.version;
     if (
-      manifest.version !== 1 ||
+      (version !== 1 && version !== 2) ||
       !isNonEmptyString(manifest.agent_id) ||
       !isNonEmptyString(manifest.chat_id) ||
       !isNonEmptyString(manifest.turn_id) ||
@@ -94,22 +131,26 @@ export function parseManifest(result: unknown): ArtifactManifest | null {
     ) {
       return null;
     }
-    const validArtifacts = artifacts.filter(isArtifactEntry);
-    const validChanges = changes.filter(isArtifactChangeEntry);
+    const validArtifacts = artifacts.map((item) =>
+      parseArtifactEntry(item, version),
+    );
+    const validChanges = changes.map((item) =>
+      parseArtifactChangeEntry(item, version),
+    );
     if (
-      validArtifacts.length !== artifacts.length ||
-      validChanges.length !== changes.length
+      validArtifacts.some((item) => item === null) ||
+      validChanges.some((item) => item === null)
     ) {
       return null;
     }
     return {
-      version: 1,
+      version,
       agent_id: manifest.agent_id,
       chat_id: manifest.chat_id,
       turn_id: manifest.turn_id,
       created_at: manifest.created_at,
-      artifacts: validArtifacts,
-      changes: validChanges,
+      artifacts: validArtifacts as ArtifactEntry[],
+      changes: validChanges as ArtifactChangeEntry[],
       truncated: manifest.truncated,
     };
   } catch {

@@ -10,6 +10,7 @@ Each Workspace represents a standalone agent workspace with its own:
 
 Request processing is handled by ``Runtime`` (see ``stream_query``).
 """
+import asyncio
 import logging
 from typing import Any, AsyncGenerator, Iterable, Optional
 
@@ -82,6 +83,7 @@ class Workspace:
         self._started = False
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
+        self.artifact_turn_lock = asyncio.Lock()
         self._app_services: Any = None
         self._harness_runtime = None
 

@@ -7,21 +7,34 @@ pub(crate) fn resolve_agent_workspace_file_path(
     relative_path: &str,
     agent_id: &str,
 ) -> Result<PathBuf, String> {
+    resolve_agent_artifact_file_path(relative_path, agent_id, "workspace")
+}
+
+/// Resolve a file relative to one controlled artifact root.
+pub(crate) fn resolve_agent_artifact_file_path(
+    relative_path: &str,
+    agent_id: &str,
+    root: &str,
+) -> Result<PathBuf, String> {
     if relative_path.trim().is_empty() {
         return Err("file path is empty".into());
     }
-    let workspace_dir = get_agent_workspace_directory(agent_id)?;
-    let canonical_workspace = workspace_dir.canonicalize().map_err(|err| {
+    let root_dir = match root {
+        "workspace" => get_agent_workspace_directory(agent_id)?,
+        "project" => get_coding_directory(Some(agent_id))?,
+        _ => return Err("artifact root must be project or workspace".into()),
+    };
+    let canonical_root = root_dir.canonicalize().map_err(|err| {
         format!(
-            "failed to resolve workspace directory '{}': {err}",
-            workspace_dir.display()
+            "failed to resolve artifact root '{}': {err}",
+            root_dir.display()
         )
     })?;
-    let target = workspace_dir.join(relative_path);
+    let target = root_dir.join(relative_path);
     let canonical_target = target.canonicalize().map_err(|err| {
         format!("failed to resolve file path '{}': {err}", target.display())
     })?;
-    if !canonical_target.starts_with(&canonical_workspace) {
+    if !canonical_target.starts_with(&canonical_root) {
         return Err("path traversal detected".into());
     }
     if !canonical_target.is_file() {
@@ -93,10 +106,18 @@ pub(crate) fn get_coding_directory(
             if let Ok(agent_config) =
                 serde_json::from_str::<serde_json::Value>(&content)
             {
-                if let Some(project_dir) = agent_config
-                    .get("coding_mode")
-                    .and_then(|coding| coding.get("project_dir"))
+                let project_dir = agent_config
+                    .get("project_dir")
                     .and_then(|path| path.as_str())
+                    .filter(|path| !path.trim().is_empty())
+                    .or_else(|| {
+                        agent_config
+                            .get("coding_mode")
+                            .and_then(|coding| coding.get("project_dir"))
+                            .and_then(|path| path.as_str())
+                            .filter(|path| !path.trim().is_empty())
+                    });
+                if let Some(project_dir) = project_dir
                     .map(|path| resolve_configured_path(path, &working_dir))
                 {
                     return Ok(project_dir);

@@ -5,6 +5,7 @@ from qwenpaw.agents.artifacts import (
     ArtifactCollector,
     capture_workspace_snapshot,
     register_current_artifact,
+    reset_current_artifact_collector,
     set_current_artifact_collector,
 )
 
@@ -18,10 +19,11 @@ def test_register_current_artifact_uses_active_collector(
     )
     file_path = tmp_path / "report.txt"
     file_path.write_text("ready", encoding="utf-8")
-    set_current_artifact_collector(collector)
+    token = set_current_artifact_collector(collector)
 
     assert register_current_artifact(file_path) is True
     result = collector.collect(capture_workspace_snapshot(tmp_path))
     assert result.artifacts[0].path == "report.txt"
 
-    set_current_artifact_collector(None)
+    reset_current_artifact_collector(token)
+    assert register_current_artifact(file_path) is False

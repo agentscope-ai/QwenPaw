@@ -7,6 +7,7 @@ from typing import Literal, Mapping
 
 ChangeKind = Literal["created", "modified", "deleted"]
 ArtifactChangeKind = Literal["created", "modified"]
+ArtifactRoot = Literal["workspace", "project"]
 PreviewKind = Literal[
     "image",
     "pdf",
@@ -50,6 +51,7 @@ class WorkspaceChange:
 
     path: str
     change: ChangeKind
+    root: ArtifactRoot = "workspace"
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +66,7 @@ class WorkspaceArtifact:
     modified_ns: int
     change: ArtifactChangeKind
     preview: PreviewKind
+    root: ArtifactRoot = "workspace"
 
 
 @dataclass(frozen=True, slots=True)

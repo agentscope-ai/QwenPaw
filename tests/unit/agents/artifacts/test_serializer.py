@@ -20,9 +20,16 @@ def test_serialize_manifest_is_versioned_metadata_only() -> None:
                 modified_ns=34,
                 change="created",
                 preview="none",
+                root="project",
             ),
         ),
-        changes=(WorkspaceChange("reports/report.xlsx", "created"),),
+        changes=(
+            WorkspaceChange(
+                "reports/report.xlsx",
+                "created",
+                "project",
+            ),
+        ),
     )
 
     manifest = serialize_manifest(
@@ -33,8 +40,10 @@ def test_serialize_manifest_is_versioned_metadata_only() -> None:
         created_at="2026-08-03T00:00:00+00:00",
     )
 
-    assert manifest["version"] == 1
+    assert manifest["version"] == 2
     assert manifest["agent_id"] == "analyst"
     assert manifest["artifacts"][0]["path"] == "reports/report.xlsx"
+    assert manifest["artifacts"][0]["root"] == "project"
+    assert manifest["changes"][0]["root"] == "project"
     assert "absolute" not in str(manifest)
     assert "content" not in manifest["artifacts"][0]

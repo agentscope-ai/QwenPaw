@@ -263,6 +263,54 @@ def test_workspace_root_is_independent_from_project_root(
     ]
 
 
+def test_artifact_endpoints_resolve_project_root(
+    files_client: TestClient,
+) -> None:
+    """Artifact download and preview honor the manifest root selector."""
+    project_dir = files_client.app.state.project_dir
+    workspace_dir = files_client.app.state.workspace_dir
+    (project_dir / "report.txt").write_text(
+        "project",
+        encoding="utf-8",
+    )
+    (workspace_dir / "report.txt").write_text(
+        "workspace",
+        encoding="utf-8",
+    )
+
+    download = files_client.get(
+        "/api/workspace/artifacts/report.txt",
+        params={"root": "project"},
+    )
+    preview = files_client.get(
+        "/api/workspace/artifact-previews/report.txt",
+        params={"root": "project"},
+    )
+
+    assert download.status_code == 200
+    assert download.text == "project"
+    assert preview.status_code == 200
+    assert preview.text == "project"
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "/api/workspace/artifacts/report.txt",
+        "/api/workspace/artifact-previews/report.txt",
+    ],
+)
+def test_artifact_endpoints_reject_unknown_root(
+    files_client: TestClient,
+    endpoint: str,
+) -> None:
+    """Artifact endpoints share the controlled Files root contract."""
+    response = files_client.get(endpoint, params={"root": "unknown"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "root must be project or workspace"
+
+
 def test_watch_rejects_an_unknown_root(files_client: TestClient) -> None:
     """The watch stream uses the same explicit root contract as file APIs."""
     response = files_client.get(

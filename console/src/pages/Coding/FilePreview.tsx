@@ -184,7 +184,7 @@ function useAuthBlobUrl(
         }
       }
       const url = artifactAgentId
-        ? workspaceApi.getArtifactPreviewUrl(artifactAgentId, filePath)
+        ? workspaceApi.getArtifactPreviewUrl(artifactAgentId, filePath, root)
         : binaryUrl ?? workspaceApi.getFileDownloadUrl(filePath, root);
       const res = await fetch(url, {
         headers: {

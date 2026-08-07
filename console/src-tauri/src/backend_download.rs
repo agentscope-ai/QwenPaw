@@ -132,6 +132,7 @@ mod tests {
     use super::parse_local_backend_url;
     use crate::workspace_resolver::{
         get_agent_workspace_directory, get_coding_directory,
+        resolve_agent_artifact_file_path,
         resolve_agent_workspace_file_path, resolve_configured_path,
     };
 
@@ -192,9 +193,54 @@ mod tests {
             serde_json::json!({
                 "id": "test-agent",
                 "workspace_dir": workspace_dir.to_str().unwrap(),
+                "project_dir": project_dir.to_str().unwrap(),
                 "coding_mode": {
                     "enabled": true,
-                    "project_dir": project_dir.to_str().unwrap(),
+                    "project_dir": working_dir
+                        .join("legacy-project")
+                        .to_str()
+                        .unwrap(),
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        std::env::set_var("QWENPAW_WORKING_DIR", working_dir);
+        let result = get_coding_directory(Some("test-agent")).unwrap();
+        std::env::remove_var("QWENPAW_WORKING_DIR");
+
+        assert_eq!(result, project_dir);
+    }
+
+    #[test]
+    fn coding_directory_supports_legacy_nested_project_dir() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let working_dir = temp.path();
+        let workspace_dir = working_dir.join("workspaces/test-agent");
+        let project_dir = working_dir.join("legacy-project");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+        std::fs::create_dir_all(&project_dir).unwrap();
+        std::fs::write(
+            working_dir.join("config.json"),
+            serde_json::json!({
+                "agents": {
+                    "profiles": {
+                        "test-agent": {
+                            "workspace_dir": workspace_dir,
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            workspace_dir.join("agent.json"),
+            serde_json::json!({
+                "coding_mode": {
+                    "project_dir": project_dir,
                 }
             })
             .to_string(),
@@ -377,6 +423,60 @@ mod tests {
         assert_eq!(resolved, artifact.canonicalize().unwrap());
         assert!(traversal.is_err());
     }
+
+    #[test]
+    fn artifact_path_resolves_from_configured_project() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let working_dir = temp.path();
+        let workspace_dir = working_dir.join("workspaces/test-agent");
+        let project_dir = working_dir.join("project");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+        std::fs::create_dir_all(&project_dir).unwrap();
+        let artifact = project_dir.join("report.txt");
+        std::fs::write(&artifact, "report").unwrap();
+        let outside = working_dir.join("outside.txt");
+        std::fs::write(&outside, "outside").unwrap();
+        std::fs::write(
+            working_dir.join("config.json"),
+            serde_json::json!({
+                "agents": {
+                    "profiles": {
+                        "test-agent": {
+                            "workspace_dir": workspace_dir,
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            workspace_dir.join("agent.json"),
+            serde_json::json!({
+                "project_dir": project_dir,
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        std::env::set_var("QWENPAW_WORKING_DIR", working_dir);
+        let resolved = resolve_agent_artifact_file_path(
+            "report.txt",
+            "test-agent",
+            "project",
+        )
+        .unwrap();
+        let traversal = resolve_agent_artifact_file_path(
+            "../outside.txt",
+            "test-agent",
+            "project",
+        );
+        std::env::remove_var("QWENPAW_WORKING_DIR");
+
+        assert_eq!(resolved, artifact.canonicalize().unwrap());
+        assert!(traversal.is_err());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -405,14 +505,14 @@ pub(crate) async fn read_workspace_binary_file(
     .await
     .map_err(|err| format!("workspace resolver task failed: {err}"))??;
 
-    if !absolute_path.is_file() {
-        return Err(format!("path is not a file: {}", absolute_path.display()));
-    }
-
     // Enforce size limit to prevent OOM on large files
     let metadata = tokio::fs::metadata(&absolute_path)
         .await
         .map_err(|err| format!("failed to read file metadata: {err}"))?;
+
+    if !metadata.is_file() {
+        return Err(format!("path is not a file: {}", absolute_path.display()));
+    }
 
     if metadata.len() > BINARY_FILE_MAX_BYTES {
         return Err(format!(

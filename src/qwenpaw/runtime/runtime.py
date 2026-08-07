@@ -140,6 +140,9 @@ class Runtime:
             # --- [phase 6] POST_RESPONSE ---
             await hooks.run(Phase.POST_RESPONSE, ctx)
 
+            async for ev in envelope.finalize_message():
+                yield ev
+
             manifest = ctx.extras.get("workspace_artifact_manifest")
             if manifest is not None:
                 async for ev in envelope.append_artifact_manifest(manifest):

@@ -120,10 +120,17 @@ const WorkspaceArtifactsCard: React.FC<{
     if (!manifest) return;
     try {
       await downloadFileFromUrl(
-        workspaceApi.getArtifactFileUrl(manifest.agent_id, artifact.path),
+        workspaceApi.getArtifactFileUrl(
+          manifest.agent_id,
+          artifact.path,
+          artifact.root,
+        ),
         artifact.name,
         {
-          headers: buildAuthHeaders(),
+          headers: {
+            ...buildAuthHeaders(),
+            "X-Chat-Id": manifest.chat_id,
+          },
           errorMessage: "Artifact download failed",
         },
       );
@@ -157,9 +164,16 @@ const WorkspaceArtifactsCard: React.FC<{
       setPreviewStatus("loading");
       try {
         const response = await fetch(
-          workspaceApi.getArtifactPreviewUrl(manifest.agent_id, artifact.path),
+          workspaceApi.getArtifactPreviewUrl(
+            manifest.agent_id,
+            artifact.path,
+            artifact.root,
+          ),
           {
-            headers: buildAuthHeaders(),
+            headers: {
+              ...buildAuthHeaders(),
+              "X-Chat-Id": manifest.chat_id,
+            },
             signal: controller.signal,
           },
         );
@@ -205,6 +219,7 @@ const WorkspaceArtifactsCard: React.FC<{
       await invoke(command, {
         agentId: manifest.agent_id,
         filePath: artifact.path,
+        root: artifact.root,
       });
     } catch {
       message.error(
@@ -373,6 +388,8 @@ const WorkspaceArtifactsCard: React.FC<{
                 <FilePreview
                   filePath={previewArtifact.path}
                   content={previewContent}
+                  chatId={manifest.chat_id}
+                  root={previewArtifact.root}
                   artifactAgentId={manifest.agent_id}
                   artifactSize={previewArtifact.size}
                   previewKind={previewArtifact.preview}

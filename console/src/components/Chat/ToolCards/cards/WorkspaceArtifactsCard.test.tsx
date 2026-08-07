@@ -50,10 +50,13 @@ vi.mock("../../../../api/authHeaders", () => ({
 
 vi.mock("../../../../api/modules/workspace", () => ({
   workspaceApi: {
-    getArtifactFileUrl: (agentId: string, path: string) =>
-      `/artifacts/${agentId}/${path}`,
-    getArtifactPreviewUrl: (agentId: string, path: string) =>
-      `/artifact-previews/${agentId}/${path}`,
+    getArtifactFileUrl: (agentId: string, path: string, root = "workspace") =>
+      `/artifacts/${agentId}/${path}?root=${root}`,
+    getArtifactPreviewUrl: (
+      agentId: string,
+      path: string,
+      root = "workspace",
+    ) => `/artifact-previews/${agentId}/${path}?root=${root}`,
   },
 }));
 
@@ -155,13 +158,32 @@ describe("WorkspaceArtifactsCard", () => {
 
   it("accepts the version 1 manifest wrapped in tool output", () => {
     const manifest = JSON.parse(manifestResult());
+    const normalized = {
+      ...manifest,
+      artifacts: manifest.artifacts.map((artifact: object) => ({
+        ...artifact,
+        root: "workspace",
+      })),
+      changes: [],
+    };
+
+    expect(parseManifest(JSON.stringify(manifest))).toEqual(normalized);
+    expect(parseManifest(JSON.stringify({ manifest }))).toEqual(normalized);
+  });
+
+  it("accepts version 2 project artifacts", () => {
+    const manifest = JSON.parse(manifestResult());
+    manifest.version = 2;
+    manifest.artifacts = manifest.artifacts.map((artifact: object) => ({
+      ...artifact,
+      root: "project",
+    }));
 
     expect(parseManifest(JSON.stringify(manifest))).toEqual(manifest);
-    expect(parseManifest(JSON.stringify({ manifest }))).toEqual(manifest);
   });
 
   it("rejects unknown versions, preview kinds, and malformed output", () => {
-    expect(parseManifest(JSON.stringify({ version: 2, artifacts: [] }))).toBe(
+    expect(parseManifest(JSON.stringify({ version: 3, artifacts: [] }))).toBe(
       null,
     );
     expect(
@@ -182,10 +204,13 @@ describe("WorkspaceArtifactsCard", () => {
 
     await waitFor(() => {
       expect(mocks.download).toHaveBeenCalledWith(
-        "/artifacts/analyst/first.txt",
+        "/artifacts/analyst/first.txt?root=workspace",
         "first.txt",
         {
-          headers: mocks.authHeaders,
+          headers: {
+            ...mocks.authHeaders,
+            "X-Chat-Id": "chat-1",
+          },
           errorMessage: "Artifact download failed",
         },
       );
@@ -227,6 +252,13 @@ describe("WorkspaceArtifactsCard", () => {
 
     fireEvent.click(screen.getByLabelText("Preview first.txt"));
     const firstSignal = fetchMock.mock.calls[0][1].signal as AbortSignal;
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/artifact-previews/analyst/first.txt?root=workspace",
+    );
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({
+      ...mocks.authHeaders,
+      "X-Chat-Id": "chat-1",
+    });
     fireEvent.click(screen.getByLabelText("Preview second.txt"));
 
     expect(firstSignal.aborted).toBe(true);
@@ -252,9 +284,39 @@ describe("WorkspaceArtifactsCard", () => {
     fireEvent.click(screen.getByLabelText("Open first.txt"));
 
     await waitFor(() => {
+      expect(mocks.invoke).toHaveBeenCalledWith("open_workspace_artifact", {
+        agentId: "analyst",
+        filePath: "first.txt",
+        root: "workspace",
+      });
       expect(mocks.messageError).toHaveBeenCalledWith(
         "Could not open workspace artifact",
       );
+    });
+  });
+
+  it("passes a project root to desktop artifact commands", async () => {
+    mocks.desktop = true;
+    const manifest = JSON.parse(manifestResult());
+    manifest.version = 2;
+    manifest.artifacts = manifest.artifacts.map((artifact: object) => ({
+      ...artifact,
+      root: "project",
+    }));
+    render(
+      <WorkspaceArtifactsCard
+        content={{ ...artifactContent(), result: JSON.stringify(manifest) }}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Open first.txt"));
+
+    await waitFor(() => {
+      expect(mocks.invoke).toHaveBeenCalledWith("open_workspace_artifact", {
+        agentId: "analyst",
+        filePath: "first.txt",
+        root: "project",
+      });
     });
   });
 

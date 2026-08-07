@@ -5,6 +5,7 @@ import pytest
 
 from qwenpaw.agents.artifacts import (
     ArtifactCollector,
+    ArtifactCollectorGroup,
     ArtifactLimits,
     WorkspaceSnapshot,
     capture_workspace_snapshot,
@@ -164,4 +165,95 @@ def test_collector_preserves_initial_snapshot_truncation(
 
     result = collector.collect(capture_workspace_snapshot(tmp_path))
 
+    assert result.truncated is True
+
+
+def test_collector_labels_project_images(tmp_path: Path) -> None:
+    before = capture_workspace_snapshot(tmp_path)
+    (tmp_path / "diagram.svg").write_text(
+        "<svg></svg>",
+        encoding="utf-8",
+    )
+    (tmp_path / "favicon.ico").write_bytes(b"icon")
+    collector = ArtifactCollector(tmp_path, before, root="project")
+
+    result = collector.collect(capture_workspace_snapshot(tmp_path))
+
+    assert [artifact.root for artifact in result.artifacts] == [
+        "project",
+        "project",
+    ]
+    assert [artifact.preview for artifact in result.artifacts] == [
+        "image",
+        "image",
+    ]
+    assert [artifact.mime_type for artifact in result.artifacts] == [
+        "image/svg+xml",
+        "image/x-icon",
+    ]
+
+
+def test_collector_group_merges_disjoint_roots(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    project = tmp_path / "project"
+    workspace.mkdir()
+    project.mkdir()
+    roots = {"workspace": workspace, "project": project}
+    before = {
+        root: capture_workspace_snapshot(path) for root, path in roots.items()
+    }
+    collector = ArtifactCollectorGroup(roots, before)
+    (workspace / "workspace.txt").write_text(
+        "workspace",
+        encoding="utf-8",
+    )
+    (project / "project.txt").write_text(
+        "project",
+        encoding="utf-8",
+    )
+
+    result = collector.collect(
+        {
+            root: capture_workspace_snapshot(path)
+            for root, path in roots.items()
+        },
+    )
+
+    assert [(item.root, item.path) for item in result.artifacts] == [
+        ("project", "project.txt"),
+        ("workspace", "workspace.txt"),
+    ]
+
+
+def test_collector_group_applies_one_global_limit(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    project = tmp_path / "project"
+    workspace.mkdir()
+    project.mkdir()
+    roots = {"workspace": workspace, "project": project}
+    before = {
+        root: capture_workspace_snapshot(path) for root, path in roots.items()
+    }
+    collector = ArtifactCollectorGroup(
+        roots,
+        before,
+        limits=ArtifactLimits(max_artifacts=1),
+    )
+    (workspace / "workspace.txt").write_text(
+        "workspace",
+        encoding="utf-8",
+    )
+    (project / "project.txt").write_text(
+        "project",
+        encoding="utf-8",
+    )
+
+    result = collector.collect(
+        {
+            root: capture_workspace_snapshot(path)
+            for root, path in roots.items()
+        },
+    )
+
+    assert len(result.artifacts) == 1
     assert result.truncated is True

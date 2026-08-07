@@ -945,12 +945,14 @@ async def read_binary_file(
 async def download_artifact_file(
     file_path: str,
     request: Request,
+    root: str = Query(default="workspace"),
 ) -> FileResponse:
-    """Download one regular file from the requested agent workspace."""
+    """Download one regular file from a controlled artifact root."""
     workspace = await get_agent_for_request(request)
+    artifact_root = await _resolve_files_root(request, workspace, root)
     target = await asyncio.to_thread(
         _resolve_artifact_file,
-        workspace.workspace_dir,
+        artifact_root,
         file_path,
     )
     return FileResponse(
@@ -1007,12 +1009,14 @@ def _resolve_artifact_preview_file(
 async def preview_artifact_file(
     file_path: str,
     request: Request,
+    root: str = Query(default="workspace"),
 ) -> FileResponse:
     """Serve an artifact with the smaller preview-specific size limit."""
     workspace = await get_agent_for_request(request)
+    artifact_root = await _resolve_files_root(request, workspace, root)
     target, media_type = await asyncio.to_thread(
         _resolve_artifact_preview_file,
-        workspace.workspace_dir,
+        artifact_root,
         file_path,
     )
     return FileResponse(target, media_type=media_type)

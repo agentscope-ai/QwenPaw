@@ -4,11 +4,13 @@
 import mimetypes
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 
 from .exclusions import is_excluded_file
 from .models import (
     ArtifactCollection,
     ArtifactChangeKind,
+    ArtifactRoot,
     PreviewKind,
     WorkspaceArtifact,
     WorkspaceChange,
@@ -17,7 +19,17 @@ from .models import (
 from .snapshot import diff_workspace_snapshots
 
 _IMAGE_EXTENSIONS = frozenset(
-    {".avif", ".bmp", ".gif", ".jpeg", ".jpg", ".png", ".webp"},
+    {
+        ".avif",
+        ".bmp",
+        ".gif",
+        ".ico",
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".svg",
+        ".webp",
+    },
 )
 _MARKDOWN_EXTENSIONS = frozenset({".md", ".markdown", ".mdx"})
 _CSV_EXTENSIONS = frozenset({".csv", ".tsv"})
@@ -25,6 +37,8 @@ _MIME_TYPE_OVERRIDES = {
     ".csv": "text/csv",
     ".md": "text/markdown",
     ".markdown": "text/markdown",
+    ".ico": "image/x-icon",
+    ".svg": "image/svg+xml",
     ".tsv": "text/tab-separated-values",
 }
 _TEXT_EXTENSIONS = frozenset(
@@ -82,10 +96,12 @@ class ArtifactCollector:
         workspace_dir: Path,
         before: WorkspaceSnapshot,
         *,
+        root: ArtifactRoot = "workspace",
         limits: ArtifactLimits | None = None,
     ) -> None:
         self._workspace_dir = workspace_dir.resolve()
         self._before = before
+        self._root = root
         self._limits = limits or ArtifactLimits()
         self._explicit_paths: set[str] = set()
 
@@ -119,7 +135,10 @@ class ArtifactCollector:
         after: WorkspaceSnapshot,
     ) -> ArtifactCollection:
         """Merge registrations and snapshot changes into a bounded result."""
-        changes = list(diff_workspace_snapshots(self._before, after))
+        changes = [
+            WorkspaceChange(change.path, change.change, self._root)
+            for change in diff_workspace_snapshots(self._before, after)
+        ]
         change_by_path = {change.path: change.change for change in changes}
         artifact_paths = {
             change.path for change in changes if change.change != "deleted"
@@ -150,6 +169,7 @@ class ArtifactCollector:
                     modified_ns=state.modified_ns,
                     change=change,
                     preview=_preview_kind(extension),
+                    root=self._root,
                 ),
             )
 
@@ -160,9 +180,79 @@ class ArtifactCollector:
 
         for relative_path in sorted(self._explicit_paths):
             if relative_path not in change_by_path:
-                changes.append(WorkspaceChange(relative_path, "modified"))
-        changes.sort(key=lambda item: item.path)
+                changes.append(
+                    WorkspaceChange(
+                        relative_path,
+                        "modified",
+                        self._root,
+                    ),
+                )
+        changes.sort(key=lambda item: (item.root, item.path))
 
+        return ArtifactCollection(
+            artifacts=tuple(artifacts),
+            changes=tuple(changes),
+            truncated=truncated,
+        )
+
+
+class ArtifactCollectorGroup:
+    """Collect artifacts from non-overlapping roots for one turn."""
+
+    def __init__(
+        self,
+        roots: Mapping[ArtifactRoot, Path],
+        before: Mapping[ArtifactRoot, WorkspaceSnapshot],
+        *,
+        limits: ArtifactLimits | None = None,
+    ) -> None:
+        if not roots:
+            raise ValueError(
+                f"at least one artifact root is required; got {len(roots)}",
+            )
+        self._limits = limits or ArtifactLimits()
+        self._roots = {root: path.resolve() for root, path in roots.items()}
+        self._collectors = {
+            root: ArtifactCollector(
+                path,
+                before[root],
+                root=root,
+                limits=self._limits,
+            )
+            for root, path in self._roots.items()
+        }
+
+    @property
+    def roots(self) -> dict[ArtifactRoot, Path]:
+        """Return a copy of the pinned roots for final snapshotting."""
+        return dict(self._roots)
+
+    def register(self, file_path: str | Path) -> bool:
+        """Register a file with the root that safely contains it."""
+        return any(
+            collector.register(file_path)
+            for collector in self._collectors.values()
+        )
+
+    def collect(
+        self,
+        after: Mapping[ArtifactRoot, WorkspaceSnapshot],
+    ) -> ArtifactCollection:
+        """Merge root collections under one global artifact limit."""
+        artifacts: list[WorkspaceArtifact] = []
+        changes: list[WorkspaceChange] = []
+        truncated = False
+        for root, collector in self._collectors.items():
+            collection = collector.collect(after[root])
+            artifacts.extend(collection.artifacts)
+            changes.extend(collection.changes)
+            truncated = truncated or collection.truncated
+
+        artifacts.sort(key=lambda item: (item.root, item.path))
+        changes.sort(key=lambda item: (item.root, item.path))
+        if len(artifacts) > self._limits.max_artifacts:
+            artifacts = artifacts[: self._limits.max_artifacts]
+            truncated = True
         return ArtifactCollection(
             artifacts=tuple(artifacts),
             changes=tuple(changes),

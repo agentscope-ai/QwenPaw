@@ -473,9 +473,23 @@ export const workspaceApi = {
         .join("/")}`,
     ),
 
-  getArtifactFileUrl: (agentId: string, filePath: string) =>
-    getAgentWorkspaceUrl(agentId, `/artifacts/${encodePath(filePath)}`),
+  getArtifactFileUrl: (
+    agentId: string,
+    filePath: string,
+    root: WorkspaceRoot = "workspace",
+  ) =>
+    getAgentWorkspaceUrl(
+      agentId,
+      workspaceQuery(`/artifacts/${encodePath(filePath)}`, { root }),
+    ),
 
-  getArtifactPreviewUrl: (agentId: string, filePath: string) =>
-    getAgentWorkspaceUrl(agentId, `/artifact-previews/${encodePath(filePath)}`),
+  getArtifactPreviewUrl: (
+    agentId: string,
+    filePath: string,
+    root: WorkspaceRoot = "workspace",
+  ) =>
+    getAgentWorkspaceUrl(
+      agentId,
+      workspaceQuery(`/artifact-previews/${encodePath(filePath)}`, { root }),
+    ),
 };
