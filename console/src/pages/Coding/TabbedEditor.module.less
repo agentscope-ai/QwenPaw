@@ -2,6 +2,7 @@
   height: 100%;
   display: flex;
   flex-direction: column;
+  container-type: inline-size;
   background: var(--body-background, #fff);
   overflow: hidden;
 }
@@ -48,7 +49,7 @@
 .tabActive {
   background: var(--body-background, #fff);
   color: var(--text-primary, rgba(0, 0, 0, 0.88));
-  border-bottom: 2px solid var(--primary-color, #1677ff);
+  border-bottom: 2px solid var(--files-accent, #f36b21);
 }
 
 .tabName {
@@ -131,25 +132,71 @@
 }
 
 .toolbarRight {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.documentActions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 2px;
 }
 
-// Diff action bar (replaces toolbarRight when diff is active)
+.modeSwitch {
+  padding: 2px;
+  display: inline-flex;
+  gap: 2px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-radius: 6px;
+  background: var(--header-background, #fafafa);
+
+  button {
+    height: 24px;
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    font-size: 11px;
+    cursor: pointer;
+  }
+}
+
+.modeActive {
+  color: var(--files-accent, #f36b21) !important;
+  background: var(--files-accent-soft, rgba(243, 107, 33, 0.12)) !important;
+}
+
 .diffActions {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  padding-right: 7px;
+  border-right: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
 }
 
 .diffLabel {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 4px;
   font-size: 11px;
   color: var(--info-color, #13c2c2);
   font-weight: 500;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .keepBtn {
@@ -190,6 +237,37 @@
   }
 }
 
+@container (max-width: 760px) {
+  .fileName {
+    max-width: 120px;
+  }
+
+  .diffLabel span {
+    display: none;
+  }
+
+  .keepBtn,
+  .undoBtn {
+    width: 24px !important;
+    padding: 0 !important;
+    justify-content: center;
+  }
+
+  .actionLabel {
+    display: none;
+  }
+}
+
+@container (max-width: 520px) {
+  .fileName {
+    display: none;
+  }
+
+  .toolbar {
+    justify-content: flex-end;
+  }
+}
+
 .iconBtn {
   display: flex;
   align-items: center;
@@ -219,14 +297,29 @@
 
 // Preview toggle — highlight when preview is active
 .previewActiveBtn {
-  color: var(--primary-color, #1677ff) !important;
-  background: var(--primary-bg, rgba(22, 119, 255, 0.1)) !important;
+  color: var(--files-accent, #f36b21) !important;
+  background: var(--files-accent-soft, rgba(243, 107, 33, 0.12)) !important;
 }
 
 // ---- Editor ----------------------------------------------------------------
 .editor {
   flex: 1;
   overflow: hidden;
+}
+
+.textPreview {
+  height: 100%;
+  margin: 0;
+  padding: clamp(20px, 3vw, 42px);
+  overflow: auto;
+  color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  background: var(--body-background, #fff);
+  font:
+    13px/1.72 "SFMono-Regular",
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 // ---- Diff editor wrap + per-hunk action overlays --------------------------
@@ -340,7 +433,7 @@
 
   .tabActive {
     color: rgba(255, 255, 255, 0.88);
-    border-bottom-color: #4da3ff;
+    border-bottom-color: #ff914d;
   }
 
   .closeBtn {
@@ -370,8 +463,8 @@
   }
 
   .previewActiveBtn {
-    color: #4da3ff !important;
-    background: rgba(22, 119, 255, 0.18) !important;
+    color: #ff914d !important;
+    background: rgba(243, 107, 33, 0.18) !important;
   }
 
   .emptyIcon {

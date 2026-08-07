@@ -1,5 +1,6 @@
 import { Button, InputNumber, Input, Popconfirm } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import { useTranslation } from "react-i18next";
 import type {
   ProjectEntityCollection,
   ShotDocument,
@@ -31,6 +32,7 @@ export default function ShotList({
   onAdd,
   onDelete,
 }: ShotListProps) {
+  const { t } = useTranslation();
   const trackShotFocus = (shotId: string, field: ShotField) => {
     const store = useCreatorInteractionStore.getState();
     store.select(`element:${elementId}`);
@@ -61,7 +63,9 @@ export default function ShotList({
               <div
                 data-creator-field={`element:${elementId}/shot:${shotId}/description`}
                 data-creator-path={shotPointer(shotId, "description")}
-                data-creator-field-label={`镜头${index + 1} · 描述`}
+                data-creator-field-label={t("lib.shotDescription", {
+                  index: index + 1,
+                })}
               >
                 <TextArea
                   value={shot.description}
@@ -72,7 +76,7 @@ export default function ShotList({
                   onFocus={() => trackShotFocus(shotId, "description")}
                   onBlur={releaseShotFocus}
                   autoSize={{ minRows: 1, maxRows: 6 }}
-                  placeholder="镜头描述…"
+                  placeholder={t("workbench.shotDesc")}
                   className="!rounded-md !border-transparent !bg-transparent !p-1 !text-xs hover:!border-[var(--color-border)] focus:!border-[var(--color-accent)]"
                 />
                 <InlineReviewDiff
@@ -83,7 +87,9 @@ export default function ShotList({
                 <span
                   data-creator-field={`element:${elementId}/shot:${shotId}/camera`}
                   data-creator-path={shotPointer(shotId, "camera")}
-                  data-creator-field-label={`镜头${index + 1} · 运镜`}
+                  data-creator-field-label={t("lib.shotCamera", {
+                    index: index + 1,
+                  })}
                   className="contents"
                 >
                   <Input
@@ -95,14 +101,16 @@ export default function ShotList({
                     onFocus={() => trackShotFocus(shotId, "camera")}
                     onBlur={releaseShotFocus}
                     size="small"
-                    placeholder="镜头运镜"
+                    placeholder={t("workbench.shotCamera")}
                     className="!w-28 !rounded-md !text-[11px]"
                   />
                 </span>
                 <span
                   data-creator-field={`element:${elementId}/shot:${shotId}/framing`}
                   data-creator-path={shotPointer(shotId, "framing")}
-                  data-creator-field-label={`镜头${index + 1} · 景别`}
+                  data-creator-field-label={t("lib.shotFraming", {
+                    index: index + 1,
+                  })}
                   className="contents"
                 >
                   <Input
@@ -114,14 +122,16 @@ export default function ShotList({
                     onFocus={() => trackShotFocus(shotId, "framing")}
                     onBlur={releaseShotFocus}
                     size="small"
-                    placeholder="景别"
+                    placeholder={t("workbench.shotFraming")}
                     className="!w-20 !rounded-md !text-[11px]"
                   />
                 </span>
                 <span
                   data-creator-field={`element:${elementId}/shot:${shotId}/duration_seconds`}
                   data-creator-path={shotPointer(shotId, "duration_seconds")}
-                  data-creator-field-label={`镜头${index + 1} · 时长`}
+                  data-creator-field-label={t("lib.shotDuration", {
+                    index: index + 1,
+                  })}
                 >
                   <InputNumber
                     min={1}
@@ -146,10 +156,10 @@ export default function ShotList({
               />
             </div>
             <Popconfirm
-              title="删除此镜头？"
+              title={t("workbench.deleteShot")}
               onConfirm={() => onDelete(shot)}
-              okText="删除"
-              cancelText="取消"
+              okText={t("workbench.delete")}
+              cancelText={t("workbench.cancel")}
             >
               <Button
                 type="text"
@@ -170,7 +180,7 @@ export default function ShotList({
         disabled={disabled}
         className="!w-full !text-xs"
       >
-        添加镜头
+        {t("workbench.addShot")}
       </Button>
     </div>
   );

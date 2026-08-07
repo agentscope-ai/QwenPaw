@@ -32,6 +32,7 @@ except ImportError:
 from qwenpaw.agents import model_factory
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
 from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
+from qwenpaw.utils.tool_call_extra import persist_tool_call_extras
 
 
 def _data_block(media_type: str, url: str) -> DataBlock:
@@ -385,6 +386,101 @@ async def test_openai_formatter_does_not_carry_reasoning_forward() -> None:
 
 
 @pytest.mark.asyncio
+async def test_required_reasoning_preserves_real_and_fills_missing() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(
+        relay_reasoning_content=True,
+    )
+    formatter._qwenpaw_require_reasoning_content = True
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="tool reasoning"),
+            ToolCallBlock(id="call_1", name="tool", input="{}"),
+            ToolResultBlock(
+                id="call_1",
+                name="tool",
+                output=[TextBlock(text="result")],
+                state=ToolResultState.SUCCESS,
+            ),
+            TextBlock(text="done"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert [item.get("reasoning_content") for item in assistant_messages] == [
+        "tool reasoning",
+        " ",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_required_reasoning_respects_disabled_relay_privacy() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(
+        relay_reasoning_content=False,
+    )
+    formatter._qwenpaw_require_reasoning_content = True
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="private reasoning"),
+            TextBlock(text="answer"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert assistant_messages[0]["reasoning_content"] == " "
+
+
+@pytest.mark.asyncio
+async def test_required_reasoning_falls_back_when_alignment_mismatches(
+    monkeypatch,
+) -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(
+        relay_reasoning_content=True,
+    )
+    formatter._qwenpaw_require_reasoning_content = True
+    monkeypatch.setattr(
+        model_factory,
+        "_reasoning_by_assistant_segment",
+        lambda _blocks, _formatter: ["real reasoning", "extra segment"],
+    )
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="real reasoning"),
+            TextBlock(text="answer"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert assistant_messages[0]["reasoning_content"] == " "
+
+
+@pytest.mark.asyncio
 async def test_openai_formatter_respects_disabled_reasoning_relay() -> None:
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingOpenAIFormatter,
@@ -435,6 +531,96 @@ def _messages_with_extra_content() -> list[Msg]:
             ],
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_relays_persisted_tool_call_extra() -> None:
+    msg = _messages_with_extra_content()[0]
+    persist_tool_call_extras(
+        msg,
+        {
+            "call_ec": {
+                "provider_id": "example",
+                "extra_content": {"thought_signature": "signature-abc"},
+            },
+        },
+    )
+    # Exercise the session persistence boundary, not just the live Msg.
+    restored = Msg.model_validate(msg.model_dump(mode="json"))
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="example",
+    )
+
+    formatted = await formatter_class().format([restored])
+
+    tool_call = formatted[0]["tool_calls"][0]
+    assert tool_call["id"] == "call_ec"
+    assert tool_call["extra_content"] == {
+        "thought_signature": "signature-abc",
+    }
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_does_not_relay_other_provider_extra() -> None:
+    msg = _messages_with_extra_content()[0]
+    persist_tool_call_extras(
+        msg,
+        {
+            "call_ec": {
+                "provider_id": "source-provider",
+                "extra_content": {"thought_signature": "signature-abc"},
+            },
+        },
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="target-provider",
+    )
+
+    formatted = await formatter_class().format([msg])
+
+    assert "extra_content" not in formatted[0]["tool_calls"][0]
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_isolates_reused_ids_between_requests() -> None:
+    first = _messages_with_extra_content()[0]
+    second = _messages_with_extra_content()[0]
+    persist_tool_call_extras(
+        first,
+        {
+            "call_ec": {
+                "provider_id": "example",
+                "extra_content": {"thought_signature": "signature-1"},
+            },
+        },
+    )
+    persist_tool_call_extras(
+        second,
+        {
+            "call_ec": {
+                "provider_id": "example",
+                "extra_content": {"thought_signature": "signature-2"},
+            },
+        },
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="example",
+    )
+
+    formatter = formatter_class()
+    formatted_first = await formatter.format([first])
+    formatted_second = await formatter.format([second])
+
+    first_call = formatted_first[0]["tool_calls"][0]
+    second_call = formatted_second[0]["tool_calls"][0]
+    relayed = [
+        first_call["extra_content"]["thought_signature"],
+        second_call["extra_content"]["thought_signature"],
+    ]
+    assert relayed == ["signature-1", "signature-2"]
 
 
 def test_openai_formatter_strips_extra_content(monkeypatch) -> None:

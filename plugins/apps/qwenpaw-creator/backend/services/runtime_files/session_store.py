@@ -11,11 +11,12 @@ append-only JSONL.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -61,6 +62,8 @@ from .models import (
 )
 from .path_safety import require_safe_runtime_segment
 
+logger = logging.getLogger("qwenpaw.creator.runtime_files.session_store")
+
 
 # Statuses whose AgentDock mutation requests capture a ReviewBoundary.  A
 # running Session yields an interrupt boundary; an idle/settled Session yields
@@ -85,6 +88,7 @@ _REVIEW_ACTIVE_STATUSES = frozenset(
 _REVIEW_MUTATING_CLASSIFICATIONS = frozenset(
     {
         MessageClassification.MUTATION_INSTRUCTION,
+        MessageClassification.REVIEW_REVISE,
         MessageClassification.WORKSPACE_COMMAND,
     },
 )
@@ -281,6 +285,12 @@ class ProjectRuntimeSessionStore:
             except BaseException:
                 shutil.rmtree(staged, ignore_errors=True)
                 raise
+            logger.info(
+                "session created: project=%s session=%s conversation=%s",
+                project_id,
+                resolved_session_id,
+                resolved_conversation_id,
+            )
             return ProjectRuntimeBootstrap(
                 session=session,
                 default_conversation=conversation,
@@ -860,6 +870,12 @@ class ProjectRuntimeSessionStore:
                 },
             )
             self._write_session_unlocked(updated)
+            logger.info(
+                "goal created: project=%s goal=%s intent=%s",
+                project_id,
+                goal_id,
+                intent[:50],
+            )
             return record
 
     def get_goal(self, project_id: str, goal_id: str) -> CreatorGoalRecord:
@@ -901,6 +917,12 @@ class ProjectRuntimeSessionStore:
                 update={"status": resolved_status, "updated_at": utc_now()},
             )
             self._goal_store(project_id, goal_id).write(updated)
+            logger.info(
+                "goal status: project=%s goal=%s status=%s",
+                project_id,
+                goal_id,
+                resolved_status.value,
+            )
             return CreatorGoalRecord.model_validate(updated)
 
     def resolve_pending_review(
@@ -1075,6 +1097,7 @@ class ProjectRuntimeSessionStore:
         metadata: Mapping[str, Any] | None = None,
         initial_creation: bool = False,
         hard_stop: bool = False,
+        admission_guard: Callable[[], bool] | None = None,
     ) -> RequestAdmissionResult:
         """Persist a user request and decide review admission under one lock.
 
@@ -1082,6 +1105,12 @@ class ProjectRuntimeSessionStore:
         ReviewBoundary publication are serialized by the same Project Runtime
         lock.  Therefore a returned ``require_review`` decision always points
         to an already durable boundary.
+
+        ``admission_guard`` runs inside the Project lifecycle boundary right
+        before the request becomes durable; returning ``False`` aborts the
+        admission with :class:`RequestAdmissionConflict`. Automated writers
+        (for example the render self-review loop) use it to re-validate a
+        precondition atomically against concurrent Project commits.
         """
 
         project_id, session_id, conversation_id = self._safe_message_ids(
@@ -1121,6 +1150,10 @@ class ProjectRuntimeSessionStore:
             # Revalidate only after lifecycle admission, before either Runtime
             # lock is allowed to create parent directories.
             self._require_project(project_id)
+            if admission_guard is not None and not admission_guard():
+                raise RequestAdmissionConflict(
+                    "admission guard rejected the request",
+                )
             with (
                 self._project_commit_order_lock(project_id),
                 self._runtime_lock(project_id),
@@ -1243,7 +1276,7 @@ class ProjectRuntimeSessionStore:
                         session_id,
                         boundary,
                     )
-                return RequestAdmissionResult(
+                result = RequestAdmissionResult(
                     message=append_result.message,
                     review_policy=(
                         ReviewPolicy.REQUIRE_REVIEW
@@ -1253,6 +1286,14 @@ class ProjectRuntimeSessionStore:
                     review_boundary=boundary,
                     replayed=append_result.replayed,
                 )
+                logger.info(
+                    "message admitted: project=%s session=%s seq=%d replayed=%s",
+                    project_id,
+                    session_id,
+                    append_result.message.message_seq,
+                    append_result.replayed,
+                )
+                return result
 
     def list_messages(
         self,
@@ -1324,6 +1365,13 @@ class ProjectRuntimeSessionStore:
                 },
             )
             self._write_session_unlocked(updated)
+            logger.debug(
+                "event appended: project=%s session=%s type=%s seq=%d",
+                project_id,
+                session_id,
+                event_type,
+                record.event_seq,
+            )
             return record
 
     def list_events(
@@ -1481,6 +1529,13 @@ class ProjectRuntimeSessionStore:
                 },
             )
             self._write_session_unlocked(session_updated)
+            logger.info(
+                "queued_message transition: project=%s session=%s id=%s state=%s",
+                project_id,
+                session_id,
+                queued_message_id,
+                resolved_state.value,
+            )
             return validated
 
     def list_queued_messages(
@@ -1606,6 +1661,13 @@ class ProjectRuntimeSessionStore:
             )
             validated = OutboxRecord.model_validate(updated)
             store.append(validated, expected_next_seq=seq)
+            logger.info(
+                "outbox transition: project=%s session=%s id=%s state=%s",
+                project_id,
+                session_id,
+                outbox_id,
+                resolved_state.value,
+            )
             return validated
 
     def list_outbox(

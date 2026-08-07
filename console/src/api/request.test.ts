@@ -43,7 +43,7 @@ describe("request", () => {
   beforeEach(() => {
     vi.mocked(buildAuthHeaders).mockReturnValue({});
     Object.defineProperty(window, "location", {
-      value: { pathname: "/chat", href: "" },
+      value: { pathname: "/chat", search: "", hash: "", href: "" },
       writable: true,
     });
   });
@@ -113,11 +113,20 @@ describe("request", () => {
     mockFetch(401);
     await expect(request("/models")).rejects.toThrow("Not authenticated");
     expect(clearAuthToken).toHaveBeenCalledOnce();
-    expect(window.location.href).toBe("/login");
+    expect(window.location.href).toBe("/login?redirect=%2Fchat");
+  });
+
+  it("preserves OS paths and the console basename on 401", async () => {
+    window.location.pathname = "/console/os/apps/office";
+    mockFetch(401);
+    await expect(request("/models")).rejects.toThrow("Not authenticated");
+    expect(window.location.href).toBe(
+      "/console/login?redirect=%2Fos%2Fapps%2Foffice",
+    );
   });
 
   it("does not redirect again when already on /login for 401", async () => {
-    window.location.pathname = "/login";
+    window.location.pathname = "/console/login";
     window.location.href = "";
     mockFetch(401);
     await expect(request("/models")).rejects.toThrow("Not authenticated");

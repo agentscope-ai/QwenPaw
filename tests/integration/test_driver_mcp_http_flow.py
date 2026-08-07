@@ -17,6 +17,8 @@ from tests.integration.driver_mcp_fakes import (
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p1
 async def test_driver_mcp_http_header_secret_flow(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

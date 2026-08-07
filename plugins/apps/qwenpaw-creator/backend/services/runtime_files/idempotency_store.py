@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import logging
 import os
 from pathlib import Path
 import re
@@ -25,6 +26,8 @@ from .errors import (
 )
 from .locking import CrossProcessFileLock
 from .models import IdempotencyRecord, IdempotencyStatus, utc_now
+
+logger = logging.getLogger("qwenpaw.creator.runtime_files.idempotency_store")
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +211,12 @@ class IdempotencyRecordStore:
                 "content-addressed path",
             )
         if record.request_hash != request_hash:
+            logger.info(
+                "idempotency replay detected: owner=%s scope=%s key=%s",
+                owner_id,
+                scope,
+                idempotency_key,
+            )
             raise IdempotencyConflictError(
                 owner_id=owner_id,
                 scope=scope,
@@ -215,6 +224,13 @@ class IdempotencyRecordStore:
                 existing_request_hash=record.request_hash,
                 request_hash=request_hash,
             )
+        logger.debug(
+            "idempotency reserved: owner=%s scope=%s key=%s created=%s",
+            owner_id,
+            scope,
+            idempotency_key,
+            created,
+        )
         return IdempotencyReservation(record=record, created=created)
 
     @staticmethod
@@ -280,7 +296,14 @@ class IdempotencyRecordStore:
                 },
             )
 
-        return store.update(transition).value
+        result = store.update(transition).value
+        logger.debug(
+            "idempotency completed: owner=%s scope=%s key=%s",
+            owner_id,
+            scope,
+            idempotency_key,
+        )
+        return result
 
     def fail(
         self,
@@ -327,7 +350,14 @@ class IdempotencyRecordStore:
                 },
             )
 
-        return store.update(transition).value
+        result = store.update(transition).value
+        logger.debug(
+            "idempotency failed: owner=%s scope=%s key=%s",
+            owner_id,
+            scope,
+            idempotency_key,
+        )
+        return result
 
     def fail_if_in_progress(
         self,

@@ -7,6 +7,8 @@ import type {
   HubInstallTaskResponse,
   HubSkillSpec,
   PoolSkillSpec,
+  PoolSkillDetail,
+  SkillDetail,
   SkillSpec,
   WorkspaceSkillSummary,
 } from "../types";
@@ -152,6 +154,18 @@ export const skillApi = {
     setCache(cacheKey, data);
     return data;
   },
+
+  getSkill: (skillName: string, agentId?: string) => {
+    const opts: RequestInit = {};
+    if (agentId) opts.headers = new Headers({ "X-Agent-Id": agentId });
+    return request<SkillDetail>(
+      `/skills/${encodeURIComponent(skillName)}`,
+      opts,
+    );
+  },
+
+  getPoolSkill: (skillName: string) =>
+    request<PoolSkillDetail>(`/skills/pool/${encodeURIComponent(skillName)}`),
 
   refreshSkills: async (agentId?: string) => {
     const opts: RequestInit = { method: "POST" };
@@ -479,46 +493,6 @@ export const skillApi = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
-
-  getSkillConfig: (skillName: string) =>
-    request<{ config: Record<string, unknown> }>(
-      `/skills/${encodeURIComponent(skillName)}/config`,
-    ),
-
-  updateSkillConfig: (skillName: string, config: Record<string, unknown>) =>
-    request<{ updated: boolean }>(
-      `/skills/${encodeURIComponent(skillName)}/config`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ config }),
-      },
-    ),
-
-  deleteSkillConfig: (skillName: string) =>
-    request<{ cleared: boolean }>(
-      `/skills/${encodeURIComponent(skillName)}/config`,
-      { method: "DELETE" },
-    ),
-
-  getPoolSkillConfig: (skillName: string) =>
-    request<{ config: Record<string, unknown> }>(
-      `/skills/pool/${encodeURIComponent(skillName)}/config`,
-    ),
-
-  updatePoolSkillConfig: (skillName: string, config: Record<string, unknown>) =>
-    request<{ updated: boolean }>(
-      `/skills/pool/${encodeURIComponent(skillName)}/config`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ config }),
-      },
-    ),
-
-  deletePoolSkillConfig: (skillName: string) =>
-    request<{ cleared: boolean }>(
-      `/skills/pool/${encodeURIComponent(skillName)}/config`,
-      { method: "DELETE" },
-    ),
 
   streamOptimizeSkill: async function (
     content: string,

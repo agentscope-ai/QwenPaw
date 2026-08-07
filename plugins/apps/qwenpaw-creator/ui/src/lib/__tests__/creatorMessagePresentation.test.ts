@@ -5,6 +5,8 @@ import {
   actionEnvelopeFromStreamText,
   conversationContent,
   creatorActionEnvelope,
+  deduplicateReviewFeedbackMessages,
+  isReviewFeedbackMessage,
   isUserAuthorityMessage,
   shouldRenderConversationMessage,
   toolCallPresentations,
@@ -45,6 +47,7 @@ describe("Creator conversation presentation", () => {
       "frontend_manual_edit",
       "user",
       "user_continuation",
+      "review_rejection_feedback",
     ]) {
       const message = creatorMessage({ source });
       expect(isUserAuthorityMessage(message)).toBe(true);
@@ -61,6 +64,37 @@ describe("Creator conversation presentation", () => {
       expect(isUserAuthorityMessage(message)).toBe(false);
       expect(shouldRenderConversationMessage(message)).toBe(false);
     }
+  });
+
+  it("renders one review feedback message per durable decision", () => {
+    const first = creatorMessage({
+      messageId: "feedback-first",
+      messageSeq: 4,
+      source: "review_rejection_feedback",
+      metadata: {
+        decisionId: "decision-1",
+        rejectionFeedback: {
+          action: "UNDO_AND_REGENERATE",
+          feedbackNote: "人物状态不对，请保持身份一致",
+        },
+      },
+    });
+    const replay = creatorMessage({
+      ...first,
+      messageId: "feedback-replay",
+      messageSeq: 8,
+    });
+    const unrelated = creatorMessage({
+      messageId: "ordinary",
+      messageSeq: 9,
+      source: "user",
+    });
+
+    expect(isReviewFeedbackMessage(first)).toBe(true);
+    expect(shouldRenderConversationMessage(first)).toBe(true);
+    expect(
+      deduplicateReviewFeedbackMessages([replay, unrelated, first]),
+    ).toEqual([unrelated, first]);
   });
 
   it("never renders reserved Creator/Runtime control markers as user input", () => {
@@ -606,48 +640,34 @@ describe("Creator conversation presentation", () => {
     ]);
   });
 
-  it("assembles main-agent native tool deltas and removes rejected calls", () => {
-    const deltas = [
+  it("projects canonical tool arguments and removes rejected calls", () => {
+    const started = [
       creatorEvent({
-        eventId: "delta-1",
+        eventId: "started",
         seq: 1,
-        type: "agent.tool_delta",
+        type: "agent.tool_started",
         data: {
           messageId: "assistant-native",
           toolCallId: "call-read",
           tool: "read_file",
-          deltaIndex: 0,
-          argumentsDelta: '{"file_path":"story/',
-        },
-      }),
-      creatorEvent({
-        eventId: "delta-2",
-        seq: 2,
-        type: "agent.tool_delta",
-        data: {
-          messageId: "assistant-native",
-          toolCallId: "call-read",
-          tool: "read_file",
-          deltaIndex: 1,
-          argumentsDelta: 'outline.md"}',
+          arguments: { file_path: "story/outline.md" },
         },
       }),
     ];
-    expect(toolCallPresentations([], deltas)).toMatchObject([
+    expect(toolCallPresentations([], started)).toMatchObject([
       {
         actionId: "call-read",
         anchorMessageId: "assistant-native",
         status: "started",
         tool: "read_file",
         arguments: { file_path: "story/outline.md" },
-        argumentsText: '{"file_path":"story/outline.md"}',
       },
     ]);
     expect(
       toolCallPresentations(
         [],
         [
-          ...deltas,
+          ...started,
           creatorEvent({
             eventId: "rejected",
             seq: 3,
@@ -657,5 +677,47 @@ describe("Creator conversation presentation", () => {
         ],
       ),
     ).toEqual([]);
+  });
+
+  it("shows aggregated argument progress and final parsed arguments", () => {
+    const events = [
+      creatorEvent({
+        eventId: "progress",
+        seq: 1,
+        type: "agent.tool_progress",
+        data: {
+          messageId: "assistant-progress",
+          toolCallId: "call-jq",
+          tool: "jq_project",
+          receivedBytes: 25_257,
+          providerChunkCount: 2_140,
+          complete: true,
+        },
+      }),
+      creatorEvent({
+        eventId: "started",
+        seq: 2,
+        type: "agent.tool_started",
+        data: {
+          messageId: "assistant-progress",
+          toolCallId: "call-jq",
+          tool: "jq_project",
+          arguments: { projectId: "project-1", program: "." },
+        },
+      }),
+    ];
+
+    expect(toolCallPresentations([], events)).toMatchObject([
+      {
+        actionId: "call-jq",
+        anchorMessageId: "assistant-progress",
+        status: "started",
+        tool: "jq_project",
+        arguments: { projectId: "project-1", program: "." },
+        receivedBytes: 25_257,
+        providerChunkCount: 2_140,
+        argumentStreamComplete: true,
+      },
+    ]);
   });
 });

@@ -17,6 +17,7 @@ import copy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+import logging
 import os
 from pathlib import Path
 import re
@@ -67,6 +68,8 @@ from .locator_map import derive_ui_locator
 from .models import Project
 from .serialization import project_etag
 from .store import ProjectSnapshot, ProjectStore
+
+logger = logging.getLogger("qwenpaw.creator.project_files.commit")
 
 
 class ProjectCommitError(RuntimeError):
@@ -197,6 +200,18 @@ def _validate_same_round(
 
 def is_protected_pointer(pointer: str) -> bool:
     return pointer in PROTECTED_EXACT_POINTERS
+
+
+# Character voice bindings are tool-authoritative: only the enrollment
+# executor (a Runtime task) may write them. Without this gate an agent could
+# fabricate a voice_id via generic JSON editing after a failed enrollment.
+_RUNTIME_ONLY_POINTER = re.compile(
+    r"^/visual/entities/items/[^/]+/voice(/.*)?$",
+)
+
+
+def is_runtime_only_pointer(pointer: str) -> bool:
+    return bool(_RUNTIME_ONLY_POINTER.match(pointer))
 
 
 def _now() -> datetime:
@@ -348,6 +363,16 @@ class ProjectCommitBoundary:
         )
         if protected:
             raise ProtectedFieldError(protected)
+        if origin_value is not ChangeOrigin.RUNTIME_TASK:
+            runtime_only = sorted(
+                {
+                    item.pointer
+                    for item in requested
+                    if is_runtime_only_pointer(item.pointer)
+                },
+            )
+            if runtime_only:
+                raise ProtectedFieldError(runtime_only)
 
         round_record = ChangeRoundRecord(
             round_id=round_id,
@@ -728,6 +753,12 @@ class ProjectCommitBoundary:
                         "updated_at": _now(),
                     },
                 ),
+            )
+            logger.info(
+                "project committed: project=%s transaction=%s status=%s",
+                project_id,
+                transaction_id,
+                terminal_status.value,
             )
             return ProjectCommitResult(
                 snapshot=snapshot,

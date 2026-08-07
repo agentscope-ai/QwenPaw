@@ -33,11 +33,43 @@ def _color(value: object, fallback: str) -> str:
     return text.lower() if _HEX_COLOR.fullmatch(text) else fallback
 
 
+def _compute_caption_font_size(
+    text_length: int,
+    box_width: float | None,
+    box_height: float | None,
+) -> float:
+    """Compute font size (vh) from box dimensions and text length.
+
+    Uses geometric mean of height-based and width-based estimates to balance
+    vertical and horizontal constraints. Falls back to text-length-only
+    heuristic when box dimensions are unavailable.
+
+    Box dimensions are normalized (0-1) fractions of the video canvas.
+    """
+    if box_width and box_height:
+        box_width_pct = box_width * 100
+        box_height_pct = box_height * 100
+        estimated_lines = max(1.0, text_length / max(1.0, box_width_pct * 0.1))
+        font_size = box_height_pct * 0.85 / estimated_lines**0.5
+        return round(min(max(font_size, 6.0), box_height_pct * 0.75), 1)
+    if text_length <= 3:
+        return 20
+    if text_length <= 7:
+        return 15
+    if text_length <= 11:
+        return 11
+    if text_length <= 17:
+        return 8.5
+    return 7
+
+
 def render_caption_template(
     text: str,
     *,
     theme: str = "comic_patrol",
     emotion: str = "chill",
+    box_width: float | None = None,
+    box_height: float | None = None,
 ) -> str:
     """Render a trusted animated OS card when generative styling fails."""
 
@@ -45,16 +77,7 @@ def render_caption_template(
     emotion = emotion if emotion in SUPPORTED_EMOTIONS else "chill"
     safe_text = escape(text.strip())
     text_length = len(text.strip())
-    if text_length <= 3:
-        font_size = 20
-    elif text_length <= 7:
-        font_size = 15
-    elif text_length <= 11:
-        font_size = 11
-    elif text_length <= 17:
-        font_size = 8.5
-    else:
-        font_size = 7
+    font_size = _compute_caption_font_size(text_length, box_width, box_height)
     palettes = {
         "comic_patrol": ("#fff8df", "#231f1a", "#ff9a2f"),
         "soft_journal": ("#fffaf2", "#55473d", "#e99e88"),

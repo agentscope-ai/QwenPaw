@@ -8,12 +8,11 @@ use windows::core::{BOOL, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
-    IsWindow, IsWindowVisible, PostMessageW, WM_CLOSE,
+    EnumWindows, GetClassNameW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
+    IsWindowVisible, PostMessageW, WM_CLOSE,
 };
 
 use super::super::app_identity::app_id_from_path;
@@ -25,9 +24,10 @@ use super::super::state::WindowInfo;
 const CLOSE_POLL_ATTEMPTS: u32 = 40;
 const CLOSE_POLL_INTERVAL_MS: u64 = 50;
 
-pub(crate) fn list_windows() -> Vec<Value> {
+pub(crate) fn list_windows(app: Option<&str>) -> Vec<Value> {
     enumerate_windows()
         .into_iter()
+        .filter(|window| app.is_none_or(|value| window.matches_app(value)))
         .map(|window| window.to_json())
         .collect()
 }
@@ -130,9 +130,7 @@ pub(crate) fn is_forbidden(window: &WindowInfo) -> bool {
 /// exiting. A still-open window is therefore a legitimate outcome rather than
 /// a failure, so the caller reports `closed: false` and lets the model observe
 /// whatever dialog appeared. The process is never terminated.
-pub(crate) fn close_window(
-    window: &WindowInfo,
-) -> Result<Value, (&'static str, String)> {
+pub(crate) fn close_window(window: &WindowInfo) -> Result<Value, (&'static str, String)> {
     let hwnd = HWND(window.hwnd as _);
     if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
         return Err((
@@ -205,12 +203,20 @@ mod tests {
 
     #[test]
     fn credential_dialogs_stay_forbidden() {
-        assert!(is_forbidden(&window("Windows Security", "svc", "Credential")));
+        assert!(is_forbidden(&window(
+            "Windows Security",
+            "svc",
+            "Credential"
+        )));
         assert!(is_forbidden(&window("Sign in", "svc", "CredentialDialog")));
     }
 
     #[test]
     fn an_ordinary_window_is_allowed() {
-        assert!(!is_forbidden(&window("Untitled - Notepad", "notepad", "Notepad")));
+        assert!(!is_forbidden(&window(
+            "Untitled - Notepad",
+            "notepad",
+            "Notepad"
+        )));
     }
 }

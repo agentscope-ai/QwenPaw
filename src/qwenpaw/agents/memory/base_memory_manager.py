@@ -277,6 +277,10 @@ class BaseMemoryManager(ABC):
         """Return ReMe runtime status when supported by the backend."""
         return None
 
+    async def graph_snapshot(self) -> Any | None:
+        """Return a frontend-ready memory graph when supported."""
+        return None
+
     async def rebuild_index(self) -> Any | None:
         """Rebuild the memory search index when supported by the backend."""
         return None
