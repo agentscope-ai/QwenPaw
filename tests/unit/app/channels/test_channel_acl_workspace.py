@@ -12,17 +12,14 @@ directory (shared across all task instances), not the per-task directory.
 
 from __future__ import annotations
 
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,method-hidden
 
 from pathlib import Path
 from typing import Optional
 
 import pytest
 
-from qwenpaw.app.channels.access_control import (
-    ACCESS_CONTROL_FILE,
-    get_access_control_store,
-)
+from qwenpaw.app.channels.access_control import ACCESS_CONTROL_FILE
 from qwenpaw.app.channels.base import BaseChannel
 
 
@@ -50,15 +47,12 @@ class _MinimalChannel(BaseChannel):
     def _process(self, *args, **kwargs):  # pragma: no cover
         raise NotImplementedError
 
-    def process(self, *args, **kwargs):  # pragma: no cover
-        raise NotImplementedError
-
     def _get_agent_id(self) -> Optional[str]:
         return None
 
 
 @pytest.fixture
-def channel(monkeypatch):
+def channel():
     """A channel wired to a per-task workspace."""
     ch = _MinimalChannel()
     ch._workspace = _DummyWorkspace("default", "/tmp/per-task-ws")

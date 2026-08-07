@@ -344,12 +344,10 @@ class BaseChannel(ABC):
             "id": "Anda telah diblokir dari agen ini.",
         },
         "pending": {
-            "zh": "您目前没有访问此智能体的权限，需要审批。\n"
-            "ID: {sender_id}",
+            "zh": "您目前没有访问此智能体的权限，需要审批。\n" "ID: {sender_id}",
             "en": "You do not have access to this agent. "
             "Approval required.\nID: {sender_id}",
-            "ja": "このエージェントへのアクセス権がありません。"
-            "承認が必要です。\nID: {sender_id}",
+            "ja": "このエージェントへのアクセス権がありません。" "承認が必要です。\nID: {sender_id}",
             "ru": "У вас нет доступа к этому агенту. "
             "Требуется одобрение.\nID: {sender_id}",
             "pt-BR": "Você não tem acesso a este agente. "
