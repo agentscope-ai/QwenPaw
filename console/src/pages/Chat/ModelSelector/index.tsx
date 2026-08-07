@@ -617,12 +617,12 @@ export default function ModelSelector() {
       const provider = refreshed?.providers?.find(
         (candidate) => candidate.id === providerId,
       );
-      const modelExists = [
+      const resolvedModel = [
         ...(provider?.models ?? []),
         ...(provider?.extra_models ?? []),
-      ].some((model) => model.id === pendingModelId);
-      if (modelExists) {
-        await activateModel(providerId, pendingModelId);
+      ].find((model) => model.id === pendingModelId);
+      if (provider && resolvedModel) {
+        await activateModel(provider.id, resolvedModel.id);
         return;
       }
       message.error(t("modelSelector.oauthModelUnavailable"));

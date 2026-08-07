@@ -366,6 +366,9 @@ describe("ModelSelector", () => {
       });
     });
     expect(navigateMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("qwenpaw_model_selector_recent")).toBe(
+      JSON.stringify(["oauth-provider:gpt-3.5-turbo"]),
+    );
   });
 
   it("clears the pending model when OAuth is cancelled", async () => {
