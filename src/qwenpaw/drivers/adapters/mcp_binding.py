@@ -167,6 +167,29 @@ def plan_env_ref_bindings(secrets: dict[str, str]) -> EnvRefPlan:
     return plan
 
 
+def _env_ref_template(spec: dict[str, Any]) -> str | None:
+    """Render an env-backed credential binding as its ${VAR} template.
+
+    Returns e.g. ``Bearer ${ANYSEARCH_API_KEY}`` for a binding whose
+    ``credential`` alias is ``env_<var>`` with a ``format`` of
+    ``Bearer {value}``.  ``None`` when the binding is not env-backed.
+    """
+    credential = str(spec.get("credential") or "")
+    if not credential.startswith("env_"):
+        return None
+    var_name = credential[len("env_") :].upper()
+    fmt = str(spec.get("format") or "{value}")
+    return fmt.replace("{value}", "${" + var_name + "}")
+
+
+def _is_env_ref_spec(spec: Any) -> bool:
+    return (
+        isinstance(spec, dict)
+        and spec.get("source") == "credential"
+        and str(spec.get("credential") or "").startswith("env_")
+    )
+
+
 def binding_to_response(
     binding: Any,
     credential: CredentialRecord | None,
@@ -182,6 +205,10 @@ def binding_to_response(
         for key, spec in binding.items():
             if isinstance(spec, dict) and spec.get("source") == "literal":
                 result[str(key)] = str(spec.get("value") or "")
+            elif _is_env_ref_spec(spec):
+                template = _env_ref_template(spec)
+                if template:
+                    result[str(key)] = template
             elif (
                 isinstance(spec, dict)
                 and spec.get("source") == "credential"
@@ -218,6 +245,10 @@ def binding_plain_keys(
         for key, spec in binding.items():
             if isinstance(spec, dict) and spec.get("source") == "literal":
                 result[str(key)] = str(spec.get("value") or "")
+            elif _is_env_ref_spec(spec):
+                template = _env_ref_template(spec)
+                if template:
+                    result[str(key)] = template
             elif (
                 isinstance(spec, dict)
                 and spec.get("source") == "credential"

@@ -154,11 +154,14 @@ def _resolve_value_source(
         if field
         else None
     )
-    if value is None:
+    if not value:
         return None
 
     text = str(value)
     fmt = spec.get("format")
     if isinstance(fmt, str) and fmt:
-        return fmt.replace("{value}", text)
+        resolved = fmt.replace("{value}", text)
+        if not resolved:
+            return None
+        return resolved
     return text
