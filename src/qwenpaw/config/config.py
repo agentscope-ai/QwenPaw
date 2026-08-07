@@ -304,6 +304,7 @@ class OneBotConfig(BaseChannelConfig):
     ws_port: int = 6199
     access_token: str = ""
     share_session_in_group: bool = False
+    media_dir: Optional[str] = None
     media_base64: bool = False
     media_base64_max_mb: int = Field(default=10, gt=0)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -74,6 +75,20 @@ def test_media_base64_config():
     assert ch._media_base64_max_bytes == 3_000_000
     with pytest.raises(ValidationError):
         OneBotConfig(media_base64_max_mb=0)
+
+
+def test_media_dir_config(tmp_path):
+    async def _noop_process(_request):
+        yield  # pragma: no cover
+
+    explicit = tmp_path / "onebot-media"
+    config = OneBotConfig(enabled=True, media_dir=str(explicit))
+    ch = OneBotChannel.from_config(_noop_process, config)
+    assert ch._media_dir == explicit
+
+    workspace = tmp_path / "workspace"
+    ch = _make_channel(workspace_dir=workspace)
+    assert ch._media_dir == workspace / "media" / "onebot"
 
 
 def _make_message_event(
@@ -299,6 +314,175 @@ class TestParseMessageSegments:
         assert len(preview) <= 200
         assert len(captured[0][0]["data"]["url"]) == 80
         assert captured[0][0]["data"]["nested"] == "<dict>"
+
+
+class TestInboundMediaResolution:
+    async def test_resolve_downloads_all_media_to_local_paths(self, tmp_path):
+        ch = _make_channel(media_base64=True, media_dir=str(tmp_path))
+        parts = [
+            TextContent(type=ContentType.TEXT, text="see files"),
+            ImageContent(
+                type=ContentType.IMAGE,
+                image_url="https://cdn.example.com/pic.png",
+            ),
+            AudioContent(
+                type=ContentType.AUDIO,
+                data="https://cdn.example.com/voice.amr",
+            ),
+            VideoContent(
+                type=ContentType.VIDEO,
+                video_url="https://cdn.example.com/video.mp4",
+            ),
+            FileContent(
+                type=ContentType.FILE,
+                file_url="https://cdn.example.com/doc.pdf",
+                filename="doc.pdf",
+            ),
+        ]
+        local_paths = [
+            str(tmp_path / "pic.png"),
+            str(tmp_path / "voice.amr"),
+            str(tmp_path / "video.mp4"),
+            str(tmp_path / "doc.pdf"),
+        ]
+        ch._download_remote_media = AsyncMock(side_effect=local_paths)
+
+        resolved = await ch._resolve_inbound_media(
+            parts,
+            [
+                {"type": "image", "data": {"url": parts[1].image_url}},
+                {"type": "record", "data": {"url": parts[2].data}},
+                {"type": "video", "data": {"url": parts[3].video_url}},
+                {
+                    "type": "file",
+                    "data": {"url": parts[4].file_url, "name": "doc.pdf"},
+                },
+            ],
+            "private",
+            {},
+        )
+
+        assert [part.type for part in resolved] == [
+            ContentType.TEXT,
+            ContentType.IMAGE,
+            ContentType.AUDIO,
+            ContentType.VIDEO,
+            ContentType.FILE,
+        ]
+        assert resolved[1].image_url == local_paths[0]
+        assert resolved[2].data == local_paths[1]
+        assert resolved[3].video_url == local_paths[2]
+        assert resolved[4].file_url == local_paths[3]
+
+    async def test_existing_local_media_is_not_downloaded(self, tmp_path):
+        media_file = tmp_path / "pic.png"
+        media_file.write_bytes(b"image")
+        ch = _make_channel(media_base64=True)
+        ch._download_remote_media = AsyncMock()
+        part = ImageContent(
+            type=ContentType.IMAGE,
+            image_url=str(media_file),
+        )
+
+        resolved = await ch._resolve_inbound_media(
+            [part],
+            [{"type": "image", "data": {"file": str(media_file)}}],
+            "private",
+            {},
+        )
+
+        assert resolved[0].image_url == str(media_file.resolve())
+        ch._download_remote_media.assert_not_awaited()
+
+    async def test_file_ids_are_resolved_per_segment(self, tmp_path):
+        ch = _make_channel(media_base64=True, media_dir=str(tmp_path))
+        ch._call_api = AsyncMock(
+            side_effect=[
+                {"data": {"url": "https://cdn.example.com/a.pdf"}},
+                {"data": {"url": "https://cdn.example.com/b.pdf"}},
+            ],
+        )
+        ch._download_remote_media = AsyncMock(
+            side_effect=[str(tmp_path / "a.pdf"), str(tmp_path / "b.pdf")],
+        )
+        parts = [
+            FileContent(type=ContentType.FILE, file_url="a.pdf"),
+            FileContent(type=ContentType.FILE, file_url="b.pdf"),
+        ]
+
+        resolved = await ch._resolve_inbound_media(
+            parts,
+            [
+                {"type": "file", "data": {"file_id": "id-a"}},
+                {"type": "file", "data": {"file_id": "id-b"}},
+            ],
+            "group",
+            {"group_id": "67890"},
+        )
+
+        assert resolved[0].file_url.endswith("a.pdf")
+        assert resolved[1].file_url.endswith("b.pdf")
+        assert ch._call_api.await_args_list[0].args[1]["file_id"] == "id-a"
+        assert ch._call_api.await_args_list[1].args[1]["file_id"] == "id-b"
+
+    async def test_api_failure_becomes_placeholder(self):
+        ch = _make_channel(media_base64=True)
+        ch._call_api = AsyncMock(return_value={"data": {"url": ""}})
+        part = FileContent(
+            type=ContentType.FILE,
+            file_url="missing-onebot-file.bin",
+        )
+
+        resolved = await ch._resolve_inbound_media(
+            [part],
+            [{"type": "file", "data": {"file_id": "missing"}}],
+            "private",
+            {},
+        )
+
+        assert resolved[0].type == ContentType.TEXT
+        assert resolved[0].text == "[file: download failed]"
+
+    async def test_download_remote_media_writes_local_file(self, tmp_path):
+        ch = _make_channel(media_base64=True, media_dir=str(tmp_path))
+        response = MagicMock()
+        response.content_length = 5
+        response.headers = {"Content-Type": "image/png"}
+        response.raise_for_status = MagicMock()
+
+        async def _chunks():
+            yield b"image"
+
+        response.content.iter_chunked.return_value = _chunks()
+        request_context = MagicMock()
+        request_context.__aenter__ = AsyncMock(return_value=response)
+        request_context.__aexit__ = AsyncMock(return_value=None)
+        session = MagicMock()
+        session.get.return_value = request_context
+
+        with patch(
+            "qwenpaw.app.channels.onebot.channel.aiohttp.ClientSession",
+        ) as session_cls:
+            session_cls.return_value.__aenter__ = AsyncMock(
+                return_value=session,
+            )
+            session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+            result = await ch._download_remote_media(
+                "https://img.example.com/pic",
+                "image",
+                0,
+                "pic",
+            )
+
+        assert result is not None
+        path = Path(result)
+        assert path.suffix == ".png"
+        assert path.read_bytes() == b"image"
+        session.get.assert_called_once_with(
+            "https://img.example.com/pic",
+            allow_redirects=True,
+            max_redirects=3,
+        )
 
 
 class TestInlineRemoteImages:

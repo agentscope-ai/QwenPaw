@@ -7,7 +7,15 @@ from qwenpaw.constant import (
     QWENPAW_MESSAGE_TAG_KEY,
 )
 from qwenpaw.runtime.message_convert import _request_input_to_msgs
-from qwenpaw.schemas import AudioContent, Message, Role, TextContent
+from qwenpaw.schemas import (
+    AudioContent,
+    FileContent,
+    ImageContent,
+    Message,
+    Role,
+    TextContent,
+    VideoContent,
+)
 
 
 def test_only_external_user_input_gets_query_tag():
@@ -67,3 +75,37 @@ def test_audio_content_data_becomes_audio_data_block(tmp_path):
     assert block.source.type == "url"
     assert str(block.source.url) == audio_path.resolve().as_uri()
     assert block.source.media_type.startswith("audio/")
+
+
+def test_local_media_content_becomes_file_url_data_blocks(tmp_path):
+    image_path = tmp_path / "pic.png"
+    audio_path = tmp_path / "voice.mp3"
+    video_path = tmp_path / "demo.mp4"
+    file_path = tmp_path / "doc.pdf"
+
+    messages = _request_input_to_msgs(
+        [
+            Message(
+                role=Role.USER,
+                content=[
+                    ImageContent(image_url=str(image_path)),
+                    AudioContent(data=str(audio_path)),
+                    VideoContent(video_url=str(video_path)),
+                    FileContent(file_url=str(file_path), filename="doc.pdf"),
+                ],
+            ),
+        ],
+    )
+
+    assert [str(block.source.url) for block in messages[0].content] == [
+        image_path.resolve().as_uri(),
+        audio_path.resolve().as_uri(),
+        video_path.resolve().as_uri(),
+        file_path.resolve().as_uri(),
+    ]
+    assert [block.source.media_type for block in messages[0].content] == [
+        "image/png",
+        "audio/mpeg",
+        "video/mp4",
+        "application/octet-stream",
+    ]

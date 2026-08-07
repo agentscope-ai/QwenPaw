@@ -18,8 +18,10 @@ import base64
 import hmac
 import json
 import logging
+import mimetypes
 import os
 import re
+import urllib.parse
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -37,6 +39,7 @@ from qwenpaw.schemas import (
 )
 
 from ....config.config import OneBotConfig as OneBotChannelConfig
+from ....constant import DEFAULT_MEDIA_DIR
 from ....utils.http import is_loopback_host, probe_host_for_bind_host
 from ..renderer import ChannelDisplayConfig
 from ..base import (
@@ -305,6 +308,8 @@ class OneBotChannel(BaseChannel):
         access_control_group: bool = False,
         media_base64: bool = False,
         media_base64_max_mb: int = _DEFAULT_MEDIA_BASE64_MAX_MB,
+        media_dir: str = "",
+        workspace_dir: Path | None = None,
     ):
         super().__init__(
             process,
@@ -341,6 +346,11 @@ class OneBotChannel(BaseChannel):
             else _DEFAULT_MEDIA_BASE64_MAX_MB
         )
         self._media_base64_max_bytes = max_mb * 1_000_000
+        base_media_dir = Path(media_dir).expanduser() if media_dir else None
+        if base_media_dir is None:
+            workspace_base = workspace_dir or DEFAULT_MEDIA_DIR.parent
+            base_media_dir = Path(workspace_base) / "media" / self.channel
+        self._media_dir = base_media_dir
 
         # WebSocket server state
         self._app: Optional[web.Application] = None
@@ -399,6 +409,7 @@ class OneBotChannel(BaseChannel):
                     str(_DEFAULT_MEDIA_BASE64_MAX_MB),
                 ),
             ),
+            media_dir=os.getenv("ONEBOT_MEDIA_DIR", ""),
         )
 
     @classmethod
@@ -439,6 +450,7 @@ class OneBotChannel(BaseChannel):
             ),
             media_base64=config.media_base64,
             media_base64_max_mb=config.media_base64_max_mb,
+            media_dir=config.media_dir or "",
         )
 
     # ------------------------------------------------------------------
@@ -813,13 +825,15 @@ class OneBotChannel(BaseChannel):
                 reply_message_id,
             )
             quoted_parts, _ = self._parse_message_segments(quoted_segments)
-            quoted_parts = await self._resolve_file_urls(
+            quoted_parts = await self._resolve_inbound_media(
                 quoted_parts,
+                quoted_segments,
                 message_type,
                 self._event_with_segments(data, quoted_segments),
             )
-            content_parts = await self._resolve_file_urls(
+            content_parts = await self._resolve_inbound_media(
                 content_parts,
+                segments,
                 message_type,
                 self._event_with_segments(data, segments),
             )
@@ -835,8 +849,9 @@ class OneBotChannel(BaseChannel):
                 self._content_part_preview(quoted_parts),
             )
         else:
-            content_parts = await self._resolve_file_urls(
+            content_parts = await self._resolve_inbound_media(
                 content_parts,
+                segments,
                 message_type,
                 self._event_with_segments(data, segments),
             )
@@ -1161,88 +1176,352 @@ class OneBotChannel(BaseChannel):
             return []
         return segments
 
-    async def _resolve_file_urls(
+    @staticmethod
+    def _media_kind(part: Any) -> str | None:
+        """Return the inbound media kind for a runtime content part."""
+        part_type = getattr(part, "type", None)
+        if hasattr(part_type, "value"):
+            part_type = part_type.value
+        if part_type == ContentType.IMAGE.value:
+            return "image"
+        if part_type == ContentType.AUDIO.value:
+            return "audio"
+        if part_type == ContentType.VIDEO.value:
+            return "video"
+        if part_type == ContentType.FILE.value:
+            return "file"
+        return None
+
+    @staticmethod
+    def _onebot_media_segments(segments: list) -> list[dict]:
+        """Return OneBot media segments in original order."""
+        return [
+            seg
+            for seg in segments
+            if isinstance(seg, dict)
+            and seg.get("type") in {"image", "record", "video", "file"}
+        ]
+
+    @staticmethod
+    def _part_media_ref(part: Any, kind: str) -> str:
+        if kind == "image":
+            return str(getattr(part, "image_url", "") or "")
+        if kind == "audio":
+            return str(getattr(part, "data", "") or "")
+        if kind == "video":
+            return str(getattr(part, "video_url", "") or "")
+        return str(getattr(part, "file_url", "") or "")
+
+    @staticmethod
+    def _safe_media_filename(filename: str, default: str) -> str:
+        """Build a safe basename for downloaded OneBot media."""
+        raw = urllib.parse.unquote((filename or "").strip())
+        name = Path(raw).name if raw else ""
+        safe = "".join(c for c in name if c.isalnum() or c in "-_.")
+        return safe or default
+
+    @staticmethod
+    def _suffix_from_bytes(data: bytes) -> str | None:
+        """Detect a small set of common media suffixes from magic bytes."""
+        signatures = [
+            (b"\xff\xd8\xff", ".jpg"),
+            (b"\x89PNG\r\n\x1a\n", ".png"),
+            (b"GIF87a", ".gif"),
+            (b"GIF89a", ".gif"),
+            (b"RIFF", ".wav"),
+            (b"ID3", ".mp3"),
+            (b"%PDF", ".pdf"),
+            (b"PK\x03\x04", ".zip"),
+        ]
+        for prefix, suffix in signatures:
+            if data.startswith(prefix):
+                return suffix
+        if len(data) > 12 and data[4:8] == b"ftyp":
+            return ".mp4"
+        return None
+
+    def _default_media_filename(self, kind: str) -> str:
+        return {
+            "image": "image.file",
+            "audio": "audio.file",
+            "video": "video.file",
+            "file": "file.bin",
+        }.get(kind, "file.bin")
+
+    def _content_part_for_local_media(
+        self,
+        part: Any,
+        kind: str,
+        local_path: str,
+    ) -> Any:
+        """Preserve content kind while replacing ref with local path."""
+        if kind == "image":
+            return ImageContent(type=ContentType.IMAGE, image_url=local_path)
+        if kind == "audio":
+            return AudioContent(
+                type=ContentType.AUDIO,
+                data=local_path,
+                format=getattr(part, "format", None),
+            )
+        if kind == "video":
+            return VideoContent(type=ContentType.VIDEO, video_url=local_path)
+        return FileContent(
+            type=ContentType.FILE,
+            file_url=local_path,
+            filename=getattr(part, "filename", None),
+        )
+
+    def _download_failed_part(self, kind: str) -> TextContent:
+        return TextContent(
+            type=ContentType.TEXT,
+            text=f"[{kind}: download failed]",
+        )
+
+    def _local_media_path(self, ref: str) -> str | None:
+        """Return an existing local path for file:// or plain path refs."""
+        local = file_url_to_local_path(ref)
+        if local:
+            try:
+                path = Path(local).expanduser()
+                if path.is_file():
+                    return str(path.resolve())
+            except OSError:
+                return None
+        if ref.startswith(("http://", "https://")):
+            return None
+        try:
+            path = Path(ref).expanduser()
+            if path.is_file():
+                return str(path.resolve())
+        except OSError:
+            return None
+        return None
+
+    async def _resolve_inbound_media(
         self,
         content_parts: list,
+        segments: list,
         message_type: str,
         event_data: Dict[str, Any],
     ) -> list:
-        """Resolve real download URLs for file content parts.
-
-        NapCat's file segments only contain the filename in the ``file``
-        field, not a download URL.  We call ``get_group_file_url`` or
-        ``get_private_file_url`` to obtain the real URL.
-        """
-        resolved = []
-        file_segments = [
-            segment
-            for segment in event_data.get("message", [])
-            if isinstance(segment, dict) and segment.get("type") == "file"
-        ]
-        file_segment_index = 0
+        """Resolve and localize OneBot inbound image/audio/video/file parts."""
+        media_segments = self._onebot_media_segments(segments)
+        media_index = 0
+        resolved: list = []
         for part in content_parts:
-            if getattr(part, "type", None) != ContentType.FILE:
+            kind = self._media_kind(part)
+            if kind is None:
                 resolved.append(part)
                 continue
 
-            source_segment = (
-                file_segments[file_segment_index]
-                if file_segment_index < len(file_segments)
+            seg = (
+                media_segments[media_index]
+                if media_index < len(media_segments)
                 else {}
             )
-            file_segment_index += 1
-            source_data = source_segment.get("data", {})
-            file_id = (
-                source_data.get("file_id", "")
-                if isinstance(source_data, dict)
-                else ""
+            media_index += 1
+            local_path = await self._localize_media_part(
+                part,
+                kind,
+                seg,
+                media_index - 1,
+                message_type,
+                event_data,
             )
-            file_url = getattr(part, "file_url", "") or ""
-            # Already a valid URL — keep as-is
-            if file_url.startswith(("http://", "https://", "file://")):
-                resolved.append(part)
-                continue
-
-            if not file_id:
-                # No file_id available — keep original (will likely fail
-                # downstream but at least the filename is preserved)
-                resolved.append(part)
-                continue
-
-            # Call OneBot API to resolve the real download URL
-            if message_type == "group":
-                group_id = event_data.get("group_id", "")
-                result = await self._call_api(
-                    "get_group_file_url",
-                    {"group_id": int(group_id), "file_id": file_id},
-                )
-            else:
-                result = await self._call_api(
-                    "get_private_file_url",
-                    {"file_id": file_id},
-                )
-
-            real_url = (result.get("data") or {}).get("url", "")
-            if real_url:
+            if local_path:
                 resolved.append(
-                    FileContent(
-                        type=ContentType.FILE,
-                        file_url=real_url,
-                        filename=getattr(part, "filename", "file"),
-                    ),
-                )
-                logger.info(
-                    "onebot: resolved file URL for %s",
-                    getattr(part, "filename", "file"),
+                    self._content_part_for_local_media(part, kind, local_path),
                 )
             else:
-                logger.warning(
-                    "onebot: failed to resolve file URL for file_id=%s",
-                    file_id,
-                )
-                resolved.append(part)
-
+                resolved.append(self._download_failed_part(kind))
         return resolved
+
+    async def _localize_media_part(
+        self,
+        part: Any,
+        kind: str,
+        segment: dict,
+        segment_index: int,
+        message_type: str,
+        event_data: Dict[str, Any],
+    ) -> str | None:
+        """Resolve one OneBot media part to a managed local path."""
+        seg_data = segment.get("data", {}) if isinstance(segment, dict) else {}
+        ref = self._part_media_ref(part, kind)
+        if not ref or not ref.startswith(("http://", "https://", "file://")):
+            api_ref = await self._resolve_media_url_from_api(
+                kind,
+                seg_data,
+                message_type,
+                event_data,
+            )
+            if api_ref:
+                ref = api_ref
+        local_path = self._local_media_path(ref)
+        if local_path:
+            return local_path
+        if not ref.startswith(("http://", "https://")):
+            return None
+        if not self._media_base64:
+            return ref
+
+        filename_hint = (
+            seg_data.get("name")
+            or seg_data.get("filename")
+            or seg_data.get("file")
+            or Path(urllib.parse.urlparse(ref).path).name
+            or self._default_media_filename(kind)
+        )
+        return await self._download_remote_media(
+            ref,
+            kind,
+            segment_index,
+            str(filename_hint),
+        )
+
+    # pylint: disable=too-many-return-statements
+    async def _resolve_media_url_from_api(
+        self,
+        kind: str,
+        seg_data: Dict[str, Any],
+        message_type: str,
+        event_data: Dict[str, Any],
+    ) -> str | None:
+        """Resolve OneBot file IDs or channel-specific media refs to URLs."""
+        try:
+            if kind == "file":
+                file_id = str(seg_data.get("file_id") or "")
+                if not file_id:
+                    return None
+                if message_type == "group":
+                    group_id = event_data.get("group_id", "")
+                    result = await self._call_api(
+                        "get_group_file_url",
+                        {"group_id": int(group_id), "file_id": file_id},
+                    )
+                else:
+                    result = await self._call_api(
+                        "get_private_file_url",
+                        {"file_id": file_id},
+                    )
+            elif kind == "image":
+                file_ref = str(seg_data.get("file") or "")
+                if not file_ref:
+                    return None
+                result = await self._call_api("get_image", {"file": file_ref})
+            elif kind == "audio":
+                file_ref = str(seg_data.get("file") or "")
+                if not file_ref:
+                    return None
+                result = await self._call_api(
+                    "get_record",
+                    {"file": file_ref, "out_format": "mp3"},
+                )
+            else:
+                return None
+        except Exception:
+            logger.warning(
+                "onebot: failed to resolve %s media URL",
+                kind,
+                exc_info=True,
+            )
+            return None
+
+        data = result.get("data") if isinstance(result, dict) else None
+        if isinstance(data, dict):
+            return str(data.get("url") or data.get("file") or "") or None
+        return None
+
+    async def _download_remote_media(
+        self,
+        url: str,
+        kind: str,
+        segment_index: int,
+        filename_hint: str,
+    ) -> str | None:
+        """Download one remote OneBot media URL into managed local storage."""
+        timeout = aiohttp.ClientTimeout(total=15)
+        try:
+            async with aiohttp.ClientSession(
+                timeout=timeout,
+                trust_env=False,
+            ) as session:
+                async with session.get(
+                    url,
+                    allow_redirects=True,
+                    max_redirects=3,
+                ) as response:
+                    response.raise_for_status()
+                    content_length = response.content_length
+                    if (
+                        content_length is not None
+                        and content_length > self._media_base64_max_bytes
+                    ):
+                        logger.warning(
+                            "onebot: remote %s exceeds media limit: %s bytes",
+                            kind,
+                            content_length,
+                        )
+                        return None
+                    data = bytearray()
+                    async for chunk in response.content.iter_chunked(
+                        64 * 1024,
+                    ):
+                        data.extend(chunk)
+                        if len(data) > self._media_base64_max_bytes:
+                            logger.warning(
+                                "onebot: remote %s download exceeded limit",
+                                kind,
+                            )
+                            return None
+                    if not data:
+                        return None
+                    media_type = response.headers.get("Content-Type", "")
+                    return await asyncio.to_thread(
+                        self._write_downloaded_media,
+                        bytes(data),
+                        media_type,
+                        kind,
+                        segment_index,
+                        filename_hint,
+                    )
+        except (
+            aiohttp.ClientError,
+            asyncio.TimeoutError,
+            ValueError,
+            OSError,
+        ):
+            logger.warning(
+                "onebot: failed to download remote %s %s",
+                kind,
+                url,
+                exc_info=True,
+            )
+            return None
+
+    def _write_downloaded_media(
+        self,
+        data: bytes,
+        raw_media_type: str,
+        kind: str,
+        segment_index: int,
+        filename_hint: str,
+    ) -> str:
+        """Write downloaded bytes under media_dir and return local path."""
+        media_type = raw_media_type.split(";", 1)[0].strip().lower()
+        default_name = self._default_media_filename(kind)
+        safe_name = self._safe_media_filename(filename_hint, default_name)
+        suffix = Path(safe_name).suffix
+        if not suffix and media_type:
+            suffix = mimetypes.guess_extension(media_type) or ""
+        if not suffix:
+            suffix = self._suffix_from_bytes(data) or Path(default_name).suffix
+        stem = Path(safe_name).stem or kind
+        filename = f"{uuid.uuid4().hex}_{segment_index}_{stem}{suffix}"
+        self._media_dir.mkdir(parents=True, exist_ok=True)
+        path = (self._media_dir / filename).resolve()
+        path.write_bytes(data)
+        return str(path)
 
     async def _inline_remote_images(self, content_parts: list) -> list:
         """Inline remote OneBot images when base64 media mode is enabled."""
