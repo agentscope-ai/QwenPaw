@@ -55,9 +55,9 @@ This keeps ordinary projects quick to enter and gives Project Directory changes 
 
 An Agent needs two kinds of directories at the same time:
 
-| Directory | What it contains | When to use it |
-| --- | --- | --- |
-| Project Directory | User projects, code, references, Git workspaces, and task outputs | Work on the current project |
+| Directory                     | What it contains                                                  | When to use it                                    |
+| ----------------------------- | ----------------------------------------------------------------- | ------------------------------------------------- |
+| Project Directory             | User projects, code, references, Git workspaces, and task outputs | Work on the current project                       |
 | Agent Configuration Directory | Profile, Memory, sessions, skills, caches, and QwenPaw-owned data | Inspect Agent configuration and long-term context |
 
 Files keeps both identities in one navigator with a root switcher. If the two paths resolve to the same directory, the UI collapses them into one identity instead of displaying duplicates.
