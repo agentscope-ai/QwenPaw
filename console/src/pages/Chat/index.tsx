@@ -167,7 +167,11 @@ import {
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
-import { queryChatStatus, waitForChatIdle } from "./chatStatus";
+import {
+  queryChatStatus,
+  shouldResetStuckLoading,
+  waitForChatIdle,
+} from "./chatStatus";
 import {
   CHAT_BASE_PATH,
   buildChatPath,
@@ -1449,9 +1453,12 @@ export default function ChatPage() {
           const statusId =
             sessionApi.getRealIdForSession(queueSessionId) ?? queueSessionId;
           const status = await queryChatStatus(statusId, selectedAgent);
-          if (status === "running") {
-            // Genuinely busy. Re-arm the watchdog so we retry when the turn
-            // finishes even if chatLoading never flips back (stuck bridge).
+          if (!shouldResetStuckLoading(status)) {
+            // Genuinely busy, OR the status could not be determined (e.g. a
+            // transient network failure). In the latter case the previous
+            // turn may still be running — clearing loading would let the
+            // next queued message send out of order. Re-arm the watchdog
+            // and retry instead of resetting the SDK state.
             setTimeout(() => scheduleNextSend(), 3000);
             return;
           }
