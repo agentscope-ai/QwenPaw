@@ -43,15 +43,15 @@ graph TB
 
 长期记忆管理包含以下能力：
 
-| 能力               | 说明                                                                                    |
-| ------------------ | --------------------------------------------------------------------------------------- |
-| **嵌入式 ReMe**    | QwenPaw 在进程内启动 ReMe，并将当前 Agent 使用的 QwenPaw 模型注入到 ReMe 默认 LLM 组件  |
-| **Auto-Memory**    | 每隔可配置数量的用户回合，将对话中值得保留的事实抽取为每日 Markdown 记忆                |
-| **上下文压缩保存** | 上下文压缩前，可把尚未写入的回合先提交给同一套 `auto_memory` 流程                       |
-| **Auto-Dream**     | 定时从近期每日记忆中提取更高层的 digest 单元和主动交互兴趣主题                          |
-| **混合检索**       | `memory_search` 调用 ReMe `search` job，通过 BM25 + 可选向量检索，并使用 RRF 融合排序   |
+| 能力               | 说明                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------- |
+| **嵌入式 ReMe**    | QwenPaw 在进程内启动 ReMe，并将当前 Agent 使用的 QwenPaw 模型注入到 ReMe 默认 LLM 组件 |
+| **Auto-Memory**    | 每隔可配置数量的用户回合，将对话中值得保留的事实抽取为每日 Markdown 记忆               |
+| **上下文压缩保存** | 上下文压缩前，可把尚未写入的回合先提交给同一套 `auto_memory` 流程                      |
+| **Auto-Dream**     | 定时从近期每日记忆中提取更高层的 digest 单元和主动交互兴趣主题                         |
+| **混合检索**       | `memory_search` 调用 ReMe `search` job，通过 BM25 + 可选向量检索，并使用 RRF 融合排序  |
 | **Daily Paper**    | 可配置定时生成论文精读和每日简报；PDF 保存在 `resource/papers/`，Markdown 写入每日记忆 |
-| **Inbox 通知**     | `auto_memory`、`auto_dream`、`daily_paper` 产生结果时，会推送到 QwenPaw inbox           |
+| **Inbox 通知**     | `auto_memory`、`auto_dream`、`daily_paper` 产生结果时，会推送到 QwenPaw inbox          |
 
 ---
 
@@ -292,23 +292,23 @@ score、vector、keyword 字段，不要总结或改写。
 
 记忆配置位于 `agent.json` 的 `running.reme_light_memory_config` 中：
 
-| 配置项                   | 说明                                                                                | 默认值           |
-| ------------------------ | ----------------------------------------------------------------------------------- | ---------------- |
-| `metadata_dir`           | ReMe 持久状态目录，用于保存索引、catalog、graph 和缓存                              | `"mem_metadata"` |
-| `session_dir`            | 来源对话保存目录                                                                    | `"mem_session"`  |
-| `mem_session_dir`        | ReMe 内部 memory-agent 会话目录                                                     | `"mem_agent"`    |
-| `resource_dir`           | Daily Paper 等能力保存原始资源的目录                                                | `"resource"`     |
-| `daily_dir`              | 每日记忆目录                                                                        | `"memory"`       |
-| `digest_dir`             | dream/digest 记忆目录                                                               | `"digest"`       |
-| `auto_memory_inbox_push_enabled` | 是否将 `auto_memory` 结果推送到 QwenPaw inbox                            | `true`           |
-| `auto_dream_inbox_push_enabled` | 是否将 `auto_dream` 结果推送到 QwenPaw inbox                              | `true`           |
-| `daily_paper_inbox_push_enabled` | 是否将 `daily_paper` 结果推送到 QwenPaw inbox                            | `true`           |
-| `auto_memory_interval`   | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆            | `5`              |
-| `dream_cron_enabled`     | 是否启用按 Cron 定时执行的 Auto-Dream 任务                                          | `true`           |
-| `dream_cron`             | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动    | `"0 23 * * *"`   |
-| `daily_paper_cron_enabled` | 是否启用按 Cron 定时执行的 Daily Paper                                            | `false`          |
-| `daily_paper_cron`       | Daily Paper 的有效 5 段 Cron 表达式（启用时必填）                                   | `"0 9 * * *"`    |
-| `memory_search_enabled`  | 是否向智能体提供 `memory_search` 工具；与自动搜索开关相互独立                        | `true`           |
+| 配置项                           | 说明                                                                             | 默认值           |
+| -------------------------------- | -------------------------------------------------------------------------------- | ---------------- |
+| `metadata_dir`                   | ReMe 持久状态目录，用于保存索引、catalog、graph 和缓存                           | `"mem_metadata"` |
+| `session_dir`                    | 来源对话保存目录                                                                 | `"mem_session"`  |
+| `mem_session_dir`                | ReMe 内部 memory-agent 会话目录                                                  | `"mem_agent"`    |
+| `resource_dir`                   | Daily Paper 等能力保存原始资源的目录                                             | `"resource"`     |
+| `daily_dir`                      | 每日记忆目录                                                                     | `"memory"`       |
+| `digest_dir`                     | dream/digest 记忆目录                                                            | `"digest"`       |
+| `auto_memory_inbox_push_enabled` | 是否将 `auto_memory` 结果推送到 QwenPaw inbox                                    | `true`           |
+| `auto_dream_inbox_push_enabled`  | 是否将 `auto_dream` 结果推送到 QwenPaw inbox                                     | `true`           |
+| `daily_paper_inbox_push_enabled` | 是否将 `daily_paper` 结果推送到 QwenPaw inbox                                    | `true`           |
+| `auto_memory_interval`           | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆         | `5`              |
+| `dream_cron_enabled`             | 是否启用按 Cron 定时执行的 Auto-Dream 任务                                       | `true`           |
+| `dream_cron`                     | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动 | `"0 23 * * *"`   |
+| `daily_paper_cron_enabled`       | 是否启用按 Cron 定时执行的 Daily Paper                                           | `false`          |
+| `daily_paper_cron`               | Daily Paper 的有效 5 段 Cron 表达式（启用时必填）                                | `"0 9 * * *"`    |
+| `memory_search_enabled`          | 是否向智能体提供 `memory_search` 工具；与自动搜索开关相互独立                    | `true`           |
 
 ### 重建记忆搜索索引
 

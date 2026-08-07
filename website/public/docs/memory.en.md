@@ -42,15 +42,15 @@ graph TB
 
 Long-term memory management includes the following capabilities:
 
-| Capability             | Description                                                                                                      |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **Embedded ReMe app**  | QwenPaw starts ReMe in-process and injects the active QwenPaw model into ReMe's default LLM component            |
-| **Auto-Memory**        | After a configurable number of user turns, ReMe extracts useful conversation facts into daily Markdown notes     |
-| **Context compaction** | Before context compression, pending turns can be flushed into the same `auto_memory` pipeline                    |
-| **Auto-Dream**         | A cron job extracts higher-level digest units and proactive-interest topics from recent daily notes              |
-| **Hybrid Search**      | `memory_search` calls ReMe's `search` job, using BM25 plus optional vector search and reciprocal-rank fusion     |
-| **Daily Paper**        | Scheduled paper readings and a daily brief; PDFs go to `resource/papers/` and Markdown goes to daily memory      |
-| **Inbox Results**      | `auto_memory`, `auto_dream`, and `daily_paper` results are pushed to QwenPaw's inbox                              |
+| Capability             | Description                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Embedded ReMe app**  | QwenPaw starts ReMe in-process and injects the active QwenPaw model into ReMe's default LLM component        |
+| **Auto-Memory**        | After a configurable number of user turns, ReMe extracts useful conversation facts into daily Markdown notes |
+| **Context compaction** | Before context compression, pending turns can be flushed into the same `auto_memory` pipeline                |
+| **Auto-Dream**         | A cron job extracts higher-level digest units and proactive-interest topics from recent daily notes          |
+| **Hybrid Search**      | `memory_search` calls ReMe's `search` job, using BM25 plus optional vector search and reciprocal-rank fusion |
+| **Daily Paper**        | Scheduled paper readings and a daily brief; PDFs go to `resource/papers/` and Markdown goes to daily memory  |
+| **Inbox Results**      | `auto_memory`, `auto_dream`, and `daily_paper` results are pushed to QwenPaw's inbox                         |
 
 ---
 
@@ -346,23 +346,23 @@ Before restoring, the system prompts to create a snapshot of the current state. 
 
 Memory configuration is located in `agent.json` under `running.reme_light_memory_config`:
 
-| Field                    | Description                                                                                                                     | Default          |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `metadata_dir`           | ReMe persistent state directory for indexes, catalogs, graph data, and caches                                                   | `"mem_metadata"` |
-| `session_dir`            | Directory for saved source conversations                                                                                        | `"mem_session"`  |
-| `mem_session_dir`        | Directory for ReMe internal memory-agent sessions                                                                               | `"mem_agent"`    |
-| `resource_dir`           | Raw resource directory used by Daily Paper and future knowledge workflows                                                       | `"resource"`     |
-| `daily_dir`              | Directory for daily memory notes                                                                                                | `"memory"`       |
-| `digest_dir`             | Directory for dream/digest memory                                                                                               | `"digest"`       |
-| `auto_memory_inbox_push_enabled` | Whether `auto_memory` results are pushed to the QwenPaw inbox                                                       | `true`           |
-| `auto_dream_inbox_push_enabled` | Whether `auto_dream` results are pushed to the QwenPaw inbox                                                         | `true`           |
-| `daily_paper_inbox_push_enabled` | Whether `daily_paper` results are pushed to the QwenPaw inbox                                                       | `true`           |
-| `auto_memory_interval`   | Auto-Memory every N user turns. `None` or `<= 0` disables periodic Auto-Memory                                                  | `5`              |
-| `dream_cron_enabled`     | Whether the scheduled Auto-Dream job is enabled                                                                                 | `true`           |
-| `dream_cron`             | Valid 5-field cron expression for Auto-Dream (required when enabled); scheduled runs start after a random delay of 0–60 seconds | `"0 23 * * *"`   |
-| `daily_paper_cron_enabled` | Whether the scheduled Daily Paper job is enabled                                                                              | `false`          |
-| `daily_paper_cron`       | Valid 5-field cron expression for Daily Paper (required when enabled)                                                            | `"0 9 * * *"`    |
-| `memory_search_enabled`  | Whether to expose the `memory_search` tool to the agent; independent from automatic search                                      | `true`           |
+| Field                            | Description                                                                                                                     | Default          |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `metadata_dir`                   | ReMe persistent state directory for indexes, catalogs, graph data, and caches                                                   | `"mem_metadata"` |
+| `session_dir`                    | Directory for saved source conversations                                                                                        | `"mem_session"`  |
+| `mem_session_dir`                | Directory for ReMe internal memory-agent sessions                                                                               | `"mem_agent"`    |
+| `resource_dir`                   | Raw resource directory used by Daily Paper and future knowledge workflows                                                       | `"resource"`     |
+| `daily_dir`                      | Directory for daily memory notes                                                                                                | `"memory"`       |
+| `digest_dir`                     | Directory for dream/digest memory                                                                                               | `"digest"`       |
+| `auto_memory_inbox_push_enabled` | Whether `auto_memory` results are pushed to the QwenPaw inbox                                                                   | `true`           |
+| `auto_dream_inbox_push_enabled`  | Whether `auto_dream` results are pushed to the QwenPaw inbox                                                                    | `true`           |
+| `daily_paper_inbox_push_enabled` | Whether `daily_paper` results are pushed to the QwenPaw inbox                                                                   | `true`           |
+| `auto_memory_interval`           | Auto-Memory every N user turns. `None` or `<= 0` disables periodic Auto-Memory                                                  | `5`              |
+| `dream_cron_enabled`             | Whether the scheduled Auto-Dream job is enabled                                                                                 | `true`           |
+| `dream_cron`                     | Valid 5-field cron expression for Auto-Dream (required when enabled); scheduled runs start after a random delay of 0–60 seconds | `"0 23 * * *"`   |
+| `daily_paper_cron_enabled`       | Whether the scheduled Daily Paper job is enabled                                                                                | `false`          |
+| `daily_paper_cron`               | Valid 5-field cron expression for Daily Paper (required when enabled)                                                           | `"0 9 * * *"`    |
+| `memory_search_enabled`          | Whether to expose the `memory_search` tool to the agent; independent from automatic search                                      | `true`           |
 
 ### Rebuilding the Memory Search Index
 
