@@ -167,7 +167,7 @@ class TestMemorySearchRecall:
             timeout=memory_page.timeout,
         )
         chat_input = memory_page.page.locator(
-            "textarea.qwenpaw-sender-input"
+            '.qwenpaw-sender [role="textbox"][contenteditable="true"]:visible'
         ).first
         expect(chat_input).to_be_visible(timeout=memory_page.timeout)
         chat_input.fill(

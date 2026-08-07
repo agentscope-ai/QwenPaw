@@ -436,6 +436,22 @@ Select rows → click **Delete** in the toolbar → confirm.
 
 ---
 
+## Tool Offload
+
+> Sidebar: **Settings → Tool Offload**
+
+![Settings → Tool Offload (Keep Foreground / Auto Offload to Background)](https://img.alicdn.com/imgextra/i2/O1CN01NTmeZPSYyeF7nOIU_!!6000000001249-0-tps-3840-1986.jpg)
+
+Configure the default action when a tool reaches its offload deadline:
+
+- **Keep Foreground** (product default) — do not auto-offload when the offload
+  countdown ends; the tool keeps running in the chat foreground until it
+  finishes or hits its execution timeout.
+- **Auto Offload to Background** — when the offload countdown ends, move the
+  call to the background so the agent can continue other work.
+
+---
+
 ## Security
 
 > Sidebar: **Settings → Security**
@@ -530,6 +546,7 @@ python -c "import whisper; print('openai-whisper installed')"
 | Models                | Settings → Models              | Providers, local models, active model          |
 | Skill pool            | Settings → Skill pool          | Built-in and shared reusable skills            |
 | Environment Variables | Settings → Environments        | Keys for tools/skills                          |
+| Tool Offload          | Settings → Tool Offload        | Default policy: Keep Foreground / Auto Offload |
 | Security              | Settings → Security            | Tool guard, skill scan, file guard             |
 | Token Usage           | Settings → Token Usage         | Usage by date/model                            |
 | Voice transcription   | Settings → Voice transcription | Audio mode, Whisper API/local                  |
