@@ -27,6 +27,58 @@ from qwenpaw.utils.tool_call_extra import (
 logger = logging.getLogger(__name__)
 
 
+_CHAT_COMPLETION_RUNTIME_KEYS = frozenset(
+    {"delta", "index", "status", "object", "msg_id"},
+)
+
+
+def _sanitize_chat_completion_messages(messages: Any) -> list[Any]:
+    """Remove non-Chat-Completions fields from message content parts."""
+    sanitized_messages: list[Any] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            sanitized_messages.append(message)
+            continue
+
+        sanitized_message = dict(message)
+        content = message.get("content")
+        if isinstance(content, list):
+            sanitized_content = []
+            for item in content:
+                if not isinstance(item, dict):
+                    sanitized_content.append(item)
+                    continue
+
+                item_type = item.get("type")
+                if item_type in ("input_text", "output_text"):
+                    sanitized_item = {"type": "text"}
+                    if "text" in item:
+                        sanitized_item["text"] = item["text"]
+                    sanitized_content.append(sanitized_item)
+                elif item_type == "text":
+                    sanitized_content.append(
+                        {
+                            key: value
+                            for key, value in item.items()
+                            if key in ("type", "text")
+                        },
+                    )
+                else:
+                    sanitized_content.append(
+                        {
+                            key: value
+                            for key, value in item.items()
+                            if key not in _CHAT_COMPLETION_RUNTIME_KEYS
+                        },
+                    )
+
+            sanitized_message["content"] = sanitized_content
+
+        sanitized_messages.append(sanitized_message)
+
+    return sanitized_messages
+
+
 def _battr(block: Any, key: str, default: Any = None) -> Any:
     """Read an attribute from a dict *or* Pydantic block."""
     if isinstance(block, dict):
@@ -755,6 +807,7 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         tool_choice: Any | None = None,
         **generate_kwargs: Any,
     ) -> Any:
+        messages = _sanitize_chat_completion_messages(messages)
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
         self._consume_disable_thinking(merged)
         if self._output_token_param != "max_tokens":
