@@ -7,6 +7,7 @@ import { AgentModelSettings } from "./AgentModelSettings";
 import { useTurnUsageStore } from "../turnUsageStore";
 
 const agentStoreState = vi.hoisted(() => ({ selectedAgent: "default" }));
+const navigateMock = vi.hoisted(() => vi.fn());
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -37,6 +38,36 @@ vi.mock("@/stores/agentStore", () => ({
   useAgentStore: vi.fn(() => ({
     selectedAgent: agentStoreState.selectedAgent,
   })),
+}));
+
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router-dom")>();
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  };
+});
+
+vi.mock("./OAuthConfirmModal", () => ({
+  OAuthConfirmModal: ({
+    open,
+    onSuccess,
+    onCancel,
+  }: {
+    open: boolean;
+    onSuccess: () => void;
+    onCancel: () => void;
+  }) =>
+    open ? (
+      <div>
+        <button type="button" onClick={onSuccess}>
+          oauth-success
+        </button>
+        <button type="button" onClick={onCancel}>
+          oauth-cancel
+        </button>
+      </div>
+    ) : null,
 }));
 
 vi.mock("react-i18next", () => ({
@@ -296,6 +327,115 @@ describe("ModelSelector", () => {
       scope: "agent",
       agent_id: "default",
     });
+  });
+
+  it("activates the selected model after OAuth succeeds", async () => {
+    const oauthProvider = {
+      ...mockProvider,
+      id: "oauth-provider",
+      name: "OAuth Provider",
+      api_key: "",
+      base_url: "https://oauth.example.com",
+      require_api_key: false,
+      supports_oauth: true,
+      oauth_connected: false,
+    };
+    vi.mocked(providerApi.listProviders)
+      .mockResolvedValueOnce([oauthProvider])
+      .mockResolvedValueOnce([{ ...oauthProvider, oauth_connected: true }]);
+    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
+      active_llm: {
+        provider_id: oauthProvider.id,
+        model: "gpt-4",
+      },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+
+    await user.click(screen.getAllByText("GPT-4")[0]);
+    await user.click(await screen.findByText("GPT-3.5 Turbo"));
+    await user.click(await screen.findByText("oauth-success"));
+
+    await waitFor(() => {
+      expect(providerApi.setActiveLlm).toHaveBeenCalledWith({
+        provider_id: oauthProvider.id,
+        model: "gpt-3.5-turbo",
+        scope: "agent",
+        agent_id: "default",
+      });
+    });
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("clears the pending model when OAuth is cancelled", async () => {
+    const oauthProvider = {
+      ...mockProvider,
+      id: "oauth-provider",
+      api_key: "",
+      base_url: "https://oauth.example.com",
+      require_api_key: false,
+      supports_oauth: true,
+      oauth_connected: false,
+    };
+    vi.mocked(providerApi.listProviders).mockResolvedValue([oauthProvider]);
+    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
+      active_llm: {
+        provider_id: oauthProvider.id,
+        model: "gpt-4",
+      },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+
+    await user.click(screen.getAllByText("GPT-4")[0]);
+    await user.click(await screen.findByText("GPT-3.5 Turbo"));
+    await user.click(await screen.findByText("oauth-cancel"));
+
+    expect(providerApi.setActiveLlm).not.toHaveBeenCalled();
+    expect(screen.queryByText("oauth-cancel")).not.toBeInTheDocument();
+  });
+
+  it("opens provider management if the OAuth target model disappeared", async () => {
+    const oauthProvider = {
+      ...mockProvider,
+      id: "oauth-provider",
+      api_key: "",
+      base_url: "https://oauth.example.com",
+      require_api_key: false,
+      supports_oauth: true,
+      oauth_connected: false,
+    };
+    vi.mocked(providerApi.listProviders)
+      .mockResolvedValueOnce([oauthProvider])
+      .mockResolvedValueOnce([
+        {
+          ...oauthProvider,
+          oauth_connected: true,
+          models: [oauthProvider.models[0]],
+        },
+      ]);
+    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
+      active_llm: {
+        provider_id: oauthProvider.id,
+        model: "gpt-4",
+      },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+
+    await user.click(screen.getAllByText("GPT-4")[0]);
+    await user.click(await screen.findByText("GPT-3.5 Turbo"));
+    await user.click(await screen.findByText("oauth-success"));
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith(
+        "/models?provider=oauth-provider&manageModels=true",
+      );
+    });
+    expect(providerApi.setActiveLlm).not.toHaveBeenCalled();
   });
 
   it("publishes the backend-resolved context window after a model switch", async () => {

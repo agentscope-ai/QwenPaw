@@ -1749,6 +1749,7 @@
     "oauthWaitingDescription": "请在浏览器窗口中完成授权。",
     "oauthConnected": "已成功连接 {{provider}}",
     "oauthFailed": "授权失败，请重试",
+    "oauthModelUnavailable": "所选模型已不可用，请检查供应商模型后重试。",
     "viewMore": "显示更多 ({{count}})",
     "addAndUse": "添加并使用",
     "availableToAdd": "可添加模型",

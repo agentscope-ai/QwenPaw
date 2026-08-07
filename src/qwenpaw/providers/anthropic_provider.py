@@ -232,6 +232,9 @@ class AnthropicProvider(Provider):
         client = self._client(timeout=timeout)
         try:
             payload = await client.models.list()
+            if hasattr(payload, "__aiter__"):
+                rows = [row async for row in payload]
+                return self._normalize_models_payload(rows)
             return self._normalize_models_payload(payload)
         finally:
             await self._close_client(client)

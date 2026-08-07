@@ -180,6 +180,41 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
     close.assert_awaited_once()
 
 
+async def test_list_model_collects_all_async_pages(monkeypatch) -> None:
+    provider = _make_provider()
+    first_page = [
+        SimpleNamespace(id="claude-page-1", display_name="Page One"),
+        SimpleNamespace(id="claude-shared", display_name="Shared"),
+    ]
+    second_page = [
+        SimpleNamespace(id="claude-page-2", display_name="Page Two"),
+        SimpleNamespace(id="claude-shared", display_name="Duplicate"),
+    ]
+
+    class FakePage:
+        data = first_page
+
+        async def __aiter__(self):
+            for row in [*first_page, *second_page]:
+                yield row
+
+    close = AsyncMock()
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(list=AsyncMock(return_value=FakePage())),
+        close=close,
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    models = await provider.fetch_models()
+
+    assert [model.id for model in models] == [
+        "claude-page-1",
+        "claude-shared",
+        "claude-page-2",
+    ]
+    close.assert_awaited_once()
+
+
 async def test_auth_token_discovery_keeps_shared_http_client_open(
     monkeypatch,
 ) -> None:

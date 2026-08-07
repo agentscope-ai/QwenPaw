@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, Literal
 
 from ..config.config import ModelSlotConfig
+from ..exceptions import ProviderError
 from ..security.secret_store import (
     PROVIDER_SECRET_FIELDS,
     decrypt_dict_fields,
@@ -92,9 +93,8 @@ class ProviderManagerPersistenceMixin:
 
         Sensitive fields (``api_key``) are encrypted before writing.
         """
-        provider_path = (
-            self.builtin_path if is_builtin else self.custom_path
-        ) / f"{provider.id}.json"
+        provider_dir = self.builtin_path if is_builtin else self.custom_path
+        provider_path = self._safe_provider_path(provider_dir, provider.id)
         with get_sync_path_lock(provider_path):
             if skip_if_exists and provider_path.exists():
                 return
@@ -571,7 +571,20 @@ class ProviderManagerPersistenceMixin:
             provider_dir = self.builtin_path
         else:
             provider_dir = self.custom_path
-        return provider_dir / f"{file_provider_id or provider_id}.json"
+        return self._safe_provider_path(
+            provider_dir,
+            file_provider_id or provider_id,
+        )
+
+    @staticmethod
+    def _safe_provider_path(provider_dir: Path, provider_id: str) -> Path:
+        """Keep a provider snapshot inside its designated directory."""
+        provider_path = provider_dir / f"{provider_id}.json"
+        if provider_path.parent.resolve() != provider_dir.resolve():
+            raise ProviderError(
+                message=f"Provider ID '{provider_id}' escapes its storage.",
+            )
+        return provider_path
 
     def load_provider(
         self,
@@ -584,7 +597,7 @@ class ProviderManagerPersistenceMixin:
         plaintext ``api_key`` is detected it is re-encrypted in place.
         """
         provider_dir = self.builtin_path if is_builtin else self.custom_path
-        provider_path = provider_dir / f"{provider_id}.json"
+        provider_path = self._safe_provider_path(provider_dir, provider_id)
         if not provider_path.exists():
             return None
         try:
@@ -597,6 +610,7 @@ class ProviderManagerPersistenceMixin:
             )
             data = decrypt_dict_fields(data, PROVIDER_SECRET_FIELDS)
             provider = self._provider_from_data(data)
+            provider.models_syncing = False
 
             if needs_rewrite:
                 try:

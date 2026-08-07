@@ -1824,6 +1824,7 @@
     "oauthWaitingDescription": "Please complete the authorization in the browser window.",
     "oauthConnected": "Successfully connected to {{provider}}",
     "oauthFailed": "Authorization failed, please try again",
+    "oauthModelUnavailable": "The selected model is no longer available. Review the provider's models and try again.",
     "viewMore": "View more ({{count}})",
     "addAndUse": "Add and use",
     "availableToAdd": "Available to add",

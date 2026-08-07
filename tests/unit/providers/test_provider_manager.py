@@ -180,6 +180,53 @@ async def test_add_custom_provider_and_reload_from_storage(
     assert isinstance(loaded_duplicate, OpenAIProvider)
 
 
+@pytest.mark.parametrize(
+    "provider_id",
+    [
+        "../escape",
+        "team/provider",
+        r"team\provider",
+        "CON",
+        "nul.json",
+        "provider.",
+    ],
+)
+async def test_add_custom_provider_rejects_unsafe_id(
+    isolated_secret_dir,
+    provider_id: str,
+) -> None:
+    manager = ProviderManager()
+
+    with pytest.raises(ProviderError, match="Provider ID"):
+        await manager.add_custom_provider(
+            ProviderInfo(id=provider_id, name="Unsafe"),
+        )
+
+    assert manager.custom_providers == {}
+
+
+async def test_add_custom_provider_publishes_after_persistence(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    provider_id = "custom-write-failure"
+
+    async def fail_save(*_args, **_kwargs) -> None:
+        raise OSError("write failed")
+
+    monkeypatch.setattr(manager, "save_provider_config_async", fail_save)
+
+    with pytest.raises(OSError, match="write failed"):
+        await manager.add_custom_provider(
+            ProviderInfo(id=provider_id, name="Write Failure"),
+        )
+
+    assert manager.get_provider(provider_id) is None
+    assert manager._provider_revision(provider_id) == 0
+    assert not (manager.custom_path / f"{provider_id}.json").exists()
+
+
 async def test_custom_provider_preserves_explicit_default_context_window(
     isolated_secret_dir,
 ) -> None:
@@ -1133,6 +1180,7 @@ async def test_discovery_keeps_user_models_and_persists_cache(
 
     async def fetch_models(_self, timeout=5):
         assert timeout == 10
+        assert provider.models_syncing is True
         return [
             ModelInfo(
                 id="remote-new",
@@ -1207,6 +1255,106 @@ async def test_failed_discovery_preserves_last_cache_and_user_models(
     assert caplog.records[-1].getMessage() == (
         "Model discovery failed; using static fallback"
     )
+
+
+def _configure_single_startup_provider(
+    manager: ProviderManager,
+) -> OpenAIProvider:
+    for candidate in manager.builtin_providers.values():
+        candidate.model_sync_mode = "manual"
+    provider = manager.get_provider("openai")
+    assert isinstance(provider, OpenAIProvider)
+    provider.model_sync_mode = "startup"
+    provider.support_model_discovery = True
+    provider.discovery_requires_auth = False
+    return provider
+
+
+def test_prepare_startup_discovery_marks_provider_syncing(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = _configure_single_startup_provider(manager)
+
+    provider_ids = manager.prepare_startup_provider_model_sync()
+
+    assert provider_ids == ["openai"]
+    assert provider.models_syncing is True
+
+
+@pytest.mark.parametrize("should_fail", [False, True])
+async def test_startup_discovery_clears_syncing_after_completion(
+    isolated_secret_dir,
+    monkeypatch,
+    should_fail: bool,
+) -> None:
+    manager = ProviderManager()
+    provider = _configure_single_startup_provider(manager)
+    provider_ids = manager.prepare_startup_provider_model_sync()
+
+    async def discover(_provider_id: str):
+        assert provider.models_syncing is True
+        if should_fail:
+            raise RuntimeError("startup discovery failed")
+        return SimpleNamespace()
+
+    monkeypatch.setattr(manager, "discover_provider_models", discover)
+
+    await manager.sync_startup_provider_models(provider_ids)
+
+    assert provider.models_syncing is False
+
+
+async def test_startup_discovery_clears_syncing_when_cancelled(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    provider = _configure_single_startup_provider(manager)
+    provider_ids = manager.prepare_startup_provider_model_sync()
+    started = asyncio.Event()
+
+    async def discover(_provider_id: str):
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(manager, "discover_provider_models", discover)
+    task = asyncio.create_task(
+        manager.sync_startup_provider_models(provider_ids),
+    )
+    await started.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert provider.models_syncing is False
+
+
+def test_models_syncing_is_not_persisted_and_legacy_true_is_reset(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = OpenAIProvider(
+        id="custom-sync-state",
+        name="Custom Sync State",
+        models_syncing=True,
+    )
+
+    manager._save_provider(provider, is_builtin=False)
+    provider_path = manager.custom_path / "custom-sync-state.json"
+    payload = json.loads(provider_path.read_text(encoding="utf-8"))
+    assert "models_syncing" not in payload
+
+    payload["models_syncing"] = True
+    provider_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    reloaded = ProviderManager().get_provider("custom-sync-state")
+    assert reloaded is not None
+    assert reloaded.models_syncing is False
 
 
 async def test_removed_builtin_model_stays_removed_after_restart(

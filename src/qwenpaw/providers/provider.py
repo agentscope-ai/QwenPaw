@@ -30,6 +30,38 @@ AGENT_THINKING_BUDGETS = {
     "medium": 8_192,
     "high": 32_768,
 }
+_CUSTOM_PROVIDER_ID_PATTERN = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9._-]*",
+)
+_WINDOWS_RESERVED_PROVIDER_IDS = (
+    {
+        "AUX",
+        "CON",
+        "NUL",
+        "PRN",
+    }
+    | {f"COM{index}" for index in range(1, 10)}
+    | {f"LPT{index}" for index in range(1, 10)}
+)
+
+
+def validate_custom_provider_id(provider_id: str) -> str:
+    """Validate a custom provider ID as a portable file name stem."""
+    if not isinstance(provider_id, str) or not provider_id:
+        raise ValueError("Provider ID must be a non-empty string.")
+    if not _CUSTOM_PROVIDER_ID_PATTERN.fullmatch(provider_id):
+        raise ValueError(
+            "Provider ID must start with an ASCII letter or digit and only "
+            "contain ASCII letters, digits, dots, underscores, or hyphens.",
+        )
+    if provider_id in {".", ".."} or provider_id.endswith((".", " ")):
+        raise ValueError("Provider ID cannot end with a dot or space.")
+    device_name = provider_id.split(".", maxsplit=1)[0].upper()
+    if device_name in _WINDOWS_RESERVED_PROVIDER_IDS:
+        raise ValueError(
+            f"Provider ID '{provider_id}' is reserved on Windows.",
+        )
+    return provider_id
 
 
 @contextmanager
@@ -291,7 +323,7 @@ class ProviderInfo(BaseModel):
     )
     models_syncing: bool = Field(
         default=False,
-        description="Whether a persisted model discovery task is running.",
+        description="Whether an in-process model discovery task is running.",
     )
     hidden_model_ids: List[str] = Field(
         default_factory=list,

@@ -221,6 +221,7 @@ class ProviderManagerDiscoveryMixin:
         generation = None
         revision = self._provider_revision(provider_id)
         if save:
+            provider.models_syncing = True
             self._discovery_generations[provider_id] = (
                 self._discovery_generations.get(provider_id, 0) + 1
             )
@@ -327,6 +328,11 @@ class ProviderManagerDiscoveryMixin:
                 error=error,
                 error_kind=classify_discovery_error(exc, error),
             )
+        finally:
+            if save:
+                current = self.get_provider(provider_id)
+                if current is provider:
+                    current.models_syncing = False
 
     @staticmethod
     def _extract_http_status(message: str) -> int | None:
@@ -440,16 +446,37 @@ class ProviderManagerDiscoveryMixin:
             provider_ids.append(provider.id)
         return provider_ids
 
-    async def sync_startup_provider_models(self) -> None:
-        """Refresh startup-enabled provider catalogs without failing boot."""
+    def prepare_startup_provider_model_sync(self) -> list[str]:
+        """Mark startup discovery before its background task is scheduled."""
         provider_ids = self.startup_sync_provider_ids()
+        for provider_id in provider_ids:
+            provider = self.get_provider(provider_id)
+            if provider is not None:
+                provider.models_syncing = True
+        return provider_ids
+
+    async def sync_startup_provider_models(
+        self,
+        provider_ids: list[str] | None = None,
+    ) -> None:
+        """Refresh startup-enabled provider catalogs without failing boot."""
+        if provider_ids is None:
+            provider_ids = self.prepare_startup_provider_model_sync()
         if not provider_ids:
             return
+
+        async def sync_provider(
+            provider_id: str,
+        ) -> ProviderModelDiscoveryResult:
+            try:
+                return await self.discover_provider_models(provider_id)
+            finally:
+                provider = self.get_provider(provider_id)
+                if provider is not None:
+                    provider.models_syncing = False
+
         results = await asyncio.gather(
-            *(
-                self.discover_provider_models(provider_id)
-                for provider_id in provider_ids
-            ),
+            *(sync_provider(provider_id) for provider_id in provider_ids),
             return_exceptions=True,
         )
         for provider_id, result in zip(provider_ids, results):

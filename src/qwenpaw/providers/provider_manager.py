@@ -22,7 +22,13 @@ from ..utils.io_utils import (
     run_async_to_completion,
     run_sync_io,
 )
-from .provider import ModelConnectionResult, ModelInfo, Provider, ProviderInfo
+from .provider import (
+    ModelConnectionResult,
+    ModelInfo,
+    Provider,
+    ProviderInfo,
+    validate_custom_provider_id,
+)
 from . import provider_catalog as _provider_catalog
 from . import model_catalog
 from .capability_baseline import (
@@ -385,6 +391,10 @@ class ProviderManager(
     async def add_custom_provider(self, provider_data: ProviderInfo):
         # Add a new custom provider with the given data. This will update the
         # providers.json file and make the new provider available in the UI.
+        try:
+            requested_id = validate_custom_provider_id(provider_data.id)
+        except ValueError as exc:
+            raise ProviderError(message=str(exc)) from exc
         provider_payload = provider_data.model_dump()
         # ``max_input_length`` equal to the historical 128K default is only
         # distinguishable from an omitted value while the request model still
@@ -401,7 +411,7 @@ class ProviderManager(
                 if "max_input_length" in source.model_fields_set:
                     payload["max_input_length_configured"] = True
         provider_payload["id"] = self._resolve_custom_provider_id(
-            provider_data.id,
+            requested_id,
         )
         provider_payload["is_custom"] = True
         provider = self._provider_from_data(
@@ -416,9 +426,9 @@ class ProviderManager(
         # For custom providers, we assume they don't support connection check
         # without model config, to avoid false negatives in the UI.
         provider.support_connection_check = False
+        await self.save_provider_config_async(provider.id, provider)
         self.custom_providers[provider.id] = provider
         self._bump_provider_revision(provider.id)
-        await self.save_provider_config_async(provider.id, provider)
         return await provider.get_info()
 
     def remove_custom_provider(self, provider_id: str) -> bool:
@@ -427,7 +437,7 @@ class ProviderManager(
         if provider_id in self.custom_providers:
             self._bump_provider_revision(provider_id)
             del self.custom_providers[provider_id]
-            provider_path = self.custom_path / f"{provider_id}.json"
+            provider_path = self._provider_config_path(provider_id)
             if provider_path.exists():
                 os.remove(provider_path)
             return True
@@ -445,7 +455,7 @@ class ProviderManager(
             async with lock:
                 if provider_id not in self.custom_providers:
                     return False
-                provider_path = self.custom_path / f"{provider_id}.json"
+                provider_path = self._provider_config_path(provider_id)
                 await run_sync_io(provider_path.unlink, missing_ok=True)
                 self._bump_provider_revision(provider_id)
                 del self.custom_providers[provider_id]

@@ -603,11 +603,41 @@ export default function ModelSelector() {
   };
 
   const handleOAuthSuccess = async () => {
-    setOauthModal((prev) => ({ ...prev, open: false }));
-    await fetchData();
-    if (oauthModal.providerId) {
-      navigate(`/models?provider=${oauthModal.providerId}&manageModels=true`);
+    const { providerId, pendingModelId } = oauthModal;
+    setOauthModal({
+      open: false,
+      providerId: "",
+      providerName: "",
+      pendingModelId: "",
+    });
+    const refreshed = await fetchData();
+    if (!providerId) return;
+
+    if (pendingModelId) {
+      const provider = refreshed?.providers?.find(
+        (candidate) => candidate.id === providerId,
+      );
+      const modelExists = [
+        ...(provider?.models ?? []),
+        ...(provider?.extra_models ?? []),
+      ].some((model) => model.id === pendingModelId);
+      if (modelExists) {
+        await activateModel(providerId, pendingModelId);
+        return;
+      }
+      message.error(t("modelSelector.oauthModelUnavailable"));
     }
+
+    navigate(`/models?provider=${providerId}&manageModels=true`);
+  };
+
+  const handleOAuthCancel = () => {
+    setOauthModal({
+      open: false,
+      providerId: "",
+      providerName: "",
+      pendingModelId: "",
+    });
   };
 
   const handleOAuthConnect = (provider: EligibleProvider) => {
@@ -1181,7 +1211,7 @@ export default function ModelSelector() {
         providerId={oauthModal.providerId}
         providerName={oauthModal.providerName}
         onSuccess={handleOAuthSuccess}
-        onCancel={() => setOauthModal((prev) => ({ ...prev, open: false }))}
+        onCancel={handleOAuthCancel}
       />
     </>
   );

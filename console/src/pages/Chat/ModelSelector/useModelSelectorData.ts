@@ -38,6 +38,7 @@ export function useModelSelectorData({
       if (result.providers) setProviders(result.providers);
       if (result.activeModels) applyActiveModels(result.activeModels);
       setLoadError(result.loadError);
+      return result;
     } finally {
       if (requestId === activeRequestRef.current) setLoading(false);
     }

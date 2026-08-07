@@ -45,7 +45,7 @@ def write_provider_snapshot(
     """Encrypt and atomically write one provider snapshot."""
     with get_sync_path_lock(provider_path):
         data = encrypt_dict_fields(
-            provider.model_dump(),
+            provider.model_dump(exclude={"models_syncing"}),
             PROVIDER_SECRET_FIELDS,
         )
         fd, temp_name = tempfile.mkstemp(

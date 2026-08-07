@@ -16,7 +16,7 @@ from fastapi import (
     Query,
     Request,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from qwenpaw.exceptions import (
     AppBaseException,
@@ -25,7 +25,11 @@ from qwenpaw.exceptions import (
 from ..agent_context import get_agent_for_request
 from ..utils import schedule_agent_reload
 from ...config.config import load_agent_config, save_agent_config
-from ...providers.provider import ProviderInfo, ModelInfo
+from ...providers.provider import (
+    ModelInfo,
+    ProviderInfo,
+    validate_custom_provider_id,
+)
 from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
 from ...providers.openrouter_provider import OpenRouterProvider
@@ -157,6 +161,12 @@ class CreateCustomProviderRequest(BaseModel):
     api_key_prefix: str = Field(default="")
     chat_model: ChatModelName = Field(default="OpenAIChatModel")
     models: List[ModelInfo] = Field(default_factory=list)
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, value: str) -> str:
+        """Reject IDs that are unsafe as cross-platform file names."""
+        return validate_custom_provider_id(value)
 
 
 class AddModelRequest(BaseModel):

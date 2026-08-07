@@ -6,8 +6,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import BackgroundTasks
+from pydantic import ValidationError
 
 from qwenpaw.app.routers.providers import (
+    CreateCustomProviderRequest,
     DiscoverModelsRequest,
     ProviderConfigRequest,
     TestProviderRequest,
@@ -17,6 +19,25 @@ from qwenpaw.app.routers.providers import (
     test_model as model_test_endpoint,
 )
 from qwenpaw.providers.provider import ModelInfo, ProviderInfo
+
+
+@pytest.mark.parametrize(
+    "provider_id",
+    [
+        "../escape",
+        "team/provider",
+        r"team\provider",
+        "CON",
+        "nul.json",
+        "provider.",
+        "provider name",
+    ],
+)
+def test_custom_provider_request_rejects_unsafe_id(
+    provider_id: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        CreateCustomProviderRequest(id=provider_id, name="Unsafe")
 
 
 async def test_configure_provider_schedules_model_discovery() -> None:
