@@ -194,6 +194,9 @@ class ProviderManagerDiscoveryMixin:
                 )
             return True
 
+    # This orchestration method intentionally keeps fetch, normalization,
+    # catalog merge, persistence, and fallback handling in one transaction.
+    # pylint: disable=too-many-branches,too-many-statements
     async def discover_provider_models(
         self,
         provider_id: str,
@@ -333,6 +336,8 @@ class ProviderManagerDiscoveryMixin:
                 current = self.get_provider(provider_id)
                 if current is provider:
                     current.models_syncing = False
+
+    # pylint: enable=too-many-branches,too-many-statements
 
     @staticmethod
     def _extract_http_status(message: str) -> int | None:

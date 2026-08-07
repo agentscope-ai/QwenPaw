@@ -202,7 +202,7 @@ async def test_add_custom_provider_rejects_unsafe_id(
             ProviderInfo(id=provider_id, name="Unsafe"),
         )
 
-    assert manager.custom_providers == {}
+    assert not manager.custom_providers
 
 
 async def test_add_custom_provider_publishes_after_persistence(

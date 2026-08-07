@@ -415,7 +415,7 @@ def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
     installed = []
 
     def install(model, provider_id=None):  # noqa: ARG001
-        installed.append(model)
+        installed.append((model, provider_id))
         return f"formatter:{model}"
 
     monkeypatch.setattr(model_factory, "_install_model_formatter", install)
@@ -435,8 +435,8 @@ def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
     ]
     assert formatter == "formatter:default-provider/default-model"
     assert installed == [
-        "default-provider/default-model",
-        "fallback-provider/fallback",
+        ("default-provider/default-model", "default-provider"),
+        ("fallback-provider/fallback", "fallback-provider"),
     ]
 
 
