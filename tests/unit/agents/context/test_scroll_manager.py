@@ -40,6 +40,10 @@ from qwenpaw.constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SCROLL_MEMORY_MESSAGE_TAG,
 )
+from qwenpaw.utils.tool_call_extra import (
+    TOOL_CALL_EXTRAS_METADATA_KEY,
+    persist_tool_call_extras,
+)
 
 # -- fixtures ---------------------------------------------------------------
 
@@ -233,6 +237,18 @@ def auto_memory_search_msg(*, query: str, max_results: int, text: str) -> Msg:
     )
 
 
+def _persist_signature(msg: Msg, tool_id: str) -> None:
+    persist_tool_call_extras(
+        msg,
+        {
+            tool_id: {
+                "provider_id": "example",
+                "extra_content": {"thought_signature": "signature-abc"},
+            },
+        },
+    )
+
+
 # -- write-through dedup -----------------------------------------------------
 
 
@@ -253,6 +269,47 @@ def test_persist_new_records_seq_and_headline_leaf(store: HistoryStore):
     assert a.id in mgr._leaf_by_id
     assert mgr._leaf_by_id[a.id].headline == "milestone"
     assert a.id in mgr._seq_by_id
+
+
+def test_persist_new_refreshes_late_tool_call_metadata(store: HistoryStore):
+    """A streamed assistant row must gain metadata when its tool call lands."""
+    mgr = make_manager(store)
+    turn = assistant("starting")
+    agent = FakeAgent([turn])
+    mgr._persist_new(agent)
+
+    turn.content.extend(
+        [
+            ToolCallBlock(
+                type="tool_call",
+                id="call-late",
+                name="grep",
+                input="{}",
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="call-late",
+                name="grep",
+                output="done",
+            ),
+        ],
+    )
+    _persist_signature(turn, "call-late")
+    mgr._persist_new(agent)
+
+    row = store._conn.execute(
+        "SELECT blocks, metadata FROM conversation_history "
+        "WHERE kind='model_turn' AND dedup_key = ?",
+        (turn.id,),
+    ).fetchone()
+    stored_blocks = json.loads(row["blocks"])
+    assert any(block["id"] == "call-late" for block in stored_blocks)
+    assert json.loads(row["metadata"])[TOOL_CALL_EXTRAS_METADATA_KEY] == {
+        "call-late": {
+            "provider_id": "example",
+            "extra_content": {"thought_signature": "signature-abc"},
+        },
+    }
 
 
 def test_tool_result_persisted_under_tool_call_id(store: HistoryStore):
@@ -554,6 +611,7 @@ async def test_compress_restores_complete_non_active_tool_boundary(
     old_u = user("older question")
     old_a = assistant("older reply", headline="OLD")
     boundary = assistant_with_tool("call-boundary")
+    _persist_signature(boundary, "call-boundary")
     cur_u = user("current request")
     cur_a = assistant("current reply")
     ctx = [old_u, old_a, boundary, cur_u, cur_a]
@@ -581,6 +639,9 @@ async def test_compress_restores_complete_non_active_tool_boundary(
         "tool_call",
         "tool_result",
     ]
+    assert retained.metadata[TOOL_CALL_EXTRAS_METADATA_KEY] == (
+        boundary.metadata[TOOL_CALL_EXTRAS_METADATA_KEY]
+    )
 
 
 async def test_compress_keeps_active_turn_live(store: HistoryStore):
@@ -2124,6 +2185,24 @@ def test_serialize_persists_runtime_tag():
     }
     (plain,) = msg_to_entries(user("hello"))
     assert not plain.metadata
+
+
+def test_serialize_persists_tool_call_extras():
+    """The exact Scroll archive retains provider tool-call protocol data."""
+    from qwenpaw.agents.context.scroll.serialize import msg_to_entries
+
+    msg = assistant_with_tool("call-signed")
+    _persist_signature(msg, "call-signed")
+
+    model_turn = next(
+        entry for entry in msg_to_entries(msg) if entry.kind == "model_turn"
+    )
+    assert model_turn.metadata[TOOL_CALL_EXTRAS_METADATA_KEY] == {
+        "call-signed": {
+            "provider_id": "example",
+            "extra_content": {"thought_signature": "signature-abc"},
+        },
+    }
 
 
 def test_serialize_captures_tool_input():

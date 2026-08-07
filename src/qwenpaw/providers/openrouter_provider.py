@@ -452,6 +452,7 @@ class OpenRouterProvider(Provider):
         )
         return OpenAIChatModelCompat(
             credential=credential,
+            provider_id=self.id,
             model=model_id,
             stream=True,
             default_headers=self._build_default_headers() or None,
