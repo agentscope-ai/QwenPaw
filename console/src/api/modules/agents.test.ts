@@ -80,6 +80,14 @@ describe("agentsApi", () => {
     expect(result).toEqual(resp);
   });
 
+  it("getMemoryGraph loads the indexed wikilink graph", async () => {
+    const graph = { version: 1, nodes: [], edges: [] } as const;
+    vi.mocked(request).mockResolvedValue(graph);
+    const result = await agentsApi.getMemoryGraph("a1");
+    expect(request).toHaveBeenCalledWith("/agents/a1/memory/graph");
+    expect(result).toEqual(graph);
+  });
+
   it("deleteAgent sends DELETE /agents/${id}", async () => {
     const resp = { success: true, agent_id: "a1" };
     vi.mocked(request).mockResolvedValue(resp);

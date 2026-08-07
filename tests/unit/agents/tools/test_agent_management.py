@@ -604,6 +604,8 @@ def test_coerce_timeout_accepts_numeric_and_rejects_non_positive():
         "0.5",
         "1e-9",
         "abc",
+        "null",
+        "None",
         True,
         False,
         "",
@@ -614,6 +616,80 @@ def test_coerce_timeout_accepts_numeric_and_rejects_non_positive():
             assert "timeout" in str(exc)
         else:
             raise AssertionError(f"expected ValueError for {bad!r}")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, "", "   ", [], "[]", "  [ ]  "],
+)
+def test_normalize_batch_empty_placeholders_return_none(value):
+    assert agent_management._normalize_batch(value) is None
+
+
+@pytest.mark.parametrize("value", ["null", "None", "not json array", {}])
+def test_normalize_batch_rejects_invalid_values(value):
+    with pytest.raises(ValueError):
+        agent_management._normalize_batch(value)
+
+
+def test_allowed_tools_empty_string_remains_invalid():
+    with pytest.raises(ValueError, match="allowed_tools"):
+        agent_management._normalize_str_list("", "allowed_tools")
+
+
+@pytest.mark.parametrize("batch", ["", "   ", [], "[]", "  [ ]  "])
+async def test_spawn_subagent_empty_batch_uses_single_task(
+    monkeypatch,
+    batch,
+):
+    collected = []
+
+    def fake_collect(_base, payload, _agent_id, _timeout):
+        collected.append(payload)
+        return {
+            "output": [
+                {"content": [{"type": "text", "text": "done"}]},
+            ],
+        }
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    from qwenpaw.app import agent_context
+
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response",
+        fake_collect,
+    )
+    monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(agent_context, "get_current_agent_id", lambda: "bot-a")
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_approval_route",
+        lambda: None,
+    )
+    monkeypatch.setattr(agent_context, "get_current_session_id", lambda: "s1")
+    monkeypatch.setattr(agent_context, "get_current_user_id", lambda: "u1")
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_channel",
+        lambda: "console",
+    )
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_root_session_id",
+        lambda: "s1",
+    )
+
+    response = await agent_management.spawn_subagent(
+        task="do work",
+        batch=batch,
+    )
+
+    assert "ERROR" not in response.content[0].text
+    assert "done" in response.content[0].text
+    assert len(collected) == 1
 
 
 def test_spawn_subagent_schema_accepts_batch_string():

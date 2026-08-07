@@ -11,7 +11,7 @@ append-only JSONL.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -1097,6 +1097,7 @@ class ProjectRuntimeSessionStore:
         metadata: Mapping[str, Any] | None = None,
         initial_creation: bool = False,
         hard_stop: bool = False,
+        admission_guard: Callable[[], bool] | None = None,
     ) -> RequestAdmissionResult:
         """Persist a user request and decide review admission under one lock.
 
@@ -1104,6 +1105,12 @@ class ProjectRuntimeSessionStore:
         ReviewBoundary publication are serialized by the same Project Runtime
         lock.  Therefore a returned ``require_review`` decision always points
         to an already durable boundary.
+
+        ``admission_guard`` runs inside the Project lifecycle boundary right
+        before the request becomes durable; returning ``False`` aborts the
+        admission with :class:`RequestAdmissionConflict`. Automated writers
+        (for example the render self-review loop) use it to re-validate a
+        precondition atomically against concurrent Project commits.
         """
 
         project_id, session_id, conversation_id = self._safe_message_ids(
@@ -1143,6 +1150,10 @@ class ProjectRuntimeSessionStore:
             # Revalidate only after lifecycle admission, before either Runtime
             # lock is allowed to create parent directories.
             self._require_project(project_id)
+            if admission_guard is not None and not admission_guard():
+                raise RequestAdmissionConflict(
+                    "admission guard rejected the request",
+                )
             with (
                 self._project_commit_order_lock(project_id),
                 self._runtime_lock(project_id),

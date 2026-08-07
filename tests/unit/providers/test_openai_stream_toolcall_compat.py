@@ -6,7 +6,10 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from agentscope.credential import OpenAICredential
+from agentscope.message import ToolCallBlock
+from agentscope.model._model_response import ChatResponse
 
 from qwenpaw.providers.openai_chat_model_compat import (
     OpenAIChatModelCompat,
@@ -52,13 +55,18 @@ class FakeAsyncStream:
             raise StopAsyncIteration from exc
 
 
-def _make_chunk(tool_calls: list[Any]) -> Any:
+def _make_chunk(
+    tool_calls: list[Any] | None = None,
+    *,
+    content: str | None = None,
+    reasoning_content: str | None = None,
+) -> Any:
     delta = SimpleNamespace(
-        reasoning_content=None,
-        content=None,
+        reasoning_content=reasoning_content,
+        content=content,
         tool_calls=tool_calls,
     )
-    choice = SimpleNamespace(delta=delta)
+    choice = SimpleNamespace(delta=delta, finish_reason=None)
     return SimpleNamespace(usage=None, choices=[choice])
 
 
@@ -178,3 +186,88 @@ def test_sanitize_tool_call_normalizes_non_string_arguments() -> None:
     assert sanitized_missing_name_and_arguments is not None
     assert sanitized_missing_name_and_arguments.function.name == ""
     assert sanitized_missing_name_and_arguments.function.arguments == ""
+
+
+@pytest.mark.parametrize(
+    ("use_reasoning", "id_prefix"),
+    [
+        (False, "text_call_"),
+        (True, "think_call_"),
+    ],
+)
+async def test_tagged_tool_calls_use_agentscope_blocks_once(
+    use_reasoning: bool,
+    id_prefix: str,
+) -> None:
+    model = CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        model="dummy",
+        stream=True,
+    )
+    tagged = '<tool_call>{"name":"ping","arguments":{"x":1}}</tool_call>'
+    if use_reasoning:
+        tagged_chunk = _make_chunk(reasoning_content=tagged)
+        following_chunk = _make_chunk(reasoning_content="done")
+    else:
+        tagged_chunk = _make_chunk(content=tagged)
+        following_chunk = _make_chunk(content="done")
+
+    responses = await model.parse_stream_for_test(
+        datetime.now(),
+        FakeAsyncStream([tagged_chunk, following_chunk]),
+    )
+
+    tool_blocks = [
+        block
+        for response in responses
+        for block in response.content
+        if isinstance(block, ToolCallBlock)
+    ]
+    assert len(tool_blocks) == 1
+    assert tool_blocks[0].id.startswith(id_prefix)
+    assert tool_blocks[0].name == "ping"
+    assert json.loads(tool_blocks[0].input) == {"x": 1}
+
+    accumulated = ChatResponse(content=[], is_last=True)
+    for response in responses:
+        accumulated.append_chat_response(response)
+
+    accumulated_tools = [
+        block
+        for block in accumulated.content
+        if isinstance(block, ToolCallBlock)
+    ]
+    assert len(accumulated_tools) == 1
+    assert json.loads(accumulated_tools[0].input) == {"x": 1}
+
+
+async def test_multiple_tagged_tool_calls_have_unique_ids() -> None:
+    model = CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        model="dummy",
+        stream=True,
+    )
+    tagged = (
+        '<tool_call>{"name":"first","arguments":{}}</tool_call>'
+        '<tool_call>{"name":"second","arguments":{}}</tool_call>'
+    )
+
+    responses = await model.parse_stream_for_test(
+        datetime.now(),
+        FakeAsyncStream([_make_chunk(content=tagged)]),
+    )
+
+    tool_blocks = [
+        block
+        for response in responses
+        for block in response.content
+        if isinstance(block, ToolCallBlock)
+    ]
+    assert [block.name for block in tool_blocks] == ["first", "second"]
+    assert len({block.id for block in tool_blocks}) == 2

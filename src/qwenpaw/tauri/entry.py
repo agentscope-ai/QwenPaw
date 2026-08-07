@@ -229,6 +229,11 @@ def _install_desktop_runtime() -> None:
     _ensure_qwenpaw_app_not_loaded()
     ensure_desktop_cors_origins()
     _sync_loaded_qwenpaw_constant_cors_origins()
+    from qwenpaw.browser.runtime.managed_playwright import (
+        configure_desktop_playwright_cache,
+    )
+
+    configure_desktop_playwright_cache()
 
 
 def _run_click_command(

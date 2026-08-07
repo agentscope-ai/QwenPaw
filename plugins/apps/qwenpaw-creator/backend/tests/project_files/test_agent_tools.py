@@ -14,12 +14,20 @@ from services.project_files.agent_tools import (
     AgentProjectToolError,
     AgentProjectTools,
     UnknownAgentProjectTool,
+    _translate_project_schema_error,
     agent_project_tool_manifest,
 )
 from services.project_files.assets import AssetFileStore
 from services.project_files.commit import ProjectCommitBoundary
 from services.project_files.json_pointer import JsonCasConflict
-from services.project_files.models import IndexedFile, Project
+from services.project_files.models import (
+    ElementLocation,
+    IndexedFile,
+    Project,
+    R2VCreation,
+    TimelineElement,
+    TimelineSpan,
+)
 from services.project_files.store import ProjectStore
 from services.runtime_files.models import ReviewBoundary, RuntimeProjectState
 from services.runtime_files.atomic_store import AtomicJsonRecordStore
@@ -117,6 +125,8 @@ def test_jq_project_rejects_a_nested_object_instead_of_opaque_protected_diff(
         )
 
     assert "/project_id" in str(caught.value)
+    assert caught.value.code == "JQ_RESULT_NOT_PROJECT_ROOT"
+    assert "/project_id" in caught.value.details["changedProtectedPointers"]
     assert store.read("project-1").etag == base.etag
 
 
@@ -195,6 +205,7 @@ def test_manifest_and_invoke_expose_only_model_owned_arguments(tmp_path):
         "read_project",
         "read_project_file",
         "jq_project",
+        "patch_project",
         "elements_at",
     )
     file_parameters = schemas["read_project_file"]["parameters"]
@@ -216,6 +227,7 @@ def test_manifest_and_invoke_expose_only_model_owned_arguments(tmp_path):
     assert jq_parameters["additionalProperties"] is False
     assert "完整 Project 根对象" in schemas["jq_project"]["description"]
     assert "jsonArgs" in schemas["jq_project"]["description"]
+    assert "from_entries" in schemas["jq_project"]["description"]
     assert "拆分为少量几次调用" in schemas["jq_project"]["description"]
     elements_parameters = schemas["elements_at"]["parameters"]
     assert set(elements_parameters["properties"]) == {
@@ -231,6 +243,7 @@ def test_manifest_and_invoke_expose_only_model_owned_arguments(tmp_path):
         "read_project",
         "read_project_file",
         "jq_project",
+        "patch_project",
         "elements_at",
     ]
     assert (
@@ -295,6 +308,7 @@ def test_invoke_translates_misnested_program_arguments(tmp_path):
             },
         )
     message = str(caught.value)
+    assert caught.value.code == "JQ_ARGUMENTS_MALFORMED"
     assert "花括号" in message
     assert "$.jsonArgs.timeline_elements.elem-02.program" in message
     assert "项目未被修改" in message
@@ -314,10 +328,101 @@ def test_invoke_translates_project_schema_errors_with_paths(tmp_path):
             },
         )
     message = str(caught.value)
+    assert caught.value.code == "JQ_PROJECT_SCHEMA_INVALID"
     assert "visual.variants" in message
     assert "visual.entities.items" in message
     assert "项目未被修改" in message
     assert store.read("project-1").etag == base.etag
+
+
+def test_translate_schema_error_hints_root_level_visual_variant_binding():
+    # Root-level model validators report an empty loc, so the hint must key
+    # on the error message rather than the path prefix.
+    raw = Project.new(project_id="project-1", name="Initial").model_dump(
+        mode="json",
+    )
+    element = TimelineElement(
+        element_id="element:hero",
+        span=TimelineSpan(start_tick=0, duration_tick=1_000),
+        location=ElementLocation(),
+        creation=R2VCreation(
+            visual_variant_refs={"char:ghost": "variant:x"},
+        ),
+    )
+    raw["timelines"]["items"]["timeline:main"]["elements_by_id"][
+        "element:hero"
+    ] = element.model_dump(mode="json")
+
+    with pytest.raises(ValidationError) as caught:
+        Project.model_validate(raw)
+    message = _translate_project_schema_error(caught.value)
+
+    assert "element element:hero" in message
+    assert "unreferenced entity char:ghost" in message
+    assert "character_refs/prop_refs/scene_ref" in message
+    assert "先把实体加入引用列表" in message
+
+
+def test_translate_schema_error_hints_missing_variant_binding():
+    # The missing-variant branch must get its own hint, not the
+    # unreferenced-entity guidance about character_refs.
+    raw = Project.new(project_id="project-1", name="Initial").model_dump(
+        mode="json",
+    )
+    raw["visual"]["entities"] = {
+        "items": {
+            "char:hero": {
+                "entity_id": "char:hero",
+                "kind": "character",
+                "name": "Hero",
+                "required_variant_ids": [],
+            },
+        },
+        "order": ["char:hero"],
+    }
+    element = TimelineElement(
+        element_id="element:hero",
+        span=TimelineSpan(start_tick=0, duration_tick=1_000),
+        location=ElementLocation(),
+        creation=R2VCreation(
+            character_refs=["char:hero"],
+            visual_variant_refs={"char:hero": "variant:missing"},
+        ),
+    )
+    raw["timelines"]["items"]["timeline:main"]["elements_by_id"][
+        "element:hero"
+    ] = element.model_dump(mode="json")
+
+    with pytest.raises(ValidationError) as caught:
+        Project.model_validate(raw)
+    message = _translate_project_schema_error(caught.value)
+
+    assert "missing variant variant:missing" in message
+    assert "先创建 Variant" in message
+    assert "character_refs/prop_refs/scene_ref" not in message
+
+
+def test_translate_schema_error_hints_misnested_element_fields():
+    # A bracket slip put element-level fields inside creation: the three
+    # resulting "Field required" errors must name the real mistake.
+    raw = Project.new(project_id="project-1", name="Initial").model_dump(
+        mode="json",
+    )
+    raw["timelines"]["items"]["timeline:main"]["elements_by_id"]["elem:x"] = {
+        "creation": {
+            "type": "r2v",
+            "element_id": "elem:x",
+            "span": {"start_tick": 0, "duration_tick": 1000},
+            "label": "错位",
+        },
+    }
+
+    with pytest.raises(ValidationError) as caught:
+        Project.model_validate(raw)
+    message = _translate_project_schema_error(caught.value)
+
+    assert "花括号层级错位" in message
+    assert "提到与 creation 同级" in message
 
 
 def test_read_project_file_pages_only_verified_indexed_utf8_text(tmp_path):

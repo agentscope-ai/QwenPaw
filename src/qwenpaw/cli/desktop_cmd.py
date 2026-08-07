@@ -4,6 +4,7 @@
 # pylint:disable=too-many-branches,too-many-statements,consider-using-with
 from __future__ import annotations
 
+import json
 import logging
 import os
 import socket
@@ -14,6 +15,9 @@ import time
 import traceback
 import webbrowser
 from collections.abc import Mapping
+from ipaddress import ip_address
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 import click
 
@@ -37,6 +41,49 @@ class WebViewAPI:
         if not url.startswith(("http://", "https://")):
             return
         webbrowser.open(url)
+
+    def open_workspace_html(
+        self,
+        url: str,
+        headers: Mapping[str, str] | None = None,
+    ) -> bool:
+        """Resolve and open a workspace HTML file in the system browser."""
+        parsed = urlparse(url)
+        try:
+            is_loopback = (
+                parsed.hostname == "localhost"
+                or ip_address(parsed.hostname or "").is_loopback
+            )
+        except ValueError:
+            is_loopback = False
+        if (
+            parsed.scheme != "http"
+            or not is_loopback
+            or parsed.path != "/api/workspace/html-file-uri"
+        ):
+            return False
+
+        try:
+            request = Request(
+                url,
+                headers={
+                    str(key): str(value)
+                    for key, value in (headers or {}).items()
+                    if value is not None
+                },
+            )
+            with urlopen(request) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            uri = payload.get("uri", "")
+            resolved = urlparse(uri)
+            if resolved.scheme != "file" or not resolved.path.lower().endswith(
+                (".html", ".htm"),
+            ):
+                return False
+            return webbrowser.open(uri)
+        except Exception:
+            logger.exception("open_workspace_html failed")
+            return False
 
     def save_file(
         self,

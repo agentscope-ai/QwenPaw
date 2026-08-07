@@ -23,6 +23,7 @@ from services.media_files.keyframe_cache import (
     materialize_keyframe,
     verified_indexed_path,
 )
+from services.media_files.motion_overlay import render_motion_poster
 from services.project_files.assets import AssetFileError, AssetFileStore
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import IndexedFile
@@ -289,6 +290,137 @@ async def generated_file(path: str) -> FileResponse:
     if not target.is_file():
         raise NotFoundError("生成资源不存在")
     return FileResponse(target, content_disposition_type="inline")
+
+
+def _motion_document_in_project(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    file_id: str,
+) -> tuple[Path, IndexedFile] | None:
+    try:
+        snapshot = services.projects.read(project_id)
+    except ProjectNotFound:
+        return None
+    indexed = snapshot.project.assets.files_by_id.get(file_id)
+    if indexed is None or indexed.schema_name != "motion_document":
+        return None
+    return services.projects.project_root(project_id), indexed
+
+
+@router.get("/media/motion-documents/{file_id}")
+async def motion_document(
+    file_id: str,
+    request: Request,
+    services: CreatorFileServices = Depends(project_file_services),
+) -> Response:
+    """Serve one externalized motion document body.
+
+    Content is delivered as plain text: the frontend injects it into a
+    sandboxed iframe via srcDoc, and this route must never become a
+    same-origin HTML navigation target.
+    """
+
+    matches: list[tuple[Path, IndexedFile]] = []
+    # O(项目数) 扫描：本地单用户部署的项目数量有限，且命中后前端会长期
+    # immutable 缓存；若项目规模增长，应改为全局 file_id → 项目的索引。
+    summaries = await asyncio.to_thread(services.projects.list)
+    for summary in summaries:
+        match = await asyncio.to_thread(
+            _motion_document_in_project,
+            services,
+            project_id=summary.project_id,
+            file_id=file_id,
+        )
+        if match is not None:
+            matches.append(match)
+    if not matches:
+        raise NotFoundError("motion 文档不存在")
+    # Content-addressed ids may legitimately appear in several Projects;
+    # every copy carries identical bytes, so the first match serves.
+    project_root, indexed = matches[0]
+
+    def open_verified():
+        try:
+            return AssetFileStore(project_root).open_verified(indexed)
+        except AssetFileError as error:
+            raise StorageIntegrityError(str(error)) from error
+
+    return _media_response(
+        request,
+        stream_factory=open_verified,
+        size_bytes=indexed.size_bytes,
+        media_type="text/plain; charset=utf-8",
+        name=f"{file_id}.html",
+        etag=f'"sha256:{indexed.sha256}"',
+        cache_control="public, max-age=31536000, immutable",
+    )
+
+
+@router.get("/media/motion-documents/{file_id}/poster")
+async def motion_document_poster(
+    file_id: str,
+    doc_format: Literal["html_css", "html_js"] = Query(
+        "html_css",
+        alias="format",
+    ),
+    width: int = Query(640, ge=16, le=1920),
+    height: int = Query(360, ge=16, le=1080),
+    services: CreatorFileServices = Depends(project_file_services),
+) -> Response:
+    """Deterministic PNG poster frame of one externalized motion document.
+
+    Backs the live preview of ``html_js`` documents: their scripts never
+    execute in the frontend, so the sandboxed render engine produces one
+    settled frame here instead.  Content-addressed and immutable.
+    """
+
+    matches: list[tuple[Path, IndexedFile]] = []
+    summaries = await asyncio.to_thread(services.projects.list)
+    for summary in summaries:
+        match = await asyncio.to_thread(
+            _motion_document_in_project,
+            services,
+            project_id=summary.project_id,
+            file_id=file_id,
+        )
+        if match is not None:
+            matches.append(match)
+    if not matches:
+        raise NotFoundError("motion 文档不存在")
+    project_root, indexed = matches[0]
+
+    def read_verified() -> str:
+        try:
+            with AssetFileStore(project_root).open_verified(
+                indexed,
+            ) as stream:
+                return stream.read().decode("utf-8")
+        except AssetFileError as error:
+            raise StorageIntegrityError(str(error)) from error
+
+    html = await asyncio.to_thread(read_verified)
+    # ffmpeg 的 YUV 子采样要求偶数尺寸；ETag 必须反映实际渲染尺寸，
+    # 否则两个不同的奇数请求会产生同图不同 ETag 的缓存不一致。
+    actual_width = width // 2 * 2
+    actual_height = height // 2 * 2
+    payload = await asyncio.to_thread(
+        render_motion_poster,
+        html,
+        doc_format=doc_format,
+        box_width=actual_width,
+        box_height=actual_height,
+    )
+    if payload is None:
+        raise NotFoundError("无法渲染动效海报帧")
+    return Response(
+        payload,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "ETag": f'"poster:{indexed.sha256}:{actual_width}x{actual_height}"',
+        },
+    )
 
 
 @router.get("/media/assets/{version_id}")

@@ -8,6 +8,7 @@ import {
   Undo2,
   Video,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type {
   FileProjectReviewDecision,
   FileProjectReviewOperation,
@@ -23,43 +24,56 @@ import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { selectPrimaryTimeline } from "@/selectors/timelineElementSelectors";
 import DiffView from "./DiffView";
 import RejectionFeedbackModal from "./RejectionFeedbackModal";
+import i18n from "@/i18n";
 
-const DECISION_LABELS: Record<FileProjectReviewOperationDecision, string> = {
-  PENDING: "待审",
-  ACCEPTED: "已保留",
-  REJECTED: "已撤销",
-  REVISED: "已修订",
-  SUPERSEDED_BY_USER_EDIT: "已被用户编辑替代",
-};
+function decisionLabel(decision: FileProjectReviewOperationDecision): string {
+  const map: Record<FileProjectReviewOperationDecision, string> = {
+    PENDING: i18n.t("fileReview.pending"),
+    ACCEPTED: i18n.t("fileReview.kept"),
+    REJECTED: i18n.t("fileReview.undone"),
+    REVISED: i18n.t("fileReview.revised"),
+    SUPERSEDED_BY_USER_EDIT: i18n.t("fileReview.replacedByUser"),
+  };
+  return map[decision];
+}
 
-const KIND_LABELS: Record<string, string> = {
-  create: "新增",
-  update: "修改",
-  delete: "删除",
-  move: "移动",
-  reorder: "重排",
-  select_asset: "选择资产",
-};
+function kindLabel(kind: string): string {
+  const map: Record<string, string> = {
+    create: i18n.t("fileReview.added"),
+    update: i18n.t("fileReview.modified"),
+    delete: i18n.t("fileReview.deleted"),
+    move: i18n.t("fileReview.moved"),
+    reorder: i18n.t("fileReview.reordered"),
+    select_asset: i18n.t("fileReview.selectAsset"),
+  };
+  return map[kind] ?? kind;
+}
 
-const FIELD_LABELS: Record<string, string> = {
-  name: "名称",
-  title: "标题",
-  description: "描述",
-  creative_brief: "创作总纲",
-  creative_direction: "创作方向",
-  prompt: "提示词",
-  camera: "运镜",
-  framing: "景别",
-  duration_seconds: "时长",
-  narration: "旁白",
-  dialogue: "台词",
-};
+function fieldLabel(token: string): string {
+  const map: Record<string, string> = {
+    name: i18n.t("fileReview.name"),
+    title: i18n.t("fileReview.titleField"),
+    description: i18n.t("fileReview.description"),
+    creative_brief: i18n.t("fileReview.creativeBrief"),
+    creative_direction: i18n.t("fileReview.creativeDirection"),
+    prompt: i18n.t("fileReview.prompt"),
+    camera: i18n.t("fileReview.camera"),
+    framing: i18n.t("fileReview.framing"),
+    duration_seconds: i18n.t("fileReview.duration"),
+    narration: i18n.t("fileReview.narration"),
+    dialogue: i18n.t("fileReview.dialogue"),
+  };
+  return map[token] ?? token;
+}
 
-const ARTIFACT_KIND_LABELS: Record<string, string> = {
-  r2v_storyboard_image: "分镜图",
-  visual_asset_image: "角色 / 视觉资产图",
-  r2v_video: "视频",
-};
+function artifactKindLabel(kind: string): string {
+  const map: Record<string, string> = {
+    r2v_storyboard_image: i18n.t("fileReview.storyboard"),
+    visual_asset_image: i18n.t("fileReview.characterVisual"),
+    r2v_video: i18n.t("fileReview.video"),
+  };
+  return map[kind] ?? "";
+}
 
 function operationLocation(operation: FileProjectReviewOperation): string {
   return (
@@ -79,12 +93,16 @@ function operationSummary(
   const locator = operation.ui_locator ?? {};
   const pointer = operation.json_pointer ?? "";
   const lastToken = pointer.split("/").filter(Boolean).pop() ?? "";
-  const fieldLabel = FIELD_LABELS[lastToken] ?? lastToken;
+  const resolvedFieldLabel = fieldLabel(lastToken);
   const parts: string[] = [];
   if (locator.elementId)
-    parts.push(elementNames[locator.elementId] ?? `内容 ${locator.elementId}`);
-  else if (locator.assetId) parts.push(`资产 ${locator.assetId}`);
-  if (fieldLabel) parts.push(fieldLabel);
+    parts.push(
+      elementNames[locator.elementId] ??
+        `${i18n.t("fileReview.content")} ${locator.elementId}`,
+    );
+  else if (locator.assetId)
+    parts.push(`${i18n.t("fileReview.asset")} ${locator.assetId}`);
+  if (resolvedFieldLabel) parts.push(resolvedFieldLabel);
   return parts.length > 0 ? parts.join(" · ") : operationLocation(operation);
 }
 
@@ -99,11 +117,65 @@ function previewText(value: unknown, limit = 26): string {
 
 /** One-line change preview so users know what changed without navigating;
  * the full diff is shown in place at the original content. */
-function operationPreview(operation: FileProjectReviewOperation): string {
-  if (operation.kind === "create")
-    return `新增：${previewText(operation.after)}`;
-  if (operation.kind === "delete")
-    return `删除：${previewText(operation.before)}`;
+const CREATION_TYPE_LABELS: Record<string, string> = {
+  r2v: "R2V 画面",
+  t2v: "文本生视频",
+  i2v: "首帧生视频",
+  s2v: "数字人口播",
+  edit: "剪辑片段",
+  overlay: "文字/装饰",
+  transition: "转场",
+  audio: "音频",
+};
+
+/** Structured summary for a whole Timeline Element value; null when the value
+ * is not an element (falls back to the raw-text preview). */
+function describeElementValue(
+  value: unknown,
+  ticksPerSecond: number,
+): string | null {
+  if (!value || typeof value !== "object") return null;
+  const el = value as Record<string, any>;
+  const creation = el.creation;
+  if (!creation || typeof creation !== "object" || !creation.type) return null;
+  const parts: string[] = [
+    CREATION_TYPE_LABELS[creation.type] ?? String(creation.type),
+  ];
+  if (el.label) parts.push(`「${el.label}」`);
+  const span = el.span;
+  if (
+    span &&
+    typeof span.start_tick === "number" &&
+    typeof span.duration_tick === "number" &&
+    ticksPerSecond > 0
+  ) {
+    const start = span.start_tick / ticksPerSecond;
+    const end = (span.start_tick + span.duration_tick) / ticksPerSecond;
+    parts.push(`${start.toFixed(0)}s–${end.toFixed(0)}s`);
+  }
+  if (creation.type === "audio") {
+    parts.push(`音量 ${creation.gain_db ?? 0}dB`);
+    if (creation.pan) parts.push(`声像 ${creation.pan}`);
+  }
+  return parts.join(" · ");
+}
+
+function operationPreview(
+  operation: FileProjectReviewOperation,
+  ticksPerSecond = 1000,
+): string {
+  if (operation.kind === "create") {
+    const described = describeElementValue(operation.after, ticksPerSecond);
+    return `${i18n.t("fileReview.addedLabel")}${
+      described ?? previewText(operation.after)
+    }`;
+  }
+  if (operation.kind === "delete") {
+    const described = describeElementValue(operation.before, ticksPerSecond);
+    return `${i18n.t("fileReview.deletedLabel")}${
+      described ?? previewText(operation.before)
+    }`;
+  }
   return `${previewText(operation.before)} → ${previewText(operation.after)}`;
 }
 
@@ -136,20 +208,25 @@ export function reviewPendingUnits(review: FileProjectReviewRecord): number {
 }
 
 function mediaLabel(locator: Record<string, string>): string {
-  if (locator.artifactKind && ARTIFACT_KIND_LABELS[locator.artifactKind]) {
-    return ARTIFACT_KIND_LABELS[locator.artifactKind];
+  if (locator.artifactKind && artifactKindLabel(locator.artifactKind)) {
+    return artifactKindLabel(locator.artifactKind);
   }
-  return locator.mediaType === "video" ? "视频" : "图片";
+  return locator.mediaType === "video"
+    ? i18n.t("fileReview.video")
+    : i18n.t("fileReview.image");
 }
 
 /** Compact title used by the decision tray's stacked stubs / indicator dots. */
 export function reviewTrayLabel(review: FileProjectReviewRecord): string {
   const locator = reviewMediaLocator(review);
-  if (locator) return `${mediaLabel(locator)}审阅`;
+  if (locator)
+    return `${mediaLabel(locator)}${i18n.t("fileReview.reviewLabel")}`;
   const pending = review.operations.filter(
     (operation) => operation.decision === "PENDING",
   ).length;
-  return `文本审阅 · ${pending} 处`;
+  return `${i18n.t("fileReview.textReview")}${pending} ${i18n.t(
+    "fileReview.places",
+  )}`;
 }
 
 export default function FileProjectReviewPanel({
@@ -159,6 +236,7 @@ export default function FileProjectReviewPanel({
   projectId: string;
   review: FileProjectReviewRecord;
 }) {
+  const { t } = useTranslation();
   const decisionInFlight = useFileProjectReviewStore(
     (state) => state.decisionInFlight,
   );
@@ -180,15 +258,17 @@ export default function FileProjectReviewPanel({
     }
     return names;
   })();
+  const ticksPerSecond =
+    selectPrimaryTimeline(project)?.ticks_per_second ?? 1000;
   const assetName = (assetId: string): string =>
     project?.visual.entities.items[assetId]?.name || assetId;
   const mediaOwnerLine = (locator: Record<string, string>): string => {
     if (locator.elementId) {
       const name = elementNames[locator.elementId] ?? locator.elementId;
-      return `「${name}」的${mediaLabel(locator)}`;
+      return `「${name}」${i18n.t("fileReview.of")}${mediaLabel(locator)}`;
     }
     if (locator.assetId) {
-      return `「${assetName(locator.assetId)}」的形象图`;
+      return `「${assetName(locator.assetId)}」${i18n.t("fileReview.imageOf")}`;
     }
     return mediaLabel(locator);
   };
@@ -228,10 +308,10 @@ export default function FileProjectReviewPanel({
       }
       message.success(
         decision === "ACCEPT"
-          ? `已保留 ${affectedUnits} 项内容`
+          ? t("fileReview.keptCount", { count: affectedUnits })
           : rejectionFeedback?.action === "UNDO_AND_REGENERATE"
-          ? `已撤销 ${affectedUnits} 项内容，Agent 将按反馈重做`
-          : `已撤销 ${affectedUnits} 项内容`,
+          ? t("fileReview.undoneCount", { count: affectedUnits })
+          : t("fileReview.undoneCountSimple", { count: affectedUnits }),
       );
       return true;
     } catch (error) {
@@ -250,7 +330,7 @@ export default function FileProjectReviewPanel({
     navigateToLocator(projectId, locator, {
       review: true,
       field: field ?? undefined,
-      description: "审阅 / 查看修改",
+      description: t("fileReview.reviewOrViewChanges"),
     });
   };
 
@@ -260,8 +340,7 @@ export default function FileProjectReviewPanel({
       className="mb-3 rounded-xl border border-[var(--color-accent)]/35 bg-[var(--color-bg-primary)]/70 p-2.5"
     >
       <OnboardingHint hintKey="review" className="mb-2">
-        首次说明：Agent
-        对项目的每处修改都会在这里待你审阅：「保留」采纳修改，「撤销」回退到修改前；也可逐条处理。
+        {t("fileReview.firstTimeDesc")}
       </OnboardingHint>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -275,9 +354,11 @@ export default function FileProjectReviewPanel({
             ) : (
               <FileDiff className="h-3.5 w-3.5 text-[var(--color-accent)]" />
             )}
-            {mediaLocator ? `${mediaLabel(mediaLocator)}审阅` : "文件项目修改"}
+            {mediaLocator
+              ? `${mediaLabel(mediaLocator)}${t("fileReview.reviewLabel")}`
+              : t("fileReview.fileProjectReview")}
             <span className="rounded-full bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-[9px] text-[var(--color-accent)]">
-              {pendingUnits} 待审
+              {pendingUnits} {t("fileReview.pendingReview")}
             </span>
           </h3>
           <p
@@ -286,7 +367,7 @@ export default function FileProjectReviewPanel({
           >
             {mediaLocator
               ? mediaOwnerLine(mediaLocator)
-              : `共 ${pending.length} 处待确认的文本修改`}
+              : `${pending.length} ${t("fileReview.textChangesPending")}`}
           </p>
         </div>
         <div className="flex shrink-0 gap-1">
@@ -296,7 +377,7 @@ export default function FileProjectReviewPanel({
             onClick={() => void submit(pending, "ACCEPT")}
             className="rounded-md bg-[var(--color-accent)] px-2 py-1 text-[10px] font-medium text-white disabled:opacity-50"
           >
-            {mediaLocator ? "保留" : "全部保留"}
+            {mediaLocator ? t("fileReview.keep") : t("fileReview.keepAll")}
           </button>
           <button
             type="button"
@@ -304,7 +385,7 @@ export default function FileProjectReviewPanel({
             onClick={() => setRejectionOperations(pending)}
             className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[10px] font-medium text-[var(--color-text-secondary)] disabled:opacity-50"
           >
-            {mediaLocator ? "撤销" : "全部撤销"}
+            {mediaLocator ? t("fileReview.undo") : t("fileReview.undoAll")}
           </button>
         </div>
       </div>
@@ -314,7 +395,8 @@ export default function FileProjectReviewPanel({
           role="alert"
           className="mt-2 rounded-md bg-[var(--color-warning-soft)] px-2 py-1 text-[10px] text-[var(--color-warning)]"
         >
-          同步异常，当前显示上次成功结果：{syncError}
+          {t("fileReview.syncError")}
+          {syncError}
         </p>
       )}
 
@@ -348,52 +430,52 @@ export default function FileProjectReviewPanel({
                       {operationSummary(operation, elementNames)}
                     </p>
                     <p className="mt-0.5 text-[9px] text-[var(--color-text-tertiary)]">
-                      {KIND_LABELS[operation.kind] ?? operation.kind} ·{" "}
-                      {DECISION_LABELS[operation.decision]}
-                      {canJump && " · 点击“查看”在原文处对比修改"}
+                      {kindLabel(operation.kind)} ·{" "}
+                      {decisionLabel(operation.decision)}
+                      {canJump && ` · ${t("fileReview.clickViewToCompare")}`}
                     </p>
                     <p
                       className="mt-0.5 truncate text-[9px] text-[var(--color-text-secondary)]"
-                      title={operationPreview(operation)}
+                      title={operationPreview(operation, ticksPerSecond)}
                     >
-                      {operationPreview(operation)}
+                      {operationPreview(operation, ticksPerSecond)}
                     </p>
                   </div>
                   <div className="flex shrink-0 gap-1">
                     {canJump && (
                       <button
                         type="button"
-                        aria-label={`查看 ${location}`}
+                        aria-label={`${t("fileReview.view")} ${location}`}
                         onClick={() =>
                           openLocator(locator, operation.json_pointer)
                         }
                         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
                       >
                         <Eye className="h-3 w-3" />
-                        查看
+                        {t("fileReview.view")}
                       </button>
                     )}
                     {operationPending && (
                       <>
                         <button
                           type="button"
-                          aria-label={`保留 ${location}`}
+                          aria-label={`${t("fileReview.keepItem")} ${location}`}
                           disabled={busy}
                           onClick={() => void submit([operation], "ACCEPT")}
                           className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] disabled:opacity-50"
                         >
                           <Check className="h-3 w-3" />
-                          保留
+                          {t("fileReview.keepItem")}
                         </button>
                         <button
                           type="button"
-                          aria-label={`撤销 ${location}`}
+                          aria-label={`${t("fileReview.undoItem")} ${location}`}
                           disabled={busy}
                           onClick={() => setRejectionOperations([operation])}
                           className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)] disabled:opacity-50"
                         >
                           <Undo2 className="h-3 w-3" />
-                          撤销
+                          {t("fileReview.undoItem")}
                         </button>
                       </>
                     )}
@@ -443,6 +525,7 @@ function MediaReviewBody({
   ownerLine: string;
   onOpen: () => void;
 }) {
+  const { t } = useTranslation();
   const versionId = locator.artifactVersionId;
   const mediaUrl = versionId ? getArtifactVersionMediaUrl(versionId) : null;
   const isVideo = locator.mediaType === "video";
@@ -468,7 +551,7 @@ function MediaReviewBody({
           )
         ) : (
           <p className="p-4 text-center text-[10px] text-[var(--color-text-tertiary)]">
-            预览不可用
+            {t("fileReview.previewUnavailable")}
           </p>
         )}
       </div>
@@ -485,7 +568,7 @@ function MediaReviewBody({
           className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]"
         >
           <Eye className="h-3 w-3" />
-          查看生成详情
+          {t("fileReview.viewGenDetail")}
         </button>
       </div>
     </div>

@@ -42,7 +42,44 @@ const { Text, Paragraph } = Typography;
 const APP_CATEGORY = "app";
 const MARKET_PAGE_SIZE = 100;
 
+// Curated official apps: the market API returns arbitrary ordering and no
+// logo for them, so ranking and artwork are pinned here. Lower index = shown
+// first in the official channel.
+const OFFICIAL_APP_PRIORITY = ["@agentscope/qwenpaw-creator"];
+const OFFICIAL_APP_ICONS: Record<string, string> = {
+  "@agentscope/qwenpaw-creator": "/creator-logo.png",
+};
+// Emoji icons from the plugins' own plugin.json (the market API carries no
+// icon field), so uninstalled cards match what the installed view shows.
+const OFFICIAL_APP_EMOJIS: Record<string, string> = {
+  "@zhijianma/agent-kanban": "📋",
+};
+// The upstream market entry ships the same English text under every locale
+// key, so curated apps carry their real translations here (keyed by language
+// prefix). Falls back to the upstream locales for everything else.
+const OFFICIAL_APP_DESCRIPTIONS: Record<string, Record<string, string>> = {
+  "@agentscope/qwenpaw-creator": {
+    zh: "Agentic 视频创作平台。从一句创意生成短剧，或将已有素材剪成成片：编剧、导演、视觉、动效、剪辑等 Agent 协同完成策划、生成、剪辑与合成；项目中所见皆可选中交给 Agent 精准修改，每个关键决定都由你确认。",
+    en: "An agentic video creation platform. Start from an idea or existing footage: an Agent team of screenwriting, directing, visual, motion, and editing Specialists handles planning, generation, editing, and composition; select anything in the project and hand it to the Agent for a precise change, with every key decision staying in your hands.",
+  },
+  "@zhijianma/agent-kanban": {
+    zh: "一个看板应用：创建任务并分配给智能体，由指定智能体自动执行，并实时查看其输出流。",
+    en: "A Kanban board to create issues, assign them to agents, auto-run them via the assigned agent, and watch their output stream in real time.",
+  },
+};
+
+function officialRank(id: string): number {
+  const index = OFFICIAL_APP_PRIORITY.indexOf(id);
+  return index === -1 ? OFFICIAL_APP_PRIORITY.length : index;
+}
+
 function pickDescription(entry: MarketPluginEntry, language: string): string {
+  const curated = OFFICIAL_APP_DESCRIPTIONS[entry.id];
+  if (curated) {
+    const prefix = language.split("-")[0].toLowerCase();
+    if (curated[prefix]) return curated[prefix];
+    if (curated.en) return curated.en;
+  }
   const locales = entry.locales;
   if (!locales || Object.keys(locales).length === 0) return "";
   if (locales[language]) return locales[language].description;
@@ -105,13 +142,18 @@ export function AppMarket({
         } while (entries.length < total);
 
         if (signal.aborted) return;
-        setPlugins(
-          entries.filter((entry) =>
-            channel === "official"
-              ? entry.is_featured === true
-              : entry.is_featured !== true,
-          ),
+        const channelEntries = entries.filter((entry) =>
+          channel === "official"
+            ? entry.is_featured === true
+            : entry.is_featured !== true,
         );
+        if (channel === "official") {
+          // Stable sort: pinned apps (Creator) first, rest keep API order.
+          channelEntries.sort(
+            (a, b) => officialRank(a.id) - officialRank(b.id),
+          );
+        }
+        setPlugins(channelEntries);
       } catch (err) {
         if (
           signal.aborted ||
@@ -274,79 +316,99 @@ export function AppMarket({
             className={styles.stateBlock}
           />
         ) : (
-          <div className={styles.grid}>
-            {plugins.map((entry) => (
-              <Card key={entry.id} className={styles.appCard}>
-                <div className={styles.cardIcon}>
-                  {entry.logo_url ? (
-                    <img
-                      src={entry.logo_url}
-                      alt=""
-                      className={styles.marketLogo}
-                    />
-                  ) : (
-                    <AppWindow size={22} strokeWidth={1.75} />
-                  )}
-                </div>
-                <div className={styles.cardBody}>
-                  <div className={styles.cardHeader}>
-                    <Text strong className={styles.cardTitle} ellipsis>
-                      {entry.display_name}
-                    </Text>
-                    {isOfficial && (
-                      <span className={styles.featuredTag}>
-                        <Sparkles size={11} strokeWidth={2} />
-                        {t("appCenter.featured", "精选")}
+          <div className={isOfficial ? styles.gridLarge : styles.grid}>
+            {plugins.map((entry) => {
+              const iconSrc = entry.logo_url || OFFICIAL_APP_ICONS[entry.id];
+              // Official landscape cards have room for the full text; the
+              // compact community cards keep the truncated layout.
+              const noTruncate = isOfficial;
+              return (
+                <Card
+                  key={entry.id}
+                  className={
+                    isOfficial
+                      ? `${styles.appCard} ${styles.appCardLarge}`
+                      : styles.appCard
+                  }
+                >
+                  <div className={styles.cardIcon}>
+                    {iconSrc ? (
+                      <img src={iconSrc} alt="" className={styles.marketLogo} />
+                    ) : OFFICIAL_APP_EMOJIS[entry.id] ? (
+                      <span className={styles.cardIconEmoji} aria-hidden>
+                        {OFFICIAL_APP_EMOJIS[entry.id]}
                       </span>
+                    ) : (
+                      <AppWindow
+                        size={isOfficial ? 32 : 22}
+                        strokeWidth={1.75}
+                      />
                     )}
                   </div>
-                  <Paragraph
-                    type="secondary"
-                    className={styles.cardDesc}
-                    ellipsis={{ rows: 2 }}
-                  >
-                    {pickDescription(entry, lang) ||
-                      t("appCenter.noDescription", "No description")}
-                  </Paragraph>
-                  <span className={styles.cardMeta}>
-                    v{entry.version}
-                    {entry.developer ? ` · ${entry.developer}` : ""}
-                    {entry.downloads != null && (
-                      <span className={styles.metaDownloads}>
-                        <Download size={12} strokeWidth={2} />
-                        {entry.downloads}
-                      </span>
-                    )}
-                  </span>
-                  <div className={styles.cardActions}>
-                    <Button
-                      type="primary"
-                      size="small"
-                      icon={<Download size={14} />}
-                      loading={installingId === entry.id}
-                      disabled={
-                        !versionChecked ||
-                        (installingId !== null && installingId !== entry.id)
-                      }
-                      onClick={() => requestInstall(entry)}
-                    >
-                      {installingId === entry.id
-                        ? t("appCenter.installing", "安装中...")
-                        : t("appCenter.install", "安装")}
-                    </Button>
-                    {entry.details_url && (
-                      <Button
-                        size="small"
-                        icon={<ExternalLink size={14} />}
-                        onClick={() => openExternalLink(entry.details_url!)}
+                  <div className={styles.cardBody}>
+                    <div className={styles.cardHeader}>
+                      <Text
+                        strong
+                        className={styles.cardTitle}
+                        ellipsis={!noTruncate}
                       >
-                        {t("appCenter.details", "详情")}
+                        {entry.display_name}
+                      </Text>
+                      {isOfficial && (
+                        <span className={styles.featuredTag}>
+                          <Sparkles size={11} strokeWidth={2} />
+                          {t("appCenter.featured", "精选")}
+                        </span>
+                      )}
+                    </div>
+                    <Paragraph
+                      type="secondary"
+                      className={styles.cardDesc}
+                      ellipsis={noTruncate ? false : { rows: 2 }}
+                    >
+                      {pickDescription(entry, lang) ||
+                        t("appCenter.noDescription", "No description")}
+                    </Paragraph>
+                    <span className={styles.cardMeta}>
+                      v{entry.version}
+                      {entry.developer ? ` · ${entry.developer}` : ""}
+                      {entry.downloads != null && (
+                        <span className={styles.metaDownloads}>
+                          <Download size={12} strokeWidth={2} />
+                          {entry.downloads}
+                        </span>
+                      )}
+                    </span>
+                    <div className={styles.cardActions}>
+                      <Button
+                        type="primary"
+                        size={isOfficial ? "middle" : "small"}
+                        icon={<Download size={14} />}
+                        loading={installingId === entry.id}
+                        disabled={
+                          !versionChecked ||
+                          (installingId !== null && installingId !== entry.id)
+                        }
+                        onClick={() => requestInstall(entry)}
+                      >
+                        {installingId === entry.id
+                          ? t("appCenter.installing", "安装中...")
+                          : t("appCenter.install", "安装")}
                       </Button>
-                    )}
+                      {entry.details_url && (
+                        <Button
+                          size={isOfficial ? "middle" : "small"}
+                          icon={<ExternalLink size={14} />}
+                          onClick={() => openExternalLink(entry.details_url!)}
+                        >
+                          {t("appCenter.details", "详情")}
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         )}
       </Spin>

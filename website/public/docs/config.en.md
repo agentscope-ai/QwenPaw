@@ -34,7 +34,8 @@ $QWENPAW_WORKING_DIR/                      # Default ~/.qwenpaw
 │   │   ├── skills/                      # Workspace-local skills
 │   │   ├── skill.json                   # Skill enabled state and config
 │   │   ├── memory/                      # Daily memory files
-│   │   └── browser/                     # Browser user data (cookies, cache, etc.)
+│   │   ├── .browser-profile/            # Browser persistent profile (unified browser)
+│   │   └── browser/                     # Browser user data (legacy implementation)
 │   └── abc123/                          # Other agent workspace
 │       └── ...
 └── skill_pool/                          # Local shared skill pool
@@ -59,21 +60,22 @@ $QWENPAW_SECRET_DIR/                       # Default ~/.qwenpaw.secret
 
 **Agent Workspace (`~/.qwenpaw/workspaces/{agent_id}/`)**
 
-| File / Directory   | Purpose                                                      |
-| ------------------ | ------------------------------------------------------------ |
-| `agent.json`       | Agent config (channels, heartbeat, tools, skills, MCP, etc.) |
-| `chats.json`       | Conversation history                                         |
-| `jobs.json`        | Cron job list                                                |
-| `token_usage.json` | Token usage records                                          |
-| `AGENTS.md`        | Persona file (see [Agent Persona](./persona))                |
-| `SOUL.md`          | Persona file (see [Agent Persona](./persona))                |
-| `PROFILE.md`       | Persona file (see [Agent Persona](./persona))                |
-| `BOOTSTRAP.md`     | Initial setup guide (auto-deleted after completion)          |
-| `MEMORY.md`        | Long-term memory (see [Memory](./memory))                    |
-| `skills/`          | Skills available in this workspace                           |
-| `skill.json`       | Skill enabled state, channel routing, and config             |
-| `memory/`          | Daily memory files (see [Memory](./memory))                  |
-| `browser/`         | Browser user data (cookies, cache, localStorage, etc.)       |
+| File / Directory    | Purpose                                                      |
+| ------------------- | ------------------------------------------------------------ |
+| `agent.json`        | Agent config (channels, heartbeat, tools, skills, MCP, etc.) |
+| `chats.json`        | Conversation history                                         |
+| `jobs.json`         | Cron job list                                                |
+| `token_usage.json`  | Token usage records                                          |
+| `AGENTS.md`         | Persona file (see [Agent Persona](./persona))                |
+| `SOUL.md`           | Persona file (see [Agent Persona](./persona))                |
+| `PROFILE.md`        | Persona file (see [Agent Persona](./persona))                |
+| `BOOTSTRAP.md`      | Initial setup guide (auto-deleted after completion)          |
+| `MEMORY.md`         | Long-term memory (see [Memory](./memory))                    |
+| `skills/`           | Skills available in this workspace                           |
+| `skill.json`        | Skill enabled state, channel routing, and config             |
+| `memory/`           | Daily memory files (see [Memory](./memory))                  |
+| `.browser-profile/` | Browser persistent profile (see [Browser](./browser))        |
+| `browser/`          | Browser user data of the legacy implementation               |
 
 > **Persona files:** Agent behavior and personality are defined by persona files. Running `qwenpaw init` automatically creates template files based on your chosen language (`zh` / `en` / `ru`). For detailed explanation and management, see [Agent Persona](./persona).
 
@@ -649,6 +651,43 @@ can read them via `os.environ`.
 > **Note:** You are responsible for ensuring the values (e.g. third-party API
 > keys) are valid. QwenPaw only stores and injects them — it does not verify
 > correctness.
+
+---
+
+## Browser
+
+Browser settings live in the `browser` block of the global
+`~/.qwenpaw/config.json` and apply to every agent:
+
+```json
+{
+  "browser": {
+    "experimental": true,
+    "backend": "auto",
+    "identity": "auto",
+    "headless": "auto"
+  }
+}
+```
+
+Common fields:
+
+| Field          | Type   | Default  | Description                                                                               |
+| -------------- | ------ | -------- | ----------------------------------------------------------------------------------------- |
+| `experimental` | bool   | `true`   | Use the new unified browser; `false` returns to the legacy one. **Requires a restart**    |
+| `backend`      | string | `"auto"` | How the standalone browser is obtained: `auto` / `launch` / `managed_cdp` / `connect_cdp` |
+| `identity`     | string | `"auto"` | Browser identity: `auto` / `user` / `avatar` / `guest`                                    |
+| `headless`     | string | `"auto"` | `auto` runs headless in containers or without a display; `"true"` / `"false"` force it    |
+
+Browser data is isolated per agent workspace under
+`workspaces/{agent_id}/.browser-profile/` (`managed_cdp` uses `.browser-cdp/`,
+and the legacy implementation uses `browser/`). The `user` identity uses your
+own Chrome profile and writes to none of these.
+
+> **Full reference:** for every field — launch arguments, viewport, proxy, idle
+> reclamation — and for choosing an identity and backend, see
+> [Browser](./browser). Using your own Chrome requires the
+> [Chrome extension](./chrome).
 
 ---
 

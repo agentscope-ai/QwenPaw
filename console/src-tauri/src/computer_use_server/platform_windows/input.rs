@@ -22,13 +22,18 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::super::state::{map_point, Observation, WindowInfo};
+use super::uia::{element_point, element_point_by_id};
 use super::window::get_visible_window_rect;
 
 pub(crate) fn click(
     observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
-    let point = verify_point(observation, params)?;
+    let point = if params.contains_key("element_id") {
+        verify_element_point(observation, params)?
+    } else {
+        verify_point(observation, params)?
+    };
     let button = params
         .get("button")
         .and_then(Value::as_str)
@@ -75,15 +80,49 @@ pub(crate) fn drag(
     observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
-    let start = verify_point_with_prefix(observation, params, "start_")?;
-    let end = verify_point_with_prefix(observation, params, "end_")?;
+    let (start, end) = drag_points(observation, params)?;
     unsafe {
         SetCursorPos(start.x, start.y).map_err(|error| ("input_failed", error.to_string()))?;
         mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
-        SetCursorPos(end.x, end.y).map_err(|error| ("input_failed", error.to_string()))?;
+        thread::sleep(Duration::from_millis(80));
+        for step in 1..=12 {
+            let x = start.x + (end.x - start.x) * step / 12;
+            let y = start.y + (end.y - start.y) * step / 12;
+            SetCursorPos(x, y).map_err(|error| ("input_failed", error.to_string()))?;
+            thread::sleep(Duration::from_millis(16));
+        }
+        thread::sleep(Duration::from_millis(80));
         mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
     }
     Ok(json!({"applied": true}))
+}
+
+fn drag_points(
+    observation: &Observation,
+    params: &Map<String, Value>,
+) -> Result<(POINT, POINT), (&'static str, String)> {
+    let source_id = params.get("source_element_id").and_then(Value::as_str);
+    let target_id = params.get("target_element_id").and_then(Value::as_str);
+    match (source_id, target_id) {
+        (Some(source_id), Some(target_id)) => {
+            ensure_observed_geometry(observation)?;
+            set_focus(&observation.window)?;
+            ensure_observed_geometry(observation)?;
+            Ok((
+                validate_target_point(observation, element_point_by_id(observation, source_id)?)?,
+                validate_target_point(observation, element_point_by_id(observation, target_id)?)?,
+            ))
+        }
+        (None, None) => Ok((
+            verify_point_with_prefix(observation, params, "start_")?,
+            verify_point_with_prefix(observation, params, "end_")?,
+        )),
+        _ => Err((
+            "invalid_request",
+            "Both source_element_id and target_element_id are required for an element drag."
+                .to_string(),
+        )),
+    }
 }
 
 pub(crate) fn type_text(
@@ -266,14 +305,36 @@ fn verify_point(
     verify_point_with_prefix(observation, params, "")
 }
 
+fn verify_element_point(
+    observation: &Observation,
+    params: &Map<String, Value>,
+) -> Result<POINT, (&'static str, String)> {
+    ensure_observed_geometry(observation)?;
+    set_focus(&observation.window)?;
+    ensure_observed_geometry(observation)?;
+    validate_target_point(observation, element_point(observation, params)?)
+}
+
 fn verify_point_with_prefix(
     observation: &Observation,
     params: &Map<String, Value>,
     prefix: &str,
 ) -> Result<POINT, (&'static str, String)> {
+    ensure_observed_geometry(observation)?;
+    set_focus(&observation.window)?;
+    let x = integer_param(params, &format!("{prefix}x"))?;
+    let y = integer_param(params, &format!("{prefix}y"))?;
+    let (x_offset, y_offset) = map_point(observation, i64::from(x), i64::from(y))?;
+    let point = POINT {
+        x: observation.bounds[0] + x_offset as i32,
+        y: observation.bounds[1] + y_offset as i32,
+    };
+    validate_target_point(observation, point)
+}
+
+fn ensure_observed_geometry(observation: &Observation) -> Result<(), (&'static str, String)> {
     let current = get_visible_window_rect(HWND(observation.window.hwnd as _))
         .map_err(|error| ("stale_window", error))?;
-    // Observations record origin plus size, so compare in the same form.
     let current_bounds = [
         current.left,
         current.top,
@@ -286,14 +347,13 @@ fn verify_point_with_prefix(
             "Window geometry changed; observe it again.".to_string(),
         ));
     }
-    set_focus(&observation.window)?;
-    let x = integer_param(params, &format!("{prefix}x"))?;
-    let y = integer_param(params, &format!("{prefix}y"))?;
-    let (x_offset, y_offset) = map_point(observation, i64::from(x), i64::from(y))?;
-    let point = POINT {
-        x: observation.bounds[0] + x_offset as i32,
-        y: observation.bounds[1] + y_offset as i32,
-    };
+    Ok(())
+}
+
+fn validate_target_point(
+    observation: &Observation,
+    point: POINT,
+) -> Result<POINT, (&'static str, String)> {
     let hit = unsafe { WindowFromPoint(point) };
     let root = unsafe { GetAncestor(hit, GA_ROOT) };
     if root.0 != observation.window.hwnd as *mut _ {

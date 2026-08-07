@@ -41,12 +41,15 @@ Example:
 from __future__ import annotations
 
 import functools
+import logging
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class SandboxMode(str, Enum):
@@ -117,15 +120,27 @@ class SandboxConfig:
             best-effort.
         network_ports: TCP port-level control. Native on Linux
             Landlock v4; other platforms degrade to all-open/all-blocked.
-        max_processes: Max subprocess count (Windows Job / Linux cgroups).
-        max_memory_mb: Max memory in MB (Windows Job / Linux cgroups).
+        max_processes: Max subprocess count. NOT ENFORCED by any backend
+            today; the value is accepted and ignored.
+            TODO: needs Linux cgroups / Windows Job objects.
+        max_memory_mb: Max memory in MB. NOT ENFORCED by any backend
+            today; the value is accepted and ignored.
+            TODO: needs Linux cgroups / Windows Job objects.
         timeout_seconds: Command execution timeout.
         env_vars: Additional environment variables.
-        env_mode: ``"inject"`` appends to current environment;
-            ``"allowlist"`` passes only declared variables.
+        env_mode: ``"inject"`` appends to the current environment.
+            ``"allowlist"`` (pass only declared variables) is NOT
+            IMPLEMENTED — every backend behaves as ``"inject"``.
         shell_executable: Shell for command execution. When None, the
-            platform backend chooses its default.
+            platform backend chooses its default. Honoured by the Windows
+            backends and ``NoneSandbox``; the bubblewrap / Seatbelt /
+            Landlock backends pin their own shell.
         platform_hints: Pass-through for platform-native parameters.
+            Only ``seatbelt_extra_rules`` (macOS) is consumed today.
+
+    Whatever a backend cannot apply is reported by
+    :func:`report_unenforced_config` at construction time — a constraint
+    is never dropped silently.
     """
 
     mode: SandboxMode
@@ -190,6 +205,126 @@ class SandboxCapability:
     landlock_abi_version: int = (
         0  # Linux only: Landlock ABI version (0=unsupported)
     )
+
+
+# Constraints whose silent omission creates a false sense of protection:
+# an operator who sets deny_paths and sees a clean log reasonably concludes
+# the path is protected. Reported at WARNING; everything else at DEBUG,
+# where being ignored is a functional nit rather than a security hole.
+#
+# ``env_mode`` belongs here even though it looks like plumbing: the whole
+# point of the (unimplemented) allowlist mode is to keep undeclared host
+# variables -- API keys, cloud credentials, tokens -- out of the sandboxed
+# child, so dropping it silently is a credential-leak boundary failure.
+# ``platform_hints`` likewise carries admin-authored native rules (e.g.
+# Seatbelt deny clauses); a hint that never reaches the profile weakens
+# the sandbox exactly as a dropped deny_path would.
+_SECURITY_BOUNDARY_FIELDS = frozenset(
+    {
+        "mounts",
+        "deny_paths",
+        "network_allow",
+        "network_ports",
+        "max_processes",
+        "max_memory_mb",
+        "env_mode",
+        "platform_hints",
+    },
+)
+
+# Remediation text shared by every backend: none of them can filter the
+# network by domain, and the fallback is fail-OPEN rather than fail-closed,
+# which is the part an operator must not miss.
+NETWORK_DOMAIN_HINT = (
+    "Domain-level filtering is unavailable on every backend; all network "
+    "access is ALLOWED."
+)
+
+
+def network_allow_is_absolute(config: SandboxConfig) -> bool:
+    """Whether ``network_allow`` asks for all-open or block-all.
+
+    Every backend can honour those two postures. None of them can filter
+    by domain, so a domain list is only ever partially applied and must
+    not be declared as enforced.
+    """
+    return not config.network_allow or "*" in config.network_allow
+
+
+def _requested_constraints(config: SandboxConfig) -> Dict[str, str]:
+    """Map each constraint the caller actually asked for to a log value.
+
+    Fields left at their "no constraint" value are omitted, so a backend
+    is only ever reported for dropping something that was requested.
+    """
+    requested: Dict[str, str] = {}
+    if config.mounts:
+        requested["mounts"] = f"{len(config.mounts)} path(s)"
+    if config.deny_paths:
+        requested["deny_paths"] = ", ".join(config.deny_paths)
+    # ``["*"]`` is the absence of a network constraint. Anything else --
+    # including the ``[]`` block-all default -- is a real request.
+    if list(config.network_allow) != ["*"]:
+        requested["network_allow"] = (
+            "block all"
+            if not config.network_allow
+            else ", ".join(config.network_allow)
+        )
+    if config.network_ports:
+        requested["network_ports"] = f"{len(config.network_ports)} rule(s)"
+    if config.max_processes is not None:
+        requested["max_processes"] = str(config.max_processes)
+    if config.max_memory_mb is not None:
+        requested["max_memory_mb"] = str(config.max_memory_mb)
+    if config.env_mode != "inject":
+        requested["env_mode"] = config.env_mode
+    if config.shell_executable:
+        requested["shell_executable"] = config.shell_executable
+    if config.platform_hints:
+        requested["platform_hints"] = ", ".join(
+            sorted(config.platform_hints),
+        )
+    return requested
+
+
+def report_unenforced_config(
+    config: SandboxConfig,
+    backend: str,
+    enforced: frozenset,
+    hints: Optional[Dict[str, str]] = None,
+) -> None:
+    """Log every requested constraint *backend* does not actually apply.
+
+    Silently dropping a constraint is worse than not offering it at all:
+    the caller gets a weaker sandbox than it asked for with nothing in the
+    log to say so. Each backend declares the fields it applies and this
+    surfaces the remainder, so adding a backend that forgets a field is
+    loud rather than invisible.
+
+    Args:
+        config: The configuration handed to the backend.
+        backend: Backend name, used as the log prefix.
+        enforced: Field names *backend* genuinely applies for this config.
+        hints: Optional per-field remediation text appended to the log
+            line, for cases the operator can actually fix (e.g. running
+            elevated so ACLs become writable).
+    """
+    for name, value in _requested_constraints(config).items():
+        if name in enforced:
+            continue
+        hint = (hints or {}).get(name, "")
+        logger.log(
+            (
+                logging.WARNING
+                if name in _SECURITY_BOUNDARY_FIELDS
+                else logging.DEBUG
+            ),
+            "%s does not enforce %s=%s; the constraint is IGNORED.%s",
+            backend,
+            name,
+            value,
+            f" {hint}" if hint else "",
+        )
 
 
 def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements

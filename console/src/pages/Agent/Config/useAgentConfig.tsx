@@ -168,6 +168,9 @@ export function useAgentConfig() {
           formValues.auto_title_config,
         ) as typeof original.auto_title_config,
         approval_level: approvalLevel,
+        // Keep legacy max_iters aligned with the UI-bound iteration limit.
+        max_iters:
+          formValues.loop?.iteration?.max_iterations ?? original.max_iters,
       };
 
       await api.updateAgentRunningConfig(configToSave);

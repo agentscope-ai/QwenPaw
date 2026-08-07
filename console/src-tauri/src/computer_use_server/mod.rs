@@ -32,7 +32,7 @@ mod platform_windows;
 use platform_windows::{
     click, close_window, desktop_locked, drag, ensure_permissions, invoke_element, is_forbidden,
     last_input_age_ms, list_apps, list_windows, observe_window, press_key, resolve_window, scroll,
-    set_value, type_text,
+    set_value, type_text, validate_observation,
 };
 
 #[cfg(target_os = "macos")]
@@ -41,5 +41,6 @@ mod platform_macos;
 use platform_macos::{
     app_id_from_bundle_path, click, close_window, desktop_locked, drag, ensure_permissions,
     invoke_element, is_forbidden, last_input_age_ms, list_apps, list_windows, observe_window,
-    press_key, resolve_window, scroll, set_value, type_text,
+    press_key, resolve_window, scroll, set_value, target_is_frontmost, type_text,
+    validate_observation,
 };

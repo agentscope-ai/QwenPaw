@@ -10,7 +10,11 @@ import {
   getArtifactVersionMediaUrl,
   getAssetVersionMediaUrl,
 } from "@/api/creator";
-import { elementsAtTick } from "@/selectors/timelineElementSelectors";
+import {
+  elementsAtTick,
+  overlayContentKind,
+} from "@/selectors/timelineElementSelectors";
+import i18n from "@/i18n";
 
 export type ElementPlaybackStatus =
   | "ready"
@@ -45,12 +49,12 @@ export const ELEMENT_PLAYBACK_STATUS_LABEL: Record<
   ElementPlaybackStatus,
   string
 > = {
-  ready: "已就绪",
-  generating: "生成中",
-  queued: "排队中",
-  failed: "生成失败",
-  stale: "需重新生成",
-  pending: "待生成",
+  ready: "playback.ready",
+  generating: "playback.generating",
+  queued: "playback.queued",
+  failed: "playback.failed",
+  stale: "playback.needRegen",
+  pending: "playback.pending",
 };
 
 function mediaKindOfType(mediaType: string): ElementPlaybackMediaKind {
@@ -177,6 +181,28 @@ export function resolveElementPlayback(
   if (element.creation.type === "transition") {
     return { element, status: "ready", media: null };
   }
+  // Audio Elements reference their source version directly on the creation;
+  // there is no render_source/output indirection to resolve.
+  if (element.creation.type === "audio") {
+    const resolvedAudio = resolveSourceVersionRef(
+      project,
+      element.creation.source_asset_version_id,
+    );
+    if (resolvedAudio) {
+      return {
+        element,
+        status: "ready",
+        media: {
+          ...resolvedAudio,
+          sourceInSeconds: 0,
+          sourceOutSeconds: null,
+          playbackRate: 1,
+          loop: false,
+        },
+      };
+    }
+    return { element, status: "pending", media: null };
+  }
   const ticksPerSecond = timeline.ticks_per_second || 1;
   const renderSource = element.render_source;
   const fromRender = renderSource
@@ -218,18 +244,17 @@ export function resolveElementPlayback(
   // separate media artifact is needed. The final cut is still rendered
   // frame-by-frame and composited by the backend; this only covers the
   // in-browser live preview.
-  if (element.creation.type === "overlay" && element.creation.motion?.html) {
-    return { element, status: "ready", media: null };
-  }
-  // Copy overlays (pet_os/interview_summary) have no standalone artifact: the
-  // final cut draws the bubble with a deterministic renderer at composite time,
-  // and the live preview draws the same spec directly, so they count as ready.
   if (
     element.creation.type === "overlay" &&
-    (element.creation.overlay_kind === "pet_os" ||
-      element.creation.overlay_kind === "interview_summary") &&
-    element.creation.text
+    (element.creation.motion?.html || element.creation.motion?.html_file_id)
   ) {
+    return { element, status: "ready", media: null };
+  }
+  // Caption overlays (non-empty text) have no standalone artifact: the
+  // final cut draws the bubble with a deterministic renderer at composite
+  // time, and the live preview draws the same spec directly, so they count
+  // as ready.
+  if (element.creation.type === "overlay" && element.creation.text.trim()) {
     return { element, status: "ready", media: null };
   }
   return {
