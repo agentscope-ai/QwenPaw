@@ -25,6 +25,7 @@ from ..constant import (
 )
 from ..exceptions import SystemCommandException
 from ..loop.gates.runner import clear_pending_gate_state
+from ..utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
@@ -374,7 +375,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
             # AgentScope hook override. Standalone mode uses a bare Agent only
             # as the model/state carrier and drives Scroll directly.
             scroll_mgr = (
-                self._build_standalone_scroll_manager()
+                await run_sync_io(
+                    self._build_standalone_scroll_manager,
+                )
                 if self._agent is None
                 else None
             )
@@ -1231,7 +1234,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
         parts = query.strip().lstrip("/").split(" ", maxsplit=1)
         command = parts[0]
         args = parts[1] if len(parts) > 1 else ""
-        logger.info(f"Processing command: {command}, args: {args}")
+        # Command arguments are user-controlled and may contain credentials
+        # (for example, a /compact hint containing an API key).  Do not log
+        # them: downstream handlers sanitize values for their own use, but
+        # logging happens before that handler-specific processing.
+        logger.info("Processing command: %s", command)
 
         handler = getattr(self, f"_process_{command}", None)
         if handler is None:
@@ -1347,9 +1354,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         if not args or args == "on":
             try:
+                workspace = getattr(self._prompt_context, "workspace", None)
                 result = enable_proactive_for_session(
                     self.agent_name,
                     30,
+                    workspace=workspace,
                 )
                 return await self._make_system_msg(
                     msgs["enabled"].format(
@@ -1365,19 +1374,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         elif args == "off":
             try:
-                import asyncio
-                from .memory import proactive_tasks
+                from .memory import disable_proactive_for_session
 
-                if self.agent_name in proactive_tasks:
-                    task = proactive_tasks[self.agent_name]
-                    if not task.done():
-                        task.cancel()
-                        try:
-                            await task
-                        except asyncio.CancelledError:
-                            pass
-                    del proactive_tasks[self.agent_name]
-
+                result = await disable_proactive_for_session(
+                    self.agent_name,
+                )
                 return await self._make_system_msg(
                     msgs["disabled"],
                 )
@@ -1391,9 +1392,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 if minutes <= 0:
                     raise ValueError("Minutes must be a positive integer")
 
+                workspace = getattr(self._prompt_context, "workspace", None)
                 result = enable_proactive_for_session(
                     self.agent_name,
                     minutes,
+                    workspace=workspace,
                 )
                 return await self._make_system_msg(
                     msgs["enabled"].format(

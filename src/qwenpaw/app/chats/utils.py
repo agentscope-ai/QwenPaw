@@ -142,7 +142,7 @@ def build_env_context(
         default_shell: Shell executable used by execute_shell_command.
             When provided, included in the context so the LLM can
             generate syntax appropriate for that shell.
-        project_dir: When set (Coding Mode), the agent's "Working
+        project_dir: When set, the agent's "Working
             directory" line is replaced with an explicit
             "Project directory" + "Agent workspace (internal)" pair
             so the LLM stops treating the workspace as home.
@@ -194,8 +194,8 @@ def build_env_context(
 
     if project_dir:
         parts.append(
-            f"- Project directory (Coding Mode — operate here): "
-            f"{project_dir}",
+            f"- Project directory (relative files and commands resolve "
+            f"here): {project_dir}",
         )
         if working_dir is not None and str(working_dir) != str(project_dir):
             parts.append(
@@ -531,9 +531,11 @@ def agentscope_msg_to_message(
         ts_value = msg.timestamp
         if ts_value:
             try:
-                dt_obj = datetime.strptime(ts_value, "%Y-%m-%d %H:%M:%S.%f")
-                ts_value = dt_obj.replace(tzinfo=user_tz).isoformat()
-            except ValueError:
+                dt_obj = datetime.fromisoformat(ts_value)
+                if dt_obj.tzinfo is None:
+                    dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+                ts_value = dt_obj.astimezone(user_tz).isoformat()
+            except (ValueError, TypeError):
                 pass
 
         metadata = {

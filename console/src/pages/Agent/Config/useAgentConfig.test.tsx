@@ -271,6 +271,37 @@ describe("useAgentConfig", () => {
     expect(saved.approval_level).toBe("STRICT");
   });
 
+  it("handleSave syncs legacy max_iters from loop.iteration.max_iterations", async () => {
+    apiMocks.getAgentRunningConfig.mockResolvedValue(
+      makeConfig({ max_iters: 100 }),
+    );
+    const loaded = makeConfig({ max_iters: 100 });
+    const { max_iters: _staleMaxIters, ...formWithoutMaxIters } = loaded;
+    mockGetFieldsValue.mockReturnValue({
+      ...formWithoutMaxIters,
+      loop: {
+        ...loaded.loop,
+        iteration: {
+          enabled: true,
+          max_iterations: 99,
+        },
+      },
+    });
+    apiMocks.updateAgentRunningConfig.mockResolvedValue(makeConfig());
+    const { result } = renderConfigHook();
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    const saved = apiMocks.updateAgentRunningConfig.mock.calls[0][0] as Config;
+    expect(saved.loop.iteration?.max_iterations).toBe(99);
+    expect(saved.max_iters).toBe(99);
+  });
+
   it("handleSave includes unmounted custom loop template values", async () => {
     const customMode = {
       id: "quality",

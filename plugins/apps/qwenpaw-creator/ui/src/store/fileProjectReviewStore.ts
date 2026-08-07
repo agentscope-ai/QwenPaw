@@ -7,8 +7,10 @@ import {
 } from "@/api/creator";
 import type {
   FileProjectReviewDecisionItem,
+  FileProjectReviewRejectionFeedback,
   FileProjectReviewRecord,
 } from "@/contracts/creator";
+import i18n from "@/i18n";
 
 export type FileProjectReviewSyncStatus =
   | "idle"
@@ -53,6 +55,7 @@ export interface FileProjectReviewState {
     projectId: string,
     reviewId: string,
     decisions: FileProjectReviewDecisionItem[],
+    rejectionFeedback?: FileProjectReviewRejectionFeedback,
   ) => Promise<FileProjectReviewRecord>;
   startPolling: (
     projectId: string,
@@ -131,6 +134,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
       reviewId: string,
       decisionToken: string,
       decisions: FileProjectReviewDecisionItem[],
+      rejectionFeedback?: FileProjectReviewRejectionFeedback,
     ) =>
       JSON.stringify({
         projectId,
@@ -141,6 +145,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
             left.operation_id.localeCompare(right.operation_id) ||
             left.decision.localeCompare(right.decision),
         ),
+        rejectionFeedback,
       });
 
     const ensureProject = (projectId: string) => {
@@ -308,25 +313,34 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
       projectId: string,
       reviewId: string,
       decisions: FileProjectReviewDecisionItem[],
+      rejectionFeedback?: FileProjectReviewRejectionFeedback,
     ): Promise<FileProjectReviewRecord> => {
       ensureProject(projectId);
       const state = get();
       const review = state.reviews.find((r) => r.review_id === reviewId);
       if (!review || review.status !== "PENDING")
-        throw new Error("没有可处理的文件 Review");
-      if (state.decisionInFlight) throw new Error("文件 Review 决策正在提交");
-      if (decisions.length === 0) throw new Error("至少需要一个 Review 决策");
+        throw new Error(i18n.t("store.noFileReview"));
+      if (state.decisionInFlight)
+        throw new Error(i18n.t("store.reviewSubmitting"));
+      if (decisions.length === 0)
+        throw new Error(i18n.t("store.needOneDecision"));
 
       const ids = new Set(decisions.map((item) => item.operation_id));
       if (ids.size !== decisions.length)
-        throw new Error("Review 决策不能包含重复 operation_id");
+        throw new Error(i18n.t("store.duplicateOpId"));
       const pendingIds = new Set(
         review.operations
           .filter((operation) => operation.decision === "PENDING")
           .map((operation) => operation.operation_id),
       );
       if ([...ids].some((operationId) => !pendingIds.has(operationId))) {
-        throw new Error("Review operation 已处理或不存在");
+        throw new Error(i18n.t("store.opProcessedOrNotExist"));
+      }
+      if (
+        rejectionFeedback &&
+        !decisions.some((item) => item.decision === "REJECT")
+      ) {
+        throw new Error(i18n.t("store.rejectNeedsFeedback"));
       }
 
       const epoch = projectEpoch;
@@ -341,6 +355,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
         reviewId,
         decisionToken,
         canonicalDecisions,
+        rejectionFeedback,
       );
       const decisionId =
         retryDecisionIds.get(retryKey) ?? newClientId("file-review-decision");
@@ -354,6 +369,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
             decisionId,
             decisionToken,
             decisions: canonicalDecisions,
+            ...(rejectionFeedback ? { rejectionFeedback } : {}),
           },
           decisionId,
         );

@@ -205,7 +205,7 @@ const scenarios = {
     return { observedState: response.targetCommandFact.observedState };
   },
 
-  async stale_epoch_no_reexec() {
+  async stale_received_reexecuted() {
     seedTargetReceipt({
       ...commandParams,
       state: "RECEIVED",

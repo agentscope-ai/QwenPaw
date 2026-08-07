@@ -210,7 +210,7 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
 - **Enabled**: Tool is loaded into agent context and can be called in conversations
 - **Disabled**: Tool is not available in agent's tool list and cannot be called
 
-> For optimal performance, enable only the tools you need to reduce context overhead. Configuration changes are hot-reloaded automatically—except switching the Browser stable/experimental track, which requires a service restart.
+> For optimal performance, enable only the tools you need to reduce context overhead. Configuration changes are hot-reloaded automatically—except switching the Browser stable/experimental track, which requires a service restart. See [Browser](./browser).
 
 > **Multi-Agent Support**: Each agent has independent tool configuration. After switching agents in the agent selector at the top of the Console, you'll see that agent's dedicated tool configuration. See [Multi-Agent](./multi-agent) for details.
 
@@ -327,6 +327,8 @@ Configure this option on the `execute_shell_command` tool card (only this tool s
 **Browser Automation**
 
 - `browser(code)`: Execute async Python against QwenPaw's built-in Browser SDK to drive a real browser — navigate, locate elements, act, and read visible page state. The complete SDK API is delivered to the agent automatically on first use.
+  - Works with a standalone browser launched by QwenPaw, or with your own signed-in Chrome (requires the [Chrome extension](./chrome))
+  - See [Browser](./browser) for identities, backends, and every setting
 
 **Screenshots and Images**
 

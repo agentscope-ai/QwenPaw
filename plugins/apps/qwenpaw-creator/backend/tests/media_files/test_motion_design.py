@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
@@ -16,13 +17,18 @@ from services.media_files.local_execution import (
     LocalMediaInput,
 )
 from services.media_files.motion_design import (
+    _design_document,
     _select_decoration_ids,
     _story_arc_motifs,
     _validated_story_beats,
     _validated_design,
+    _validate_caption_location,
     _validated_location,
 )
-from services.media_files.motion_overlay import _alpha_plane_stats
+from services.media_files.motion_overlay import (
+    MotionDocumentProbe,
+    _alpha_plane_stats,
+)
 from services.media_files.motion_templates import (
     MOTION_TEMPLATE_VERSION,
     SUPPORTED_MOTIFS,
@@ -48,29 +54,23 @@ def _motion() -> MotionGraphic:
 
 
 class TestOverlayCreationMotionValidator:
-    def test_pet_os_accepts_motion_styling(self) -> None:
+    def test_caption_accepts_motion_styling(self) -> None:
         creation = OverlayCreation(
-            overlay_kind="pet_os",
             text="本喵要发光",
             motion=_motion(),
         )
         assert creation.motion is not None
 
-    def test_interview_summary_accepts_motion_styling(self) -> None:
+    def test_decoration_accepts_motion_with_prompt(self) -> None:
         creation = OverlayCreation(
-            overlay_kind="interview_summary",
-            text="核心观点",
+            prompt="呼应跳跃的弹性线条",
             motion=_motion(),
         )
         assert creation.motion is not None
 
-    def test_media_rejects_motion(self) -> None:
-        with pytest.raises(ValueError, match="overlay_kind=media"):
-            OverlayCreation(
-                overlay_kind="media",
-                prompt="一张贴纸",
-                motion=_motion(),
-            )
+    def test_text_free_overlay_requires_prompt_or_refs(self) -> None:
+        with pytest.raises(ValueError, match="prompt or reference"):
+            OverlayCreation(motion=_motion())
 
 
 class TestValidatedDesignTextMode:
@@ -178,6 +178,93 @@ class TestMotionDesignSafety:
                     "anchor_x": 0,
                     "anchor_y": 0,
                 },
+            )
+
+    def test_caption_rejects_narrow_vertical_box(self) -> None:
+        location = ElementLocation(
+            x=0.9,
+            y=0.3,
+            width=0.12,
+            height=0.40,
+            anchor_x=0.5,
+            anchor_y=0.5,
+        )
+
+        with pytest.raises(ValidationError, match="location.width 太窄"):
+            _validate_caption_location(location, "这红色是什么", (1280, 720))
+
+    def test_caption_accepts_readable_horizontal_box(self) -> None:
+        location = ElementLocation(
+            x=0.5,
+            y=0.85,
+            width=0.60,
+            height=0.20,
+            anchor_x=0.5,
+            anchor_y=0.5,
+        )
+
+        _validate_caption_location(location, "这红色是什么", (1280, 720))
+
+    def test_text_design_applies_caption_geometry_validation(self) -> None:
+        raw = {
+            **TestValidatedDesignTextMode._BASE,
+            "html": _HTML,
+            "location": {
+                "x": 0.9,
+                "y": 0.3,
+                "width": 0.12,
+                "height": 0.40,
+                "anchor_x": 0.5,
+                "anchor_y": 0.5,
+            },
+        }
+
+        with pytest.raises(ValidationError, match="location.width 太窄"):
+            _validated_design(
+                raw,
+                required_text="本喵要发光",
+                canvas_size=(1280, 720),
+            )
+
+    def test_caption_rejects_dom_text_occlusion(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def fake_chat(*args, **kwargs):
+            return (
+                '{"concept":"警告字幕卡","html":'
+                + json.dumps(_HTML)
+                + ',"location":{"x":0.5,"y":0.8,"width":0.6,'
+                '"height":0.2,"anchor_x":0.5,"anchor_y":0.5}}'
+            )
+
+        monkeypatch.setattr(
+            motion_design.vlm_model,
+            "chat_completion",
+            fake_chat,
+        )
+        monkeypatch.setattr(
+            motion_design,
+            "probe_motion_document",
+            lambda *args, **kwargs: MotionDocumentProbe(
+                ok=True,
+                animation_count=1,
+                visible_coverage=0.5,
+                edge_contact=0.0,
+                text_occlusion=0.5,
+            ),
+        )
+
+        with pytest.raises(ValidationError, match="图标或装饰遮挡"):
+            asyncio.run(
+                _design_document(
+                    system_prompt="caption",
+                    task_text="caption",
+                    frame_paths=[],
+                    canvas_size=(1280, 720),
+                    required_text="本喵要发光",
+                    max_attempts=1,
+                ),
             )
 
     @pytest.mark.parametrize(
@@ -294,6 +381,31 @@ class TestMotionTemplates:
         assert "font-size:8.5vh" in html
         assert "line-height:1.08" in html
         assert "overflow:hidden" in html
+
+    def test_caption_font_size_uses_box_dimensions_for_short_text(
+        self,
+    ) -> None:
+        html = render_caption_template(
+            "快看",
+            box_width=0.80,
+            box_height=0.18,
+        )
+        assert "font-size:13.5vh" in html
+
+    def test_caption_font_size_uses_box_dimensions_for_long_text(self) -> None:
+        html = render_caption_template(
+            "大家快看它挺淡定，还有点意思",
+            box_width=0.80,
+            box_height=0.18,
+        )
+        assert "font-size:11.6vh" in html
+
+    def test_caption_font_size_larger_box_produces_larger_font(self) -> None:
+        small = render_caption_template("测试", box_width=0.40, box_height=0.10)
+        large = render_caption_template("测试", box_width=0.80, box_height=0.30)
+        small_size = float(small.split("font-size:")[1].split("vh")[0])
+        large_size = float(large.split("font-size:")[1].split("vh")[0])
+        assert large_size > small_size
 
     def test_decoration_css_content_text_is_rejected(self) -> None:
         html = (
@@ -488,6 +600,16 @@ class TestApplyOverlayStyledRouting:
             "_probe_video_size",
             lambda self, path: (1280, 720),
         )
+        monkeypatch.setattr(
+            local_execution_module,
+            "probe_motion_document",
+            lambda *args, **kwargs: MotionDocumentProbe(
+                ok=True,
+                animation_count=1,
+                edge_contact=0.0,
+                text_occlusion=0.0,
+            ),
+        )
         return runner
 
     def _input(
@@ -495,6 +617,7 @@ class TestApplyOverlayStyledRouting:
         tmp_path,
         *,
         motion: dict | None,
+        location: dict | None = None,
     ) -> tuple[LocalMediaInput, object]:
         segment = tmp_path / "segment.mp4"
         segment.write_bytes(b"original")
@@ -505,6 +628,7 @@ class TestApplyOverlayStyledRouting:
             "appear_at": 0.0,
             "duration": 4.0,
             "motion": motion,
+            "location": location,
         }
         item = LocalMediaInput(
             version_id="ver-1",
@@ -515,7 +639,7 @@ class TestApplyOverlayStyledRouting:
             source_ref="source:src-1",
             start_seconds=0.0,
             end_seconds=4.0,
-            overlay=overlay,
+            overlays=(overlay,),
         )
         return item, segment
 
@@ -550,8 +674,8 @@ class TestApplyOverlayStyledRouting:
             tmp_path,
             motion={"html": _HTML, "fps": 24, "loop": False},
         )
-        warning = runner._apply_overlay(item, segment)
-        assert warning is None
+        warnings = runner._apply_overlay(item, segment)
+        assert not warnings
         assert calls == ["motion"]
         assert segment.read_bytes() == b"styled"
 
@@ -586,11 +710,11 @@ class TestApplyOverlayStyledRouting:
             tmp_path,
             motion={"html": _HTML, "fps": 24, "loop": False},
         )
-        warning = runner._apply_overlay(item, segment)
-        assert warning is not None
-        assert "回退固定样式" in warning
-        assert "capture crashed" in warning
-        assert calls == ["motion", "pet_os"]
+        warnings = runner._apply_overlay(item, segment)
+        assert len(warnings) == 1
+        assert "回退固定样式" in warnings[0]
+        assert "capture crashed" in warnings[0]
+        assert calls == ["motion", "motion", "pet_os"]
         assert segment.read_bytes() == b"bubble"
 
     def test_without_motion_uses_fixed_template(
@@ -621,6 +745,72 @@ class TestApplyOverlayStyledRouting:
         )
         runner = self._runner(monkeypatch)
         item, segment = self._input(tmp_path, motion=None)
-        warning = runner._apply_overlay(item, segment)
-        assert warning is None
+        warnings = runner._apply_overlay(item, segment)
+        assert not warnings
         assert calls == ["pet_os"]
+
+    def test_unsafe_stored_motion_falls_back_during_compose(
+        self,
+        tmp_path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls: list[str] = []
+        safe_motion_locations: list[dict] = []
+        safe_motion_html: list[str] = []
+
+        def fake_motion(**kwargs):
+            calls.append("motion")
+            safe_motion_locations.append(kwargs["location"])
+            safe_motion_html.append(kwargs["html"])
+            kwargs["output_path"].write_bytes(b"safe motion")
+            return OverlayRenderResult(success=True)
+
+        def fake_pet_os(**kwargs):
+            calls.append("pet_os")
+            kwargs["output_path"].write_bytes(b"safe bubble")
+            return OverlayRenderResult(success=True)
+
+        monkeypatch.setattr(
+            local_execution_module,
+            "render_motion_overlay",
+            fake_motion,
+        )
+        monkeypatch.setattr(
+            local_execution_module,
+            "render_pet_os_overlay",
+            fake_pet_os,
+        )
+        runner = self._runner(monkeypatch)
+        item, segment = self._input(
+            tmp_path,
+            motion={"html": _HTML, "fps": 24, "loop": False},
+            location={
+                "x": 0.9,
+                "y": 0.3,
+                "width": 0.12,
+                "height": 0.4,
+                "anchor_x": 0.5,
+                "anchor_y": 0.5,
+            },
+        )
+
+        warnings = runner._apply_overlay(item, segment)
+
+        assert calls == ["motion"]
+        assert segment.read_bytes() == b"safe motion"
+        assert len(warnings) == 1
+        assert "未通过合成安全检查" in warnings[0]
+        assert "location.width 太窄" in warnings[0]
+        assert "统一安全动效模板" in warnings[0]
+        assert safe_motion_locations == [
+            {
+                "x": 0.5,
+                "y": 0.88,
+                "width": 0.8,
+                "height": 0.18,
+                "anchor_x": 0.5,
+                "anchor_y": 0.5,
+                "opacity": 1.0,
+            },
+        ]
+        assert 'data-motion-motif="caption_card"' in safe_motion_html[0]

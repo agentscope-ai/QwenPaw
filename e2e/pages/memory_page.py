@@ -7,12 +7,13 @@ config (which holds ``reme_light_memory_config``), plus locator
 anchors for the Long-term Memory card on /agent-config.
 
 Cases covered:
-- MEM-001 P0  test_daily_memory_crud
-- MEM-002 P1  test_running_config_persistence
+- MEM-001 P1  test_auto_memory_interval_persistence
+- MEM-002 P1  test_dream_cron_persistence
 - MEM-003 P1  test_memory_card_ui_renders
 - MEM-004 P1  test_workspace_memory_md_expand
 - MEM-005 P2  test_memory_search_recall_seeded         (xfail, requires_llm)
-- MEM-006 P2  test_daily_memory_path_traversal_blocked
+- MEM-006 P2  test_memory_backend_select_switches_tabs
+- MEM-007 P2  test_auto_memory_search_toggle_and_max_results
 """
 from __future__ import annotations
 
@@ -50,6 +51,49 @@ class MemoryPage(BasePage):
     SUMMARIZE_SWITCH = (
         'button[role="switch"][id$="reme_light_memory_config_summarize_when_compact"]'
     )
+    # --- Long-term Memory card fields (ReMeLightMemoryCard.tsx) ---
+    AUTO_MEMORY_INTERVAL_INPUT = (
+        'input[id$="reme_light_memory_config_auto_memory_interval"]'
+    )
+    DREAM_CRON_ENABLED_SWITCH = (
+        'button[role="switch"]'
+        '[id$="reme_light_memory_config_dream_cron_enabled"]'
+    )
+    # Auto Memory Search collapse (forceRender: children always in DOM,
+    # visible only once the panel is expanded).
+    AUTO_SEARCH_COLLAPSE_HEADER = (
+        '.qwenpaw-collapse-header:has-text("Auto Memory Search"), '
+        '.qwenpaw-collapse-header:has-text("自动记忆搜索")'
+    )
+    AUTO_SEARCH_SWITCH = (
+        'button[role="switch"]'
+        '[id$="auto_memory_search_config_enabled"]'
+    )
+    AUTO_SEARCH_MAX_RESULTS_INPUT = (
+        'input[id$="auto_memory_search_config_max_results"]'
+    )
+    # --- ReAct Agent tab: memory backend select (ReactAgentCard.tsx) ---
+    REACT_TAB = '[data-node-key="reactAgent"] .qwenpaw-tabs-tab-btn'
+    REME_MEMORY_TAB = '[data-node-key="remeLightMemory"]'
+    ADBPG_MEMORY_TAB = '[data-node-key="adbpgMemory"]'
+    BACKEND_SELECT = '#memory_manager_backend'
+    # antd Select: the inner input is readonly; clicks must land on the
+    # surrounding selector box, not on #memory_manager_backend itself.
+    BACKEND_SELECT_TRIGGER = (
+        '.qwenpaw-select:has(#memory_manager_backend) '
+        '.qwenpaw-select-selector'
+    )
+    BACKEND_OPTION = (
+        '.qwenpaw-select-dropdown:not(.qwenpaw-select-dropdown-hidden) '
+        '.qwenpaw-select-item-option'
+    )
+    # --- Save footer + toast ---
+    SAVE_BTN = (
+        'button.qwenpaw-btn-primary:has-text("Save"), '
+        'button.qwenpaw-btn-primary:has-text("保存"), '
+        'button.qwenpaw-btn-primary:has-text("保 存")'
+    )
+    SUCCESS_TOAST = '.qwenpaw-message-success'
 
     # localStorage agent storage — see CodingPage for the rationale.
     AGENT_ID_DEFAULT = "default"
@@ -116,6 +160,17 @@ class MemoryPage(BasePage):
     def click_memory_tab(self) -> None:
         self.page.locator(self.MEMORY_TAB).first.click(timeout=self.timeout)
 
+    def click_react_tab(self) -> None:
+        self.page.locator(self.REACT_TAB).first.click(timeout=self.timeout)
+        self.page.wait_for_timeout(800)
+
+    def click_save(self) -> None:
+        """Click the footer Save button and wait for the request."""
+        save_btn = self.page.locator(self.SAVE_BTN).first
+        expect(save_btn).to_be_visible(timeout=self.timeout)
+        save_btn.click()
+        self.page.wait_for_timeout(1500)
+
     # ========== API helpers (UI test setup only) ==========
     #
     # Pure API contract tests for /api/workspace/memory live in
@@ -138,3 +193,35 @@ class MemoryPage(BasePage):
             f"Write memory failed [{resp.status}]: {resp.text()}"
         )
         return resp.json()
+
+    def api_get_running_config(self, api_context) -> dict:
+        """GET /api/workspace/running-config — snapshot for restore."""
+        resp = api_context.get(
+            "/api/workspace/running-config",
+            headers=self._agent_headers(),
+        )
+        assert resp.ok, (
+            f"Get running config failed [{resp.status}]: {resp.text()}"
+        )
+        return resp.json()
+
+    def api_put_running_config(self, api_context, cfg: dict) -> None:
+        """PUT /api/workspace/running-config — restore snapshot.
+
+        Best-effort teardown helper: partial PUTs are unsupported, so
+        callers must pass the full config object captured beforehand.
+        """
+        try:
+            resp = api_context.put(
+                "/api/workspace/running-config",
+                data=cfg,
+                headers=self._agent_headers(),
+            )
+            if not resp.ok:
+                logger.warning(
+                    "Restore running config failed [%s]: %s",
+                    resp.status,
+                    resp.text(),
+                )
+        except Exception as exc:  # pragma: no cover — teardown only
+            logger.warning("Restore running config errored: %s", exc)

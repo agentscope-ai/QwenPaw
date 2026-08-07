@@ -220,6 +220,54 @@ describe("file-native Project Review store", () => {
     expect(useFileProjectReviewStore.getState().reviews).toEqual([]);
   });
 
+  it("includes rejection feedback in the stable retry identity", async () => {
+    const pending = review();
+    const resolved = review("token-2", 4, {
+      status: "RESOLVED",
+      operations: [{ ...review().operations[0], decision: "REJECTED" }],
+    });
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce(response(200, resolved));
+    vi.stubGlobal("fetch", fetchMock);
+    useFileProjectReviewStore.setState({
+      projectId: "p1",
+      reviews: [pending],
+      etag: '"token-1"',
+      syncStatus: "healthy",
+    });
+    const decisions = [
+      { operation_id: "operation-1", decision: "REJECT" as const },
+    ];
+    const feedback = {
+      action: "UNDO_AND_REGENERATE" as const,
+      problemNote: "人物状态不对",
+      regenerationInstruction: "保持身份一致",
+    };
+
+    await expect(
+      useFileProjectReviewStore
+        .getState()
+        .decide("p1", "review-1", decisions, feedback),
+    ).rejects.toThrow("response lost");
+    await expect(
+      useFileProjectReviewStore
+        .getState()
+        .decide("p1", "review-1", decisions, feedback),
+    ).resolves.toMatchObject({ status: "RESOLVED" });
+
+    const firstBody = JSON.parse(
+      String((fetchMock.mock.calls[0][1] as RequestInit).body),
+    );
+    const secondBody = JSON.parse(
+      String((fetchMock.mock.calls[1][1] as RequestInit).body),
+    );
+    expect(firstBody.decisionId).toBe(secondBody.decisionId);
+    expect(firstBody.rejectionFeedback).toEqual(feedback);
+    expect(secondBody.rejectionFeedback).toEqual(feedback);
+  });
+
   it("handles multiple pending reviews in FIFO order", async () => {
     const first = review("token-1", 3, {
       review_id: "review-1",

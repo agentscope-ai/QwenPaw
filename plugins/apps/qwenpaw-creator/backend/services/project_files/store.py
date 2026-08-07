@@ -26,7 +26,7 @@ from utils.logger import setup_logger
 from .models import Project
 from .serialization import (
     CanonicalJsonError,
-    load_project_json,
+    load_project_json_with_etag,
     project_etag,
     project_file_bytes,
 )
@@ -36,6 +36,11 @@ logger = setup_logger("store")
 
 DEFAULT_MAX_PROJECT_JSON_BYTES = 8 * 1024 * 1024
 _SAFE_PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+# Projects materialized from plugin-bundled inspiration examples carry this
+# marker file so listing keeps them out of the user's own project shelf while
+# every id-addressed route still serves them normally.
+BUILTIN_EXAMPLE_MARKER: Final = ".builtin-example"
 
 
 class ProjectStoreError(RuntimeError):
@@ -286,6 +291,7 @@ class ProjectStore:
                 # Project even if a later directory fsync reports failure.
                 shutil.rmtree(staged_project, ignore_errors=True)
                 raise
+        logger.info("project created: %s", candidate.project_id)
         return _snapshot(candidate)
 
     def read(self, project_id: str) -> ProjectSnapshot:
@@ -316,7 +322,7 @@ class ProjectStore:
                 f"project.json exceeds {self.max_project_json_bytes} bytes",
             )
         try:
-            project = load_project_json(payload)
+            project, source_etag = load_project_json_with_etag(payload)
         except CanonicalJsonError as exc:
             raise ProjectIntegrityError(
                 f"Invalid project.json for {safe_id}",
@@ -326,7 +332,11 @@ class ProjectStore:
                 f"Project identity mismatch: directory={safe_id}, file={project.project_id}",
             )
         self._validate_asset_paths(project_root, project)
-        return _snapshot(project)
+        return ProjectSnapshot(
+            project=project,
+            etag=source_etag,
+            generation=project.generation,
+        )
 
     def replace(
         self,
@@ -406,6 +416,9 @@ class ProjectStore:
             except UnsafeProjectPath:
                 continue
             if not (entry / "project.json").exists():
+                continue
+            # Bundled example Projects never surface in "my projects".
+            if (entry / BUILTIN_EXAMPLE_MARKER).exists():
                 continue
             try:
                 snapshot = self.read(safe_id)
@@ -511,6 +524,7 @@ class ProjectStore:
                 raise ProjectStoreError(
                     f"Project was removed but tombstone cleanup failed: {safe_id}",
                 ) from exc
+        logger.info("project deleted: %s", safe_id)
 
     def export(self, project_id: str) -> tuple[int, Iterator[bytes]]:
         """Compress the whole Project folder into a zip under ``CREATOR_DATA_ROOT``/exports/.

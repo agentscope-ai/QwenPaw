@@ -43,6 +43,10 @@ from ..constant import (
 from ..loop.gates import StopAction, StopHandlerResult
 from ..providers.error_utils import extract_status_code
 from ..providers.model_capability_cache import get_capability_cache
+from ..utils.tool_call_extra import (
+    collect_transient_tool_call_extras,
+    persist_tool_call_extras,
+)
 
 if TYPE_CHECKING:
     from .context.scroll.manager import ScrollContextManager
@@ -187,8 +191,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     def _save_to_context(self, blocks: Any, usage: Any = None) -> None:
         """Append blocks, then write them through to Scroll history."""
-        super()._save_to_context(blocks, usage)
-        self._scroll_context.on_save(self, blocks)
+        block_list = list(blocks or [])
+        tool_call_extras = collect_transient_tool_call_extras(block_list)
+
+        super()._save_to_context(block_list, usage)
+        if tool_call_extras:
+            last_msg = self._get_last_msg()
+            if last_msg is not None and last_msg.role == "assistant":
+                persist_tool_call_extras(last_msg, tool_call_extras)
+        self._scroll_context.on_save(self, block_list)
 
     def state_dict(self) -> dict:
         """Serialize all runtime state through AgentScope's ``AgentState``."""

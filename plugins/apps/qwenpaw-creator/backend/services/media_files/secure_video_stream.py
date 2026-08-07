@@ -21,6 +21,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 import hashlib
 import ipaddress
+import logging
 import os
 from pathlib import Path
 import re
@@ -28,13 +29,15 @@ import socket
 import stat
 import threading
 import time
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 from urllib.parse import unquote, urljoin, urlsplit, urlunsplit
 from uuid import uuid4
 
 import httpx
 
 from domain.errors import StorageIntegrityError, ValidationError
+
+logger = logging.getLogger("qwenpaw.creator.media_files.secure_video_stream")
 
 
 DEFAULT_MAX_VIDEO_BYTES = 256 * 1024 * 1024
@@ -725,6 +728,31 @@ class SecureR2VVideoMaterializer:
                 return
             sink.write(chunk)
 
+    @staticmethod
+    def _raise_materialize_os_error(
+        project_id: str,
+        task_id: str,
+        error: OSError,
+    ) -> NoReturn:
+        """Translate an OS-level failure, keeping its detail visible.
+
+        The transient-failure classifier matches on the message (e.g.
+        "bad file descriptor", "connection reset"); a bare label
+        previously turned every transport hiccup into a deterministic,
+        never-retried failure after the provider had already paid for
+        the generation.
+        """
+
+        logger.error(
+            "video materialize os error: project=%s task=%s error=%s",
+            project_id,
+            task_id,
+            error,
+        )
+        raise ValidationError(
+            f"provider 视频安全物化失败: {error}",
+        ) from error
+
     async def materialize(
         self,
         output: Mapping[str, Any],
@@ -744,6 +772,13 @@ class SecureR2VVideoMaterializer:
             project_root=project_root,
             project_id=project_id,
             task_id=task_id,
+        )
+        source_kind = "local" if relative_parts is not None else "remote"
+        logger.info(
+            "video materialize start: project=%s task=%s source=%s",
+            project_id,
+            task_id,
+            source_kind,
         )
         deadline = self.monotonic() + self.total_timeout_seconds
         acquired = False
@@ -803,6 +838,15 @@ class SecureR2VVideoMaterializer:
                     destination_fd = -1
                     path = scratch.finish(temporary_name, detected.suffix)
                     temporary_name = None
+                    logger.info(
+                        "video materialize complete: project=%s task=%s "
+                        "size=%d sha256=%s container=%s",
+                        project_id,
+                        task_id,
+                        size_bytes,
+                        checksum[:16],
+                        detected.container,
+                    )
                     return MaterializedVideo(
                         path=path,
                         sha256=checksum,
@@ -818,7 +862,7 @@ class SecureR2VVideoMaterializer:
                     if temporary_name is not None:
                         scratch.remove(temporary_name)
         except OSError as error:
-            raise ValidationError("provider 视频安全物化失败") from error
+            self._raise_materialize_os_error(project_id, task_id, error)
         finally:
             if acquired:
                 self.semaphore.release()

@@ -138,6 +138,15 @@ def _base_config() -> dict[str, Any]:
                 "parameters": {"type": "object", "properties": {}},
                 "steps": [{"backend": "status_step"}],
             },
+            "graph_snapshot": {
+                "backend": "base",
+                "description": (
+                    "Return the complete indexed wikilink graph for frontend "
+                    "rendering."
+                ),
+                "parameters": {"type": "object", "properties": {}},
+                "steps": [{"backend": "graph_snapshot_step"}],
+            },
             "reindex": {
                 "backend": "base",
                 "max_file_bytes": _MAX_FILE_BYTES,

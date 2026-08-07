@@ -220,6 +220,74 @@ def _inject_reasoning_content(
     return modified
 
 
+def _enable_reasoning_content_fallback(
+    model: Any,
+    args: tuple,
+    kwargs: dict[str, Any],
+) -> bool:
+    """Enable the missing-reasoning fallback at the correct call layer.
+
+    Some callers pass already-formatted wire dictionaries, where the legacy
+    in-place injector is sufficient.  AgentScope 2.0 passes ``Msg`` objects
+    instead; those are formatted only inside the wrapped provider model, so
+    adding a dictionary key here cannot work.  For that path, enable the
+    formatter's request-time placeholder mode and let it preserve real
+    reasoning while filling only missing assistant segments.
+
+    Returns ``True`` when the fallback is available for this call.  An
+    already-enabled formatter also returns ``True``: another concurrent call
+    may have enabled it after this request was formatted but before its 400
+    was handled, and that in-flight request still needs one retry.
+    """
+    if _inject_reasoning_content(args, kwargs):
+        return True
+
+    messages = kwargs.get("messages")
+    if messages is None and args:
+        messages = args[0] if isinstance(args[0], list) else None
+    if not isinstance(messages, list) or not any(
+        getattr(msg, "role", None) == "assistant" for msg in messages
+    ):
+        return False
+
+    # RetryChatModel wraps TokenRecordingModelWrapper, which in turn wraps
+    # the provider model.  Walk both conventional wrapper links without
+    # depending on those concrete classes.
+    pending = [model]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+
+        formatter = getattr(current, "formatter", None)
+        if formatter is not None and getattr(
+            formatter,
+            "_qwenpaw_supports_reasoning_content_fallback",
+            False,
+        ):
+            if getattr(
+                formatter,
+                "_qwenpaw_require_reasoning_content",
+                False,
+            ):
+                return True
+            setattr(
+                formatter,
+                "_qwenpaw_require_reasoning_content",
+                True,
+            )
+            return True
+
+        for attr in ("_inner", "_model"):
+            wrapped = getattr(current, attr, None)
+            if wrapped is not None:
+                pending.append(wrapped)
+
+    return False
+
+
 def _extract_retry_after(exc: Exception) -> float | None:
     """Parse the Retry-After header value (in seconds) from an exception.
 
@@ -414,7 +482,7 @@ class RetryChatModel(ChatModelBase):
         key = self.model_key
 
         if cache.get(key, "needs_reasoning_content", False):
-            _inject_reasoning_content(args, kwargs)
+            _enable_reasoning_content_fallback(self, args, kwargs)
 
         # Each model gets its own rate limiter keyed by
         # "provider_id:model_name" so that a 429 on one model (e.g. from a
@@ -467,7 +535,11 @@ class RetryChatModel(ChatModelBase):
                 except Exception as inner_exc:
                     if not (
                         _is_missing_reasoning_content_error(inner_exc)
-                        and _inject_reasoning_content(args, kwargs)
+                        and _enable_reasoning_content_fallback(
+                            self,
+                            args,
+                            kwargs,
+                        )
                     ):
                         raise
                     cache.learn(key, "needs_reasoning_content", True)
@@ -601,7 +673,11 @@ class RetryChatModel(ChatModelBase):
                 if (
                     not reasoning_injected
                     and _is_missing_reasoning_content_error(retry_exc)
-                    and _inject_reasoning_content(call_args, call_kwargs)
+                    and _enable_reasoning_content_fallback(
+                        self,
+                        call_args,
+                        call_kwargs,
+                    )
                 ):
                     reasoning_injected = True
                     get_capability_cache().learn(

@@ -451,8 +451,15 @@ QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 
 ### 当前限制
 
-- **网络隔离**：当前版本未实现。所有沙箱进程均可完全访问网络，不受 `network_allow` 设置影响。网络命名空间隔离（bubblewrap 的 `--unshare-net`）已计划。
-- **资源限制**：`max_processes` 和 `max_memory_mb` 字段存在于配置中，但当前无后端强制执行。
+- **网络隔离**：仅「全开」和「全阻断」两种姿态可被强制，且只在具备内核级机制的后端生效——Seatbelt（macOS）、Landlock ABI v4+（Linux，内核 6.7+）、AppContainer capability SID 以及提权 Windows 后端的 WFP 规则。域名级过滤在任何后端都未实现，而且**退化方向因后端而异**，请以日志为准而非凭经验假设：Seatbelt / AppContainer 会**完全放行**网络，而 WFP 会**全部阻断**。Bubblewrap 完全不隔离网络（`--unshare-net` 已计划）。
+- **无管理员权限的 Windows**：非提权后端既无 WFP 规则也无 capability SID。全阻断请求只会写入 HTTP(S) 代理环境变量（raw socket 直接绕过），域名列表则什么都不做——因此该后端 **从不强制 `network_allow`**，任何姿态都会上报为未生效。需真正阻断请以管理员运行。
+- **`network_ports`**：仅 Landlock ABI v4+ 支持，且必须配合 `network_allow=[]`。端口规则挂在与整体阻断相同的 handled-access mask 上，因此网络处于开放状态时（包括默认的 `["*"]`）**不会安装任何端口规则**。
+- **资源限制**：`max_processes` 和 `max_memory_mb` 会被接受但任何后端都不强制执行；要真正生效需依赖 Linux cgroups / Windows Job 对象。
+- **`env_mode="allowlist"`**：未实现。所有后端的行为都等同于 `"inject"`——继承当前环境后再应用 `env_vars`。由于 allowlist 的目的正是防止未声明的宿主变量（API key、云凭据、token）进入沙箱子进程，请求该模式会以 `WARNING` 上报。
+- **`shell_executable`**：Windows 后端和 `mode=none` 会遵循该设置；bubblewrap / Seatbelt / Landlock 后端固定使用自己的 shell。`mode=none` 下若配置的 shell 无法解析，会上报并回退到**平台默认 shell**（Windows 为 `COMSPEC` / cmd.exe，其余为 `SHELL` / `/bin/bash`）；命令参数随 shell 而定，cmd.exe 用 `/c`、PowerShell 用 `-Command`、POSIX shell 用 `-c`。
+- **`platform_hints`**：仅 `seatbelt_extra_rules`（macOS）被消费。其余任何键（包括该键的拼写错误）都会被丢弃；由于这些 hint 可能携带 admin 手写的 deny 规则，此时整个字段会以 `WARNING` 上报。
+- **`mode=none` 不强制任何约束**：直通后端只应用 `timeout_seconds`、`env_vars` 和 `shell_executable`，所有隔离类约束都被忽略。这是容器环境下的常见情形——没有可用的内核后端时 QwenPaw 会回退到 `mode=none`。
+- **未生效的约束会被记录，绝不静默丢弃**：每个后端都声明自己真正应用的字段，其余你配置过的内容会在沙箱创建时上报——构成安全边界的约束记为 `WARNING`，其余记为 `DEBUG`。看到 `NoneSandbox does not enforce deny_paths=~/.ssh; the constraint is IGNORED.` 就意味着这些路径确实可读。请把这类日志当作安全发现而非噪音处理。
 - **Windows AppContainer**（`allow_read_all=False`）：首次 ACL 设置需要管理员权限。AppContainer profile 会被保留以供相同配置的后续调用复用。
 - **Windows AppContainer 文件删除受限**（`allow_read_all=False`）：在 AppContainer 模式下，沙箱内的进程可能无法删除工作区中的文件。此问题不影响 `allow_read_all=True`（Restricted_token）模式。我们正在研究解决方案。
 - **Windows Restricted_token**（`allow_read_all=True`）：完整隔离（专用本地用户、WFP 防火墙规则）需要管理员权限。在非管理员模式下运行时，将使用非提权沙箱模式——通过 `CreateRestrictedToken` 提供写入限制，但隔离能力弱于完整沙箱。为获得最大安全性，建议以管理员身份运行。

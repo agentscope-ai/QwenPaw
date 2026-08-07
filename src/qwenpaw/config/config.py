@@ -293,12 +293,19 @@ class QQConfig(BaseChannelConfig):
 
 
 class OneBotConfig(BaseChannelConfig):
-    """OneBot v11 channel: reverse WebSocket for NapCat/go-cqhttp/Lagrange."""
+    """OneBot v11 channel: reverse WebSocket for NapCat/go-cqhttp/Lagrange.
 
-    ws_host: str = "0.0.0.0"
+    ``ws_host`` defaults to loopback so the reverse WebSocket server is
+    not reachable from the network without an explicit opt-in.  Binding
+    to a non-loopback address requires ``access_token`` to be set.
+    """
+
+    ws_host: str = "127.0.0.1"
     ws_port: int = 6199
     access_token: str = ""
     share_session_in_group: bool = False
+    media_base64: bool = False
+    media_base64_max_mb: int = Field(default=10, gt=0)
 
 
 class TelegramConfig(BaseChannelConfig):
@@ -1607,15 +1614,6 @@ class CodingModeConfig(BaseModel):
         default=False,
         description="Enable Coding Mode IDE layout and tools",
     )
-    project_dir: Optional[str] = Field(
-        default=None,
-        description=(
-            "Active coding project directory (absolute path). "
-            "When set, Coding Mode file / git operations use this path "
-            "instead of the agent workspace_dir. "
-            "None means use the default workspace_dir."
-        ),
-    )
 
 
 class AgentProfileConfig(BaseModel):
@@ -1630,6 +1628,13 @@ class AgentProfileConfig(BaseModel):
     workspace_dir: str = Field(
         default="",
         description="Path to agent's workspace (optional, for reference)",
+    )
+    project_dir: Optional[str] = Field(
+        default=None,
+        description=(
+            "Default project directory for tools and project files. "
+            "None means use workspace_dir."
+        ),
     )
     backend: str = Field(
         default="qwenpaw",
@@ -2661,6 +2666,24 @@ def migrate_channel_display_fields(channels: object) -> bool:
     return migrated
 
 
+def migrate_project_directory_config(data: object) -> bool:
+    """Move the legacy Coding Mode directory into the Agent root once."""
+    if not isinstance(data, dict):
+        return False
+    coding_mode = data.get("coding_mode")
+    if not isinstance(coding_mode, dict) or "project_dir" not in coding_mode:
+        return False
+    legacy_project_dir = coding_mode.pop("project_dir")
+    if "project_dir" in data:
+        return True
+    if isinstance(legacy_project_dir, str):
+        stripped = legacy_project_dir.strip()
+        data["project_dir"] = stripped or None
+    else:
+        data["project_dir"] = None
+    return True
+
+
 def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     agent_id: str,
 ) -> AgentProfileConfig:
@@ -2721,6 +2744,8 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         with open(agent_config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        project_dir_migrated = migrate_project_directory_config(data)
+
         # Match the existing migration behavior: migrate this workspace only
         # when its agent configuration is loaded.
         channels = data.get("channels")
@@ -2740,15 +2765,23 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             display_migrated = False
             access_control_migrated = False
 
-        if weixin_migrated or display_migrated or access_control_migrated:
+        if (
+            project_dir_migrated
+            or weixin_migrated
+            or display_migrated
+            or access_control_migrated
+        ):
             try:
-                if weixin_migrated or display_migrated:
+                if project_dir_migrated or weixin_migrated or display_migrated:
                     import uuid as _uuid
                     import shutil as _shutil
 
-                    migration_name = (
-                        "channel-display" if display_migrated else "weixin"
-                    )
+                    if project_dir_migrated:
+                        migration_name = "project-dir"
+                    elif display_migrated:
+                        migration_name = "channel-display"
+                    else:
+                        migration_name = "weixin"
                     backup_path = agent_config_path.with_suffix(
                         f".{_uuid.uuid4().hex[:8]}."
                         f"{migration_name}-migrate.bak",

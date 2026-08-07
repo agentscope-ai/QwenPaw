@@ -38,7 +38,10 @@ if sys.platform == "win32" or TYPE_CHECKING:
 
 from .config import (  # noqa: E402  pylint: disable=wrong-import-position
     ExecutionResult,
+    NETWORK_DOMAIN_HINT,
     SandboxConfig,
+    network_allow_is_absolute,
+    report_unenforced_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -1304,12 +1307,43 @@ class WindowsSandboxBase(ABC):
 
     Provides config storage, async context manager protocol, process
     termination, violation detection, and base environment building.
+
+    AppContainer capability SIDs and WFP rules can open or close the network
+    wholesale but cannot filter by domain, and no Windows backend applies the
+    resource caps, so those constraints are reported as ignored rather than
+    silently dropped. Subclasses without a kernel-level network mechanism
+    override ``_enforced_fields`` to stop claiming ``network_allow``.
     """
+
+    # Config fields the backend actually applies; anything else the caller
+    # requested is reported at construction time.
+    _ENFORCED_FIELDS: frozenset = frozenset(
+        {"mounts", "deny_paths", "shell_executable"},
+    )
+
+    # Per-field remediation text for constraints the operator can recover.
+    _ENFORCEMENT_HINTS: dict = {"network_allow": NETWORK_DOMAIN_HINT}
 
     def __init__(self, config: SandboxConfig):
         self._config = config
         self._process_handle: Optional[ctypes.wintypes.HANDLE] = None
         self._job_handle: Optional[ctypes.wintypes.HANDLE] = None
+        report_unenforced_config(
+            config,
+            type(self).__name__,
+            self._enforced_fields(),
+            self._ENFORCEMENT_HINTS,
+        )
+
+    def _enforced_fields(self) -> frozenset:
+        """Fields this backend applies for the current config.
+
+        ``network_allow`` only counts as enforced for the all-open /
+        block-all postures — domain filtering is not available.
+        """
+        if network_allow_is_absolute(self._config):
+            return self._ENFORCED_FIELDS | {"network_allow"}
+        return self._ENFORCED_FIELDS
 
     @property
     def config(self) -> SandboxConfig:
@@ -1981,6 +2015,37 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
     disk and reused across invocations with matching config fingerprints.
     """
 
+    # Read access is unrestricted without an elevated token, so unlike the
+    # other Windows backends this one cannot honour deny_paths. Its network
+    # "block" is proxy environment variables only (see ``execute``), which a
+    # raw socket ignores, so network_allow is never enforced here either --
+    # hence the ``_enforced_fields`` override below rather than a plain
+    # ``_ENFORCED_FIELDS`` narrowing.
+    _ENFORCED_FIELDS = frozenset({"mounts", "shell_executable"})
+
+    _ENFORCEMENT_HINTS = {
+        "network_allow": (
+            "Without an elevated token there is no WFP rule or capability "
+            "SID: a block-all request only sets HTTP(S) proxy variables, "
+            "which raw sockets ignore, and a domain allowlist sets nothing "
+            "at all. Run as administrator for enforced blocking."
+        ),
+        "deny_paths": (
+            "Sensitive paths are NOT protected from read access; run as "
+            "administrator to enable full deny_paths enforcement."
+        ),
+    }
+
+    def _enforced_fields(self) -> frozenset:
+        """Never claim ``network_allow``, unlike the elevated backends.
+
+        Deliberately does not extend ``super()``: the base adds
+        ``network_allow`` for the absolute postures because AppContainer
+        capability SIDs and WFP rules genuinely block at kernel level. This
+        backend has neither, so every network posture is unenforced.
+        """
+        return self._ENFORCED_FIELDS
+
     def __init__(self, config: SandboxConfig):
         super().__init__(config)
         self._h_token: Optional[ctypes.wintypes.HANDLE] = None
@@ -2022,14 +2087,6 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         sandbox_name = f"qwenpaw_u_{fingerprint[:12]}"
         self._config_fingerprint = fingerprint
         self._sandbox_name = sandbox_name
-
-        if self._config.deny_paths:
-            logger.warning(
-                "WindowsUnelevatedSandbox does not enforce deny_paths. "
-                "Sensitive paths are NOT protected from read access: %s. "
-                "Run as administrator to enable full deny_paths enforcement.",
-                ", ".join(self._config.deny_paths),
-            )
 
         # File lock ensures only one thread/process at a time can
         # check-then-create for the same sandbox_name.  This prevents
