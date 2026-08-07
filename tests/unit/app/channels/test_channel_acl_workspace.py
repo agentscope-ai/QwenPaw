@@ -12,7 +12,8 @@ directory (shared across all task instances), not the per-task directory.
 
 from __future__ import annotations
 
-# pylint: disable=protected-access,redefined-outer-name,unused-argument,method-hidden
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=method-hidden
 
 from pathlib import Path
 from typing import Optional
