@@ -173,14 +173,17 @@ def build_plugin_builtins(
                 top,
                 search_paths,
             )
-            # A bare data directory (no __init__.py) resolves as a
-            # namespace-package portion (loader is None).  The real
-            # machinery would keep searching sys.path and let e.g. the
-            # stdlib win, so treat it as non-local instead of shadowing
-            # the name with an empty package (a plugin's ``locale/``
-            # assets dir must not hijack the stdlib ``locale``).
+            # A namespace-package portion (loader is None) needs a
+            # tie-break mirroring the real machinery: a plain data
+            # directory (``locale/`` assets) loses to a concrete module
+            # elsewhere on sys.path (the stdlib ``locale`` must win),
+            # but a genuine PEP 420 namespace package the plugin ships
+            # stays plugin-local — sending it to the global namespace
+            # would reopen the cross-plugin collision (#6683).
             if spec is not None and spec.loader is None:
-                spec = None
+                resolved = importlib.machinery.PathFinder.find_spec(top)
+                if resolved is None or resolved.loader is not None:
+                    spec = None
             spec_cache[top] = spec
         return spec_cache[top]
 

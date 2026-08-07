@@ -330,6 +330,35 @@ class TestBareImportNamespaceIsolation:
         assert sys.modules["plugin_nested_priority"].VALUE == "entry-dir"
 
     @pytest.mark.asyncio
+    async def test_pep420_namespace_packages_stay_isolated(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """Packages without __init__.py (PEP 420 namespace packages) are
+        still plugin-local: two plugins shipping the same namespace
+        package name must not share modules."""
+        code = (
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "from helpers.value import VALUE\n" + _REGISTER_OK
+        )
+        for name, val in (("pep-a", "A"), ("pep-b", "B")):
+            plugin_dir = tmp_path / name
+            (plugin_dir / "helpers").mkdir(parents=True)
+            # No __init__.py on purpose — a PEP 420 namespace package.
+            (plugin_dir / "helpers" / "value.py").write_text(
+                f"VALUE = '{val}'\n",
+                encoding="utf-8",
+            )
+            _write_manifest(plugin_dir)
+            (plugin_dir / "plugin.py").write_text(code, encoding="utf-8")
+            await _load(loader, plugin_dir)
+
+        assert sys.modules["plugin_pep_a"].VALUE == "A"
+        assert sys.modules["plugin_pep_b"].VALUE == "B"
+
+    @pytest.mark.asyncio
     async def test_data_directory_does_not_shadow_stdlib(
         self,
         loader,
