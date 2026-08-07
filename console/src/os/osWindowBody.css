@@ -4,6 +4,11 @@
  * one-character columns; page paddings tighten to fit the window chrome.
  * Classic layout is untouched (the class only exists inside WindowFrame). */
 
+.os-window-body {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .os-window-body .ant-table-content {
   overflow-x: auto;
 }
