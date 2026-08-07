@@ -29,6 +29,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Parse arguments
 TARGET="${1:-all}"
 CHECK_CHANGED=0
+ALL_CHANGED=""
 
 if [ "$TARGET" == "--changed" ] || [ "$TARGET" == "-c" ]; then
     CHECK_CHANGED=1
@@ -89,9 +90,9 @@ if ! command -v python3 &> /dev/null; then
 fi
 
 # Check if dependencies are installed
-if ! python3 -c "import copaw" 2>/dev/null; then
+if ! python3 -c "import qwenpaw" 2>/dev/null; then
     echo -e "${YELLOW}Installing dependencies...${NC}"
-    pip install -e ".[dev]" -q
+    python3 -m pip install -e ".[dev]" -q
 fi
 
 # Run tests
