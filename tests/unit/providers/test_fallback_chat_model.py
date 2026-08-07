@@ -179,7 +179,8 @@ class TestFallbackChatModel:
             await fallback()
 
     async def test_non_eligible_error_raises_immediately(
-        self, primary_candidate
+        self,
+        primary_candidate,
     ):
         """Non-eligible errors (e.g. context overflow) are not caught."""
         exc = Exception("context overflow")
