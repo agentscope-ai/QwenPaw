@@ -1350,6 +1350,47 @@ PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
     provider_variant="coding_plan",
 )
 
+ORCAROUTER_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="orcarouter/auto",
+        name="OrcaRouter Auto",
+        supports_image=True,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="orcarouter/fusion",
+        name="OrcaRouter Fusion",
+        supports_image=True,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="qwen/qwen3.5-flash",
+        name="Qwen3.5 Flash",
+        supports_image=True,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="qwen/qwen3-vl-235b-a22b-instruct",
+        name="Qwen3-VL 235B A22B Instruct",
+        supports_image=True,
+        probe_source="probed",
+    ),
+]
+
+PROVIDER_ORCAROUTER = OpenAIProvider(
+    id="orcarouter",
+    name="OrcaRouter",
+    base_url="https://api.orcarouter.ai/v1",
+    api_key_prefix="sk-orca-",
+    # Only a small curated preset is pinned: this is an aggregating router
+    # whose full lineup changes upstream, so the rest is fetched through
+    # `GET /v1/models` via Discover Models.
+    models=ORCAROUTER_MODELS,
+    freeze_url=True,
+    require_api_key=True,
+    support_model_discovery=True,
+)
+
 PROVIDER_MIMO_TOKENPLAN = OpenAIProvider(
     id="mimo-tokenplan",
     name="Xiaomi MiMo Token Plan",
@@ -1434,6 +1475,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_VOLCENGINE_CN)
         self._add_builtin(PROVIDER_VOLCENGINE_CN_CODINGPLAN)
         self._add_builtin(PROVIDER_MIMO_TOKENPLAN)
+        self._add_builtin(PROVIDER_ORCAROUTER)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider

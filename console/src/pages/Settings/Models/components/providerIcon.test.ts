@@ -54,6 +54,7 @@ describe("providerIcon", () => {
       "volcengine-cn",
       "volcengine-cn-codingplan",
       "mimo-tokenplan",
+      "orcarouter",
     ];
     for (const p of known) {
       const url = providerIcon(p);

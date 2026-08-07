@@ -149,6 +149,7 @@ QwenPaw 当前支持的云提供商包括：
 - DashScope
 - Aliyun Coding Plan
 - OpenRouter
+- OrcaRouter
 - OpenAI
 - Azure OpenAI
 - Anthropic
