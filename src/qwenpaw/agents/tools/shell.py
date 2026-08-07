@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 _SHELL_OUTPUT_MAX_BYTES = 1024 * 1024
 _SHELL_OUTPUT_DRAIN_GRACE_SECS = 10.0
+_SHELL_OUTPUT_POLL_SECS = 0.2
 
 # Prefixes of the temp files this module creates for shell stdout/stderr.
 _TEMP_FILE_PREFIXES = ("qwenpaw_out_", "qwenpaw_err_")
@@ -1115,6 +1116,34 @@ async def _cleanup_proc(proc: asyncio.subprocess.Process) -> None:
             pass
 
 
+class _PosixOutputMonitor:
+    """Watch the POSIX temp-file sizes while the shell runs.
+
+    When the combined captured output exceeds ``SHELL_MAX_OUTPUT_BYTES``,
+    the process group is terminated and :attr:`exceeded` is set so the
+    caller can report an explicit output-limit result instead of waiting
+    for the ordinary timeout.
+    """
+
+    def __init__(self, outputs: _PosixTempOutputs, max_bytes: int) -> None:
+        self._outputs = outputs
+        self._max_bytes = max_bytes
+        self.exceeded = False
+
+    async def run(self, proc: asyncio.subprocess.Process) -> None:
+        while proc.returncode is None:
+            await asyncio.sleep(_SHELL_OUTPUT_POLL_SECS)
+            size = await run_sync_io(
+                _temp_output_size,
+                self._outputs.stdout_path,
+                self._outputs.stderr_path,
+            )
+            if size > self._max_bytes:
+                self.exceeded = True
+                await _cleanup_proc(proc)
+                return
+
+
 async def _execute_posix_host(
     cmd: str,
     cwd: str,
@@ -1129,12 +1158,17 @@ async def _execute_posix_host(
     every such descendant to close the descriptors.  Redirect output to
     regular temporary files instead, and wait only for the direct shell.
     Once it exits, capture at most ``_SHELL_OUTPUT_MAX_BYTES`` from the fixed
-    file-size snapshot observed at that moment.  Background services must
-    redirect their own stdout/stderr; inherited descriptors can otherwise keep
-    consuming storage even after the temporary path is unlinked.
+    file-size snapshot observed at that moment.  While the command runs, the
+    combined temp-file size is monitored against ``SHELL_MAX_OUTPUT_BYTES``
+    and the process group is terminated if it is exceeded, so a runaway
+    writer cannot fill the disk.  Background services must redirect their own
+    stdout/stderr; inherited descriptors can otherwise keep consuming storage
+    even after the temporary path is unlinked.
     """
     outputs: _PosixTempOutputs | None = None
+    monitor: _PosixOutputMonitor | None = None
     _sweep_stale_temp_files_once()
+    max_output_bytes = SHELL_MAX_OUTPUT_BYTES
     loop = asyncio.get_running_loop()
     local_deadline = loop.time() + max(0.0, timeout)
 
@@ -1165,15 +1199,30 @@ async def _execute_posix_host(
         # regular files do not have pipe EOF semantics and cannot block wait().
         await run_sync_io(outputs.close_writers)
 
+        # mypy cannot narrow ``outputs`` past the attribute check above.
+        assert outputs is not None
+
+        output_exceeded = False
         stderr_suffix = ""
         try:
             from ...tool_calls import cancellable_wait
 
-            returncode = await cancellable_wait(
-                proc.wait(),
-                fallback_secs=remaining_timeout(),
-                as_kill_deadline=True,
-            )
+            monitor = _PosixOutputMonitor(outputs, max_output_bytes)
+            wait_task = asyncio.create_task(proc.wait())
+            monitor_task = asyncio.create_task(monitor.run(proc))
+            try:
+                returncode = await cancellable_wait(
+                    wait_task,
+                    fallback_secs=remaining_timeout(),
+                    as_kill_deadline=True,
+                )
+                output_exceeded = monitor.exceeded
+            finally:
+                monitor_task.cancel()
+                try:
+                    await monitor_task
+                except asyncio.CancelledError:
+                    pass
         except asyncio.TimeoutError:
             stderr_suffix = (
                 f"⚠️ TimeoutError: The command execution exceeded "
@@ -1224,6 +1273,19 @@ async def _execute_posix_host(
             if ctx is None or not ctx.cancel_event.is_set():
                 raise
             stderr_suffix = _cancel_stderr_message(timeout)
+            returncode = -1
+        if output_exceeded:
+            limit_msg = (
+                f"⚠️ Command output exceeded the limit of "
+                f"{max_output_bytes} bytes, so the process was terminated "
+                f"to prevent unbounded disk usage. Redirect large output "
+                f"to a file (e.g. '> output.log') and read it back in "
+                f"chunks instead."
+            )
+            if stderr_str:
+                stderr_str = f"{stderr_str}\n{limit_msg}"
+            else:
+                stderr_str = limit_msg
             returncode = -1
         if stderr_suffix:
             if stderr_str:

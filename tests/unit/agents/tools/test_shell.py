@@ -2684,3 +2684,51 @@ class TestKillProcessTreeHelpers:
         handle = _create_job_object_win32()
         assert handle
         _close_handle_win32(handle)  # must not raise
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX host subprocess path under test",
+)
+async def test_execute_posix_host_output_cap_stops_runaway_writer(
+    tmp_path,
+    monkeypatch,
+):
+    """A slow runaway writer is stopped by the disk cap, not the timeout."""
+    import time
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.shell.SHELL_MAX_OUTPUT_BYTES",
+        64 * 1024,
+    )
+    script = tmp_path / "writer.py"
+    script.write_text(
+        "import sys\n"
+        "while True:\n"
+        "    sys.stdout.write('x' * 4096 + '\n')\n"
+        "    sys.stdout.flush()\n",
+        encoding="utf-8",
+    )
+    command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
+
+    started = time.monotonic()
+    returncode, _stdout, stderr = await _execute_posix_host(
+        command,
+        str(tmp_path),
+        30.0,
+        os.environ.copy(),
+        "/bin/sh",
+    )
+    elapsed = time.monotonic() - started
+
+    assert returncode == -1
+    assert "exceeded the limit" in stderr
+    assert "TimeoutError" not in stderr
+    assert elapsed < 20.0
+    leftovers = [
+        p.name
+        for p in tmp_path.iterdir()
+        if p.name.startswith(("qwenpaw_out_", "qwenpaw_err_"))
+    ]
+    assert leftovers == []
