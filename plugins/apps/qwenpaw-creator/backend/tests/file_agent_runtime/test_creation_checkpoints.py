@@ -20,7 +20,7 @@ from services.file_agent_runtime.checkpoints import (
     required_checkpoint_phases,
 )
 from services.project_files.facade import CreatorFileServices
-from services.project_files.models import Project
+from services.project_files.models import Project, VisualEntity
 from services.runtime_files.errors import RecordNotFoundError
 from services.runtime_files.execution_models import (
     ExecutionAuthorizationStatus,
@@ -50,8 +50,16 @@ def _create_project(tmp_path, *, initial_goal: str):
             initial_client_message_id="client-initial",
         )
 
+    project = Project.new(project_id=PROJECT_ID, name="Initial")
+    project.visual.entities.items["hero"] = VisualEntity(
+        entity_id="hero",
+        kind="character",
+        name="Hero",
+        required_variant_ids=[],
+    )
+    project.visual.entities.order.append("hero")
     snapshot = services.projects.create(
-        Project.new(project_id=PROJECT_ID, name="Initial"),
+        project,
         initialize_staged_project=initialize,
     )
     services.poller.note_commit(snapshot)

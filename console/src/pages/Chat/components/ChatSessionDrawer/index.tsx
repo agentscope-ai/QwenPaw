@@ -22,7 +22,6 @@ import {
 } from "@agentscope-ai/chat";
 import { useIsMobile } from "../../../../hooks/useIsMobile";
 import { useCollapsedSessionGroups } from "../../../../hooks/useCollapsedSessionGroups";
-import { useCodingMode } from "../../../../stores/codingModeStore";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import SessionItem from "../../../../components/SessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
@@ -30,7 +29,7 @@ import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
 import { useMessageQueueStore } from "../../../../stores/messageQueueStore";
 import {
-  buildSessionPath,
+  buildChatPath,
   getSessionIdFromPath,
 } from "../../../../utils/sessionRoute";
 import {
@@ -234,9 +233,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const navigate = useNavigate();
   const location = useLocation();
   const sdkState = useChatAnywhereSessionsState();
-  const { codingMode } = useCodingMode();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
-
   const createNewSession = useCreateNewSession();
 
   // In embedded mode, maintain a local session list fetched directly from the
@@ -423,12 +420,11 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       // This avoids the preload / isSessionSwitching complexity that caused
       // the "flash to new chat" issue.
       setSwitchingSessionId(sessionId);
-      const mode = codingMode ? "coding" : "chat";
       const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
-      const targetPath = buildSessionPath(mode, effectiveId);
+      const targetPath = buildChatPath(effectiveId);
       navigate(targetPath);
     },
-    [currentSessionId, navigate, codingMode],
+    [currentSessionId, navigate],
   );
 
   // Listen for embedded switch completion so we can clear switchingSessionId.

@@ -174,6 +174,88 @@
   margin-bottom: 0 !important;
 }
 
+.reactAgentSettings {
+  margin: 20px 0 4px;
+  padding-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  border-top: 1px solid var(--ant-color-border-secondary);
+}
+
+.reactAgentWideField {
+  margin-bottom: 0 !important;
+}
+
+.projectDirectorySetting,
+.switchSetting {
+  min-height: 64px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 10px;
+  background: var(--ant-color-fill-quaternary);
+}
+
+.projectDirectorySetting {
+  color: #f36b21;
+
+  > div {
+    min-width: 0;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  strong,
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: var(--ant-color-text);
+    font-size: 13px;
+  }
+
+  span {
+    color: var(--ant-color-text-secondary);
+    font-size: 11px;
+  }
+}
+
+.switchSetting {
+  justify-content: space-between;
+
+  > span {
+    color: var(--ant-color-text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+.spin {
+  flex: 0 0 auto;
+  color: #f36b21;
+  animation: config-spin 900ms linear infinite;
+}
+
+@keyframes config-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 900px) {
+  .reactAgentSettings {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* LLM Retry row layout */
 .llmRetryRow {
   display: grid;

@@ -30,7 +30,7 @@ function resolveSessionId(sessionId: string): string {
 export function useToolCallControl(
   sessionId: string,
   toolCallId: string | undefined,
-  status: string,
+  isCalling: boolean,
   toolName?: string,
 ) {
   const [state, setState] = useState<ToolCallControlState>({
@@ -61,7 +61,6 @@ export function useToolCallControl(
   const toolNameRef = useRef(toolName || toolCallId || "");
   toolNameRef.current = toolName || toolCallId || "";
   const prevCallingRef = useRef(false);
-  const isCalling = status === "calling";
 
   const tryRegisterBackground = useCallback(
     (reason: string) => {

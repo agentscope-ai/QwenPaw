@@ -59,7 +59,7 @@ describe("useToolCallControl", () => {
     }));
 
     const { result } = renderHook(() =>
-      useToolCallControl("backend-sid", "tc-1", "calling", "shell"),
+      useToolCallControl("backend-sid", "tc-1", true, "shell"),
     );
 
     await act(async () => {
@@ -103,7 +103,7 @@ describe("useToolCallControl", () => {
     });
 
     const { result } = renderHook(() =>
-      useToolCallControl("backend-sid", "tc-2", "calling"),
+      useToolCallControl("backend-sid", "tc-2", true),
     );
 
     await act(async () => {
@@ -128,7 +128,7 @@ describe("useToolCallControl", () => {
     });
 
     const { result } = renderHook(() =>
-      useToolCallControl("", "tc-retry", "calling", "shell"),
+      useToolCallControl("", "tc-retry", true, "shell"),
     );
 
     await act(async () => {
@@ -161,9 +161,9 @@ describe("useToolCallControl", () => {
     });
 
     const { rerender } = renderHook(
-      ({ status }: { status: string }) =>
-        useToolCallControl("backend-sid", "tc-fg", status, "shell"),
-      { initialProps: { status: "calling" } },
+      ({ calling }: { calling: boolean }) =>
+        useToolCallControl("backend-sid", "tc-fg", calling, "shell"),
+      { initialProps: { calling: true } },
     );
 
     await act(async () => {
@@ -172,7 +172,7 @@ describe("useToolCallControl", () => {
     });
 
     await act(async () => {
-      rerender({ status: "success" });
+      rerender({ calling: false });
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -192,7 +192,7 @@ describe("useToolCallControl", () => {
     });
 
     const { result } = renderHook(() =>
-      useToolCallControl("backend-sid", "tc-popup", "calling", "shell"),
+      useToolCallControl("backend-sid", "tc-popup", true, "shell"),
     );
 
     await act(async () => {
@@ -224,9 +224,9 @@ describe("useToolCallControl", () => {
     });
 
     const { rerender } = renderHook(
-      ({ status }: { status: string }) =>
-        useToolCallControl("backend-sid", "tc-bg-fast", status, "shell"),
-      { initialProps: { status: "calling" } },
+      ({ calling }: { calling: boolean }) =>
+        useToolCallControl("backend-sid", "tc-bg-fast", calling, "shell"),
+      { initialProps: { calling: true } },
     );
 
     await act(async () => {
@@ -235,7 +235,7 @@ describe("useToolCallControl", () => {
     });
 
     await act(async () => {
-      rerender({ status: "success" });
+      rerender({ calling: false });
       await Promise.resolve();
       await Promise.resolve();
     });

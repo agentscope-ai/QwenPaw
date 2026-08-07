@@ -309,6 +309,11 @@ off, this agent cannot call that tool in chat.
 Use **Enable all** / **Disable all** at the top for batch changes. Changes apply
 to the **current agent** immediately.
 
+The **browser** tool card carries one extra button that switches between the
+**New (Beta)** and **Legacy (compat)** browser implementations. It is written to
+the global configuration, applies to every agent, and takes effect only after a
+service restart — see [Browser](./browser).
+
 ---
 
 ## MCP
@@ -536,6 +541,8 @@ python -c "import whisper; print('openai-whisper installed')"
 - [Config & working directory](./config) — Config fields, providers, env vars
 - [Channels](./channels) — Per-channel setup and credentials
 - [Skills](./skills) — Built-in skills and custom skills
+- [Browser](./browser) — Browser tool tracks, identities, and settings
+- [Chrome extension](./chrome) — Connect QwenPaw to your own Chrome
 - [Heartbeat](./heartbeat) — Heartbeat configuration
 - [Context](./context) — Compaction and context
 - [Security](./security) — Web login, tool guard, file guard

@@ -8,6 +8,7 @@ import {
   Layers,
   List,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type {
   ExecutionAuthorizationView,
   FileProjectReviewRecord,
@@ -23,6 +24,7 @@ import FileProjectReviewPanel, {
   reviewPendingUnits,
   reviewTrayLabel,
 } from "./FileProjectReviewPanel";
+import i18n from "@/i18n";
 
 /**
  * Inline decision tray: pins reviews and production confirmations between the
@@ -56,7 +58,7 @@ function trayItemsOf(
     ...pendingAuths.map<TrayItem>((authorization) => ({
       key: `auth:${authorization.id}`,
       kind: "auth",
-      label: `生产确认 · ${creatorTargetLabel(
+      label: `${i18n.t("decisionTray.productionConfirm")}${creatorTargetLabel(
         authorization.targetRef,
         project,
       )}`,
@@ -72,6 +74,7 @@ function trayItemsOf(
 }
 
 export default function DecisionTray({ projectId }: { projectId: string }) {
+  const { t } = useTranslation();
   const authorizations = useExecutionAuthorizationStore((state) => state.items);
   const authProjectId = useExecutionAuthorizationStore(
     (state) => state.projectId,
@@ -186,7 +189,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
           })),
         );
       }
-      message.success("已保留全部审阅修改");
+      message.success(t("decisionTray.allReviewChangesKept"));
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
@@ -218,7 +221,11 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
       <button
         type="button"
         aria-expanded={!collapsed}
-        aria-label={collapsed ? "展开决策托盘" : "折叠决策托盘"}
+        aria-label={
+          collapsed
+            ? t("decisionTray.expandTray")
+            : t("decisionTray.collapseTray")
+        }
         onClick={() => setCollapsed(!collapsed)}
         className="flex w-full items-center gap-2 px-3.5 py-1.5 text-left"
       >
@@ -236,8 +243,8 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
               : "text-[var(--color-text-primary)]"
           }`}
         >
-          {items.length} 项待决策
-          {urgent ? " · 需确认后才能继续" : ""}
+          {items.length} {t("decisionTray.itemsPending")}
+          {urgent ? t("decisionTray.needConfirm") : ""}
         </span>
         <span
           className={`min-w-0 flex-1 truncate text-[10px] ${
@@ -247,10 +254,14 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
           }`}
         >
           {urgent
-            ? `生产确认 ${pendingAuths.length} 项阻塞执行中${
-                reviewUnitCount > 0 ? ` · 审阅 ${reviewUnitCount}` : ""
+            ? `${t("decisionTray.productionConfirmBlock")} ${
+                pendingAuths.length
+              } ${t("decisionTray.itemsBlocking")}${
+                reviewUnitCount > 0
+                  ? ` · ${t("decisionTray.review")} ${reviewUnitCount}`
+                  : ""
               }`
-            : `审阅 ${reviewUnitCount}`}
+            : `${t("decisionTray.review")} ${reviewUnitCount}`}
         </span>
         <ChevronDown
           className={`h-3.5 w-3.5 shrink-0 text-[var(--color-text-tertiary)] transition-transform ${
@@ -266,16 +277,25 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
               role="alert"
               className="mb-2 rounded-md bg-[var(--color-warning-soft)] px-2 py-1 text-[10px] text-[var(--color-warning)]"
             >
-              生产确认读取失败：{authError}
+              {t("decisionTray.loadFailed")}
+              {authError}
             </p>
           )}
           {items.length > 1 && (
             <div className="mb-2 flex items-center gap-1.5">
               {(
                 [
-                  ["all", `全部 ${items.length}`],
-                  ["auth", `生产确认 ${pendingAuths.length}`],
-                  ["review", `审阅 ${pendingReviews.length}`],
+                  ["all", `${t("decisionTray.all")} ${items.length}`],
+                  [
+                    "auth",
+                    `${t("decisionTray.productionConfirmTab")} ${
+                      pendingAuths.length
+                    }`,
+                  ],
+                  [
+                    "review",
+                    `${t("decisionTray.reviewTab")} ${pendingReviews.length}`,
+                  ],
                 ] as const
               )
                 .filter(
@@ -307,14 +327,18 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
                 type="button"
                 onClick={() => setListMode((mode) => !mode)}
                 className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
-                title={listMode ? "切换为堆叠模式" : "切换为列表模式"}
+                title={
+                  listMode
+                    ? t("decisionTray.switchToStack")
+                    : t("decisionTray.switchToList")
+                }
               >
                 {listMode ? (
                   <Layers className="h-3 w-3" />
                 ) : (
                   <List className="h-3 w-3" />
                 )}
-                {listMode ? "堆叠" : "列表"}
+                {listMode ? t("decisionTray.stack") : t("decisionTray.list")}
               </button>
             </div>
           )}
@@ -336,7 +360,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
                 <button
                   type="button"
                   onClick={() => setFocusKey(nextItems[0].key)}
-                  title={`下一条：${nextItems[0].label}`}
+                  title={`${t("decisionTray.next")}${nextItems[0].label}`}
                   className="mx-2.5 block w-[calc(100%-20px)] truncate rounded-t-lg border border-b-0 border-[var(--color-border)] bg-[var(--color-bg-card)] px-3 py-0.5 text-left text-[9px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
                 >
                   {nextItems[0].label}
@@ -354,7 +378,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
                 <div className="mt-1.5 flex items-center gap-1.5">
                   <button
                     type="button"
-                    aria-label="上一条决策"
+                    aria-label={t("decisionTray.previousDecision")}
                     disabled={focusIndex === 0}
                     onClick={() => step(-1)}
                     className="flex h-5 w-5 items-center justify-center rounded border border-[var(--color-border)] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] disabled:opacity-40"
@@ -366,7 +390,10 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
                       <button
                         key={item.key}
                         type="button"
-                        aria-label={`第 ${index + 1} 条：${item.label}`}
+                        aria-label={t("decisionTray.decisionIndex", {
+                          index: index + 1,
+                          label: item.label,
+                        })}
                         onClick={() => setFocusKey(item.key)}
                         className={`h-1.5 rounded-full transition-all ${
                           index === focusIndex
@@ -378,7 +405,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
                   </div>
                   <button
                     type="button"
-                    aria-label="下一条决策"
+                    aria-label={t("decisionTray.nextDecision")}
                     disabled={focusIndex >= visible.length - 1}
                     onClick={() => step(1)}
                     className="flex h-5 w-5 items-center justify-center rounded border border-[var(--color-border)] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] disabled:opacity-40"
@@ -390,11 +417,11 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
                       type="button"
                       disabled={batchBusy}
                       onClick={() => void acceptAllReviews()}
-                      title="保留全部审阅修改（生产确认需单独决定）"
+                      title={t("decisionTray.keepAllReviewChanges")}
                       className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-success)] disabled:opacity-50"
                     >
                       <Check className="h-3 w-3" />
-                      全部保留
+                      {t("decisionTray.keepAll")}
                     </button>
                   )}
                 </div>

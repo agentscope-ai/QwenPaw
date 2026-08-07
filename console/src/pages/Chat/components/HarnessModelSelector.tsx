@@ -49,6 +49,9 @@ export default function HarnessModelSelector({
       .then((result) => {
         if (!cancelled) {
           setCatalog({ providerId, models: result.models });
+          if (result.message) {
+            message.warning(result.message);
+          }
         }
       })
       .catch((error) => {

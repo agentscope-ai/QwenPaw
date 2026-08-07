@@ -74,6 +74,8 @@ async def _next_pending_request(
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p1
 async def test_driver_mcp_policy_deny_blocks_client_call(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -101,6 +103,8 @@ async def test_driver_mcp_policy_deny_blocks_client_call(
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p1
 async def test_mcp_policy_update_applies_without_transport_reload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -182,6 +186,8 @@ async def test_mcp_policy_update_applies_without_transport_reload(
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p2
 async def test_mcp_policy_updates_serialize_persistence_and_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -256,6 +262,8 @@ async def test_mcp_policy_updates_serialize_persistence_and_runtime(
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p2
 async def test_manual_policy_edit_applies_without_transport_reload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -313,6 +321,8 @@ async def test_manual_policy_edit_applies_without_transport_reload(
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p1
 async def test_manual_endpoint_edit_reloads_transport(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -351,6 +361,8 @@ async def test_manual_endpoint_edit_reloads_transport(
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p1
 async def test_driver_mcp_policy_ask_approve_resumes_client_call(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -400,6 +412,8 @@ async def test_driver_mcp_policy_ask_approve_resumes_client_call(
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p2
 async def test_driver_mcp_policy_ask_session_off_auto_allows_no_persist(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -450,6 +464,8 @@ async def test_driver_mcp_policy_ask_session_off_auto_allows_no_persist(
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p2
 async def test_driver_mcp_policy_ask_agent_off_auto_allows_no_persist(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -513,6 +529,8 @@ async def test_driver_mcp_policy_ask_agent_off_auto_allows_no_persist(
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p2
 async def test_driver_mcp_policy_ask_agent_auto_requires_approval(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -561,6 +579,8 @@ async def test_driver_mcp_policy_ask_agent_auto_requires_approval(
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p2
 async def test_driver_mcp_policy_ask_active_agent_off_auto_allows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -623,6 +643,8 @@ async def test_driver_mcp_policy_ask_active_agent_off_auto_allows(
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p1
 async def test_driver_mcp_policy_deny_still_blocks_when_session_off(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -651,6 +673,8 @@ async def test_driver_mcp_policy_deny_still_blocks_when_session_off(
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p2
 async def test_driver_mcp_policy_allow_session_strict_requires_approval(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

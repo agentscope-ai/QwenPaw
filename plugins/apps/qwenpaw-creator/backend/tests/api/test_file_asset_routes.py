@@ -16,6 +16,8 @@ from api.content_disposition import inline_content_disposition
 from api import file_asset_routes, file_media_routes
 from api.dependencies import creator_error_handler, project_file_services
 from api.file_asset_routes import (
+    _assert_supported_source_upload,
+    _media_kind,
     _remote_asset_max_bytes,
     _validate_local_video_upload,
     _validate_public_remote_url,
@@ -38,6 +40,51 @@ class _ChunkStream(httpx.SyncByteStream):
         for chunk in self._chunks:
             self.yield_count += 1
             yield chunk
+
+
+def test_media_kind_classifies_readable_documents_by_extension() -> None:
+    # Required first-batch document formats must classify as documents even
+    # when the browser reports text/* or legacy Office MIME types.
+    assert _media_kind("application/pdf", "script.pdf") == "document"
+    assert _media_kind("text/csv", "budget.csv") == "document"
+    assert _media_kind("text/plain", "notes.txt") == "document"
+    assert _media_kind("application/x-subrip", "dialogue.srt") == "document"
+    assert _media_kind("text/vtt", "dialogue.vtt") == "document"
+    assert (
+        _media_kind("application/vnd.ms-powerpoint", "deck.ppt") == "document"
+    )
+    assert (
+        _media_kind(
+            "application/vnd.openxmlformats-officedocument"
+            ".spreadsheetml.sheet",
+            "plan.xlsx",
+        )
+        == "document"
+    )
+    # AV prefixes win for raster media, SVG routes to the document reader,
+    # and unreadable payloads keep legacy kinds.
+    assert _media_kind("video/mp4", "clip.mp4") == "video"
+    assert _media_kind("image/png", "frame.png") == "image"
+    assert _media_kind("image/svg+xml", "icon.svg") == "document"
+    assert _media_kind("application/octet-stream", "logo.svg") == "document"
+    assert _media_kind("text/x-unknown", "blob.unknownext") == "text"
+    assert _media_kind("application/zip", "bundle.zip") == "other"
+
+
+def test_source_upload_rejects_unreadable_binary_formats() -> None:
+    # Opaque blobs (e.g. 3D models) cannot enter Source Intelligence and
+    # must be refused at the upload boundary with a readable hint.
+    with pytest.raises(ValidationError) as excinfo:
+        _assert_supported_source_upload(
+            "unsupported.glb",
+            "model/gltf-binary",
+        )
+    assert "不支持的来源素材格式" in str(excinfo.value)
+    assert "unsupported.glb" in str(excinfo.value)
+    # Readable creative material passes untouched.
+    _assert_supported_source_upload("script.pdf", "application/pdf")
+    _assert_supported_source_upload("budget.csv", "text/csv")
+    _assert_supported_source_upload("clip.mp4", "video/mp4")
 
 
 def _install_remote_transport(

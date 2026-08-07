@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for plugin-local Computer Use application access decisions."""
 
-from computer_use_tool import access
+from computer_use import access
 
 
 def _request(

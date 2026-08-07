@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import patch
 
 from qwenpaw.sandbox import (
@@ -177,58 +178,55 @@ class TestSeatbeltProfile:
 
 
 class TestUnsupportedFeaturesLogging:
-    """Verify macOS logs warnings for unsupported features."""
+    """Verify macOS reports the features Seatbelt cannot enforce.
 
-    def test_max_processes_warning(self):
-        sandbox = MacOSSandbox(
-            SandboxConfig(
-                mode=SandboxMode.SEATBELT,
-                workspace_dir="/tmp/ws",
-                mounts=[MountSpec(path="/tmp/ws", writable=True)],
-                max_processes=10,
-            ),
-        )
-        with patch("qwenpaw.sandbox.macos_sandbox.logger") as mock_logger:
-            sandbox._compile_seatbelt_profile()
+    The report is emitted once at construction by
+    ``report_unenforced_config`` rather than per profile compilation, so
+    these assert against the shared config logger.
+    """
 
-        assert mock_logger.warning.called
-        calls_str = str(mock_logger.warning.call_args_list)
-        assert "max_processes" in calls_str
-        assert "not supported by Seatbelt" in calls_str
+    @staticmethod
+    def _build(**overrides) -> MacOSSandbox:
+        params = {
+            "mode": SandboxMode.SEATBELT,
+            "workspace_dir": "/tmp/ws",
+            "mounts": [MountSpec(path="/tmp/ws", writable=True)],
+            # All-open is the posture the governor compiles; it keeps the
+            # network out of these assertions.
+            "network_allow": ["*"],
+        }
+        params.update(overrides)
+        return MacOSSandbox(SandboxConfig(**params))
 
-    def test_max_memory_warning(self):
-        sandbox = MacOSSandbox(
-            SandboxConfig(
-                mode=SandboxMode.SEATBELT,
-                workspace_dir="/tmp/ws",
-                mounts=[MountSpec(path="/tmp/ws", writable=True)],
-                max_memory_mb=512,
-            ),
-        )
-        with patch("qwenpaw.sandbox.macos_sandbox.logger") as mock_logger:
-            sandbox._compile_seatbelt_profile()
+    def test_max_processes_warning(self, caplog):
+        with caplog.at_level(
+            logging.WARNING,
+            logger="qwenpaw.sandbox.config",
+        ):
+            self._build(max_processes=10)
 
-        assert mock_logger.warning.called
-        calls_str = str(mock_logger.warning.call_args_list)
-        assert "max_memory_mb" in calls_str
-        assert "not supported by Seatbelt" in calls_str
+        assert "max_processes=10" in caplog.text
+        assert "IGNORED" in caplog.text
 
-    def test_network_ports_warning(self):
-        sandbox = MacOSSandbox(
-            SandboxConfig(
-                mode=SandboxMode.SEATBELT,
-                workspace_dir="/tmp/ws",
-                mounts=[MountSpec(path="/tmp/ws", writable=True)],
-                network_ports=[PortRule(port=443)],
-            ),
-        )
-        with patch("qwenpaw.sandbox.macos_sandbox.logger") as mock_logger:
-            sandbox._compile_seatbelt_profile()
+    def test_max_memory_warning(self, caplog):
+        with caplog.at_level(
+            logging.WARNING,
+            logger="qwenpaw.sandbox.config",
+        ):
+            self._build(max_memory_mb=512)
 
-        assert mock_logger.warning.called
-        calls_str = str(mock_logger.warning.call_args_list)
-        assert "network_ports" in calls_str
-        assert "not supported by Seatbelt" in calls_str
+        assert "max_memory_mb=512" in caplog.text
+        assert "IGNORED" in caplog.text
+
+    def test_network_ports_warning(self, caplog):
+        with caplog.at_level(
+            logging.WARNING,
+            logger="qwenpaw.sandbox.config",
+        ):
+            self._build(network_ports=[PortRule(port=443)])
+
+        assert "network_ports" in caplog.text
+        assert "IGNORED" in caplog.text
 
     def test_no_warning_when_features_not_set(self):
         sandbox = MacOSSandbox(

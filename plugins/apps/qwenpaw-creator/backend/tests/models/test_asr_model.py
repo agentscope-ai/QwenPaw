@@ -80,6 +80,33 @@ def test_fun_asr_passes_public_urls_through() -> None:
     assert url == "https://cdn.test/a.mp3"
 
 
+def test_fun_asr_base_strips_token_portal_transcription_path() -> None:
+    suffix = "services/audio/asr/transcription"
+    assert (
+        asr_model._fun_asr_base(f"https://proxy.example.com/api/v1/{suffix}")
+        == "https://proxy.example.com/api/v1"
+    )
+    assert (
+        asr_model._fun_asr_base(f"https://proxy.example.com/api/v1/{suffix}/")
+        == "https://proxy.example.com/api/v1"
+    )
+
+
+def test_fun_asr_base_keeps_plain_api_roots() -> None:
+    assert (
+        asr_model._fun_asr_base(
+            "https://dashscope.aliyuncs.com/api/v1",
+        )
+        == "https://dashscope.aliyuncs.com/api/v1"
+    )
+    assert (
+        asr_model._fun_asr_base(
+            "https://dashscope.aliyuncs.com/api/v1/",
+        )
+        == "https://dashscope.aliyuncs.com/api/v1"
+    )
+
+
 def test_whisper_posts_extracted_audio_and_normalizes_chunk_offsets(
     monkeypatch,
     tmp_path,

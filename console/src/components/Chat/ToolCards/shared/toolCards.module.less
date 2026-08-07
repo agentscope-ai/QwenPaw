@@ -2,11 +2,19 @@
 // Extracted from ChatV2 MessageList.module.less so plugin cards
 // have zero dependencies on files outside ToolCards/.
 
+.toolCallContainer {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
 // Tool call — compact single-line (click to expand)
 .toolCallCompact {
   margin: 2px 0;
   display: block;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
 
   &.toolCallCompactLoading {
     .toolCallLabel {
@@ -30,7 +38,10 @@
   user-select: none;
   list-style: none;
   padding: 2px 0;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
+  box-sizing: border-box;
 
   &::-webkit-details-marker {
     display: none;
@@ -78,6 +89,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
 
   &:hover {
     color: var(--ant-color-primary, #1677ff);
@@ -196,23 +209,32 @@
   display: inline-block;
 }
 
-.bubbleFileDownload {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 1;
-  opacity: 0;
-  font-size: 16px;
-  border-radius: 6px;
+.filePreviewLink {
+  flex: 0 0 auto;
+  padding: 0;
+  color: var(--ant-color-link, #1677ff);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  border: 0;
+  background: transparent;
   cursor: pointer;
-  color: #fff;
-  transition: opacity 0.2s;
 
-  .bubbleFile:hover & {
-    opacity: 1;
+  &:hover {
+    color: var(--ant-color-link-hover, #69b1ff);
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ant-color-primary-border, #91caff);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
+
+:global(.dark-mode) {
+  .filePreviewLink {
+    color: var(--ant-blue-4, #69b1ff);
   }
 }
 

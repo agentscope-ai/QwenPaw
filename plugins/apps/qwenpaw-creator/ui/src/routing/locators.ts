@@ -1,4 +1,5 @@
 import type { RefSearchItem } from "@/contracts/creator";
+import i18n from "@/i18n";
 import { navigate } from "./navigation";
 import { useNavigationStore } from "@/store/navigationStore";
 import { flashCreatorReviewField } from "./reviewFocus";
@@ -51,7 +52,7 @@ export function navigateToLocator(
   const current = currentHashPath();
   useNavigationStore.getState().pushLocation({
     path: current,
-    description: options.description || "审阅/决策",
+    description: options.description || i18n.t("lib.reviewDecision"),
   });
   useNavigationStore.getState().setExpectedPath(base.split("?")[0]);
   useNavigationStore.getState().setReviewFocus({
@@ -92,7 +93,7 @@ export function navigateToRefItem(
   item: RefSearchItem,
 ): void {
   navigateToLocator(projectId, item.uiLocator, {
-    description: `引用：${item.name}`,
+    description: i18n.t("lib.reference", { name: item.name }),
   });
 }
 

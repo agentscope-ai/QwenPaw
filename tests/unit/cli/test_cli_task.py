@@ -376,3 +376,54 @@ def test_isolated_workspace_does_not_pollute_real_workspace(tmp_path):
         pass
 
     assert set(real_ws.iterdir()) == original_contents
+
+
+# ── _run_task ────────────────────────────────────────────────────────
+
+
+async def test_run_task_sends_a_valid_user_message(monkeypatch) -> None:
+    """``_run_task`` must build a message AgentScope 2.0 accepts.
+
+    ``Msg.content`` is typed ``list[ContentBlock]``, so a bare string
+    raises a pydantic ``ValidationError`` that the surrounding
+    ``except Exception`` turns into ``status="error"`` — the task never
+    reaches the agent.
+    """
+    from qwenpaw.config.config import AgentProfileConfig
+    from qwenpaw.cli.task_cmd import _run_task
+
+    captured: dict = {}
+
+    class _FakeAgent:
+        model = None
+
+        async def reply(self, msgs):
+            captured["msgs"] = list(msgs)
+            reply = MagicMock()
+            reply.get_text_content.return_value = "done"
+            return reply
+
+    class _FakeBuilder:
+        async def build(self, _ctx):
+            return _FakeAgent()
+
+    monkeypatch.setattr(
+        "qwenpaw.runtime.builder.AgentBuilder",
+        _FakeBuilder,
+    )
+
+    result = await _run_task(
+        instruction="do the thing",
+        agent_config=AgentProfileConfig(id="default", name="Default"),
+        request_context={},
+        max_iters=1,
+        timeout=30,
+        output_dir=None,
+    )
+
+    assert result["status"] == "success"
+    assert result["response"] == "done"
+    msg = captured["msgs"][0]
+    assert msg.role == "user"
+    assert msg.content[0].type == "text"
+    assert msg.content[0].text == "do the thing"

@@ -20,7 +20,7 @@ QwenPaw 的 **Loop Engineering**，就是为这两个问题提供一套显式的
 
 QwenPaw 2.0 提供了 Default、Goal、Mission 三种内置 Loop；从 QwenPaw 2.0.1 开始，你还可以在 Console 中直接创建自己的 Loop，不需要编写代码。
 
-![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/eYVOL5or72jbRlpz/img/788fdbac-23f6-402d-999d-63ab549828be.png?x-oss-process=image/crop,x_0,y_95,w_1776,h_783/ignore-error,1)
+![image.png](https://img.alicdn.com/imgextra/i2/O1CN01N7AdGblTdqG3bZE7_!!6000000000365-2-tps-1776-783.png)
 
 ## Loop Engineering：给每轮工作加一道“质检 Gate”
 
@@ -56,7 +56,7 @@ Gate 可以关注不同信号：迭代次数、Token 用量、运行时间、工
 
 ### Default：给日常对话加上基本护栏
 
-![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/eYVOL5or72jbRlpz/img/45c1ab8a-ed91-4dc2-a2e3-722df7ed5aaf.png)
+![image.png](https://img.alicdn.com/imgextra/i3/O1CN010E5YOV1pwhoZKuMLZ_!!6000000005425-2-tps-2322-1278.png)
 
 Default 是未启用显式模式时使用的标准 Loop。用户只需要发送一次请求，Agent 可以在这个 Turn 内进行多轮推理和工具调用，最后交回结果。
 
@@ -70,7 +70,7 @@ Default 的 Gate 流程包含：
 
 ### Goal：围绕一个明确目标持续推进
 
-![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/eYVOL5or72jbRlpz/img/dd7b210e-daa0-4ed3-8075-5848af40719e.png)
+![image.png](https://img.alicdn.com/imgextra/i3/O1CN01ZBbk2MObx4K4g2BK_!!6000000000836-2-tps-2304-1206.png)
 
 当任务无法靠一次常规回复完成，但仍适合由一个 Agent 连续推进时，可以使用 Goal：
 
@@ -85,7 +85,7 @@ Goal 会为 Agent 提供目标状态工具，让它查看进度，并在有证�
 
 ### Mission：把大型任务交给多个上下文隔离的角色
 
-![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/eYVOL5or72jbRlpz/img/2de182ca-cf97-4156-b1a6-04f7f72e9078.png)
+![image.png](https://img.alicdn.com/imgextra/i4/O1CN01a9OC27KCn4I4k3wM_!!6000000004813-2-tps-2336-1246.png)
 
 当任务天然包含多个相对独立的子任务时，可以使用 Mission：
 
@@ -113,7 +113,7 @@ Mission 可能让后台 Worker 执行命令或修改文件，建议只在可信�
 
 ## 自定义 Loop：把你自己的工作标准保存成模式
 
-![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/eYVOL5or72jbRlpz/img/e31a3f15-daa4-4f56-b35e-b7206676d9f6.png)
+![image.png](https://img.alicdn.com/imgextra/i3/O1CN01uHuiXTNBGmL2tlIe_!!6000000001518-2-tps-1428-1108.png)
 
 内置模式解决的是通用问题，但不同团队对“完成”的理解并不相同。
 
@@ -128,7 +128,7 @@ Mission 可能让后台 Worker 执行命令或修改文件，建议只在可信�
 | **质量优先** | 迭代限制 + Token 预算 + 重复行为保护 + 完成信号检查   | 有清晰验收标准的任务   |
 | **空白流程** | 不预置 Gate                                           | 从零搭建特殊策略       |
 
-![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/eYVOL5or72jbRlpz/img/91c9693d-5776-453f-a7d6-18a1521ea611.png)
+![image.png](https://img.alicdn.com/imgextra/i4/O1CN01Xitzy7v6xEH57Tbq_!!6000000002994-2-tps-2522-1276.png)
 
 创建后，可以为模式设置显示名称、描述和专属斜杠命令，并通过拖拽调整 Gate 的检查顺序。当前可组合七种 Gate：
 

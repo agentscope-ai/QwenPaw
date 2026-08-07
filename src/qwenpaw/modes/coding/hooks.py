@@ -24,11 +24,11 @@ class ProjectDirInjectionHook(ModeGatedHook):
                 cfg = load_agent_config(ctx.agent_id)
             except Exception:
                 return HookResult()
-        cm = getattr(cfg, "coding_mode", None)
-        if cm and getattr(cm, "project_dir", None):
+        project_dir = getattr(cfg, "project_dir", None)
+        if project_dir:
             ctx.mode_state.setdefault("coding", {})[
                 "project_dir"
-            ] = cm.project_dir
+            ] = project_dir
         return HookResult()
 
 
