@@ -37,7 +37,7 @@
 | **ローカルもクラウドも、自由に動く**        | QwenPaw-Flash モデル（2B / 4B / 9B）— エージェントタスク向けに訓練。内蔵 QwenPaw Local ランタイム — API キー不要、クラウド依存なし。Ollama、LM Studio、14+ クラウドプロバイダーにも対応。                  |
 | **セキュリティ内蔵**                         | カーネルレベルの Sandbox、Tool Guard、File Guard、Skill Scanner。危険なコマンドは実行前にブロック。                                                                                    |
 | **マルチエージェント＆並列**                | 独自のメモリとスキルを持つ独立エージェントを生成。実行時のサブエージェント。Agent Communication Protocol（ACP）によるクロスシステム編成。                                                                         |
-| **Coding Mode**                               | 3 パネル Web IDE — ファイルツリー、Diff プレビュー、チャット。定義へジャンプ、参照検索、構造コード検索を内蔵。                                                                                                 |
+| **ファイルワークスペース**                     | プロジェクトと Agent のファイルに共通するナビゲーション、プレビュー、編集、Diff、アップロード、ダウンロード。                                                                      |
 | **拡張可能**                                | スケジューリング、ドキュメント、ブラウザ、ニュースなどの Skills。マーケット付きプラグインアーキテクチャ。MCP で外部ツールを統合。目的別ワークフローに自由に組み合わせ可能。                                                                    |
 | **どこでも届く**                        | DingTalk、Lark、WeChat、Discord、Telegram、iMessage、QQ — 1 インスタンス、全チャネル。Console、TUI、デスクトップアプリで直接アクセス。                                                                         |
 | **あなたのもの、私たちのものではない**          | ローカル展開 — データはあなたのマシンに留まる。サードパーティホスティングなし、データアップロードなし。                                                                                                         |
@@ -48,7 +48,7 @@
 > <br>
 >
 > - **自動化 & スケジューリング**: 定期タスクを設定 — ニュースダイジェスト、レポート生成、マルチチャネル配信 — すべてスケジュール通りに自動実行。
-> - **コード & 開発**: プロジェクト内でコードの読み取り、編集、レビュー、テスト；Coding Mode でコードを素早く見つけて理解。
+> - **コード & 開発**: 統合ファイルワークスペースでプロジェクト内のコードを読み取り、編集、レビュー、テスト。
 > - **ドキュメント処理**: PDF、Word、Excel、PowerPoint の読み取り、書き込み、変換。
 > - **情報収集**: Web 検索、購読情報のフォロー、動画要約、個人ナレッジベースからの検索。
 > - **マルチチャネル運用**: DingTalk、Lark、Discord、Telegram などへアラート、要約、AI 生成コンテンツをプッシュ — 同時またはチャネル別。
@@ -334,7 +334,6 @@ Releases から QwenPaw macOS アプリをダウンロードすると、macOS �
 - [スキルを追加](https://qwenpaw.agentscope.io/docs/skills) して機能を拡張（PDF、Office、ブラウザ、ニュースなど）
 - [チャネルを設定](https://qwenpaw.agentscope.io/docs/channels) して DingTalk、Lark、Discord などに接続
 - [Cron を設定](https://qwenpaw.agentscope.io/docs/cron) してスケジュールタスクと自動化を実現
-- [Coding Mode を試す](https://qwenpaw.agentscope.io/docs/coding-mode) して IDE スタイルのコード協働
 - すべてのオプションと検証手順については、[クイックスタートガイド](https://qwenpaw.agentscope.io/docs/quickstart) を参照
 
 ---
@@ -406,7 +405,6 @@ QwenPaw には 4 つのコアセキュリティレイヤーが含まれていま
 | [デスクトップアプリ](https://qwenpaw.agentscope.io/docs/desktop)               | デスクトップアプリケーションのインストールと使用方法       |
 | [モデル](https://qwenpaw.agentscope.io/docs/models)                     | クラウド、ローカル、カスタムプロバイダーの設定    |
 | [チャネル](https://qwenpaw.agentscope.io/docs/channels)                  | DingTalk、Lark、QQ、Discord、iMessage など |
-| [Coding Mode](https://qwenpaw.agentscope.io/docs/coding-mode)           | コード中心タスク向け 3 パネル Web IDE       |
 | [スキル](https://qwenpaw.agentscope.io/docs/skills)                      | 機能の拡張とカスタマイズ               |
 | [プラグイン](https://qwenpaw.agentscope.io/docs/plugins)                    | プラグインシステムと Plugin Market                  |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                            | MCP クライアントの管理                               |

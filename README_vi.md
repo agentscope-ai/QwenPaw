@@ -37,7 +37,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 | **Cục bộ hoặc đám mây, chạy tự do**          | Mô hình QwenPaw-Flash (2B / 4B / 9B) huấn luyện cho tác vụ tác nhân. Runtime QwenPaw Local tích hợp sẵn — không cần API key, không phụ thuộc đám mây. Cũng hỗ trợ Ollama, LM Studio hoặc 14+ nhà cung cấp đám mây.   |
 | **Bảo mật tích hợp sẵn**                     | Sandbox cấp kernel, Tool Guard, File Guard và Skill Scanner. Lệnh nguy hiểm bị chặn trước khi chạy.                                            |
 | **Đa tác nhân & song song**                  | Tạo tác nhân độc lập với bộ nhớ và Skills riêng. Tác nhân con lúc chạy. Agent Communication Protocol (ACP) để điều phối liên hệ thống.                               |
-| **Coding Mode**                              | Web IDE ba khung với cây tệp, xem trước diff và chat. Nhảy tới định nghĩa, tìm tham chiếu và tìm kiếm mã cấu trúc tích hợp sẵn.                                              |
+| **Không gian làm việc tệp**                  | Điều hướng, xem trước, chỉnh sửa, diff, tải lên và tải xuống thống nhất cho tệp dự án và Agent.                                                                             |
 | **Mở rộng**                                  | Skills cho lập lịch, tài liệu, trình duyệt, tin tức và hơn thế. Kiến trúc plugin kèm chợ. Tích hợp MCP cho công cụ bên ngoài. Kết hợp thành quy trình theo mục đích.  |
 | **Sẵn sàng mọi nơi**                      | DingTalk, Lark, WeChat, Discord, Telegram, iMessage, QQ — một instance, mọi kênh. Console, TUI và ứng dụng desktop để truy cập trực tiếp.                                            |
 | **Của bạn, không phải của chúng tôi**        | Triển khai cục bộ — dữ liệu ở lại máy bạn. Không qua bên thứ ba lưu trữ, không tải dữ liệu lên.                                                                         |
@@ -48,7 +48,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 > <br>
 >
 > - **Tự động hóa & lập lịch**: Thiết lập tác vụ định kỳ — tóm tắt tin tức, tạo báo cáo, phát sóng đa kênh — tất cả theo lịch của bạn.
-> - **Mã nguồn & phát triển**: Đọc, chỉnh sửa, review và kiểm thử mã trong dự án; Coding Mode giúp bạn nhanh chóng tìm và hiểu mã.
+> - **Mã nguồn & phát triển**: Đọc, chỉnh sửa, review và kiểm thử mã trong dự án bằng không gian làm việc tệp thống nhất.
 > - **Xử lý tài liệu**: Đọc, ghi và chuyển đổi tệp PDF, Word, Excel và PowerPoint.
 > - **Thu thập thông tin**: Tìm kiếm web, theo dõi nguồn đăng ký, tóm tắt video và tìm thông tin trong cơ sở tri thức cá nhân.
 > - **Vận hành đa kênh**: Đẩy cảnh báo, tóm tắt hoặc nội dung do AI tạo tới DingTalk, Lark, Discord, Telegram, v.v. — đồng thời hoặc theo từng kênh.
@@ -334,7 +334,6 @@ Sau khi cài đặt, cấu hình mô hình trong **Console → Settings → Mode
 - [Thêm Skills](https://qwenpaw.agentscope.io/docs/skills) để mở rộng khả năng (PDF, Office, trình duyệt, tin tức, v.v.)
 - [Thiết lập Kênh](https://qwenpaw.agentscope.io/docs/channels) cho DingTalk, Lark, Discord, v.v.
 - [Cấu hình Cron](https://qwenpaw.agentscope.io/docs/cron) cho tác vụ định kỳ và tự động hóa
-- [Thử Coding Mode](https://qwenpaw.agentscope.io/docs/coding-mode) để hợp tác mã nguồn kiểu IDE
 - Xem [hướng dẫn Bắt đầu nhanh](https://qwenpaw.agentscope.io/docs/quickstart) đầy đủ cho mọi tùy chọn và bước xác minh
 
 ---
@@ -406,7 +405,6 @@ Xem [Bảo mật](https://qwenpaw.agentscope.io/docs/security) để biết chi 
 | [Ứng dụng Desktop](https://qwenpaw.agentscope.io/docs/desktop)               | Cài đặt và sử dụng ứng dụng desktop       |
 | [Mô hình](https://qwenpaw.agentscope.io/docs/models)                  | Cấu hình nhà cung cấp đám mây, cục bộ và tùy chỉnh   |
 | [Kênh](https://qwenpaw.agentscope.io/docs/channels)                   | DingTalk, Lark, QQ, Discord, iMessage, và hơn nữa  |
-| [Coding Mode](https://qwenpaw.agentscope.io/docs/coding-mode)           | Web IDE ba khung cho tác vụ tập trung mã nguồn       |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                  | Mở rộng và tùy chỉnh khả năng                         |
 | [Plugins](https://qwenpaw.agentscope.io/docs/plugins)                    | Hệ thống plugin và Chợ Plugin                  |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                         | Quản lý máy khách MCP                                 |
