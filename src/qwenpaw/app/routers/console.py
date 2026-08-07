@@ -638,6 +638,37 @@ def _parse_sse_payload(line: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+async def _finalize_background_fork(
+    project_dir: str,
+    branch: str,
+    *,
+    scope_id: str,
+) -> bool:
+    """Finish an in-flight fork commit before publishing task state.
+
+    Cancelling an ``asyncio.to_thread`` await cannot stop its worker thread.
+    Once finalization starts, keep waiting for its authoritative result so the
+    task API, fork registry, and branch HEAD cannot report conflicting states.
+    """
+    from qwenpaw.agents.fork_project import finalize_fork_worktree_or_fail
+
+    finalizer = asyncio.create_task(
+        asyncio.to_thread(
+            finalize_fork_worktree_or_fail,
+            project_dir,
+            branch,
+            message=f"fork worker {branch}",
+            expected_scope=scope_id or None,
+        ),
+    )
+    while True:
+        try:
+            return await asyncio.shield(finalizer)
+        except asyncio.CancelledError:
+            if finalizer.done():
+                return finalizer.result()
+
+
 async def _mark_background_fork_failed(
     project_dir: str,
     branch: str,
@@ -777,16 +808,10 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
             # mergeable before exposing a completed task result.
             if fork_project_dir and fork_worktree_branch:
                 try:
-                    from qwenpaw.agents.fork_project import (
-                        finalize_fork_worktree_or_fail,
-                    )
-
-                    finalized = await asyncio.to_thread(
-                        finalize_fork_worktree_or_fail,
+                    finalized = await _finalize_background_fork(
                         fork_project_dir,
                         fork_worktree_branch,
-                        message=f"fork worker {fork_worktree_branch}",
-                        expected_scope=fork_scope_id or None,
+                        scope_id=fork_scope_id,
                     )
                 except Exception:
                     logger.warning(

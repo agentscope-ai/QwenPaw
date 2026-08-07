@@ -179,6 +179,14 @@ async def _wait_for_task_to_finish(task_id: str) -> dict[str, Any]:
     raise TimeoutError(f"background task did not finish: {task_id}")
 
 
+async def _wait_for_task_cancellation(task: asyncio.Task[Any]) -> None:
+    for _ in range(200):
+        if task.cancelling() > 0:
+            return
+        await asyncio.sleep(0.05)
+    raise TimeoutError("background task was not cancelled")
+
+
 @pytest.mark.asyncio
 async def test_forked_task_reports_failed_when_worktree_cannot_be_finalized(
     tmp_path: Path,
@@ -253,11 +261,11 @@ async def test_forked_task_reports_failed_when_worktree_finalization_raises(
 
 
 @pytest.mark.asyncio
-async def test_forked_task_timeout_during_finalization_reports_failed(
+async def test_forked_task_timeout_during_finalization_waits_for_commit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Timeout during the Git commit must leave a terminal task result."""
+    """Once a Git commit starts, timeout waits for its authoritative result."""
     fork = _create_fork(tmp_path, "finalize-timeout")
     _install_hook(
         fork,
@@ -274,12 +282,24 @@ async def test_forked_task_timeout_during_finalization_reports_failed(
     )
     try:
         await _wait_for_file(fork.worktree / ".hook-started")
-        task = await _wait_for_task_to_finish(task_id)
+        await _wait_for_task_cancellation(background_task)
+        before_release = await console.get_console_chat_task(task_id)
+
+        (fork.worktree / ".hook-release").touch()
+        await asyncio.wait_for(background_task, timeout=10)
+        completed = await console.get_console_chat_task(task_id)
+        registry = json.loads(
+            (fork.project / REGISTRY_REL).read_text(encoding="utf-8"),
+        )
+        fork_head = _git(fork.worktree, "rev-parse", "HEAD").stdout.strip()
 
         assert (
-            task["status"],
-            (task.get("result") or {}).get("status"),
-        ) == ("finished", "failed")
+            before_release["status"],
+            completed["status"],
+            completed["result"]["status"],
+            registry["forks"][fork.branch]["status"],
+            fork_head != fork.base_head,
+        ) == ("running", "finished", "completed", "finalized", True)
     finally:
         (fork.worktree / ".hook-release").touch(exist_ok=True)
         await asyncio.gather(background_task, return_exceptions=True)
