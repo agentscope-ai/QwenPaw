@@ -940,6 +940,12 @@ async def _execute_posix_host(
             await run_sync_io(outputs.cleanup)
 
 
+# TODO: Add dedicated support for long-running processes through a managed
+#  session model. Keep processes under framework ownership, return a session ID
+#  while they are running, capture stdout and stderr in bounded head-and-tail
+#  buffers, allow callers to poll new output and stop sessions explicitly,
+#  limit active sessions, and terminate the entire process tree when a
+#  session  stops or expires, or when the application shuts down.
 # pylint: disable=too-many-branches, too-many-statements
 @tool_descriptor(
     requires_sandbox=("shell_exec",),
@@ -966,9 +972,9 @@ async def execute_shell_command(
     determine which shell is active, and generate commands using the
     appropriate syntax (e.g. bash vs PowerShell vs cmd.exe).
 
-    Direct host execution captures a bounded stdout/stderr snapshot. Long-lived
-    background services should explicitly redirect their output to a
-    user-managed log file or the platform null device.
+    IMPORTANT: Do not use nohup or other commands to start long-running
+    background processes. If unavoidable, explicitly redirect stdin,
+    stdout, and stderr.
 
     Args:
         command (`str`):
