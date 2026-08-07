@@ -1,16 +1,18 @@
 ---
-title: "Context as an Environment: Executable Long-Term Memory in QwenPaw Scroll"
+title: "Context as an Environment: Programmatic Context Management with QwenPaw Scroll"
 date: 2026-08-05
 author: QwenPaw Team
-tags: [Context Engineering, Long-Term Memory, Scroll, CodeAct, Retrieval]
-excerpt: "QwenPaw Scroll externalizes interaction history to a durable SQLite/FTS log, then gives the agent structured recall and a sandboxed Python REPL to retrieve, join, and compute over its own history on demand."
+tags: [Context Engineering, Long-Context Agents, Scroll, CodeAct, Retrieval]
+excerpt: "QwenPaw Scroll is designed for long-context agentic tasks: it externalizes complete interaction trajectories to a durable SQLite/FTS log so agents can continue retrieving, reasoning, and acting over very long histories."
 ---
 
-# Context as an Environment: Executable Long-Term Memory in QwenPaw Scroll
+# Context as an Environment: Programmatic Context Management with QwenPaw Scroll
 
-Context management for long-horizon agents is fundamentally an information-selection problem under a bounded inference budget. A common design injects relevant history directly into the prompt, then truncates or summarizes earlier content as the accumulated history approaches the context-window limit. This controls input size, but it also moves the retention decision to compaction time: the system must predict which details will remain useful before future queries are known.
+QwenPaw Scroll is designed for **long-context agentic tasks**. In these workloads, an agent must reason and act over a growing trajectory of user instructions, tool calls, tool results, failed attempts, decisions, and changing environment state. The central question is not only whether the model can recall an isolated fact, but how well it can maintain task state, recover relevant evidence, and continue reasoning and acting over very long contexts.
 
-QwenPaw Scroll defines a different system boundary. The complete interaction history does not remain resident in the model context. It is externalized to durable storage backed by SQLite and full-text search, while structured retrieval tools and a sandboxed Python REPL let the agent read, join, and compute over the record on demand.
+Context management for long-horizon agents is therefore an information-selection problem under a bounded inference budget. A common design injects relevant history directly into the prompt, then truncates or summarizes earlier content as the accumulated history approaches the context-window limit. This controls input size, but it also moves the retention decision to compaction time: the system must predict which details will remain useful before future queries are known.
+
+Durable storage is far less costly than keeping history continuously visible to the model. QwenPaw Scroll therefore defines a different system boundary: the complete interaction history does not remain resident in the model context, but is externalized to durable storage backed by SQLite and full-text search. Structured retrieval tools and a sandboxed Python REPL then let the agent read, join, and compute over that record on demand.
 
 Conversation history is therefore no longer represented as static text that remains resident in the prompt. It is organized as an **external history environment that can be queried and computed over**. The model context maintains only a bounded working set; the complete history remains outside the window while staying addressable, verifiable, and recomputable.
 
@@ -18,11 +20,11 @@ This report describes four parts of that design: how tool descriptions specify a
 
 ## 1. The Context Window Is Working Memory, Not the Record
 
-Compaction and long-term memory solve different parts of the problem.
+Live-context compaction, durable interaction history, and semantic memory are distinct system layers.
 
 - **Compaction** controls the size of the model's current input.
-- **Long-term memory** provides information retention and access across turns.
-- **A durable event log** preserves the original evidence from which either representation can be reconstructed.
+- **Durable interaction history** preserves original events verbatim across turns and exposes them through addressable retrieval interfaces.
+- **Semantic memory** derives entities, relationships, and abstractions from history or external sources for semantic recall and knowledge organization.
 
 If a summary becomes the only retained representation of historical content, every compaction performs an irreversible information-selection step. A precise error, a rejected implementation, or the date on which a preference changed may appear secondary at compaction time but become decisive evidence in a later session.
 
@@ -117,6 +119,14 @@ A durable log provides recoverability, but the agent still needs a low-token ind
 ⟦ model discovery | in progress: OpenAI done; next: fix DashScope | anchors: AllowlistFilter, registry.py ⟧
 ```
 
+The model generates only the semantic content inside the brackets; it does not supply the address. After the turn is written to `history.db`, Scroll binds the headline to the stable `seq` assigned by the database. Once that turn leaves the live context, the eviction index renders it as:
+
+```text
+· seq 1842  ⟦ model discovery | in progress: OpenAI done; next: fix DashScope | anchors: AllowlistFilter, registry.py ⟧
+```
+
+The agent therefore sees both a semantic cue and its exact position in the original history. It can locate a checkpoint by headline, then pass its `seq` to `expand` to recover the corresponding turn; a collapsed block carries `seq lo-hi` for expanding the full span. Scroll creates this binding deterministically, so the model never has to generate or guess historical addresses.
+
 The headline is neither a generic topic nor a summary of the whole conversation. It is a compact checkpoint for one turn:
 
 - the stable task or success criterion;
@@ -183,11 +193,11 @@ These safeguards do not make summarization lossless; they define its epistemic r
 
 ## 6. Integrating External Semantic Long-Term Memory
 
-Executable history provides recoverability and computation at the episodic layer, but it does not constrain QwenPaw's higher-level memory architecture. QwenPaw separates episodic history from semantic memory, so external semantic long-term memory can still be integrated through adapters, including graph, vector, ontology, and hybrid backends.
+Externalized interaction history provides recoverability and computation at the episodic layer, but it does not constrain QwenPaw's higher-level memory architecture. QwenPaw separates episodic history from semantic memory, so external semantic long-term memory can still be integrated through adapters, including graph, vector, ontology, and hybrid backends.
 
 The two memory layers serve different roles:
 
-| Dimension                | Executable event log                                           | External semantic long-term memory                               |
+| Dimension                | Externalized interaction history                               | External semantic long-term memory                               |
 | ------------------------ | -------------------------------------------------------------- | ---------------------------------------------------------------- |
 | Primary substrate        | Verbatim interaction events                                    | Derived entities, relations, concepts, and embeddings            |
 | Natural query            | Exact recall, temporal filtering, aggregation, arbitrary joins | Semantic similarity, graph traversal, ontology, hybrid retrieval |
@@ -198,17 +208,16 @@ The two layers can operate together within one system. Semantic long-term memory
 
 ## 7. Evaluation
 
-This report will include a concise set of long-horizon benchmark results. Scores remain blank until the final reproducible runs are complete.
+We evaluate QwenPaw Scroll with **Qwen 3.8 Max** as the backbone and a consistent **ReAct agent scaffold**. Under the corresponding evaluation settings, Scroll achieves state-of-the-art results on two long-context benchmarks:
 
-| Benchmark   | Setting      | QwenPaw Scroll | Notes                                                            |
-| ----------- | ------------ | -------------: | ---------------------------------------------------------------- |
-| LongMemEval | `_s` split   |      **[TBD]** | Multi-session recall, update, preference, and temporal questions |
-| BEAM        | 10M tokens   |      **[TBD]** | Memory at a horizon far beyond the live context window           |
-| LoCoMo      | QA / overall |      **[TBD]** | Very long-term conversational memory                             |
+| Benchmark  |     Score |
+| ---------- | --------: |
+| BEAM_10M   | **68.9%** |
+| LOCA-bench | **57.3%** |
 
-For the complete, reproducible experiment code and evaluation scripts, see [niceIrene/Scroll](https://github.com/niceIrene/Scroll).
+BEAM_10M evaluates long-term memory and reasoning over coherent histories of up to 10M tokens. LOCA-bench evaluates models and scaffolds in agentic environments with dynamically growing context, where agents must explore, use tools, and predict subsequent actions reliably. Together, the two results cover memory reasoning over very long histories and reasoning-and-acting performance over dynamic agent trajectories.
 
-Aggregate benchmark scores cover only part of the target capability. Long-horizon agents must also handle tool-heavy trajectories, changing facts, exhaustive counting, exact identifiers, and questions that require computation rather than single-passage recall. We will retain retrieval traces and judge outputs alongside aggregate scores so that results remain auditable.
+More detailed ablation studies, together with reproducible results and analysis, will be released in a future version.
 
 ## 8. Design Implications
 
@@ -221,11 +230,10 @@ The central change is not a better summary; it is a different system boundary be
 - structured recall handles common reads;
 - the sandboxed REPL turns unusual retrieval into executable computation.
 
-As models improve at generating and inspecting code, the capability ceiling of this interface can rise without replacing the underlying record. Memory changes from passively injected context into an environment the agent can query and compute over.
+As models improve at generating and inspecting code, the capability ceiling of this interface can rise without replacing the underlying record. History changes from passively injected context into an environment the agent can query and compute over. Scroll ultimately targets more than isolated fact retrieval: it supports a model's ability to reason, decide, and act over very long contexts.
 
 ### References
 
 - [Recursive Language Models](https://arxiv.org/abs/2512.24601)
 - [BEAM](https://arxiv.org/abs/2510.27246)
-- [LongMemEval](https://github.com/xiaowu0162/LongMemEval)
-- [LoCoMo](https://github.com/snap-research/locomo)
+- [LOCA-bench](https://arxiv.org/abs/2602.07962)

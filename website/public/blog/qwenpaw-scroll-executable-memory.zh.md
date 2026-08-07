@@ -1,16 +1,18 @@
 ---
-title: "把上下文变成环境：QwenPaw Scroll 的可执行长期记忆"
+title: "把上下文变成环境：QwenPaw Scroll 的程序化上下文管理"
 date: 2026-08-05
 author: QwenPaw Team
-tags: [上下文工程, 长期记忆, Scroll, CodeAct, 检索]
-excerpt: "QwenPaw Scroll 把完整交互历史外部化到 SQLite/FTS 持久日志，并向 Agent 提供结构化 recall 与沙箱 Python REPL，让它按需检索、关联和计算自己的历史。"
+tags: [上下文工程, 长上下文 Agent, Scroll, CodeAct, 检索]
+excerpt: "QwenPaw Scroll 面向 long-context agentic tasks：它将完整交互轨迹外部化到 SQLite/FTS 持久日志，使 Agent 能够在超长历史上持续检索、推理和行动。"
 ---
 
-# 把上下文变成环境：QwenPaw Scroll 的可执行长期记忆
+# 把上下文变成环境：QwenPaw Scroll 的程序化上下文管理
 
-长时程 Agent 的上下文管理，本质上是在有限推理预算下选择模型当前可见的信息。常见实现会把相关历史直接注入 prompt；当累计历史接近上下文窗口上限时，再截断或摘要较早的内容。这类方法能够控制输入规模，但也把信息保留决策提前到了压缩时刻：系统必须在未来查询尚未出现时，预测哪些细节值得长期保留。
+QwenPaw Scroll 面向的是 **long-context agentic tasks**。在这类任务中，Agent 需要在持续增长的 user instruction、tool call、tool result、失败尝试、决策与环境状态上连续推理并执行动作。核心问题不仅是能否从历史中 recall 某个事实，更是模型能否基于超长交互轨迹保持任务状态、恢复相关证据，并据此继续 reasoning and acting。
 
-QwenPaw Scroll 采用不同的系统边界：完整交互历史不需要常驻注入模型上下文，而是被外部化到 SQLite 与全文索引构成的持久化存储中；Agent 通过结构化检索工具和沙箱 Python REPL，按需读取、关联并计算历史记录。
+因此，长时程 Agent 的上下文管理，本质上是在有限推理预算下选择模型当前可见的信息。常见实现会把相关历史直接注入 prompt；当累计历史接近上下文窗口上限时，再截断或摘要较早的内容。这类方法能够控制输入规模，但也把信息保留决策提前到了压缩时刻：系统必须在未来查询尚未出现时，预测哪些细节值得长期保留。
+
+持久化存储的成本远低于持续占用模型上下文。基于这一点，QwenPaw Scroll 采用不同的系统边界：完整交互历史无需常驻模型上下文，而是被外部化到 SQLite 与全文索引构成的持久化存储中；Agent 通过结构化检索工具和沙箱 Python REPL，按需读取、关联并计算历史记录。
 
 在这一设计中，conversation history 不再作为静态文本常驻注入 prompt，而是被组织为一个**可查询、可计算的外部历史环境**。模型上下文只维护有界的 working set，完整历史位于窗口之外，并保持可寻址、可验证和可重新计算。
 
@@ -18,11 +20,11 @@ QwenPaw Scroll 采用不同的系统边界：完整交互历史不需要常驻�
 
 ## 1. Context Window 是工作记忆，不是历史档案
 
-Compaction、长期记忆和持久日志解决的是三个不同的问题：
+Live-context compaction、durable interaction history 与 semantic memory 是三个不同的系统层次：
 
 - **Compaction**：控制模型当前输入的规模；
-- **Long-term memory**：提供跨轮次的信息保留与访问；
-- **Durable event log**：保存原始证据，使前两类表示都可以重新构造。
+- **Durable interaction history**：逐字保存跨轮次的原始事件，并提供可寻址的访问接口；
+- **Semantic memory**：从历史或外部来源派生实体、关系与抽象表示，用于语义召回和知识组织。
 
 如果 summary 成为历史内容唯一保留的表示，那么每次压缩都隐含了一次不可逆的信息选择：系统需要预先判断未来不会再依赖哪些细节。然而，一条精确报错、一个被否决的实现方案，或某项偏好发生变化的具体日期，都可能在后续 session 中成为关键证据。
 
@@ -117,6 +119,14 @@ Durable log 保证历史可恢复，但 Agent 仍需要一个 token 开销较低
 ⟦ 模型发现修复｜进行中：OpenAI 已完成；下一步：修复 DashScope｜锚点：AllowlistFilter、registry.py ⟧
 ```
 
+模型只生成括号内的语义内容，不自行填写地址。Turn 写入 `history.db` 后，Scroll 会把数据库分配的稳定 `seq` 与 headline 绑定；当该 turn 被移出 live context 时，它会在 eviction index 中呈现为：
+
+```text
+· seq 1842  ⟦ 模型发现修复｜进行中：OpenAI 已完成；下一步：修复 DashScope｜锚点：AllowlistFilter、registry.py ⟧
+```
+
+因此，Agent 看到的不只是一个语义提示，还包括它在原始历史中的确定位置。Agent 可以先根据 headline 找到相关 checkpoint，再以 `seq` 调用 `expand` 恢复对应 turn；折叠后的 block 则携带 `seq lo-hi`，用于展开整个区间。这一绑定由系统完成，避免模型生成或猜测历史地址。
+
 Headline 既不是宽泛的话题标签，也不是整个历史区间的 summary，而是一个 turn 的紧凑 checkpoint：
 
 - 稳定的任务名或成功标准；
@@ -183,11 +193,11 @@ Eviction index 与 continuation summary 刻意承担不同工作：
 
 ## 6. 仍然可以外接 Semantic Long-Term Memory
 
-Executable history 解决的是 episodic layer 的可恢复性与可计算性，但它并不限定 QwenPaw 上层的 memory architecture。QwenPaw 将 episodic history 与 semantic memory 分层，因此仍然可以通过适配接口接入外部 semantic long-term memory，包括 graph、vector、ontology 或多种索引组合而成的 hybrid backend。
+Externalized interaction history 解决的是 episodic layer 的可恢复性与可计算性，但它并不限定 QwenPaw 上层的 memory architecture。QwenPaw 将 episodic history 与 semantic memory 分层，因此仍然可以通过适配接口接入外部 semantic long-term memory，包括 graph、vector、ontology 或多种索引组合而成的 hybrid backend。
 
 两层 memory 的职责不同：
 
-| 维度           | Executable event log                           | External semantic long-term memory                    |
+| 维度           | Externalized interaction history               | External semantic long-term memory                    |
 | -------------- | ---------------------------------------------- | ----------------------------------------------------- |
 | 主要 substrate | 逐字交互事件                                   | 派生出的 entity、relation、concept 与 embedding       |
 | 自然查询方式   | 精确 recall、时间 filter、aggregate、任意 join | 语义相似度、关系遍历、ontology query 与 hybrid recall |
@@ -198,17 +208,16 @@ Executable history 解决的是 episodic layer 的可恢复性与可计算性，
 
 ## 7. Evaluation
 
-本文将报告一组精简的 long-horizon benchmark 结果。为保证可复现性，正式评测完成前暂不填写分数。
+我们使用 **Qwen 3.8 Max** 作为 backbone，并搭配一致的 **ReAct agent scaffold** 评估 QwenPaw Scroll。在对应的 evaluation settings 下，Scroll 在两个 long-context benchmark 上均取得了 state-of-the-art 结果：
 
-| Benchmark   | Setting      | QwenPaw Scroll | 评测重点                                                             |
-| ----------- | ------------ | -------------: | -------------------------------------------------------------------- |
-| LongMemEval | `_s` split   |     **[待补]** | 多 session recall、knowledge update、preference 与 temporal question |
-| BEAM        | 10M tokens   |     **[待补]** | 远超 live context window 的长期记忆                                  |
-| LoCoMo      | QA / overall |     **[待补]** | Very long-term conversational memory                                 |
+| Benchmark  |     Score |
+| ---------- | --------: |
+| BEAM_10M   | **68.9%** |
+| LOCA-bench | **57.3%** |
 
-完整、可复现的实验代码与评测脚本见 [niceIrene/Scroll](https://github.com/niceIrene/Scroll)。
+BEAM_10M 评估模型在最长 10M tokens 的连贯历史上进行长期记忆与推理的能力。LOCA-bench 则面向 context 持续增长的 agentic environment，评估模型与 scaffold 能否在探索环境、调用工具和预测后续动作的过程中保持可靠性。这两个结果分别覆盖超长历史上的 memory reasoning，以及动态 agent trajectory 上的 reasoning and acting。
 
-Aggregate benchmark score 只能覆盖部分能力。真实 long-horizon agent 还需要处理 tool-heavy trajectory、动态事实更新、exhaustive counting、精确 identifier，以及需要计算而非单段文本召回的问题。最终报告会同时保留 retrieval trace 与 judge output，使 aggregate score 具备可审计性。
+更详细的 ablation studies 和可复现结果分析将在后续版本中发布。
 
 ## 8. Design Implications
 
@@ -221,11 +230,10 @@ Aggregate benchmark score 只能覆盖部分能力。真实 long-horizon agent �
 - structured recall 处理常规读取；
 - sandboxed REPL 把特殊 retrieval 变成可执行计算。
 
-随着模型生成和检查代码的能力提升，这一接口的能力上限可以继续提高，而无需替换底层历史记录。Memory 因而从被动注入的上下文，转变为 Agent 可以主动查询和计算的环境。
+随着模型生成和检查代码的能力提升，这一接口的能力上限可以继续提高，而无需替换底层历史记录。History 因而从被动注入的上下文，转变为 Agent 可以主动查询和计算的环境。Scroll 最终服务的不是孤立的事实检索，而是模型在超长上下文之上持续 reasoning、决策与行动的能力。
 
 ### References
 
 - [Recursive Language Models](https://arxiv.org/abs/2512.24601)
 - [BEAM](https://arxiv.org/abs/2510.27246)
-- [LongMemEval](https://github.com/xiaowu0162/LongMemEval)
-- [LoCoMo](https://github.com/snap-research/locomo)
+- [LOCA-bench](https://arxiv.org/abs/2602.07962)
