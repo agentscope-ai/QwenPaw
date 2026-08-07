@@ -85,44 +85,6 @@ def _base_config() -> dict[str, Any]:
                     },
                 ],
             },
-            "resource_watch_loop": {
-                "backend": "background",
-                "max_file_bytes": _MAX_FILE_BYTES,
-                "watch_dirs": ["resource_dir"],
-                "watch_suffixes": [
-                    "md",
-                    "txt",
-                    "json",
-                    "jsonl",
-                    "csv",
-                    "yaml",
-                    "html",
-                ],
-                "steps": [
-                    {
-                        "backend": "init_changes_step",
-                        "monitor_type": "file_catalog",
-                        "monitor_name": "resource",
-                        "dispatch_steps": [
-                            {
-                                "backend": "update_catalog_step",
-                                "file_catalog": "resource",
-                            },
-                            {"backend": "auto_resource_step"},
-                        ],
-                    },
-                    {
-                        "backend": "watch_changes_step",
-                        "dispatch_steps": [
-                            {
-                                "backend": "update_catalog_step",
-                                "file_catalog": "resource",
-                            },
-                            {"backend": "auto_resource_step"},
-                        ],
-                    },
-                ],
-            },
             "version": {
                 "backend": "base",
                 "description": "return reme package version",
@@ -530,37 +492,59 @@ def _base_config() -> dict[str, Any]:
                 },
                 "steps": [{"backend": "auto_memory_step"}],
             },
-            "auto_resource": {
+            "daily_paper": {
                 "backend": "base",
                 "description": (
-                    "Auto-resource: interpret resource files into daily notes"
+                    "Build detailed readings and a five-minute brief from "
+                    "Hugging Face weekly/monthly papers."
                 ),
+                "candidate_limit": 20,
+                "rrf_k": 60,
+                "weekly_weight": 0.7,
+                "history_days": 30,
+                "hf_timeout": 600,
+                "hf_max_retries": 3,
+                "pdf_timeout": 600,
+                "max_pdf_bytes": 50 * 1024 * 1024,
+                "max_pdf_pages": 20,
+                "max_pdf_chars": 300000,
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "changes": {
-                            "type": "array",
+                        "date": {
+                            "type": "string",
                             "description": (
-                                "resource change batch, each item has "
-                                "path/file_path and change"
+                                "Run date in YYYY-MM-DD; empty means today."
                             ),
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "path": {"type": "string"},
-                                    "file_path": {"type": "string"},
-                                    "change": {
-                                        "type": "string",
-                                        "description": "added/"
-                                        "modified/deleted",
-                                    },
-                                },
-                            },
+                            "default": "",
+                        },
+                        "force": {
+                            "type": "boolean",
+                            "description": "Regenerate an existing brief.",
+                            "default": False,
+                        },
+                        "topics": {
+                            "type": "string",
+                            "description": "Topics to prioritize.",
+                            "default": "",
+                        },
+                        "weekly_weight": {
+                            "type": "number",
+                            "default": 0.7,
+                        },
+                        "history_days": {
+                            "type": "integer",
+                            "default": 30,
                         },
                     },
-                    "required": ["changes"],
                 },
-                "steps": [{"backend": "auto_resource_step"}],
+                "steps": [
+                    {"backend": "daily_paper_collect_step"},
+                    {"backend": "daily_paper_rank_step"},
+                    {"backend": "daily_paper_select_step"},
+                    {"backend": "daily_paper_analyze_step"},
+                    {"backend": "daily_paper_digest_step"},
+                ],
             },
         },
         "components": _base_components(),
@@ -601,7 +585,6 @@ def _base_components() -> dict[str, Any]:
         "file_graph": {"default": {"backend": "local"}},
         "file_catalog": {
             "default": {"backend": "local"},
-            "resource": {"backend": "local"},
             "digest": {"backend": "local"},
             "dream": {"backend": "local"},
         },

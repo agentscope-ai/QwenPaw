@@ -77,10 +77,9 @@ def test_vector_space_fingerprint_ignores_key_and_cache_settings() -> None:
     first = _config(api_key="old", max_cache_size=10)
     second = _config(api_key="new", max_cache_size=20)
 
-    assert (
-        module.embedding_vector_space_fingerprint(first)
-        == module.embedding_vector_space_fingerprint(second)
-    )
+    assert module.embedding_vector_space_fingerprint(
+        first,
+    ) == module.embedding_vector_space_fingerprint(second)
 
 
 def test_tested_config_fingerprint_ignores_reme_store_settings() -> None:
@@ -97,7 +96,6 @@ def test_tested_config_fingerprint_ignores_reme_store_settings() -> None:
         max_batch_size=4,
     )
 
-    assert (
-        module.embedding_config_fingerprint(first)
-        == module.embedding_config_fingerprint(second)
-    )
+    assert module.embedding_config_fingerprint(
+        first,
+    ) == module.embedding_config_fingerprint(second)

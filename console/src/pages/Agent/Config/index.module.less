@@ -109,14 +109,6 @@
   width: 100%;
 }
 
-.memoryPageDescription {
-  max-width: 760px;
-  margin: -4px 0 5px;
-  color: rgba(20, 20, 19, 0.58);
-  font-size: 13px;
-  line-height: 1.65;
-}
-
 .memoryReferences {
   display: flex;
   align-items: center;
@@ -164,15 +156,26 @@
   margin-bottom: 18px;
 
   h3 {
-    margin: 3px 0 0;
+    margin: 3px 0 5px;
     color: #242321;
     font-size: 17px;
     font-weight: 650;
   }
+
+  p {
+    max-width: 720px;
+    margin: 0;
+    color: rgba(20, 20, 19, 0.54);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .memoryReferences {
+    margin: 7px 0 0;
+  }
 }
 
-.memoryOverviewEyebrow,
-.memoryMaintenanceEyebrow {
+.memoryOverviewEyebrow {
   color: #d96b11;
   font-size: 10px;
   font-weight: 700;
@@ -189,9 +192,11 @@
   font-size: 11px;
   font-weight: 600;
 
-  > span {
+  > span,
+  > i {
     width: 7px;
     height: 7px;
+    flex: none;
     border-radius: 50%;
   }
 }
@@ -201,7 +206,8 @@
   background: rgba(102, 112, 133, 0.07);
   color: #667085;
 
-  > span {
+  > span,
+  > i {
     background: #98a2b3;
   }
 }
@@ -211,7 +217,8 @@
   background: rgba(47, 108, 229, 0.07);
   color: #2f6ce5;
 
-  > span {
+  > span,
+  > i {
     background: #5285eb;
     box-shadow: 0 0 0 3px rgba(47, 108, 229, 0.11);
   }
@@ -222,7 +229,8 @@
   background: rgba(53, 168, 93, 0.07);
   color: #258348;
 
-  > span {
+  > span,
+  > i {
     background: #35a85d;
     box-shadow: 0 0 0 3px rgba(53, 168, 93, 0.11);
   }
@@ -233,16 +241,11 @@
   background: rgba(217, 54, 62, 0.07);
   color: #c4313a;
 
-  > span {
+  > span,
+  > i {
     background: #d9363e;
     box-shadow: 0 0 0 3px rgba(217, 54, 62, 0.1);
   }
-}
-
-.memoryOverviewActions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .memoryStatusButton {
@@ -279,7 +282,8 @@
   }
 
   > span,
-  > strong {
+  > strong,
+  > small {
     display: block;
   }
 
@@ -296,6 +300,96 @@
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  > small {
+    margin-top: 2px;
+    overflow: hidden;
+    color: rgba(20, 20, 19, 0.4);
+    font-size: 10px;
+    line-height: 16px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > .memoryStatusBadge {
+    display: inline-flex;
+  }
+}
+
+.memoryOverviewActionItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+
+  > div {
+    min-width: 0;
+  }
+
+  > div > span {
+    display: block;
+    margin-bottom: 7px;
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 11px;
+  }
+
+  .memoryStatusBadge {
+    display: inline-flex;
+  }
+}
+
+.memoryOverviewMaintenance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: rgba(255, 183, 36, 0.075);
+
+  > div {
+    min-width: 0;
+  }
+
+  > div > strong,
+  > div > span,
+  > div > small {
+    display: block;
+  }
+
+  > div > span {
+    margin-bottom: 5px;
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 11px;
+  }
+
+  > div > strong {
+    margin-bottom: 2px;
+    color: #302d29;
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  > div > small {
+    display: -webkit-box;
+    overflow: hidden;
+    color: rgba(20, 20, 19, 0.4);
+    font-size: 10px;
+    line-height: 1.5;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+
+  :global(.ant-btn),
+  :global(.qwenpaw-btn) {
+    flex: none;
+    border-color: rgba(205, 143, 26, 0.35) !important;
+    background: rgba(255, 255, 255, 0.64) !important;
+    color: #a96010 !important;
+
+    &:hover {
+      border-color: rgba(205, 143, 26, 0.62) !important;
+      background: rgba(255, 183, 36, 0.13) !important;
+    }
   }
 }
 
@@ -327,6 +421,136 @@
   background: rgba(20, 20, 19, 0.018);
 }
 
+.memorySectionIcon {
+  display: flex;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+
+.memorySectionIconPrimary {
+  border: 1px solid rgba(232, 103, 12, 0.14);
+  background: linear-gradient(
+    145deg,
+    rgba(255, 127, 22, 0.18),
+    rgba(255, 183, 36, 0.08)
+  );
+  box-shadow: 0 4px 12px rgba(217, 107, 17, 0.08);
+  color: #d8610b;
+}
+
+.memorySectionIconSecondary {
+  border: 1px solid rgba(91, 103, 217, 0.14);
+  background: linear-gradient(
+    145deg,
+    rgba(91, 103, 217, 0.15),
+    rgba(117, 137, 255, 0.07)
+  );
+  box-shadow: 0 4px 12px rgba(91, 103, 217, 0.07);
+  color: #5360cc;
+}
+
+.memoryCapabilityHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 2px 0 12px;
+
+  span,
+  h4 {
+    display: block;
+  }
+
+  span {
+    margin-bottom: 3px;
+    color: #d96b11;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  h4 {
+    margin: 0;
+    color: #2c2a27;
+    font-size: 14px;
+    font-weight: 650;
+  }
+
+  code {
+    flex: none;
+    padding: 3px 8px;
+    border: 1px solid rgba(20, 20, 19, 0.08);
+    border-radius: 999px;
+    background: rgba(20, 20, 19, 0.035);
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 10px;
+  }
+}
+
+.memoryCapabilityActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+
+  > a {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: #c46211;
+    font-size: 10px;
+    font-weight: 600;
+    text-decoration: none;
+
+    &:hover {
+      color: #ff7f16;
+    }
+
+    > span {
+      margin: 0;
+      color: inherit;
+      font-size: 10px;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+  }
+}
+
+.memoryDevelopingBadge {
+  display: inline-flex !important;
+  align-items: center;
+  width: fit-content;
+  margin-bottom: 7px !important;
+  padding: 3px 8px;
+  border: 1px solid rgba(207, 103, 24, 0.24);
+  border-radius: 6px;
+  background: rgba(255, 139, 43, 0.08);
+  color: #a94f0b !important;
+  font-size: 10px !important;
+  font-weight: 650 !important;
+  line-height: 16px;
+  letter-spacing: 0.035em !important;
+  text-transform: none !important;
+}
+
+.memoryCapabilityDivider {
+  height: 1px;
+  margin: 22px 0 20px;
+  background: linear-gradient(
+    90deg,
+    rgba(20, 20, 19, 0.09),
+    rgba(20, 20, 19, 0.025)
+  );
+}
+
 .memorySectionHeader {
   display: flex;
   align-items: flex-start;
@@ -346,21 +570,6 @@
     font-size: 12px;
     line-height: 1.55;
   }
-}
-
-.memorySectionIcon {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background: rgba(255, 127, 22, 0.1);
-  color: #d96b11;
-  font-size: 10px;
-  font-weight: 750;
-  letter-spacing: 0.04em;
 }
 
 .memoryOptionalBadge {
@@ -526,31 +735,6 @@
 
   .memorySectionHeader {
     margin-bottom: 18px;
-  }
-}
-
-.memoryMaintenancePanel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 18px 20px;
-  border: 1px solid rgba(205, 143, 26, 0.2);
-  border-radius: 12px;
-  background: rgba(255, 183, 36, 0.045);
-
-  h3 {
-    margin: 3px 0 4px;
-    color: #302d29;
-    font-size: 15px;
-    font-weight: 650;
-  }
-
-  p {
-    margin: 0;
-    color: rgba(20, 20, 19, 0.52);
-    font-size: 11px;
-    line-height: 1.55;
   }
 }
 
@@ -738,9 +922,193 @@
   }
 }
 
-.embeddingNotice {
-  margin-bottom: 18px;
-  border-radius: 10px;
+.embeddingCard {
+  :global(.ant-card-body),
+  :global(.qwenpaw-card-body) {
+    padding: 0;
+  }
+}
+
+.embeddingStatusPanel {
+  margin: 20px 20px 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 127, 22, 0.2);
+  border-radius: 14px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 127, 22, 0.075),
+    rgba(255, 255, 255, 0) 62%
+  );
+}
+
+.embeddingStatusHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 19px 20px 17px;
+
+  h3 {
+    margin: 3px 0 4px;
+    color: #242321;
+    font-size: 17px;
+    font-weight: 680;
+  }
+
+  p {
+    margin: 0;
+    color: rgba(20, 20, 19, 0.54);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+.embeddingStatusMetrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid rgba(20, 20, 19, 0.07);
+  border-bottom: 1px solid rgba(20, 20, 19, 0.07);
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.embeddingStatusMetric {
+  min-width: 0;
+  padding: 14px 18px;
+  border-right: 1px solid rgba(20, 20, 19, 0.07);
+
+  &:last-child {
+    border-right: 0;
+  }
+
+  > span,
+  > strong,
+  > small {
+    display: block;
+  }
+
+  > span {
+    margin-bottom: 6px;
+    color: rgba(20, 20, 19, 0.46);
+    font-size: 10px;
+    font-weight: 550;
+  }
+
+  > strong {
+    overflow: hidden;
+    color: #292724;
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 20px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > small {
+    min-height: 16px;
+    margin-top: 2px;
+    overflow: hidden;
+    color: rgba(20, 20, 19, 0.42);
+    font-size: 10px;
+    line-height: 16px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.embeddingStatusValueEnabled,
+.embeddingStatusValueDisabled {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  i {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+  }
+}
+
+.embeddingStatusValueEnabled {
+  color: #258348 !important;
+
+  i {
+    background: #35a85d;
+    box-shadow: 0 0 0 3px rgba(53, 168, 93, 0.12);
+  }
+}
+
+.embeddingStatusValueDisabled {
+  color: rgba(20, 20, 19, 0.5) !important;
+
+  i {
+    background: rgba(20, 20, 19, 0.28);
+  }
+}
+
+.embeddingStatusValueVerified {
+  color: #258348 !important;
+}
+
+.embeddingStatusValuePending {
+  color: #b56a19 !important;
+}
+
+.embeddingOverviewNote {
+  display: block;
+  margin-top: 7px;
+  color: rgba(20, 20, 19, 0.42);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.embeddingVerificationItem {
+  > div {
+    min-width: 0;
+  }
+
+  > div > span,
+  > div > strong,
+  > div > small {
+    display: block;
+  }
+
+  > div > span {
+    margin-bottom: 5px;
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 11px;
+  }
+
+  > div > strong {
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > div > small {
+    display: block;
+    margin-top: 2px;
+    overflow: hidden;
+    color: rgba(20, 20, 19, 0.4);
+    font-size: 10px;
+    line-height: 16px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.embeddingStatusNote {
+  margin: 0;
+  padding: 9px 20px 10px;
+  color: rgba(20, 20, 19, 0.46);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.embeddingConfigSection {
+  padding: 18px 20px 20px;
 }
 
 .embeddingGrid {
@@ -755,12 +1123,7 @@
   padding: 20px 20px 18px;
   border: 1px solid rgba(20, 20, 19, 0.09);
   border-radius: 14px;
-  background: linear-gradient(
-      180deg,
-      rgba(255, 127, 22, 0.035),
-      transparent 90px
-    ),
-    rgba(20, 20, 19, 0.018);
+  background: rgba(20, 20, 19, 0.018);
 
   :global(.ant-form-item:last-child),
   :global(.qwenpaw-form-item:last-child) {
@@ -769,10 +1132,6 @@
 }
 
 .embeddingPanelHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
   min-height: 64px;
   margin-bottom: 18px;
   padding-bottom: 15px;
@@ -794,69 +1153,12 @@
   }
 }
 
-.embeddingPanelBadge {
-  flex: none;
-  padding: 3px 8px;
-  border: 1px solid rgba(255, 127, 22, 0.22);
-  border-radius: 999px;
-  background: rgba(255, 127, 22, 0.08);
-  color: #cf6208;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 18px;
-  white-space: nowrap;
-}
-
-.embeddingCapabilityEnabled {
-  border-color: rgba(53, 168, 93, 0.2);
-  background: rgba(53, 168, 93, 0.08);
-  color: #258348;
-}
-
-.embeddingCapabilityDisabled {
-  border-color: rgba(20, 20, 19, 0.1);
-  background: rgba(20, 20, 19, 0.045);
-  color: rgba(20, 20, 19, 0.55);
-}
-
-.embeddingAdvancedBadge {
-  border-color: rgba(20, 20, 19, 0.1);
-  background: rgba(20, 20, 19, 0.045);
-  color: rgba(20, 20, 19, 0.6);
-}
-
-.embeddingTestRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  min-height: 34px;
-  margin-top: 2px;
-}
-
-.embeddingVerified {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #258348;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.embeddingVerifiedDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #35a85d;
-  box-shadow: 0 0 0 3px rgba(53, 168, 93, 0.12);
-}
-
 @media (max-width: 1100px) {
   .memoryOverviewGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .memoryOverviewItem:nth-child(2) {
+  .memoryOverviewItem:nth-child(2n) {
     border-right: 0;
   }
 
@@ -867,6 +1169,18 @@
   .memoryConfigGrid,
   .embeddingGrid {
     grid-template-columns: 1fr;
+  }
+
+  .embeddingStatusMetrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .embeddingStatusMetric:nth-child(2) {
+    border-right: 0;
+  }
+
+  .embeddingStatusMetric:nth-child(-n + 2) {
+    border-bottom: 1px solid rgba(20, 20, 19, 0.07);
   }
 }
 
@@ -887,9 +1201,17 @@
   }
 
   .memoryEmbeddingHeader,
-  .memoryMaintenancePanel {
+  .memoryOverviewActionItem,
+  .memoryOverviewMaintenance {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .memoryOverviewMaintenance :global(.ant-btn),
+  .memoryOverviewMaintenance :global(.qwenpaw-btn),
+  .memoryOverviewActionItem :global(.ant-btn),
+  .memoryOverviewActionItem :global(.qwenpaw-btn) {
+    width: 100%;
   }
 
   .memorySettingRow {
@@ -904,8 +1226,12 @@
     max-width: none;
   }
 
-  .memoryOverviewHeader,
-  .memoryOverviewActions {
+  .memoryOverviewHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .memoryCapabilityHeader {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -921,13 +1247,96 @@
       display: none;
     }
   }
+
+  .embeddingStatusHeader {
+    align-items: stretch;
+    flex-direction: column;
+
+    :global(.ant-btn),
+    :global(.qwenpaw-btn) {
+      width: 100%;
+    }
+  }
+
+  .embeddingStatusMetrics {
+    grid-template-columns: 1fr;
+  }
+
+  .embeddingStatusMetric,
+  .embeddingStatusMetric:nth-child(2) {
+    border-right: 0;
+    border-bottom: 1px solid rgba(20, 20, 19, 0.07);
+  }
+
+  .embeddingStatusMetric:last-child {
+    border-bottom: 0;
+  }
 }
 
 :global(.dark-mode) {
-  .memoryPageDescription,
+  .memorySectionIconPrimary {
+    border-color: rgba(255, 157, 76, 0.2);
+    background: linear-gradient(
+      145deg,
+      rgba(255, 127, 22, 0.2),
+      rgba(255, 183, 36, 0.08)
+    );
+    color: #ff9d4c;
+  }
+
+  .memorySectionIconSecondary {
+    border-color: rgba(139, 150, 255, 0.22);
+    background: linear-gradient(
+      145deg,
+      rgba(91, 103, 217, 0.22),
+      rgba(117, 137, 255, 0.08)
+    );
+    color: #a8b0ff;
+  }
+
+  .embeddingStatusPanel {
+    border-color: rgba(255, 127, 22, 0.25);
+    background: linear-gradient(
+      135deg,
+      rgba(255, 127, 22, 0.1),
+      rgba(255, 255, 255, 0.015) 62%
+    );
+  }
+
+  .embeddingStatusHeader {
+    h3 {
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    p {
+      color: rgba(255, 255, 255, 0.52);
+    }
+  }
+
+  .embeddingStatusMetrics {
+    border-color: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  .embeddingStatusMetric {
+    border-color: rgba(255, 255, 255, 0.08);
+
+    > span,
+    > small {
+      color: rgba(255, 255, 255, 0.45);
+    }
+
+    > strong {
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .embeddingStatusNote {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
   .memoryReferences,
-  .memorySectionHeader p,
-  .memoryMaintenancePanel p {
+  .memorySectionHeader p {
     color: rgba(255, 255, 255, 0.5);
   }
 
@@ -945,9 +1354,18 @@
   }
 
   .memoryOverviewHeader h3,
-  .memorySectionHeader h3,
-  .memoryMaintenancePanel h3 {
+  .memorySectionHeader h3 {
     color: rgba(255, 255, 255, 0.9);
+  }
+
+  .memoryOverviewHeader p {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .embeddingOverviewNote,
+  .embeddingVerificationItem > div > span,
+  .embeddingVerificationItem > div > small {
+    color: rgba(255, 255, 255, 0.46);
   }
 
   .memoryOverviewGrid,
@@ -960,7 +1378,8 @@
   .memoryOverviewItem {
     border-right-color: rgba(255, 255, 255, 0.08);
 
-    > span {
+    > span,
+    > small {
       color: rgba(255, 255, 255, 0.46);
     }
 
@@ -974,6 +1393,36 @@
   .memoryEmbeddingSection {
     border-color: rgba(255, 255, 255, 0.1);
     background: rgba(255, 255, 255, 0.025);
+  }
+
+  .memoryCapabilityHeader {
+    h4 {
+      color: rgba(255, 255, 255, 0.86);
+    }
+
+    code {
+      border-color: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.05);
+      color: rgba(255, 255, 255, 0.5);
+    }
+  }
+
+  .memoryCapabilityActions > a {
+    color: #ff9d4c;
+  }
+
+  .memoryDevelopingBadge {
+    border-color: rgba(255, 166, 92, 0.3);
+    background: rgba(255, 139, 43, 0.11);
+    color: #ffb06f !important;
+  }
+
+  .memoryCapabilityDivider {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.1),
+      rgba(255, 255, 255, 0.025)
+    );
   }
 
   .memoryToggleRow {
@@ -1073,19 +1522,22 @@
     }
   }
 
-  .memoryMaintenancePanel {
-    border-color: rgba(255, 183, 36, 0.2);
-    background: rgba(255, 183, 36, 0.06);
+  .memoryOverviewMaintenance {
+    background: rgba(255, 183, 36, 0.09);
+
+    > div > strong {
+      color: rgba(255, 255, 255, 0.86);
+    }
+
+    > div > span,
+    > div > small {
+      color: rgba(255, 255, 255, 0.48);
+    }
   }
 
   .embeddingPanel {
     border-color: rgba(255, 255, 255, 0.1);
-    background: linear-gradient(
-        180deg,
-        rgba(255, 127, 22, 0.06),
-        transparent 90px
-      ),
-      rgba(255, 255, 255, 0.025);
+    background: rgba(255, 255, 255, 0.025);
   }
 
   .embeddingPanelHeader {
@@ -1098,18 +1550,6 @@
     p {
       color: rgba(255, 255, 255, 0.52);
     }
-  }
-
-  .embeddingAdvancedBadge {
-    border-color: rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.62);
-  }
-
-  .embeddingCapabilityDisabled {
-    border-color: rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.56);
   }
 }
 

@@ -14,10 +14,36 @@ def test_adbpg_auto_memory_search_defaults():
     assert cfg.auto_memory_search_config.max_results == 3
 
 
-def test_reme_light_inbox_push_defaults_to_enabled():
+def test_reme_light_job_notifications_default_to_enabled():
     cfg = ReMeLightMemoryConfig()
 
-    assert cfg.inbox_push_enabled is True
+    assert cfg.auto_memory_inbox_push_enabled is True
+    assert cfg.auto_dream_inbox_push_enabled is True
+    assert cfg.daily_paper_inbox_push_enabled is True
+    assert "inbox_push_enabled" not in cfg.model_dump()
+
+
+def test_legacy_inbox_switch_initializes_independent_notifications():
+    cfg = ReMeLightMemoryConfig(inbox_push_enabled=False)
+
+    assert cfg.auto_memory_inbox_push_enabled is False
+    assert cfg.auto_dream_inbox_push_enabled is False
+    assert cfg.daily_paper_inbox_push_enabled is False
+
+
+def test_explicit_notification_setting_wins_over_legacy_switch():
+    cfg = ReMeLightMemoryConfig(
+        inbox_push_enabled=False,
+        daily_paper_inbox_push_enabled=True,
+    )
+
+    assert cfg.auto_memory_inbox_push_enabled is False
+    assert cfg.auto_dream_inbox_push_enabled is False
+    assert cfg.daily_paper_inbox_push_enabled is True
+
+
+def test_memory_search_tool_defaults_to_enabled():
+    assert ReMeLightMemoryConfig().memory_search_enabled is True
 
 
 def test_legacy_rebuild_on_start_setting_is_ignored():
@@ -81,3 +107,30 @@ def test_get_dream_cron_returns_expression_when_enabled(monkeypatch):
     )
 
     assert config_utils.get_dream_cron("agent") == "0 3 * * *"
+
+
+def test_daily_paper_cron_is_disabled_by_default():
+    cfg = ReMeLightMemoryConfig()
+
+    assert cfg.daily_paper_cron_enabled is False
+    assert cfg.daily_paper_cron == "0 9 * * *"
+
+
+def test_get_daily_paper_cron_honors_enable_switch(monkeypatch):
+    cfg = ReMeLightMemoryConfig(
+        daily_paper_cron_enabled=True,
+        daily_paper_cron="30 8 * * *",
+    )
+    agent_config = SimpleNamespace(
+        running=SimpleNamespace(reme_light_memory_config=cfg),
+    )
+    monkeypatch.setattr(
+        config_utils,
+        "load_agent_config",
+        lambda _agent_id: agent_config,
+    )
+
+    assert config_utils.get_daily_paper_cron("agent") == "30 8 * * *"
+
+    cfg.daily_paper_cron_enabled = False
+    assert config_utils.get_daily_paper_cron("agent") == ""

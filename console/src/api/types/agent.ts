@@ -66,11 +66,15 @@ export interface EmbeddingModelConfig {
 }
 
 export interface ReMeLightMemoryConfig {
-  summarize_when_compact: boolean;
-  inbox_push_enabled: boolean;
+  auto_memory_inbox_push_enabled: boolean;
+  auto_dream_inbox_push_enabled: boolean;
+  daily_paper_inbox_push_enabled: boolean;
   auto_memory_interval: number;
   dream_cron_enabled: boolean;
   dream_cron: string;
+  daily_paper_cron_enabled: boolean;
+  daily_paper_cron: string;
+  memory_search_enabled: boolean;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
 }

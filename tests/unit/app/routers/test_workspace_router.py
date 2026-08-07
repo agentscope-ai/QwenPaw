@@ -14,12 +14,8 @@ from qwenpaw.config.config import AgentProfileConfig
 def _embedding_update_configs():
     old_running = AgentsRunningConfig()
     new_running = old_running.model_copy(deep=True)
-    old_embedding = (
-        old_running.reme_light_memory_config.embedding_model_config
-    )
-    new_embedding = (
-        new_running.reme_light_memory_config.embedding_model_config
-    )
+    old_embedding = old_running.reme_light_memory_config.embedding_model_config
+    new_embedding = new_running.reme_light_memory_config.embedding_model_config
     old_embedding.api_key = "old-key"
     old_embedding.model_name = "old-model"
     new_embedding.api_key = "new-key"

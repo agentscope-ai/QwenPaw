@@ -395,7 +395,10 @@ def test_get_memory_status_returns_structured_reme_metrics(
     )
 
     with (
-        patch("qwenpaw.app.routers.agents.load_config", return_value=fake_config),
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
         patch(
             "qwenpaw.app.routers.agents.load_agent_config",
             return_value=agent_config,
@@ -423,7 +426,10 @@ def test_get_memory_status_rejects_invalid_payload(
     )
 
     with (
-        patch("qwenpaw.app.routers.agents.load_config", return_value=fake_config),
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
         patch(
             "qwenpaw.app.routers.agents.load_agent_config",
             return_value=agent_config,
@@ -447,7 +453,10 @@ def test_get_memory_status_does_not_start_an_unloaded_agent(
     manager_mock.get_agent = AsyncMock()
 
     with (
-        patch("qwenpaw.app.routers.agents.load_config", return_value=fake_config),
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
         patch(
             "qwenpaw.app.routers.agents.load_agent_config",
             return_value=agent_config,
@@ -502,7 +511,10 @@ def test_get_memory_graph_returns_reme_snapshot(
     )
 
     with (
-        patch("qwenpaw.app.routers.agents.load_config", return_value=fake_config),
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
         patch(
             "qwenpaw.app.routers.agents.load_agent_config",
             return_value=agent_config,
@@ -568,7 +580,10 @@ def test_get_memory_graph_maps_nested_memory_roots(
     )
 
     with (
-        patch("qwenpaw.app.routers.agents.load_config", return_value=fake_config),
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
         patch(
             "qwenpaw.app.routers.agents.load_agent_config",
             return_value=agent_config,
@@ -597,7 +612,10 @@ def test_get_memory_graph_reports_unavailable_reme(
     )
 
     with (
-        patch("qwenpaw.app.routers.agents.load_config", return_value=fake_config),
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
         patch(
             "qwenpaw.app.routers.agents.load_agent_config",
             return_value=agent_config,

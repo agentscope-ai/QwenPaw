@@ -84,7 +84,7 @@ async def test_embedding_model(
     *,
     timeout: float = 15.0,
 ) -> tuple[EmbeddingModelBase[Any] | None, EmbeddingTestResult]:
-    """Create and call an embedding model, including strict dimension checks."""
+    """Create and call a model, including strict dimension checks."""
     started = time.monotonic()
     actual_dimensions: int | None = None
     try:
@@ -128,7 +128,9 @@ async def test_embedding_model(
         )
 
 
-def embedding_config_fingerprint(config: EmbeddingModelConfig) -> tuple[Any, ...]:
+def embedding_config_fingerprint(
+    config: EmbeddingModelConfig,
+) -> tuple[Any, ...]:
     """Fingerprint fields that determine the remote embedding service."""
     return (
         config.backend,

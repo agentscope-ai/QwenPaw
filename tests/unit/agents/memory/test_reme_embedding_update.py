@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Tests for ReMe embedding object hot updates."""
 
 import asyncio
@@ -72,7 +73,9 @@ def _manager(tmp_path: Path, config: EmbeddingModelConfig):
 
 
 @pytest.mark.asyncio
-async def test_hot_update_reuses_tested_object_without_reindex(tmp_path) -> None:
+async def test_hot_update_reuses_tested_object_without_reindex(
+    tmp_path,
+) -> None:
     old_config = _config(api_key="old")
     new_config = _config(api_key="new", max_input_length=9000)
     manager, wrapper, store = _manager(tmp_path, old_config)

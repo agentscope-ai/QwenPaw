@@ -23,6 +23,7 @@ from ...constant import (
     AUTO_MEMORY_SEARCH_TEXT,
     AUTO_MEMORY_SEARCH_THINKING_PREFIX,
 )
+from ...app.crons.contracts import ServiceCronJob
 from ..utils.registry import Registry
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,15 @@ class BaseMemoryManager(ABC):
         controls without depending on a concrete backend's config path.
         """
         return None
+
+    def list_cron_jobs(self) -> list[ServiceCronJob]:
+        """Return background jobs contributed by this memory backend.
+
+        Cron jobs are an optional backend capability. The cron manager owns
+        their scheduling lifecycle and does not need to understand their
+        domain-specific purpose or configuration.
+        """
+        return []
 
     def get_auto_memory_interval(self) -> int:
         """Return the lifecycle auto-memory interval for this backend.

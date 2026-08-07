@@ -378,11 +378,15 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `resource_dir`              | string      | `"resource"`     | 外部资源子目录                                                                                    |
 | `daily_dir`                 | string      | `"memory"`       | 每日记忆子目录                                                                                    |
 | `digest_dir`                | string      | `"digest"`       | digest 记忆子目录                                                                                 |
-| `summarize_when_compact`    | bool        | `true`           | 是否在上下文压缩时启用记忆总结                                                                    |
-| `inbox_push_enabled`        | bool        | `true`           | 是否将自动记忆、自动梦境和自动资源任务结果推送到收件箱                                            |
+| `auto_memory_inbox_push_enabled` | bool   | `true`           | 是否将 Auto-Memory 结果推送到收件箱                                                               |
+| `auto_dream_inbox_push_enabled` | bool    | `true`           | 是否将 Auto-Dream 结果推送到收件箱                                                                |
+| `daily_paper_inbox_push_enabled` | bool   | `true`           | 是否将 Daily Paper 结果推送到收件箱                                                               |
 | `auto_memory_interval`      | int \| null | `5`              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆                              |
 | `dream_cron_enabled`        | bool        | `true`           | 是否启用按 Cron 定时执行的梦境记忆优化任务                                                        |
 | `dream_cron`                | string      | `"0 23 * * *"`   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动，以避免集中调用 |
+| `daily_paper_cron_enabled`  | bool        | `false`          | 是否启用按 Cron 定时执行的每日论文任务                                                            |
+| `daily_paper_cron`          | string      | `"0 9 * * *"`    | 每日论文任务的有效 5 段 Cron 表达式（启用时必填）                                                 |
+| `memory_search_enabled`     | bool        | `true`           | 是否向智能体提供 `memory_search` 工具；不影响自动记忆搜索                                          |
 | `auto_memory_search_config` | object      | _（见下方）_     | 自动记忆搜索配置                                                                                  |
 | `embedding_model_config`    | object      | _（见下方）_     | Embedding 模型配置                                                                                |
 

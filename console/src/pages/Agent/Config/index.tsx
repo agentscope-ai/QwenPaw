@@ -9,6 +9,7 @@ import {
   LlmRateLimiterCard,
   ToolExecutionLevelCard,
   AgentLoopCard,
+  EmbeddingModelCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -192,6 +193,22 @@ function AgentConfigPage() {
         children: (
           <div className={styles.tabContent}>
             <MemoryComponent />
+          </div>
+        ),
+      });
+    }
+
+    if (memoryBackend === "remelight") {
+      baseTabs.push({
+        key: "embeddingModel",
+        label: (
+          <span className={styles.tabLabel}>
+            {t("agentConfig.embeddingModelTitle")}
+          </span>
+        ),
+        children: (
+          <div className={styles.tabContent}>
+            <EmbeddingModelCard />
           </div>
         ),
       });

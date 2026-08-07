@@ -705,17 +705,22 @@ class ReMeLightMemoryConfig(BaseModel):
         default="digest",
         description="Subdirectory for digest memory",
     )
-    summarize_when_compact: bool = Field(
-        default=True,
-        description="Whether to enable memory summarization during compaction",
+    inbox_push_enabled: bool | None = Field(
+        default=None,
+        exclude=True,
+        description="Deprecated shared inbox notification switch",
     )
-
-    inbox_push_enabled: bool = Field(
+    auto_memory_inbox_push_enabled: bool = Field(
         default=True,
-        description=(
-            "Whether to push ReMe auto-memory, auto-dream, and "
-            "auto-resource job results to the inbox"
-        ),
+        description="Whether to push auto-memory results to the inbox",
+    )
+    auto_dream_inbox_push_enabled: bool = Field(
+        default=True,
+        description="Whether to push auto-dream results to the inbox",
+    )
+    daily_paper_inbox_push_enabled: bool = Field(
+        default=True,
+        description="Whether to push Daily Paper results to the inbox",
     )
 
     auto_memory_interval: int | None = Field(
@@ -743,6 +748,19 @@ class ReMeLightMemoryConfig(BaseModel):
         ),
     )
 
+    daily_paper_cron_enabled: bool = Field(
+        default=False,
+        description="Whether to enable the scheduled Daily Paper job",
+    )
+
+    daily_paper_cron: str = Field(
+        default="0 9 * * *",
+        description=(
+            "Cron expression for Daily Paper generation "
+            "(use daily_paper_cron_enabled to enable/disable)"
+        ),
+    )
+
     auto_memory_search_config: AutoMemorySearchConfig = Field(
         default_factory=AutoMemorySearchConfig,
     )
@@ -750,6 +768,27 @@ class ReMeLightMemoryConfig(BaseModel):
     embedding_model_config: EmbeddingModelConfig = Field(
         default_factory=EmbeddingModelConfig,
     )
+
+    memory_search_enabled: bool = Field(
+        default=True,
+        description="Whether to expose the memory_search tool to the agent",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_shared_inbox_switch(cls, values: Any) -> Any:
+        """Use the legacy shared switch for notification fields not yet set."""
+        if not isinstance(values, dict) or "inbox_push_enabled" not in values:
+            return values
+        migrated = dict(values)
+        legacy_value = bool(values["inbox_push_enabled"])
+        for field_name in (
+            "auto_memory_inbox_push_enabled",
+            "auto_dream_inbox_push_enabled",
+            "daily_paper_inbox_push_enabled",
+        ):
+            migrated.setdefault(field_name, legacy_value)
+        return migrated
 
 
 class ContextCompactConfig(BaseModel):

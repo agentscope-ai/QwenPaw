@@ -752,6 +752,24 @@ def get_dream_cron(agent_id: Optional[str] = None) -> str:
     return ""
 
 
+def get_daily_paper_cron(agent_id: Optional[str] = None) -> str:
+    """Return the enabled Daily Paper cron expression for an agent."""
+    if agent_id is not None:
+        try:
+            agent_config = load_agent_config(agent_id)
+            memory_config = agent_config.running.reme_light_memory_config
+            if not getattr(
+                memory_config,
+                "daily_paper_cron_enabled",
+                False,
+            ):
+                return ""
+            return memory_config.daily_paper_cron
+        except Exception:
+            return ""
+    return ""
+
+
 def update_last_dispatch(
     channel: str,
     user_id: str,

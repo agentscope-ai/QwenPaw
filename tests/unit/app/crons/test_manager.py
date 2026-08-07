@@ -18,8 +18,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from qwenpaw.app.crons.contracts import ServiceCronJob
 from qwenpaw.app.crons.manager import CronManager
-from qwenpaw.app.crons.models import CronJobState, ScheduleSpec
+from qwenpaw.app.crons.models import (
+    CronJobState,
+    ScheduleSpec,
+)
 from tests.unit.app.conftest import (
     InMemoryJobRepository,
     make_cron_job_spec,
@@ -72,14 +76,19 @@ async def test_keepalive_task_lifecycle(manager: CronManager):
 
 
 @pytest.mark.asyncio
-async def test_scheduled_dream_waits_for_random_delay(
+async def test_service_job_waits_for_declared_random_delay(
     repo: InMemoryJobRepository,
 ):
-    workspace = MagicMock()
-    workspace.memory_manager.dream = AsyncMock()
+    callback = AsyncMock()
+    declaration = ServiceCronJob(
+        key="maintenance",
+        cron="0 23 * * *",
+        callback=callback,
+        jitter_seconds=60,
+    )
     mgr = CronManager(
         repo=repo,
-        workspace=workspace,
+        workspace=MagicMock(),
         channel_manager=AsyncMock(),
         agent_id="test-agent",
     )
@@ -94,11 +103,99 @@ async def test_scheduled_dream_waits_for_random_delay(
             new_callable=AsyncMock,
         ) as sleep_mock,
     ):
-        await mgr._dream_callback()
+        await mgr._run_service_job("memory", declaration)
 
     randint_mock.assert_called_once_with(0, 60)
     sleep_mock.assert_awaited_once_with(42)
-    workspace.memory_manager.dream.assert_awaited_once_with()
+    callback.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_start_registers_jobs_declared_by_memory_manager(
+    repo: InMemoryJobRepository,
+):
+    workspace = MagicMock()
+    callback = AsyncMock()
+    workspace.memory_manager.list_cron_jobs.return_value = [
+        ServiceCronJob(
+            key="maintenance",
+            cron="0 8 * * *",
+            callback=callback,
+        ),
+    ]
+    mgr = CronManager(
+        repo=repo,
+        workspace=workspace,
+        channel_manager=AsyncMock(),
+        agent_id="test-agent",
+    )
+
+    await mgr.start()
+
+    assert mgr._scheduler.get_job("_service:memory:maintenance") is not None
+    await mgr.stop()
+
+
+@pytest.mark.asyncio
+async def test_refresh_removes_jobs_no_longer_declared(
+    repo: InMemoryJobRepository,
+):
+    workspace = MagicMock()
+    workspace.memory_manager.list_cron_jobs.return_value = [
+        ServiceCronJob(
+            key="maintenance",
+            cron="0 8 * * *",
+            callback=AsyncMock(),
+        ),
+    ]
+    manager = CronManager(
+        repo=repo,
+        workspace=workspace,
+        channel_manager=AsyncMock(),
+    )
+    await manager.start()
+    workspace.memory_manager.list_cron_jobs.return_value = []
+
+    await manager.refresh_memory_jobs()
+
+    assert manager._scheduler.get_job("_service:memory:maintenance") is None
+    await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_invalid_refresh_keeps_last_valid_service_schedule(
+    repo: InMemoryJobRepository,
+):
+    workspace = MagicMock()
+    callback = AsyncMock()
+    workspace.memory_manager.list_cron_jobs.return_value = [
+        ServiceCronJob(
+            key="maintenance",
+            cron="0 8 * * *",
+            callback=callback,
+        ),
+    ]
+    manager = CronManager(
+        repo=repo,
+        workspace=workspace,
+        channel_manager=AsyncMock(),
+    )
+    await manager.start()
+    old_job = manager._scheduler.get_job("_service:memory:maintenance")
+    assert old_job is not None
+    workspace.memory_manager.list_cron_jobs.return_value = [
+        ServiceCronJob(
+            key="maintenance",
+            cron="not a cron expression",
+            callback=callback,
+        ),
+    ]
+
+    await manager.refresh_memory_jobs()
+
+    current_job = manager._scheduler.get_job("_service:memory:maintenance")
+    assert current_job is old_job
+    await manager.stop()
 
 
 @pytest.mark.asyncio

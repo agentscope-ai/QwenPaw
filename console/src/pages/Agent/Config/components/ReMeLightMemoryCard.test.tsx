@@ -1,17 +1,19 @@
 import { Form } from "@agentscope-ai/design";
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { agentsApi } from "@/api";
+import { agentsApi, api } from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
 import { renderWithProviders } from "@/test/common_setup";
 import {
-  getDailyCronTime,
-  getEmbeddingServiceFingerprint,
-  isEmbeddingEnabled,
   isValidDreamCronShape,
   ReMeLightMemoryCard,
 } from "./ReMeLightMemoryCard";
+import { EmbeddingModelCard } from "./EmbeddingModelCard";
+import {
+  getEmbeddingServiceFingerprint,
+  isEmbeddingEnabled,
+} from "./embeddingUtils";
 
 vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),
@@ -20,6 +22,7 @@ vi.mock("@agentscope-ai/design", async () =>
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => key,
+    i18n: { resolvedLanguage: "zh-CN", language: "zh-CN" },
   }),
 }));
 
@@ -46,6 +49,42 @@ function MemoryForm() {
       }}
     >
       <ReMeLightMemoryCard />
+    </Form>
+  );
+}
+
+function EmbeddingForm() {
+  const [form] = Form.useForm();
+  return (
+    <Form
+      form={form}
+      initialValues={{
+        reme_light_memory_config: { embedding_model_config: {} },
+      }}
+    >
+      <EmbeddingModelCard />
+    </Form>
+  );
+}
+
+function ConfiguredEmbeddingForm() {
+  const [form] = Form.useForm();
+  return (
+    <Form
+      form={form}
+      initialValues={{
+        reme_light_memory_config: {
+          embedding_model_config: {
+            backend: "openai",
+            model_name: "text-embedding-v4",
+            api_key: "secret",
+            dimensions: 1024,
+            enable_cache: true,
+          },
+        },
+      }}
+    >
+      <EmbeddingModelCard />
     </Form>
   );
 }
@@ -117,16 +156,96 @@ describe("ReMe runtime status", () => {
   });
 });
 
-describe("getDailyCronTime", () => {
-  it("formats a daily cron expression for the status summary", () => {
-    expect(getDailyCronTime("0 23 * * *")).toBe("23:00");
-    expect(getDailyCronTime("5 3 * * *")).toBe("03:05");
+describe("long-term memory defaults", () => {
+  it("enables notifications and the search tool but leaves auto recall off", async () => {
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
+
+    renderWithProviders(<MemoryForm />);
+
+    const switchInRow = (element: HTMLElement) =>
+      element.parentElement?.parentElement?.querySelector(
+        '[role="switch"]',
+      ) as HTMLElement;
+    const notificationSwitches = screen
+      .getAllByText("agentConfig.memoryNotifyTitle")
+      .map(switchInRow);
+
+    expect(notificationSwitches).toHaveLength(3);
+    notificationSwitches.forEach((control) =>
+      expect(control).toHaveAttribute("aria-checked", "true"),
+    );
+    expect(
+      switchInRow(screen.getByText("agentConfig.memorySearchToolTitle")),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(
+      switchInRow(screen.getByText("agentConfig.memoryAutoRecallTitle")),
+    ).toHaveAttribute("aria-checked", "false");
   });
 
-  it("rejects non-daily and out-of-range schedules", () => {
-    expect(getDailyCronTime("0 23 * * mon-fri")).toBeNull();
-    expect(getDailyCronTime("60 23 * * *")).toBeNull();
-    expect(getDailyCronTime("0 24 * * *")).toBeNull();
+  it("links Daily Paper to the guide matching the interface language", async () => {
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
+
+    renderWithProviders(<MemoryForm />);
+
+    expect(
+      screen.getByRole("link", {
+        name: "agentConfig.dailyPaperDocumentation",
+      }),
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README_ZH.md",
+    );
+  });
+});
+
+describe("embedding card separation", () => {
+  it("keeps embedding settings out of the long-term memory card", async () => {
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
+
+    renderWithProviders(<MemoryForm />);
+
+    expect(
+      screen.queryByText("agentConfig.embeddingServiceTitle"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders embedding settings in the dedicated card", () => {
+    renderWithProviders(<EmbeddingForm />);
+
+    expect(
+      screen.getByText("agentConfig.embeddingServiceTitle"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.embeddingIndexTitle"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows test results in the status overview", async () => {
+    vi.spyOn(api, "testEmbedding").mockResolvedValue({
+      success: true,
+      configured_dimensions: 1024,
+      actual_dimensions: 1024,
+      latency_ms: 86,
+      message: "ok",
+    });
+
+    renderWithProviders(<ConfiguredEmbeddingForm />);
+
+    expect(
+      screen.getByText("agentConfig.embeddingNotVerified"),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
+    );
+
+    expect(
+      await screen.findByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.embeddingVerificationMetrics"),
+    ).toBeInTheDocument();
   });
 });
 

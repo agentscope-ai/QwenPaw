@@ -9,6 +9,7 @@ ReMe's application/job framework.
 import asyncio
 import base64
 import hashlib
+import importlib
 import logging
 import os
 import re
@@ -29,6 +30,7 @@ from .prompts import build_memory_guidance_prompt
 from .reme_config import get_reme_app_config
 from ..model_factory import create_model_and_formatter
 from ...app.inbox_store import append_event as append_inbox_event
+from ...app.crons.contracts import ServiceCronJob
 from ...config import load_config
 from ...config.config import (
     load_agent_config,
@@ -45,7 +47,12 @@ logger = logging.getLogger(__name__)
 os.environ.setdefault("REME_DISABLE_LOGURU", "true")
 
 NO_MEMORY_RESULTS = "(no memory results)"
-INBOX_RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "auto_resource"}
+INBOX_RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "daily_paper"}
+INBOX_NOTIFICATION_FIELDS = {
+    "auto_memory": "auto_memory_inbox_push_enabled",
+    "auto_dream": "auto_dream_inbox_push_enabled",
+    "daily_paper": "daily_paper_inbox_push_enabled",
+}
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 INBOX_EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
 MAX_INBOX_BODY_CHARS = 4000
@@ -137,9 +144,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             from reme import ReMe as ReMeApp  # type: ignore
 
             agent_config: AgentProfileConfig = load_agent_config(self.agent_id)
+            memory_config = agent_config.running.reme_light_memory_config
             self._active_embedding_config = (
-                agent_config.running.reme_light_memory_config
-                .embedding_model_config.model_copy(deep=True)
+                memory_config.embedding_model_config.model_copy(deep=True)
             )
             global_config = load_config()
             self._reme = ReMeApp(
@@ -206,8 +213,55 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         agent_config = load_agent_config(self.agent_id)
         return agent_config.running.reme_light_memory_config
 
+    def list_cron_jobs(self) -> list[ServiceCronJob]:
+        """Declare the scheduled maintenance jobs supported by ReMe."""
+        if self._reme is None or not getattr(self._reme, "is_started", False):
+            return []
+
+        cfg = self.get_memory_config()
+        jobs: list[ServiceCronJob] = []
+        if cfg.dream_cron_enabled and cfg.dream_cron:
+            jobs.append(
+                ServiceCronJob(
+                    key="dream",
+                    cron=cfg.dream_cron,
+                    callback=self.dream,
+                    misfire_grace_seconds=600,
+                    jitter_seconds=60,
+                ),
+            )
+
+        if cfg.daily_paper_cron_enabled and cfg.daily_paper_cron:
+            if self._daily_paper_dependency_available():
+                jobs.append(
+                    ServiceCronJob(
+                        key="daily-paper",
+                        cron=cfg.daily_paper_cron,
+                        callback=self.daily_paper,
+                        misfire_grace_seconds=600,
+                    ),
+                )
+        return jobs
+
+    @staticmethod
+    def _daily_paper_dependency_available() -> bool:
+        """Return whether the optional Daily Paper PDF reader is usable."""
+        try:
+            importlib.import_module("pypdf")
+            return True
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error(
+                "Daily Paper is enabled but pypdf cannot be imported; "
+                "the scheduled job will not start: %s",
+                exc,
+                exc_info=True,
+            )
+            return False
+
     def list_memory_tools(self):
         """Return memory tool functions to register with the agent toolkit."""
+        if not self.get_memory_config().memory_search_enabled:
+            return []
         return [self.memory_search]
 
     def get_auto_memory_interval(self) -> int:
@@ -236,7 +290,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         self,
         config: EmbeddingModelConfig,
     ) -> EmbeddingTestResult:
-        """Test a provider and retain the exact model object for the next save."""
+        """Test and retain the exact model object for the next save."""
         model, result = await test_embedding_model(config)
         if result.success and model is not None:
             self._tested_embedding = (
@@ -296,7 +350,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 if cache is not None:
                     cache.clear()
                 if hasattr(store, "_key_suffix"):
-                    store._key_suffix = f"|{config.dimensions}".encode()
+                    setattr(
+                        store,
+                        "_key_suffix",
+                        f"|{config.dimensions}".encode(),
+                    )
                 cache_path = getattr(store, "cache_path", None)
                 if cache_path is not None:
                     cache_path.unlink(missing_ok=True)
@@ -373,7 +431,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if name not in INBOX_RESULT_JOB_NAMES:
             return False
         memory_config = self.get_memory_config()
-        if not memory_config.inbox_push_enabled:
+        if not getattr(memory_config, INBOX_NOTIFICATION_FIELDS[name]):
             logger.info(
                 "ReMe job result inbox push disabled: "
                 "agent_id=%s job_name=%s",
@@ -387,7 +445,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         ):
             return False
         if (
-            name in {"auto_memory", "auto_resource"}
+            name == "auto_memory"
             and isinstance(response_metadata, dict)
             and response_metadata.get("modified") is False
         ):
@@ -413,12 +471,19 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 kwargs.get("memory_hint") or kwargs.get("hint") or "",
             ),
         }
-        if name == "auto_resource":
-            changes = kwargs.get("changes") or []
-            if isinstance(changes, list):
-                payload["change_count"] = len(changes)
+        if name == "daily_paper":
+            payload["force"] = bool(kwargs.get("force", False))
+            payload["topics"] = str(kwargs.get("topics") or "")
             if isinstance(response_metadata, dict):
-                payload["processed"] = response_metadata.get("processed")
+                for key in (
+                    "digest_path",
+                    "selected_arxiv_ids",
+                    "note_paths",
+                    "pdf_paths",
+                    "skipped",
+                ):
+                    if key in response_metadata:
+                        payload[key] = response_metadata[key]
 
         try:
             event = await append_inbox_event(
@@ -461,7 +526,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return {
             "auto_memory": "Auto-memory result",
             "auto_dream": "Auto-dream result",
-            "auto_resource": "Auto-resource result",
+            "daily_paper": "Daily Paper result",
         }.get(name, "Memory job result")
 
     @staticmethod
@@ -469,9 +534,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return {
             "auto_memory": "Auto-memory completed with no returned content.",
             "auto_dream": "Auto-dream completed with no returned content.",
-            "auto_resource": (
-                "Auto-resource completed with no returned content."
-            ),
+            "daily_paper": "Daily Paper completed with no returned content.",
         }.get(name, "Memory job completed with no returned content.")
 
     async def memory_search(
@@ -631,6 +694,20 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             hint=str(kwargs.get("hint") or ""),
         )
         if response is not None and not response.success:
+            raise RuntimeError(str(response.answer))
+
+    async def daily_paper(self, **kwargs: Any) -> None:
+        """Build one Daily Paper brief and publish its result to inbox."""
+        response = await self._run_reme_job(
+            "daily_paper",
+            needs_llm=True,
+            date=str(kwargs.get("date") or ""),
+            force=bool(kwargs.get("force", False)),
+            topics=str(kwargs.get("topics") or ""),
+        )
+        if response is None:
+            raise RuntimeError("ReMe is not started; Daily Paper did not run")
+        if not response.success:
             raise RuntimeError(str(response.answer))
 
     async def reme_status(self) -> "Response | None":
