@@ -502,6 +502,17 @@ class ProviderManager(
         await self.save_active_model_async(active_model)
         self.active_model = active_model
 
+        # Drop a stale ``rejects_media`` entry for this model so that a
+        # transient upstream failure (e.g. a gateway misroute) does not
+        # keep stripping images after re-selection.  Other capabilities
+        # and other models are left untouched.
+        from .model_capability_cache import get_capability_cache
+
+        get_capability_cache().forget(
+            f"{provider_id}:{model_id}",
+            "rejects_media",
+        )
+
         self.maybe_probe_multimodal(provider_id, model_id)
 
     def maybe_probe_multimodal(self, provider_id: str, model_id: str) -> None:
