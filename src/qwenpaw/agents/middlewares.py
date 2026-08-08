@@ -16,6 +16,7 @@ Currently provided:
 
 import asyncio
 import logging
+from copy import deepcopy
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Iterator, Set
@@ -173,28 +174,48 @@ class MemoryMiddleware(MiddlewareBase):
             await next_handler(**input_kwargs)
             return
 
+        source_context: list[Msg] = []
+        compression_state: tuple[Any, tuple[str, ...]] | None = None
         try:
             cfg = self._memory_config()
             pending_markers = self._auto_memory_turn_state(agent)["pending"]
             if (
                 getattr(cfg, "summarize_when_compact", False)
                 and pending_markers
-                and await self._will_compress_context(agent, input_kwargs)
             ):
-                await self._flush_auto_memory(agent)
+                source_context = deepcopy(
+                    self._messages_for_user_turns(
+                        list(agent.state.context),
+                        turn_markers=list(pending_markers),
+                    ),
+                )
+                compression_state = self._compression_state(agent)
         except Exception:
             logger.exception(
-                "MemoryMiddleware pre-compression auto-memory flush failed; "
-                "continuing context compression",
+                "MemoryMiddleware could not snapshot pending turns",
             )
 
         await next_handler(**input_kwargs)
+
+        if source_context and compression_state is not None:
+            try:
+                if self._did_compress_context(agent, compression_state):
+                    await self._flush_auto_memory(
+                        agent,
+                        source_context=source_context,
+                    )
+            except Exception:
+                logger.exception(
+                    "MemoryMiddleware post-compression auto-memory flush "
+                    "failed",
+                )
 
     async def _flush_auto_memory(
         self,
         agent: "Agent",
         *,
         count: int | None = None,
+        source_context: list["Msg"] | None = None,
     ) -> None:
         if self._is_automation_request(agent):
             logger.debug(
@@ -218,7 +239,7 @@ class MemoryMiddleware(MiddlewareBase):
             del pending_markers[:count]
 
         messages = self._messages_for_user_turns(
-            list(agent.state.context),
+            source_context or list(agent.state.context),
             turn_markers=turn_markers,
         )
         if not messages:
@@ -252,22 +273,25 @@ class MemoryMiddleware(MiddlewareBase):
         return source in _AUTOMATION_MEMORY_SKIP_SOURCES
 
     @staticmethod
-    async def _will_compress_context(
+    def _compression_state(
         agent: "Agent",
-        input_kwargs: dict[str, Any],
+    ) -> tuple[Any, tuple[str, ...]]:
+        return (
+            agent.state.summary,
+            tuple(msg.id for msg in agent.state.context),
+        )
+
+    @classmethod
+    def _did_compress_context(
+        cls,
+        agent: "Agent",
+        before: tuple[Any, tuple[str, ...]],
     ) -> bool:
-        cfg = input_kwargs.get("context_config") or agent.context_config
-        # pylint: disable=protected-access
-        kwargs = await agent._prepare_model_input()
-        estimated_tokens = await agent.model.count_tokens(**kwargs)
-        threshold = cfg.trigger_ratio * agent.model.context_size
         context_manager = getattr(agent, "_context_manager", None)
-        predicate = getattr(context_manager, "should_compress", None)
-        if callable(predicate):
-            return bool(predicate(estimated_tokens, threshold))
-        # Native AgentScope compacts at the exact threshold. Custom context
-        # managers can expose ``should_compress`` when their boundary differs.
-        return estimated_tokens >= threshold
+        stats = getattr(context_manager, "last_compress", None)
+        if isinstance(stats, dict):
+            return bool(stats.get("evicted") or stats.get("folded"))
+        return cls._compression_state(agent) != before
 
     @staticmethod
     def _extract_memory_messages(
