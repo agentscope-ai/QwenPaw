@@ -361,6 +361,31 @@ export function ReMeLightMemoryCard() {
             />
           </Form.Item>
 
+          <Form.Item
+            label={t("agentConfig.dailyPaperTopics")}
+            name={["reme_light_memory_config", "daily_paper_topics"]}
+            tooltip={t("agentConfig.dailyPaperTopicsTooltip")}
+          >
+            <Input
+              disabled={!dailyPaperCronEnabled}
+              placeholder={t("agentConfig.dailyPaperTopicsPlaceholder")}
+            />
+          </Form.Item>
+
+          <div className={styles.memoryToggleRow}>
+            <div>
+              <strong>{t("agentConfig.dailyPaperUseHfMirror")}</strong>
+              <span>{t("agentConfig.dailyPaperUseHfMirrorDescription")}</span>
+            </div>
+            <Form.Item
+              name={["reme_light_memory_config", "daily_paper_use_hf_mirror"]}
+              valuePropName="checked"
+              noStyle
+            >
+              <Switch disabled={!dailyPaperCronEnabled} />
+            </Form.Item>
+          </div>
+
           <div className={styles.memoryToggleRow}>
             <div>
               <strong>{t("agentConfig.memoryNotifyTitle")}</strong>

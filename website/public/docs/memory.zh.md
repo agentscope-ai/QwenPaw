@@ -308,6 +308,8 @@ score、vector、keyword 字段，不要总结或改写。
 | `dream_cron`                     | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动 | `"0 23 * * *"`   |
 | `daily_paper_cron_enabled`       | 是否启用按 Cron 定时执行的 Daily Paper                                           | `false`          |
 | `daily_paper_cron`               | Daily Paper 的有效 5 段 Cron 表达式（启用时必填）                                | `"0 9 * * *"`    |
+| `daily_paper_use_hf_mirror`      | 是否通过 Hugging Face 镜像站获取论文信息                                         | `false`          |
+| `daily_paper_topics`             | 精选论文时优先考虑的主题                                                         | `""`             |
 | `memory_search_enabled`          | 是否向智能体提供 `memory_search` 工具；与自动搜索开关相互独立                    | `true`           |
 
 ### 重建记忆搜索索引

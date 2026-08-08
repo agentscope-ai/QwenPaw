@@ -761,6 +761,16 @@ class ReMeLightMemoryConfig(BaseModel):
         ),
     )
 
+    daily_paper_use_hf_mirror: bool = Field(
+        default=False,
+        description="Whether Daily Paper uses the Hugging Face mirror",
+    )
+
+    daily_paper_topics: str = Field(
+        default="",
+        description="Topics to prioritize when selecting Daily Paper papers",
+    )
+
     auto_memory_search_config: AutoMemorySearchConfig = Field(
         default_factory=AutoMemorySearchConfig,
     )

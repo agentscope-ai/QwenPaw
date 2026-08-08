@@ -18,6 +18,10 @@ async def test_daily_paper_runs_with_qwenpaw_model_and_defaults() -> None:
     manager._run_reme_job = AsyncMock(
         return_value=SimpleNamespace(success=True, answer="done"),
     )
+    manager.get_memory_config = lambda: SimpleNamespace(
+        daily_paper_use_hf_mirror=False,
+        daily_paper_topics="",
+    )
 
     await manager.daily_paper()
 
@@ -26,7 +30,31 @@ async def test_daily_paper_runs_with_qwenpaw_model_and_defaults() -> None:
         needs_llm=True,
         date="",
         force=False,
+        use_hf_mirror=False,
         topics="",
+    )
+
+
+@pytest.mark.asyncio
+async def test_daily_paper_passes_configured_source_preferences() -> None:
+    manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
+    manager._run_reme_job = AsyncMock(
+        return_value=SimpleNamespace(success=True, answer="done"),
+    )
+    manager.get_memory_config = lambda: SimpleNamespace(
+        daily_paper_use_hf_mirror=True,
+        daily_paper_topics="agent memory",
+    )
+
+    await manager.daily_paper()
+
+    manager._run_reme_job.assert_awaited_once_with(
+        "daily_paper",
+        needs_llm=True,
+        date="",
+        force=False,
+        use_hf_mirror=True,
+        topics="agent memory",
     )
 
 
@@ -34,6 +62,10 @@ async def test_daily_paper_runs_with_qwenpaw_model_and_defaults() -> None:
 async def test_daily_paper_fails_when_reme_is_unavailable() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
     manager._run_reme_job = AsyncMock(return_value=None)
+    manager.get_memory_config = lambda: SimpleNamespace(
+        daily_paper_use_hf_mirror=False,
+        daily_paper_topics="",
+    )
 
     with pytest.raises(RuntimeError, match="ReMe is not started"):
         await manager.daily_paper()

@@ -523,6 +523,11 @@ def _base_config() -> dict[str, Any]:
                             "description": "Regenerate an existing brief.",
                             "default": False,
                         },
+                        "use_hf_mirror": {
+                            "type": "boolean",
+                            "description": "Use the Hugging Face mirror.",
+                            "default": False,
+                        },
                         "topics": {
                             "type": "string",
                             "description": "Topics to prioritize.",

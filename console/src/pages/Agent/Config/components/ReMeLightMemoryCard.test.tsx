@@ -196,6 +196,19 @@ describe("long-term memory defaults", () => {
       "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README_ZH.md",
     );
   });
+
+  it("shows Daily Paper topic and Hugging Face mirror settings", async () => {
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
+
+    renderWithProviders(<MemoryForm />);
+
+    expect(
+      screen.getByText("agentConfig.dailyPaperTopics"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.dailyPaperUseHfMirror"),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("embedding card separation", () => {

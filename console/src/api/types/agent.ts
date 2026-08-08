@@ -74,6 +74,8 @@ export interface ReMeLightMemoryConfig {
   dream_cron: string;
   daily_paper_cron_enabled: boolean;
   daily_paper_cron: string;
+  daily_paper_use_hf_mirror: boolean;
+  daily_paper_topics: string;
   memory_search_enabled: boolean;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;

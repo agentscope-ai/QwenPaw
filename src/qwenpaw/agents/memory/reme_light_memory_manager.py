@@ -698,12 +698,19 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
     async def daily_paper(self, **kwargs: Any) -> None:
         """Build one Daily Paper brief and publish its result to inbox."""
+        cfg = self.get_memory_config()
         response = await self._run_reme_job(
             "daily_paper",
             needs_llm=True,
             date=str(kwargs.get("date") or ""),
             force=bool(kwargs.get("force", False)),
-            topics=str(kwargs.get("topics") or ""),
+            use_hf_mirror=bool(
+                kwargs.get(
+                    "use_hf_mirror",
+                    cfg.daily_paper_use_hf_mirror,
+                ),
+            ),
+            topics=str(kwargs.get("topics", cfg.daily_paper_topics) or ""),
         )
         if response is None:
             raise RuntimeError("ReMe is not started; Daily Paper did not run")

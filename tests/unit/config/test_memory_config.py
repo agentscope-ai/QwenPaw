@@ -114,6 +114,8 @@ def test_daily_paper_cron_is_disabled_by_default():
 
     assert cfg.daily_paper_cron_enabled is False
     assert cfg.daily_paper_cron == "0 9 * * *"
+    assert cfg.daily_paper_use_hf_mirror is False
+    assert cfg.daily_paper_topics == ""
 
 
 def test_get_daily_paper_cron_honors_enable_switch(monkeypatch):
