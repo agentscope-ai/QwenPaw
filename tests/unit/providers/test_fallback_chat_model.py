@@ -6,10 +6,10 @@
 from __future__ import annotations
 
 import time
+from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock
 
 import pytest
-
 from qwenpaw.providers.fallback_chat_model import (
     TRANSIENT_COOLDOWN_BUCKETS,
     AUTH_COOLDOWN_BUCKETS,
@@ -22,7 +22,32 @@ from qwenpaw.providers.fallback_chat_model import (
     is_fallback_eligible_error,
 )
 
-# ---- Fixtures -----------------------------------------------------------
+# ---- Helpers ---------------------------------------------------------------
+
+
+class _FailingAsyncIterable:
+    """Async iterable that raises on the first iteration.
+
+    Used to simulate a stream that fails before yielding any chunk,
+    without triggering pylint W0101 (unreachable code after ``raise``).
+    """
+
+    def __init__(self, status_code: int = 500, msg: str = "stream failed"):
+        self._status_code = status_code
+        self._msg = msg
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        exc = Exception(self._msg)
+        exc.status_code = self._status_code
+        raise exc
+
+
+# Register as a virtual subclass so ``isinstance(obj, AsyncGenerator)``
+# returns ``True``, matching the check in ``FallbackChatModel.__call__``.
+AsyncGenerator.register(_FailingAsyncIterable)
 
 
 @pytest.fixture
@@ -271,13 +296,7 @@ class TestFallbackChatModel:
         """
 
         # Primary stream fails before first chunk.
-        async def failing_stream():
-            exc = Exception("stream failed")
-            exc.status_code = 500
-            raise exc
-            yield  # pragma: no cover - makes it an async generator
-
-        primary_candidate.model.return_value = failing_stream()
+        primary_candidate.model.return_value = _FailingAsyncIterable(500)
 
         # The fallback candidate is on cooldown -> should be skipped.
         exc = Exception("cooldown error")
@@ -332,13 +351,7 @@ class TestFallbackChatModel:
         CooldownManager.record_failure(primary_candidate.label, exc)
 
         # First active fallback streams and fails before first chunk.
-        async def failing_stream():
-            exc = Exception("stream failed")
-            exc.status_code = 500
-            raise exc
-            yield  # pragma: no cover - makes it an async generator
-
-        fallback_candidate.model.return_value = failing_stream()
+        fallback_candidate.model.return_value = _FailingAsyncIterable(500)
 
         # Healthy third candidate.
         third = AsyncMock()
