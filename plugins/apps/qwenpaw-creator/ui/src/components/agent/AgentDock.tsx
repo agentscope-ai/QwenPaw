@@ -84,10 +84,14 @@ interface DockSize {
   height: number;
 }
 
-const DOCK_MIN_WIDTH = 440;
+const DOCK_MIN_WIDTH = 240;
 const DOCK_MIN_HEIGHT = 420;
 const DOCK_DEFAULT_SIZE: DockSize = { width: 440, height: 620 };
 const DOCK_SIZE_STORAGE_KEY = "agentDock.size.v1";
+// The workspace keeps at least this many pixels no matter how wide the dock
+// is dragged; below that width its container queries switch to the drawer
+// layout, so the pages stay usable instead of being squeezed out.
+const WORKSPACE_MIN_WIDTH = 360;
 
 // "Stoppable" check consistent with the global hard-stop (the stop button
 // migrated here from the former AgentStatusBar).
@@ -112,7 +116,7 @@ const STOPPABLE_SESSION_STATUSES = [
 function dockMaxSize(): DockSize {
   if (typeof window === "undefined") return { width: 960, height: 1200 };
   return {
-    width: Math.max(DOCK_MIN_WIDTH, window.innerWidth - 40),
+    width: Math.max(DOCK_MIN_WIDTH, window.innerWidth - WORKSPACE_MIN_WIDTH),
     height: Math.max(DOCK_MIN_HEIGHT, window.innerHeight - 40),
   };
 }
@@ -2328,7 +2332,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           style={sidebar ? { width, flexShrink: 0 } : panelStyle}
           className={
             sidebar
-              ? "relative flex h-full flex-col overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-bg-card)]"
+              ? "relative flex min-h-0 flex-1 flex-col overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-bg-card)]"
               : "agent-dock-enter fixed bottom-5 right-5 z-40 flex max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)]/92 shadow-2xl backdrop-blur-xl"
           }
         >
@@ -2344,11 +2348,16 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
               onPointerDown={beginResize("x")}
               className={
                 sidebar
-                  ? "absolute inset-y-0 left-0 z-20 w-1 cursor-ew-resize hover:bg-[var(--color-accent)]/20"
+                  ? "group absolute inset-y-0 left-0 z-20 flex w-1.5 cursor-ew-resize items-center justify-center hover:bg-[var(--color-accent)]/20"
                   : "absolute inset-y-4 left-0 z-20 w-1.5 cursor-ew-resize"
               }
               title={t("agent.dragWidth")}
-            />
+            >
+              {/* Always-visible grip so the resizable edge is discoverable. */}
+              {sidebar && (
+                <span className="pointer-events-none h-9 w-[3px] rounded-full bg-[var(--color-border-strong)] transition-colors group-hover:bg-[var(--color-accent)]" />
+              )}
+            </div>
             {!sidebar && (
               <div
                 onPointerDown={beginResize("xy")}

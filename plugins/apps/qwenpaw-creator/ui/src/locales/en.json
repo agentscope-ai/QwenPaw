@@ -384,7 +384,8 @@
     "modelConfig": "Model Config",
     "badgeTitle": "{{name}}: {{status}}",
     "ttsModel": "TTS Model",
-    "s2vModel": "Digital Human Model"
+    "s2vModel": "Digital Human Model",
+    "compactSummary": "Models {{ready}}/{{total}}"
   },
   "assets": {
     "title": "Assets & Products",

@@ -373,7 +373,21 @@ export default function ProjectLayout() {
             <Outlet />
           </main>
         </div>
-        <AgentDock sidebar />
+        {/* Right rail: the dock keeps the top; on narrow workspaces the pages
+            portal their detail panel into the slot below, so dock and detail
+            split the rail vertically instead of fighting for width. */}
+        <div className="flex min-h-0 shrink-0 flex-col">
+          <div className="flex min-h-0 flex-1">
+            <AgentDock sidebar />
+          </div>
+          {/* No left border here: the workspace background flows into the
+              rail so the detail card reads as part of the workspace, while a
+              strong top rule cleanly ends the dock above it. */}
+          <div
+            data-detail-rail
+            className="hidden min-h-0 shrink-0 basis-1/2 flex-col overflow-hidden border-t-2 border-[var(--color-border-strong)] bg-[var(--color-bg-layout)] [&:not(:empty)]:flex"
+          />
+        </div>
       </div>
       <SelectionToolbar />
       <ProjectTour />

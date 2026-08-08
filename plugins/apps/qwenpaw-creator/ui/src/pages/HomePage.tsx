@@ -267,17 +267,25 @@ export default function HomePage() {
             : "border-b border-[var(--color-border)] bg-[var(--color-bg-primary)]"
         }`}
       >
-        <div className="flex h-[72px] items-center justify-between px-5">
-          <div className="flex items-center gap-2">
-            <img src={logoMarkUrl} alt="" width={38} height={38} />
-            <span className="text-xl font-medium leading-6 text-[var(--color-text-primary)]">
+        {/* Three-zone grid: unlike the previous absolutely-centred tabs, every
+            cluster takes layout space so narrow windows never overlap. */}
+        <div className="grid h-[72px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-5">
+          <div className="flex min-w-0 items-center gap-2">
+            <img
+              src={logoMarkUrl}
+              alt=""
+              width={38}
+              height={38}
+              className="shrink-0"
+            />
+            <span className="hidden truncate text-xl font-medium leading-6 text-[var(--color-text-primary)] md:block">
               QwenPaw Creator
             </span>
           </div>
           <div
             role="tablist"
             aria-label={t("home.homeView")}
-            className={`absolute left-1/2 -translate-x-1/2 ${SEGMENTED_TRACK_CLASS}`}
+            className={SEGMENTED_TRACK_CLASS}
           >
             {HOME_VIEWS.map((item) => (
               <button
@@ -285,6 +293,8 @@ export default function HomePage() {
                 type="button"
                 role="tab"
                 aria-selected={view === item.key}
+                aria-label={t(item.labelKey)}
+                title={t(item.labelKey)}
                 data-onboarding-id={
                   item.key === "projects" ? "projects-tab" : undefined
                 }
@@ -292,11 +302,11 @@ export default function HomePage() {
                 className={segmentedItemClass(view === item.key)}
               >
                 <MaskIcon src={item.icon} size={18} />
-                {t(item.labelKey)}
+                <span className="hidden md:inline">{t(item.labelKey)}</span>
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center justify-end gap-3">
             <Tooltip title={t("nav.replayTour")}>
               <button
                 type="button"
@@ -373,11 +383,11 @@ export default function HomePage() {
                 </span>
               </button>
             )}
-            <section className="flex items-center justify-between gap-3 py-4">
+            <section className="flex flex-wrap items-center justify-between gap-3 py-4">
               <h1 className="text-xl font-medium leading-6 text-[var(--color-text-primary)]">
                 {t("home.myProjects")}
               </h1>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <select
                   value={sortBy}
                   onChange={handleSortChange}

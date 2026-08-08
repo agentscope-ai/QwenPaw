@@ -384,7 +384,8 @@
     "modelConfig": "模型配置",
     "badgeTitle": "{{name}}：{{status}}",
     "ttsModel": "语音合成模型",
-    "s2vModel": "数字人模型"
+    "s2vModel": "数字人模型",
+    "compactSummary": "模型 {{ready}}/{{total}}"
   },
   "assets": {
     "title": "素材与产物",

@@ -425,8 +425,11 @@ export default function FileProjectReviewPanel({
                 data-file-review-operation={operation.operation_id}
                 className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-card)] p-2"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
+                {/* flex bases keep the summary readable on a very narrow
+                    dock: the action cluster wraps below instead of squeezing
+                    the break-all title into a one-character column. */}
+                <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+                  <div className="min-w-0 flex-[1_1_150px]">
                     <p
                       className="break-all text-[11px] font-semibold text-[var(--color-text-primary)]"
                       title={location}
@@ -445,7 +448,7 @@ export default function FileProjectReviewPanel({
                       {operationPreview(operation, ticksPerSecond)}
                     </p>
                   </div>
-                  <div className="flex shrink-0 gap-1">
+                  <div className="ml-auto flex shrink-0 gap-1">
                     {canJump && (
                       <button
                         type="button"
