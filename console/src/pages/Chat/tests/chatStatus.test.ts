@@ -1,10 +1,11 @@
 /**
- * queryChatStatus is the single-shot status probe used by the queue
- * watchdog and waitForChatIdle. It must distinguish a *confirmed* state
+ * queryChatStatus is the single-shot status probe used by both queue send
+ * paths — the foreground watchdog (scheduleNextSend) and the background
+ * sender (waitForChatIdle). It must distinguish a *confirmed* state
  * ("running"/"idle") from an *undetermined* one ("unknown"): a transient
- * network failure must never be taken as proof that the chat is idle,
- * otherwise the watchdog could clear loading and send the next queued
- * message while the previous turn is still running (out-of-order send).
+ * network failure must never be taken as proof that the chat is idle, or
+ * the next queued message could be sent while the previous turn is still
+ * running on the backend (out-of-order send).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -147,11 +148,31 @@ describe("waitForChatIdle", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("returns true when the status probe fails (does not block the queue)", async () => {
+  it("does not release the queue while the status is unknown", async () => {
+    // A transient network failure must not release the background sender:
+    // the prior turn could still be running, and sending now would break
+    // ordering. waitForChatIdle keeps polling with its backoff instead.
     (fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("backend gone"),
     );
     const ctrl = new AbortController();
-    await expect(waitForChatIdle("chat-1", ctrl.signal)).resolves.toBe(true);
+    const waiting = waitForChatIdle("chat-1", ctrl.signal);
+    const outcome = await Promise.race([
+      waiting.then(() => "released"),
+      new Promise<string>((resolve) =>
+        setTimeout(() => resolve("still-waiting"), 20),
+      ),
+    ]);
+    expect(outcome).toBe("still-waiting");
+    ctrl.abort();
+    await expect(waiting).resolves.toBe(false);
+  });
+
+  it("releases on 404 — a non-existent chat is confirmed idle", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      jsonResponse({ detail: "not found" }, 404),
+    );
+    const ctrl = new AbortController();
+    await expect(waitForChatIdle("missing", ctrl.signal)).resolves.toBe(true);
   });
 });

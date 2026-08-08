@@ -74,12 +74,19 @@ export function shouldResetStuckLoading(status: ChatStatus): boolean {
 }
 
 /**
- * Wait until the backend reports the chat is no longer generating
- * (status === "idle"). Used so the next queued item is sent only after the
- * currently running task finishes — preserving order task1 → task2 → 3.
+ * Wait until the backend CONFIRMS the chat is no longer generating
+ * (status === "idle"). Used by the background queue sender so the next
+ * queued item is sent only after the currently running task finishes —
+ * preserving order task1 → task2 → 3.
  *
- * Returns true when the chat became idle (or status is unknown / 404, which
- * we treat as idle to avoid blocking the queue forever); false if aborted.
+ * Returns true only when the backend confirms the chat is not running.
+ * An "unknown" status (transient network failure, 5xx) does NOT release
+ * the sender: the prior turn could still be running, and firing the next
+ * item then would send out of order. Instead we keep polling with the
+ * existing backoff — the item stays queued until the status is confirmed,
+ * the probe succeeds again, or the sender is aborted (returns false). A
+ * 404 maps to "idle" via queryChatStatus, so a not-yet-created chat still
+ * releases.
  *
  * @param agentId - If provided, overrides X-Agent-Id in the status request
  *   so that switching agents does not cause a spurious "idle" result.
@@ -93,11 +100,7 @@ export async function waitForChatIdle(
   while (!signal.aborted) {
     const status = await queryChatStatus(chatIdForStatus, agentId, signal);
     if (signal.aborted) return false;
-    // "unknown" / "idle" both mean "not running": stop waiting. This keeps
-    // the pre-existing behavior of not blocking the queue forever on a
-    // failed probe (the subsequent POST attempt surfaces the failure as a
-    // retryable queue item instead of wedging the queue).
-    if (status !== "running") return true;
+    if (status === "idle") return true;
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 1000);
       const onAbort = () => {
