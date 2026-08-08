@@ -18,8 +18,6 @@ identified: ``_apply_context_injections()`` → ``_handle_incoming_messages()``.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import patch
-
 import pytest
 
 
@@ -88,7 +86,9 @@ def test_priority_ordering_preserved() -> None:
     assert "first hint" in text_block.text
     assert "second hint" in text_block.text
     # first (priority=1) must appear before second (priority=10)
-    assert text_block.text.index("first hint") < text_block.text.index("second hint")
+    assert text_block.text.index("first hint") < (
+        text_block.text.index("second hint")
+    )
 
 
 def test_empty_injections_is_noop() -> None:
@@ -123,7 +123,7 @@ def test_injected_msg_passes_agentscope_incoming_validation() -> None:
     rejects system-role messages passed as reply inputs. With role="user"
     the message is accepted.
     """
-    from agentscope.message import Msg, TextBlock
+    from agentscope.message import Msg
 
     ctx = _make_ctx([
         {"content": "hint A", "priority": 1},
@@ -132,7 +132,7 @@ def test_injected_msg_passes_agentscope_incoming_validation() -> None:
     injected_msg = _apply_and_get_msg(ctx)
 
     # Build a message list that mimics a real mid-conversation position:
-    # [agent_system_prompt, user_history, assistant_history, INJECTED, user_current]
+    # [system_prompt, user_hist, assistant_hist, INJECTED, user_msg]
     msg_list = [
         Msg(name="assistant", role="system", content="agent system prompt"),
         Msg(name="user", role="user", content="previous question"),
