@@ -47,7 +47,7 @@ def _make_reme_answer(results, link_expansion=None):
         text
           outlinks (N):
             → linked/path  [meta]
-              via predicate=xxx
+              via anchor=#123
           inlinks (N):
             ...
 
@@ -77,8 +77,7 @@ def _make_reme_answer(results, link_expansion=None):
 def _make_link_expansion():
     """Build a realistic link_expansion metadata dict.
 
-    Uses ``edges`` (ReMe ≤0.4.1.3).  After rebasing onto main (0.4.1.4+)
-    this must be changed to ``anchors``.
+    Uses ``anchors`` (ReMe 0.4.1.4+ shape).
     """
     return {
         "memory/0.md": {
@@ -86,7 +85,7 @@ def _make_link_expansion():
                 {
                     "path": "memory/other.md:5-8",
                     "meta": {"score": 0.8, "name": "Other doc"},
-                    "edges": [{"predicate": "derived_from"}],
+                    "anchors": [123],
                 },
             ],
             "inlinks": [],
@@ -97,7 +96,7 @@ def _make_link_expansion():
                 {
                     "path": "memory/third.md:10-12",
                     "meta": {"score": 0.7, "name": "Third doc"},
-                    "edges": [{"predicate": "plain"}],
+                    "anchors": [456],
                 },
             ],
         },
@@ -356,7 +355,7 @@ async def test_no_base_url_skip_with_truncation(manager):
     assert resp.answer != original_answer
     # Link expansions survive in the rebuilt answer
     assert "outlinks" in str(resp.answer)
-    assert "derived_from" in str(resp.answer)
+    assert "anchor=#123" in str(resp.answer)
 
 
 # ── successful rerank preserves expansions ──
@@ -390,7 +389,7 @@ async def test_rerank_preserves_expansions(manager):
     # Expansions survive in the reconstructed answer
     answer = str(resp.answer)
     assert "outlinks" in answer
-    assert "derived_from" in answer
+    assert "anchor=#123" in answer
     # memory/0.md (index 0) is in the capped set (position 2 after
     # reranking) → its outlinks expansion survives.
     # memory/2.md (index 2) is the top result after reranking → its
@@ -429,7 +428,7 @@ async def test_rerank_timeout_preserves_answer_sections(manager):
     # Expansions survive in the reconstructed answer
     answer = str(resp.answer)
     assert "outlinks" in answer
-    assert "derived_from" in answer
+    assert "anchor=#123" in answer
     # memory/0.md is in the top 3 → its expansion (outlinks) should be
     # in the answer
     # memory/2.md is also in the top 3 → its expansion (inlinks) should
