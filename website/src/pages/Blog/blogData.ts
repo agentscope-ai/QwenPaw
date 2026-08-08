@@ -74,6 +74,9 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     cover:
       "https://img.alicdn.com/imgextra/i1/6000000004826/O1CN014843Da1lWMZIlKBgv_!!6000000004826-0-tbvideo.jpg",
   },
+  {
+    slug: "agent-memory-upgrade-practice",
+  },
 ];
 
 /** Previous post in list order (top → bottom on /blog, date-desc). */
