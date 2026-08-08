@@ -15,6 +15,16 @@ from .openai_provider import OpenAIProvider
 logger = logging.getLogger(__name__)
 
 
+def _supports_none_reasoning_effort(model_name: str) -> bool:
+    """Whether an official GPT model accepts ``reasoning.effort=none``."""
+    canonical_name = model_name.rsplit("/", 1)[-1].lower()
+    prefix = "gpt-5."
+    if not canonical_name.startswith(prefix):
+        return False
+    minor_version = canonical_name[len(prefix) :].split("-", 1)[0]
+    return minor_version.isdigit() and int(minor_version) >= 2
+
+
 def _extract_response_text(response: Any) -> str:
     """Extract aggregated output text from a Responses API
     response object.
@@ -96,7 +106,10 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         ):
             merged["max_output_tokens"] = inherited_max_tokens
         if disable_thinking:
-            merged.pop("reasoning", None)
+            if _supports_none_reasoning_effort(model_name):
+                merged["reasoning"] = {"effort": "none"}
+            else:
+                merged.pop("reasoning", None)
         return await super()._call_api(
             model_name,
             messages,
