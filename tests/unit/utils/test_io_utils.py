@@ -394,3 +394,20 @@ def test_write_json_atomic_validator(tmp_path: Path) -> None:
     # File is intact, no backups created
     assert path.read_text(encoding="utf-8") == '{"key": "v1"}'
     assert not path.with_suffix(".bak.1").exists()
+
+
+def test_write_text_atomic_fails_closed_on_backup_failure(
+    tmp_path: Path,
+) -> None:
+    """If backup creation fails, the write aborts and leaves target intact."""
+    path = tmp_path / "state.txt"
+    path.write_text("v1", encoding="utf-8")
+
+    with (
+        patch("shutil.copy2", side_effect=OSError("backup unavailable")),
+        pytest.raises(OSError, match="backup unavailable"),
+    ):
+        write_text_atomic(path, "v2", backup_count=3)
+
+    assert path.read_text(encoding="utf-8") == "v1"
+    assert not path.with_suffix(".bak.1").exists()

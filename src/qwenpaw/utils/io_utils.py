@@ -310,16 +310,11 @@ def write_text_atomic(
                 src = target.with_suffix(f".bak.{i}")
                 dst = target.with_suffix(f".bak.{i + 1}")
                 if src.exists():
-                    try:
-                        os.replace(src, dst)
-                    except OSError:
-                        pass
-            try:
-                import shutil
+                    os.replace(src, dst)
 
-                shutil.copy2(target, target.with_suffix(".bak.1"))
-            except OSError:
-                pass
+            import shutil
+
+            shutil.copy2(target, target.with_suffix(".bak.1"))
 
         os.replace(temp_path, target)
         temp_path = None
