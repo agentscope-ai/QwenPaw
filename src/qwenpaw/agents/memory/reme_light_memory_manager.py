@@ -442,70 +442,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if response is None:
             return _tool_chunk("ReMe is not started.", ok=False)
 
-        results = (
-            response.metadata.get("results") if response.success else None
+        await self._rerank_and_cap_response(
+            query,
+            response,
+            cap,
+            reranker_config,
         )
-        if results:
-            # Save original metadata for fallback reconstruction.
-            # The link_expansion dict is used by the fallback path to preserve
-            # expansions even when the answer text format is unexpected.
-            original_link_expansion = (
-                response.metadata.get("link_expansion", {})
-                if response.success
-                else {}
-            )
-            # Parse the original ReMe answer into sections keyed by
-            # "path:line-line" so we can reorder + cap them while preserving
-            # link expansions and hybrid score details.
-            original_answer = str(response.answer or "")
-            answer_sections = (
-                self._parse_answer_into_sections(original_answer)
-                if original_answer
-                else {}
-            )
-
-            # Rerank (only reorders results, answer sections are reordered
-            # below)
-            reranker_did_reorder = False
-            if reranker_config and len(results) > 1:
-                try:
-                    before = list(results)
-                    await self._rerank_search_results(
-                        query,
-                        response,
-                        reranker_config,
-                    )
-                    results = response.metadata["results"]
-                    reranker_did_reorder = results != before
-                except Exception:
-                    logger.warning(
-                        "[rerank] failed, using original order",
-                        exc_info=True,
-                    )
-            # Cap to max_results
-            truncated = len(results) > cap
-            if truncated:
-                results = results[:cap]
-                response.metadata["results"] = results
-            # Reconstruct answer from sections when order or count changed,
-            # preserving the original ReMe answer (including link expansions
-            # and hybrid score details) whenever possible.
-            if reranker_did_reorder or truncated:
-                if answer_sections:
-                    response.answer = self._reconstruct_answer_from_sections(
-                        answer_sections,
-                        results,
-                    )
-                else:
-                    # Fallback: answer format was unexpected; rebuild from
-                    # raw metadata (results + link_expansion) so link
-                    # expansions are still preserved.
-                    response.answer = (
-                        self._rebuild_search_answer_with_expansions(
-                            results,
-                            original_link_expansion,
-                        )
-                    )
 
         answer = str(response.answer or "").strip()
         if not answer:
@@ -513,6 +455,83 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return _tool_chunk(answer, ok=response.success)
 
     # ── reranker helpers ──────────────────────────────────────────────
+
+    async def _rerank_and_cap_response(
+        self,
+        query: str,
+        response: "Response",
+        cap: int,
+        reranker_config: RerankerConfig | None,
+    ) -> None:
+        """Over-fetch, rerank, cap, and rebuild answer on **response**.
+
+        Shared by ``memory_search()`` and ``auto_memory_search()``.
+        Mutates ``response.metadata["results"]`` and ``response.answer``
+        in place.  Does nothing when ``reranker_config`` is ``None`` or
+        results are empty or already short enough (no truncation).
+        """
+        results = (
+            response.metadata.get("results") if response.success else None
+        )
+        if not results:
+            return
+
+        # Save original metadata for fallback reconstruction.
+        original_link_expansion = (
+            response.metadata.get("link_expansion", {})
+            if response.success
+            else {}
+        )
+        # Parse the original ReMe answer into sections keyed by
+        # "path:line-line" so we can reorder + cap them while preserving
+        # link expansions and hybrid score details.
+        original_answer = str(response.answer or "")
+        answer_sections = (
+            self._parse_answer_into_sections(original_answer)
+            if original_answer
+            else {}
+        )
+
+        # Rerank (only reorders results, answer sections are reordered
+        # below)
+        reranker_did_reorder = False
+        if reranker_config and len(results) > 1:
+            try:
+                before = list(results)
+                await self._rerank_search_results(
+                    query,
+                    response,
+                    reranker_config,
+                )
+                results = response.metadata["results"]
+                reranker_did_reorder = results != before
+            except Exception:
+                logger.warning(
+                    "[rerank] failed, using original order",
+                    exc_info=True,
+                )
+        # Cap to max_results
+        truncated = len(results) > cap
+        if truncated:
+            results = results[:cap]
+            response.metadata["results"] = results
+        # Reconstruct answer from sections when order or count changed,
+        # preserving the original ReMe answer (including link expansions
+        # and hybrid score details) whenever possible.
+        if reranker_did_reorder or truncated:
+            if answer_sections:
+                response.answer = self._reconstruct_answer_from_sections(
+                    answer_sections,
+                    results,
+                )
+            else:
+                # Fallback: answer format was unexpected; rebuild from
+                # raw metadata (results + link_expansion) so link
+                # expansions are still preserved.
+                response.answer = self._rebuild_search_answer_with_expansions(
+                    results,
+                    original_link_expansion,
+                )
 
     async def _rerank_search_results(
         self,
@@ -865,15 +884,30 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         search_cfg = memory_cfg.auto_memory_search_config
 
-        max_results = max(1, search_cfg.max_results)
+        cap = max(1, search_cfg.max_results)
+        reranker_config = self._get_reranker_config()
+        # Over-fetch when reranker is enabled: take N * multiplier
+        # candidates, rerank, then return top-N.
+        effective_limit = (
+            cap * reranker_config.candidate_multiplier
+            if reranker_config
+            else cap
+        )
         response = await self._run_reme_job(
             "search",
             query=query,
-            limit=max_results,
+            limit=effective_limit,
             min_score=0,
         )
         if response is None or not response.success:
             return None
+
+        await self._rerank_and_cap_response(
+            query,
+            response,
+            cap,
+            reranker_config,
+        )
 
         text = str(response.answer or "").strip()
         if not text:
@@ -881,7 +915,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         assistant_msg = self._build_auto_memory_search_msg(
             query=query,
-            max_results=max_results,
+            max_results=cap,
             text=text,
         )
         return {

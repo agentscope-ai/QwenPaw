@@ -75,7 +75,11 @@ def _make_reme_answer(results, link_expansion=None):
 
 
 def _make_link_expansion():
-    """Build a realistic link_expansion metadata dict."""
+    """Build a realistic link_expansion metadata dict.
+
+    Uses ``edges`` (ReMe ≤0.4.1.3).  After rebasing onto main (0.4.1.4+)
+    this must be changed to ``anchors``.
+    """
     return {
         "memory/0.md": {
             "outlinks": [
@@ -521,3 +525,68 @@ async def test_answer_preserved_when_reranker_no_op(manager):
 
     # No truncation, no reorder → answer should be preserved
     assert resp.answer == original_answer
+
+
+# ── auto_memory_search with reranker ──
+
+
+@pytest.mark.asyncio
+async def test_auto_memory_search_uses_reranker(manager):
+    """auto_memory_search() must over-fetch, rerank, and cap results,
+    just like memory_search()."""
+    from unittest.mock import patch
+
+    search_cfg = types.SimpleNamespace(
+        enabled=True,
+        max_results=2,
+    )
+    memory_cfg = types.SimpleNamespace(
+        auto_memory_search_config=search_cfg,
+    )
+    agent_config = types.SimpleNamespace(
+        running=types.SimpleNamespace(
+            reme_light_memory_config=memory_cfg,
+        ),
+    )
+
+    manager._get_reranker_config = MagicMock(
+        return_value=_make_config(candidate_multiplier=3),
+    )
+    manager._call_reranker_api = MagicMock(
+        return_value=[2, 1, 0, 3, 4, 5],
+    )
+    manager._build_query = MagicMock(return_value="test query")
+    manager._build_auto_memory_search_msg = MagicMock(
+        return_value="fake_msg",
+    )
+    manager.agent_id = "test-agent"
+    rs = [_result(i, text=f"t{i}") for i in range(6)]
+    resp = _make_response(rs)
+    manager._run_reme_job = AsyncMock(return_value=resp)
+
+    with patch.object(
+        mgr,
+        "load_agent_config",
+        return_value=agent_config,
+    ):
+        result = await manager.auto_memory_search(
+            messages="dummy message",
+        )
+
+    # Over-fetch: limit should be 2 * 3 = 6
+    limit = manager._run_reme_job.call_args.kwargs["limit"]
+    assert limit == 6, (
+        f"auto_memory_search should over-fetch: " f"expected 6, got {limit}"
+    )
+
+    # Reranked: top result should be doc-2 (index 2 promoted by reranker)
+    assert result is not None
+    second_result = resp.metadata["results"][1]
+    assert (
+        second_result["text"] == "t1"
+    ), f"expected t1 at position 1, got {second_result['text']}"
+
+    # Capped: only 2 results
+    assert (
+        len(resp.metadata["results"]) == 2
+    ), f"expected 2 results, got {len(resp.metadata['results'])}"
