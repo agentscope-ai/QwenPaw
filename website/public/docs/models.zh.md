@@ -202,6 +202,8 @@ QwenPaw 当前支持的云提供商包括：
 
 > 以 vLLM 部署为例，如果您将 vLLM 部署在 `http://localhost:8000`，并且 vLLM 中有一个路径为 `/path/to/Qwen3.5` 的模型，那么您可以添加一个自定义提供商，设置 API 兼容模式为 OpenAI `chat.completions`，基础 URL 设置为 `http://localhost:8000/v1`，然后在该提供商下添加一个模型，模型 ID 填写 `/path/to/Qwen3.5`，模型名称可以自定义为 `Qwen3.5`，添加完成后测试连接，如果一切配置正确，就可以在 QwenPaw 中使用这个 vLLM 模型了。
 
+> **已知模型自动能力识别**：当您添加的模型 ID 与 QwenPaw 内置模型模板匹配时（例如 `qwen3.6-plus`、`deepseek-v4-pro`、`gpt-5-mini`、`glm-5.2`），QwenPaw 会自动从模板应用该模型的多模态能力（图片/视频/多模态支持、思考模式等）并跳过运行时能力探测。这避免了推理模型探测失败的问题（探测请求的 `max_tokens` 可能被 `reasoning_content` 耗尽，导致 `content` 为空）。不在模板中的模型保持原有行为（能力探测兜底）。您仍可通过提供商配置文件（`$QWENPAW_SECRET_DIR/providers/custom/<provider_id>.json`）手动覆盖能力设置。
+
 ## 选择模型
 
 配置好的模型供应商以及模型会显示在 **设置 -> 模型 -> 默认 LLM** 的列表中，您可以选择一个模型作为全局默认模型，点击模型右侧的 **保存** 按钮即可，在该页面设置的模型会作为全局默认模型被 QwenPaw 使用，如果您在某些场景（例如聊天）中没有指定模型，QwenPaw 就会使用这里设置的默认模型。

@@ -202,6 +202,8 @@ After configuring a custom provider, go to its **Models** page and click **Add M
 
 > For example, if you deploy vLLM at `http://localhost:8000` and have a model at `/path/to/Qwen3.5`, you can add a custom provider, set the API compatibility mode to OpenAI `chat.completions`, set the Base URL to `http://localhost:8000/v1`, then add a model under this provider with Model ID `/path/to/Qwen3.5` and Model Name `Qwen3.5`. After testing the connection, if everything is configured correctly, you can use this vLLM model in QwenPaw.
 
+> **Automatic capability detection for known models**: when you add a model whose ID matches one of QwenPaw's built-in model templates (e.g. `qwen3.6-plus`, `deepseek-v4-pro`, `gpt-5-mini`, `glm-5.2`), QwenPaw automatically applies the documented capabilities (image/video/multimodal support, thinking mode, etc.) from the template and skips the runtime capability probe. This avoids the probe failing for reasoning models (where the probe request can exhaust `max_tokens` on `reasoning_content` and leave `content` empty). Models not present in the templates keep the previous behavior (capability probe fallback). You can still override capabilities manually via the provider configuration file (`$QWENPAW_SECRET_DIR/providers/custom/<provider_id>.json`).
+
 ## Selecting a Model
 
 Configured model providers and models will appear in the **Settings -> Models -> Default LLM** list. You can select a model as the global default and click the **Save** button on the right. The model set on this page will be used as the global default by QwenPaw. If you do not specify a model in certain scenarios (such as chat), QwenPaw will use the default model set here.

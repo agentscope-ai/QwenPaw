@@ -88,6 +88,21 @@ class ExpectedCapabilityRegistry:
             cap for (pid, _), cap in self._data.items() if pid == provider_id
         ]
 
+    def get_expected_by_model_id(
+        self,
+        model_id: str,
+    ) -> ExpectedCapability | None:
+        """Look up expected capability by model id alone (provider-agnostic).
+
+        Useful for custom providers whose provider id is not part of the
+        baseline registry. When the same model id is registered under
+        multiple providers, the first entry wins (deterministic dict order).
+        """
+        for (_, mid), cap in self._data.items():
+            if mid == model_id:
+                return cap
+        return None
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
