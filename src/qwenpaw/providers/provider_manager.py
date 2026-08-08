@@ -2419,16 +2419,20 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         Used when a model is added to a (possibly custom) provider at
         runtime, so known models get their documented capabilities instead
         of falling back to probing.  Models whose capabilities are already
-        known (non-None supports_multimodal) are left untouched.
+        known (non-None supports_multimodal) are left untouched.  Lookup
+        prefers the provider-specific baseline entry, then falls back to a
+        provider-agnostic bare model-id lookup (custom provider ids are not
+        part of the baseline registry).
         """
         if model_info.supports_multimodal is not None:
             return
 
         from .capability_baseline import ExpectedCapabilityRegistry
 
-        expected = ExpectedCapabilityRegistry().get_expected_by_model_id(
-            model_info.id,
-        )
+        registry = ExpectedCapabilityRegistry()
+        expected = registry.get_expected(provider.id, model_info.id)
+        if expected is None:
+            expected = registry.get_expected_by_model_id(model_info.id)
         if expected:
             model_info.supports_image = expected.expected_image
             model_info.supports_video = expected.expected_video

@@ -47,7 +47,9 @@ async def test_add_unknown_model_to_custom_provider_no_template(
 
     provider = await manager.add_model_to_provider("openai", model_info)
 
-    added = next(m for m in provider.extra_models if m.id == "brand-new-model-xyz")
+    added = next(
+        m for m in provider.extra_models if m.id == "brand-new-model-xyz"
+    )
     assert added.supports_image is None
     assert added.supports_video is None
     assert added.supports_multimodal is None
@@ -74,7 +76,9 @@ async def test_disk_custom_provider_gets_default_annotations(
     reloaded = ProviderManager()
     reloaded_provider = reloaded.get_provider("agentteams-gateway")
     assert reloaded_provider is not None
-    model = next(m for m in reloaded_provider.extra_models if m.id == "deepseek-v4-pro")
+    model = next(
+        m for m in reloaded_provider.extra_models if m.id == "deepseek-v4-pro"
+    )
     assert model.supports_image is False
     assert model.supports_multimodal is False
     assert model.probe_source == "documentation"
