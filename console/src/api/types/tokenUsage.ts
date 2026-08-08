@@ -3,6 +3,7 @@ export interface TokenUsageRecord {
   date: string; // YYYY-MM-DD
   provider_id: string;
   model: string;
+  agent_id?: string;
   prompt_tokens: number;
   completion_tokens: number;
   call_count: number;

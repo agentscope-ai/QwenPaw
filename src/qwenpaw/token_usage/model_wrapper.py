@@ -49,6 +49,8 @@ class TokenRecordingModelWrapper(ChatModelBase):
         if pt <= 0 and ct <= 0:
             return
 
+        from ..app.agent_context import _current_agent_id
+
         event = _UsageEvent(
             provider_id=self._provider_id,
             model_name=self.model,
@@ -58,6 +60,8 @@ class TokenRecordingModelWrapper(ChatModelBase):
             now_iso=datetime.now(tz=timezone.utc).isoformat(
                 timespec="seconds",
             ),
+            # Raw ContextVar: avoid active-agent / "default" fallback.
+            agent_id=_current_agent_id.get() or "",
         )
         # Fire-and-forget: synchronous put_nowait, ~100 ns, no await needed.
         get_token_usage_manager().enqueue(event)

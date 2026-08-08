@@ -308,6 +308,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     from ..token_usage import get_token_usage_manager
 
     token_usage_manager = get_token_usage_manager()
+    try:
+        await token_usage_manager.migrate_historical_agent_ids()
+    except Exception:
+        logger.warning(
+            "token_usage: historical agent attribution migration skipped",
+            exc_info=True,
+        )
     token_usage_manager.start(flush_interval=10)
 
     # Expose to endpoints (must be set before first request arrives).

@@ -104,3 +104,34 @@ async def get_token_usage_details(
         model_name=model,
         provider_id=provider,
     )
+
+
+@router.get(
+    "/daily-tool-calls",
+    summary="Get daily tool-call totals",
+    description=(
+        "Return daily tool-use intent counts across all configured agents"
+    ),
+)
+async def get_daily_tool_calls(
+    start_date: str
+    | None = Query(
+        None,
+        description="Start date YYYY-MM-DD (inclusive). Default: 30 days ago",
+    ),
+    end_date: str
+    | None = Query(
+        None,
+        description="End date YYYY-MM-DD (inclusive). Default: today",
+    ),
+) -> dict[str, int]:
+    """Return mapping of YYYY-MM-DD -> tool-call count for all agents."""
+    end_d = _parse_date(end_date) or date.today()
+    start_d = _parse_date(start_date) or (end_d - timedelta(days=30))
+    if start_d > end_d:
+        start_d, end_d = end_d, start_d
+
+    return await get_token_usage_manager().get_daily_tool_calls(
+        start_date=start_d,
+        end_date=end_d,
+    )

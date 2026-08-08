@@ -19,12 +19,25 @@ interface ByDateData {
   call_count: number;
 }
 
+interface ByAgentData {
+  key: string;
+  agent: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  call_count: number;
+}
+
 interface DataTablesProps {
   byModelData: ByModelData[];
   byDateData: ByDateData[];
+  byAgentData: ByAgentData[];
 }
 
-export function DataTables({ byModelData, byDateData }: DataTablesProps) {
+export function DataTables({
+  byModelData,
+  byDateData,
+  byAgentData,
+}: DataTablesProps) {
   const { t } = useTranslation();
 
   const byModelColumns = [
@@ -109,6 +122,47 @@ export function DataTables({ byModelData, byDateData }: DataTablesProps) {
     },
   ];
 
+  const byAgentColumns = [
+    {
+      title: t("tokenUsage.agent"),
+      dataIndex: "agent",
+      key: "agent",
+    },
+    {
+      title: t("tokenUsage.promptTokens"),
+      dataIndex: "prompt_tokens",
+      key: "prompt_tokens",
+      render: (v: number) => formatCompact(v),
+      sorter: (a: ByAgentData, b: ByAgentData) =>
+        a.prompt_tokens - b.prompt_tokens,
+    },
+    {
+      title: t("tokenUsage.completionTokens"),
+      dataIndex: "completion_tokens",
+      key: "completion_tokens",
+      render: (v: number) => formatCompact(v),
+      sorter: (a: ByAgentData, b: ByAgentData) =>
+        a.completion_tokens - b.completion_tokens,
+    },
+    {
+      title: t("tokenUsage.totalTokens"),
+      key: "total_tokens",
+      render: (_: unknown, record: ByAgentData) =>
+        formatCompact(record.prompt_tokens + record.completion_tokens),
+      sorter: (a: ByAgentData, b: ByAgentData) =>
+        a.prompt_tokens +
+        a.completion_tokens -
+        (b.prompt_tokens + b.completion_tokens),
+    },
+    {
+      title: t("tokenUsage.totalCalls"),
+      dataIndex: "call_count",
+      key: "call_count",
+      render: (v: number) => formatCompact(v),
+      sorter: (a: ByAgentData, b: ByAgentData) => a.call_count - b.call_count,
+    },
+  ];
+
   return (
     <>
       {byModelData.length > 0 && (
@@ -134,6 +188,21 @@ export function DataTables({ byModelData, byDateData }: DataTablesProps) {
           <Table
             columns={byDateColumns}
             dataSource={byDateData}
+            pagination={{ pageSize: 10 }}
+            size="small"
+            scroll={{ x: "max-content" }}
+          />
+        </Card>
+      )}
+
+      {byAgentData.length > 0 && (
+        <Card
+          className={`${styles.tableCard} mobile-scroll-x`}
+          title={t("tokenUsage.byAgent")}
+        >
+          <Table
+            columns={byAgentColumns}
+            dataSource={byAgentData}
             pagination={{ pageSize: 10 }}
             size="small"
             scroll={{ x: "max-content" }}

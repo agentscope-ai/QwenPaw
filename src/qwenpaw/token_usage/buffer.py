@@ -24,6 +24,7 @@ class _UsageEvent(NamedTuple):
     completion_tokens: int
     date_str: str  # YYYY-MM-DD, pre-computed by producer
     now_iso: str  # ISO-8601 timestamp, pre-computed by producer
+    agent_id: str = ""
 
 
 class TokenUsageBuffer:
@@ -37,7 +38,7 @@ class TokenUsageBuffer:
         self._path = path
         self._flush_interval = flush_interval
 
-        # Format: { "2026-04-23": { "provider:model": {...} } }
+        # Format: { "2026-04-23": { "agent_id|provider:model": {...} } }
         self._disk_cache: dict = {}
         self._cache_loaded = False
 
@@ -190,17 +191,18 @@ class TokenUsageBuffer:
 def _apply_event(cache: dict, ev: _UsageEvent) -> None:
     """Accumulate a single usage event into *cache* in-place.
 
-    Cache format: { "2026-04-23": { "provider:model": {...} } }
+    Cache format: { "2026-04-23": { "agent_id|provider:model": {...} } }
     """
-    composite_key = f"{ev.provider_id}:{ev.model_name}"
+    composite_key = f"{ev.agent_id}|{ev.provider_id}:{ev.model_name}"
 
     # Get or create the day bucket
     day_bucket = cache.setdefault(ev.date_str, {})
 
-    # Get or create the entry for this provider:model
+    # Get or create the entry for this agent_id|provider:model
     entry = day_bucket.setdefault(
         composite_key,
         {
+            "agent_id": ev.agent_id,
             "provider_id": ev.provider_id,
             "model_name": ev.model_name,
             "prompt_tokens": 0,

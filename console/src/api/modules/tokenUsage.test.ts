@@ -55,4 +55,17 @@ describe("tokenUsageApi", () => {
       "/token-usage/details?start_date=2026-02-01&end_date=2026-02-28",
     );
   });
+
+  it("getDailyToolCalls hits daily-tool-calls with date range", async () => {
+    const daily = { "2026-01-01": 3 } as Record<string, number>;
+    vi.mocked(request).mockResolvedValue(daily);
+    const result = await tokenUsageApi.getDailyToolCalls({
+      start_date: "2026-01-01",
+      end_date: "2026-01-31",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/token-usage/daily-tool-calls?start_date=2026-01-01&end_date=2026-01-31",
+    );
+    expect(result).toEqual(daily);
+  });
 });

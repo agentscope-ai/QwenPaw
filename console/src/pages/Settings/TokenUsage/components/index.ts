@@ -3,4 +3,5 @@ export * from "./EmptyState";
 export * from "./SummaryCards";
 export * from "./ModelTrendChart";
 export * from "./TokenTypeChart";
+export * from "./LlmToolTrendChart";
 export * from "./DataTables";

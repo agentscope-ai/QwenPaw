@@ -7,26 +7,33 @@ import api from "../../../api";
 import type { TokenUsageRecord } from "../../../api/types/tokenUsage";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { PageHeader } from "@/components/PageHeader";
+import { useAgentStore } from "../../../stores/agentStore";
 import {
   LoadingState,
   SummaryCards,
   ModelTrendChart,
   TokenTypeChart,
+  LlmToolTrendChart,
   DataTables,
   EmptyState,
 } from "./components";
 import { useDataAggregation } from "./hooks/useDataAggregation";
 import { useModelTrendConfig } from "./hooks/useModelTrendConfig";
 import { useTokenTypeConfig } from "./hooks/useTokenTypeConfig";
+import { useLlmToolTrendConfig } from "./hooks/useLlmToolTrendConfig";
 import styles from "./index.module.less";
 
 function TokenUsagePage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
+  const { agents } = useAgentStore();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [records, setRecords] = useState<TokenUsageRecord[]>([]);
+  const [dailyToolCalls, setDailyToolCalls] = useState<Record<string, number>>(
+    {},
+  );
   const [startDate, setStartDate] = useState<Dayjs>(
     dayjs().subtract(30, "day"),
   );
@@ -35,16 +42,25 @@ function TokenUsagePage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(false);
+    const params = {
+      start_date: startDate.format("YYYY-MM-DD"),
+      end_date: endDate.format("YYYY-MM-DD"),
+    };
     try {
-      const detailsData = await api.getTokenUsageDetails({
-        start_date: startDate.format("YYYY-MM-DD"),
-        end_date: endDate.format("YYYY-MM-DD"),
-      });
+      const [detailsData, toolCalls] = await Promise.all([
+        api.getTokenUsageDetails(params),
+        api.getDailyToolCalls(params).catch((err) => {
+          console.error("Failed to load daily tool calls:", err);
+          return {} as Record<string, number>;
+        }),
+      ]);
       setRecords(detailsData);
+      setDailyToolCalls(toolCalls);
     } catch (err) {
       console.error("Failed to load token usage:", err);
       message.error(t("tokenUsage.loadFailed"));
       setRecords([]);
+      setDailyToolCalls({});
       setError(true);
     } finally {
       setLoading(false);
@@ -77,6 +93,14 @@ function TokenUsagePage() {
     isDark,
   });
 
+  const llmToolTrendConfig = useLlmToolTrendConfig({
+    byDate: aggregatedData?.by_date ?? null,
+    dailyToolCalls,
+    startDate,
+    endDate,
+    isDark,
+  });
+
   const byModelData = useMemo(() => {
     if (!aggregatedData?.by_model) return [];
     return Object.entries(aggregatedData.by_model).map(([key, stats]) => ({
@@ -100,6 +124,21 @@ function TokenUsagePage() {
       }))
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [aggregatedData?.by_date]);
+
+  const byAgentData = useMemo(() => {
+    if (!aggregatedData?.by_agent) return [];
+    const nameById = new Map(agents.map((a) => [a.id, a.name]));
+    return Object.entries(aggregatedData.by_agent).map(([key, stats]) => ({
+      key,
+      agent:
+        nameById.get(stats.agent_id) ||
+        stats.agent_id ||
+        t("tokenUsage.unknownAgent"),
+      prompt_tokens: stats.prompt_tokens,
+      completion_tokens: stats.completion_tokens,
+      call_count: stats.call_count,
+    }));
+  }, [aggregatedData?.by_agent, agents, t]);
 
   const pageHeader = (
     <PageHeader parent={t("nav.settings")} current={t("tokenUsage.title")} />
@@ -159,10 +198,21 @@ function TokenUsagePage() {
           <TokenTypeChart chartConfig={tokenTypeConfig} />
         </div>
 
-        {byModelData.length === 0 && byDateData.length === 0 ? (
+        {llmToolTrendConfig && (
+          <LlmToolTrendChart chartConfig={llmToolTrendConfig} />
+        )}
+
+        {byModelData.length === 0 &&
+        byDateData.length === 0 &&
+        byAgentData.length === 0 &&
+        !llmToolTrendConfig ? (
           <EmptyState message={t("tokenUsage.noData")} />
         ) : (
-          <DataTables byModelData={byModelData} byDateData={byDateData} />
+          <DataTables
+            byModelData={byModelData}
+            byDateData={byDateData}
+            byAgentData={byAgentData}
+          />
         )}
       </div>
     </div>

@@ -26,4 +26,10 @@ export const tokenUsageApi = {
   // New details endpoint (raw records for frontend aggregation)
   getTokenUsageDetails: (params: GetTokenUsageParams) =>
     request<TokenUsageRecord[]>(`/token-usage/details${buildQuery(params)}`),
+
+  // Daily tool-call totals across all configured agents
+  getDailyToolCalls: (params: Pick<GetTokenUsageParams, "start_date" | "end_date">) =>
+    request<Record<string, number>>(
+      `/token-usage/daily-tool-calls${buildQuery(params)}`,
+    ),
 };
