@@ -49,6 +49,7 @@ import CloseWindowPrompt from "./tauri/CloseWindowPrompt";
 import { isTauri } from "@tauri-apps/api/core";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
 import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
+import { useGlobalAnimationPauser } from "./hooks/useGlobalAnimationPauser";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
@@ -141,6 +142,7 @@ function AuthGuard({
 }
 
 function AppInner() {
+  useGlobalAnimationPauser();
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
   const { isDark } = useTheme();
