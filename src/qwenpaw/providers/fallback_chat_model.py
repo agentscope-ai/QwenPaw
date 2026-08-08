@@ -146,9 +146,13 @@ def _compute_cooldown_seconds(
     consecutive_failures: int,
     is_auth: bool,
 ) -> float:
-    """Return the cooldown duration for *consecutive_failures*."""
+    """Return the cooldown duration for *consecutive_failures*.
+
+    Uses a zero-based ordinal (``consecutive_failures - 1``) so that
+    the first failure selects bucket index 0 rather than index 1.
+    """
     buckets = AUTH_COOLDOWN_BUCKETS if is_auth else TRANSIENT_COOLDOWN_BUCKETS
-    idx = min(consecutive_failures, len(buckets) - 1)
+    idx = min(max(0, consecutive_failures - 1), len(buckets) - 1)
     return buckets[idx]
 
 
@@ -257,8 +261,9 @@ class FallbackChatModel(ChatModelBase):
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
         failures: list[tuple[FallbackCandidate, Exception]] = []
+        active = self._active_candidates()
 
-        for index, candidate in enumerate(self._active_candidates()):
+        for index, candidate in enumerate(active):
             try:
                 result = await candidate.model(*args, **kwargs)
             except Exception as exc:
@@ -266,7 +271,7 @@ class FallbackChatModel(ChatModelBase):
                 self._record_failure(candidate, exc)
                 if not is_fallback_eligible_error(exc):
                     raise
-                if index >= len(self.candidates) - 1:
+                if index >= len(active) - 1:
                     raise ModelFallbackError(failures) from exc
                 self._log_fallback(candidate, exc, index)
                 continue
@@ -278,7 +283,7 @@ class FallbackChatModel(ChatModelBase):
                     candidate=candidate,
                     stream=result,
                     failures=failures,
-                    candidate_index=index,
+                    remaining_active=active[index + 1 :],
                     call_args=args,
                     call_kwargs=kwargs,
                 )
@@ -354,11 +359,21 @@ class FallbackChatModel(ChatModelBase):
         candidate: FallbackCandidate,
         stream: AsyncGenerator[ChatResponse, None],
         failures: list[tuple[FallbackCandidate, Exception]],
-        candidate_index: int,
+        remaining_active: list[FallbackCandidate],
         call_args: tuple[Any, ...],
         call_kwargs: dict[str, Any],
     ) -> AsyncGenerator[ChatResponse, None]:
-        """Wrap a streaming candidate to allow fallback before first chunk."""
+        """Wrap a streaming candidate to allow fallback before first chunk.
+
+        Args:
+            candidate: The current streaming candidate.
+            stream: The async generator from *candidate*.
+            failures: Accumulated failures so far.
+            remaining_active: Remaining *active* (not-on-cooldown) candidates
+                to try if the current stream fails before its first chunk.
+            call_args: Original positional args passed to ``__call__``.
+            call_kwargs: Original keyword args passed to ``__call__``.
+        """
         yielded_any = False
         try:
             async for chunk in stream:
@@ -372,13 +387,12 @@ class FallbackChatModel(ChatModelBase):
             failures.append((candidate, exc))
             if not is_fallback_eligible_error(exc):
                 raise
-            if candidate_index >= len(self.candidates) - 1:
+            if not remaining_active:
                 raise ModelFallbackError(failures) from exc
-            self._log_fallback(candidate, exc, candidate_index)
+            self._log_fallback(candidate, exc, 0)
 
-        # Try remaining candidates
-        for index in range(candidate_index + 1, len(self.candidates)):
-            next_candidate = self.candidates[index]
+        # Try remaining active candidates
+        for next_candidate in remaining_active:
             yielded_any = False
             try:
                 result = await next_candidate.model(*call_args, **call_kwargs)
@@ -398,8 +412,8 @@ class FallbackChatModel(ChatModelBase):
                 failures.append((next_candidate, exc))
                 if not is_fallback_eligible_error(exc):
                     raise
-                if index >= len(self.candidates) - 1:
+                if next_candidate is remaining_active[-1]:
                     raise ModelFallbackError(failures) from exc
-                self._log_fallback(next_candidate, exc, index)
+                self._log_fallback(next_candidate, exc, 0)
 
         raise ModelFallbackError(failures)

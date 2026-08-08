@@ -11,6 +11,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from qwenpaw.providers.fallback_chat_model import (
+    TRANSIENT_COOLDOWN_BUCKETS,
+    AUTH_COOLDOWN_BUCKETS,
+    _compute_cooldown_seconds,
     CooldownManager,
     CooldownState,
     FallbackCandidate,
@@ -112,6 +115,37 @@ class TestCooldownManager:
         remaining = CooldownManager.get_cooldown_remaining("test:model")
         # AUTH_COOLDOWN_BUCKETS[0] = 18000
         assert remaining > 15000
+
+    # -- Cooldown bucket index (PR #6659 fix) ------------------------------
+
+    def test_first_transient_failure_uses_first_bucket(self):
+        """First transient failure -> cooldown = bucket[0] (60s), not 300s."""
+        cooldown = _compute_cooldown_seconds(1, is_auth=False)
+        assert cooldown == TRANSIENT_COOLDOWN_BUCKETS[0]
+
+    def test_first_auth_failure_uses_first_bucket(self):
+        """First auth failure -> cooldown = bucket[0] (5h), not 10h."""
+        cooldown = _compute_cooldown_seconds(1, is_auth=True)
+        assert cooldown == AUTH_COOLDOWN_BUCKETS[0]
+
+    def test_second_failure_uses_second_bucket(self):
+        """Second failure -> cooldown = bucket[1]."""
+        cooldown = _compute_cooldown_seconds(2, is_auth=False)
+        assert cooldown == TRANSIENT_COOLDOWN_BUCKETS[1]
+
+    def test_many_failures_clamp_to_last_bucket(self):
+        """Failures beyond the bucket list clamp to the last bucket."""
+        cooldown = _compute_cooldown_seconds(99, is_auth=False)
+        assert cooldown == TRANSIENT_COOLDOWN_BUCKETS[-1]
+
+    def test_record_failure_first_time_uses_first_bucket(self):
+        """CooldownManager.record_failure first time -> bucket[0]."""
+        exc = Exception("rate limit")
+        exc.status_code = 503  # 503 uses transient bucket
+        CooldownManager.record_failure("test:bucket-idx", exc)
+        remaining = CooldownManager.get_cooldown_remaining("test:bucket-idx")
+        # TRANSIENT_COOLDOWN_BUCKETS[0] = 60s
+        assert 55 <= remaining <= 65
 
 
 # ---- FallbackCandidate tests --------------------------------------------
@@ -221,6 +255,119 @@ class TestFallbackChatModel:
             results.append(chunk)
 
         assert results == ["chunk-x", "chunk-y"]
+
+    # -- Streaming fallback active-candidate snapshot (PR #6659 fix) -------
+
+    async def test_stream_fallback_skips_on_cooldown_middle_candidate(
+        self,
+        primary_candidate,
+        fallback_candidate,
+    ):
+        """Primary stream fails; a cooldown fallback is skipped.
+
+        Regression: the stream wrapper used to index into the full
+        ``self.candidates`` list with a filtered index, so a fallback that
+        was on cooldown could be called (or the wrong fallback selected).
+        """
+
+        # Primary stream fails before first chunk.
+        async def failing_stream():
+            exc = Exception("stream failed")
+            exc.status_code = 500
+            raise exc
+            yield  # pragma: no cover - makes it an async generator
+
+        primary_candidate.model.return_value = failing_stream()
+
+        # The fallback candidate is on cooldown -> should be skipped.
+        exc = Exception("cooldown error")
+        exc.status_code = 500
+        CooldownManager.record_failure(fallback_candidate.label, exc)
+
+        # A healthy third candidate is reached.
+        third = AsyncMock()
+        third.model = "model-c"
+        third.stream = False
+        third.context_size = 32768
+        third.credential = None
+        third.parameters = None
+        third.max_retries = 0
+        third.retry_delay = 0.0
+        third.return_value = "guarded-ok"
+        third_candidate = FallbackCandidate(
+            provider_id="provider-c",
+            model_name="model-c",
+            model=third,
+        )
+
+        fallback = FallbackChatModel(
+            [primary_candidate, fallback_candidate, third_candidate],
+        )
+        stream = await fallback()
+
+        results = []
+        async for chunk in stream:
+            results.append(chunk)
+
+        # The on-cooldown fallback must NOT be invoked.
+        fallback_candidate.model.assert_not_awaited()
+        assert results == ["guarded-ok"]
+
+    async def test_stream_fallback_primary_on_cooldown_calls_active_once(
+        self,
+        primary_candidate,
+        fallback_candidate,
+    ):
+        """When the primary is on cooldown, the first active fallback that
+        fails is not re-invoked by the stream wrapper.
+
+        Regression: the stream wrapper used ``self.candidates[index]`` with
+        the filtered-list index, so the first *active* fallback could be
+        called twice (once as the current candidate, once again as the
+        "next" candidate).
+        """
+        # Primary is on cooldown.
+        exc = Exception("cooldown error")
+        exc.status_code = 500
+        CooldownManager.record_failure(primary_candidate.label, exc)
+
+        # First active fallback streams and fails before first chunk.
+        async def failing_stream():
+            exc = Exception("stream failed")
+            exc.status_code = 500
+            raise exc
+            yield  # pragma: no cover - makes it an async generator
+
+        fallback_candidate.model.return_value = failing_stream()
+
+        # Healthy third candidate.
+        third = AsyncMock()
+        third.model = "model-c"
+        third.stream = False
+        third.context_size = 32768
+        third.credential = None
+        third.parameters = None
+        third.max_retries = 0
+        third.retry_delay = 0.0
+        third.return_value = "guarded-ok"
+        third_candidate = FallbackCandidate(
+            provider_id="provider-c",
+            model_name="model-c",
+            model=third,
+        )
+
+        fallback = FallbackChatModel(
+            [primary_candidate, fallback_candidate, third_candidate],
+        )
+        stream = await fallback()
+
+        results = []
+        async for chunk in stream:
+            results.append(chunk)
+
+        # The failing fallback must be invoked exactly once.
+        assert fallback_candidate.model.await_count == 1
+        assert results == ["guarded-ok"]
 
 
 # ---- Error classification tests -----------------------------------------
