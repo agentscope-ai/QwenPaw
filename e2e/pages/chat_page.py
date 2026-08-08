@@ -43,7 +43,7 @@ class ChatPage(BasePage):
     SESSION_LIST_BTN = 'button:has(.spark-icon-spark-history-line), button:has(.anticon-history), button:has([class*="history"])'
 
     # Input area
-    CHAT_INPUT = 'textarea.qwenpaw-sender-input'
+    CHAT_INPUT = '.qwenpaw-sender [role="textbox"][contenteditable="true"]:visible'
     SEND_BTN = 'button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary'
     FILE_INPUT = 'input[type="file"]'
     UPLOAD_WRAPPER = 'span.qwenpaw-upload-wrapper'
@@ -55,7 +55,7 @@ class ChatPage(BasePage):
     MESSAGE_LIST = '.qwenpaw-bubble-list-scroll'
 
     # Welcome screen (check input visibility)
-    WELCOME_TEXT = 'textarea.qwenpaw-sender-input'
+    WELCOME_TEXT = CHAT_INPUT
     QUICK_ACTIONS = '.quick-action'
 
     # Session management (right-side "All Chats" drawer).
@@ -417,7 +417,7 @@ class ChatPage(BasePage):
 
         # ---- Fill the input box ----
         input_box = self.page.locator(self.CHAT_INPUT)
-        input_box.click()
+        input_box.focus()
         self.wait(300)
         input_box.fill("")
         self.wait(200)
@@ -450,7 +450,7 @@ class ChatPage(BasePage):
         except (TimeoutError, AssertionError, Exception):
             logger.warning("[send_message] user bubble missing, retrying with Enter")
             input_box = self.page.locator(self.CHAT_INPUT)
-            input_box.click()
+            input_box.focus()
             self.wait(200)
             input_box.press("Enter")
             # Verify again after retry; if still failing, raise for real
