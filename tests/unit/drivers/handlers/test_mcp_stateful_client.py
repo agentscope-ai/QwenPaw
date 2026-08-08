@@ -25,12 +25,18 @@ deterministic unit coverage behind the ``fail_under`` gate.
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
+
+import anyio
 import httpx
 import pytest
+from mcp import ClientSession
+from mcp.shared.exceptions import McpError
 
 import qwenpaw.drivers.handlers.mcp_stateful_client as mod
 from qwenpaw.drivers.handlers.mcp_stateful_client import (
     HttpStatefulClient,
+    StdIOStatefulClient,
     _is_401_error,
     _is_transport_error,
 )
@@ -46,6 +52,47 @@ def _client() -> HttpStatefulClient:
     return HttpStatefulClient("test-client", "streamable_http", "http://x")
 
 
+async def _assert_lifecycle_wires_session_timeout(
+    client: HttpStatefulClient | StdIOStatefulClient,
+    expected_timeout: timedelta,
+    monkeypatch,
+) -> None:
+    """Exercise the real lifecycle while replacing only its I/O boundaries."""
+    timeout_not_passed = object()
+    observed_timeouts: list[object] = []
+
+    class SessionSpy:
+        def __init__(
+            self,
+            read_stream,
+            write_stream,
+            read_timeout_seconds=timeout_not_passed,
+        ) -> None:
+            del read_stream, write_stream
+            observed_timeouts.append(read_timeout_seconds)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            del exc_type, exc_value, traceback
+
+        async def initialize(self) -> None:
+            return None
+
+    async def setup_transport(_stack):
+        return object(), object()
+
+    monkeypatch.setattr(mod, "ClientSession", SessionSpy)
+    monkeypatch.setattr(client, "_setup_transport", setup_transport)
+
+    await client.connect(timeout=1)
+    try:
+        assert observed_timeouts == [expected_timeout]
+    finally:
+        await client.close(ignore_errors=False)
+
+
 # ---------------------------------------------------------------------------
 # Error classification helpers
 # ---------------------------------------------------------------------------
@@ -53,8 +100,6 @@ def _client() -> HttpStatefulClient:
 
 def test_is_transport_error_distinguishes_transport_from_mcp_errors():
     # anyio.ClosedResourceError is in _TRANSPORT_ERRORS when anyio imports.
-    import anyio
-
     assert _is_transport_error(anyio.ClosedResourceError())
     assert _is_transport_error(ConnectionResetError("reset"))
     assert _is_transport_error(EOFError())
@@ -120,8 +165,6 @@ def test_handle_transport_error_noops_for_non_transport_errors():
 
 
 def test_handle_transport_error_marks_disconnected_and_schedules_reload():
-    import anyio
-
     c = _client()
     c.is_connected = True
     c._ready_event.set()
@@ -132,8 +175,6 @@ def test_handle_transport_error_marks_disconnected_and_schedules_reload():
 
 
 def test_handle_transport_error_skips_reload_when_already_stopping():
-    import anyio
-
     c = _client()
     c.is_connected = True
     c._stop_event.set()
@@ -220,6 +261,93 @@ async def test_wait_for_lifecycle_exit_timeout_spawns_reaper(monkeypatch):
         if reaper is not None:
             await asyncio.wait_for(reaper, timeout=2)
     assert task not in mod._LIFECYCLE_REAPERS
+
+
+# ---------------------------------------------------------------------------
+# Session request timeout wiring
+# ---------------------------------------------------------------------------
+
+
+async def test_http_lifecycle_wires_read_timeout_to_client_session(
+    monkeypatch,
+):
+    client = HttpStatefulClient(
+        "http-client",
+        "streamable_http",
+        "http://x",
+        sse_read_timeout=0.25,
+    )
+
+    await _assert_lifecycle_wires_session_timeout(
+        client,
+        timedelta(seconds=0.25),
+        monkeypatch,
+    )
+
+
+async def test_stdio_lifecycle_wires_read_timeout_to_client_session(
+    monkeypatch,
+):
+    client = StdIOStatefulClient(
+        "stdio-client",
+        "unused-command",
+        read_timeout_seconds=0.75,
+    )
+
+    await _assert_lifecycle_wires_session_timeout(
+        client,
+        timedelta(seconds=0.75),
+        monkeypatch,
+    )
+
+
+async def test_http_lifecycle_preserves_timedelta_read_timeout(monkeypatch):
+    configured_timeout = timedelta(seconds=1.25)
+    client = HttpStatefulClient(
+        "http-client",
+        "streamable_http",
+        "http://x",
+    )
+    client.read_timeout_seconds = configured_timeout
+
+    await _assert_lifecycle_wires_session_timeout(
+        client,
+        configured_timeout,
+        monkeypatch,
+    )
+
+
+async def test_real_client_session_times_out_unanswered_request():
+    """The MCP SDK converts its session timeout into a terminal error."""
+    server_send, client_read = anyio.create_memory_object_stream(1)
+    client_write, server_read = anyio.create_memory_object_stream(1)
+    request_received = asyncio.Event()
+
+    async def consume_request_without_responding() -> None:
+        await server_read.receive()
+        request_received.set()
+
+    consumer = asyncio.create_task(consume_request_without_responding())
+    try:
+        async with ClientSession(
+            client_read,
+            client_write,
+            read_timeout_seconds=timedelta(seconds=0.05),
+        ) as session:
+            with pytest.raises(McpError):
+                await asyncio.wait_for(session.list_tools(), timeout=3)
+            await asyncio.wait_for(request_received.wait(), timeout=1)
+    finally:
+        if not consumer.done():
+            consumer.cancel()
+        await asyncio.gather(consumer, return_exceptions=True)
+        for stream in (
+            server_send,
+            client_read,
+            client_write,
+            server_read,
+        ):
+            await stream.aclose()
 
 
 # ---------------------------------------------------------------------------
