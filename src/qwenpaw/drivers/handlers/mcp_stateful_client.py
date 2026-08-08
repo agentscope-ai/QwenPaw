@@ -119,6 +119,7 @@ class _MCPClientMixin:
     _reload_event: asyncio.Event
     _ready_event: asyncio.Event
     _lifecycle_task: asyncio.Task | None
+    read_timeout_seconds: float
 
     # ------------------------------------------------------------------
     # Transport hook (implemented by each concrete subclass)
@@ -158,7 +159,11 @@ class _MCPClientMixin:
                         stack,
                     )
 
-                    self.session = ClientSession(read_stream, write_stream)
+                    self.session = ClientSession(
+                        read_stream,
+                        write_stream,
+                        read_timeout_seconds=self.read_timeout_seconds,
+                    )
                     await stack.enter_async_context(self.session)
                     await self.session.initialize()
 
