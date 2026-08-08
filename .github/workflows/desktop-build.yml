@@ -162,7 +162,7 @@ jobs:
             dist/tauri-windows-x86_64-updater.json
 
   build-tauri-macos:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - name: Checkout

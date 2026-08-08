@@ -7,6 +7,16 @@ export type BlogPostMeta = {
 /** Display order is determined by frontmatter `date` (newest first). */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: "qwenpaw-files-workspace",
+    cover:
+      "https://img.alicdn.com/imgextra/i4/O1CN01pEZk6a8g9lK3gjEp_!!6000000001665-2-tps-1817-866.png",
+  },
+  {
+    slug: "tool-call-offload-mechanism",
+    cover:
+      "https://img.alicdn.com/imgextra/i4/O1CN019X5yeUaofRG37MB6_!!6000000005163-0-tps-1536-1024.jpg",
+  },
+  {
     slug: "qwenpaw-scroll-executable-memory",
   },
   {

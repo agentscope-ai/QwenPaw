@@ -1672,6 +1672,17 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         )
         self.save_active_model(self.active_model)
 
+        # Drop a stale ``rejects_media`` entry for this model so that a
+        # transient upstream failure (e.g. a gateway misroute) does not
+        # keep stripping images after re-selection.  Other capabilities
+        # and other models are left untouched.
+        from .model_capability_cache import get_capability_cache
+
+        get_capability_cache().forget(
+            f"{provider_id}:{model_id}",
+            "rejects_media",
+        )
+
         self.maybe_probe_multimodal(provider_id, model_id)
 
     def maybe_probe_multimodal(self, provider_id: str, model_id: str) -> None:
@@ -2494,9 +2505,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if "extra_models" in saved_config:
                     provider_info.extra_models = [
                         ModelInfo.model_validate(
-                            model.model_dump()
-                            if isinstance(model, BaseModel)
-                            else model,
+                            (
+                                model.model_dump()
+                                if isinstance(model, BaseModel)
+                                else model
+                            ),
                         )
                         for model in saved_config["extra_models"]
                     ]

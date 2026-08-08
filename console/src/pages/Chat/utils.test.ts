@@ -141,6 +141,34 @@ describe("getSenderTextareaFromTarget", () => {
     document.body.innerHTML = "";
   });
 
+  it("resolves the hidden textarea from a rich-editor Enter event", () => {
+    document.body.innerHTML = `
+      <div class="qwenpaw-sender">
+        <div id="editor" contenteditable="true"></div>
+        <textarea id="bridge">queued message</textarea>
+      </div>
+    `;
+    const editor = document.querySelector("#editor") as HTMLElement;
+    const textarea = document.querySelector("#bridge");
+    let resolved: HTMLTextAreaElement | null = null;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      resolved = getSenderTextareaFromTarget(event.target);
+    };
+    document.addEventListener("keydown", handleKeyDown, true);
+
+    editor.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    expect(resolved).toBe(textarea);
+    document.removeEventListener("keydown", handleKeyDown, true);
+    document.body.innerHTML = "";
+  });
+
   it("rejects contenteditable elements outside a sender", () => {
     document.body.innerHTML = `<div id="editor" contenteditable="true"></div>`;
 
