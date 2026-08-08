@@ -68,6 +68,21 @@ _SAVED_TOOL_FILE_RE = re.compile(
 )
 
 _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+# ``unicode61`` does not perform word segmentation for CJK scripts. A
+# punctuation-delimited run such as ``紫水晶河马在周二跳舞`` is indexed as one
+# token, so a natural keyword query like ``紫水晶河马`` cannot MATCH it. Route
+# queries containing these scripts through the bounded literal-substring path
+# instead. This keeps Porter stemming/BM25 for languages it tokenizes well.
+_CJK_QUERY_RE = re.compile(
+    "["
+    "\u3040-\u30ff"  # Hiragana and Katakana
+    "\u3400-\u4dbf"  # CJK Extension A
+    "\u4e00-\u9fff"  # CJK Unified Ideographs
+    "\uac00-\ud7af"  # Hangul syllables
+    "\uf900-\ufaff"  # CJK Compatibility Ideographs
+    "\U00020000-\U0002fa1f"  # Supplementary CJK ideographs
+    "]",
+)
 # FTS5's boolean operators are UPPERCASE-only; we pass these through bare so a
 # query like ``tank OR aquarium`` casts a wide net, while every other token is
 # quoted as a literal phrase. A lowercase ``or`` stays a search term.
@@ -752,7 +767,8 @@ class MemorySpace:
         when that fallback search is partial. The query is plain text:
         punctuation is treated as word separators (so ``C++`` searches the
         term ``C``), not FTS5 operators. Falls back to a LIKE scan if this
-        SQLite lacks FTS5 or the query has no word tokens.
+        SQLite lacks FTS5, the query has no word tokens, or the query contains
+        CJK text that SQLite's ``unicode61`` tokenizer cannot segment.
 
         The agent's current ACTIVE TURN (the latest user request of this
         session and everything after it) never appears in the hits — it is
@@ -793,10 +809,16 @@ class MemorySpace:
 
         # FTS5 MATCH takes a query grammar, not plain text. Sanitize first; an
         # all-punctuation query (no word tokens) has nothing to MATCH, so use
-        # the LIKE scan instead — as we also do when FTS5 is unavailable.
+        # the LIKE scan instead — as we also do when FTS5 is unavailable. The
+        # unicode61 tokenizer treats a continuous CJK sentence as one token;
+        # use literal substring search for CJK queries so keyword recall works.
         match = fts_match_query(query)
         fts_available = self._fts_available()
-        use_like = not fts_available or not match
+        use_like = (
+            not fts_available
+            or not match
+            or _CJK_QUERY_RE.search(query) is not None
+        )
         if not include_turn:
             return self._search_matching_rows_only(
                 query,

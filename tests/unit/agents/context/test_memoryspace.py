@@ -354,6 +354,76 @@ def test_search_returns_and_deduplicates_complete_turn(tmp_path: Path):
     assert user_hits[0]["turn"] == hits[0]["turn"]
 
 
+def test_search_cjk_substring_returns_complete_turn(tmp_path: Path):
+    history = HistoryStore(tmp_path / "history.db")
+    user_seq = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="u1",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="紫水晶河马在周二跳舞",
+        ),
+    )
+    assistant_seq = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="a1",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="我记住了这个暗号",
+        ),
+    )
+    tool_seq = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="t1",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            name="lookup",
+            content="工具结果",
+            tool_call_id="call-1",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        hits = space.search("紫水晶河马", session_id="archive", k=10)
+        legacy_hits = space.search(
+            "紫水晶河马",
+            session_id="archive",
+            k=10,
+            include_turn=False,
+        )
+    finally:
+        space.close()
+
+    assert len(hits) == 1
+    assert hits[0]["match_seq"] == user_seq
+    assert hits[0]["turn_start_seq"] == user_seq
+    assert hits[0]["turn_end_seq"] == tool_seq
+    assert hits[0]["turn_complete"] is True
+    assert [row["seq"] for row in hits[0]["turn"]] == [
+        user_seq,
+        assistant_seq,
+        tool_seq,
+    ]
+    assert [row["content"] for row in hits[0]["turn"]] == [
+        "紫水晶河马在周二跳舞",
+        "我记住了这个暗号",
+        "工具结果",
+    ]
+    assert [row["seq"] for row in legacy_hits] == [user_seq]
+
+
 def test_search_loads_duplicate_hit_turn_once(
     tmp_path: Path,
     monkeypatch,

@@ -178,6 +178,66 @@ async def test_search_user_hit_returns_same_complete_turn(tool):
     assert "RESULT-FULL" in text
 
 
+async def test_search_cjk_substring_returns_same_complete_turn(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "cjk-history.db"
+    history = HistoryStore(db_path)
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="u1",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="紫水晶河马在周二跳舞",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="a1",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="我记住了这个暗号",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="t1",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            name="lookup",
+            content="工具结果",
+            tool_call_id="call-cjk",
+        ),
+    )
+    history.close()
+    recall = make_recall_history(
+        history_db_path=str(db_path),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    chunk = await recall(
+        op="search",
+        query="紫水晶河马",
+        session_id="archive",
+        k=10,
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "matched_seq=1" in text
+    assert "turn_seq=1–3" in text
+    assert "紫水晶河马在周二跳舞" in text
+    assert "我记住了这个暗号" in text
+    assert "工具结果" in text
+
+
 async def test_search_filters_and_displays_created_at(tool):
     chunk = await tool(
         op="search",
