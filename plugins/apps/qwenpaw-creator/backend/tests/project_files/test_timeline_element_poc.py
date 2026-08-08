@@ -42,6 +42,7 @@ from services.project_files.models import (
     TimelineSpan,
     TransitionCreation,
 )
+from services.project_files.review import ReviewDecisionItem
 from services.runtime_files.models import ChangeOrigin, ReviewPolicy
 
 # pylint: disable=no-name-in-module
@@ -163,7 +164,7 @@ def test_ffmpeg_progress_counts_unique_elements_across_segments(
         segment.write_bytes(_MP4)
 
     monkeypatch.setattr(runner, "_run", fake_run)
-    monkeypatch.setattr(runner, "_apply_overlay", lambda *_args: None)
+    monkeypatch.setattr(runner, "_apply_overlay", lambda *_args: [])
     monkeypatch.setattr(runner, "_apply_motion_overlays", lambda *_args: [])
     monkeypatch.setattr(
         runner,
@@ -195,7 +196,7 @@ def test_ffmpeg_progress_counts_unique_elements_across_segments(
                     source_ref=f"element:edit-{index}",
                     start_seconds=index - 1,
                     end_seconds=index,
-                    overlay=shared_overlay,
+                    overlays=(shared_overlay,),
                 )
                 for index in (1, 2)
             ),
@@ -265,7 +266,6 @@ def test_elements_at_uses_half_open_intervals_and_returns_raw_elements(
             z_index=10,
             creation={
                 "type": "overlay",
-                "overlay_kind": "pet_os",
                 "text": "抓到你了",
             },
         ),
@@ -276,7 +276,6 @@ def test_elements_at_uses_half_open_intervals_and_returns_raw_elements(
             location=_full_canvas(),
             creation={
                 "type": "overlay",
-                "overlay_kind": "pet_os",
                 "text": "hidden",
             },
         ),
@@ -391,6 +390,19 @@ def test_storyboard_and_r2v_publish_named_element_outputs(
         ].selected_version_id
         == image.artifact_version_id
     )
+    for review in services.reviews.all_pending("r2v-project"):
+        services.reviews.decide(
+            project_id="r2v-project",
+            review_id=review.review_id,
+            decision_token=review.decision_token,
+            decisions=[
+                ReviewDecisionItem(
+                    operation_id=operation.operation_id,
+                    decision="ACCEPT",
+                )
+                for operation in review.operations
+            ],
+        )
 
     async def generate():
         worker = FileR2VExecutionService(
@@ -523,7 +535,6 @@ def test_each_edit_selection_is_an_element_and_timeline_executes_them(
             "z_index": 10,
             "creation": {
                 "type": "overlay",
-                "overlay_kind": "pet_os",
                 "text": f"第 {index + 1} 段内心独白",
                 "vibe": "action",
                 "prompt": "",
@@ -576,8 +587,8 @@ def test_each_edit_selection_is_an_element_and_timeline_executes_them(
     assert edit_runner.calls[0].inputs[0].end_seconds == 1
     assert edit_runner.calls[0].canvas_size == (1280, 720)
     assert edit_runner.calls[0].inputs[0].location["x"] == 0.5
-    assert edit_runner.calls[0].inputs[0].overlay["element_id"] == "overlay-1"
-    assert edit_runner.calls[0].inputs[0].overlay["location"]["x"] == 0.5
-    assert all(
-        item.overlay is not None for item in edit_runner.calls[0].inputs
+    assert (
+        edit_runner.calls[0].inputs[0].overlays[0]["element_id"] == "overlay-1"
     )
+    assert edit_runner.calls[0].inputs[0].overlays[0]["location"]["x"] == 0.5
+    assert all(item.overlays for item in edit_runner.calls[0].inputs)

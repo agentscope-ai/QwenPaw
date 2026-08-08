@@ -586,17 +586,10 @@ AZURE_OPENAI_MODELS: List[ModelInfo] = [
 
 MINIMAX_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="MiniMax-M2.5",
-        name="MiniMax M2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.5-highspeed",
-        name="MiniMax M2.5 Highspeed",
-        supports_image=False,
-        supports_video=False,
+        id="MiniMax-M3",
+        name="MiniMax M3",
+        supports_image=True,
+        supports_video=True,
         probe_source="documentation",
     ),
     ModelInfo(
@@ -609,6 +602,41 @@ MINIMAX_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="MiniMax-M2.7-highspeed",
         name="MiniMax M2.7 Highspeed",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.5",
+        name="MiniMax M2.5 (legacy)",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.5-highspeed",
+        name="MiniMax M2.5 Highspeed (legacy)",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.1",
+        name="MiniMax M2.1 (legacy)",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.1-highspeed",
+        name="MiniMax M2.1 Highspeed (legacy)",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2",
+        name="MiniMax M2 (legacy)",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
@@ -1644,6 +1672,17 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         )
         self.save_active_model(self.active_model)
 
+        # Drop a stale ``rejects_media`` entry for this model so that a
+        # transient upstream failure (e.g. a gateway misroute) does not
+        # keep stripping images after re-selection.  Other capabilities
+        # and other models are left untouched.
+        from .model_capability_cache import get_capability_cache
+
+        get_capability_cache().forget(
+            f"{provider_id}:{model_id}",
+            "rejects_media",
+        )
+
         self.maybe_probe_multimodal(provider_id, model_id)
 
     def maybe_probe_multimodal(self, provider_id: str, model_id: str) -> None:
@@ -1820,7 +1859,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     # image alone; video will be updated by the full probe.
                     if result.supports_image:
                         model.supports_multimodal = True
-                model.probe_source = "probed"
+                model.probe_source = getattr(
+                    result,
+                    "probe_source",
+                    "probed",
+                )
                 break
 
         # Compare probe result against expected baseline
@@ -2462,9 +2505,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if "extra_models" in saved_config:
                     provider_info.extra_models = [
                         ModelInfo.model_validate(
-                            model.model_dump()
-                            if isinstance(model, BaseModel)
-                            else model,
+                            (
+                                model.model_dump()
+                                if isinstance(model, BaseModel)
+                                else model
+                            ),
                         )
                         for model in saved_config["extra_models"]
                     ]

@@ -21,7 +21,9 @@ import logging
 from typing import Any, Dict
 
 from ....exceptions import SystemCommandException
+from ....checkpoints.models import CheckpointError
 from .base import BaseControlCommandHandler, ControlContext
+from .checkpoint_handler import CheckpointCommandHandler
 from .approval_handler import (
     ApprovalCommandHandler,
     ApproveCommandHandler,
@@ -45,6 +47,7 @@ def _register_defaults() -> None:
     register_command(StopCommandHandler())
     register_command(ModelCommandHandler())
     register_command(SkillsCommandHandler())
+    register_command(CheckpointCommandHandler())
 
 
 def register_command(handler: BaseControlCommandHandler) -> None:
@@ -234,6 +237,9 @@ async def handle_control_command(
 
     try:
         return await handler.handle(context)
+    except CheckpointError as exc:
+        logger.info("Checkpoint command rejected: %s", exc)
+        return f"**Checkpoint error**\n\n{exc}"
     except Exception as e:
         logger.exception(
             f"Control command failed: {token}",
@@ -250,6 +256,7 @@ __all__ = [
     "ApprovalCommandHandler",
     "ApproveCommandHandler",
     "BaseControlCommandHandler",
+    "CheckpointCommandHandler",
     "ControlContext",
     "DenyCommandHandler",
     "ModelCommandHandler",

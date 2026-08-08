@@ -23,6 +23,15 @@ export interface MarketPluginEntry {
   is_featured?: boolean;
 }
 
+/** Return whether a marketplace entry is classified as an app. */
+export function isMarketPluginApp(entry: MarketPluginEntry): boolean {
+  return Object.values(entry.locales ?? {}).some(
+    (locale) =>
+      typeof locale?.category === "string" &&
+      locale.category.trim().toLowerCase() === "app",
+  );
+}
+
 export type MarketPluginSortBy = "downloads" | "updated_time" | "fauvarate";
 
 interface MarketPluginListResponse {
@@ -44,6 +53,7 @@ export interface FetchMarketPluginsParams {
 
 export async function fetchMarketPlugins(
   params: FetchMarketPluginsParams,
+  options: { signal?: AbortSignal } = {},
 ): Promise<{ total: number; plugins: MarketPluginEntry[] }> {
   const url = new URL(
     getApiUrl("/plugins/market/search"),
@@ -57,6 +67,7 @@ export async function fetchMarketPlugins(
 
   const response = await fetch(url.toString(), {
     headers: buildAuthHeaders(),
+    signal: options.signal,
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));

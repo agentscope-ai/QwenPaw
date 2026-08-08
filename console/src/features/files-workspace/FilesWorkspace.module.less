@@ -1,0 +1,899 @@
+.drawer {
+  --files-bg: #fffdfb;
+  --files-panel: #faf7f3;
+  --files-line: #e8e0d8;
+  --files-muted: #7b746d;
+  --files-ink: #292522;
+  --files-accent: #f36b21;
+  --files-accent-soft: #fff0e7;
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 420px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--files-ink);
+  background: var(--files-bg);
+  border-right: 1px solid var(--files-line);
+  box-shadow: 18px 0 52px rgba(75, 49, 30, 0.11);
+  transform-origin: left center;
+  will-change: transform, opacity;
+  z-index: 20;
+}
+
+.drawerResizing {
+  will-change: width;
+}
+
+.drawerPreview {
+  width: 30%;
+}
+
+.drawerWorkspace {
+  width: 75%;
+}
+
+.drawerDirect {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (min-width: 1025px) {
+  .drawer:not(.drawerDirect) {
+    max-width: calc(100% - 420px);
+  }
+}
+
+.drawerHeader {
+  min-height: 58px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--files-line);
+  background: color-mix(in srgb, var(--files-bg) 92%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.fileMark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--files-accent);
+  background: var(--files-accent-soft);
+  border-radius: 10px;
+}
+
+.drawerTitle {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  line-height: 1.35;
+
+  strong {
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    color: var(--files-muted);
+    font-size: 11px;
+  }
+}
+
+.iconButton,
+.secondaryButton,
+.primaryButton {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--files-line);
+  border-radius: 9px;
+  color: inherit;
+  background: var(--files-bg);
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+
+  &:hover {
+    border-color: color-mix(
+      in srgb,
+      var(--files-accent) 38%,
+      var(--files-line)
+    );
+    background: var(--files-panel);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--files-accent) 45%, transparent);
+    outline-offset: 2px;
+  }
+}
+
+.iconButton {
+  width: 34px;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.secondaryButton,
+.primaryButton {
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.primaryButton {
+  color: #fff;
+  border-color: var(--files-accent);
+  background: var(--files-accent);
+
+  &:hover {
+    color: #fff;
+    background: color-mix(in srgb, var(--files-accent) 88%, #000);
+  }
+}
+
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 40;
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 42%;
+    right: 3px;
+    width: 2px;
+    height: 48px;
+    border-radius: 2px;
+    background: transparent;
+    transition: background 160ms;
+  }
+
+  &:hover::after,
+  &:focus-visible::after {
+    background: var(--files-accent);
+  }
+}
+
+.previewSurface {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(20px, 4vw, 48px);
+}
+
+.textPreview {
+  max-width: 920px;
+  margin: 0 auto;
+  color: inherit;
+  font:
+    13px/1.72 "SFMono-Regular",
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.drawerFooter {
+  min-height: 58px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--files-line);
+  background: var(--files-bg);
+}
+
+.drawerContent {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.workspace {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  background: var(--files-bg);
+}
+
+.activityRail {
+  width: 46px;
+  padding: 8px 6px;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  border-right: 1px solid var(--files-line);
+  background: color-mix(in srgb, var(--files-panel) 86%, var(--files-bg));
+
+  button {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    color: var(--files-muted);
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .activityActive {
+    color: var(--files-accent);
+    background: var(--files-accent-soft);
+  }
+}
+
+.navigator {
+  width: clamp(210px, 22%, 290px);
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--files-line);
+  background: var(--files-panel);
+}
+
+.navigatorHeader {
+  padding: 10px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.directoryToolbar {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.directoryTools {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.directoryContext {
+  min-width: 0;
+  min-height: 58px;
+  flex: 1;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid
+    color-mix(in srgb, var(--files-accent) 16%, var(--files-line));
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--files-accent) 7%, var(--files-bg)),
+    var(--files-bg)
+  );
+  box-shadow:
+    0 1px 2px rgba(56, 38, 25, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+
+  &[data-root="workspace"] {
+    border-color: color-mix(in srgb, #7867b8 18%, var(--files-line));
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, #7867b8 8%, var(--files-bg)),
+      var(--files-bg)
+    );
+  }
+}
+
+.directoryContextIcon {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--files-accent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--files-accent) 11%, transparent);
+
+  .directoryContext[data-root="workspace"] & {
+    color: #7867b8;
+    background: color-mix(in srgb, #7867b8 12%, transparent);
+  }
+}
+
+.directoryContextBody {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.directoryContextLabel {
+  overflow: hidden;
+  color: var(--files-muted);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.directoryIdentity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.directoryIdentityText {
+  min-width: 0;
+  display: grid;
+
+  strong {
+    overflow: hidden;
+    color: #5f4e98;
+    font-size: 11px;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    color: color-mix(in srgb, #7867b8 72%, var(--files-muted));
+    font:
+      9px/1.35 "SFMono-Regular",
+      Consolas,
+      monospace;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.directorySwitch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--files-muted);
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
+
+  &:hover {
+    color: var(--files-accent);
+    background: var(--files-accent-soft);
+  }
+}
+
+.sourceTab {
+  &[data-source="workspace"] {
+    --source-color: var(--files-accent);
+    --source-soft: var(--files-accent-soft);
+  }
+
+  &[data-source="profile"] {
+    --source-color: #7867b8;
+    --source-soft: #efebfb;
+  }
+
+  &[data-source="daily"] {
+    --source-color: #65758b;
+    --source-soft: #edf1f5;
+  }
+
+  &[data-source="digest"] {
+    --source-color: #557766;
+    --source-soft: #eaf2ed;
+  }
+}
+
+.profileRow {
+  width: 100%;
+  min-height: 36px;
+  padding: 3px 8px 3px 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 7px;
+  transition:
+    background 150ms ease,
+    box-shadow 150ms ease;
+
+  &:hover {
+    background: color-mix(in srgb, #7867b8 7%, transparent);
+  }
+
+  &.treeRowSelected {
+    color: #7867b8;
+    background: #efebfb;
+  }
+}
+
+.profileRowDragging {
+  position: relative;
+  background: var(--files-bg);
+  box-shadow: 0 8px 24px rgba(47, 37, 80, 0.15);
+  z-index: 4;
+}
+
+.profileOpen {
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 4px;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+
+  > span:last-child {
+    overflow: hidden;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.dragHandle {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--files-muted);
+  cursor: grab;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+.conflictDescription {
+  margin: 0 0 14px;
+  color: var(--files-muted);
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.conflictModal {
+  --files-bg: #fffdfb;
+  --files-panel: #faf7f3;
+  --files-line: #e8e0d8;
+  --files-muted: #7b746d;
+  --files-ink: #292522;
+  --files-accent: #f36b21;
+}
+
+.conflictChoices {
+  display: grid;
+  gap: 8px;
+}
+
+.conflictChoice {
+  min-height: 58px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  overflow: hidden;
+  border: 1px solid var(--files-line);
+  border-radius: 10px;
+  color: var(--files-ink);
+  background: var(--files-bg);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease;
+
+  strong {
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  span {
+    color: var(--files-muted);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  &:hover {
+    border-color: color-mix(
+      in srgb,
+      var(--files-accent) 48%,
+      var(--files-line)
+    );
+    background: var(--files-panel);
+  }
+
+  &[data-danger="true"]:hover {
+    border-color: #c96a5c;
+    background: #fff5f3;
+  }
+}
+
+.sourceTabs {
+  padding: 0 8px 9px;
+  display: flex;
+  gap: 3px;
+  overflow-x: auto;
+
+  button {
+    height: 28px;
+    padding: 0 9px;
+    border: 0;
+    border-radius: 7px;
+    color: var(--files-muted);
+    background: transparent;
+    font-size: 11px;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .sourceTabActive {
+    color: var(--source-color, var(--files-accent));
+    background: var(--source-soft, var(--files-accent-soft));
+  }
+}
+
+.navigator[data-root="workspace"] {
+  .sourceTab[data-source="workspace"].sourceTabActive {
+    color: #7867b8;
+    background: #efebfb;
+  }
+}
+
+.tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 7px 14px;
+}
+
+.treeRow {
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 9px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 7px;
+  color: inherit;
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+
+  > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:hover {
+    background: color-mix(in srgb, var(--files-ink) 5%, transparent);
+  }
+}
+
+.treeRowSelected {
+  color: var(--files-accent);
+  background: var(--files-accent-soft);
+}
+
+.memoryDirectoryRow {
+  position: relative;
+  border-radius: 7px;
+  transition:
+    background 150ms ease,
+    box-shadow 180ms ease;
+
+  .treeRow {
+    padding-right: 72px;
+  }
+}
+
+.memoryDirectoryGraphActive {
+  .memoryDirectoryGraphButton {
+    color: #557766;
+    opacity: 1;
+    background: transparent;
+    transform: translateY(-50%) scale(1);
+  }
+}
+
+.memoryDirectoryGraphButton {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  min-width: 58px;
+  height: 26px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: #557766;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+
+  &:hover {
+    color: #557766;
+    background: color-mix(in srgb, #557766 8%, transparent);
+    transform: translateY(-50%) translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, #557766 38%, transparent);
+    outline-offset: 2px;
+  }
+}
+
+.loadMore {
+  width: calc(100% - 12px);
+  height: 30px;
+  margin: 6px;
+  border: 1px dashed var(--files-line);
+  border-radius: 7px;
+  color: var(--files-muted);
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.documentSurface {
+  flex: 1;
+  min-width: 360px;
+  min-height: 0;
+}
+
+.sourcePanel {
+  width: clamp(240px, 26%, 320px);
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--files-line);
+  background: var(--files-panel);
+
+  > header {
+    height: 42px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--files-line);
+    color: var(--files-muted);
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+}
+
+.empty {
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--files-muted);
+  font-size: 12px;
+}
+
+.loadError {
+  min-height: 48px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #9f3a2f;
+  background: #fff2ef;
+  border-bottom: 1px solid #f2c7bf;
+  font-size: 13px;
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+:global(.dark-mode) {
+  .drawer {
+    --files-bg: #181614;
+    --files-panel: #211d1a;
+    --files-line: #3b332d;
+    --files-muted: #aaa099;
+    --files-ink: #f4efeb;
+    --files-accent: #ff914d;
+    --files-accent-soft: #40271a;
+    box-shadow: 18px 0 52px rgba(0, 0, 0, 0.35);
+  }
+
+  .loadError {
+    color: #f2aaa0;
+    background: #35201e;
+    border-bottom-color: #60342f;
+  }
+
+  .sourceTab {
+    &[data-source="profile"] {
+      --source-color: #b8a8ee;
+      --source-soft: #302946;
+    }
+
+    &[data-source="daily"] {
+      --source-color: #b7c3d1;
+      --source-soft: #293039;
+    }
+
+    &[data-source="digest"] {
+      --source-color: #a9cbb9;
+      --source-soft: #26352e;
+    }
+  }
+
+  .directoryContext {
+    box-shadow: none;
+
+    &[data-root="workspace"] {
+      border-color: color-mix(in srgb, #b8a8ee 20%, var(--files-line));
+    }
+  }
+
+  .directoryIdentityText {
+    strong {
+      color: #d3c8f5;
+    }
+
+    span {
+      color: #a99dc9;
+    }
+  }
+
+  .navigator[data-root="workspace"] {
+    .sourceTab[data-source="workspace"].sourceTabActive {
+      color: #b8a8ee;
+      background: #302946;
+    }
+  }
+
+  .profileRow.treeRowSelected {
+    color: #b8a8ee;
+    background: #302946;
+  }
+
+  .conflictModal {
+    --files-bg: #181614;
+    --files-panel: #211d1a;
+    --files-line: #3b332d;
+    --files-muted: #aaa099;
+    --files-ink: #f4efeb;
+    --files-accent: #ff914d;
+  }
+
+  .conflictChoice[data-danger="true"]:hover {
+    border-color: #d28578;
+    background: #35201e;
+  }
+}
+
+@media (max-width: 1024px) {
+  .drawer,
+  .drawerPreview,
+  .drawerWorkspace {
+    width: calc(100% - 20px);
+    min-width: 0;
+  }
+
+  .sourcePanel {
+    width: 250px;
+    min-width: 210px;
+  }
+}
+
+@media (max-width: 720px) {
+  .drawer,
+  .drawerPreview,
+  .drawerWorkspace,
+  .drawerDirect {
+    position: absolute;
+    inset: 0;
+    width: 100% !important;
+    min-width: 0;
+    border-right: 0;
+  }
+
+  .drawerHeader {
+    min-height: 56px;
+  }
+
+  .drawerTitle + .secondaryButton {
+    width: 34px;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .navigator {
+    width: 42%;
+    min-width: 156px;
+  }
+
+  .workspaceEmpty {
+    .navigator {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .documentSurface {
+      display: none;
+    }
+  }
+
+  .activityRail {
+    width: 42px;
+  }
+
+  .documentSurface {
+    min-width: 0;
+  }
+
+  .resizeHandle {
+    display: none;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

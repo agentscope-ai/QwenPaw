@@ -29,11 +29,12 @@ from .plugins import router as plugins_router
 from .frontend_plugin import router as frontend_plugin_router
 from .backup import router as backup_router
 from .git import router as git_router
-from .coding_project import router as coding_project_router
+from .project_directory import router as project_directory_router
 from .access_control import router as access_control_router
 from .provider_oauth import router as provider_oauth_router
 from .pawapps import router as pawapps_router
 from .harnesses import router as harnesses_router
+from .checkpoints import router as checkpoints_router
 
 router = APIRouter()
 
@@ -63,11 +64,12 @@ router.include_router(plugins_router)
 router.include_router(frontend_plugin_router)
 router.include_router(backup_router)
 router.include_router(git_router)
-router.include_router(coding_project_router)
+router.include_router(project_directory_router)
 router.include_router(access_control_router)
 router.include_router(provider_oauth_router)
 router.include_router(pawapps_router)
 router.include_router(harnesses_router)
+router.include_router(checkpoints_router)
 
 
 def create_agent_scoped_router() -> APIRouter:

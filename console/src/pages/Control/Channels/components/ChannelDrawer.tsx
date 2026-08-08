@@ -13,7 +13,7 @@ import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { useEffect } from "react";
 import type { FormInstance } from "antd";
-import { getChannelLabel, type ChannelKey } from "./constants";
+import { getChannelLabel, isLoopbackHost, type ChannelKey } from "./constants";
 import { QrcodeAuthBlock } from "./QrcodeAuthBlock";
 import type { ChannelSchema } from "../../../../api/modules/channel";
 import styles from "../index.module.less";
@@ -178,6 +178,13 @@ export function ChannelDrawer({
   const feishuDomain = (Form.useWatch("domain", form) as string) || "feishu";
   const showToolCalls = Form.useWatch("show_tool_calls", form) ?? true;
   const showToolResults = Form.useWatch("show_tool_results", form) ?? true;
+  const onebotMediaBase64 = Form.useWatch("media_base64", form) ?? false;
+  const onebotWsHost = (Form.useWatch("ws_host", form) as string) ?? "";
+  // The backend falls back to loopback when ws_host is blank, and rejects
+  // every connection on a network-reachable host until a token is set.
+  const onebotTokenRequired = !isLoopbackHost(
+    onebotWsHost.trim() || "127.0.0.1",
+  );
 
   // Parent calls form.setFieldsValue() before the Form mounts, which wins over
   // initialValues. Re-apply auth_method after open so the dropdown is correct.
@@ -1324,9 +1331,9 @@ export function ChannelDrawer({
             <Form.Item
               name="ws_host"
               label="WebSocket Host"
-              rules={[{ required: true }]}
+              tooltip={t("channels.onebotWsHostTooltip")}
             >
-              <Input placeholder="0.0.0.0" />
+              <Input placeholder="127.0.0.1" />
             </Form.Item>
             <Form.Item
               name="ws_port"
@@ -1348,9 +1355,57 @@ export function ChannelDrawer({
                 placeholder="6199"
               />
             </Form.Item>
-            <Form.Item name="access_token" label="Access Token">
+            <Form.Item
+              name="access_token"
+              label="Access Token"
+              tooltip={t("channels.onebotAccessTokenTooltip")}
+              rules={
+                onebotTokenRequired
+                  ? [
+                      {
+                        required: true,
+                        whitespace: true,
+                        message: t("channels.onebotAccessTokenRequired"),
+                      },
+                    ]
+                  : []
+              }
+            >
               <Input.Password placeholder="Access token for authentication" />
             </Form.Item>
+            <Form.Item
+              name="media_base64"
+              label={t("channels.onebotMediaBase64")}
+              valuePropName="checked"
+              tooltip={t("channels.onebotMediaBase64Tooltip")}
+            >
+              <Switch />
+            </Form.Item>
+            {onebotMediaBase64 && (
+              <Form.Item
+                name="media_base64_max_mb"
+                label={t("channels.onebotMediaBase64MaxMb")}
+                tooltip={t("channels.onebotMediaBase64MaxMbTooltip")}
+                rules={[
+                  {
+                    required: true,
+                    message: t("channels.onebotMediaBase64MaxMbRequired"),
+                  },
+                  {
+                    type: "number",
+                    min: 1,
+                    message: t("channels.onebotMediaBase64MaxMbMin"),
+                  },
+                ]}
+              >
+                <InputNumber
+                  min={1}
+                  precision={0}
+                  style={{ width: "100%" }}
+                  addonAfter="MB"
+                />
+              </Form.Item>
+            )}
             <Form.Item
               name="share_session_in_group"
               label={t("channels.shareSessionInGroup")}

@@ -18,6 +18,9 @@ from services.project_files.review import (
     ReviewDecisionJournal,
     ReviewDecisionJournalState,
     ReviewDecisionRecoveryAction,
+    ReviewRejectionAction,
+    ReviewRejectionFeedback,
+    render_rejection_feedback_message,
 )
 from services.project_files.store import ProjectStore
 from services.project_files.store import ProjectNotFound
@@ -104,6 +107,173 @@ def test_accept_does_not_rewrite_project_and_reject_is_compensating_cas(
         RuntimeProjectState,
     ).read()
     assert state.accepted_generation == current.generation
+
+
+def test_rejection_feedback_is_durable_and_idempotent(tmp_path) -> None:
+    store, _base, committed = _pending_review(tmp_path)
+    review = committed.review
+    assert review is not None
+    operation = next(
+        item for item in review.operations if item.json_pointer == "/name"
+    )
+    service = ProjectReviewService(store)
+    feedback = ReviewRejectionFeedback(
+        action=ReviewRejectionAction.UNDO_AND_REGENERATE,
+        feedbackNote="  人物状态不对；保持身份一致后重做  ",
+    )
+
+    resolved = service.decide(
+        project_id="project-1",
+        review_id=review.review_id,
+        decision_token=review.decision_token,
+        decisions=[
+            ReviewDecisionItem(
+                operation_id=operation.operation_id,
+                decision="REJECT",
+            ),
+        ],
+        rejection_feedback=feedback,
+        decision_id="decision-with-feedback",
+    )
+    journal = service.get_decision_journal(
+        "project-1",
+        review.review_id,
+        "decision-with-feedback",
+    )
+
+    assert resolved.status is ReviewStatus.PENDING
+    assert journal.state is ReviewDecisionJournalState.FINALIZED
+    assert journal.rejection_feedback is not None
+    assert journal.rejection_feedback.feedback_note == "人物状态不对；保持身份一致后重做"
+    assert [target.json_pointers for target in journal.rejection_targets] == [
+        ["/name"],
+    ]
+    assert journal.event is not None
+    assert journal.event.rejection_feedback == journal.rejection_feedback
+    message = render_rejection_feedback_message(journal)
+    assert message is not None
+    assert "明确要求重新生成" in message
+    assert "人物状态不对" in message
+    assert "用户反馈与调整要求" in message
+
+    replay = service.decide(
+        project_id="project-1",
+        review_id=review.review_id,
+        decision_token=review.decision_token,
+        decisions=[
+            ReviewDecisionItem(
+                operation_id=operation.operation_id,
+                decision="REJECT",
+            ),
+        ],
+        rejection_feedback=feedback,
+        decision_id="decision-with-feedback",
+    )
+    assert replay == resolved
+
+    with pytest.raises(
+        ReviewDecisionConflict,
+        match="different Review request",
+    ):
+        service.decide(
+            project_id="project-1",
+            review_id=review.review_id,
+            decision_token=review.decision_token,
+            decisions=[
+                ReviewDecisionItem(
+                    operation_id=operation.operation_id,
+                    decision="REJECT",
+                ),
+            ],
+            rejection_feedback=ReviewRejectionFeedback(
+                action=ReviewRejectionAction.UNDO_ONLY,
+            ),
+            decision_id="decision-with-feedback",
+        )
+
+
+def test_legacy_rejection_feedback_fields_remain_readable() -> None:
+    feedback = ReviewRejectionFeedback(
+        action=ReviewRejectionAction.UNDO_AND_REGENERATE,
+        problemNote="  人物状态不对  ",
+        regenerationInstruction="  保持身份一致后重做  ",
+    )
+
+    assert feedback.feedback_note is None
+    assert feedback.problem_note == "人物状态不对"
+    assert feedback.regeneration_instruction == "保持身份一致后重做"
+    serialized = feedback.model_dump(mode="json", by_alias=True)
+    assert serialized["feedbackNote"] is None
+
+
+def test_rejection_targets_collapse_artifact_operations_by_variant(
+    tmp_path,
+) -> None:
+    _store, _base, committed = _pending_review(tmp_path)
+    review = committed.review
+    assert review is not None
+    original = review.operations[0]
+    locator = {
+        "page": "assets",
+        "assetId": "char:haaland",
+        "mediaType": "image",
+        "artifactKind": "visual_asset_image",
+        "artifactVersionId": "artifact-version-poor",
+    }
+    version_operation = original.model_copy(
+        update={
+            "operation_id": "operation-version",
+            "json_pointer": (
+                "/assets/artifact_versions_by_id/artifact-version-poor"
+            ),
+            "target_ref": "visual-entity:char:haaland",
+            "after": {
+                "version_id": "artifact-version-poor",
+                "name": "哈兰德 · 落魄时期",
+                "owner_ref": "visual-entity:char:haaland",
+                "metadata": {
+                    "targetRef": "visual-entity:char:haaland",
+                    "variantId": "poor-era",
+                },
+            },
+            "ui_locator": locator,
+        },
+    )
+    slot_operation = original.model_copy(
+        update={
+            "operation_id": "operation-slot",
+            "json_pointer": (
+                "/assets/artifact_slots_by_id/slot-poor/selected_version_id"
+            ),
+            "target_ref": "visual-entity:char:haaland",
+            "after": "artifact-version-poor",
+            "ui_locator": locator,
+        },
+    )
+    synthetic = review.model_copy(
+        update={"operations": [slot_operation, version_operation]},
+    )
+
+    targets = ProjectReviewService._rejection_targets(
+        review=synthetic,
+        decisions=[
+            ReviewDecisionItem(
+                operation_id="operation-slot",
+                decision="REJECT",
+            ),
+            ReviewDecisionItem(
+                operation_id="operation-version",
+                decision="REJECT",
+            ),
+        ],
+    )
+
+    assert len(targets) == 1
+    assert targets[0].label == "哈兰德 · 落魄时期"
+    assert targets[0].target_ref == "visual-entity:char:haaland"
+    assert targets[0].variant_id == "poor-era"
+    assert targets[0].artifact_version_id == "artifact-version-poor"
+    assert len(targets[0].json_pointers) == 2
 
 
 def test_review_decision_refuses_to_overwrite_newer_user_value(

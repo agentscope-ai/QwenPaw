@@ -16,10 +16,14 @@ stay forward-compatible without forcing an out-of-scope edit to
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import TYPE_CHECKING
 
 from .approval_coordinator import ApprovalCoordinator
 from ...tool_calls import ToolCoordinator
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..task_tracker import TaskTracker
@@ -51,8 +55,24 @@ class AppServiceManager:
 
             task_tracker = TaskTracker()
         self.task_tracker = task_tracker
-        self.tool_coordinator = ToolCoordinator()
+        self.tool_coordinator = ToolCoordinator(
+            offload_on_deadline=self._load_offload_policy(),
+        )
         self.approval_coordinator = ApprovalCoordinator()
+
+    @staticmethod
+    def _load_offload_policy() -> bool:
+        """Read offload_policy from settings.json at startup."""
+        try:
+            from ...constant import WORKING_DIR
+
+            settings_file = WORKING_DIR / "settings.json"
+            if settings_file.is_file():
+                data = json.loads(settings_file.read_text("utf-8"))
+                return data.get("offload_policy") == "offload"
+        except Exception:
+            logger.debug("Could not load offload_policy, using default")
+        return False
 
     async def start(self) -> None:
         """Bring coordinators online; called once in lifespan startup."""

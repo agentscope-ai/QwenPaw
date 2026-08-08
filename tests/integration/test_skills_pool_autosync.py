@@ -143,12 +143,17 @@ def test_auto_update_persists_targets(app_server) -> None:
       1. Create a pool skill.
       2. PUT .../auto-update {enabled:True, targets:[...]} -> 200,
          response echoes the targets.
-      3. GET /pool: auto_update_targets reflects the list.
-      4. finally: delete the pool skill.
+      3. GET /pool: the slim list entry shows auto_update=True.
+      4. GET /pool/{name}: the detail entry exposes the persisted
+         auto_update_targets (the list view intentionally only carries
+         lightweight fields; per-skill detail lives on the detail
+         endpoint).
+      5. finally: delete the pool skill.
 
     API endpoints:
       - PUT /api/skills/pool/{skill_name}/auto-update
       - GET /api/skills/pool
+      - GET /api/skills/pool/{skill_name}
     """
     name = "integ-pool-au-targets"
     targets = ["default"]
@@ -165,7 +170,14 @@ def test_auto_update_persists_targets(app_server) -> None:
         entry = _pool_entry(app_server, name)
         assert entry is not None, "pool skill missing after auto-update"
         assert entry["auto_update"] is True
-        assert entry["auto_update_targets"] == targets, entry
+        detail = app_server.api_request(
+            "GET",
+            f"{_POOL_BASE}/{name}",
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert detail.status_code == 200, app_server.logs_tail()
+        detail_body = detail.json()
+        assert detail_body["auto_update_targets"] == targets, detail_body
     finally:
         _delete_pool_skill_quietly(app_server, name)
 

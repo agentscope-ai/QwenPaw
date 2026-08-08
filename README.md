@@ -33,11 +33,11 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Never forgets**                       | Three-layer memory — live working context, full verbatim history, and distilled knowledge. Older turns evict but stay recallable on demand; nothing is summarized away or lost.     |
+| **Never forgets**                       | Three-layer memory — live working context, full verbatim history, and a self-evolving personal knowledge base powered by [ReMe](https://github.com/agentscope-ai/ReMe). Conversations and resources continuously become readable, editable, searchable, and linked Markdown memory. |
 | **Local or cloud, runs free**           | QwenPaw-Flash models (2B / 4B / 9B) trained for agent tasks. Built-in QwenPaw Local runtime — no API key, no cloud dependency. Also works with Ollama, LM Studio, or 14+ cloud providers.   |
 | **Security built in**                   | Kernel-level Sandbox, Tool Guard, File Guard, Skill Scanner, and Access Policy. Dangerous commands are blocked before they run.                                                                   |
 | **Multi-agent & parallel**              | Spawn independent agents with their own memory and skills. Sub-agents at runtime. Agent Communication Protocol (ACP) for cross-system orchestration.                               |
-| **Coding Mode**                         | Three-panel Web IDE with file tree, diff preview, and chat. Jump-to-definition, find-references, and structural code search built in.                                              |
+| **File workspace**                      | Unified file navigation, preview, editing, diffs, upload, and download across project and Agent files.                                                                            |
 | **Extensible**                          | Skills for scheduling, documents, browser, news, and more. Plugin architecture with a marketplace. MCP integration for external tools. Combine them into purpose-built workflows.  |
 | **Reachable anywhere**                  | DingTalk, Lark, WeChat, Discord, Telegram, iMessage, QQ — one instance, all channels. Console, TUI, and desktop app for direct access.                                            |
 | **Yours, not ours**                     | Deploy locally — data stays on your machine. No third-party hosting, no data upload.                                                                                               |
@@ -48,7 +48,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 <br>
 
 - **Automation & scheduling**: Set up recurring tasks — news digests, report generation, multi-channel broadcasting — all on your schedule.
-- **Code & development**: Read, edit, review, and test code in your projects; Coding Mode helps you quickly find and understand code.
+- **Code & development**: Read, edit, review, and test code in your projects with the unified file workspace.
 - **Document processing**: Read, write, and convert PDF, Word, Excel, and PowerPoint files.
 - **Information gathering**: Search the web, follow subscriptions, summarize videos, and find what you need in your personal knowledge base.
 - **Multi-channel ops**: Push alerts, summaries, or AI-generated content to DingTalk, Lark, Discord, Telegram, and more — simultaneously or per channel.
@@ -60,9 +60,9 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 
 ## News
 
-- [2026-07-24] **v2.0.1** | PawApp mini-app platform, user-editable Agent Modes, Oh-My-Paw plugins, ReMe memory enhancements, desktop UX improvements, and more. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+- [2026-07-24] **v2.0.1** | PawApp mini-app platform, user-editable Agent Modes, Oh-My-Paw plugins, [ReMe](https://github.com/agentscope-ai/ReMe) memory enhancements, desktop UX improvements, and more. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | An AgentScope 2.0 based ground-up rewrite delivering the Agent OS architecture, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory, and a bundled Terminal UI.
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | An AgentScope 2.0 based ground-up rewrite delivering the Agent OS architecture, Loop Engineering, Scroll Context, [ReMe](https://github.com/agentscope-ai/ReMe) v0.4 Self-evolving Personal Knowledge Base, and a bundled Terminal UI.
 
   | Highlight | What's new |
   |-----------|------------|
@@ -70,7 +70,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
   | **Agent OS — Drivers** | Protocol-neutral MCP / A2A / ACP connector layer with encrypted credentials and per-call policy gate. |
   | **Loop Engineering** | Advanced agent loop templates (Coding Mode, Mission Mode, more to come) with composable approval gates. |
   | **Scroll Context** | Every turn persisted; evicted turns indexed with on-demand recall — nothing summarized away. |
-  | **ReMe v0.4.0 Long-term Memory** | Turn-based auto tracking, usage-aware search, and backend-specific embeddings. |
+  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 Self-evolving Personal Knowledge Base** | Continuously turns conversations and resources into readable, editable, searchable, and linked Markdown memory. |
   | **Terminal UI (TUI)** | Full-screen terminal chat — same agent, memory, and sessions as Console and channels. |
 
   Built on Agent OS, we will be launching out-of-box QwenPaw applications — such as **QwenPaw Creator** and **QwenPaw Insight** — stay tuned. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
@@ -334,7 +334,6 @@ After installation, configure your model in **Console → Settings → Models**,
 - [Add Skills](https://qwenpaw.agentscope.io/docs/skills) to extend capabilities (PDF, Office, browser, news, etc.)
 - [Set up Channels](https://qwenpaw.agentscope.io/docs/channels) for DingTalk, Lark, Discord, and more
 - [Configure Cron](https://qwenpaw.agentscope.io/docs/cron) for scheduled tasks and automation
-- [Try Coding Mode](https://qwenpaw.agentscope.io/docs/coding-mode) for IDE-style code collaboration
 - See the full [Quick Start guide](https://qwenpaw.agentscope.io/docs/quickstart) for all options and verification steps
 
 ---
@@ -407,12 +406,12 @@ See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
 | [Desktop App](https://qwenpaw.agentscope.io/docs/desktop)               | Desktop application installation and usage       |
 | [Models](https://qwenpaw.agentscope.io/docs/models)                     | Configure cloud, local, and custom providers    |
 | [Channels](https://qwenpaw.agentscope.io/docs/channels)                  | DingTalk, Lark, QQ, Discord, iMessage, and more |
-| [Coding Mode](https://qwenpaw.agentscope.io/docs/coding-mode)           | Three-panel Web IDE for code-centric tasks       |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                      | Extend and customize capabilities               |
 | [Plugins](https://qwenpaw.agentscope.io/docs/plugins)                    | Plugin system and Plugin Market                  |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                            | Manage MCP clients                               |
 | [Persona](https://qwenpaw.agentscope.io/docs/persona)                   | Agent personality customization (SOUL / PROFILE)  |
-| [Memory](https://qwenpaw.agentscope.io/docs/memory)                     | Long-term semantic memory (ReMe)                 |
+| [Memory](https://qwenpaw.agentscope.io/docs/memory)                     | Self-evolving personal knowledge base built on local, editable, searchable, and linked Markdown memory, powered by [ReMe](https://github.com/agentscope-ai/ReMe) |
+| [ReMe Documentation](https://docs.agentscope.io/reme/latest/en/overview) | Official ReMe overview and documentation          |
 | [Memory-Evolving & Proactive](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | Agent memory evolution and proactive interaction |
 | [Context](https://qwenpaw.agentscope.io/docs/context)                   | Scroll-based context management                  |
 | [Magic commands](https://qwenpaw.agentscope.io/docs/commands)           | Control conversation state without waiting for the AI |

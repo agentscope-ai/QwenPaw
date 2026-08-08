@@ -284,9 +284,7 @@ describe("useSecurityPage", () => {
       guarded_tools: ["t1"],
       denied_tools: [],
     });
-    apiMocks.updateSandbox.mockRejectedValue(
-      new Error("Sandbox requires administrator privileges."),
-    );
+    apiMocks.updateSandbox.mockRejectedValue(new Error("Network error"));
 
     const { result } = renderHook(() => useSecurityPage());
 
@@ -296,9 +294,7 @@ describe("useSecurityPage", () => {
 
     // Sandbox fails first, so Tool Guard should NOT be called
     expect(apiMocks.updateToolGuard).not.toHaveBeenCalled();
-    expect(messageMock.error).toHaveBeenCalledWith(
-      "Sandbox requires administrator privileges.",
-    );
+    expect(messageMock.error).toHaveBeenCalledWith("Network error");
     expect(messageMock.success).not.toHaveBeenCalled();
   });
 });

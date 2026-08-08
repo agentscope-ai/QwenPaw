@@ -84,7 +84,12 @@ def test_local_media_transport_uploads_to_dashscope_temp(
 
     part = vlm_model.multimodal_media_part(image.as_uri(), "image")
     transported, uses_temp_oss = asyncio.run(
-        vlm_model._transport_local_media_part(part, "vlm-key", "qwen3-vl"),
+        vlm_model._transport_local_media_part(
+            part,
+            "vlm-key",
+            "qwen3-vl",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        ),
     )
 
     assert uses_temp_oss is True
@@ -119,7 +124,12 @@ def test_local_media_transport_falls_back_to_data_url_off_dashscope(
 
     part = vlm_model.multimodal_media_part(image.as_uri(), "image")
     transported, uses_temp_oss = asyncio.run(
-        vlm_model._transport_local_media_part(part, "vlm-key", "gpt-vision"),
+        vlm_model._transport_local_media_part(
+            part,
+            "vlm-key",
+            "gpt-vision",
+            "https://api.openai.com/v1",
+        ),
     )
 
     assert uses_temp_oss is False

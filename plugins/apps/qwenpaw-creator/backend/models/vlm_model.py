@@ -143,15 +143,23 @@ def _is_media_related_error(text: str) -> bool:
     return any(phrase in text_lower for phrase in _MEDIA_REJECT_PHRASES)
 
 
-def _is_dashscope_provider() -> bool:
-    host = urlparse(model_config.get_vlm_base_url()).hostname or ""
+def _is_dashscope_provider(base_url: str) -> bool:
+    host = urlparse(base_url).hostname or ""
     return "dashscope" in host
+
+
+def uses_dashscope_transport() -> bool:
+    """True when the configured VLM transports local media through the
+    DashScope model-bound temporary OSS upload (48h TTL, <=1GB) instead
+    of inline Base64 data URLs."""
+    return _is_dashscope_provider(model_config.get_vlm_base_url())
 
 
 async def _transport_local_media_part(
     part: dict,
     api_key: str,
     model_name: str,
+    base_url: str,
 ) -> tuple[dict, bool]:
     """Replace a local media URL with a provider-transportable URL.
 
@@ -171,7 +179,7 @@ async def _transport_local_media_part(
         return part, False
     fallback = "video/mp4" if part_type == "video_url" else "image/png"
     transported = dict(part)
-    if _is_dashscope_provider():
+    if _is_dashscope_provider(base_url):
         try:
             resolved = await upload_local_file_to_dashscope_temp(
                 local_path,
@@ -200,10 +208,14 @@ async def chat_completion(
     temperature: float = 0.2,
     max_tokens: int = 1800,
     timeout: float | None = None,
+    api_key_override: str | None = None,
+    base_url_override: str | None = None,
+    model_name_override: str | None = None,
 ) -> str:
     """Call the configured VLM and return the assistant text."""
-    api_key = model_config.get_vlm_api_key()
-    model_name = model_config.get_vlm_model_name()
+    api_key = api_key_override or model_config.get_vlm_api_key()
+    base_url = base_url_override or model_config.get_vlm_base_url()
+    model_name = model_name_override or model_config.get_vlm_model_name()
     if not api_key:
         raise ModelError(
             "creator_vlm_model.api_key, VLM_API_KEY, DASHSCOPE_API_KEY, or TEXT_API_KEY is required",
@@ -237,6 +249,7 @@ async def chat_completion(
             normalized,
             api_key,
             model_name,
+            base_url,
         )
         uses_temp_oss = uses_temp_oss or is_temp_oss
         provider_content.append(normalized)
@@ -277,7 +290,7 @@ async def chat_completion(
         async with httpx.AsyncClient(timeout=actual_timeout) as client:
             async with model_slot("vlm"):
                 response = await client.post(
-                    model_config.get_vlm_chat_url(),
+                    f"{base_url.rstrip('/')}/chat/completions",
                     headers={
                         "Authorization": f"Bearer {api_key}",
                         "Content-Type": "application/json",
@@ -323,13 +336,13 @@ async def chat_completion(
             "VLM request failed: type=%s repr=%r url=%s timeout=%s elapsed=%.2fs",
             type(exc).__name__,
             exc,
-            model_config.get_vlm_chat_url(),
-            model_config.get_vlm_timeout_seconds(),
+            f"{base_url.rstrip('/')}/chat/completions",
+            actual_timeout,
             elapsed,
             exc_info=True,
         )
         raise ModelError(
-            f"VLM request failed ({type(exc).__name__}): {exc!r} url={model_config.get_vlm_chat_url()}",
+            f"VLM request failed ({type(exc).__name__}): {exc!r} url={base_url.rstrip('/')}/chat/completions",
             model_name=model_name,
         ) from exc
 

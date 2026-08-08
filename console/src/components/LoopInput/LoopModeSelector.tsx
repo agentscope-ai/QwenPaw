@@ -20,20 +20,12 @@ import {
   type LoopModeInfo,
   useLoopStore,
 } from "../../stores/loopStore";
+import { InlineMarkdown } from "../Markdown/InlineMarkdown";
+import {
+  resolveLoopModeDescriptionMarkdown,
+  resolveLoopModeName,
+} from "../../utils/loopModeDescription";
 import styles from "./index.module.less";
-
-function modeName(mode: LoopModeInfo, t: (key: string) => string): string {
-  if (mode.source !== "builtin") return mode.name;
-  return t(`loop.modes.${mode.id}.name`);
-}
-
-function modeDescription(
-  mode: LoopModeInfo,
-  t: (key: string) => string,
-): string {
-  if (mode.source !== "builtin") return mode.description;
-  return t(`loop.modes.${mode.id}.description`);
-}
 
 function ModeIcon({ mode, size = 14 }: { mode: LoopModeInfo; size?: number }) {
   if (mode.id === "goal") return <Target size={size} />;
@@ -44,7 +36,8 @@ function ModeIcon({ mode, size = 14 }: { mode: LoopModeInfo; size?: number }) {
 }
 
 export function LoopModeSelector() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language || "en";
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const availableModes = useLoopStore((state) => state.availableModes);
@@ -86,7 +79,7 @@ export function LoopModeSelector() {
           {sessionState === "awaiting_user" && (
             <MessageCircleQuestion size={14} />
           )}
-          <span>{modeName(activeMode, t)}</span>
+          <span>{resolveLoopModeName(activeMode, t, lang)}</span>
           <span className={styles.activeState}>
             {t(`loop.${sessionState}`)}
           </span>
@@ -120,9 +113,13 @@ export function LoopModeSelector() {
                 <ModeIcon mode={mode} size={16} />
               </span>
               <span className={styles.optionCopy}>
-                <span className={styles.optionName}>{modeName(mode, t)}</span>
+                <span className={styles.optionName}>
+                  {resolveLoopModeName(mode, t, lang)}
+                </span>
                 <span className={styles.optionDescription}>
-                  {modeDescription(mode, t)}
+                  <InlineMarkdown
+                    markdown={resolveLoopModeDescriptionMarkdown(mode, t, lang)}
+                  />
                 </span>
               </span>
               {selected ? <CircleDot size={15} /> : null}
@@ -190,7 +187,7 @@ export function LoopModeSelector() {
         ) : (
           <ModeIcon mode={selectedMode} />
         )}
-        <span>{modeName(selectedMode, t)}</span>
+        <span>{resolveLoopModeName(selectedMode, t, lang)}</span>
         <ChevronDown size={13} />
       </button>
     </Popover>

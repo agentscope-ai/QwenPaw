@@ -122,8 +122,7 @@ jobs:
              [ "${{ matrix.python-version }}" = "3.13" ]; then
             pytest tests/unit -v \
               --cov=src/qwenpaw \
-              --cov-report=xml:coverage.unit.xml \
-              --cov-fail-under=0
+              --cov-report=xml:coverage.unit.xml
           else
             pytest tests/unit -v
           fi
@@ -278,6 +277,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,test,full]"
 
+      # tests/integration/browser carries the integration marker but no
+      # priority marker, so any expression without a p0/p1 filter (a
+      # workflow_dispatch of "integration", say) selects it and needs a real
+      # Chromium. Same command as the e2e workflows.
+      - name: Install Playwright browser
+        shell: bash
+        run: |
+          playwright install chromium --with-deps
+
       - name: Check if integrated tests exist
         id: check-integrated
         shell: bash
@@ -361,7 +369,6 @@ jobs:
     if: |
       always() &&
       needs.approval-gate.result == 'success'
-    continue-on-error: true
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -407,6 +414,7 @@ jobs:
           coverage html -d htmlcov-combined || [ "$?" -eq 2 ]
           echo "Combined coverage report:"
           coverage report --skip-covered --fail-under=0
+          coverage json -o coverage.combined.json || [ "$?" -eq 2 ]
 
       - name: Build coverage summary table
         id: cov_summary

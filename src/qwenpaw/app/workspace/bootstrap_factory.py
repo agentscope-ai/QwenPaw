@@ -85,6 +85,10 @@ class WorkspaceBootstrapFactory:
                 SkillEnvCleanupHook,
                 SkillEnvHook,
             )
+            from ...checkpoints.hooks import (
+                CheckpointAutoSnapshotHook,
+                CheckpointQueryGateHook,
+            )
 
             hook_clses: list[type] = [
                 CronContextHook,
@@ -100,6 +104,8 @@ class WorkspaceBootstrapFactory:
                 MediaProcessHook,
                 ErrorNormalizeHook,
                 CancelCleanupHook,
+                CheckpointQueryGateHook,
+                CheckpointAutoSnapshotHook,
             ]
             if extra_hook_clses:
                 hook_clses.extend(extra_hook_clses)

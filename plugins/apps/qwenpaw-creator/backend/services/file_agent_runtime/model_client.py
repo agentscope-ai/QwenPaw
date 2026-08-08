@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import asyncio
 import inspect
 import json
+
 from typing import Any, Protocol
 
 from json_repair import repair_json
@@ -32,10 +34,13 @@ from models import config as model_config
 from models.concurrency import model_slot
 from models.dashscope_multimodal import DashScopeNativeFormatter
 from models.native_content import native_content_blocks
+from utils.logger import setup_logger
 from .tool_protocol import (
     NativeToolTextStream,
     NonNativeToolMarkupError,
 )
+
+logger = setup_logger("creator.model_client")
 
 
 class AgentModelError(RuntimeError):
@@ -71,6 +76,21 @@ class AgentToolCall:
     # object even after repair. The driver must surface this back to the
     # model as a failed tool result instead of failing the whole run.
     parse_error: str | None = None
+    # Transport diagnostics are intentionally excluded from equality, repr,
+    # and provider history. They let the Runtime distinguish strict provider
+    # JSON from syntax-repaired JSON without leaking malformed payloads back
+    # into the conversation or changing tool semantics.
+    raw_arguments_bytes: int = field(default=0, compare=False, repr=False)
+    arguments_repaired: bool = field(default=False, compare=False, repr=False)
+    strict_json_error: str | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
+    # Retain the provider payload only until the Runtime persists the completed
+    # turn. Raw fragments are deliberately not durable events anymore.
+    raw_arguments: str = field(default="", compare=False, repr=False)
+    provider_chunk_count: int = field(default=0, compare=False, repr=False)
 
     def history_dict(self) -> dict[str, Any]:
         """Serialize the call for the driver's provider-independent turn history."""
@@ -95,23 +115,49 @@ class AgentModelTurn:
     thinking: str = ""
     tool_calls: tuple[AgentToolCall, ...] = ()
     provider_message_id: str | None = None
+    finish_reason: str = "completed"
+    usage: dict[str, Any] | None = field(default=None, compare=False)
 
 
 _ARGS_PREVIEW_CHARS = 160
 
 
-def _parse_tool_arguments(raw: str) -> tuple[dict[str, Any], str | None]:
+def _usage_payload(usage: Any) -> dict[str, Any] | None:
+    if usage is None:
+        return None
+    payload: dict[str, Any] = {}
+    for name in (
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_input_tokens",
+        "time",
+    ):
+        value = getattr(usage, name, None)
+        if isinstance(value, (int, float)):
+            payload[name] = value
+    metadata = getattr(usage, "metadata", None)
+    if isinstance(metadata, Mapping) and metadata:
+        payload["metadata"] = dict(metadata)
+    return payload or None
+
+
+def _parse_tool_arguments(
+    raw: str,
+) -> tuple[dict[str, Any], str | None, bool, str | None]:
     """Parse streamed tool-call arguments into a JSON object.
 
     Strict ``json.loads`` first; malformed payloads (truncated stream,
     unbalanced braces) go through ``json_repair`` exactly like AgentScope's
-    own ``_json_loads_with_repair``. Returns ``(arguments, parse_error)``—
-    an unrecoverable payload yields ``({}, message)`` so the tool call can
-    fail individually while the run keeps going.
+    own ``_json_loads_with_repair``. Returns ``(arguments, parse_error,
+    repaired, strict_error)``—an unrecoverable payload yields a
+    ``parse_error`` message so the tool call can fail individually while the
+    run keeps going, and ``repaired``/``strict_error`` let the Runtime tell
+    strict provider JSON from syntax-repaired JSON.
     """
 
     if not raw.strip():
-        return {}, None
+        return {}, None, False, None
     decode_error: json.JSONDecodeError | None = None
     try:
         parsed = json.loads(raw)
@@ -119,13 +165,21 @@ def _parse_tool_arguments(raw: str) -> tuple[dict[str, Any], str | None]:
         decode_error = error
     else:
         if isinstance(parsed, dict):
-            return parsed, None
+            return parsed, None, False, None
+    benign = _parse_with_benign_trailing_closers(raw, decode_error)
+    if benign is not None:
+        return benign, None, False, None
+    strict_error = (
+        f"JSONDecodeError: {decode_error}"
+        if decode_error is not None
+        else "decoded into a non-object value"
+    )
     try:
         repaired = repair_json(raw, stream_stable=True, return_objects=True)
     except Exception:
         repaired = None
     if isinstance(repaired, dict):
-        return repaired, None
+        return repaired, None, True, strict_error
     if len(raw) > 2 * _ARGS_PREVIEW_CHARS:
         preview = (
             raw[:_ARGS_PREVIEW_CHARS]
@@ -134,20 +188,46 @@ def _parse_tool_arguments(raw: str) -> tuple[dict[str, Any], str | None]:
         )
     else:
         preview = raw
-    detail = (
-        f"JSONDecodeError: {decode_error}"
-        if decode_error is not None
-        else "decoded into a non-object value"
-    )
-    return {}, (
-        "工具调用参数不是合法的 JSON 对象且无法自动修复（" + detail + "）。常见原因：花括号遗漏/错位或输出被截断。"
+    parse_error = (
+        "工具调用参数不是合法的 JSON 对象且无法自动修复（" + strict_error + "）。常见原因：花括号遗漏/错位或输出被截断。"
         "请重新生成本次工具调用；若参数体量巨大，可拆分为少量几次较小的调用。"
         f"参数原文预览：{preview!r}"
     )
+    return {}, parse_error, False, strict_error
 
 
 AgentTextDeltaCallback = Callable[[str], Awaitable[None]]
 AgentToolDeltaCallback = Callable[[str, str, str], Awaitable[None]]
+
+
+def _parse_with_benign_trailing_closers(
+    raw: str,
+    decode_error: json.JSONDecodeError | None,
+) -> dict[str, Any] | None:
+    """Accept a complete JSON object followed only by stray closers.
+
+    Long streamed tool arguments sometimes end with one surplus ``}`` or
+    ``]`` (a bracket-count slip, not truncation). When the prefix before
+    the decode error parses to a complete object and the remainder holds
+    zero information — nothing but closers and whitespace — executing the
+    prefix is provably lossless, so the call must not pay a repair-and-
+    retry turn. Any other trailing content means real payload was cut off
+    and keeps the strict failure path.
+    """
+
+    if decode_error is None or "Extra data" not in decode_error.msg:
+        return None
+    boundary = decode_error.pos
+    remainder = raw[boundary:].strip()
+    if remainder and set(remainder) - {"}", "]", " ", "\t", "\r", "\n"}:
+        return None
+    try:
+        parsed = json.loads(raw[:boundary])
+    except json.JSONDecodeError:
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    return None
 
 
 def _guard_text_callback(
@@ -228,7 +308,7 @@ class CallbackAgentChatClient:
         return turn
 
 
-def _text_content(value: Any, *, field: str) -> str:
+def _text_content(value: Any, *, field_name: str) -> str:
     if value is None:
         return ""
     if isinstance(value, str):
@@ -244,18 +324,18 @@ def _text_content(value: Any, *, field: str) -> str:
                 "text",
             }:
                 raise AgentModelError(
-                    f"Creator Agent history {field} contains non-text content",
+                    f"Creator Agent history {field_name} contains non-text content",
                 )
             pieces.append(str(item.get("text") or ""))
         return "".join(pieces)
-    raise AgentModelError(f"Creator Agent history {field} must be text")
+    raise AgentModelError(f"Creator Agent history {field_name} must be text")
 
 
-def _message_content_blocks(value: Any, *, field: str) -> list[Any]:
+def _message_content_blocks(value: Any, *, field_name: str) -> list[Any]:
     """Preserve native user media while keeping ordinary history compatible."""
 
     if value is None or isinstance(value, str):
-        text = _text_content(value, field=field)
+        text = _text_content(value, field_name=field_name)
         return [TextBlock(text=text)] if text else []
     if isinstance(value, Sequence) and not isinstance(
         value,
@@ -265,17 +345,17 @@ def _message_content_blocks(value: Any, *, field: str) -> list[Any]:
         for item in value:
             if not isinstance(item, Mapping):
                 raise AgentModelError(
-                    f"Creator Agent history {field} contains an invalid content part",
+                    f"Creator Agent history {field_name} contains an invalid content part",
                 )
             parts.append(dict(item))
         try:
             return list(native_content_blocks(parts))
         except Exception as exc:
             raise AgentModelError(
-                f"Creator Agent history {field} contains invalid native media: {exc}",
+                f"Creator Agent history {field_name} contains invalid native media: {exc}",
             ) from exc
     raise AgentModelError(
-        f"Creator Agent history {field} must be text or content parts",
+        f"Creator Agent history {field_name} must be text or content parts",
     )
 
 
@@ -326,7 +406,10 @@ def records_to_agentscope_messages(
         role = str(record.get("role") or "").strip()
         content_value = record.get("content")
         content = (
-            _text_content(content_value, field=f"message[{index}].content")
+            _text_content(
+                content_value,
+                field_name=f"message[{index}].content",
+            )
             if role in {"system", "tool"}
             else ""
         )
@@ -336,7 +419,7 @@ def records_to_agentscope_messages(
         if role == "user":
             blocks = _message_content_blocks(
                 content_value,
-                field=f"message[{index}].content",
+                field_name=f"message[{index}].content",
             )
             if not blocks:
                 raise AgentModelError(
@@ -347,7 +430,7 @@ def records_to_agentscope_messages(
         if role == "assistant":
             blocks = _message_content_blocks(
                 content_value,
-                field=f"message[{index}].content",
+                field_name=f"message[{index}].content",
             )
             raw_calls = record.get("tool_calls") or []
             if not isinstance(raw_calls, Sequence) or isinstance(
@@ -478,7 +561,10 @@ class AgentScopeAgentChatClient:
         on_text_delta: AgentTextDeltaCallback | None = None,
         on_thinking_delta: AgentTextDeltaCallback | None = None,
         on_tool_call_delta: AgentToolDeltaCallback | None = None,
-        _empty_retries_remaining: int = 1,
+        _empty_retries_remaining: int = 2,
+        _rate_limit_retries_remaining: int = 3,
+        _transient_retries_remaining: int = 2,
+        _markup_retries_remaining: int = 2,
     ) -> AgentModelTurn:
         native_messages = records_to_agentscope_messages(messages)
         allowed_names = {
@@ -496,6 +582,7 @@ class AgentScopeAgentChatClient:
         streamed_tool_call_ids: set[str] = set()
         streamed_tool_names: dict[str, str] = {}
         pending_tool_inputs: dict[str, list[str]] = {}
+        provider_tool_chunk_counts: dict[str, int] = {}
 
         try:
             async with model_slot("text"):
@@ -541,6 +628,15 @@ class AgentScopeAgentChatClient:
                                         ]
                                         if guarded_tool_delta is not None:
                                             for delta in deltas:
+                                                provider_tool_chunk_counts[
+                                                    block.id
+                                                ] = (
+                                                    provider_tool_chunk_counts.get(
+                                                        block.id,
+                                                        0,
+                                                    )
+                                                    + 1
+                                                )
                                                 await guarded_tool_delta(
                                                     block.id,
                                                     effective_name,
@@ -548,6 +644,15 @@ class AgentScopeAgentChatClient:
                                                 )
                                             streamed_tool_call_ids.add(
                                                 block.id,
+                                            )
+                                        else:
+                                            provider_tool_chunk_counts[
+                                                block.id
+                                            ] = provider_tool_chunk_counts.get(
+                                                block.id,
+                                                0,
+                                            ) + len(
+                                                deltas,
                                             )
                                     else:
                                         pending_tool_inputs.setdefault(
@@ -563,14 +668,121 @@ class AgentScopeAgentChatClient:
                             "AgentScope Creator stream is missing its final response",
                         )
                     response = final
+        except NonNativeToolMarkupError as exc:
+            # Same class of stochastic stream degradation as an empty
+            # response: the model narrates its tool call as XML-ish text.
+            # A fresh turn usually recovers; killing the run must be the
+            # last resort, not the first response.
+            if _markup_retries_remaining > 0:
+                logger.warning(
+                    "Model emitted textual tool-call markup in a TextBlock, "
+                    "retrying (%d retries remaining)",
+                    _markup_retries_remaining,
+                )
+                return await self.complete(
+                    messages=messages,
+                    tools=tools,
+                    on_text_delta=on_text_delta,
+                    on_thinking_delta=on_thinking_delta,
+                    on_tool_call_delta=on_tool_call_delta,
+                    _empty_retries_remaining=_empty_retries_remaining,
+                    _rate_limit_retries_remaining=(
+                        _rate_limit_retries_remaining
+                    ),
+                    _transient_retries_remaining=(
+                        _transient_retries_remaining
+                    ),
+                    _markup_retries_remaining=_markup_retries_remaining - 1,
+                )
+            raise AgentModelError(
+                "Creator Agent returned textual tool-call markup instead of "
+                "an AgentScope ToolCallBlock",
+            ) from exc
         except (
             AgentModelError,
             AgentModelConfigurationError,
             AgentStreamCallbackError,
             AgentStreamCallbackPassthrough,
-        ):
+        ) as exc:
+            logger.error(
+                "Model request failed: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
             raise
         except Exception as exc:
+            exc_text = str(exc)
+            is_rate_limit = (
+                "<503>" in exc_text
+                or "ServiceUnavailable" in exc_text
+                or "Too many requests" in exc_text
+            )
+            if is_rate_limit and _rate_limit_retries_remaining > 0:
+                delay = 2 ** (3 - _rate_limit_retries_remaining)
+                model_name = (
+                    getattr(self.model, "model", "")
+                    or model_config.get_text_model_name()
+                )
+                logger.warning(
+                    "Model request rate-limited (503) [model=%s], retrying in %ds "
+                    "(%d retries remaining): %s",
+                    model_name,
+                    delay,
+                    _rate_limit_retries_remaining,
+                    exc_text,
+                )
+                await asyncio.sleep(delay)
+                return await self.complete(
+                    messages=messages,
+                    tools=tools,
+                    on_text_delta=on_text_delta,
+                    on_thinking_delta=on_thinking_delta,
+                    on_tool_call_delta=on_tool_call_delta,
+                    _empty_retries_remaining=_empty_retries_remaining,
+                    _rate_limit_retries_remaining=(
+                        _rate_limit_retries_remaining - 1
+                    ),
+                )
+            is_transient = (
+                "Download multimodal file timed out" in exc_text
+                or "ReadTimeout" in exc_text
+                or "ConnectTimeout" in exc_text
+                or "WriteTimeout" in exc_text
+            )
+            if is_transient and _transient_retries_remaining > 0:
+                delay = 2 ** (3 - _transient_retries_remaining)
+                model_name = (
+                    getattr(self.model, "model", "")
+                    or model_config.get_text_model_name()
+                )
+                logger.warning(
+                    "Model request transient error [model=%s], retrying in %ds "
+                    "(%d retries remaining): %s: %s",
+                    model_name,
+                    delay,
+                    _transient_retries_remaining,
+                    type(exc).__name__,
+                    exc_text,
+                )
+                await asyncio.sleep(delay)
+                return await self.complete(
+                    messages=messages,
+                    tools=tools,
+                    on_text_delta=on_text_delta,
+                    on_thinking_delta=on_thinking_delta,
+                    on_tool_call_delta=on_tool_call_delta,
+                    _empty_retries_remaining=_empty_retries_remaining,
+                    _rate_limit_retries_remaining=_rate_limit_retries_remaining,
+                    _transient_retries_remaining=(
+                        _transient_retries_remaining - 1
+                    ),
+                )
+            logger.error(
+                "Model request failed with unexpected error: %s: %s",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
             raise AgentModelError(
                 f"Creator AgentScope model request failed: {exc}",
             ) from exc
@@ -599,15 +811,29 @@ class AgentScopeAgentChatClient:
                     raise AgentModelError(
                         f"Creator AgentScope returned a tool not offered this turn: {name}",
                     )
-                arguments, parse_error = _parse_tool_arguments(
-                    block.input or "",
-                )
+                raw_arguments = block.input or ""
+                (
+                    arguments,
+                    parse_error,
+                    repaired,
+                    strict_error,
+                ) = _parse_tool_arguments(raw_arguments)
                 calls.append(
                     AgentToolCall(
                         call_id=call_id,
                         name=name,
                         arguments=arguments,
                         parse_error=parse_error,
+                        raw_arguments_bytes=len(
+                            raw_arguments.encode("utf-8"),
+                        ),
+                        arguments_repaired=repaired,
+                        strict_json_error=strict_error,
+                        raw_arguments=raw_arguments,
+                        provider_chunk_count=(
+                            provider_tool_chunk_counts.get(call_id, 0)
+                            or (1 if raw_arguments else 0)
+                        ),
                     ),
                 )
 
@@ -615,6 +841,27 @@ class AgentScopeAgentChatClient:
         try:
             await text_stream.finalize(text)
         except NonNativeToolMarkupError as exc:
+            if _markup_retries_remaining > 0:
+                logger.warning(
+                    "Model emitted textual tool-call markup in final text, "
+                    "retrying (%d retries remaining)",
+                    _markup_retries_remaining,
+                )
+                return await self.complete(
+                    messages=messages,
+                    tools=tools,
+                    on_text_delta=on_text_delta,
+                    on_thinking_delta=on_thinking_delta,
+                    on_tool_call_delta=on_tool_call_delta,
+                    _empty_retries_remaining=_empty_retries_remaining,
+                    _rate_limit_retries_remaining=(
+                        _rate_limit_retries_remaining
+                    ),
+                    _transient_retries_remaining=(
+                        _transient_retries_remaining
+                    ),
+                    _markup_retries_remaining=_markup_retries_remaining - 1,
+                )
             raise AgentModelError(
                 "Creator Agent returned textual tool-call markup instead of an "
                 "AgentScope ToolCallBlock",
@@ -660,6 +907,14 @@ class AgentScopeAgentChatClient:
             provider_message_id=(
                 str(response.id) if getattr(response, "id", None) else None
             ),
+            finish_reason=str(
+                getattr(
+                    getattr(response, "finished_reason", None),
+                    "value",
+                    getattr(response, "finished_reason", "completed"),
+                ),
+            ),
+            usage=_usage_payload(getattr(response, "usage", None)),
         )
 
 

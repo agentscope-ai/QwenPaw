@@ -412,7 +412,7 @@ def traced_async(
     return decorate
 
 
-def read_trace_records(
+def read_trace_records(  # pylint: disable=too-many-branches
     *,
     filters: Mapping[str, str] | None = None,
     limit: int = 200,

@@ -38,7 +38,7 @@ from acp.schema import (
 
 from ....agents.acp.meta import (
     ACP_APPROVAL_EXPIRES_AT_META_KEY,
-    ACP_CODING_PROJECT_META_KEY,
+    ACP_PROJECT_DIR_META_KEY,
     ACP_EPHEMERAL_META_KEY,
 )
 from ..__version__ import __version__
@@ -83,7 +83,7 @@ def _open_agent_stderr_log() -> tuple[int | None, str | None]:
     """Open a file to receive the agent subprocess's stderr.
 
     ``spawn_agent_process`` defaults the child's stderr to an *unread* PIPE.
-    Chatty tools (Chromium via ``browser_use``) flood it, fill the 64 KB pipe
+    Chatty subprocess tools can flood it, fill the 64 KB pipe
     buffer, block the agent, and the JSON-RPC stream dies ("Connection
     closed"). Draining stderr to a file avoids the deadlock and keeps the logs
     for debugging. Falls back to ``DEVNULL`` if the file can't be opened.
@@ -402,7 +402,7 @@ class AcpTransport:
     def _session_kwargs(self) -> dict[str, str]:
         if not self._project_dir:
             return {}
-        return {ACP_CODING_PROJECT_META_KEY: self._project_dir}
+        return {ACP_PROJECT_DIR_META_KEY: self._project_dir}
 
     async def start(self) -> Connected:
         self._stack = AsyncExitStack()

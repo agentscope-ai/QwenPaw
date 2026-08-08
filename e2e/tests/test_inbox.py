@@ -12,6 +12,8 @@ Cases:
 - INBOX-004 P1  test_message_card_renders_and_modal_opens
 - INBOX-005 P1  test_batch_mode_select_and_delete
 - INBOX-006 P1  test_sidebar_unread_dot_appears_with_seeded_event
+- INBOX-007 P1  test_single_card_delete
+- INBOX-008 P2  test_mark_all_read
 - SYNC-003  P2  test_skill_autosync_notification_card
 """
 from __future__ import annotations
@@ -376,6 +378,148 @@ class TestSkillAutoSyncInbox:
                 has_text=re.compile(r"Skill auto-sync|技能自动同步")
             )
             expect(title.first).to_be_visible(timeout=inbox_page.timeout)
+
+            log_test_result(test_name, True, 0)
+            logger.info(f"Test {test_name} passed")
+        finally:
+            inbox_page.clean_inbox()
+
+
+# ============================================================================
+# INBOX-007 P1  Single-card delete via the trash icon (+ Popconfirm)
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.p1
+@pytest.mark.inbox
+class TestSingleCardDelete:
+    """INBOX-007: the per-card Trash button deletes exactly one message."""
+
+    @pytest.mark.test_id("INBOX-007")
+    def test_single_card_delete(
+        self,
+        inbox_page: InboxPage,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        test_name = request.node.name
+
+        try:
+            log_test_step("1. Seed 2 events and open /inbox")
+            inbox_page.clean_inbox()
+            inbox_page.seed_events([
+                inbox_page.make_event(
+                    event_id="evt-del-1",
+                    title="Cron delete target",
+                    body="to be deleted",
+                    read=True,
+                    created_at=time.time(),
+                ),
+                inbox_page.make_event(
+                    event_id="evt-keep-1",
+                    title="Cron survivor",
+                    body="should remain",
+                    read=True,
+                    created_at=time.time() - 60,
+                ),
+            ])
+            inbox_page.open()
+            cards = inbox_page.page.locator(inbox_page.MESSAGE_CARD)
+            expect(cards.first).to_be_visible(timeout=18000)
+            assert cards.count() == 2, f"expected 2 cards, got {cards.count()}"
+
+            log_test_step("2. Click the trash icon on the first card")
+            target = cards.filter(has_text="Cron delete target").first
+            expect(target).to_be_visible(timeout=inbox_page.timeout)
+            target.locator(inbox_page.CARD_DELETE_BTN).first.click()
+
+            log_test_step("3. Confirm the Popconfirm")
+            ok_btn = inbox_page.page.locator(inbox_page.POPCONFIRM_OK).first
+            expect(ok_btn).to_be_visible(timeout=inbox_page.timeout)
+            ok_btn.click()
+
+            log_test_step("4. Exactly the target card disappears")
+            expect(
+                inbox_page.page.locator(
+                    inbox_page.MESSAGE_CARD
+                ).filter(has_text="Cron delete target")
+            ).to_have_count(0, timeout=18000)
+            expect(
+                inbox_page.page.locator(
+                    inbox_page.MESSAGE_CARD
+                ).filter(has_text="Cron survivor").first
+            ).to_be_visible(timeout=inbox_page.timeout)
+
+            log_test_result(test_name, True, 0)
+            logger.info(f"Test {test_name} passed")
+        finally:
+            inbox_page.clean_inbox()
+
+
+# ============================================================================
+# INBOX-008 P2  "Mark all read" clears every unread dot
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.p2
+@pytest.mark.inbox
+class TestMarkAllRead:
+    """INBOX-008: toolbar Mark-all-read flips all cards to read state."""
+
+    @pytest.mark.test_id("INBOX-008")
+    def test_mark_all_read(
+        self,
+        inbox_page: InboxPage,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        test_name = request.node.name
+
+        try:
+            log_test_step("1. Seed 2 unread events and open /inbox")
+            inbox_page.clean_inbox()
+            inbox_page.seed_events([
+                inbox_page.make_event(
+                    event_id="evt-unread-1",
+                    title="Cron unread one",
+                    read=False,
+                    created_at=time.time(),
+                ),
+                inbox_page.make_event(
+                    event_id="evt-unread-2",
+                    title="Cron unread two",
+                    read=False,
+                    created_at=time.time() - 60,
+                ),
+            ])
+            inbox_page.open()
+            cards = inbox_page.page.locator(inbox_page.MESSAGE_CARD)
+            expect(cards.first).to_be_visible(timeout=18000)
+
+            log_test_step("2. Unread dots are present on the cards")
+            dots = inbox_page.page.locator(
+                f"{inbox_page.MESSAGE_CARD} {inbox_page.UNREAD_DOT_IN_CARD}"
+            )
+            expect(dots.first).to_be_visible(timeout=inbox_page.timeout)
+            assert dots.count() >= 2, (
+                f"expected >=2 unread dots, got {dots.count()}"
+            )
+
+            log_test_step("3. Click 'Mark all read'")
+            mark_btn = inbox_page.page.locator(
+                inbox_page.MARK_ALL_READ_BTN
+            ).first
+            expect(mark_btn).to_be_enabled(timeout=inbox_page.timeout)
+            mark_btn.click()
+
+            log_test_step("4. All unread dots disappear")
+            expect(
+                inbox_page.page.locator(
+                    f"{inbox_page.MESSAGE_CARD} "
+                    f"{inbox_page.UNREAD_DOT_IN_CARD}"
+                )
+            ).to_have_count(0, timeout=18000)
+
+            log_test_step("5. Button becomes disabled (no unread left)")
+            expect(mark_btn).to_be_disabled(timeout=inbox_page.timeout)
 
             log_test_result(test_name, True, 0)
             logger.info(f"Test {test_name} passed")

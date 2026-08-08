@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
+import { useTranslation } from "react-i18next";
 import { useParams, usePathname } from "@/routing/navigation";
 import { navigateToLocator } from "@/routing/locators";
 import type { FileProjectReviewOperation } from "@/contracts/creator";
@@ -14,6 +15,7 @@ import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useNavigationStore } from "@/store/navigationStore";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
+import { useWorkGraphStore } from "@/store/workGraphStore";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
 import TopNav from "./TopNav";
 import ReturnBanner from "@/components/creator/ReturnBanner";
@@ -135,6 +137,7 @@ function LayoutSkeleton() {
 }
 
 export default function ProjectLayout() {
+  const { t } = useTranslation();
   const { id = "" } = useParams();
   const pathname = usePathname();
   const bootstrap = useCreatorSessionStore((state) => state.bootstrap);
@@ -165,9 +168,7 @@ export default function ProjectLayout() {
   const startFileReviewPolling = useFileProjectReviewStore(
     (state) => state.startPolling,
   );
-  const activeFileReview = useFileProjectReviewStore(
-    (state) => state.reviews[0] ?? null,
-  );
+  const fileReviews = useFileProjectReviewStore((state) => state.reviews);
   const fileReviewSyncStatus = useFileProjectReviewStore(
     (state) => state.syncStatus,
   );
@@ -297,6 +298,8 @@ export default function ProjectLayout() {
       )
     ) {
       void refreshTasks(id);
+      // Task/subagent lifecycle changes move work-graph node states too.
+      void useWorkGraphStore.getState().refresh(id);
     }
     if (
       pendingEvents.some(
@@ -317,14 +320,19 @@ export default function ProjectLayout() {
   }, [events, id, refreshSession, refreshTasks]);
 
   useEffect(() => {
-    if (
-      !pendingReviewNavigation?.ready ||
-      fileReviewSyncStatus !== "healthy" ||
-      activeFileReview?.review_id !== pendingReviewNavigation.reviewId
-    )
+    if (!pendingReviewNavigation?.ready || fileReviewSyncStatus !== "healthy")
       return;
+    // Batched specialist work leaves several PENDING Reviews at once, so
+    // the freshly completed one is not necessarily the head of the list —
+    // requiring reviews[0] to match swallowed the popup whenever older
+    // Reviews were still open (哈兰勇闯偶综, 2026-08-05: six pending, zero
+    // popups). Find the target anywhere in the pending list instead.
+    const targetReview = fileReviews.find(
+      (review) => review.review_id === pendingReviewNavigation.reviewId,
+    );
+    if (!targetReview) return;
     setPendingReviewNavigation(null);
-    const locator = primaryReviewLocator(activeFileReview.operations);
+    const locator = primaryReviewLocator(targetReview.operations);
     if (!locator) return;
     if (locator.elementId) {
       useCreatorInteractionStore
@@ -334,9 +342,9 @@ export default function ProjectLayout() {
     navigateToLocator(id, locator, {
       review: true,
       field: locator.field ?? undefined,
-      description: "审阅 / 查看修改",
+      description: t("lib.reviewOrViewChanges"),
     });
-  }, [activeFileReview, fileReviewSyncStatus, id, pendingReviewNavigation]);
+  }, [fileReviews, fileReviewSyncStatus, id, pendingReviewNavigation]);
 
   // A background Header revalidation must not unmount the active route.  The
   // initial skeleton is only needed before the first authoritative Header is

@@ -8,6 +8,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from hashlib import sha256
 import json
+import logging
 from typing import Any
 
 from fastapi import (
@@ -70,6 +71,8 @@ from .dependencies import (
     resolve_idempotency_key,
 )
 from .file_execution_routes import _cancel_task_sync
+
+logger = logging.getLogger("qwenpaw.creator.api.file_session_routes")
 
 
 router = APIRouter(
@@ -150,6 +153,7 @@ def _session_view(session: Any) -> dict[str, Any]:
         "lastMessageSeq": session.last_message_seq,
         "lastEventSeq": session.last_event_seq,
         "lastConsumedMessageSeq": session.last_consumed_message_seq,
+        "error": session.error,
     }
 
 
@@ -394,11 +398,17 @@ async def post_message(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     services: CreatorFileServices = Depends(project_file_services),
 ) -> dict[str, Any]:
+    parts, intent = _message_parts(request)
+    logger.info(
+        "agent dock message: conversation=%s client_message_id=%s content=%s",
+        request.conversation_id,
+        request.client_message_id,
+        intent,
+    )
     key = resolve_idempotency_key(
         idempotency_key,
         stable_client_id=request.client_message_id,
     )
-    parts, intent = _message_parts(request)
     store = _store(services)
     try:
         session = await asyncio.to_thread(
@@ -477,15 +487,31 @@ async def post_message(
             )
     except BaseException as error:
         _translate_runtime_error(error)
-    if admitted.review_boundary is not None:
+    # Only a boundary that actually captured a running mainline may
+    # supersede it. An idle-goal boundary interrupts nothing — firing the
+    # supersede anyway can cancel the run the dispatcher already started
+    # for this very message, whose cleanup then consumes the message and
+    # leaves the Session in RESUMING with no pending input to recover it.
+    if (
+        admitted.review_boundary is not None
+        and admitted.review_boundary.interrupted_run_id is not None
+    ):
         await interrupt_creator_agent_runtime(
             project_id,
             superseded=True,
             reason="agentdock_interrupt",
+            expected_run_id=admitted.review_boundary.interrupted_run_id,
         )
     notify_creator_agent_runtime(project_id)
     response.headers["X-Idempotent-Replay"] = (
         "true" if admitted.replayed else "false"
+    )
+    logger.info(
+        "message posted: project=%s session=%s seq=%d replayed=%s",
+        project_id,
+        session.session_id,
+        admitted.message.message_seq,
+        admitted.replayed,
     )
     return {
         "messageSeq": admitted.message.message_seq,

@@ -59,6 +59,7 @@ _PROTECTED_RECENT_TOOL_RESULTS = 5
 _OUTPUT_RESERVE_RATIO = 0.05
 _MAX_OUTPUT_RESERVE_TOKENS = 4096
 _SUMMARY_UPDATE_TIMEOUT_SECONDS = 60.0
+_OVERFLOW_FORCE_TRIGGER_RATIO = 1e-6
 _SummaryRecords = tuple[
     list[tuple[int, str]],
     list[tuple[int, str]],
@@ -337,6 +338,29 @@ class ScrollContextManager:
             await self._offloader.offload_context(self._session_id, middle)
         except Exception:  # noqa: BLE001 - archive is best-effort
             logger.warning("scroll dialog offload failed", exc_info=True)
+
+    async def recover_from_context_overflow(self, agent: Any) -> bool:
+        """Force one compaction after a provider rejects an oversized input."""
+        base_config = getattr(agent, "context_config", None)
+        if base_config is None:
+            return False
+        try:
+            forced_config = base_config.model_copy(
+                update={"trigger_ratio": _OVERFLOW_FORCE_TRIGGER_RATIO},
+            )
+        except Exception:
+            logger.warning(
+                "Could not clone context_config for context-overflow "
+                "recovery; skipping the recovery attempt.",
+                exc_info=True,
+            )
+            return False
+
+        await self.compress(agent, forced_config)
+        return bool(
+            self.last_compress.get("evicted")
+            or self.last_compress.get("folded"),
+        )
 
     # pylint: disable-next=too-many-statements,too-many-branches
     async def compress(
@@ -1603,6 +1627,7 @@ class ScrollContextManager:
                             name=entry.name,
                             tool_state=entry.tool_state,
                             tool_input=entry.tool_input,
+                            metadata=entry.metadata,
                         )
                         self._model_turn_nblk[mid] = nblk
                         if new_headline:
@@ -1707,7 +1732,7 @@ class ScrollContextManager:
         tail: list[Msg],
         active_ids: set[str],
     ) -> tuple[list[Msg], list[Msg]]:
-        """Avoid evicting only the user half of a completed exchange.
+        """Avoid evicting only the user boundary of a completed turn.
 
         AgentScope's token split optimizes for a recent-tail token budget, so
         it can place a user request at the end of ``middle`` while keeping the
@@ -1716,7 +1741,7 @@ class ScrollContextManager:
         index must call the model to label a user-only span, and the live
         window keeps an answer whose question was just archived. Pull the
         leading non-user reply block(s) into ``middle`` unless they belong to
-        the active turn, preserving completed exchanges as the unit of
+        the active turn, preserving completed turns as the unit of
         eviction. ``reserve`` is a soft target; semantic boundaries win.
         """
         if not middle or not tail:

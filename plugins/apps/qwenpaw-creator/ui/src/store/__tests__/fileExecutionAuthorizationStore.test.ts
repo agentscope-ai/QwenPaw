@@ -13,7 +13,6 @@ const pending = {
   authorizationToken: "token-1",
   provider: "creator-image",
   model: "configured-image-model",
-  estimatedCost: 0,
   maxCandidates: 1,
   createdAt: "now",
 };

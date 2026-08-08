@@ -100,6 +100,39 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
     return first_text[:10], first_text
 
 
+async def _apply_session_project_dir(
+    workspace,
+    chat,
+    native_payload: dict[str, Any],
+):
+    """Persist a Session project selection before dispatch."""
+    request_context = native_payload["meta"].get("request_context")
+    if not isinstance(request_context, dict):
+        return chat
+    raw_value = request_context.pop("session_project_dir", None)
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        return chat
+
+    def _resolve_target() -> Path:
+        target = Path(raw_value).expanduser().resolve()
+        if not target.is_dir():
+            raise NotADirectoryError(str(target))
+        return target
+
+    try:
+        target = await asyncio.to_thread(_resolve_target)
+    except NotADirectoryError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project directory is unavailable: {exc}",
+        ) from exc
+    updated = await workspace.chat_manager.set_project_dir(
+        chat.id,
+        str(target),
+    )
+    return updated or chat
+
+
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     """Extract run_key (ChatSpec.id), session_id, and native payload.
 
@@ -112,15 +145,24 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         content_parts = (
             list(request_data.input[0].content) if request_data.input else []
         )
+        message_metadata = (
+            request_data.input[0].metadata if request_data.input else None
+        )
     else:
         channel_id = request_data.get("channel", "console")
         sender_id = request_data.get("user_id", "default")
         session_id = request_data.get("session_id", "default")
         input_data = request_data.get("input", [])
         content_parts = []
+        message_metadata = None
         for content_part in input_data:
             if hasattr(content_part, "content"):
                 content_parts.extend(list(content_part.content or []))
+                message_metadata = getattr(
+                    content_part,
+                    "metadata",
+                    message_metadata,
+                )
             elif isinstance(content_part, dict) and "content" in content_part:
                 # Coerce raw dicts to typed Content models so downstream
                 # getattr checks (e.g. _content_has_text) see real attrs.
@@ -128,6 +170,8 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
                     _coerce_content_item(c)
                     for c in (content_part["content"] or [])
                 )
+                if isinstance(content_part.get("metadata"), dict):
+                    message_metadata = content_part["metadata"]
 
     meta: dict = {
         "session_id": session_id,
@@ -146,6 +190,7 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         "channel_id": channel_id,
         "sender_id": sender_id,
         "content_parts": content_parts,
+        "message_metadata": message_metadata,
         "meta": meta,
     }
 
@@ -157,6 +202,37 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         native_payload["model_slot_override"] = mso
 
     return native_payload
+
+
+def _is_reconnect_request(request_data: Union[AgentRequest, dict]) -> bool:
+    """Return whether the chat request asks to attach to a running stream.
+
+    ``AgentRequest`` uses ``extra="allow"`` and has no required fields,
+    so FastAPI parses ``{"reconnect": true, ...}`` bodies into an
+    ``AgentRequest`` instance — a dict-only check silently classified
+    every reconnect as a fresh send and restarted a run with an empty
+    input. Check both shapes.
+    """
+    if isinstance(request_data, dict):
+        return request_data.get("reconnect") is True
+    return getattr(request_data, "reconnect", None) is True
+
+
+def _empty_sse_response() -> StreamingResponse:
+    """An SSE response that terminates immediately."""
+
+    async def _empty() -> AsyncGenerator[str, None]:
+        return
+        yield  # pragma: no cover — makes this an async generator
+
+    return StreamingResponse(
+        _empty(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 def _tail_text_file(
@@ -225,33 +301,60 @@ async def post_console_chat(
         name=name,
     )
     tracker = workspace.task_tracker
-
-    # Kick off an LLM-backed title generation in the background when the chat
-    # was just created with the truncated placeholder. This runs detached so
-    # the streaming response is never blocked by title generation latency.
-    if first_text and chat.name == name:
-        asyncio.create_task(
-            generate_and_update_title(
-                workspace=workspace,
-                chat_id=chat.id,
-                user_message=first_text,
-                placeholder_name=name,
-            ),
-        )
-
-    is_reconnect = False
-    if isinstance(request_data, dict):
-        is_reconnect = request_data.get("reconnect") is True
+    is_reconnect = _is_reconnect_request(request_data)
 
     if is_reconnect:
         queue = await tracker.attach(chat.id)
         if queue is None:
-            return
+            # The run finished (or never existed): reply with an
+            # immediately-terminated SSE stream so the client's reader
+            # completes normally and falls back to the persisted
+            # history. Returning a JSON null here left the chat blank.
+            return _empty_sse_response()
     else:
+        chat = await _apply_session_project_dir(
+            workspace,
+            chat,
+            native_payload,
+        )
+        from ...config.config import load_agent_config
+        from ...services.project_directory import (
+            resolve_effective_project_dir,
+            session_project_dir,
+        )
+
+        agent_config = await asyncio.to_thread(
+            load_agent_config,
+            workspace.agent_id,
+        )
+        project_dir, project_source = await asyncio.to_thread(
+            resolve_effective_project_dir,
+            workspace.workspace_dir,
+            agent_config.project_dir,
+            session_project_dir(chat.meta),
+        )
+        request_context = dict(
+            native_payload["meta"].get("request_context") or {},
+        )
+        request_context["project_dir"] = str(project_dir)
+        request_context["project_dir_source"] = project_source
+        native_payload["meta"]["request_context"] = request_context
+
+        # Title generation is only needed when starting a new run.
+        if first_text and chat.name == name:
+            asyncio.create_task(
+                generate_and_update_title(
+                    workspace=workspace,
+                    chat_id=chat.id,
+                    user_message=first_text,
+                    placeholder_name=name,
+                ),
+            )
         queue, _ = await tracker.attach_or_start(
             chat.id,
             native_payload,
             console_channel.stream_one,
+            owner=workspace,
         )
 
     async def event_generator() -> AsyncGenerator[str, None]:
@@ -454,21 +557,29 @@ async def get_inbox_events(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     source_type: str | None = Query(None),
+    source_types: list[str] | None = Query(None),
     status: str | None = Query(None),
     agent_id: str | None = Query(None),
     unread_only: bool = Query(False),
 ):
-    from ..inbox_store import list_events
+    from ..inbox_store import query_events
 
-    events = await list_events(
+    selected_sources = set(source_types or [])
+    if source_type:
+        selected_sources.add(source_type)
+    events, total, unread_count = await query_events(
         limit=limit,
         offset=offset,
-        source_type=source_type,
+        source_types=selected_sources or None,
         status=status,
         agent_id=agent_id,
         unread_only=unread_only,
     )
-    return {"events": events}
+    return {
+        "events": events,
+        "total": total,
+        "unread_count": unread_count,
+    }
 
 
 @router.post("/inbox/read")
@@ -556,11 +667,16 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         channel_meta=native_payload["meta"],
     )
     name, _ = _extract_placeholder_name(native_payload["content_parts"])
-    await workspace.chat_manager.get_or_create_chat(
+    chat = await workspace.chat_manager.get_or_create_chat(
         session_id,
         native_payload["sender_id"],
         native_payload["channel_id"],
         name=name,
+    )
+    chat = await _apply_session_project_dir(
+        workspace,
+        chat,
+        native_payload,
     )
 
     task_timeout: Optional[float] = None
@@ -585,6 +701,32 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
                 rc.get("fork_worktree_branch") or "",
             )
             fork_scope_id = str(rc.get("fork_scope_id") or "")
+
+    from ...config.config import load_agent_config
+    from ...services.project_directory import (
+        resolve_effective_project_dir,
+        session_project_dir,
+    )
+
+    agent_config = await asyncio.to_thread(
+        load_agent_config,
+        workspace.agent_id,
+    )
+    project_dir, project_source = await asyncio.to_thread(
+        resolve_effective_project_dir,
+        workspace.workspace_dir,
+        agent_config.project_dir,
+        session_project_dir(chat.meta),
+        None,
+        None,
+        fork_project_dir or None,
+    )
+    request_context = dict(
+        native_payload["meta"].get("request_context") or {},
+    )
+    request_context["project_dir"] = str(project_dir)
+    request_context["project_dir_source"] = project_source
+    native_payload["meta"]["request_context"] = request_context
 
     bg = _BackgroundTask(
         status="running",

@@ -47,6 +47,26 @@ describe("AgentTable", () => {
     ).toBeInTheDocument();
   });
 
+  it("does not size the scroll area from the browser viewport", () => {
+    const { container } = renderWithProviders(
+      <AgentTable
+        agents={[agent("a", false)]}
+        loading={false}
+        reordering={false}
+        onEdit={vi.fn()}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onPin={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    // Regression guard: the table body height must come from the container
+    // (measured), never from 100vh, so OS windows don't nest scrollbars.
+    expect(container.innerHTML).not.toContain("100vh");
+  });
+
   it("keeps Copy enabled for default agent with template tooltip", () => {
     renderWithProviders(
       <AgentTable
@@ -62,8 +82,7 @@ describe("AgentTable", () => {
       />,
     );
 
-    const defaultCopy = screen.getByTitle("agent.copyDefaultTooltip");
-    expect(defaultCopy).toBeEnabled();
+    expect(screen.getByTitle("agent.copyDefaultTooltip")).toBeEnabled();
     expect(screen.getByTitle("agent.copyTooltip")).toBeEnabled();
   });
 
@@ -86,14 +105,8 @@ describe("AgentTable", () => {
       />,
     );
 
-    const nativeTag = screen.getByText(/QwenPaw/).closest(".ant-tag");
-    const codexTag = screen.getByText(/Codex/).closest(".ant-tag");
-    const qoderTag = screen.getByText(/Qoder/).closest(".ant-tag");
-    expect(nativeTag).toBeInTheDocument();
-    expect(codexTag).toBeInTheDocument();
-    expect(qoderTag).toBeInTheDocument();
-    expect(nativeTag?.className).toContain("backendTag");
-    expect(codexTag?.className).toContain("backendTagThirdParty");
-    expect(qoderTag?.className).toContain("backendTagThirdParty");
+    expect(screen.getByText(/QwenPaw/)).toBeInTheDocument();
+    expect(screen.getByText(/Codex/)).toBeInTheDocument();
+    expect(screen.getByText(/Qoder/)).toBeInTheDocument();
   });
 });

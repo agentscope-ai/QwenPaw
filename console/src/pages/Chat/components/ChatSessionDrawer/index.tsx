@@ -21,7 +21,7 @@ import {
   type IAgentScopeRuntimeWebUISession,
 } from "@agentscope-ai/chat";
 import { useIsMobile } from "../../../../hooks/useIsMobile";
-import { useCodingMode } from "../../../../stores/codingModeStore";
+import { useCollapsedSessionGroups } from "../../../../hooks/useCollapsedSessionGroups";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import SessionItem from "../../../../components/SessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
@@ -29,16 +29,18 @@ import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
 import { useMessageQueueStore } from "../../../../stores/messageQueueStore";
 import {
-  buildSessionPath,
+  buildChatPath,
   getSessionIdFromPath,
 } from "../../../../utils/sessionRoute";
 import {
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../../../../stores/sessionListStore";
+import { useAgentStore } from "../../../../stores/agentStore";
 import {
   type DateGroup,
   groupSessions,
+  findSessionRowIndex,
 } from "../../../../utils/sessionGrouping";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import styles from "./index.module.less";
@@ -231,8 +233,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const navigate = useNavigate();
   const location = useLocation();
   const sdkState = useChatAnywhereSessionsState();
-  const { codingMode } = useCodingMode();
-
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const createNewSession = useCreateNewSession();
 
   // In embedded mode, maintain a local session list fetched directly from the
@@ -282,10 +283,9 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Cache last polled sessions to skip no-op state updates */
   const lastPolledSessionsRef = useRef<IAgentScopeRuntimeWebUISession[]>([]);
 
-  /** Collapsed date groups — default: "month" and "older" are collapsed */
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<DateGroup>>(
-    () => new Set<DateGroup>(["month", "older"]),
-  );
+  /** Collapsed date groups — persisted so remounts keep the user's state */
+  const { collapsedGroups, toggleGroup, expandGroupForSession } =
+    useCollapsedSessionGroups();
 
   /** Immediate search input value (bound to Input, updates on every keystroke) */
   const [searchInput, setSearchInput] = useState("");
@@ -334,7 +334,10 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
   /** Re-fetch session list from the backend and sync to context state */
   const refreshSessions = useCallback(async () => {
+    const owner = sessionApi.getActiveOwner();
     const list = await sessionApi.getSessionList();
+    // Never publish a list that finished loading under a previous agent.
+    if (!sessionApi.isActiveOwner(owner)) return;
     setSessions(list);
   }, [setSessions]);
 
@@ -343,12 +346,18 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     if (!props.open) return;
 
     let isCancelled = false;
+    const owner = sessionApi.getActiveOwner();
+
+    // The drawer owns a local list outside the SDK context. Clear the
+    // previous agent's entries before loading the newly selected agent.
+    lastPolledSessionsRef.current = [];
+    setSessions([]);
 
     const fetchSessions = async () => {
       setListLoading(true);
       try {
         const list = await sessionApi.getSessionList();
-        if (!isCancelled) {
+        if (!isCancelled && sessionApi.isActiveOwner(owner)) {
           // sessionApi already returns the previous array reference when the
           // list hasn't changed, so a reference check is enough to skip no-op
           // state updates and avoid a full re-render cascade.
@@ -373,7 +382,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       if (sessionApi.isSessionSwitching) return;
       try {
         const list = await sessionApi.getSessionList();
-        if (!isCancelled) {
+        if (!isCancelled && sessionApi.isActiveOwner(owner)) {
           // sessionApi already returns the previous array reference when the
           // list hasn't changed, so a reference check is enough to skip no-op
           // state updates and avoid a full re-render cascade.
@@ -391,7 +400,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       isCancelled = true;
       clearInterval(timer);
     };
-  }, [props.open, setSessions]);
+  }, [props.open, selectedAgent, setSessions]);
 
   /** Whether a session switch is in progress (issue #4557) */
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(
@@ -411,12 +420,11 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       // This avoids the preload / isSessionSwitching complexity that caused
       // the "flash to new chat" issue.
       setSwitchingSessionId(sessionId);
-      const mode = codingMode ? "coding" : "chat";
       const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
-      const targetPath = buildSessionPath(mode, effectiveId);
+      const targetPath = buildChatPath(effectiveId);
       navigate(targetPath);
     },
-    [currentSessionId, navigate, codingMode],
+    [currentSessionId, navigate],
   );
 
   // Listen for embedded switch completion so we can clear switchingSessionId.
@@ -441,6 +449,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Delete a session: call deleteChat API then refresh the list */
   const handleDelete = useCallback(
     async (sessionId: string) => {
+      const owner = sessionApi.getActiveOwner();
       const session = sessions.find((s) => s.id === sessionId) as
         | ExtendedChatSession
         | undefined;
@@ -450,20 +459,27 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         await chatApi.deleteChat(backendId);
       }
 
+      // Per-session cleanup is safe regardless of the active agent: it is
+      // keyed to the deleted conversation only.
       localStorage.removeItem(`approval_level-${sessionId}`);
 
       // Clear the message queue for the deleted session so stale items don't
       // linger in storage or get sent after deletion. The queue may be keyed
-      // by the local id or the resolved backend id, so clear both. Also notify
-      // the chat page (when mounted) to abort any in-flight background send.
+      // by the local id or the resolved backend id, so clear both.
       const mq = useMessageQueueStore.getState();
       mq.clear(sessionId);
       if (backendId && backendId !== sessionId) mq.clear(backendId);
+
+      // Everything below mutates the CURRENT view (callbacks, shared list,
+      // navigation). A delete that finished after an agent switch must not
+      // touch the new agent's state.
+      if (!sessionApi.isActiveOwner(owner)) return;
       sessionApi.onSessionRemoved?.(backendId ?? sessionId);
 
       // Fetch the updated session list after deletion
       const freshList =
         (await sessionApi.getSessionList()) as ExtendedChatSession[];
+      if (!sessionApi.isActiveOwner(owner)) return;
       setSessions(freshList);
       syncSessionsGlobal(freshList as unknown as ExtendedSession[]);
 
@@ -503,6 +519,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Submit rename */
   const handleEditSubmit = useCallback(async () => {
     if (!editingSessionId) return;
+    const owner = sessionApi.getActiveOwner();
 
     const session = sessions.find((s) => s.id === editingSessionId) as
       | ExtendedChatSession
@@ -518,6 +535,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
     setEditingSessionId(null);
     setEditValue("");
+    if (!sessionApi.isActiveOwner(owner)) return;
     await refreshSessions();
   }, [editingSessionId, editValue, sessions, refreshSessions]);
 
@@ -530,6 +548,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Toggle pin status for a session */
   const handlePinToggle = useCallback(
     async (sessionId: string) => {
+      const owner = sessionApi.getActiveOwner();
       const session = sessions.find((s) => s.id === sessionId) as
         | ExtendedChatSession
         | undefined;
@@ -541,6 +560,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           await chatApi.updateChat(backendId, {
             pinned: newPinnedState,
           });
+          if (!sessionApi.isActiveOwner(owner)) return;
           await refreshSessions();
         } catch (error) {
           console.error("Failed to toggle pin status:", error);
@@ -553,6 +573,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Toggle archive status for a session */
   const handleArchiveToggle = useCallback(
     async (sessionId: string) => {
+      const owner = sessionApi.getActiveOwner();
       const session = sessions.find((s) => s.id === sessionId) as
         | ExtendedChatSession
         | undefined;
@@ -562,13 +583,15 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       try {
         if (wasArchived) {
           await chatApi.unarchiveChat(backendId);
-          message.success(
-            t("sessions.archive.unarchiveSuccess", "Chat unarchived"),
-          );
         } else {
           await chatApi.archiveChat(backendId);
-          message.success(t("sessions.archive.successHint"));
         }
+        if (!sessionApi.isActiveOwner(owner)) return;
+        message.success(
+          wasArchived
+            ? t("sessions.archive.unarchiveSuccess", "Chat unarchived")
+            : t("sessions.archive.successHint"),
+        );
         await refreshSessions();
 
         if (!wasArchived) {
@@ -610,15 +633,17 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     [sortedSessions, searchQuery, t],
   );
 
-  /** Toggle a date group's collapsed state */
-  const toggleGroup = useCallback((key: DateGroup) => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  // Keep the active conversation reachable: expand the (possibly
+  // collapsed) date group that contains it whenever it changes.
+  useEffect(() => {
+    if (!currentSessionId) return;
+    const active = sortedSessions.find(
+      (s) =>
+        s.id === currentSessionId ||
+        (s as ExtendedChatSession).realId === currentSessionId,
+    );
+    if (active) expandGroupForSession(active as ExtendedChatSession);
+  }, [currentSessionId, sortedSessions, expandGroupForSession]);
 
   /** Flatten groups into a single array of rows for virtual list */
   const flatRows = useMemo<FlatRow[]>(() => {
@@ -669,6 +694,19 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   useEffect(() => {
     listRef.current?.resetAfterIndex(0);
   }, [flatRows]);
+
+  // Bring the active conversation into view once its row is visible
+  // (group expanded + list measured). Guarded by the last-scrolled id so
+  // background polling doesn't keep yanking the scroll position.
+  const lastScrolledSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentSessionId) return;
+    if (lastScrolledSessionRef.current === currentSessionId) return;
+    const index = findSessionRowIndex(flatRows, currentSessionId);
+    if (index < 0) return;
+    lastScrolledSessionRef.current = currentSessionId;
+    listRef.current?.scrollToItem(index, "smart");
+  }, [currentSessionId, flatRows, listHeight]);
 
   /** Callback ref: attach a ResizeObserver to measure list container height */
   const listWrapperRef = useCallback((node: HTMLDivElement | null) => {

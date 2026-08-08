@@ -1,6 +1,9 @@
 .agentsPage {
-  height: calc(100vh - 128px);
+  height: 100%;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 
   :global {
     .qwenpaw-card-body {
@@ -97,16 +100,59 @@
 /* ---- Table Card ---- */
 
 .tableCard {
-  margin-bottom: 24px;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 
-  &:last-child {
-    margin-bottom: 0;
-  }
+  :global {
+    .qwenpaw-card {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
 
-  :global(.ant-card-body) {
-    padding: 0;
+    .ant-card-body,
+    .qwenpaw-card-body {
+      padding: 0 !important;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .qwenpaw-table-wrapper {
+      flex: 1;
+      min-height: 0;
+    }
+
+    .qwenpaw-table-container {
+      max-height: 100%;
+      overflow: auto;
+    }
   }
+}
+
+.backendTag {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-color: #ded7d1;
+  color: #685f58;
+  background: #faf8f6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backendTagThirdParty {
+  border-color: rgba(255, 127, 22, 0.42);
+  color: #bd5100;
+  background: #fff4e9;
 }
 
 .dragHandleButton {
@@ -137,27 +183,7 @@
 }
 
 .sortableRowDragging {
-  background: rgba(255, 127, 22, 0.08);
-}
-
-.backendTag {
-  display: inline-flex;
-  max-width: 100%;
-  align-items: center;
-  gap: 4px;
-  box-sizing: border-box;
-  overflow: hidden;
-  border-color: #ded7d1;
-  color: #685f58;
-  background: #faf8f6;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.backendTagThirdParty {
-  border-color: rgba(255, 127, 22, 0.42);
-  color: #bd5100;
-  background: #fff4e9;
+  background: rgba(24, 144, 255, 0.08);
 }
 
 /* ─── Skill Picker (agent create/edit modal) ───────────────────────────────── */
@@ -179,13 +205,13 @@
   transition: all 0.15s ease;
 
   &:hover {
-    border-color: #ff7f16;
-    background: rgba(255, 127, 22, 0.03);
+    border-color: #615ced;
+    background: rgba(97, 92, 237, 0.02);
   }
 
   &.pickerCardSelected {
-    border-color: #ff7f16;
-    background: rgba(255, 127, 22, 0.08);
+    border-color: #615ced;
+    background: rgba(97, 92, 237, 0.06);
   }
 
   &.pickerCardDisabled {
@@ -201,7 +227,7 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #ff7f16;
+  background: #615ced;
   color: #fff;
   display: flex;
   align-items: center;
@@ -271,13 +297,11 @@
     border-color: rgba(255, 255, 255, 0.12);
 
     &:hover {
-      border-color: #ff7f16;
-      background: rgba(255, 127, 22, 0.08);
+      background: rgba(97, 92, 237, 0.08);
     }
 
     &.pickerCardSelected {
-      border-color: #ff7f16;
-      background: rgba(255, 127, 22, 0.13);
+      background: rgba(97, 92, 237, 0.12);
     }
   }
 

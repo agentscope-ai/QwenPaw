@@ -26,6 +26,25 @@ const modelConfig = {
     use_llm: true,
     multimodal: true,
   },
+  grounding: {
+    enabled: true,
+    model_name: "",
+    api_key: "",
+    base_url: "",
+    protocol: "OpenAI 协议",
+    custom_protocol: "",
+    reuse_llm: true,
+    validation_source: "llm",
+    tavily_api_key: "",
+    serper_api_key: "",
+    native_search_enabled: true,
+    search_provider: "dashscope_qwen",
+    search_reuse_llm: true,
+    search_model_name: "",
+    search_api_key: "",
+    search_base_url: "",
+    search_protocol: "DashScope（百炼）",
+  },
   asr: {
     enabled: false,
     model_name: "fun-asr",
@@ -63,10 +82,12 @@ const modelConfig = {
     policy_api_key: "",
   },
   executionAuthorization: { mode: "allow_all" },
+  creationCheckpoints: { mode: "skip" },
+  mediaReview: { mode: "auto_approve" },
 };
 
 describe("origin/main visible shell fidelity", () => {
-  it("keeps the origin Home card hierarchy, copy, classes, and actions", async () => {
+  it("keeps the redesigned Home project cards, copy, classes, and actions", async () => {
     installMockFetch([
       { match: "/models/config", response: { json: modelConfig } },
       {
@@ -97,41 +118,104 @@ describe("origin/main visible shell fidelity", () => {
         <HomePage />
       </MemoryRouter>,
     );
+    // The project grid lives under the second tab: text-only cards with
+    // name, description, meta row and update time, actions on hover.
+    fireEvent.click(screen.getByRole("tab", { name: "我的项目" }));
     expect(await screen.findByText("雪夜短片")).toBeInTheDocument();
-    for (const label of [
-      "视频场景 短剧",
-      "内容类型 采访",
-      "画面长宽比 16:9",
-      "图像分辨率 720P",
-    ]) {
-      expect(screen.getByText(label)).toHaveClass(
-        "badge",
-        "border",
-        "text-[var(--color-text-secondary)]",
-      );
-    }
-    expect(screen.getByRole("button", { name: "新建项目" })).toHaveClass(
-      "btn-primary",
-      "cursor-pointer",
+    // The content type row was removed from cards; only the meta row shows.
+    expect(screen.getByText("短剧")).toBeInTheDocument();
+    expect(screen.queryByText("类型：")).not.toBeInTheDocument();
+    expect(screen.queryByText("采访")).not.toBeInTheDocument();
+    expect(screen.getByText("16:9")).toBeInTheDocument();
+    expect(screen.getByText("720P")).toBeInTheDocument();
+    expect(screen.getByText("一段项目说明")).toHaveClass(
+      "line-clamp-2",
+      "text-[var(--color-text-tertiary)]",
     );
-    expect(screen.getByRole("button", { name: "打开" })).toHaveClass(
-      "btn-primary",
-      "flex-1",
-      "cursor-pointer",
-    );
-    expect(screen.getByRole("button", { name: "删除 雪夜短片" })).toHaveClass(
-      "btn-primary",
-      "flex-1",
-      "cursor-pointer",
+    // No preview chip without a rendered final cut.
+    expect(
+      screen.queryByRole("button", { name: "预览 雪夜短片 成片" }),
+    ).not.toBeInTheDocument();
+    // Creation happens through the floating pill instead of a button.
+    expect(
+      screen.queryByRole("button", { name: "新建项目" }),
+    ).not.toBeInTheDocument();
+    const floatingEntry = screen
+      .getAllByRole("button", { name: "开始创作" })
+      .find((button) => button.className.includes("fixed"));
+    expect(floatingEntry).toBeDefined();
+    expect(floatingEntry).toHaveClass("bg-[#FF9D4D]", "rounded-full");
+    // Export moved to the plan page; the card keeps a muted always-visible
+    // delete icon instead of a hover dropdown.
+    expect(
+      screen.queryByRole("button", { name: "雪夜短片 更多操作" }),
+    ).not.toBeInTheDocument();
+    const deleteButton = screen.getByRole("button", { name: "删除 雪夜短片" });
+    expect(deleteButton).toHaveClass(
+      "text-[var(--color-text-tertiary)]",
+      "hover:text-[var(--color-danger)]",
     );
     expect(container.querySelector("header")).toHaveClass(
       "border-b",
       "bg-[var(--color-bg-primary)]",
     );
-    expect(screen.getByText("一段项目说明").parentElement).toHaveClass(
-      "min-h-[52px]",
-      "bg-[rgba(43,18,0,0.02)]",
+    // The floating pill returns to the hero composer view.
+    fireEvent.click(floatingEntry!);
+    expect(screen.getByRole("tab", { name: "开始创作" })).toHaveAttribute(
+      "aria-selected",
+      "true",
     );
+  });
+
+  it("shows the content type and the final-cut preview for editing projects", async () => {
+    installMockFetch([
+      { match: "/models/config", response: { json: modelConfig } },
+      {
+        match: "/projects",
+        response: {
+          json: {
+            items: [
+              {
+                projectId: "p2",
+                name: "采访粗切",
+                description: "一段项目说明",
+                scenario: "video_edit",
+                contentType: "interview",
+                aspectRatio: "16:9",
+                resolution: "720P",
+                coverVersionId: "ver-cover",
+                coverVersionSource: "artifact",
+                finalVideoVersionId: "ver-final",
+                createdAt: "2026-07-01T00:00:00Z",
+                updatedAt: "2026-07-02T00:00:00Z",
+              },
+            ],
+            limit: 100,
+            offset: 0,
+          },
+        },
+      },
+    ]);
+    const { container } = render(
+      <MemoryRouter>
+        <HomePage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "我的项目" }));
+    expect(await screen.findByText("采访粗切")).toBeInTheDocument();
+    // The meta row keeps scenario, ratio and resolution; content type no
+    // longer appears on cards.
+    expect(screen.getByText("剪辑")).toBeInTheDocument();
+    expect(screen.queryByText("类型：")).not.toBeInTheDocument();
+    expect(screen.queryByText("采访")).not.toBeInTheDocument();
+    // A final cut enables the preview chip playing in a modal video.
+    const previewButton = screen.getByRole("button", {
+      name: "预览 采访粗切 成片",
+    });
+    fireEvent.click(previewButton);
+    const video = container.ownerDocument.querySelector("video");
+    expect(video).not.toBeNull();
+    expect(video!.getAttribute("src")).toContain("/media/artifacts/ver-final");
   });
 
   it("keeps the origin Composer hierarchy, copy, controls, and 720px modal", () => {
@@ -153,7 +237,7 @@ describe("origin/main visible shell fidelity", () => {
       "!border-x-0",
       "!bg-transparent",
     );
-    expect(screen.getByPlaceholderText(/^目标描述：/)).toHaveClass(
+    expect(screen.getByPlaceholderText(/^例：霸道总裁短剧/)).toHaveClass(
       "!border-none",
       "!p-4",
     );
@@ -173,6 +257,10 @@ describe("origin/main visible shell fidelity", () => {
   it("keeps the origin model modal with direct single-file values", async () => {
     installMockFetch([
       { match: "/models/config", response: { json: modelConfig } },
+      {
+        match: "/models/config/permission-mode",
+        response: { json: { ok: true } },
+      },
     ]);
     const { container } = render(<ModelConfigModal open onClose={vi.fn()} />);
     await waitFor(() =>
@@ -186,19 +274,16 @@ describe("origin/main visible shell fidelity", () => {
     expect(
       screen.getByRole("button", { name: /保存配置/ }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /取\s*消/ })).toBeInTheDocument();
-    const authorizationToggle = screen.getByRole("checkbox", {
-      name: "高花费模型执行授权",
+    expect(screen.getByRole("button", { name: /关闭/ })).toBeInTheDocument();
+    // allow_all + skip + auto_approve maps to the top (YOLO) stop.
+    const permissionSlider = screen.getByRole("slider", {
+      name: "执行确认模式：",
     });
-    expect(authorizationToggle).not.toBeChecked();
-    expect(
-      screen.getByText("开启后，高花费模型的执行需要确认。"),
-    ).toBeInTheDocument();
-    fireEvent.click(authorizationToggle);
-    expect(authorizationToggle).toBeChecked();
-    expect(
-      screen.getByText("开启后，高花费模型的执行需要确认。"),
-    ).toBeInTheDocument();
+    expect(permissionSlider).toHaveValue("3");
+    expect(screen.getByText(/完全无人值守/)).toBeInTheDocument();
+    fireEvent.change(permissionSlider, { target: { value: "0" } });
+    expect(permissionSlider).toHaveValue("0");
+    expect(screen.getByText(/逐次授权/)).toBeInTheDocument();
     const keyInput = screen.getByPlaceholderText("sk-...");
     expect(keyInput).toHaveValue("saved-secret");
     expect(keyInput).toHaveAttribute("type", "password");

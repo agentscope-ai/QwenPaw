@@ -319,6 +319,39 @@ def collect_final_agent_chat_response(
     return response_data
 
 
+async def collect_final_agent_chat_response_async(
+    base_url: Optional[str],
+    request_payload: Dict[str, Any],
+    to_agent: str,
+    timeout: float,
+) -> Optional[Dict[str, Any]]:
+    """Async SSE collect so coordinator cancel closes the HTTP stream.
+
+    Unlike the sync ``to_thread`` path, cancelling this coroutine exits
+    ``AsyncClient`` context managers and aborts the in-flight request.
+    """
+    normalized = _normalize_api_base_url(base_url)
+    response_data: Optional[Dict[str, Any]] = None
+    async with httpx.AsyncClient(
+        base_url=normalized,
+        timeout=httpx.Timeout(timeout),
+        trust_env=trust_env_for_url(normalized),
+    ) as client:
+        async with client.stream(
+            "POST",
+            "/console/chat",
+            json=request_payload,
+            headers=_request_headers(to_agent),
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line:
+                    parsed = parse_agent_sse_line(line)
+                    if parsed and parsed.get("type") != "turn_usage":
+                        response_data = parsed
+    return response_data
+
+
 def submit_agent_chat_task(
     base_url: Optional[str],
     request_payload: Dict[str, Any],
@@ -543,13 +576,39 @@ async def chat_with_agent(
         root_session_id=final_root_session,
     )
 
-    response_data = await asyncio.to_thread(
-        collect_final_agent_chat_response,
-        None,
-        request_payload,
-        normalized_to_agent,
-        timeout,
+    # Register LLM/tool timeout as kill_deadline so keep_foreground clearing
+    # the shorter hook offload window does not force-cancel early (#6245).
+    from ...tool_calls import (
+        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
+        cancellable_wait,
+        get_call_context,
     )
+
+    # Under ToolCallContext use a large but finite HTTP ceiling so extend
+    # works, while AsyncClient cancel still closes the stream (no zombie
+    # sync thread with timeout=None).
+    http_timeout = (
+        float(COORDINATOR_OWNED_EXEC_TIMEOUT_SECS)
+        if get_call_context() is not None
+        else float(timeout)
+    )
+
+    try:
+        response_data = await cancellable_wait(
+            collect_final_agent_chat_response_async(
+                None,
+                request_payload,
+                normalized_to_agent,
+                http_timeout,
+            ),
+            fallback_secs=float(timeout),
+            as_kill_deadline=True,
+        )
+    except asyncio.CancelledError:
+        return _tool_text_response(
+            "chat_with_agent was cancelled. "
+            "Do not retry unless the user explicitly asks.",
+        )
     if not response_data:
         return _tool_text_response("(No response received)")
 
@@ -784,6 +843,8 @@ def _build_spawn_request_context(current_agent_id: str) -> dict[str, Any]:
     safe_meta = _json_safe_channel_meta(inherited.get("channel_meta") or {})
     if isinstance(safe_meta, dict) and safe_meta:
         context["channel_meta"] = safe_meta
+    if inherited.get("approval_level"):
+        context["approval_level"] = inherited["approval_level"]
     return context
 
 
@@ -927,13 +988,19 @@ def _normalize_batch(
 ) -> Optional[list[Dict[str, Any]]]:
     """Normalize ``batch`` to ``list[dict]`` or ``None``.
 
-    Accepts a real list or a JSON array string.  Structural checks
-    (non-empty, per-item ``task``) remain in :func:`_spawn_batch`.
+    Accepts a real list or a JSON array string.  Empty placeholders are
+    treated as "field not supplied" so Responses-compatible models that
+    emit ``""``, ``[]``, or ``"[]"`` can still use single-task mode.
+    This compatibility rule stays batch-specific because empty values
+    have security-relevant meanings for fields such as ``allowed_tools``.
     """
     if value is None:
         return None
+    if isinstance(value, str) and not value.strip():
+        return None
     coerced = _coerce_json_list(value, "batch")
-    assert coerced is not None
+    if not coerced:
+        return None
     return coerced  # type: ignore[return-value]
 
 
@@ -1375,9 +1442,9 @@ async def _spawn_forked_subagent(
     fork_scope_id = ""
     if worktree_path:
         # ``fork_project_dir`` is the spawn-level key; also set the ACP
-        # coding-project meta key so AgentBuilder / ContextVars rebind
+        # project-directory meta key so AgentBuilder / ContextVars rebind
         # tools/cwd to the worktree.
-        from ..acp.meta import ACP_CODING_PROJECT_META_KEY
+        from ..acp.meta import ACP_PROJECT_DIR_META_KEY
 
         workspace_dir = get_current_workspace_dir()
         registered = await asyncio.to_thread(
@@ -1396,7 +1463,7 @@ async def _spawn_forked_subagent(
         fork_scope_id = get_active_fork_scope(workspace_dir)
         fork_extra = {
             "fork_project_dir": worktree_path,
-            ACP_CODING_PROJECT_META_KEY: worktree_path,
+            ACP_PROJECT_DIR_META_KEY: worktree_path,
             "fork_worktree_branch": worktree_branch,
             "fork_scope_id": fork_scope_id,
         }

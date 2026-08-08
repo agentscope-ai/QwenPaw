@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -577,12 +578,14 @@ async def test_compact_under_native_keeps_configured_reserve() -> None:
 
 
 @pytest.mark.asyncio
-async def test_compact_forwards_one_shot_redacted_instruction() -> None:
-    captured = {}
+async def test_compact_forwards_one_shot_redacted_instruction(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    captured_instructions = []
 
     async def _compress_context(context_config=None, instructions=None):
-        captured["context_config"] = context_config
-        captured["instructions"] = instructions
+        del context_config
+        captured_instructions.append(instructions)
         agent.state.summary = "summary"
 
     agent = _make_agent()
@@ -598,13 +601,22 @@ async def test_compact_forwards_one_shot_redacted_instruction() -> None:
         strategy="native",
     )
 
-    await handler.handle_command(
-        "/compact prioritize failures token=hint-secret-123",
-    )
+    with caplog.at_level(
+        logging.INFO,
+        logger="qwenpaw.agents.command_handler",
+    ):
+        await handler.handle_command(
+            "/compact prioritize failures sk-ctx15fake9876543210ab",
+        )
+        await handler.handle_command("/compact")
 
-    instructions = captured["instructions"]
+    instructions = captured_instructions[0]
     assert isinstance(instructions, HintBlock)
     assert instructions.source == "user"
     assert "prioritize failures" in instructions.hint
-    assert "hint-secret-123" not in instructions.hint
+    assert "sk-ctx15fake9876543210ab" not in instructions.hint
     assert "[secret redacted]" in instructions.hint
+    assert captured_instructions[1] is None
+    assert "Processing command: compact" in caplog.text
+    assert "prioritize failures" not in caplog.text
+    assert "sk-ctx15fake9876543210ab" not in caplog.text
