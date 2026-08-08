@@ -1071,7 +1071,12 @@ PROVIDER_NVIDIA_NIM = OpenAIProvider(
     name="NVIDIA NIM",
     base_url="https://integrate.api.nvidia.com/v1",
     api_key_prefix="nvapi-",
-    models=[],
+    models=[
+        ModelInfo(
+            id="meta/llama-3.1-8b-instruct",
+            name="Llama-3.1-8B-Instruct",
+        ),
+    ],
     freeze_url=False,
     support_connection_check=True,
     support_model_discovery=True,

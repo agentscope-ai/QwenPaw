@@ -150,6 +150,7 @@ QwenPaw 当前支持的云提供商包括：
 - Aliyun Coding Plan
 - OpenRouter
 - OpenAI
+- NVIDIA NIM
 - Azure OpenAI
 - Anthropic
 - Google Gemini
