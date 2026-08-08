@@ -15,7 +15,10 @@ from .context.scroll.continuation_summary import (
     ContinuationSummary,
     redact_secrets,
 )
-from .middlewares import manual_compact_memory_by_handler
+from .middlewares import (
+    auto_memory_turn_state,
+    manual_compact_memory_by_handler,
+)
 from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
@@ -478,21 +481,16 @@ class CommandHandler(ConversationCommandHandlerMixin):
         messages: list[Msg],
     ) -> None:
         """Remove pending turns covered by the manual compact task."""
-        getter = getattr(
-            self.memory_manager,
-            "get_auto_memory_turn_state",
-            None,
-        )
-        if not callable(getter):
-            return
-        state = getter(  # pylint: disable=not-callable
-            self._current_session_id(),
-        )
-        pending = state.get("pending") if isinstance(state, dict) else None
-        if not isinstance(pending, list):
-            return
+        turn_state = auto_memory_turn_state(self._state)
+        pending = turn_state["pending"]
         submitted = {msg.id for msg in messages if msg.id}
         pending[:] = [marker for marker in pending if marker not in submitted]
+        retry = turn_state.get("retry")
+        retry_markers = retry.get("markers") if isinstance(retry, dict) else []
+        if isinstance(retry_markers, list) and set(retry_markers).issubset(
+            submitted,
+        ):
+            turn_state.pop("retry", None)
 
     @staticmethod
     def _scroll_index_text(agent: "Agent") -> str:

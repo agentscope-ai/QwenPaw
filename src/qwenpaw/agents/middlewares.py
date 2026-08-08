@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
+AUTO_MEMORY_TURN_STATE_KEY = "qwenpaw_auto_memory_turn_state"
 _AUTOMATION_MEMORY_SKIP_SOURCES = frozenset({"cron", "heartbeat"})
 _TOOL_RESULT_METADATA_KEY = "qwenpaw_tool_result_metadata"
 _MANUAL_COMPACT_MEMORY_BY_HANDLER: ContextVar[bool] = ContextVar(
@@ -55,6 +56,27 @@ def manual_compact_memory_by_handler() -> Iterator[None]:
         yield
     finally:
         _MANUAL_COMPACT_MEMORY_BY_HANDLER.reset(token)
+
+
+def auto_memory_turn_state(agent_state: Any) -> dict[str, Any]:
+    """Return auto-memory lifecycle state persisted with ``AgentState``."""
+    middle_context = getattr(agent_state, "middle_context", None)
+    if not isinstance(middle_context, dict):
+        middle_context = {}
+        agent_state.middle_context = middle_context
+
+    state = middle_context.get(AUTO_MEMORY_TURN_STATE_KEY)
+    if not isinstance(state, dict):
+        state = {}
+        middle_context[AUTO_MEMORY_TURN_STATE_KEY] = state
+
+    if not isinstance(state.get("pending"), list):
+        state["pending"] = []
+    if not isinstance(state.get("seen"), dict):
+        state["seen"] = {}
+    if not isinstance(state.get("searched_turn"), str):
+        state["searched_turn"] = ""
+    return state
 
 
 class MemoryMiddleware(MiddlewareBase):
@@ -119,7 +141,6 @@ class MemoryMiddleware(MiddlewareBase):
                 if memory_msgs:
                     messages.extend(memory_msgs)
                     input_kwargs["messages"] = messages
-                    agent.state.context.extend(memory_msgs)
         return await next_handler(**input_kwargs)
 
     # pylint: disable=stop-iteration-return
@@ -151,6 +172,7 @@ class MemoryMiddleware(MiddlewareBase):
         interval = self._auto_memory_interval()
         if interval <= 0:
             pending_markers.clear()
+            turn_state.pop("retry", None)
             return
         if len(pending_markers) < interval:
             return
@@ -223,26 +245,30 @@ class MemoryMiddleware(MiddlewareBase):
                 "agent=%s",
                 agent.name,
             )
-            # Defensive: clear in case on_reply guard was bypassed
-            self._auto_memory_turn_state(agent)["pending"].clear()
             return
 
-        pending_markers = self._auto_memory_turn_state(agent)["pending"]
+        turn_state = self._auto_memory_turn_state(agent)
+        pending_markers = turn_state["pending"]
         if not pending_markers:
             return
 
-        if count is None:
-            turn_markers = list(pending_markers)
-            pending_markers.clear()
+        retry_batch = self._load_auto_memory_retry_batch(turn_state)
+        if retry_batch is not None:
+            turn_markers, messages = retry_batch
         else:
-            turn_markers = pending_markers[:count]
-            del pending_markers[:count]
-
-        messages = self._messages_for_user_turns(
-            source_context or list(agent.state.context),
-            turn_markers=turn_markers,
-        )
+            if count is None:
+                turn_markers = list(pending_markers)
+            else:
+                turn_markers = pending_markers[:count]
+            messages = self._messages_for_user_turns(
+                source_context or list(agent.state.context),
+                turn_markers=turn_markers,
+            )
         if not messages:
+            logger.warning(
+                "MemoryMiddleware retained unresolved pending markers: %s",
+                turn_markers,
+            )
             return
 
         try:
@@ -252,6 +278,63 @@ class MemoryMiddleware(MiddlewareBase):
             )
         except Exception:
             logger.exception("MemoryMiddleware auto_memory failed")
+            self._save_auto_memory_retry_batch(
+                turn_state,
+                turn_markers=turn_markers,
+                messages=messages,
+            )
+            return
+
+        submitted = set(turn_markers)
+        pending_markers[:] = [
+            marker for marker in pending_markers if marker not in submitted
+        ]
+        turn_state.pop("retry", None)
+
+    @staticmethod
+    def _load_auto_memory_retry_batch(
+        turn_state: dict[str, Any],
+    ) -> tuple[list[str], list["Msg"]] | None:
+        retry = turn_state.get("retry")
+        if not isinstance(retry, dict):
+            return None
+        markers = retry.get("markers")
+        raw_messages = retry.get("messages")
+        if (
+            not isinstance(markers, list)
+            or not markers
+            or not isinstance(raw_messages, list)
+            or not raw_messages
+        ):
+            turn_state.pop("retry", None)
+            return None
+        try:
+            messages = [
+                msg if isinstance(msg, Msg) else Msg.model_validate(msg)
+                for msg in raw_messages
+            ]
+        except Exception:
+            logger.exception(
+                "MemoryMiddleware invalid auto-memory retry batch",
+            )
+            turn_state.pop("retry", None)
+            return None
+        return [str(marker) for marker in markers], messages
+
+    @staticmethod
+    def _save_auto_memory_retry_batch(
+        turn_state: dict[str, Any],
+        *,
+        turn_markers: list[str],
+        messages: list["Msg"],
+    ) -> None:
+        try:
+            turn_state["retry"] = {
+                "markers": list(turn_markers),
+                "messages": [msg.model_dump(mode="json") for msg in messages],
+            }
+        except Exception:
+            logger.exception("MemoryMiddleware could not save retry batch")
 
     @staticmethod
     def _agent_session_id(agent: "Agent") -> str:
@@ -323,9 +406,7 @@ class MemoryMiddleware(MiddlewareBase):
         return self._memory_manager.get_memory_config()
 
     def _auto_memory_turn_state(self, agent: "Agent") -> dict[str, Any]:
-        return self._memory_manager.get_auto_memory_turn_state(
-            self._agent_session_id(agent),
-        )
+        return auto_memory_turn_state(agent.state)
 
     @staticmethod
     def _message_tag(msg: "Msg") -> str:

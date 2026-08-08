@@ -62,13 +62,13 @@ graph LR
     U --> W[memory/<date>/interests.yaml]
 ```
 
-| 能力                 | 代码路径                                                     | 触发方式                                                                | 主要产物                                                                               |
-| -------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------ |
-| Auto Memory          | `ReMeLightMemoryManager.auto_memory()` -> ReMe `auto_memory` | `MemoryMiddleware` 按配置的用户轮次数触发；启用时也会在上下文压缩前触发 | `mem_session/dialog/<session_id>.jsonl`、`memory/<date>/<note>.md`、`memory/<date>.md` |
-| Auto Resource        | ReMe `resource_watch_loop` -> `auto_resource`                | 嵌入式 ReMe 后台 watcher 监听 `resource_dir`                            | `memory/<date>/<resource_note>.md`                                                     |
-| Auto Dream           | `ReMeLightMemoryManager.dream()` -> ReMe `auto_dream`        | `/dream` 命令或 `dream_cron` 调度                                       | `digest/*/*.md`、`memory/<date>/interests.yaml`                                        |
-| ReMe proactive job   | ReMe `proactive`                                             | 仅在直接调用 ReMe job 时运行                                            | `memory/<date>/interests.yaml` 的 metadata/content                                     |
-| QwenPaw `/proactive` | `src/qwenpaw/agents/memory/proactive`                        | `/proactive [minutes                                                    | on                                                                                     | off]` 空闲循环 | 通过 `/api/console/chat` 发送的主动 chat request |
+| 能力                 | 代码路径                                                     | 触发方式                                                                          | 主要产物                                                                               |
+| -------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------ |
+| Auto Memory          | `ReMeLightMemoryManager.auto_memory()` -> ReMe `auto_memory` | `MemoryMiddleware` 按配置的用户轮次数触发；启用时也会在上下文实际驱逐或折叠后触发 | `mem_session/dialog/<session_id>.jsonl`、`memory/<date>/<note>.md`、`memory/<date>.md` |
+| Auto Resource        | ReMe `resource_watch_loop` -> `auto_resource`                | 嵌入式 ReMe 后台 watcher 监听 `resource_dir`                                      | `memory/<date>/<resource_note>.md`                                                     |
+| Auto Dream           | `ReMeLightMemoryManager.dream()` -> ReMe `auto_dream`        | `/dream` 命令或 `dream_cron` 调度                                                 | `digest/*/*.md`、`memory/<date>/interests.yaml`                                        |
+| ReMe proactive job   | ReMe `proactive`                                             | 仅在直接调用 ReMe job 时运行                                                      | `memory/<date>/interests.yaml` 的 metadata/content                                     |
+| QwenPaw `/proactive` | `src/qwenpaw/agents/memory/proactive`                        | `/proactive [minutes                                                              | on                                                                                     | off]` 空闲循环 | 通过 `/api/console/chat` 发送的主动 chat request |
 
 关键边界：`memory/<date>/interests.yaml` 由 Auto Dream 生成，也可以被 ReMe 的 `proactive` job 读取；但 QwenPaw 当前 `/proactive` 实现不会调用这个 job，也不会直接消费 `interests.yaml`。
 
@@ -108,10 +108,12 @@ graph LR
 Auto Memory 由 `MemoryMiddleware` 调用，不是每次 model call 都直接运行。Middleware 会：
 
 - 跳过来源为 `cron` 或 `heartbeat` 的自动化请求；
-- 当 `auto_memory_search_config.enabled` 为 true 时，在模型调用前注入自动记忆搜索上下文；
+- 当 `auto_memory_search_config.enabled` 为 true 时，只向当前模型输入临时注入自动记忆搜索上下文；
 - 在回复后收集 user-turn marker；
 - 累计到 `auto_memory_interval` 个用户轮次后 flush；
-- 当 `summarize_when_compact` 为 true 且即将压缩上下文时，也会先 flush pending turns。
+- 当 `summarize_when_compact` 为 true 且 Scroll 实际完成 eviction/fold 后，也会 flush pending turns。
+
+自动搜索和待提交 turn 的标记保存在 `AgentState.middle_context`，因此 middleware 重建或 session 恢复不会重置进度。搜索结果本身不会写入 `AgentState.context`。如果 Auto Memory 提交失败，pending marker 会保留，后续 turn 可以重试。来源为 `cron` 或 `heartbeat` 的自动化请求不会改变这些状态。
 
 `auto_memory_interval` 默认是 `5`。`None`、`0` 或负数会禁用周期性 Auto Memory。
 

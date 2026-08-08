@@ -45,7 +45,7 @@ Long-term memory management includes the following capabilities:
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | **Embedded ReMe app**  | QwenPaw starts ReMe in-process and injects the active QwenPaw model into ReMe's default LLM component            |
 | **Auto-Memory**        | After a configurable number of user turns, ReMe extracts useful conversation facts into daily Markdown notes     |
-| **Context compaction** | Before context compression, pending turns can be flushed into the same `auto_memory` pipeline                    |
+| **Context compaction** | After Scroll actually evicts or folds context, pending turns can be flushed into the same `auto_memory` pipeline |
 | **Auto-Dream**         | A cron job extracts higher-level digest units and proactive-interest topics from recent daily notes              |
 | **Hybrid Search**      | `memory_search` calls ReMe's `search` job, using BM25 plus optional vector search and reciprocal-rank fusion     |
 | **Resource Memory**    | Files under `resource/` are cataloged and can be interpreted into source-linked daily notes                      |
@@ -364,7 +364,7 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 | `resource_dir`           | Directory watched by `auto_resource`                                                                                            | `"resource"`     |
 | `daily_dir`              | Directory for daily memory notes                                                                                                | `"memory"`       |
 | `digest_dir`             | Directory for dream/digest memory                                                                                               | `"digest"`       |
-| `summarize_when_compact` | Whether pending turns are flushed to Auto-Memory before context compression                                                     | `true`           |
+| `summarize_when_compact` | Whether pending turns are flushed to Auto-Memory after context is actually evicted or folded                                    | `true`           |
 | `inbox_push_enabled`     | Whether `auto_memory`, `auto_dream`, and `auto_resource` job results are pushed to the QwenPaw inbox                            | `true`           |
 | `auto_memory_interval`   | Auto-Memory every N user turns. `None` or `<= 0` disables periodic Auto-Memory                                                  | `5`              |
 | `dream_cron_enabled`     | Whether the scheduled Auto-Dream job is enabled                                                                                 | `true`           |
@@ -394,9 +394,9 @@ agent, `503` when ReMe is unavailable, or `500` when the rebuild job fails.
 
 Configure in `running.reme_light_memory_config.auto_memory_search_config`:
 
-When enabled, search results are injected into the current live context as a
-completed `memory_search` interaction. They remain available to follow-up model
-calls in the same tool loop until normal context management evicts them.
+When enabled, search results are temporarily injected into the current model
+input as a completed `memory_search` interaction. They are not written to the
+formal conversation history or Scroll's persisted history.
 
 | Field         | Description                                              | Default |
 | ------------- | -------------------------------------------------------- | ------- |

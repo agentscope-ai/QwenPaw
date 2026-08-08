@@ -12,7 +12,10 @@ from agentscope.agent import Agent, ContextConfig
 from agentscope.message import HintBlock, Msg, TextBlock
 
 from qwenpaw.agents.command_handler import CommandHandler
-from qwenpaw.agents.middlewares import MemoryMiddleware
+from qwenpaw.agents.middlewares import (
+    MemoryMiddleware,
+    auto_memory_turn_state,
+)
 from qwenpaw.agents.react_agent import QwenPawAgent
 from qwenpaw.constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
@@ -32,24 +35,12 @@ class _MemoryManager:
         self._events = events
         self.enabled = True
         self.submitted: list[list[str]] = []
-        self._turn_state: dict[str, Any] = {
-            "pending": ["turn-1"],
-            "seen": {"turn-1": None},
-            "touched_at": 0,
-        }
 
     def get_memory_prompt(self) -> str:
         return ""
 
     def get_memory_config(self) -> Any:
         return SimpleNamespace(summarize_when_compact=True)
-
-    def get_auto_memory_turn_state(self, _session_id: str) -> dict[str, Any]:
-        return self._turn_state
-
-    @property
-    def pending(self) -> list[str]:
-        return self._turn_state["pending"]
 
     async def auto_memory(self, _messages: list[Msg], **_kwargs: Any) -> None:
         self._events.append("auto_memory")
@@ -116,6 +107,9 @@ def _scroll_agent(
     )
     user.id = "turn-1"
     agent.state.context = [user]
+    turn_state = auto_memory_turn_state(agent.state)
+    turn_state["pending"] = ["turn-1"]
+    turn_state["seen"] = {"turn-1": None}
     return agent
 
 
@@ -132,7 +126,7 @@ async def test_scroll_runs_before_auto_memory() -> None:
 
     assert events == ["scroll", "auto_memory"]
     assert scroll_manager.instructions is instructions
-    assert not memory_manager.pending
+    assert not auto_memory_turn_state(agent.state)["pending"]
 
 
 @pytest.mark.asyncio
@@ -170,4 +164,4 @@ async def test_manual_compact_submits_auto_memory_once() -> None:
 
     assert events == ["scroll", "handler_memory"]
     assert memory_manager.submitted == [["remember this", "answer-1"]]
-    assert not memory_manager.pending
+    assert not auto_memory_turn_state(agent.state)["pending"]
