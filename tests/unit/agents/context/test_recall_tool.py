@@ -144,6 +144,34 @@ async def test_expand_rejects_non_positive_or_non_decimal_seqs(
     assert argument in _text(chunk)
 
 
+@pytest.mark.parametrize(
+    ("lo", "hi"),
+    [
+        (3, 1),
+        ("3", "1"),
+        (3, "1"),
+        ("3", 1),
+    ],
+)
+async def test_expand_rejects_descending_seq_span(tool, lo, hi):
+    chunk = await tool(op="expand", lo=lo, hi=hi)
+
+    assert chunk.state == ToolResultState.ERROR
+    text = _text(chunk)
+    assert text.startswith('RECALL FAILED — invalid op="expand" seq span')
+    assert "lo (3) must be less than or equal to hi (1)" in text
+    assert "swap lo and hi and retry" in text
+
+
+async def test_expand_accepts_single_seq_span(tool):
+    chunk = await tool(op="expand", lo=1, hi=1)
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "expand [1, 1]" in text
+    assert "hello there" in text
+
+
 def test_expand_schema_accepts_integer_or_string_seqs(tool):
     properties = FunctionTool(tool).input_schema["properties"]
 
