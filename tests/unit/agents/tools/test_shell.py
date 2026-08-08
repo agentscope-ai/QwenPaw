@@ -2706,7 +2706,7 @@ async def test_execute_posix_host_output_cap_stops_runaway_writer(
     script.write_text(
         "import sys\n"
         "while True:\n"
-        "    sys.stdout.write('x' * 4096 + '\n')\n"
+        "    sys.stdout.write('x' * 4096 + '\\n')\n"
         "    sys.stdout.flush()\n",
         encoding="utf-8",
     )
