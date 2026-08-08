@@ -513,6 +513,7 @@ async def _stream_action_responses(
     flush_task: Optional[asyncio.Task[None]] = None
     final_text_event: Optional[dict[str, Any]] = None
     final_fallback_event: Optional[dict[str, Any]] = None
+    stream_text_parts: list[str] = []
 
     async def flush_snapshot() -> None:
         nonlocal header_sent
@@ -578,6 +579,9 @@ async def _stream_action_responses(
 
         if event_type == "text":
             final_text_event = event
+            raw_text = event.get("text")
+            if raw_text:
+                stream_text_parts.append(str(raw_text))
         elif event_type == "error":
             final_fallback_event = event
 
@@ -698,11 +702,25 @@ async def _stream_action_responses(
         )
         return
 
-    event = final_text_event or final_fallback_event or run_result.get("event")
+    # Prefer the complete event returned by the run (finish_prompt() flushes
+    # the full accumulated text when it is available).  Fall back to the
+    # streamed text only for the race where finish_prompt() observes no text
+    # yet (e.g. the final AgentMessageChunk notification raced ahead of the
+    # prompt response within the same TCP segment).
+    final_event: Optional[dict[str, Any]] = run_result.get("event")
+    if final_event is None or not render_event_text(final_event):
+        if stream_text_parts:
+            final_event = {
+                "type": "text",
+                "text": "".join(stream_text_parts),
+                "is_chunk": False,
+            }
+        else:
+            final_event = final_text_event or final_fallback_event
     yield format_final_assistant_response(
         runner_name=runner_name,
         execution_cwd=execution_cwd,
-        final_event=event,
+        final_event=final_event,
     )
 
 
