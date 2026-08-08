@@ -408,7 +408,7 @@
   gap: 18px;
 
   > section {
-    flex: 1 1 0;
+    flex: 1 1 auto;
   }
 }
 
@@ -423,37 +423,54 @@
 
 .memorySectionIcon {
   display: flex;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   flex: none;
   align-items: center;
   justify-content: center;
-  border-radius: 11px;
+  border-radius: 12px;
   font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.04em;
+  font-weight: 800;
+  letter-spacing: 0.05em;
 }
 
 .memorySectionIconPrimary {
-  border: 1px solid rgba(232, 103, 12, 0.14);
+  border: 1px solid rgba(196, 98, 54, 0.22);
   background: linear-gradient(
     145deg,
-    rgba(255, 127, 22, 0.18),
-    rgba(255, 183, 36, 0.08)
+    rgba(226, 124, 76, 0.18),
+    rgba(244, 181, 126, 0.08)
   );
-  box-shadow: 0 4px 12px rgba(217, 107, 17, 0.08);
-  color: #d8610b;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 5px 14px rgba(171, 75, 39, 0.09);
+  color: #b95f36;
 }
 
 .memorySectionIconSecondary {
-  border: 1px solid rgba(91, 103, 217, 0.14);
+  border: 1px solid rgba(82, 96, 174, 0.21);
   background: linear-gradient(
     145deg,
-    rgba(91, 103, 217, 0.15),
-    rgba(117, 137, 255, 0.07)
+    rgba(91, 107, 190, 0.17),
+    rgba(139, 151, 218, 0.07)
   );
-  box-shadow: 0 4px 12px rgba(91, 103, 217, 0.07);
-  color: #5360cc;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 5px 14px rgba(69, 82, 153, 0.09);
+  color: #5361ae;
+}
+
+.memorySectionIconTertiary {
+  border: 1px solid rgba(35, 133, 121, 0.21);
+  background: linear-gradient(
+    145deg,
+    rgba(42, 151, 137, 0.16),
+    rgba(113, 194, 181, 0.07)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 5px 14px rgba(30, 113, 103, 0.09);
+  color: #237f75;
 }
 
 .memoryCapabilityHeader {
@@ -524,21 +541,145 @@
   }
 }
 
+.memoryCapabilityTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .memoryDevelopingBadge {
   display: inline-flex !important;
   align-items: center;
   width: fit-content;
-  margin-bottom: 7px !important;
-  padding: 3px 8px;
-  border: 1px solid rgba(207, 103, 24, 0.24);
-  border-radius: 6px;
-  background: rgba(255, 139, 43, 0.08);
-  color: #a94f0b !important;
-  font-size: 10px !important;
+  margin: 0 !important;
+  padding: 2px 7px;
+  border: 1px solid rgba(76, 132, 210, 0.2);
+  border-radius: 999px;
+  background: linear-gradient(
+    135deg,
+    rgba(68, 132, 219, 0.1),
+    rgba(114, 101, 211, 0.07)
+  );
+  color: #4c6fae !important;
+  font-size: 9px !important;
   font-weight: 650 !important;
-  line-height: 16px;
-  letter-spacing: 0.035em !important;
+  line-height: 15px;
+  letter-spacing: 0.02em !important;
   text-transform: none !important;
+}
+
+.memorySourceCard {
+  overflow: hidden;
+  border: 1px solid rgba(20, 20, 19, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.memorySourceHeader {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+}
+
+.memorySourceToggle {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  > span:last-child {
+    min-width: 0;
+  }
+
+  strong,
+  small {
+    display: block;
+  }
+
+  strong {
+    margin-bottom: 4px;
+    color: #302e2b;
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  small {
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  &:focus-visible {
+    border-radius: 8px;
+    outline: 2px solid rgba(255, 127, 22, 0.45);
+    outline-offset: 4px;
+  }
+}
+
+.memorySourceChevron {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: rgba(20, 20, 19, 0.045);
+  color: rgba(20, 20, 19, 0.48);
+  font-size: 20px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 0.2s ease;
+}
+
+.memorySourceChevronExpanded {
+  transform: rotate(90deg);
+}
+
+.memorySourceActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 9px;
+
+  > a {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: #c46211;
+    font-size: 10px;
+    font-weight: 600;
+    text-decoration: none;
+
+    &:hover {
+      color: #ff7f16;
+    }
+  }
+
+  code {
+    padding: 3px 8px;
+    border: 1px solid rgba(20, 20, 19, 0.08);
+    border-radius: 999px;
+    background: rgba(20, 20, 19, 0.035);
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 10px;
+  }
+}
+
+.memorySourceContent {
+  padding: 16px 14px 0;
+  border-top: 1px solid rgba(20, 20, 19, 0.07);
+  background: rgba(20, 20, 19, 0.012);
 }
 
 .memoryCapabilityDivider {
@@ -1219,6 +1360,16 @@
     flex-direction: column;
   }
 
+  .memorySourceHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .memorySourceActions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
   .memoryInlineField {
     flex-basis: auto;
     width: 100%;
@@ -1358,6 +1509,12 @@
     color: rgba(255, 255, 255, 0.9);
   }
 
+  .memorySectionIcon {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 5px 14px rgba(0, 0, 0, 0.12);
+  }
+
   .memoryOverviewHeader p {
     color: rgba(255, 255, 255, 0.5);
   }
@@ -1395,6 +1552,43 @@
     background: rgba(255, 255, 255, 0.025);
   }
 
+  .memorySourceCard {
+    border-color: rgba(255, 255, 255, 0.09);
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .memorySourceToggle {
+    strong {
+      color: rgba(255, 255, 255, 0.86);
+    }
+
+    small {
+      color: rgba(255, 255, 255, 0.48);
+    }
+  }
+
+  .memorySourceChevron {
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.52);
+  }
+
+  .memorySourceActions {
+    > a {
+      color: #ff9d4c;
+    }
+
+    code {
+      border-color: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.05);
+      color: rgba(255, 255, 255, 0.5);
+    }
+  }
+
+  .memorySourceContent {
+    border-top-color: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.015);
+  }
+
   .memoryCapabilityHeader {
     h4 {
       color: rgba(255, 255, 255, 0.86);
@@ -1412,9 +1606,13 @@
   }
 
   .memoryDevelopingBadge {
-    border-color: rgba(255, 166, 92, 0.3);
-    background: rgba(255, 139, 43, 0.11);
-    color: #ffb06f !important;
+    border-color: rgba(133, 169, 231, 0.26);
+    background: linear-gradient(
+      135deg,
+      rgba(82, 142, 224, 0.14),
+      rgba(125, 105, 218, 0.11)
+    );
+    color: #a9c9ff !important;
   }
 
   .memoryCapabilityDivider {

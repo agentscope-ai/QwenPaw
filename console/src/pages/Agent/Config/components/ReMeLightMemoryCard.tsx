@@ -42,6 +42,7 @@ export function ReMeLightMemoryCard() {
   const { selectedAgent } = useAgentStore();
   const [reindexing, setReindexing] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [dailyPaperExpanded, setDailyPaperExpanded] = useState(false);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({
     type: "unknown",
   });
@@ -300,263 +301,317 @@ export function ReMeLightMemoryCard() {
 
           <div className={styles.memoryCapabilityDivider} />
           <div className={styles.memoryCapabilityHeader}>
-            <div>
+            <div className={styles.memoryCapabilityTitleRow}>
+              <h4>{t("agentConfig.memoryExternalSourcesTitle")}</h4>
               <span className={styles.memoryDevelopingBadge}>
                 {t("agentConfig.memoryExternalSourcesDevelopingLabel")}
               </span>
-              <h4>{t("agentConfig.memoryExternalSourcesTitle")}</h4>
-            </div>
-            <div className={styles.memoryCapabilityActions}>
-              <a href={dailyPaperDocsUrl} target="_blank" rel="noreferrer">
-                {t("agentConfig.dailyPaperDocumentation")}
-                <span aria-hidden="true">↗</span>
-              </a>
-              <code>daily-paper</code>
             </div>
           </div>
 
-          <div className={styles.memoryToggleRow}>
-            <div>
-              <strong>{t("agentConfig.memoryDailyPaperTitle")}</strong>
-              <span>{t("agentConfig.memoryDailyPaperDescription")}</span>
+          <div className={styles.memorySourceCard}>
+            <div className={styles.memorySourceHeader}>
+              <button
+                type="button"
+                className={styles.memorySourceToggle}
+                aria-expanded={dailyPaperExpanded}
+                onClick={() => setDailyPaperExpanded((expanded) => !expanded)}
+              >
+                <span
+                  className={`${styles.memorySourceChevron} ${
+                    dailyPaperExpanded ? styles.memorySourceChevronExpanded : ""
+                  }`}
+                  aria-hidden="true"
+                >
+                  ›
+                </span>
+                <span>
+                  <strong>{t("agentConfig.memoryDailyPaperTitle")}</strong>
+                  <small>{t("agentConfig.memoryDailyPaperDescription")}</small>
+                </span>
+              </button>
+              <div className={styles.memorySourceActions}>
+                <a href={dailyPaperDocsUrl} target="_blank" rel="noreferrer">
+                  {t("agentConfig.dailyPaperDocumentation")}
+                  <span aria-hidden="true">↗</span>
+                </a>
+                <code>daily-paper</code>
+                <Form.Item
+                  name={[
+                    "reme_light_memory_config",
+                    "daily_paper_cron_enabled",
+                  ]}
+                  valuePropName="checked"
+                  noStyle
+                >
+                  <Switch
+                    onChange={(enabled) => {
+                      if (enabled) setDailyPaperExpanded(true);
+                    }}
+                  />
+                </Form.Item>
+              </div>
             </div>
-            <Form.Item
-              name={["reme_light_memory_config", "daily_paper_cron_enabled"]}
-              valuePropName="checked"
-              noStyle
-            >
-              <Switch />
-            </Form.Item>
-          </div>
 
-          <Form.Item
-            label={t("agentConfig.dailyPaperCron")}
-            name={["reme_light_memory_config", "daily_paper_cron"]}
-            tooltip={t("agentConfig.dailyPaperCronTooltip")}
-            rules={
-              dailyPaperCronEnabled
-                ? [
-                    {
-                      required: true,
-                      whitespace: true,
-                      message: t("agentConfig.dailyPaperCronRequired"),
-                    },
-                    {
-                      validator: (_, value?: string) => {
-                        if (!value?.trim() || isValidDreamCronShape(value)) {
-                          return Promise.resolve();
-                        }
-                        return Promise.reject(
-                          new Error(t("agentConfig.dailyPaperCronInvalid")),
-                        );
-                      },
-                    },
-                  ]
-                : []
-            }
-          >
-            <Input
-              disabled={!dailyPaperCronEnabled}
-              placeholder={t("agentConfig.dailyPaperCronPlaceholder")}
-            />
-          </Form.Item>
+            {dailyPaperExpanded && (
+              <div className={styles.memorySourceContent}>
+                <Form.Item
+                  label={t("agentConfig.dailyPaperCron")}
+                  name={["reme_light_memory_config", "daily_paper_cron"]}
+                  tooltip={t("agentConfig.dailyPaperCronTooltip")}
+                  rules={
+                    dailyPaperCronEnabled
+                      ? [
+                          {
+                            required: true,
+                            whitespace: true,
+                            message: t("agentConfig.dailyPaperCronRequired"),
+                          },
+                          {
+                            validator: (_, value?: string) => {
+                              if (
+                                !value?.trim() ||
+                                isValidDreamCronShape(value)
+                              ) {
+                                return Promise.resolve();
+                              }
+                              return Promise.reject(
+                                new Error(
+                                  t("agentConfig.dailyPaperCronInvalid"),
+                                ),
+                              );
+                            },
+                          },
+                        ]
+                      : []
+                  }
+                >
+                  <Input
+                    disabled={!dailyPaperCronEnabled}
+                    placeholder={t("agentConfig.dailyPaperCronPlaceholder")}
+                  />
+                </Form.Item>
 
-          <Form.Item
-            label={t("agentConfig.dailyPaperTopics")}
-            name={["reme_light_memory_config", "daily_paper_topics"]}
-            tooltip={t("agentConfig.dailyPaperTopicsTooltip")}
-          >
-            <Input
-              disabled={!dailyPaperCronEnabled}
-              placeholder={t("agentConfig.dailyPaperTopicsPlaceholder")}
-            />
-          </Form.Item>
+                <Form.Item
+                  label={t("agentConfig.dailyPaperTopics")}
+                  name={["reme_light_memory_config", "daily_paper_topics"]}
+                  tooltip={t("agentConfig.dailyPaperTopicsTooltip")}
+                >
+                  <Input
+                    disabled={!dailyPaperCronEnabled}
+                    placeholder={t("agentConfig.dailyPaperTopicsPlaceholder")}
+                  />
+                </Form.Item>
 
-          <div className={styles.memoryToggleRow}>
-            <div>
-              <strong>{t("agentConfig.dailyPaperUseHfMirror")}</strong>
-              <span>{t("agentConfig.dailyPaperUseHfMirrorDescription")}</span>
-            </div>
-            <Form.Item
-              name={["reme_light_memory_config", "daily_paper_use_hf_mirror"]}
-              valuePropName="checked"
-              noStyle
-            >
-              <Switch disabled={!dailyPaperCronEnabled} />
-            </Form.Item>
-          </div>
+                <div className={styles.memoryToggleRow}>
+                  <div>
+                    <strong>{t("agentConfig.dailyPaperUseHfMirror")}</strong>
+                    <span>
+                      {t("agentConfig.dailyPaperUseHfMirrorDescription")}
+                    </span>
+                  </div>
+                  <Form.Item
+                    name={[
+                      "reme_light_memory_config",
+                      "daily_paper_use_hf_mirror",
+                    ]}
+                    valuePropName="checked"
+                    noStyle
+                  >
+                    <Switch disabled={!dailyPaperCronEnabled} />
+                  </Form.Item>
+                </div>
 
-          <div className={styles.memoryToggleRow}>
-            <div>
-              <strong>{t("agentConfig.memoryNotifyTitle")}</strong>
-              <span>{t("agentConfig.dailyPaperNotifyDescription")}</span>
-            </div>
-            <Form.Item
-              name={[
-                "reme_light_memory_config",
-                "daily_paper_inbox_push_enabled",
-              ]}
-              initialValue
-              valuePropName="checked"
-              noStyle
-            >
-              <Switch />
-            </Form.Item>
+                <div className={styles.memoryToggleRow}>
+                  <div>
+                    <strong>{t("agentConfig.memoryNotifyTitle")}</strong>
+                    <span>{t("agentConfig.dailyPaperNotifyDescription")}</span>
+                  </div>
+                  <Form.Item
+                    name={[
+                      "reme_light_memory_config",
+                      "daily_paper_inbox_push_enabled",
+                    ]}
+                    initialValue
+                    valuePropName="checked"
+                    noStyle
+                  >
+                    <Switch />
+                  </Form.Item>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
-        <section className={styles.memoryConfigPanel}>
-          <div className={styles.memorySectionHeader}>
-            <div
-              className={`${styles.memorySectionIcon} ${styles.memorySectionIconSecondary}`}
-            >
-              02
+        <div className={styles.memoryConfigStack}>
+          <section className={styles.memoryConfigPanel}>
+            <div className={styles.memorySectionHeader}>
+              <div
+                className={`${styles.memorySectionIcon} ${styles.memorySectionIconSecondary}`}
+              >
+                02
+              </div>
+              <div>
+                <h3>{t("agentConfig.memoryOrganizeSectionTitle")}</h3>
+                <p>{t("agentConfig.memoryOrganizeSectionDescription")}</p>
+              </div>
             </div>
-            <div>
-              <h3>{t("agentConfig.memoryOrganizeAndSearchTitle")}</h3>
-              <p>{t("agentConfig.memoryOrganizeAndSearchDescription")}</p>
-            </div>
-          </div>
 
-          <div className={styles.memoryCapabilityHeader}>
-            <h4>{t("agentConfig.memoryOrganizeTitle")}</h4>
-            <code>auto-dream</code>
-          </div>
-          <div className={styles.memoryToggleRow}>
-            <div>
-              <strong>{t("agentConfig.memoryScheduledOrganizeTitle")}</strong>
-              <span>{t("agentConfig.memoryScheduledOrganizeDescription")}</span>
+            <div className={styles.memoryCapabilityHeader}>
+              <h4>{t("agentConfig.memoryOrganizeTitle")}</h4>
+              <code>auto-dream</code>
+            </div>
+            <div className={styles.memoryToggleRow}>
+              <div>
+                <strong>{t("agentConfig.memoryScheduledOrganizeTitle")}</strong>
+                <span>
+                  {t("agentConfig.memoryScheduledOrganizeDescription")}
+                </span>
+              </div>
+              <Form.Item
+                name={["reme_light_memory_config", "dream_cron_enabled"]}
+                valuePropName="checked"
+                noStyle
+              >
+                <Switch />
+              </Form.Item>
             </div>
             <Form.Item
-              name={["reme_light_memory_config", "dream_cron_enabled"]}
-              valuePropName="checked"
-              noStyle
-            >
-              <Switch />
-            </Form.Item>
-          </div>
-          <Form.Item
-            label={t("agentConfig.dreamCron")}
-            name={["reme_light_memory_config", "dream_cron"]}
-            tooltip={t("agentConfig.dreamCronTooltip")}
-            rules={
-              dreamCronEnabled
-                ? [
-                    {
-                      required: true,
-                      whitespace: true,
-                      message: t("agentConfig.dreamCronRequired"),
-                    },
-                    {
-                      validator: (_, value?: string) => {
-                        if (!value?.trim() || isValidDreamCronShape(value)) {
-                          return Promise.resolve();
-                        }
-                        return Promise.reject(
-                          new Error(t("agentConfig.dreamCronInvalid")),
-                        );
+              label={t("agentConfig.dreamCron")}
+              name={["reme_light_memory_config", "dream_cron"]}
+              tooltip={t("agentConfig.dreamCronTooltip")}
+              rules={
+                dreamCronEnabled
+                  ? [
+                      {
+                        required: true,
+                        whitespace: true,
+                        message: t("agentConfig.dreamCronRequired"),
                       },
-                    },
-                  ]
-                : []
-            }
-          >
-            <Input
-              disabled={!dreamCronEnabled}
-              placeholder={t("agentConfig.dreamCronPlaceholder")}
-            />
-          </Form.Item>
-          <div className={styles.memoryToggleRow}>
-            <div>
-              <strong>{t("agentConfig.memoryNotifyTitle")}</strong>
-              <span>{t("agentConfig.autoDreamNotifyDescription")}</span>
-            </div>
-            <Form.Item
-              name={[
-                "reme_light_memory_config",
-                "auto_dream_inbox_push_enabled",
-              ]}
-              initialValue
-              valuePropName="checked"
-              noStyle
+                      {
+                        validator: (_, value?: string) => {
+                          if (!value?.trim() || isValidDreamCronShape(value)) {
+                            return Promise.resolve();
+                          }
+                          return Promise.reject(
+                            new Error(t("agentConfig.dreamCronInvalid")),
+                          );
+                        },
+                      },
+                    ]
+                  : []
+              }
             >
-              <Switch />
-            </Form.Item>
-          </div>
-
-          <div className={styles.memoryCapabilityDivider} />
-          <div className={styles.memoryCapabilityHeader}>
-            <h4>{t("agentConfig.memoryRecallTitle")}</h4>
-            <code>memory-search</code>
-          </div>
-          <div className={styles.memoryToggleRow}>
-            <div>
-              <strong>{t("agentConfig.memorySearchToolTitle")}</strong>
-              <span>{t("agentConfig.memorySearchToolDescription")}</span>
-            </div>
-            <Form.Item
-              name={["reme_light_memory_config", "memory_search_enabled"]}
-              initialValue
-              valuePropName="checked"
-              noStyle
-            >
-              <Switch />
-            </Form.Item>
-          </div>
-          <div className={styles.memoryToggleRow}>
-            <div>
-              <strong>{t("agentConfig.memoryAutoRecallTitle")}</strong>
-              <span>{t("agentConfig.memoryAutoRecallDescription")}</span>
-            </div>
-            <Form.Item
-              name={[
-                "reme_light_memory_config",
-                "auto_memory_search_config",
-                "enabled",
-              ]}
-              initialValue={false}
-              valuePropName="checked"
-              noStyle
-            >
-              <Switch />
-            </Form.Item>
-          </div>
-          <div className={styles.memorySettingRow}>
-            <div>
-              <strong>
-                {t("agentConfig.autoMaxResults")}
-                <span className={styles.memoryRequiredMark}>*</span>
-              </strong>
-              <span>{t("agentConfig.autoMaxResultsTooltip")}</span>
-            </div>
-            <Form.Item
-              className={styles.memoryInlineField}
-              name={[
-                "reme_light_memory_config",
-                "auto_memory_search_config",
-                "max_results",
-              ]}
-              rules={[
-                {
-                  required: true,
-                  message: t("agentConfig.autoMaxResultsRequired"),
-                },
-                {
-                  type: "number",
-                  min: 1,
-                  message: t("agentConfig.autoMaxResultsMin"),
-                },
-              ]}
-            >
-              <InputNumber
-                style={{ width: "100%" }}
-                min={1}
-                step={1}
-                disabled={!autoSearchEnabled}
+              <Input
+                disabled={!dreamCronEnabled}
+                placeholder={t("agentConfig.dreamCronPlaceholder")}
               />
             </Form.Item>
-          </div>
-        </section>
+            <div className={styles.memoryToggleRow}>
+              <div>
+                <strong>{t("agentConfig.memoryNotifyTitle")}</strong>
+                <span>{t("agentConfig.autoDreamNotifyDescription")}</span>
+              </div>
+              <Form.Item
+                name={[
+                  "reme_light_memory_config",
+                  "auto_dream_inbox_push_enabled",
+                ]}
+                initialValue
+                valuePropName="checked"
+                noStyle
+              >
+                <Switch />
+              </Form.Item>
+            </div>
+          </section>
+
+          <section className={styles.memoryRecallPanel}>
+            <div className={styles.memorySectionHeader}>
+              <div
+                className={`${styles.memorySectionIcon} ${styles.memorySectionIconTertiary}`}
+              >
+                03
+              </div>
+              <div>
+                <h3>{t("agentConfig.memorySearchSectionTitle")}</h3>
+                <p>{t("agentConfig.memorySearchSectionDescription")}</p>
+              </div>
+            </div>
+            <div className={styles.memoryCapabilityHeader}>
+              <h4>{t("agentConfig.memoryRecallTitle")}</h4>
+              <code>memory-search</code>
+            </div>
+            <div className={styles.memoryToggleRow}>
+              <div>
+                <strong>{t("agentConfig.memorySearchToolTitle")}</strong>
+                <span>{t("agentConfig.memorySearchToolDescription")}</span>
+              </div>
+              <Form.Item
+                name={["reme_light_memory_config", "memory_search_enabled"]}
+                initialValue
+                valuePropName="checked"
+                noStyle
+              >
+                <Switch />
+              </Form.Item>
+            </div>
+            <div className={styles.memoryToggleRow}>
+              <div>
+                <strong>{t("agentConfig.memoryAutoRecallTitle")}</strong>
+                <span>{t("agentConfig.memoryAutoRecallDescription")}</span>
+              </div>
+              <Form.Item
+                name={[
+                  "reme_light_memory_config",
+                  "auto_memory_search_config",
+                  "enabled",
+                ]}
+                initialValue={false}
+                valuePropName="checked"
+                noStyle
+              >
+                <Switch />
+              </Form.Item>
+            </div>
+            <div className={styles.memorySettingRow}>
+              <div>
+                <strong>
+                  {t("agentConfig.autoMaxResults")}
+                  <span className={styles.memoryRequiredMark}>*</span>
+                </strong>
+                <span>{t("agentConfig.autoMaxResultsTooltip")}</span>
+              </div>
+              <Form.Item
+                className={styles.memoryInlineField}
+                name={[
+                  "reme_light_memory_config",
+                  "auto_memory_search_config",
+                  "max_results",
+                ]}
+                rules={[
+                  {
+                    required: true,
+                    message: t("agentConfig.autoMaxResultsRequired"),
+                  },
+                  {
+                    type: "number",
+                    min: 1,
+                    message: t("agentConfig.autoMaxResultsMin"),
+                  },
+                ]}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={1}
+                  step={1}
+                  disabled={!autoSearchEnabled}
+                />
+              </Form.Item>
+            </div>
+          </section>
+        </div>
       </div>
 
       <Modal

@@ -166,6 +166,11 @@ describe("long-term memory defaults", () => {
       element.parentElement?.parentElement?.querySelector(
         '[role="switch"]',
       ) as HTMLElement;
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /agentConfig\.memoryDailyPaperTitle/,
+      }),
+    );
     const notificationSwitches = screen
       .getAllByText("agentConfig.memoryNotifyTitle")
       .map(switchInRow);
@@ -202,11 +207,49 @@ describe("long-term memory defaults", () => {
 
     renderWithProviders(<MemoryForm />);
 
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /agentConfig\.memoryDailyPaperTitle/,
+      }),
+    );
     expect(
       screen.getByText("agentConfig.dailyPaperTopics"),
     ).toBeInTheDocument();
     expect(
       screen.getByText("agentConfig.dailyPaperUseHfMirror"),
+    ).toBeInTheDocument();
+  });
+
+  it("separates organization and search and collapses Daily Paper settings", async () => {
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
+
+    renderWithProviders(<MemoryForm />);
+
+    expect(
+      screen.getByText("agentConfig.memoryOrganizeSectionTitle"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.memorySearchSectionTitle"),
+    ).toBeInTheDocument();
+
+    const sourceToggle = screen.getByRole("button", {
+      name: /agentConfig\.memoryDailyPaperTitle/,
+    });
+    expect(sourceToggle).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByText("agentConfig.dailyPaperTopics"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(sourceToggle);
+
+    expect(sourceToggle).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByText("agentConfig.dailyPaperTopics"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", {
+        name: "agentConfig.dailyPaperDocumentation",
+      }),
     ).toBeInTheDocument();
   });
 });
