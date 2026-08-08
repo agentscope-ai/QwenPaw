@@ -17,6 +17,7 @@ import qwenpaw.constant as constants
 from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
 from qwenpaw.app.task_tracker import REPLAY_END_SSE, TaskTracker
+from qwenpaw.app.workspace import Workspace
 from qwenpaw.constant import BUILTIN_QA_AGENT_ID
 
 
@@ -76,6 +77,16 @@ def test_get_loaded_agent_never_starts_a_workspace() -> None:
 
     assert manager.get_loaded_agent("loaded") is workspace
     assert manager.get_loaded_agent("not-loaded") is None
+
+
+def test_workspace_reload_recreates_memory_manager(tmp_path) -> None:
+    workspace = Workspace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+    )
+
+    descriptor = workspace._service_manager.descriptors["memory_manager"]
+    assert descriptor.reusable is False
 
 
 @pytest.mark.asyncio

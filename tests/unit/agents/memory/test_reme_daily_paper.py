@@ -121,6 +121,52 @@ def test_memory_search_tool_exposure_has_an_independent_switch() -> None:
     assert manager.list_memory_tools() == [manager.memory_search]
 
 
+def test_memory_prompt_omits_disabled_search_tool() -> None:
+    manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
+    manager.agent_id = "agent-1"
+    agent_config = SimpleNamespace(
+        language="en",
+        running=SimpleNamespace(
+            reme_light_memory_config=SimpleNamespace(
+                daily_dir="memory",
+                memory_search_enabled=False,
+            ),
+        ),
+    )
+
+    with patch(
+        "qwenpaw.agents.memory.reme_light_memory_manager.load_agent_config",
+        return_value=agent_config,
+    ):
+        prompt = manager.get_memory_prompt()
+
+    assert "memory_search" not in prompt
+    assert "memory/YYYY-MM-DD.md" in prompt
+
+
+def test_memory_prompt_includes_enabled_search_tool() -> None:
+    manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
+    manager.agent_id = "agent-1"
+    agent_config = SimpleNamespace(
+        language="en",
+        running=SimpleNamespace(
+            reme_light_memory_config=SimpleNamespace(
+                daily_dir="memory",
+                memory_search_enabled=True,
+            ),
+        ),
+    )
+
+    with patch(
+        "qwenpaw.agents.memory.reme_light_memory_manager.load_agent_config",
+        return_value=agent_config,
+    ):
+        prompt = manager.get_memory_prompt()
+
+    assert "memory_search" in prompt
+    assert "memory/*.md" in prompt
+
+
 def test_reme_declares_its_enabled_cron_jobs() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
     manager._reme = SimpleNamespace(is_started=True)

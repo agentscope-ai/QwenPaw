@@ -362,8 +362,8 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 | `dream_cron`                     | Valid 5-field cron expression for Auto-Dream (required when enabled); scheduled runs start after a random delay of 0–60 seconds | `"0 23 * * *"`   |
 | `daily_paper_cron_enabled`       | Whether the scheduled Daily Paper job is enabled                                                                                | `false`          |
 | `daily_paper_cron`               | Valid 5-field cron expression for Daily Paper (required when enabled)                                                           | `"0 9 * * *"`    |
-| `daily_paper_use_hf_mirror`      | Whether to fetch paper information through the Hugging Face mirror                                                             | `false`          |
-| `daily_paper_topics`             | Topics to prioritize when selecting papers                                                                                     | `""`             |
+| `daily_paper_use_hf_mirror`      | Whether to fetch paper information through the Hugging Face mirror                                                              | `false`          |
+| `daily_paper_topics`             | Topics to prioritize when selecting papers                                                                                      | `""`             |
 | `memory_search_enabled`          | Whether to expose the `memory_search` tool to the agent; independent from automatic search                                      | `true`           |
 
 ### Rebuilding the Memory Search Index

@@ -386,7 +386,7 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `dream_cron`                     | string      | `"0 23 * * *"`   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动，以避免集中调用 |
 | `daily_paper_cron_enabled`       | bool        | `false`          | 是否启用按 Cron 定时执行的每日论文任务                                                            |
 | `daily_paper_cron`               | string      | `"0 9 * * *"`    | 每日论文任务的有效 5 段 Cron 表达式（启用时必填）                                                 |
-| `daily_paper_use_hf_mirror`      | bool        | `false`          | 是否通过 Hugging Face 镜像站获取每日论文信息                                                     |
+| `daily_paper_use_hf_mirror`      | bool        | `false`          | 是否通过 Hugging Face 镜像站获取每日论文信息                                                      |
 | `daily_paper_topics`             | string      | `""`             | 每日论文筛选时优先关注的主题                                                                      |
 | `memory_search_enabled`          | bool        | `true`           | 是否向智能体提供 `memory_search` 工具；不影响自动记忆搜索                                         |
 | `auto_memory_search_config`      | object      | _（见下方）_     | 自动记忆搜索配置                                                                                  |
