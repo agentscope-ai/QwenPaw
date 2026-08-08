@@ -359,7 +359,7 @@ async def test_video_probe_reasoning_fallback(
 # ------ existing test -----------------------------------
 
 
-async def test_summary_limit_is_adapted_for_responses_api(
+async def test_summary_call_disables_inherited_reasoning(
     monkeypatch,
 ) -> None:
     captured: dict = {}
@@ -374,7 +374,17 @@ async def test_summary_limit_is_adapted_for_responses_api(
         "_call_api",
         fake_call_api,
     )
-    provider = _make_provider()
+    provider = OpenAIResponseProvider(
+        id="openai-response",
+        name="OpenAI Responses",
+        base_url="https://api.openai.com/v1",
+        api_key="sk-test",
+        chat_model="OpenAIResponseModel",
+        generate_kwargs={
+            "reasoning": {"effort": "xhigh"},
+            "max_output_tokens": 100_000,
+        },
+    )
     model = provider.get_chat_model_instance("gpt-5")
 
     result = await model._call_api(
@@ -387,3 +397,35 @@ async def test_summary_limit_is_adapted_for_responses_api(
     assert result == "ok"
     assert captured["max_output_tokens"] == 256
     assert "max_tokens" not in captured
+    assert "reasoning" not in captured
+
+
+async def test_reasoning_is_preserved_when_thinking_is_enabled(
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+
+    async def fake_call_api(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(
+        OpenAIResponseModel,
+        "_call_api",
+        fake_call_api,
+    )
+    provider = OpenAIResponseProvider(
+        id="openai-response",
+        name="OpenAI Responses",
+        base_url="https://api.openai.com/v1",
+        api_key="sk-test",
+        chat_model="OpenAIResponseModel",
+        generate_kwargs={"reasoning": {"effort": "xhigh"}},
+    )
+    model = provider.get_chat_model_instance("gpt-5")
+
+    result = await model._call_api("gpt-5", [])
+
+    assert result == "ok"
+    assert captured["reasoning"] == {"effort": "xhigh"}

@@ -81,8 +81,6 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         tool_choice: Any | None = None,
         **generate_kwargs: Any,
     ) -> Any:
-        # Pop the neutral ``disable_thinking`` flag
-        generate_kwargs.pop("disable_thinking", None)
         max_tokens = generate_kwargs.pop("max_tokens", None)
         if (
             max_tokens is not None
@@ -90,6 +88,15 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         ):
             generate_kwargs["max_output_tokens"] = max_tokens
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        disable_thinking = merged.pop("disable_thinking", False)
+        inherited_max_tokens = merged.pop("max_tokens", None)
+        if (
+            inherited_max_tokens is not None
+            and "max_output_tokens" not in merged
+        ):
+            merged["max_output_tokens"] = inherited_max_tokens
+        if disable_thinking:
+            merged.pop("reasoning", None)
         return await super()._call_api(
             model_name,
             messages,
