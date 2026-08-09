@@ -133,6 +133,11 @@ export function useAgents(): UseAgentsReturn {
   };
 
   const hideAgent = async (agentId: string, hidden: boolean) => {
+    setAgentsState(
+      agents.map((agent) =>
+        agent.id === agentId ? { ...agent, hidden } : agent,
+      ),
+    );
     try {
       await agentsApi.setAgentHidden(agentId, hidden);
       message.success(
