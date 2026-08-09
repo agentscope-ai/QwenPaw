@@ -551,8 +551,8 @@ Contains three protection modules:
 
 Top-level field:
 
-| Field                 | Type     | Default                | Description                                                                    |
-| --------------------- | -------- | ---------------------- | ------------------------------------------------------------------------------ |
+| Field                 | Type     | Default                | Description                                                                         |
+| --------------------- | -------- | ---------------------- | ----------------------------------------------------------------------------------- |
 | `allow_no_auth_hosts` | string[] | `["127.0.0.1", "::1"]` | IP/CIDR allowlist that bypasses web authentication. Localhost is allowed by default |
 
 When managed through the Console or API, CIDR entries must use an address aligned with their prefix; for example, use `192.168.1.0/24`, not `192.168.1.42/24`. Invalid entries added by directly editing the configuration file are retained for backward compatibility but ignored during authentication matching.

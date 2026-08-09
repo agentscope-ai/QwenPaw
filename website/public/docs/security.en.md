@@ -968,8 +968,8 @@ In `config.json`, the `security.allow_no_auth_hosts` field specifies client IP a
 }
 ```
 
-| Field                 | Type          | Default                | Description                                                                          |
-| --------------------- | ------------- | ---------------------- | ------------------------------------------------------------------------------------ |
+| Field                 | Type          | Default                | Description                                                                                           |
+| --------------------- | ------------- | ---------------------- | ----------------------------------------------------------------------------------------------------- |
 | `allow_no_auth_hosts` | array[string] | `["127.0.0.1", "::1"]` | Client IP addresses or CIDR networks allowed to access `/api/*` routes without authentication tokens. |
 
 This can also be managed from the Console under **Settings → Security**.
