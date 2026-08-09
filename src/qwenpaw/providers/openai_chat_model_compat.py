@@ -86,7 +86,7 @@ class _ChatCompletionFormatterWrapper:
         self._inner_formatter = formatter
 
     async def format(self, *args: Any, **kwargs: Any) -> list[Any]:
-        """Format messages and remove fields unsupported by Chat Completions."""
+        """Format messages and strip Chat Completions-unsupported fields."""
         formatted_messages = await self._inner_formatter.format(
             *args,
             **kwargs,
@@ -732,8 +732,10 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         self._extra_generate_kwargs = extra_generate_kwargs or {}
         self._output_token_param = output_token_param
         super().__init__(**kwargs)
-        if not isinstance(self.formatter, _ChatCompletionFormatterWrapper):
-            self.formatter = _ChatCompletionFormatterWrapper(self.formatter)
+        # AgentScope sets self.formatter in OpenAIChatModel.__init__.
+        current_formatter = getattr(self, "formatter", None)
+        if not isinstance(current_formatter, _ChatCompletionFormatterWrapper):
+            self.formatter = _ChatCompletionFormatterWrapper(current_formatter)
         credential_id = str(getattr(self.credential, "id", "") or "")
         credential_provider_id = credential_id.removeprefix("qwenpaw-")
         if (

@@ -179,7 +179,9 @@ async def test_formatter_wrapper_sanitizes_without_mutating() -> None:
     assert sanitized == [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
     ]
-    assert polluted[0]["content"][0]["delta"] is True
+    original_content = polluted[0]["content"]
+    assert isinstance(original_content, list)
+    assert original_content[0]["delta"] is True
     assert wrapper.relay_reasoning_content is True
 
 
@@ -282,5 +284,9 @@ async def test_call_api_sanitizes_formatted_messages_at_transport() -> None:
             "stream": False,
         },
     ]
-    assert polluted[0]["content"][0]["type"] == "input_text"
-    assert polluted[1]["content"][0]["msg_id"] == "message-id"
+    system_content = polluted[0]["content"]
+    user_content = polluted[1]["content"]
+    assert isinstance(system_content, list)
+    assert isinstance(user_content, list)
+    assert system_content[0]["type"] == "input_text"
+    assert user_content[0]["msg_id"] == "message-id"
