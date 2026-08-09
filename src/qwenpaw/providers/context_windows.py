@@ -70,6 +70,10 @@ _KNOWN_CONTEXT_WINDOWS: tuple[tuple[str, int], ...] = (
     # --- Google (1.5-pro is 2M; the rest of the family is 1M) --------------
     ("gemini-1.5-pro", 2_097_152),
     ("gemini", 1_048_576),
+    # --- DeepSeek (V4 generation: the official API documents 1M context ----
+    #     for both Pro and Flash. V3.x families keep the 128k default.) -----
+    ("deepseek-v4-flash", 1_000_000),
+    ("deepseek-v4-pro", 1_000_000),
     # --- MiniMax (M3 is a 1M-context multimodal flagship; the M2.7 series
     #     is 204.8k. Legacy M2.5/M2.1/M2 keep the conservative default.) -----
     ("minimax-m3", 1_000_000),

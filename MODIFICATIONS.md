@@ -57,4 +57,15 @@ per-file record.
   `tests/unit/tauri/`. Upstream subsequently applied the identical fix, so this
   file is byte-identical to upstream again and carries no fork divergence.
 
+- **`src/qwenpaw/providers/context_windows.py`** — added DeepSeek V4 entries to
+  the static context-window catalog: `deepseek-v4-flash` and `deepseek-v4-pro`
+  → 1,000,000 tokens. Upstream ships no DeepSeek patterns, so these models fell
+  through to the 131,072-token default — the Console reported "131.1K" and
+  context compaction fired at 128k for a 1M-context model. The official API
+  documents 1M for both (2026-04-24 V4 release news; OpenRouter lists
+  1,048,576 — entered as the catalog-conventional conservative `1_000_000`).
+  Substring matching also covers gateway ids (`deepseek-v4-flash-free`,
+  `deepseek-ai/DeepSeek-V4-Flash`). Older V3.x families deliberately keep the
+  128k default.
+
 Subsequent modifications will be appended to this file.
