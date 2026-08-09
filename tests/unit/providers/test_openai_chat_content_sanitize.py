@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
+from typing import Any
 
+import httpx
 import pytest
-from agentscope.model import OpenAIChatModel
+from agentscope.credential import OpenAICredential
+from agentscope.message import Msg, TextBlock
 
 from qwenpaw.providers.openai_chat_model_compat import (
+    _ChatCompletionFormatterWrapper,
     OpenAIChatModelCompat,
     _sanitize_chat_completion_messages,
 )
@@ -141,36 +146,141 @@ def test_sanitizing_does_not_mutate_original_messages() -> None:
     assert original_content[0]["delta"] is True
 
 
-async def test_call_api_passes_sanitized_messages_to_base(monkeypatch) -> None:
-    captured: dict[str, object] = {}
+class _PollutedFormatter:
+    def __init__(self, messages: list[dict[str, Any]]) -> None:
+        self.messages = messages
+        self.received_messages: list[Msg] | None = None
+        self.relay_reasoning_content = True
 
-    async def fake_call_api(self, *args, **kwargs):
-        del self, kwargs
-        captured["messages"] = args[1]
-        return "ok"
+    async def format(self, messages: list[Msg]) -> list[dict[str, Any]]:
+        self.received_messages = messages
+        return self.messages
 
-    monkeypatch.setattr(OpenAIChatModel, "_call_api", fake_call_api)
 
-    model = object.__new__(OpenAIChatModelCompat)
-    model._default_headers = None
-    model._extra_generate_kwargs = {}
-    model._output_token_param = "max_tokens"
-    messages = [
+async def test_formatter_wrapper_sanitizes_without_mutating() -> None:
+    polluted = [
         {
-            "role": "system",
+            "role": "user",
             "content": [
-                {"type": "input_text", "text": "system prompt"},
+                {
+                    "type": "text",
+                    "text": "hello",
+                    "delta": True,
+                    "index": 0,
+                },
             ],
         },
     ]
+    formatter = _PollutedFormatter(polluted)
+    wrapper = _ChatCompletionFormatterWrapper(formatter)
 
-    assert await model._call_api("model", messages) == "ok"
-    assert captured["messages"] == [
+    sanitized = await wrapper.format([])
+
+    assert sanitized == [
+        {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+    ]
+    assert polluted[0]["content"][0]["delta"] is True
+    assert wrapper.relay_reasoning_content is True
+
+
+async def test_call_api_sanitizes_formatted_messages_at_transport() -> None:
+    polluted = [
         {
             "role": "system",
-            "content": [{"type": "text", "text": "system prompt"}],
+            "content": [
+                {
+                    "type": "input_text",
+                    "text": "system prompt",
+                    "status": "completed",
+                },
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "user prompt",
+                    "delta": "user prompt",
+                    "index": 0,
+                    "status": "completed",
+                    "object": "content",
+                    "msg_id": "message-id",
+                },
+            ],
         },
     ]
-    original_content = messages[0]["content"]
-    assert isinstance(original_content, list)
-    assert original_content[0]["type"] == "input_text"
+    formatter = _PollutedFormatter(polluted)
+    request_bodies: list[dict[str, Any]] = []
+
+    async def handle_request(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        request_bodies.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "test-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    },
+                ],
+            },
+        )
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handle_request),
+    )
+    messages = [
+        Msg(
+            name="system",
+            role="system",
+            content=[TextBlock(text="system prompt")],
+        ),
+        Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="user prompt")],
+        ),
+    ]
+    model = OpenAIChatModelCompat(
+        credential=OpenAICredential(
+            api_key="test-key",
+            base_url="https://test.invalid/v1",
+        ),
+        model="test-model",
+        stream=False,
+        formatter=formatter,
+        client_kwargs={"http_client": http_client},
+    )
+
+    try:
+        response = await model._call_api("test-model", messages)
+    finally:
+        await http_client.aclose()
+
+    assert response.is_last is True
+    assert formatter.received_messages == messages
+    assert request_bodies == [
+        {
+            "model": "test-model",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": [{"type": "text", "text": "system prompt"}],
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "user prompt"}],
+                },
+            ],
+            "stream": False,
+        },
+    ]
+    assert polluted[0]["content"][0]["type"] == "input_text"
+    assert polluted[1]["content"][0]["msg_id"] == "message-id"

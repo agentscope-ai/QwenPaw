@@ -79,6 +79,24 @@ def _sanitize_chat_completion_messages(messages: Any) -> list[Any]:
     return sanitized_messages
 
 
+class _ChatCompletionFormatterWrapper:
+    """Sanitize the wire messages returned by an OpenAI formatter."""
+
+    def __init__(self, formatter: Any) -> None:
+        self._inner_formatter = formatter
+
+    async def format(self, *args: Any, **kwargs: Any) -> list[Any]:
+        """Format messages and remove fields unsupported by Chat Completions."""
+        formatted_messages = await self._inner_formatter.format(
+            *args,
+            **kwargs,
+        )
+        return _sanitize_chat_completion_messages(formatted_messages)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner_formatter, name)
+
+
 def _battr(block: Any, key: str, default: Any = None) -> Any:
     """Read an attribute from a dict *or* Pydantic block."""
     if isinstance(block, dict):
@@ -714,6 +732,8 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         self._extra_generate_kwargs = extra_generate_kwargs or {}
         self._output_token_param = output_token_param
         super().__init__(**kwargs)
+        if not isinstance(self.formatter, _ChatCompletionFormatterWrapper):
+            self.formatter = _ChatCompletionFormatterWrapper(self.formatter)
         credential_id = str(getattr(self.credential, "id", "") or "")
         credential_provider_id = credential_id.removeprefix("qwenpaw-")
         if (
@@ -807,7 +827,6 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         tool_choice: Any | None = None,
         **generate_kwargs: Any,
     ) -> Any:
-        messages = _sanitize_chat_completion_messages(messages)
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
         self._consume_disable_thinking(merged)
         if self._output_token_param != "max_tokens":
