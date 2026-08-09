@@ -551,7 +551,7 @@ async def test_auto_memory_search_uses_reranker(manager):
     manager._get_reranker_config = MagicMock(
         return_value=_make_config(candidate_multiplier=3),
     )
-    manager._call_reranker_api = MagicMock(
+    manager._call_reranker_api = AsyncMock(
         return_value=[2, 1, 0, 3, 4, 5],
     )
     manager._build_query = MagicMock(return_value="test query")
@@ -578,12 +578,12 @@ async def test_auto_memory_search_uses_reranker(manager):
         f"auto_memory_search should over-fetch: " f"expected 6, got {limit}"
     )
 
-    # Reranked: top result should be doc-2 (index 2 promoted by reranker)
+    # Reranked: first result should be doc-2 (index 2 promoted by reranker)
     assert result is not None
-    second_result = resp.metadata["results"][1]
-    assert (
-        second_result["text"] == "t1"
-    ), f"expected t1 at position 1, got {second_result['text']}"
+    first_result = resp.metadata["results"][0]
+    assert first_result["text"] == "t2", (
+        f"expected t2 at position 0, got {first_result['text']}"
+    )
 
     # Capped: only 2 results
     assert (
