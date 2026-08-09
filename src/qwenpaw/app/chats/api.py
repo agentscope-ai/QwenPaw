@@ -452,8 +452,8 @@ async def fork_chat(
 
     # 5. Clone session state file (BEFORE creating ChatSpec).
     #    allow_missing_source=True: if source file was manually deleted,
-    #    write {} to preserve the invariant that the session file exists
-    #    before any ChatSpec references it.
+    #    write a valid empty AgentState with the fork identity before any
+    #    ChatSpec references it.
     source_missing = False
     try:
         source_missing = await session.clone_session_state(

@@ -263,6 +263,27 @@ class HistoryStore:
             dedup_key,
         )
 
+    def _delete_fts_rows(self, rows: Sequence[sqlite3.Row]) -> None:
+        """Remove indexed rows from FTS without touching recall-only rows.
+
+        Recall tool rows are deliberately excluded from FTS on append. FTS5's
+        external-content delete command must therefore never be issued for
+        them; attempting to delete an entry that was never indexed can raise
+        ``database disk image is malformed`` and roll back the owning
+        transaction.
+        """
+        if not self._fts:
+            return
+        for row in rows:
+            if row["name"] in _RECALL_TOOL_NAMES:
+                continue
+            self._conn.execute(
+                "INSERT INTO conversation_history_fts"
+                "(conversation_history_fts, rowid, content) "
+                "VALUES('delete', ?, ?)",
+                (row["seq"], row["content"] or ""),
+            )
+
     def append(
         self,
         *,
@@ -426,20 +447,13 @@ class HistoryStore:
         """
         with self._lock, self._conn:
             doomed = self._conn.execute(
-                "SELECT seq, content FROM conversation_history "
+                "SELECT seq, content, name FROM conversation_history "
                 "WHERE session_id = ?",
                 (session_id,),
             ).fetchall()
             if not doomed:
                 return 0
-            if self._fts:
-                for row in doomed:
-                    self._conn.execute(
-                        "INSERT INTO conversation_history_fts"
-                        "(conversation_history_fts, rowid, content) "
-                        "VALUES('delete', ?, ?)",
-                        (row["seq"], row["content"] or ""),
-                    )
+            self._delete_fts_rows(doomed)
             self._conn.execute(
                 "DELETE FROM conversation_history WHERE session_id = ?",
                 (session_id,),
@@ -592,7 +606,7 @@ class HistoryStore:
                         ownership = " AND (agent_id = ? OR agent_id IS NULL)"
                         params.append(agent_id)
                     rows = self._conn.execute(
-                        "SELECT seq, dedup_key, content "
+                        "SELECT seq, dedup_key, content, name "
                         "FROM conversation_history "
                         "WHERE session_id = ? AND dedup_key IN ("
                         + placeholders
@@ -624,14 +638,7 @@ class HistoryStore:
                         if str(row["dedup_key"]) not in existing_keys
                     ]
 
-                    if self._fts:
-                        for row in duplicates:
-                            self._conn.execute(
-                                "INSERT INTO conversation_history_fts"
-                                "(conversation_history_fts, rowid, content) "
-                                "VALUES('delete', ?, ?)",
-                                (row["seq"], row["content"] or ""),
-                            )
+                    self._delete_fts_rows(duplicates)
                     if duplicates:
                         self._conn.executemany(
                             "DELETE FROM conversation_history WHERE seq = ?",
@@ -778,21 +785,15 @@ class HistoryStore:
         where, params = self._purge_where(before, kinds)
         with self._lock, self._conn:
             doomed = self._conn.execute(
-                "SELECT seq, content FROM conversation_history WHERE " + where,
+                "SELECT seq, content, name FROM conversation_history WHERE "
+                + where,
                 params,
             ).fetchall()
             if not doomed:
                 return 0
             if dry_run:
                 return len(doomed)
-            if self._fts:
-                for row in doomed:
-                    self._conn.execute(
-                        "INSERT INTO conversation_history_fts"
-                        "(conversation_history_fts, rowid, content) "
-                        "VALUES('delete', ?, ?)",
-                        (row["seq"], row["content"] or ""),
-                    )
+            self._delete_fts_rows(doomed)
             self._conn.execute(
                 "DELETE FROM conversation_history WHERE " + where,
                 params,

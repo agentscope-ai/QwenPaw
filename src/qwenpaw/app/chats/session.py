@@ -490,9 +490,9 @@ class SafeJSONSession:
         destination path lock. Other persisted state modules are preserved.
 
         When *allow_missing_source* is True and the source file does not
-        exist, writes an empty dict ``{}`` to the destination instead of
-        raising. This preserves the invariant that the destination file
-        exists before any ChatSpec references it.
+        exist, writes a valid empty AgentState with the destination identity
+        instead of raising. This preserves the invariant that the destination
+        file exists before any ChatSpec references it.
 
         Returns True if the source was missing and ``allow_missing_source``
         was True (caller can warn the user). Returns False otherwise.
@@ -528,22 +528,41 @@ class SafeJSONSession:
         # checkpoint also addresses global history.db sequence values, which
         # must be replaced with the destination rows created by the caller.
         agent_state = src_state.get("agent")
-        if isinstance(agent_state, dict):
-            raw_state = agent_state.get("state")
-            if isinstance(raw_state, dict):
-                raw_state["session_id"] = dst_session_id
+        if not isinstance(agent_state, dict):
+            agent_state = {}
+            src_state["agent"] = agent_state
 
-            raw_scroll = agent_state.get("scroll")
-            if isinstance(raw_scroll, dict):
-                from ...agents.context.scroll.manager import (
-                    ScrollContextManager,
-                )
+        raw_state = agent_state.get("state")
+        if isinstance(raw_state, dict):
+            raw_state["session_id"] = dst_session_id
+        elif raw_state is None:
+            # Missing snapshots and 1.x ``agent.memory`` snapshots otherwise
+            # receive AgentState's random default identity on first build.
+            # Normalize both forms now so every fork has the destination
+            # identity before MemoryMiddleware performs any routing.
+            from agentscope.state import AgentState
 
-                agent_state["scroll"] = ScrollContextManager.rebase_checkpoint(
-                    raw_scroll,
-                    session_id=dst_session_id,
-                    seq_map=scroll_seq_map or {},
-                )
+            migrated_state = AgentState(session_id=dst_session_id)
+            legacy_memory = agent_state.get("memory")
+            if isinstance(legacy_memory, dict):
+                from .utils import parse_legacy_memory_state
+
+                messages, summary = parse_legacy_memory_state(legacy_memory)
+                migrated_state.context.extend(messages)
+                migrated_state.summary = summary
+            agent_state["state"] = migrated_state.model_dump(mode="json")
+        else:
+            raise ValueError("agent.state must be a JSON object")
+
+        raw_scroll = agent_state.get("scroll")
+        if isinstance(raw_scroll, dict):
+            from ...agents.context.scroll.manager import ScrollContextManager
+
+            agent_state["scroll"] = ScrollContextManager.rebase_checkpoint(
+                raw_scroll,
+                session_id=dst_session_id,
+                seq_map=scroll_seq_map or {},
+            )
 
         # 2. Write to destination file (path lock + atomic write)
         dst_path = await run_sync_io(

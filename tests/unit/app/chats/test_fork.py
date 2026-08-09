@@ -11,6 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from agentscope.message import Msg, TextBlock
+from agentscope.state import AgentState
 
 from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.chats.models import ChatSpec, SessionSource
@@ -185,7 +187,10 @@ async def test_clone_session_state_copies_full_state(
         "dst-session",
         user_id="u1",
     )
-    assert dst_state == {"dummy": {"key": "value", "nested": {"x": 1}}}
+    assert dst_state["dummy"] == {"key": "value", "nested": {"x": 1}}
+    cloned_agent = AgentState.model_validate(dst_state["agent"]["state"])
+    assert cloned_agent.session_id == "dst-session"
+    assert cloned_agent.context == []
 
 
 @pytest.mark.asyncio
@@ -201,19 +206,61 @@ async def test_clone_raises_when_source_missing(
 
 
 @pytest.mark.asyncio
-async def test_clone_allow_missing_writes_empty_dict(
+async def test_clone_allow_missing_writes_empty_agent_state(
     session: SafeJSONSession,
 ):
-    """allow_missing_source=True writes {} to the destination."""
-    await session.clone_session_state(
+    """A missing source still produces a valid destination identity."""
+    source_missing = await session.clone_session_state(
         src_session_id="nonexistent",
         dst_session_id="dst",
         user_id="u1",
         allow_missing_source=True,
     )
 
+    assert source_missing is True
     dst_state = await session.get_session_state_dict("dst", user_id="u1")
-    assert dst_state == {}
+    cloned_agent = AgentState.model_validate(dst_state["agent"]["state"])
+    assert cloned_agent.session_id == "dst"
+    assert cloned_agent.context == []
+
+
+@pytest.mark.asyncio
+async def test_clone_migrates_legacy_memory_with_destination_identity(
+    session: SafeJSONSession,
+):
+    legacy_message = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(type="text", text="legacy context")],
+    )
+    legacy_memory = {
+        "content": [[legacy_message.to_dict(), []]],
+        "_compressed_summary": "legacy summary",
+    }
+    await session.save_session_state(
+        session_id="legacy-src",
+        user_id="u1",
+        agent=_DummyModule({"memory": legacy_memory}),
+    )
+
+    source_missing = await session.clone_session_state(
+        src_session_id="legacy-src",
+        dst_session_id="legacy-fork",
+        user_id="u1",
+    )
+
+    assert source_missing is False
+    dst_state = await session.get_session_state_dict(
+        "legacy-fork",
+        user_id="u1",
+    )
+    cloned_agent = AgentState.model_validate(dst_state["agent"]["state"])
+    assert cloned_agent.session_id == "legacy-fork"
+    assert cloned_agent.summary == "legacy summary"
+    assert [msg.get_text_content() for msg in cloned_agent.context] == [
+        "legacy context",
+    ]
+    assert dst_state["agent"]["memory"] == legacy_memory
 
 
 @pytest.mark.asyncio

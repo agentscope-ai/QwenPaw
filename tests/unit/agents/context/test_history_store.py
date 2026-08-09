@@ -209,6 +209,56 @@ def test_reconcile_rows_deduplicates_source_and_fts(store: HistoryStore):
     assert hits == []
 
 
+def test_reconcile_rows_deduplicates_recall_rows_not_indexed_in_fts(
+    store: HistoryStore,
+):
+    """Deleting a duplicate recall row must not issue an FTS delete for it."""
+    if not store._fts:
+        pytest.skip("SQLite build lacks FTS5")
+    recall = _entry("recall output", name="recall_history")
+    store.append(
+        session_id="canonical",
+        dedup_key="shared-recall",
+        entry=recall,
+    )
+    store.append(
+        session_id="sync:file",
+        dedup_key="shared-recall",
+        entry=recall,
+    )
+
+    result = store.reconcile_session_rows(
+        {"sync:file"},
+        "canonical",
+        {"shared-recall"},
+    )
+
+    assert result == (0, 1, 0)
+    assert store.count("sync:file") == 0
+    assert store.count("canonical") == 1
+
+
+def test_delete_session_rows_skips_fts_delete_for_recall_rows(
+    store: HistoryStore,
+):
+    if not store._fts:
+        pytest.skip("SQLite build lacks FTS5")
+    store.append(
+        session_id="fork",
+        dedup_key="recall",
+        entry=_entry("recall output", name="recall_history"),
+    )
+    store.append(
+        session_id="fork",
+        dedup_key="normal",
+        entry=_entry("ordinary indexed output"),
+    )
+
+    assert store.delete_session_rows("fork") == 2
+    assert store.count("fork") == 0
+    assert store._conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+
+
 def test_null_dedup_key_is_never_deduped(store: HistoryStore):
     store.append(session_id="s", dedup_key=None, entry=_entry("x"))
     store.append(session_id="s", dedup_key=None, entry=_entry("x"))
@@ -314,6 +364,24 @@ def test_purge_drops_old_rows_and_keeps_recent(store: HistoryStore):
     removed = store.purge(before="2025-01-01T00:00:00+00:00")
     assert removed == 1
     assert store.count("s") == 1
+
+
+def test_purge_skips_fts_delete_for_recall_rows(store: HistoryStore):
+    if not store._fts:
+        pytest.skip("SQLite build lacks FTS5")
+    store.append(
+        session_id="s",
+        dedup_key="old-recall",
+        entry=_entry(
+            "old recall output",
+            name="recall_history_python",
+            created_at="2020-01-01T00:00:00+00:00",
+        ),
+    )
+
+    assert store.purge(before="2025-01-01T00:00:00+00:00") == 1
+    assert store.count("s") == 0
+    assert store._conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
 
 
 def test_purge_dry_run_reports_count_without_deleting(store: HistoryStore):
