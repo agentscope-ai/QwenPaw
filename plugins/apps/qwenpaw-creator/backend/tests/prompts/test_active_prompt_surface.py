@@ -95,7 +95,7 @@ def test_creator_owns_timeline_element_planning() -> None:
     prompt = load_file_agent_prompt("creator_agent.system")
     for responsibility in (
         "Timeline Element",
-        "creation.type=r2v/edit/overlay/transition/audio",
+        "creation.type=r2v/t2v/i2v/s2v/edit/overlay/transition/audio",
         "单个 R2V Element 不超过 15 秒",
         "elements_at",
         "jq_project",
@@ -104,9 +104,10 @@ def test_creator_owns_timeline_element_planning() -> None:
     assert "结构完成后才进入视觉和媒体生产" in prompt
     assert "完整 Project 根对象" in prompt
     assert "jsonArgs" in prompt
-    assert "`updated_at` 由 Runtime 自动维护" in prompt
+    assert "Runtime 自动选择最新 Project 快照并维护受保护字段" in prompt
+    assert "根据结构化错误调整调用" in prompt
     assert "content_type=pet_video" in prompt
-    assert "overlay_kind=pet_os" in prompt
+    assert "台词卡 Overlay Element" in prompt
     assert "x=0.5, y=0.5" in prompt
 
 
@@ -123,10 +124,16 @@ def test_r2v_prompt_requires_text_free_storyboards_without_blind_retry() -> (
 ):
     prompt = load_file_agent_prompt("r2v_generation_director.system")
     assert "分镜图画面纯净性（硬性规则）" in prompt
+    # Annotation text stays banned by default…
     assert (
-        "Absolutely no text, no captions, no labels, no lettering, "
-        "no watermarks in the image."
+        "No panel numbers, no captions, no labels, no subtitles, "
+        "no watermarks, no annotation text in the image."
     ) in prompt
+    # …while diegetic text (jersey numbers, signage) is declared explicitly
+    # and carried through an exception-style clause.
+    assert "画内叙事文字" in prompt
+    assert "No text except" in prompt
+    assert "不得因禁字规则而丢失" in prompt
     assert "不要在未看到图片内容时臆测检查结果" in prompt
     assert "不要因此自动重复调用 `image_generation`" in prompt
 
@@ -190,7 +197,7 @@ def test_ai_editing_director_requires_pet_inner_monologue_not_action_labels() ->
     None
 ):
     prompt = load_file_agent_prompt("ai_editing_director.system")
-    for field in ("overlay_kind=pet_os", "文案", "`vibe`", "绝对 span"):
+    for field in ("宠物 OS 台词卡", "文案", "`vibe`", "绝对 span"):
         assert field in prompt
     assert "不是镜头标题、动作标签或客观摘要" in prompt
     assert "不再使用相对某个内部对象" in prompt

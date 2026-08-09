@@ -33,11 +33,11 @@
 
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **忘れない**                               | 3 層メモリ — ライブな作業コンテキスト、完全な逐語履歴、蒸留された知識。古いターンは退避されるが必要に応じていつでも呼び出し可能。要約で失われることはなく、情報は失われない。                                                                           |
+| **忘れない**                               | 3 層メモリ — ライブな作業コンテキスト、完全な逐語履歴、そして [ReMe](https://github.com/agentscope-ai/ReMe) による自己進化型パーソナルナレッジベース。会話と資料を、読み取り・編集・検索が可能で相互にリンクされた Markdown メモリへ継続的に変換。 |
 | **ローカルもクラウドも、自由に動く**        | QwenPaw-Flash モデル（2B / 4B / 9B）— エージェントタスク向けに訓練。内蔵 QwenPaw Local ランタイム — API キー不要、クラウド依存なし。Ollama、LM Studio、14+ クラウドプロバイダーにも対応。                  |
 | **セキュリティ内蔵**                         | カーネルレベルの Sandbox、Tool Guard、File Guard、Skill Scanner。危険なコマンドは実行前にブロック。                                                                                    |
 | **マルチエージェント＆並列**                | 独自のメモリとスキルを持つ独立エージェントを生成。実行時のサブエージェント。Agent Communication Protocol（ACP）によるクロスシステム編成。                                                                         |
-| **Coding Mode**                               | 3 パネル Web IDE — ファイルツリー、Diff プレビュー、チャット。定義へジャンプ、参照検索、構造コード検索を内蔵。                                                                                                 |
+| **ファイルワークスペース**                     | プロジェクトと Agent のファイルに共通するナビゲーション、プレビュー、編集、Diff、アップロード、ダウンロード。                                                                      |
 | **拡張可能**                                | スケジューリング、ドキュメント、ブラウザ、ニュースなどの Skills。マーケット付きプラグインアーキテクチャ。MCP で外部ツールを統合。目的別ワークフローに自由に組み合わせ可能。                                                                    |
 | **どこでも届く**                        | DingTalk、Lark、WeChat、Discord、Telegram、iMessage、QQ — 1 インスタンス、全チャネル。Console、TUI、デスクトップアプリで直接アクセス。                                                                         |
 | **あなたのもの、私たちのものではない**          | ローカル展開 — データはあなたのマシンに留まる。サードパーティホスティングなし、データアップロードなし。                                                                                                         |
@@ -48,7 +48,7 @@
 > <br>
 >
 > - **自動化 & スケジューリング**: 定期タスクを設定 — ニュースダイジェスト、レポート生成、マルチチャネル配信 — すべてスケジュール通りに自動実行。
-> - **コード & 開発**: プロジェクト内でコードの読み取り、編集、レビュー、テスト；Coding Mode でコードを素早く見つけて理解。
+> - **コード & 開発**: 統合ファイルワークスペースでプロジェクト内のコードを読み取り、編集、レビュー、テスト。
 > - **ドキュメント処理**: PDF、Word、Excel、PowerPoint の読み取り、書き込み、変換。
 > - **情報収集**: Web 検索、購読情報のフォロー、動画要約、個人ナレッジベースからの検索。
 > - **マルチチャネル運用**: DingTalk、Lark、Discord、Telegram などへアラート、要約、AI 生成コンテンツをプッシュ — 同時またはチャネル別。
@@ -60,9 +60,9 @@
 
 ## ニュース
 
-- [2026-07-24] **v2.0.1** | PawApp ミニアプリプラットフォーム、ユーザー編集可能な Agent Mode、Oh-My-Paw plugins、ReMe メモリ強化、デスクトップ UX 改善など。[v2.0.1 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+- [2026-07-24] **v2.0.1** | PawApp ミニアプリプラットフォーム、ユーザー編集可能な Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) メモリ強化、デスクトップ UX 改善など。[v2.0.1 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式リリース** 🎉 | AgentScope 2.0 ベースの全面リライト：Agent OS アーキテクチャ、Loop Engineering、Scroll Context、ReMe v0.4.0 Long-term Memory、組み込み TUI を提供。
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式リリース** 🎉 | AgentScope 2.0 ベースの全面リライト：Agent OS アーキテクチャ、Loop Engineering、Scroll Context、[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自己進化型パーソナルナレッジベース、組み込み TUI を提供。
 
   | ハイライト | 内容 |
   |-----------|------|
@@ -70,7 +70,7 @@
   | **Agent OS — Drivers** | プロトコル中立な MCP / A2A / ACP コネクタ層、暗号化資格情報と呼び出しごとのポリシーゲート付き。 |
   | **Loop Engineering** | 高度なエージェントループテンプレート（Coding Mode、Mission Mode、今後さらに追加予定）と組み合わせ可能な承認ゲート。 |
   | **Scroll Context** | 全ターンを永続化；退去ターンはインデックス付きでオンデマンド再生 — 要約なし、情報欠落なし。 |
-  | **ReMe v0.4.0 Long-term Memory** | ターンベースの自動追跡、利用感知型検索、バックエンド固有の埋め込み。 |
+  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自己進化型パーソナルナレッジベース** | 会話と資料を、読み取り・編集・検索が可能で相互にリンクされた Markdown メモリへ継続的に変換。 |
   | **Terminal UI (TUI)** | フルスクリーンターミナルチャット — Console やチャネルと同一のエージェント・記憶・セッション。 |
 
   Agent OS をベースに、すぐに使える QwenPaw アプリケーション — **QwenPaw Creator**、**QwenPaw Insight** など — を順次リリース予定です。 [v2.0.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
@@ -334,7 +334,6 @@ Releases から QwenPaw macOS アプリをダウンロードすると、macOS �
 - [スキルを追加](https://qwenpaw.agentscope.io/docs/skills) して機能を拡張（PDF、Office、ブラウザ、ニュースなど）
 - [チャネルを設定](https://qwenpaw.agentscope.io/docs/channels) して DingTalk、Lark、Discord などに接続
 - [Cron を設定](https://qwenpaw.agentscope.io/docs/cron) してスケジュールタスクと自動化を実現
-- [Coding Mode を試す](https://qwenpaw.agentscope.io/docs/coding-mode) して IDE スタイルのコード協働
 - すべてのオプションと検証手順については、[クイックスタートガイド](https://qwenpaw.agentscope.io/docs/quickstart) を参照
 
 ---
@@ -406,12 +405,12 @@ QwenPaw には 4 つのコアセキュリティレイヤーが含まれていま
 | [デスクトップアプリ](https://qwenpaw.agentscope.io/docs/desktop)               | デスクトップアプリケーションのインストールと使用方法       |
 | [モデル](https://qwenpaw.agentscope.io/docs/models)                     | クラウド、ローカル、カスタムプロバイダーの設定    |
 | [チャネル](https://qwenpaw.agentscope.io/docs/channels)                  | DingTalk、Lark、QQ、Discord、iMessage など |
-| [Coding Mode](https://qwenpaw.agentscope.io/docs/coding-mode)           | コード中心タスク向け 3 パネル Web IDE       |
 | [スキル](https://qwenpaw.agentscope.io/docs/skills)                      | 機能の拡張とカスタマイズ               |
 | [プラグイン](https://qwenpaw.agentscope.io/docs/plugins)                    | プラグインシステムと Plugin Market                  |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                            | MCP クライアントの管理                               |
 | [Persona](https://qwenpaw.agentscope.io/docs/persona)                   | エージェントのパーソナリティカスタマイズ（SOUL / PROFILE）  |
-| [メモリ](https://qwenpaw.agentscope.io/docs/memory)                     | 長期セマンティックメモリ（ReMe）                 |
+| [メモリ](https://qwenpaw.agentscope.io/docs/memory)                     | ローカルで編集・検索可能かつ相互にリンクされた Markdown メモリによる自己進化型パーソナルナレッジベース。[ReMe](https://github.com/agentscope-ai/ReMe) を採用 |
+| [ReMe ドキュメント](https://docs.agentscope.io/reme/latest/en/overview) | ReMe の公式概要とドキュメント                    |
 | [記憶進化 & プロアクティブ](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | エージェントの記憶進化とプロアクティブインタラクション |
 | [コンテキスト](https://qwenpaw.agentscope.io/docs/context)                   | Scroll ベースのコンテキスト管理                  |
 | [魔法コマンド](https://qwenpaw.agentscope.io/docs/commands)           | AI の応答を待たずに会話状態を制御 |

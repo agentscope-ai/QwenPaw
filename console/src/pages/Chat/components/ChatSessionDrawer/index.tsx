@@ -21,7 +21,7 @@ import {
   type IAgentScopeRuntimeWebUISession,
 } from "@agentscope-ai/chat";
 import { useIsMobile } from "../../../../hooks/useIsMobile";
-import { useCodingMode } from "../../../../stores/codingModeStore";
+import { useCollapsedSessionGroups } from "../../../../hooks/useCollapsedSessionGroups";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import SessionItem from "../../../../components/SessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
@@ -29,7 +29,7 @@ import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
 import { useMessageQueueStore } from "../../../../stores/messageQueueStore";
 import {
-  buildSessionPath,
+  buildChatPath,
   getSessionIdFromPath,
 } from "../../../../utils/sessionRoute";
 import {
@@ -40,6 +40,7 @@ import { useAgentStore } from "../../../../stores/agentStore";
 import {
   type DateGroup,
   groupSessions,
+  findSessionRowIndex,
 } from "../../../../utils/sessionGrouping";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import styles from "./index.module.less";
@@ -232,9 +233,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const navigate = useNavigate();
   const location = useLocation();
   const sdkState = useChatAnywhereSessionsState();
-  const { codingMode } = useCodingMode();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
-
   const createNewSession = useCreateNewSession();
 
   // In embedded mode, maintain a local session list fetched directly from the
@@ -284,10 +283,9 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Cache last polled sessions to skip no-op state updates */
   const lastPolledSessionsRef = useRef<IAgentScopeRuntimeWebUISession[]>([]);
 
-  /** Collapsed date groups — default: "month" and "older" are collapsed */
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<DateGroup>>(
-    () => new Set<DateGroup>(["month", "older"]),
-  );
+  /** Collapsed date groups — persisted so remounts keep the user's state */
+  const { collapsedGroups, toggleGroup, expandGroupForSession } =
+    useCollapsedSessionGroups();
 
   /** Immediate search input value (bound to Input, updates on every keystroke) */
   const [searchInput, setSearchInput] = useState("");
@@ -422,12 +420,11 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       // This avoids the preload / isSessionSwitching complexity that caused
       // the "flash to new chat" issue.
       setSwitchingSessionId(sessionId);
-      const mode = codingMode ? "coding" : "chat";
       const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
-      const targetPath = buildSessionPath(mode, effectiveId);
+      const targetPath = buildChatPath(effectiveId);
       navigate(targetPath);
     },
-    [currentSessionId, navigate, codingMode],
+    [currentSessionId, navigate],
   );
 
   // Listen for embedded switch completion so we can clear switchingSessionId.
@@ -636,15 +633,17 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     [sortedSessions, searchQuery, t],
   );
 
-  /** Toggle a date group's collapsed state */
-  const toggleGroup = useCallback((key: DateGroup) => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  // Keep the active conversation reachable: expand the (possibly
+  // collapsed) date group that contains it whenever it changes.
+  useEffect(() => {
+    if (!currentSessionId) return;
+    const active = sortedSessions.find(
+      (s) =>
+        s.id === currentSessionId ||
+        (s as ExtendedChatSession).realId === currentSessionId,
+    );
+    if (active) expandGroupForSession(active as ExtendedChatSession);
+  }, [currentSessionId, sortedSessions, expandGroupForSession]);
 
   /** Flatten groups into a single array of rows for virtual list */
   const flatRows = useMemo<FlatRow[]>(() => {
@@ -695,6 +694,19 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   useEffect(() => {
     listRef.current?.resetAfterIndex(0);
   }, [flatRows]);
+
+  // Bring the active conversation into view once its row is visible
+  // (group expanded + list measured). Guarded by the last-scrolled id so
+  // background polling doesn't keep yanking the scroll position.
+  const lastScrolledSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentSessionId) return;
+    if (lastScrolledSessionRef.current === currentSessionId) return;
+    const index = findSessionRowIndex(flatRows, currentSessionId);
+    if (index < 0) return;
+    lastScrolledSessionRef.current = currentSessionId;
+    listRef.current?.scrollToItem(index, "smart");
+  }, [currentSessionId, flatRows, listHeight]);
 
   /** Callback ref: attach a ResizeObserver to measure list container height */
   const listWrapperRef = useCallback((node: HTMLDivElement | null) => {

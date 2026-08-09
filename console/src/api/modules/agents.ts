@@ -5,6 +5,7 @@ import type {
   CreateAgentRequest,
   CopyAgentRequest,
   AgentProfileRef,
+  MemoryGraphSnapshot,
   ReorderAgentsResponse,
 } from "../types/agents";
 
@@ -52,6 +53,9 @@ export const agentsApi = {
       method: "POST",
       timeout: 10 * 60 * 1000,
     }),
+
+  getMemoryGraph: (agentId: string) =>
+    request<MemoryGraphSnapshot>(`/agents/${agentId}/memory/graph`),
 
   // Delete agent
   deleteAgent: (agentId: string) =>

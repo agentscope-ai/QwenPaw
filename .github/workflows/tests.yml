@@ -277,6 +277,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,test,full]"
 
+      # tests/integration/browser carries the integration marker but no
+      # priority marker, so any expression without a p0/p1 filter (a
+      # workflow_dispatch of "integration", say) selects it and needs a real
+      # Chromium. Same command as the e2e workflows.
+      - name: Install Playwright browser
+        shell: bash
+        run: |
+          playwright install chromium --with-deps
+
       - name: Check if integrated tests exist
         id: check-integrated
         shell: bash

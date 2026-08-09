@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Lightbulb } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   useOnboardingStore,
   type OnboardingHintKey,
@@ -24,6 +25,7 @@ export default function OnboardingHint({
 }: OnboardingHintProps) {
   const seen = useOnboardingStore((state) => state.hints[hintKey] === true);
   const markHintSeen = useOnboardingStore((state) => state.markHintSeen);
+  const { t } = useTranslation();
   if (seen) return null;
   return (
     <div
@@ -39,7 +41,7 @@ export default function OnboardingHint({
         onClick={() => markHintSeen(hintKey)}
         className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-soft)]"
       >
-        知道了
+        {t("onboarding.gotIt")}
       </button>
     </div>
   );

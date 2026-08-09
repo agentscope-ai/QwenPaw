@@ -41,6 +41,10 @@ from ..constant import (
 from ..loop.gates import StopAction, StopHandlerResult
 from ..providers.error_utils import extract_status_code
 from ..providers.model_capability_cache import get_capability_cache
+from ..utils.tool_call_extra import (
+    collect_transient_tool_call_extras,
+    persist_tool_call_extras,
+)
 
 if TYPE_CHECKING:
     from ..agents.memory import BaseMemoryManager
@@ -175,11 +179,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
         context_config: Any = None,
         instructions: HintBlock | None = None,
     ) -> None:
-        """Delegate to the context manager, else native compression.
+        """Run context compression through AgentScope's middleware chain.
 
-        With a ``context_manager`` injected (e.g. the scroll strategy), it owns
-        compression. Otherwise fall back to AgentScope's native path, gated on
-        ``context_compact_config.enabled``.
+        The actual Scroll/native dispatch lives in
+        :meth:`_compress_context_impl`, which is AgentScope's extension point
+        beneath ``on_compress_context`` middlewares. Keeping the public entry
+        point on the base path ensures memory and plugin middlewares observe
+        both strategies consistently.
         """
         # ── Always sanitize tool messages before any model call ──
         # Orphan tool_result messages (whose tool_call was evicted by a
@@ -200,6 +206,24 @@ class QwenPawAgent(CodingModeMixin, Agent):
         except Exception:
             pass
 
+        if self._context_manager is None:
+            try:
+                lcc = self._agent_config.running.light_context_config
+                if not lcc.context_compact_config.enabled:
+                    return
+            except Exception:
+                pass
+        await super().compress_context(
+            context_config,
+            instructions=instructions,
+        )
+
+    async def _compress_context_impl(
+        self,
+        context_config: Any = None,
+        instructions: HintBlock | None = None,
+    ) -> None:
+        """Dispatch the middleware-wrapped compression implementation."""
         if self._context_manager is not None:
             if instructions is None:
                 # Preserve compatibility with third-party managers that
@@ -212,22 +236,24 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     instructions=instructions,
                 )
             return
-        try:
-            lcc = self._agent_config.running.light_context_config
-            if not lcc.context_compact_config.enabled:
-                return
-        except Exception:
-            pass
-        await super().compress_context(
+
+        await super()._compress_context_impl(
             context_config,
             instructions=instructions,
         )
 
     def _save_to_context(self, blocks: Any, usage: Any = None) -> None:
         """Append blocks, then let the context manager write them through."""
-        super()._save_to_context(blocks, usage)
+        block_list = list(blocks or [])
+        tool_call_extras = collect_transient_tool_call_extras(block_list)
+
+        super()._save_to_context(block_list, usage)
+        if tool_call_extras:
+            last_msg = self._get_last_msg()
+            if last_msg is not None and last_msg.role == "assistant":
+                persist_tool_call_extras(last_msg, tool_call_extras)
         if self._context_manager is not None:
-            self._context_manager.on_save(self, blocks)
+            self._context_manager.on_save(self, block_list)
 
     # Session persistence calls state_dict/load_state_dict on the agent;
     # these round-trip through self.state (AgentState pydantic model).

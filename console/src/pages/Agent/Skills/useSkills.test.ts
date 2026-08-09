@@ -124,7 +124,6 @@ function makeSkill(overrides: Partial<SkillSpec> = {}): SkillSpec {
   return {
     name: "my-skill",
     description: "test",
-    content: "content",
     source: "local",
     enabled: true,
     ...overrides,

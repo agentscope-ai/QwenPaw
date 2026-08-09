@@ -137,6 +137,7 @@ async def test_compress_context_forwards_one_shot_instructions():
     tracker = CompressionTracker()
     agent = object.__new__(QwenPawAgent)
     agent._context_manager = tracker
+    agent._compress_context_middlewares = []
     agent.state = SimpleNamespace(context=[])
     config = SimpleNamespace(trigger_ratio=0.1)
     instructions = HintBlock(hint="prioritize failures", source="user")

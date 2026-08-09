@@ -102,6 +102,15 @@ class InboxPage(BasePage):
         'text=/(No push messages|暂无推送消息)/'
     )
 
+    # Per-card delete (Trash icon, antd Button danger => -dangerous class)
+    CARD_DELETE_BTN = 'button.qwenpaw-btn-dangerous'
+
+    # Toolbar "Mark all read" button
+    MARK_ALL_READ_BTN = (
+        'button:has-text("Mark all read"), '
+        'button:has-text("全部标记已读")'
+    )
+
     # ========== Workspace path helpers ==========
 
     @staticmethod

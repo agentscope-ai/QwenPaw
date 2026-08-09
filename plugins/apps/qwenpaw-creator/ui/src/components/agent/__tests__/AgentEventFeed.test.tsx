@@ -8,7 +8,7 @@ import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 describe("AgentEventFeed", () => {
   beforeEach(() => {
     useCreatorTaskViewStore.setState({ runs: [], tasks: [] });
-    useCreatorSessionStore.setState({ events: [] });
+    useCreatorSessionStore.setState({ events: [], session: null });
     useAgentDockUiStore.getState().reset();
   });
   it("shows multiple independent active Specialist Runs at once", () => {
@@ -93,7 +93,7 @@ describe("AgentEventFeed", () => {
         {
           eventId: "e3b",
           seq: 4,
-          type: "subagent.tool_delta",
+          type: "subagent.tool_progress",
           projectId: "p1",
           creatorSessionId: "s1",
           at: "now",
@@ -103,8 +103,9 @@ describe("AgentEventFeed", () => {
             role: "visual_development_agent",
             toolCallId: "t1",
             tool: "read_file",
-            deltaIndex: 0,
-            argumentsDelta: '{"path":"story/',
+            receivedBytes: 2048,
+            providerChunkCount: 16,
+            complete: false,
           },
         },
         {
@@ -427,5 +428,39 @@ describe("AgentEventFeed", () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText("project:plan：FAILED")).not.toBeInTheDocument();
     expect(screen.queryByText("element:r2v-3：STALE")).not.toBeInTheDocument();
+  });
+
+  it("shows a review-blocked run as waiting instead of failed", () => {
+    useCreatorSessionStore.setState({
+      session: {
+        id: "session-review",
+        projectId: "project-review",
+        status: "PENDING_REVIEW",
+        lastMessageSeq: 1,
+        lastConsumedMessageSeq: 1,
+        lastEventSeq: 1,
+      },
+    });
+    useCreatorTaskViewStore.setState({
+      runs: [
+        {
+          id: "run-waiting-review",
+          role: "r2v_generation_director",
+          displayName: "R2V 生成导演",
+          status: "BLOCKED",
+          targetRefs: ["element:ep22"],
+          finalSummaryText:
+            "element:ep22 的分镜图已生成；视频生成尚未开始，等待审阅通过后自动继续。",
+          taskRefs: [],
+          metadata: {},
+        },
+      ],
+    });
+
+    render(<AgentEventFeed />);
+
+    expect(screen.getAllByText(/等待审阅/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/专业制作失败/)).not.toBeInTheDocument();
+    expect(screen.queryByText("失败")).not.toBeInTheDocument();
   });
 });

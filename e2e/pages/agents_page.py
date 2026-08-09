@@ -60,16 +60,19 @@ class AgentsPage(BasePage):
 
     # Action buttons
     CREATE_AGENT_BTN = 'button:has-text("创建智能体"), button:has-text("Create Agent"), .qwenpaw-btn-primary'
-    # Inline action buttons in a table row. Post-redesign (upstream #6198) the
-    # actions are 4 icon buttons in order: Pin | Edit | Toggle | Delete. Anchor
-    # on the icon (not Space position) so the added Pin button can't shift us:
+    # Inline action buttons in a table row. Post v2.0.1 (#6262 added a Copy
+    # button at position 3) the actions are 5 icon buttons in order:
+    # Pin | Edit | Copy | Toggle | Delete. Anchor on icon semantics only —
+    # positional fallbacks like :nth-child(N) go stale whenever upstream
+    # inserts a button (exactly what broke AGENT-005 on v2.0.1):
     #   Edit   = antd EditOutlined    -> .anticon-edit
+    #   Copy   = antd CopyOutlined    -> .anticon-copy   (do not match)
     #   Toggle = lucide Eye/EyeOff    -> svg.lucide-eye / svg.lucide-eye-off
     #   Delete = antd DeleteOutlined  -> .anticon-delete (danger button)
     EDIT_BTN = 'button:has(.anticon-edit)'
-    TOGGLE_BTN = 'button:has(svg.lucide-eye-off), button:has(svg.lucide-eye), .qwenpaw-space-item:nth-child(3) button'
+    TOGGLE_BTN = 'button:has(svg.lucide-eye-off), button:has(svg.lucide-eye)'
     DELETE_BTN = 'button.qwenpaw-btn-dangerous, button:has(.anticon-delete)'
-    ENABLE_TOGGLE = 'button:has(svg.lucide-eye-off), button:has(svg.lucide-eye), .qwenpaw-space-item:nth-child(3) button'
+    ENABLE_TOGGLE = 'button:has(svg.lucide-eye-off), button:has(svg.lucide-eye)'
     REFRESH_BTN = 'button:has(.anticon-reload), button:has(.spark-icon-spark-refresh-line)'
 
     # Create/edit form

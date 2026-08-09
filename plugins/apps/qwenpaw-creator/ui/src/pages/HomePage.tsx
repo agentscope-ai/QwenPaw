@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, memo } from "react";
-import { Modal, message } from "antd";
+import { Modal, message, Tooltip } from "antd";
 import { Film, ArrowUp, ArrowDown, CircleHelp, Trash2 } from "lucide-react";
 import logoMarkUrl from "@/assets/design/logo-mark.png";
 import tabCreateIcon from "@/assets/design/icon-tab-create.svg";
@@ -13,13 +13,10 @@ import {
   listProjects,
   getArtifactVersionMediaUrl,
 } from "@/api/creator";
-import { useRouter } from "@/routing/navigation";
+import { useRouter, useSearchParams } from "@/routing/navigation";
 import ModelBadges from "@/components/creator/ModelBadges";
 import ModelConfigModal from "@/components/creator/ModelConfigModal";
-import {
-  SCENARIO_OPTIONS,
-  CONTENT_TYPE_OPTIONS,
-} from "@/components/creator/useProjectLaunch";
+import { SCENARIO_OPTIONS } from "@/components/creator/useProjectLaunch";
 import {
   SEGMENTED_TRACK_CLASS,
   segmentedItemClass,
@@ -32,6 +29,9 @@ import InspirationExamples from "@/components/creator/InspirationExamples";
 import { HomeTour } from "@/components/onboarding";
 import { useOnboardingStore } from "@/store/onboardingStore";
 import { ProjectImporter } from "@/components/creator/ProjectImportExport";
+import LanguageToggle from "@/components/common/LanguageToggle";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
 
 interface ProjectCardProps {
   project: ProjectSummary;
@@ -49,21 +49,14 @@ const ProjectCard = memo(function ProjectCard({
   onPreview,
   formatDate,
 }: ProjectCardProps) {
-  var projectScenarioLabel = "未设置";
+  const { t } = useTranslation();
+  var projectScenarioLabel = t("home.notSet");
   if (project.scenario !== undefined) {
-    projectScenarioLabel =
-      SCENARIO_OPTIONS.find((option) => option.key === project.scenario)
-        ?.label ?? project.scenario;
+    const found = SCENARIO_OPTIONS.find(
+      (option) => option.key === project.scenario,
+    );
+    projectScenarioLabel = found ? t(found.labelKey) : project.scenario;
   }
-  var projectContentType = "未设置";
-  if (project.contentType) {
-    projectContentType =
-      CONTENT_TYPE_OPTIONS.find((option) => option.key === project.contentType)
-        ?.label ?? project.contentType;
-  }
-  // Content type is an editing-only concept.
-  const showContentType =
-    project.scenario === "video_edit" && Boolean(project.contentType);
   const canPreview = Boolean(project.finalVideoVersionId);
   return (
     <div
@@ -87,11 +80,11 @@ const ProjectCard = memo(function ProjectCard({
                 e.stopPropagation();
                 onPreview(project);
               }}
-              aria-label={`预览 ${project.name} 成片`}
+              aria-label={t("home.previewFinal", { name: project.name })}
               className="flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded bg-white px-2 text-sm font-medium leading-6 text-[#353332] transition-colors hover:text-[var(--color-accent)]"
             >
               <MaskIcon src={previewEyeIcon} size={16} />
-              预览
+              {t("common.preview")}
             </button>
           )}
         </div>
@@ -99,30 +92,15 @@ const ProjectCard = memo(function ProjectCard({
           {project.description}
         </p>
       </div>
-      <div className="flex items-center justify-between gap-2 text-xs leading-[18px]">
+      <div className="flex items-center justify-between gap-2 text-xs leading-[18px] text-[var(--color-text-tertiary)]">
         <div className="flex min-w-0 items-center gap-1.5">
-          {showContentType && (
-            <>
-              <p className="min-w-0 truncate">
-                <span className="font-medium text-[var(--color-text-secondary)]">
-                  类型：
-                </span>
-                <span className="text-[var(--color-text-tertiary)]">
-                  {projectContentType}
-                </span>
-              </p>
-              <span className="h-3 w-px shrink-0 bg-[#E3E2E2]" />
-            </>
-          )}
-          <div className="flex shrink-0 items-center gap-3 text-[var(--color-text-tertiary)]">
-            <span>{projectScenarioLabel}</span>
-            <span>{project.aspectRatio}</span>
-            <span>{project.resolution}</span>
-          </div>
+          <span>{projectScenarioLabel}</span>
+          <span>{project.aspectRatio}</span>
+          <span>{project.resolution}</span>
         </div>
         <span
           className="shrink-0 text-[var(--color-text-tertiary)]"
-          title={`创建于 ${formatDate(project.createdAt)}`}
+          title={t("home.createdAt") + " " + formatDate(project.createdAt)}
         >
           {formatDate(project.updatedAt)}
         </span>
@@ -130,7 +108,7 @@ const ProjectCard = memo(function ProjectCard({
             muted always-visible delete icon that reddens on hover only. */}
         <button
           type="button"
-          aria-label={`删除 ${project.name}`}
+          aria-label={t("home.deleteProject", { name: project.name })}
           onClick={(e) => {
             e.stopPropagation();
             onDelete(project);
@@ -146,21 +124,23 @@ const ProjectCard = memo(function ProjectCard({
 
 type SortField = "updated_at" | "created_at" | "name";
 
-const SORT_OPTIONS: { value: SortField; label: string }[] = [
-  { value: "updated_at", label: "按更新时间" },
-  { value: "created_at", label: "按创建时间" },
-  { value: "name", label: "按项目名称" },
+const SORT_OPTIONS: { value: SortField; labelKey: string }[] = [
+  { value: "updated_at", labelKey: "home.sortByUpdate" },
+  { value: "created_at", labelKey: "home.sortByCreate" },
+  { value: "name", labelKey: "home.sortByName" },
 ];
 
 type HomeView = "create" | "projects";
 
-const HOME_VIEWS: { key: HomeView; label: string; icon: string }[] = [
-  { key: "create", label: "开始创作", icon: tabCreateIcon },
-  { key: "projects", label: "我的项目", icon: tabProjectsIcon },
+const HOME_VIEWS: { key: HomeView; labelKey: string; icon: string }[] = [
+  { key: "create", labelKey: "home.startCreating", icon: tabCreateIcon },
+  { key: "projects", labelKey: "home.myProjects", icon: tabProjectsIcon },
 ];
 
 export default function HomePage() {
+  const { t } = useTranslation();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [view, setView] = useState<HomeView>("create");
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -195,7 +175,7 @@ export default function HomePage() {
         const data = await listProjects(100, 0, sort, order);
         setProjects(data.items || []);
       } catch {
-        message.error("加载项目列表失败");
+        message.error(t("home.loadFailed"));
       } finally {
         setLoading(false);
       }
@@ -207,6 +187,21 @@ export default function HomePage() {
     void fetchProjects();
   }, [fetchProjects]);
 
+  // Set which view to display based on a search parameter. Strip the param
+  // after consuming it, but bail when it's absent so the strip-induced
+  // searchParams change doesn't re-run setView a second time.
+  useEffect(() => {
+    const raw = searchParams.get("view");
+    if (raw === null) return;
+    const viewParam: HomeView = raw === "projects" ? "projects" : "create";
+    setView(viewParam);
+    const next = new URLSearchParams(searchParams);
+    next.delete("view");
+    const query = next.toString();
+    router.replace(query ? `/?${query}` : "/");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   const handleOpen = useCallback(
     (id: string) => {
       router.push(`/project/${id}/plan`);
@@ -217,18 +212,18 @@ export default function HomePage() {
   const handleDelete = useCallback(
     (project: ProjectSummary) => {
       Modal.confirm({
-        title: "确认删除",
-        content: `确定要删除项目「${project.name}」吗？此操作不可撤销。`,
-        okText: "删除",
-        cancelText: "取消",
+        title: t("home.deleteConfirm"),
+        content: t("home.deleteConfirmContent", { name: project.name }),
+        okText: t("common.delete"),
+        cancelText: t("common.cancel"),
         okButtonProps: { danger: true },
         onOk: async () => {
           try {
             await deleteProject(project.projectId);
-            message.success("项目已删除");
+            message.success(t("home.deleteSuccess"));
             fetchProjects();
           } catch {
-            message.error("删除项目失败");
+            message.error(t("home.deleteFailed"));
           }
         },
       });
@@ -253,7 +248,8 @@ export default function HomePage() {
 
   const formatDate = useCallback((dateStr: string) => {
     const date = new Date(dateStr);
-    return date.toLocaleDateString("zh-CN", {
+    const locale = i18n.language === "zh" ? "zh-CN" : "en-US";
+    return date.toLocaleDateString(locale, {
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -283,7 +279,7 @@ export default function HomePage() {
           </div>
           <div
             role="tablist"
-            aria-label="首页视图"
+            aria-label={t("home.homeView")}
             className={`absolute left-1/2 -translate-x-1/2 ${SEGMENTED_TRACK_CLASS}`}
           >
             {HOME_VIEWS.map((item) => (
@@ -299,20 +295,22 @@ export default function HomePage() {
                 className={segmentedItemClass(view === item.key)}
               >
                 <MaskIcon src={item.icon} size={18} />
-                {item.label}
+                {t(item.labelKey)}
               </button>
             ))}
           </div>
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={requestHomeTour}
-              className="flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center text-[#989796] transition-colors hover:text-[var(--color-accent)]"
-              title="重新查看新手引导"
-              aria-label="重新查看新手引导"
-            >
-              <CircleHelp className="h-4 w-4" />
-            </button>
+            <Tooltip title={t("nav.replayTour")}>
+              <button
+                type="button"
+                onClick={requestHomeTour}
+                className="icon-button shrink-0"
+                aria-label={t("nav.replayTour")}
+              >
+                <CircleHelp className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
+            <LanguageToggle className="icon-button shrink-0 text-[11px] font-semibold" />
             <ModelBadges />
           </div>
         </div>
@@ -326,10 +324,9 @@ export default function HomePage() {
               <HeroTitle />
             </div>
             <p className="hero-fade-up mt-6 w-[624px] max-w-full text-center text-sm leading-7 text-[#3D3D3D] [animation-delay:0.08s]">
-              开始创作吧！请将目标、素材和限制交给
-              Agent。资料输入是一次性的启动动作。
+              {t("home.startCreatingDesc")}
               <br />
-              进入项目后，它们会变成可管理、可引用、可追踪的项目资产。
+              {t("home.startCreatingDesc2")}
             </p>
 
             <div className="hero-fade-up mt-[34px] w-full [animation-delay:0.16s]">
@@ -340,21 +337,20 @@ export default function HomePage() {
                   className="mb-3 flex w-full flex-wrap items-center gap-2 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning-soft)]/70 px-3 py-2 text-left transition-colors hover:bg-[var(--color-warning-soft)]"
                 >
                   <span className="text-xs font-semibold text-[var(--color-warning)]">
-                    还未配置 LLM 模型
+                    {t("home.notConfiguredLlm")}
                   </span>
                   <span className="min-w-0 flex-1 text-[11px] text-[var(--color-text-secondary)]">
-                    LLM 是所有创作场景的必选模型，配置并通过连通性测试后才能启动
-                    Agent。
+                    {t("home.llmRequiredDesc")}
                   </span>
                   <span className="shrink-0 text-[11px] font-semibold text-[var(--color-accent)]">
-                    立即配置 →
+                    {t("home.configureNow")}
                   </span>
                 </button>
               )}
               <HeroComposerCard />
             </div>
 
-            {/* Hidden until curated content ships. */}
+            {/* Bundled example projects; hidden when the catalogue is empty. */}
             <div className="hero-fade-up mt-8 w-full [animation-delay:0.24s]">
               <InspirationExamples />
             </div>
@@ -370,38 +366,41 @@ export default function HomePage() {
                 className="mt-4 flex w-full flex-wrap items-center gap-2 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning-soft)]/50 px-3 py-2 text-left transition-colors hover:bg-[var(--color-warning-soft)]"
               >
                 <span className="text-xs font-semibold text-[var(--color-warning)]">
-                  还未配置 LLM 模型
+                  {t("home.notConfiguredLlm")}
                 </span>
                 <span className="min-w-0 flex-1 text-[11px] text-[var(--color-text-secondary)]">
-                  LLM 是所有创作场景的必选模型，配置并通过连通性测试后才能启动
-                  Agent。
+                  {t("home.llmRequiredDesc")}
                 </span>
                 <span className="shrink-0 text-[11px] font-semibold text-[var(--color-accent)]">
-                  立即配置 →
+                  {t("home.configureNow")}
                 </span>
               </button>
             )}
             <section className="flex items-center justify-between gap-3 py-4">
               <h1 className="text-xl font-medium leading-6 text-[var(--color-text-primary)]">
-                我的项目
+                {t("home.myProjects")}
               </h1>
               <div className="flex items-center gap-3">
                 <select
                   value={sortBy}
                   onChange={handleSortChange}
-                  aria-label="排序方式"
+                  aria-label={t("home.sortBy")}
                   className="cursor-pointer rounded-md border border-[#EAE9E7] bg-white px-3 py-1 text-sm font-medium leading-6 text-[var(--color-text-secondary)] outline-none focus:border-[var(--color-accent)]"
                 >
                   {SORT_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
-                      {option.label}
+                      {t(option.labelKey)}
                     </option>
                   ))}
                 </select>
                 <button
                   onClick={handleSortOrderToggle}
                   className="cursor-pointer rounded-md border border-[#EAE9E7] bg-white p-1.5 text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-                  title={sortOrder === "asc" ? "升序" : "降序"}
+                  title={
+                    sortOrder === "asc"
+                      ? t("home.ascending")
+                      : t("home.descending")
+                  }
                 >
                   {sortOrder === "asc" ? (
                     <ArrowUp className="h-4 w-4" />
@@ -415,7 +414,7 @@ export default function HomePage() {
                   className="flex cursor-pointer items-center gap-2 rounded-md border border-[#EAE9E7] bg-white px-3 py-1 text-sm font-medium leading-6 text-[var(--color-text-primary)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
                 >
                   <MaskIcon src={importProjectIcon} size={20} />
-                  导入项目
+                  {t("home.importProject")}
                 </button>
               </div>
             </section>
@@ -426,7 +425,7 @@ export default function HomePage() {
                 className="flex items-center justify-center rounded-lg border border-[#EAE9E7] bg-white py-28"
               >
                 <div className="text-sm text-[var(--color-text-secondary)]">
-                  加载中...
+                  {t("common.loading")}
                 </div>
               </div>
             ) : projects.length === 0 ? (
@@ -438,7 +437,7 @@ export default function HomePage() {
                   <Film className="h-7 w-7 text-[var(--color-accent)]" />
                 </div>
                 <h2 className="mb-8 text-lg font-semibold text-[var(--color-text-primary)]">
-                  暂无项目
+                  {t("home.noProjects")}
                 </h2>
               </div>
             ) : (
@@ -471,7 +470,7 @@ export default function HomePage() {
             className="fixed bottom-[96px] left-1/2 z-40 flex -translate-x-1/2 cursor-pointer items-center gap-[15px] rounded-full bg-[#FF9D4D] px-8 py-2 text-2xl font-medium leading-[44px] text-white shadow-[0_5px_38px_rgba(146,102,0,0.35),inset_0_1px_1px_rgba(255,255,255,0.1),inset_0_-2px_2px_rgba(0,0,0,0.05)] transition-transform hover:scale-[1.03]"
           >
             <MaskIcon src={tabCreateIcon} size={32} />
-            开始创作
+            {t("home.startCreating")}
           </button>
         </main>
       )}
@@ -484,7 +483,9 @@ export default function HomePage() {
         centered
         width={720}
         title={
-          previewProject ? `${previewProject.name} · 成片预览` : "成片预览"
+          previewProject
+            ? `${previewProject.name} · ${t("common.preview")}`
+            : t("common.preview")
         }
       >
         {previewProject?.finalVideoVersionId && (

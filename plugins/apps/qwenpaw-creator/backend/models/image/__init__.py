@@ -29,6 +29,7 @@ __all__ = [
     "get_image_backend",
     "get_image_model",
     "generate_image",
+    "poll_image_translate_task",
 ]
 
 
@@ -110,10 +111,30 @@ def get_image_model() -> BaseImageModel:
     return provider_cls.from_config()
 
 
+async def poll_image_translate_task(task_id: str) -> dict:
+    """Poll one already-submitted (billed) translation task.
+
+    Exposed for restart recovery: the provider task id lives in the paying
+    Task's durable ledger, so recovery can resume the wait instead of
+    discarding a paid result.
+    """
+
+    model = get_image_model()
+    poll = getattr(model, "poll_translate_task", None)
+    if poll is None:
+        raise NotImplementedError(
+            f"{type(model).__name__} does not support translate tasks",
+        )
+    return await poll(task_id)
+
+
 async def generate_image(
     prompt: str,
     aspect_ratio: str = "16:9",
     reference_image_urls: list[str] | None = None,
+    mode: str = "generate",
+    source_lang: str = "",
+    target_lang: str = "",
 ) -> str:
     """Generate an image and return a /generated/... URL."""
     model = get_image_model()
@@ -121,4 +142,7 @@ async def generate_image(
         prompt,
         aspect_ratio=aspect_ratio,
         reference_image_urls=reference_image_urls,
+        mode=mode,
+        source_lang=source_lang,
+        target_lang=target_lang,
     )

@@ -12,6 +12,7 @@ import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { projectDocument } from "@/test/creatorFixtures";
 import { installMockFetch } from "@/test/mockFetch";
 import type { ProjectDocument, TaskView } from "@/contracts/creator";
+import i18n from "@/i18n";
 
 function cloneProject(): ProjectDocument {
   return structuredClone(projectDocument);
@@ -96,10 +97,14 @@ describe("PlanPage Timeline/Element frontend", () => {
     expect(screen.getAllByText("20s").length).toBeGreaterThan(0);
     expect(screen.getByText("16:9")).toBeInTheDocument();
     expect(screen.getByText("6 项内容")).toBeInTheDocument();
-    expect(screen.getByText(/6 轨/)).toHaveTextContent("可上下滚动");
-    expect(
-      container.querySelector('[class~="max-h-[320px]"]'),
-    ).toBeInTheDocument();
+    // The transition renders as a junction badge, and both fixture
+    // overlays carry copy (styled captions stay captions), so the rows
+    // are ai/clip/subtitle/audio = 4 tracks and no vertical scrolling is
+    // needed.
+    expect(screen.getByText(/4 轨/)).not.toHaveTextContent("可上下滚动");
+    // Four lanes fit without the scroll viewport, so the capped
+    // max-height wrapper must not be rendered.
+    expect(container.querySelector('[class~="max-h-[320px]"]')).toBeNull();
     expect(screen.getAllByText("午饭名场面").length).toBeGreaterThan(0);
     expect(screen.getByText("分镜描述")).toBeInTheDocument();
     expect(screen.getByDisplayValue("暖色餐厅窗外的橘猫")).toBeInTheDocument();
@@ -129,6 +134,63 @@ describe("PlanPage Timeline/Element frontend", () => {
         .map((item) => item.getAttribute("data-element-list-item"))
         .slice(0, 2),
     ).toEqual(["edit-opening", "audio-bgm"]);
+  });
+
+  it("shows visual Variant and artifact coverage for referenced entities", () => {
+    renderPage();
+
+    expect(screen.getByText("视觉覆盖 1/1")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("视觉覆盖 1/1"));
+    expect(screen.getByText("圆润大橘猫")).toBeInTheDocument();
+    expect(screen.getByText("覆盖完成")).toBeInTheDocument();
+    expect(screen.getByText(/使用中 · 1 个产物/)).toBeInTheDocument();
+  });
+
+  it("exposes ambiguous multi-Variant bindings before storyboard admission", () => {
+    const project = cloneProject();
+    const cat = project.visual.entities.items.cat;
+    cat.variants.items["variant:cat:winter"] = {
+      variant_id: "variant:cat:winter",
+      requirements: "冬季围巾造型",
+      prompt: "圆润大橘猫，佩戴红色围巾",
+      reference_asset_version_ids: [],
+      reference_artifact_version_ids: [],
+      generated_artifact_version_ids: [],
+      selected_artifact_version_id: null,
+    };
+    cat.variants.order.push("variant:cat:winter");
+    cat.required_variant_ids.push("variant:cat:winter");
+    const element =
+      project.timelines.items["timeline:main"].elements_by_id["r2v-window"];
+    if (element.creation.type !== "r2v") {
+      throw new Error("fixture R2V Element missing");
+    }
+    element.creation.visual_variant_refs = {};
+    seedProject(project);
+    renderPage();
+
+    expect(screen.getByText("视觉覆盖 0/1")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("视觉覆盖 0/1"));
+    expect(screen.getByText("Element 未绑定 Variant")).toBeInTheDocument();
+    expect(screen.getByText("1 个 Element 未指定 Variant")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "下载 / 导出" }),
+    ).toBeInTheDocument();
+  });
+
+  it("exposes required Variant states that have not been materialized", () => {
+    const project = cloneProject();
+    project.visual.entities.items.cat.required_variant_ids.push(
+      "variant:cat:winter",
+    );
+    seedProject(project);
+    renderPage();
+
+    expect(screen.getByText("视觉覆盖 0/1")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("视觉覆盖 0/1"));
+    expect(screen.getByText("必需 Variant 尚未定义")).toBeInTheDocument();
+    expect(screen.getByText("必需 Variant 1/2")).toBeInTheDocument();
+    expect(screen.getByText("缺少：variant:cat:winter")).toBeInTheDocument();
   });
 
   it("keeps an empty Timeline guided through the Agent without an add-content button", () => {
@@ -201,7 +263,15 @@ describe("PlanPage Timeline/Element frontend", () => {
     fireEvent.pointerDown(chart, { pointerId: 1, clientX: x });
     fireEvent.pointerUp(chart, { pointerId: 1, clientX: x });
 
-    expect(screen.getByText("该时刻有 5 项内容：")).toBeInTheDocument();
+    expect(
+      container.querySelector("[data-timeline-point-candidates]"),
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector("[data-timeline-point-candidates]")?.textContent,
+    ).toContain("项内容");
+    expect(
+      container.querySelector("[data-timeline-point-candidates]")?.textContent,
+    ).toContain("5");
     expect(chart.nextElementSibling).toBe(
       container.querySelector("[data-timeline-point-candidates]"),
     );
@@ -347,7 +417,7 @@ describe("PlanPage Timeline/Element frontend", () => {
       ) as HTMLButtonElement,
     );
     await waitFor(() =>
-      expect(playhead.style.left).toBe("calc(80px + 0.05 * (100% - 92px))"),
+      expect(playhead.style.left).toBe("calc(68px + 0.05 * (100% - 68px))"),
     );
   });
 
@@ -672,7 +742,11 @@ describe("PlanPage Timeline/Element frontend", () => {
     expect(container.querySelector("[data-compose-progress]")).toHaveStyle({
       width: "0%",
     });
-    expect(screen.queryByText(/%/)).not.toBeInTheDocument();
+    // The zoom control legitimately shows "100%"; only the compose button must
+    // avoid inventing a percentage.
+    expect(
+      screen.getByRole("button", { name: "合成中 · 0/10" }),
+    ).not.toHaveTextContent(/%/);
     unmount();
   });
 
@@ -749,7 +823,7 @@ describe("PlanPage Timeline/Element frontend", () => {
     expect(screen.getByRole("button", { name: "应用修改" })).toBeDisabled();
   });
 
-  it("commits detail edits through the schema-v2 Project CAS Patch endpoint", async () => {
+  it("commits detail edits through the Project CAS Patch endpoint", async () => {
     const updated = cloneProject();
     updated.generation = 4;
     updated.timelines.items["timeline:main"].elements_by_id[
@@ -801,5 +875,126 @@ describe("PlanPage Timeline/Element frontend", () => {
         "timeline:main"
       ].elements_by_id["r2v-window"].label,
     ).toBe("新的午饭名场面");
+  });
+
+  it("derives the playhead panel content from timeline + playheadTick", async () => {
+    seedProject();
+    renderPage();
+    const header = () =>
+      (screen.getByText(/^时间点:/).textContent ?? "").replace(/\s+/g, "");
+    // 0s: the opening clip and BGM are active without any click.
+    expect(header()).toContain("时间点:0s");
+    const atZero = header();
+    expect(atZero).not.toContain("0项内容");
+
+    // Keyboard End moves the playhead; the panel must follow (this used to
+    // keep showing the stale click-time list).
+    fireEvent.keyDown(document.body, { key: "End" });
+    await waitFor(() => expect(header()).toContain("时间点:20s"));
+    expect(header()).toContain("0项内容");
+
+    fireEvent.keyDown(document.body, { key: "Home" });
+    await waitFor(() => expect(header()).toBe(atZero));
+    // Rendered once on the track and once in the playhead content list.
+    expect(screen.getAllByText("开场 · 晨光中的小猫")).toHaveLength(2);
+
+    // A span edit landing in the snapshot re-derives the same panel: after
+    // shrinking the opening clip to 0–3s, the 5s playhead no longer lists it.
+    for (let step = 0; step < 5; step += 1) {
+      fireEvent.keyDown(document.body, { key: "ArrowRight" });
+    }
+    await waitFor(() => expect(header()).toContain("时间点:5s"));
+    expect(screen.getAllByText("开场 · 晨光中的小猫")).toHaveLength(2);
+    act(() => {
+      const project = cloneProject();
+      project.timelines.items["timeline:main"].elements_by_id[
+        "edit-opening"
+      ].span.duration_tick = 3000;
+      useProjectSnapshotStore.setState({ project });
+    });
+    // The track block stays; the stale entry leaves the playhead list.
+    await waitFor(() =>
+      expect(screen.getAllByText("开场 · 晨光中的小猫")).toHaveLength(1),
+    );
+  });
+
+  it("drops an explicit selection as soon as the playhead moves", async () => {
+    seedProject();
+    const { container } = renderPage();
+    const header = () =>
+      (screen.getByText(/^(时间点:|已选择)/).textContent ?? "").replace(
+        /\s+/g,
+        "",
+      );
+
+    // Clicking a clip pins an explicit selection and seeks to its start.
+    fireEvent.click(
+      container.querySelector(
+        '[data-element-block="r2v-window"]',
+      ) as HTMLButtonElement,
+    );
+    await waitFor(() => expect(header()).toContain("已选择"));
+    expect(header()).toContain("1项内容");
+
+    // Home must clear the pinned list and re-derive 0s content — the panel
+    // can never keep describing the previously clicked clip.
+    fireEvent.keyDown(document.body, { key: "Home" });
+    await waitFor(() => expect(header()).toContain("时间点:0s"));
+    expect(header()).not.toContain("已选择");
+    expect(header()).not.toContain("1项内容");
+    expect(screen.getAllByText("开场 · 晨光中的小猫").length).toBeGreaterThan(
+      1,
+    );
+  });
+
+  it("labels lane and range selections as selections, never as playhead content", async () => {
+    seedProject();
+    const { container } = renderPage();
+    const header = () =>
+      (screen.getByText(/^(时间点:|已选择)/).textContent ?? "").replace(
+        /\s+/g,
+        "",
+      );
+    const summary = () =>
+      (
+        container.querySelector("[data-timeline-playhead-summary]")
+          ?.textContent ?? ""
+      ).replace(/\s+/g, "");
+    // The canvas summary always derives from the playhead (0s here).
+    // #90 fixed the badge to one interpolated timeline.itemsCount
+    // message, so the derived text is "0s·{count}项内容".
+    const derivedAtZero = summary();
+    expect(derivedAtZero).toContain("0s·");
+    expect(derivedAtZero).toContain("2项内容");
+
+    // Whole-lane click: pinned selection semantics, not "active at 0s".
+    fireEvent.click(
+      container.querySelector('[title*="点击选取整行"]') as HTMLElement,
+    );
+    await waitFor(() => expect(header()).toContain("已选择"));
+    expect(header()).not.toContain("时间点");
+    // The top summary must keep the derived playhead count on the same
+    // screen — never adopt the pinned selection count.
+    expect(summary()).toBe(derivedAtZero);
+    const dot = document.querySelector('[title="已选择"]');
+    expect(dot).toBeInTheDocument();
+    expect(document.querySelector('[title="当前时刻活跃"]')).toBeNull();
+
+    // Shift range selection keeps the same selection semantics.
+    const chart = container.querySelector("[data-timeline-chart]")!;
+    installTimelineRect(chart);
+    const x1 = 80 + ((1000 - 92) * 2) / 20;
+    const x2 = 80 + ((1000 - 92) * 9) / 20;
+    fireEvent.pointerDown(chart, { pointerId: 9, clientX: x1, shiftKey: true });
+    fireEvent.pointerMove(chart, { pointerId: 9, clientX: x2 });
+    fireEvent.pointerUp(chart, { pointerId: 9, clientX: x2 });
+    await waitFor(() => expect(header()).toContain("已选择"));
+    expect(header()).not.toContain("时间点");
+    expect(summary()).toBe(derivedAtZero);
+
+    // Any playhead motion falls back to derived playhead content.
+    fireEvent.keyDown(document.body, { key: "Home" });
+    await waitFor(() => expect(header()).toContain("时间点:0s"));
+    expect(summary()).toBe(derivedAtZero);
   });
 });

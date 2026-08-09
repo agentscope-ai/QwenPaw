@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Unit tests for Feishu QR Code Auth Handler."""
+"""Unit tests for Feishu and DingTalk QR Code Auth Handlers."""
 # pylint: disable=redefined-outer-name,protected-access
 from __future__ import annotations
 
@@ -23,6 +23,16 @@ def feishu_handler():
     )
 
     return FeishuQRCodeAuthHandler()
+
+
+@pytest.fixture
+def dingtalk_handler():
+    """Create DingTalk handler instance."""
+    from qwenpaw.app.channels.qrcode_auth_handler import (
+        DingtalkQRCodeAuthHandler,
+    )
+
+    return DingtalkQRCodeAuthHandler()
 
 
 @pytest.fixture
@@ -236,6 +246,157 @@ class TestFeishuQRCodeAuthHandler:
 
             assert exc.value.status_code == 502
             assert "status check failed" in str(exc.value.detail)
+
+
+class TestDingtalkQRCodeAuthHandler:
+    """Tests for DingtalkQRCodeAuthHandler."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", ["APPROVING", "SUCCESS"])
+    async def test_poll_status_returns_credentials_once_issued(
+        self,
+        dingtalk_handler,
+        mock_request,
+        mock_httpx_client,
+        status,
+    ):
+        """Credentials should be accepted regardless of the status name.
+
+        DingTalk issues them at ``APPROVING`` (org approval still
+        pending) as well as at ``SUCCESS``.
+        """
+        response = _mock_response(
+            {
+                "errcode": 0,
+                "errmsg": "ok",
+                "status": status,
+                "client_id": "ding6qfjtrjlehq3rmee",
+                "client_secret": "secret-value",
+                "robot_code": "ding6qfjtrjlehq3rmee",
+                "mode": "STREAM",
+            },
+        )
+
+        with patch("httpx.AsyncClient", mock_httpx_client(response)):
+            result = await dingtalk_handler.poll_status(
+                "device_123",
+                mock_request,
+            )
+
+        assert result.status == "success"
+        assert result.credentials == {
+            "client_id": "ding6qfjtrjlehq3rmee",
+            "client_secret": "secret-value",
+        }
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", ["WAITING", "BRAND_NEW"])
+    async def test_poll_status_without_credentials_keeps_waiting(
+        self,
+        dingtalk_handler,
+        mock_request,
+        mock_httpx_client,
+        status,
+    ):
+        """Known and unknown pending statuses should keep polling."""
+        response = _mock_response(
+            {"errcode": 0, "errmsg": "ok", "status": status},
+        )
+
+        with patch("httpx.AsyncClient", mock_httpx_client(response)):
+            result = await dingtalk_handler.poll_status(
+                "device_123",
+                mock_request,
+            )
+
+        assert result.status == "waiting"
+        assert result.credentials == {}
+
+    @pytest.mark.asyncio
+    async def test_poll_status_null_credentials_keeps_waiting(
+        self,
+        dingtalk_handler,
+        mock_request,
+        mock_httpx_client,
+    ):
+        """JSON null must not become the literal string "None"."""
+        response = _mock_response(
+            {
+                "errcode": 0,
+                "errmsg": "ok",
+                "status": "WAITING",
+                "client_id": None,
+                "client_secret": None,
+            },
+        )
+
+        with patch("httpx.AsyncClient", mock_httpx_client(response)):
+            result = await dingtalk_handler.poll_status(
+                "device_123",
+                mock_request,
+            )
+
+        assert result.status == "waiting"
+        assert result.credentials == {}
+
+    @pytest.mark.asyncio
+    async def test_poll_status_partial_credentials_keeps_waiting(
+        self,
+        dingtalk_handler,
+        mock_request,
+        mock_httpx_client,
+    ):
+        """A half-filled payload must not be written back."""
+        response = _mock_response(
+            {
+                "errcode": 0,
+                "errmsg": "ok",
+                "status": "SUCCESS",
+                "client_id": "ding6qfjtrjlehq3rmee",
+                "client_secret": "",
+            },
+        )
+
+        with patch("httpx.AsyncClient", mock_httpx_client(response)):
+            result = await dingtalk_handler.poll_status(
+                "device_123",
+                mock_request,
+            )
+
+        assert result.status == "waiting"
+        assert result.credentials == {}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "status,expected_status",
+        [("FAIL", "fail"), ("EXPIRED", "expired")],
+    )
+    async def test_poll_status_terminal_failures(
+        self,
+        dingtalk_handler,
+        mock_request,
+        mock_httpx_client,
+        status,
+        expected_status,
+    ):
+        """Terminal failures should stop polling and keep the reason."""
+        response = _mock_response(
+            {
+                "errcode": 0,
+                "errmsg": "ok",
+                "status": status,
+                "fail_reason": "user denied",
+            },
+        )
+
+        with patch("httpx.AsyncClient", mock_httpx_client(response)):
+            result = await dingtalk_handler.poll_status(
+                "device_123",
+                mock_request,
+            )
+
+        assert result.status == expected_status
+        assert result.credentials == {"fail_reason": "user denied"}
 
 
 class TestQRCodeAuthHandlerRegistry:

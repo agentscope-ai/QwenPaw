@@ -38,18 +38,21 @@ FILE_AGENT_PROMPT_SPECS = {
             "creator_agent.system.txt",
             "project_id",
             "workspace_schema",
+            "tts_guidance",
         ),
         _spec(
             "source_intelligence_agent.system",
             "source_intelligence_agent.system.txt",
             "project_id",
             "workspace_schema",
+            "memory_guidance",
         ),
         _spec(
             "visual_development_agent.system",
             "visual_development_agent.system.txt",
             "project_id",
             "workspace_schema",
+            "tts_guidance",
         ),
         _spec(
             "r2v_generation_director.system",
@@ -65,6 +68,7 @@ FILE_AGENT_PROMPT_SPECS = {
             "workspace_schema",
             "content_type",
             "target_duration_seconds",
+            "tts_guidance",
         ),
     )
 }
@@ -115,10 +119,18 @@ def render_creator_system_prompt(
         )
 
         workspace_schema = build_project_schema_prompt().text
+    # Mirrors the specialist-side dynamic injection: the delegator learns that
+    # narration exists exactly when the tools do, and learns that a character
+    # voice is a prerequisite exactly when the configured model needs one.
+    from services.file_agent_runtime.prompts.tts_guidance import (
+        delegator_guidance,
+    )
+
     return render_file_agent_prompt(
         "creator_agent.system",
         project_id=project_id,
         workspace_schema=workspace_schema,
+        tts_guidance=delegator_guidance(),
     )
 
 

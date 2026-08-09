@@ -41,10 +41,7 @@ async function executePluginScript(entryUrl: string): Promise<void> {
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  // A plugin can be reinstalled without changing its declared entry path.
-  // Always request the current bundle so an already-open Console does not
-  // revive a browser-cached, older plugin UI on its next reload.
-  const response = await fetch(entryUrl, { headers, cache: "no-store" });
+  const response = await fetch(entryUrl, { headers });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} for ${entryUrl}`);
   }

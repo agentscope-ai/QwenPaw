@@ -1,5 +1,6 @@
 import { getApiUrl, clearAuthToken } from "./config";
 import { buildAuthHeaders } from "./authHeaders";
+import { getLoginHref, isLoginPath } from "../utils/navigationMode";
 
 function getErrorMessageFromBody(
   text: string,
@@ -122,8 +123,8 @@ export async function request<T = unknown>(
       if (!response.ok) {
         if (response.status === 401) {
           clearAuthToken();
-          if (window.location.pathname !== "/login") {
-            window.location.href = "/login";
+          if (!isLoginPath(window.location.pathname)) {
+            window.location.href = getLoginHref(window.location);
           }
           throw new Error("Not authenticated");
         }

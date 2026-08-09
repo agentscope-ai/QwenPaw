@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 import errno
 import hashlib
+import logging
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -27,6 +28,8 @@ from typing import BinaryIO, Final
 from uuid import uuid4
 
 from .models import AssetIndex, IndexedFile
+
+logger = logging.getLogger("qwenpaw.creator.project_files.assets")
 
 
 DEFAULT_CHUNK_SIZE: Final = 4 * 1024 * 1024
@@ -370,6 +373,12 @@ class AssetFileStore:
             os.close(source_dir_fd)
             os.close(target_dir_fd)
 
+        logger.info(
+            "asset published: uri=%s size=%d sha256=%s",
+            PurePosixPath(*parts).as_posix(),
+            actual_size,
+            actual_sha256[:16],
+        )
         return PublishedAsset(
             relative_uri=PurePosixPath(*parts).as_posix(),
             sha256=actual_sha256,

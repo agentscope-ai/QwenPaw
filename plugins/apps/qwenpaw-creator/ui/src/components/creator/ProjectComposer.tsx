@@ -1,4 +1,5 @@
 import { Button, Input, Modal, Select, Tooltip } from "antd";
+import { useTranslation } from "react-i18next";
 import {
   EyeOutlined,
   PictureOutlined,
@@ -34,6 +35,7 @@ interface ProjectComposerProps {
 }
 
 export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
+  const { t } = useTranslation();
   const launch = useProjectLaunch({ onLaunched: onClose });
   const {
     projectName,
@@ -86,10 +88,10 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
           <div>
             <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--color-text-primary)]">
               <Film className="h-5 w-5 text-[var(--color-accent)]" />
-              把目标、素材和限制交给 Agent
+              {t("home.delegateToAgent")}
             </h2>
             <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
-              资料输入是一次性的启动动作。进入项目后，它们会变成可管理、可引用、可追踪的项目资产。
+              {t("home.delegateToAgentDesc")}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -97,7 +99,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
               {MODES.map((mode) => (
                 <Tooltip
                   key={mode.key}
-                  title={mode.enabled ? undefined : "即将推出"}
+                  title={mode.enabled ? undefined : t("home.comingSoon")}
                 >
                   <button
                     type="button"
@@ -119,7 +121,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
                 type="button"
                 onClick={onClose}
                 className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)]"
-                aria-label="关闭"
+                aria-label={t("common.close")}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -131,7 +133,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
             style and the UI terminology throughout. */}
         <div className="mt-4 flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] font-medium text-[var(--color-text-tertiary)]">
-            视频场景
+            {t("home.projectScenario")}
           </span>
           {SCENARIO_OPTIONS.map((option) => (
             <button
@@ -144,13 +146,13 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
                   : "border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)]"
               }`}
             >
-              {option.label}
+              {t(option.labelKey)}
             </button>
           ))}
           {!isVideoEdit && (
             <div className="ml-auto flex items-center gap-2">
               <Select
-                aria-label="分辨率"
+                aria-label={t("home.resolution")}
                 size="small"
                 value={resolution}
                 onChange={setResolution}
@@ -172,7 +174,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
                 }}
               />
               <Select
-                aria-label="宽高比"
+                aria-label={t("home.aspectRatio")}
                 size="small"
                 value={aspectRatio}
                 onChange={setAspectRatio}
@@ -221,14 +223,16 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
           <Input
             value={projectName}
             onChange={(e) => setProjectName(e.target.value)}
-            placeholder={`项目名称（选填，留空则取目标描述前 ${AUTO_PROJECT_NAME_LENGTH} 字）`}
+            placeholder={t("home.modelName", {
+              count: AUTO_PROJECT_NAME_LENGTH,
+            })}
             className="!rounded-none !border-x-0 !border-t-0 !bg-transparent !text-sm !font-semibold !shadow-none focus:!shadow-none"
           />
           <TextArea
             value={projectDescription}
             onChange={(e) => setProjectDescription(e.target.value)}
             autoSize={{ minRows: 5, maxRows: 12 }}
-            placeholder={"目标描述：" + SCENARIO_TERMS[scenario].description}
+            placeholder={t(SCENARIO_TERMS[scenario].descriptionKey)}
             className="!border-none !bg-transparent !p-4 !text-sm !shadow-none focus:!shadow-none"
           />
 
@@ -249,7 +253,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
                       type="button"
                       onClick={() => removeAttachment(att.id)}
                       className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-[var(--color-border)]"
-                      aria-label="移除附件"
+                      aria-label={t("home.removeAttachment")}
                     >
                       <X className="h-2.5 w-2.5" />
                     </button>
@@ -268,7 +272,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
               className="flex flex-wrap items-center gap-2 border-t border-[var(--color-warning)]/30 bg-[var(--color-warning-soft)]/40 px-3 py-2 text-left transition-colors hover:bg-[var(--color-warning-soft)]/70"
             >
               <span className="text-[11px] font-medium text-[var(--color-warning)]">
-                必选模型未配置：
+                {t("home.requiredModelNotConfigured")}
               </span>
               {missingRequiredModels!.map((type) => {
                 const meta = {
@@ -296,7 +300,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
                 );
               })}
               <span className="ml-auto text-[11px] font-semibold text-[var(--color-accent)]">
-                点击配置 →
+                {t("home.clickToConfigure")}
               </span>
             </button>
           )}
@@ -309,7 +313,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
                 onClick={() => fileInputRef.current?.click()}
                 className="!text-xs !text-[var(--color-text-secondary)]"
               >
-                添加文件
+                {t("home.addFile")}
               </Button>
               <input
                 ref={fileInputRef}
@@ -328,7 +332,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
                 onClick={() => folderInputRef.current?.click()}
                 className="!text-xs !text-[var(--color-text-secondary)]"
               >
-                选择文件夹
+                {t("home.selectFolder")}
               </Button>
               <input
                 ref={folderInputRef}
@@ -349,7 +353,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
                   value={urlDraft}
                   onChange={(e) => setUrlDraft(e.target.value)}
                   onPressEnter={addUrl}
-                  placeholder="粘贴 URL 后回车"
+                  placeholder={t("home.pasteUrlAndEnterShort")}
                   className="!max-w-[240px] !border-none !bg-transparent !text-xs !shadow-none"
                 />
               </div>
@@ -363,14 +367,15 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
                 onClick={handleLaunch}
                 className="!flex !items-center !gap-1.5 !font-semibold"
               >
-                启动 Agent
+                {t("home.launchAgent")}
               </Button>
             </Tooltip>
           </div>
           {isVideoEdit && (
             <div className="flex flex-wrap items-center gap-1.5 border-t border-[var(--color-border)] px-3 py-2">
               <span className="text-[11px] font-medium text-[var(--color-text-tertiary)]">
-                内容类型<sup className="text-[var(--color-accent)]">*</sup>
+                {t("home.contentType")}
+                <sup className="text-[var(--color-accent)]">*</sup>
               </span>
               {CONTENT_TYPE_OPTIONS.map((option) => (
                 <button
@@ -383,7 +388,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
                       : "border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)]"
                   }`}
                 >
-                  {option.label}
+                  {t(option.labelKey)}
                 </button>
               ))}
             </div>
@@ -392,7 +397,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
 
         <p className="mt-3 flex items-center gap-1.5 text-[11px] text-[var(--color-text-tertiary)]">
           <FileText className="h-3 w-3" />
-          附件将进入资产库「用户上传」分类。
+          {t("home.attachmentsGoToAssets")}
         </p>
       </div>
       <ModelConfigModal

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
 from typing import Any
 
@@ -248,8 +249,9 @@ def _authorization_view(
     scope = dict(record.scope or {})
     scope.setdefault("operation", record.operation)
     scope.setdefault("message", record.summary)
-    billing = scope.get("billing")
-    currency = billing.get("currency") if isinstance(billing, dict) else None
+    # Legacy records may still carry a billing block; it is no longer
+    # surfaced — local price tables go stale and mislead.
+    scope.pop("billing", None)
     return {
         "id": record.authorization_id,
         "transactionId": record.round_id,
@@ -261,8 +263,6 @@ def _authorization_view(
         "authorizationToken": record.authorization_token,
         "provider": record.requested_provider or "creator-tool",
         "model": record.requested_model or "configured",
-        "estimatedCost": record.estimated_cost,
-        "currency": currency,
         "maxCandidates": record.requested_candidates or 1,
         "createdAt": record.created_at.isoformat(),
     }
@@ -367,7 +367,45 @@ async def cancel_task(
         )
 
         file_r2v_execution_service(services).notify_terminal_task(task)
+    elif task.kind is TaskKind.IMAGE_GENERATION:
+        # An accepted (billed) image provider task may be under background
+        # supervision; cancelling must stop it before it publishes.
+        from services.media_files.image_execution import (
+            file_image_execution_service,
+        )
+
+        file_image_execution_service(services).notify_terminal_task(task)
     return _task_view(task)
+
+
+_logger = logging.getLogger(__name__)
+
+
+def _timeline_has_text_overlays_without_motion(
+    services: CreatorFileServices,
+    project_id: str,
+    timeline_id: str,
+) -> bool:
+    """Return True when any text overlay on the timeline lacks motion design.
+
+    The AI Editing Director is expected to call ``design_motion_overlays``
+    after creating text overlays; when it skips that step the compose pipeline
+    falls back to static bubble templates with no animation.  This check lets
+    the render route auto-trigger motion design before composing.
+    """
+    from services.project_files.models import OverlayCreation
+
+    snapshot = services.projects.read(project_id)
+    timeline = snapshot.project.timelines.items.get(timeline_id)
+    if timeline is None:
+        return False
+    return any(
+        element.enabled
+        and isinstance(element.creation, OverlayCreation)
+        and element.creation.text.strip()
+        and element.creation.motion is None
+        for element in timeline.elements_by_id.values()
+    )
 
 
 @router.post(
@@ -463,6 +501,31 @@ async def render_timeline(
 
         async def drive() -> None:
             try:
+                if _timeline_has_text_overlays_without_motion(
+                    services,
+                    project_id,
+                    timeline_id,
+                ):
+                    from services.media_files.motion_design import (
+                        design_motion_overlays,
+                    )
+
+                    try:
+                        await design_motion_overlays(
+                            services,
+                            project_id=project_id,
+                            target_ref=target_ref,
+                            arguments={},
+                            idempotency_key=(f"auto-motion-design:{task_id}"),
+                        )
+                    except Exception:
+                        _logger.warning(
+                            "auto design_motion_overlays failed for %s; "
+                            "compose will use fallback static templates",
+                            target_ref,
+                            exc_info=True,
+                        )
+
                 await execute_file_local_media_command(
                     services,
                     project_id=project_id,
@@ -476,6 +539,13 @@ async def render_timeline(
             except BaseException:
                 # The execution service persists terminal failure details on
                 # the durable Task; clients observe them through task polling.
+                _logger.error(
+                    "compose failed project=%s timeline=%s task=%s",
+                    project_id,
+                    timeline_id,
+                    task_id,
+                    exc_info=True,
+                )
                 return
 
         background = asyncio.create_task(

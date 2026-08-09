@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Integration tests for /api/workspace/coding-project/* (Sprint 4.3).
+"""Integration tests for /api/workspace/project-directory/* (Sprint 4.3).
 
 Target router: src/qwenpaw/app/routers/coding_project.py (8 routes, 0 cov)
 
 Coverage strategy (happy path first):
   - GET (root): read the active coding dir metadata (no side effects).
   - POST /create: create a fresh project, then GET /list + GET (root)
-    reflect it (create also persists ``coding_mode.project_dir`` to
+    reflect it (create also persists ``project_dir`` to
     agent.json and activates the project).
   - POST /import-local: copy a real source dir (seeded under working_dir)
     into coding_projects/ and verify files landed + project activated.
@@ -22,7 +22,7 @@ SSE; out of scope for CI (documented in the Sprint 4.3 decision log).
 
 State note:
   /create, /import-local, /upload-zip, and PUT all persist
-  ``coding_mode.project_dir`` and thus change ``get_coding_dir`` for
+  ``project_dir`` and thus change ``get_agent_project_dir`` for
   subsequent requests. app_server is module-scoped, so tests that mutate
   the active project reset it back to the workspace default via
   ``PUT {"path": null}`` in a finally block to keep tests independent.
@@ -32,6 +32,7 @@ No LLM / external network deps required.
 from __future__ import annotations
 
 import io
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -41,7 +42,7 @@ from helpers import default_http_timeout
 
 _HTTP_TIMEOUT = default_http_timeout(15.0)
 
-_CP = "/api/workspace/coding-project"
+_CP = "/api/workspace/project-directory"
 
 
 # ================================================================== #
@@ -54,7 +55,7 @@ def _workspace_dir(app_server) -> Path:
 
 
 def _reset_project(app_server) -> None:
-    """Reset the active coding project back to the workspace default."""
+    """Reset the active project directory back to the workspace default."""
     app_server.api_request(
         "PUT",
         _CP,
@@ -91,11 +92,11 @@ def test_get_project_returns_metadata(app_server) -> None:
 
     Test flow:
       1. Ensure default (reset).
-      2. GET /api/workspace/coding-project -> 200 with the documented
+      2. GET /api/workspace/project-directory -> 200 with the documented
          fields; default agent is workspace-default.
 
     API endpoints:
-      - GET /api/workspace/coding-project
+      - GET /api/workspace/project-directory
     """
     _reset_project(app_server)
     body = _get_project(app_server)
@@ -116,7 +117,7 @@ def test_list_projects_returns_list(app_server) -> None:
     """GET /list returns a JSON list (possibly empty).
 
     API endpoints:
-      - GET /api/workspace/coding-project/list
+      - GET /api/workspace/project-directory/list
     """
     assert isinstance(_list_projects(app_server), list)
 
@@ -138,9 +139,9 @@ def test_create_project_roundtrip(app_server) -> None:
       4. finally: reset to default.
 
     API endpoints:
-      - POST /api/workspace/coding-project/create
-      - GET  /api/workspace/coding-project/list
-      - GET  /api/workspace/coding-project
+      - POST /api/workspace/project-directory/create
+      - GET  /api/workspace/project-directory/list
+      - GET  /api/workspace/project-directory
     """
     name = "integ-cp-create-B"
     try:
@@ -174,15 +175,17 @@ def test_import_local_copies_source(app_server) -> None:
     """POST /import-local copies a real source dir into the project.
 
     Test flow:
-      1. Seed a source dir (under working_dir) with a marker file.
+      1. Seed a source dir (under home, required by #6487) with a marker.
       2. POST /import-local {path, name} -> 200 {path, name}.
       3. The marker file exists inside the imported project dir.
-      4. finally: reset to default.
+      4. finally: remove the seeded source + reset to default.
 
     API endpoints:
-      - POST /api/workspace/coding-project/import-local
+      - POST /api/workspace/project-directory/import-local
     """
-    src = app_server.working_dir / "integ-cp-import-src"
+    # Upstream #6487 requires the import source to live under the user's
+    # home directory, so a pytest tmp working dir cannot be used here.
+    src = Path.home() / ".qwenpaw-integ-cp-import-src"
     src.mkdir(parents=True, exist_ok=True)
     (src / "marker.txt").write_text("imported\n", encoding="utf-8")
     name = "integ-cp-import-C"
@@ -197,6 +200,7 @@ def test_import_local_copies_source(app_server) -> None:
         dest = Path(resp.json()["path"])
         assert (dest / "marker.txt").is_file(), resp.json()
     finally:
+        shutil.rmtree(src, ignore_errors=True)
         _reset_project(app_server)
 
 
@@ -217,7 +221,7 @@ def test_upload_zip_extracts_project(app_server) -> None:
       4. finally: reset to default.
 
     API endpoints:
-      - POST /api/workspace/coding-project/upload-zip
+      - POST /api/workspace/project-directory/upload-zip
     """
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
@@ -254,7 +258,7 @@ def test_browse_dirs_lists_subdirs(app_server) -> None:
       2. GET /browse-dirs?path=<parent> -> 200; both children appear.
 
     API endpoints:
-      - GET /api/workspace/coding-project/browse-dirs
+      - GET /api/workspace/project-directory/browse-dirs
     """
     parent = app_server.working_dir / "integ-cp-browse"
     (parent / "alpha").mkdir(parents=True, exist_ok=True)
@@ -290,8 +294,8 @@ def test_put_set_then_reset_project(app_server) -> None:
          the workspace default again.
 
     API endpoints:
-      - PUT /api/workspace/coding-project
-      - GET /api/workspace/coding-project
+      - PUT /api/workspace/project-directory
+      - GET /api/workspace/project-directory
     """
     target = app_server.working_dir / "integ-cp-put-target"
     target.mkdir(parents=True, exist_ok=True)
@@ -328,7 +332,7 @@ def test_create_empty_name_returns_400(app_server) -> None:
     """POST /create with a blank name -> 400.
 
     API endpoints:
-      - POST /api/workspace/coding-project/create
+      - POST /api/workspace/project-directory/create
     """
     resp = app_server.api_request(
         "POST",
@@ -346,7 +350,7 @@ def test_create_invalid_name_returns_400(app_server) -> None:
     """POST /create with a path-like name -> 400 invalid name.
 
     API endpoints:
-      - POST /api/workspace/coding-project/create
+      - POST /api/workspace/project-directory/create
     """
     resp = app_server.api_request(
         "POST",
@@ -364,7 +368,7 @@ def test_import_local_missing_path_returns_400(app_server) -> None:
     """POST /import-local with a nonexistent source -> 400.
 
     API endpoints:
-      - POST /api/workspace/coding-project/import-local
+      - POST /api/workspace/project-directory/import-local
     """
     resp = app_server.api_request(
         "POST",
@@ -385,7 +389,7 @@ def test_browse_dirs_missing_path_returns_400(app_server) -> None:
     """GET /browse-dirs with a nonexistent path -> 400.
 
     API endpoints:
-      - GET /api/workspace/coding-project/browse-dirs
+      - GET /api/workspace/project-directory/browse-dirs
     """
     resp = app_server.api_request(
         "GET",

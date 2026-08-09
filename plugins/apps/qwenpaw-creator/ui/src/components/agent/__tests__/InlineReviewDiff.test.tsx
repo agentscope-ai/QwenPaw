@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { matchReviewOperations } from "../InlineReviewDiff";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import InlineReviewDiff, { matchReviewOperations } from "../InlineReviewDiff";
 import type {
   FileProjectReviewOperation,
   FileProjectReviewRecord,
 } from "@/contracts/creator";
+import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 
 function operation(
   overrides: Partial<FileProjectReviewOperation>,
@@ -46,6 +48,10 @@ function review(
     ...overrides,
   };
 }
+
+afterEach(() => {
+  useFileProjectReviewStore.getState().reset();
+});
 
 describe("matchReviewOperations", () => {
   it("matches an operation whose pointer equals the field pointer", () => {
@@ -131,5 +137,30 @@ describe("matchReviewOperations", () => {
       "/strategy/creative_brief",
     );
     expect(matches).toHaveLength(0);
+  });
+
+  it("collects rejection intent before submitting an inline undo", async () => {
+    const current = review([operation({})]);
+    const decide = vi.fn(async () => current);
+    useFileProjectReviewStore.setState({
+      projectId: "project-1",
+      reviews: [current],
+      decisionInFlight: false,
+      decide,
+    });
+    render(<InlineReviewDiff pointer="/strategy/creative_brief" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "撤销该修改" }));
+    expect(decide).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "仅撤销" }));
+
+    await waitFor(() =>
+      expect(decide).toHaveBeenCalledWith(
+        "project-1",
+        "review-1",
+        [{ operation_id: "operation-1", decision: "REJECT" }],
+        { action: "UNDO_ONLY" },
+      ),
+    );
   });
 });
