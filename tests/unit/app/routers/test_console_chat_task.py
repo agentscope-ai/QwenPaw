@@ -9,6 +9,7 @@ import stat
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, AsyncGenerator
 
 import pytest
@@ -84,8 +85,12 @@ def _install_hook(fork: _Fork, tmp_path: Path, body: str) -> None:
 
 
 class _ChatManager:
-    async def get_or_create_chat(self, *args: Any, **kwargs: Any) -> object:
-        return object()
+    async def get_or_create_chat(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(id="test-chat", meta={})
 
 
 class _ConsoleChannel:
@@ -110,8 +115,11 @@ class _ChannelManager:
 
 
 class _Workspace:
-    chat_manager = _ChatManager()
-    channel_manager = _ChannelManager()
+    def __init__(self, workspace_dir: Path) -> None:
+        self.agent_id = "test-agent"
+        self.workspace_dir = workspace_dir
+        self.chat_manager = _ChatManager()
+        self.channel_manager = _ChannelManager()
 
 
 @pytest.fixture(autouse=True)
@@ -130,9 +138,13 @@ async def _submit_forked_task(
     timeout: float | None = None,
 ) -> tuple[str, asyncio.Task]:
     async def _get_workspace(_request):
-        return _Workspace()
+        return _Workspace(Path(worktree))
 
     monkeypatch.setattr(console, "get_agent_for_request", _get_workspace)
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        lambda _agent_id: SimpleNamespace(project_dir=None),
+    )
     request_context = {
         "fork_project_dir": str(worktree),
         "fork_worktree_branch": branch,
