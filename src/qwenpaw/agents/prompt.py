@@ -40,6 +40,15 @@ DRIVER_POLICY_RECHECK_HINT = (
     "result."
 )
 
+APPROVAL_DESCRIPTION_HINT = (
+    "When a tool call may require human approval, always fill the required "
+    "`description` field with one short sentence explaining the purpose "
+    "of the action for the user. Write it in the current conversation "
+    "language (use Chinese for a Chinese conversation). Keep it concise "
+    "and user-facing; do not paste the raw command or sensitive parameters "
+    "into the description."
+)
+
 
 class PromptConfig:
     """Configuration for system prompt building."""
@@ -531,6 +540,11 @@ def build_driver_policy_recheck_hint() -> str:
     return DRIVER_POLICY_RECHECK_HINT
 
 
+def build_approval_description_hint() -> str:
+    """Build guidance for model-authored approval descriptions."""
+    return APPROVAL_DESCRIPTION_HINT
+
+
 def format_multimodal_hint(model_info, _model_name: str) -> str:
     """Format the multimodal hint string for the system prompt."""
     if model_info.supports_image or model_info.supports_video:
@@ -554,6 +568,7 @@ __all__ = [
     "build_bootstrap_guidance",
     "build_multimodal_hint",
     "build_driver_policy_recheck_hint",
+    "build_approval_description_hint",
     "format_multimodal_hint",
     "get_active_model_supports_multimodal",
     "get_model_supports_image",

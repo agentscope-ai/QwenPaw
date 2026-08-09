@@ -11,6 +11,7 @@ const { Text } = Typography;
 export interface ApprovalCardProps {
   requestId: string;
   toolName: string;
+  description?: string;
   toolSource?: string;
   severity: string;
   findingsCount: number;
@@ -37,6 +38,7 @@ export interface ApprovalCardProps {
 export function ApprovalCard({
   requestId,
   toolName,
+  description,
   toolSource,
   severity,
   findingsCount,
@@ -214,6 +216,15 @@ export function ApprovalCard({
             {toolName}
           </Text>
         </div>
+
+        {description ? (
+          <div className={styles.infoRow}>
+            <Text className={styles.label}>
+              {t("approval.purpose", "Purpose")}:
+            </Text>
+            <Text className={styles.descriptionValue}>{description}</Text>
+          </div>
+        ) : null}
 
         <div className={styles.infoRow}>
           <Text className={styles.label}>

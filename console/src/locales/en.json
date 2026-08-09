@@ -3259,6 +3259,7 @@
     "ownerAgent": "Owner Agent",
     "executingAgent": "Executing Agent",
     "tool": "Tool",
+    "purpose": "Purpose",
     "severity": "Severity",
     "findings": "Findings",
     "parameters": "Parameters",

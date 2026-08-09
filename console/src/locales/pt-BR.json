@@ -3062,6 +3062,7 @@
   "approval": {
     "title": "Seguranca Approval Obrigatorio",
     "tool": "Tool",
+    "purpose": "Finalidade",
     "severity": "Severity",
     "findings": "Findings",
     "parameters": "Parameters",

@@ -3007,6 +3007,7 @@
   "approval": {
     "title": "セキュリティ承認が必要です",
     "tool": "ツール",
+    "purpose": "目的",
     "severity": "重要度",
     "findings": "検出件数",
     "parameters": "パラメータ",

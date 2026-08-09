@@ -122,9 +122,10 @@ class TestResolveRequestStashesScope:
 class _FakePending:
     """Minimal stand-in exposing ``extra`` + ``tool_name`` for display."""
 
-    def __init__(self, display: dict | None) -> None:
+    def __init__(self, display: dict | None, description: str = "") -> None:
         self.extra = {"display": display} if display is not None else {}
         self.tool_name = "Bash"
+        self.description = description
 
 
 class TestApprovalDisplayFields:
@@ -135,12 +136,14 @@ class TestApprovalDisplayFields:
             {
                 "tool_name": "Bash",
                 "tool_source": "No rule hit",
+                "description": "Check the repository status.",
                 "exact_target": "git status",
                 "similar_target": "git *",
                 "is_generalized": True,
             },
         )
         fields = approval_display_fields(pending)
+        assert fields["description"] == "Check the repository status."
         assert fields["exact_target"] == "git status"
         assert fields["similar_target"] == "git *"
         assert fields["is_generalized"] is True
@@ -168,6 +171,16 @@ class TestApprovalDisplayFields:
         assert fields["similar_target"] == ""
         assert fields["tool_display_name"] == "Bash"
         assert fields["tool_source"] == "No rule hit"
+
+    def test_pending_description_is_used_without_display_metadata(self):
+        fields = approval_display_fields(
+            _FakePending(
+                None, "Inspect the requested file before editing it."
+            ),
+        )
+        assert fields["description"] == (
+            "Inspect the requested file before editing it."
+        )
 
 
 class TestToolGuardResultUnchanged:

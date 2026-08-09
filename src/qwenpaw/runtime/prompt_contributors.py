@@ -357,6 +357,19 @@ class DriverPolicyHintContributor(SyncPromptContributor):
         return rendered or None
 
 
+class ApprovalDescriptionContributor(SyncPromptContributor):
+    """Require a concise purpose when the model requests approval."""
+
+    name = "approval_description"
+    priority = 87
+
+    def contribute_sync(self, ctx: "HookContext") -> str | None:
+        del ctx
+        from ..agents.prompt import build_approval_description_hint
+
+        return build_approval_description_hint()
+
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
@@ -367,6 +380,7 @@ _ALL_CONTRIBUTORS = (
     MultimodalHintContributor,
     CodingModeContributor,
     ScrollContextContributor,
+    ApprovalDescriptionContributor,
     DriverPolicyHintContributor,
     EnvContextContributor,
 )
@@ -389,6 +403,7 @@ __all__ = [
     "MultimodalHintContributor",
     "CodingModeContributor",
     "ScrollContextContributor",
+    "ApprovalDescriptionContributor",
     "DriverPolicyHintContributor",
     "EnvContextContributor",
     "build_default_prompt_manager",

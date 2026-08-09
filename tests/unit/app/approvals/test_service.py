@@ -122,6 +122,7 @@ async def test_create_pending_stores_record_and_severity_from_result():
         agent_id="agent-A",
         tool_name="Bash",
         result=_make_result("Bash", severity=GuardSeverity.HIGH),
+        description="Check the repository status before making changes.",
     )
 
     assert pending.request_id  # uuid4
@@ -131,6 +132,9 @@ async def test_create_pending_stores_record_and_severity_from_result():
     assert pending.agent_id == "agent-A"
     assert pending.severity == "HIGH"
     assert pending.findings_count == 1
+    assert pending.description == (
+        "Check the repository status before making changes."
+    )
     assert pending.status == "pending"
     assert pending.scope is None
     # Stored under the request_id and retrievable.
@@ -166,6 +170,7 @@ async def test_create_pending_summary_propagates_summary_fields():
         name="driver:http:Bash",
         severity="high",
         findings_count=3,
+        description="Run the requested shell operation.",
         result_summary="requires approval for invoke.",
         payload={"display": {"tool_name": "Bash"}},
     )
@@ -181,6 +186,7 @@ async def test_create_pending_summary_propagates_summary_fields():
     assert pending.tool_name == "driver:http:Bash"
     assert pending.severity == "high"
     assert pending.findings_count == 3
+    assert pending.description == "Run the requested shell operation."
     assert pending.result_summary == "requires approval for invoke."
     # source_type and payload are merged into extra, extra overrides payload.
     assert pending.extra["source_type"] == "driver_policy"

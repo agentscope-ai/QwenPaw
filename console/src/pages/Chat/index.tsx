@@ -120,6 +120,7 @@ interface ApprovalMessageData {
   rootSessionId?: string;
   agentId: string;
   toolName: string;
+  description?: string;
   toolSource?: string;
   severity: string;
   findingsCount: number;
@@ -1705,6 +1706,7 @@ export default function ChatPage() {
         rootSessionId: approval.root_session_id,
         agentId: approval.agent_id,
         toolName: approval.tool_name,
+        description: approval.description,
         toolSource: approval.tool_source,
         severity: approval.severity,
         findingsCount: approval.findings_count,
@@ -3612,6 +3614,7 @@ export default function ChatPage() {
               requestId={request.requestId}
               agentId={request.agentId}
               toolName={request.toolName}
+              description={request.description}
               toolSource={request.toolSource}
               severity={request.severity}
               findingsCount={request.findingsCount}

@@ -232,6 +232,7 @@ export interface QwenPawChatNamespace {
           rootSessionId?: string;
           agentId: string;
           toolName: string;
+          description?: string;
           severity: string;
           findingsCount: number;
           findingsSummary: string;

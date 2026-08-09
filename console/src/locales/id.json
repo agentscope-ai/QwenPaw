@@ -1709,6 +1709,7 @@
     "ownerAgent": "Agen Pemilik",
     "executingAgent": "Agen yang Mengeksekusi",
     "tool": "Alat",
+    "purpose": "Tujuan",
     "severity": "Tingkat Keparahan",
     "findings": "Temuan",
     "parameters": "Parameter",

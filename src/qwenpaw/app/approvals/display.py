@@ -18,6 +18,11 @@ def approval_display_fields(pending: Any) -> dict[str, Any]:
     if not isinstance(display, dict):
         display = {}
     return {
+        "description": str(
+            display.get("description")
+            or getattr(pending, "description", "")
+            or "",
+        ),
         "tool_display_name": str(
             display.get("tool_name") or pending.tool_name,
         ),

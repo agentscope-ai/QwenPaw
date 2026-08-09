@@ -29,6 +29,42 @@ class ApprovalScope(str, Enum):
     SIMILAR = "similar"  # record the generalized pattern
 
 
+def build_approval_description(
+    tool_name: str,
+    *,
+    requested_description: str | None = None,
+    language: str | None = None,
+    max_length: int = 240,
+) -> str:
+    """Return a concise, user-facing purpose for an approval request.
+
+    Callers may provide the model's short purpose through request context.
+    Older callers do not have that field, so the fallback stays generic and
+    avoids exposing a raw command as the approval summary.
+    """
+    description = " ".join(str(requested_description or "").split())
+    if description:
+        if len(description) > max_length:
+            description = description[: max_length - 3].rstrip() + "..."
+        return description
+
+    name = " ".join(str(tool_name or "tool").split()) or "tool"
+    language_key = str(language or "en").lower().replace("_", "-")
+    if language_key.startswith("zh"):
+        return f"使用 {name} 完成当前任务。"
+    if language_key.startswith("ja"):
+        return f"現在のタスクを完了するために {name} を使用します。"
+    if language_key.startswith("ru"):
+        return f"Использовать {name} для выполнения текущей задачи."
+    if language_key.startswith("pt"):
+        return f"Usar {name} para concluir a tarefa atual."
+    if language_key.startswith("id"):
+        return f"Gunakan {name} untuk menyelesaikan tugas saat ini."
+    if language_key.startswith("vi"):
+        return f"Dùng {name} để hoàn thành tác vụ hiện tại."
+    return f"Use {name} to complete the current task."
+
+
 def format_findings_summary(
     result: "ToolGuardResult",
     *,

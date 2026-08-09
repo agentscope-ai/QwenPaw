@@ -250,6 +250,10 @@ class AgentBuilder:
         agent_id = getattr(ctx, "agent_id", None) or "default"
         agent_config = load_agent_config(agent_id)
         request_context = self._build_request_context(ctx)
+        request_context.setdefault(
+            "language",
+            str(getattr(agent_config, "language", None) or "zh"),
+        )
         agent_config = self._apply_request_project(
             agent_config,
             request_context,

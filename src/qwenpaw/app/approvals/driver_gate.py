@@ -9,7 +9,10 @@ from ...drivers.errors import (
     DriverPermissionDeniedError,
 )
 from ...drivers.policy import DriverInvocationContext
-from ...security.tool_guard.approval import ApprovalDecision
+from ...security.tool_guard.approval import (
+    ApprovalDecision,
+    build_approval_description,
+)
 
 from .models import ApprovalRequestSummary
 
@@ -74,6 +77,18 @@ class QwenPawDriverApprovalGate:
                 name=driver_label,
                 severity="medium",
                 findings_count=1,
+                description=build_approval_description(
+                    display_tool_name,
+                    requested_description=(
+                        str(
+                            ctx.get("approval_description")
+                            or ctx.get("description")
+                            or "",
+                        )
+                        or result_summary
+                    ),
+                    language=ctx.get("language") or ctx.get("lang"),
+                ),
                 result_summary=result_summary,
             ),
             timeout_seconds=TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,

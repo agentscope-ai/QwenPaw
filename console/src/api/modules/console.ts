@@ -40,6 +40,7 @@ export interface PendingApproval {
   owner_agent_id?: string;
   agent_id: string;
   tool_name: string;
+  description?: string;
   tool_display_name?: string;
   tool_source?: string;
   severity: string;

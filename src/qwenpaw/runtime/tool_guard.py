@@ -341,6 +341,7 @@ async def _ask_user_approval(
     from ..constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
     from ..security.tool_guard.approval import (
         ApprovalDecision,
+        build_approval_description,
         format_findings_summary,
     )
 
@@ -369,6 +370,13 @@ async def _ask_user_approval(
         tool_name=tool_name,
         result=guard_result,
         timeout_seconds=TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+        description=build_approval_description(
+            tool_name,
+            requested_description=(
+                ctx.get("approval_description") or ctx.get("description")
+            ),
+            language=ctx.get("language") or ctx.get("lang"),
+        ),
         extra={
             "tool_call": {
                 "id": tool_call_id,

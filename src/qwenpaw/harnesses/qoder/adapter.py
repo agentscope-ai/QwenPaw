@@ -529,6 +529,7 @@ class QoderAdapter(HarnessAdapter):
             source_type="qoder",
             name=context.display_name or context.title or tool_name,
             severity="high" if tool_name == "Bash" else "medium",
+            description=detail,
             result_summary=detail,
             payload={
                 "provider": "qoder",

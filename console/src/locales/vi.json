@@ -995,6 +995,7 @@
     "denySuccess": "Đã từ chối",
     "expired": "Yêu cầu đã hết hạn",
     "tool": "Công cụ",
+    "purpose": "Mục đích",
     "arguments": "Tham số",
     "approvePattern": "Luôn Cho Phép",
     "strictModeHint": "Luôn cho phép không khả dụng trong chế độ nghiêm ngặt",

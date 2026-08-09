@@ -588,6 +588,7 @@ class CodexAdapter(HarnessAdapter):
             source_type="codex",
             name=name,
             severity="high" if is_command or is_permissions else "medium",
+            description=detail,
             result_summary=detail,
             payload={
                 "provider": "codex",

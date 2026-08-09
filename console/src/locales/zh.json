@@ -3277,6 +3277,7 @@
     "ownerAgent": "归属Agent",
     "executingAgent": "执行Agent",
     "tool": "工具",
+    "purpose": "用途",
     "severity": "严重性",
     "findings": "发现",
     "parameters": "参数",
