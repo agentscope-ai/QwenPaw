@@ -581,9 +581,9 @@ async def test_auto_memory_search_uses_reranker(manager):
     # Reranked: first result should be doc-2 (index 2 promoted by reranker)
     assert result is not None
     first_result = resp.metadata["results"][0]
-    assert first_result["text"] == "t2", (
-        f"expected t2 at position 0, got {first_result['text']}"
-    )
+    assert (
+        first_result["text"] == "t2"
+    ), f"expected t2 at position 0, got {first_result['text']}"
 
     # Capped: only 2 results
     assert (
