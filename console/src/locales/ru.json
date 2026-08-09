@@ -2414,7 +2414,7 @@
       "language": "Язык",
       "theme": "Тема",
       "mode": "Режим",
-      "enterDesktopMode": "Перейти в режим рабочего стола"
+      "desktopMode": "Режим рабочего стола"
     },
     "desktopModeHint": {
       "title": "Попробуйте режим рабочего стола",

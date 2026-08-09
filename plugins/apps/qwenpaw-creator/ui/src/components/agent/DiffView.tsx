@@ -7,6 +7,8 @@
  * longest-common-subsequence walk — small review payloads never need more.
  */
 
+import { useTranslation } from "react-i18next";
+
 type DiffLineKind = "context" | "added" | "removed";
 
 interface DiffLine {
@@ -90,11 +92,12 @@ export default function DiffView({
   before: unknown;
   after: unknown;
 }) {
+  const { t } = useTranslation();
   const lines = diffLines(toLines(before), toLines(after));
   if (lines.length === 0) {
     return (
       <p className="rounded-md bg-[var(--color-bg-secondary)] p-2 text-[10px] text-[var(--color-text-tertiary)]">
-        （无内容变化）
+        {t("lib.noContentChanges")}
       </p>
     );
   }

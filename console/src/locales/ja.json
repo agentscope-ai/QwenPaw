@@ -2399,7 +2399,7 @@
       "language": "言語",
       "theme": "テーマ",
       "mode": "モード",
-      "enterDesktopMode": "デスクトップモードに入る"
+      "desktopMode": "デスクトップモード"
     },
     "desktopModeHint": {
       "title": "デスクトップモードを試す",

@@ -85,12 +85,13 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     }
   }, [defaultExpanded]);
 
-  const showGear = content.status === "calling" && !!sessionId;
+  const isExecuting = content.status === "calling" && !inputProgress;
+  const showGear = isExecuting && !!sessionId;
 
   const control = useToolCallControl(
     sessionId,
     content.id,
-    content.status,
+    isExecuting,
     content.name || title,
   );
 

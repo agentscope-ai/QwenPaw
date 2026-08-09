@@ -9,21 +9,31 @@ import {
 import { Clock3, ImageOff, Loader2 } from "lucide-react";
 import type {
   ElementLocationDocument,
+  MotionGraphicDocument,
   ProjectDocument,
   TaskView,
   TimelineDocument,
 } from "@/contracts/creator";
+import {
+  fetchMotionDocument,
+  getMotionDocumentPosterUrl,
+} from "@/api/creator/media";
 import type { ElementPlayback } from "@/selectors/elementPlaybackSelectors";
 import {
   ELEMENT_PLAYBACK_STATUS_LABEL,
   playbackLayersInWindow,
   transitionOpacityAtTick,
 } from "@/selectors/elementPlaybackSelectors";
-import { resolveElementVisualMeta } from "@/selectors/timelineElementSelectors";
+import {
+  overlayContentKind,
+  resolveElementVisualMeta,
+} from "@/selectors/timelineElementSelectors";
 import {
   InterviewSummaryBox,
   PetOsBubble,
 } from "@/components/timeline/OverlayCopyLayer";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
 
 interface TimelineLivePreviewProps {
   project: ProjectDocument;
@@ -39,6 +49,16 @@ interface TimelineLivePreviewProps {
 
 /** Max allowed drift (seconds) between a video layer and the playhead before pulling it back. */
 const DRIFT_TOLERANCE_SECONDS = 0.3;
+/** Looser drift bound while playing: decode hiccups recover on their own and
+ * every correction seek makes the element report `seeking`, so aggressive
+ * pull-backs caused visible "locating frame" flashes mid-playback. */
+const PLAYING_DRIFT_TOLERANCE_SECONDS = 0.75;
+/** Minimum spacing between correction seeks on one element while playing. */
+const PLAYING_SEEK_INTERVAL_MS = 1_000;
+/** A transiently incomplete frame (seek/buffer on an already-complete
+ * composite) keeps showing the last painted frame this long before the
+ * opaque notice takes over. Cold starts still cover immediately. */
+const INCOMPLETE_NOTICE_DELAY_MS = 300;
 const RETIRED_MOTION_MOTIFS = new Set([
   "speed_lines",
   "side_eye",
@@ -88,20 +108,44 @@ function mediaTargetSeconds(
   const localSeconds =
     Math.max(0, playheadTick - layer.element.span.start_tick) / ticksPerSecond;
   let offset = localSeconds * media.playbackRate;
-  const windowSeconds =
+
+  const sourceWindowSeconds =
     media.sourceOutSeconds != null
       ? media.sourceOutSeconds - media.sourceInSeconds
       : media.durationSeconds;
-  if (media.loop && windowSeconds && windowSeconds > 0) {
-    offset %= windowSeconds;
+  const effectiveWindowSeconds = Math.min(
+    sourceWindowSeconds ?? Infinity,
+    media.durationSeconds ?? Infinity,
+  );
+
+  if (media.loop && effectiveWindowSeconds && effectiveWindowSeconds > 0) {
+    offset %= effectiveWindowSeconds;
+  } else if (effectiveWindowSeconds && offset > effectiveWindowSeconds) {
+    offset = Math.max(0, effectiveWindowSeconds - 0.033);
   }
+
   return media.sourceInSeconds + offset;
 }
 
+/**
+ * Clamp a metadata-derived seek target to what the mounted element can
+ * actually reach. Metadata duration may exceed the real decoded duration
+ * by a few frames; an unreachable target would otherwise keep the drift
+ * check failing forever and pin the "正在定位画面" notice.
+ */
+function reachableTargetSeconds(
+  target: number,
+  node: HTMLVideoElement,
+): number {
+  if (!Number.isFinite(node.duration)) return target;
+  return Math.min(target, Math.max(0, node.duration - 0.033));
+}
+
 function PlaceholderLayer({ layer }: { layer: ElementPlayback }) {
+  const { t } = useTranslation();
   const { element, status } = layer;
   const meta = resolveElementVisualMeta(element);
-  const label = ELEMENT_PLAYBACK_STATUS_LABEL[status];
+  const label = i18n.t(ELEMENT_PLAYBACK_STATUS_LABEL[status]);
   const fullFrame = isFullFrame(element.location);
   const StatusIcon =
     status === "generating" ? Loader2 : status === "queued" ? Clock3 : ImageOff;
@@ -127,7 +171,8 @@ function PlaceholderLayer({ layer }: { layer: ElementPlayback }) {
           className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
           style={{ color: meta.color, background: `${meta.color}26` }}
         >
-          {meta.label} · {status === "generating" ? "画面生成中…" : label}
+          {meta.label} ·{" "}
+          {status === "generating" ? t("livePreview.generating") : label}
         </span>
         {status === "generating" && (
           <div className="agent-working-shimmer mt-1 h-1 w-32 rounded-full bg-white/15" />
@@ -173,7 +218,8 @@ function TextOverlayLayer({
       className="absolute"
       style={locationBoxStyle(element.location)}
     >
-      {element.creation.overlay_kind === "pet_os" ? (
+      {element.creation.vibe !== "summary" &&
+      element.creation.overlay_kind !== "interview_summary" ? (
         <PetOsBubble
           text={element.creation.text}
           vibe={element.creation.vibe}
@@ -243,6 +289,56 @@ function pawTrailCompatibilityCss(): string {
   return "[data-motion-motif=paw_trail] .p4,[data-motion-motif=paw_trail] .p5{display:none!important}[data-motion-motif=paw_trail] .toe{width:20%!important;height:20%!important}[data-motion-motif=paw_trail] .t1{left:2%!important;top:28%!important}[data-motion-motif=paw_trail] .t2{left:27%!important;top:7%!important}[data-motion-motif=paw_trail] .t3{left:auto!important;right:27%!important;top:3%!important}[data-motion-motif=paw_trail] .t4{left:auto!important;right:2%!important;top:24%!important}[data-motion-motif=paw_trail] .p1,[data-motion-motif=paw_trail] .p2,[data-motion-motif=paw_trail] .p3{opacity:0;animation:qwenpaw-paw-appear .36s cubic-bezier(.2,.85,.2,1) forwards!important}[data-motion-motif=paw_trail] .p1{animation-delay:.08s!important}[data-motion-motif=paw_trail] .p2{animation-delay:.38s!important}[data-motion-motif=paw_trail] .p3{animation-delay:.68s!important}[data-motion-motif=alert_mark] .bar{top:29%!important;height:29%!important}[data-motion-motif=alert_mark] .dot{left:45%!important;top:62%!important;width:10%!important}@keyframes qwenpaw-paw-appear{0%{opacity:0}100%{opacity:1}}";
 }
 
+function hasMotionDocument(
+  motion: MotionGraphicDocument | null | undefined,
+): motion is MotionGraphicDocument {
+  return Boolean(motion && (motion.html || motion.html_file_id));
+}
+
+/** Stable content identity for one motion document (inline or externalized). */
+function motionDocumentKey(motion: MotionGraphicDocument): string {
+  return motion.html_file_id ?? motion.html ?? "";
+}
+
+function motionMotif(
+  motion: MotionGraphicDocument,
+  html: string | null,
+): string | undefined {
+  if (typeof motion.motif === "string" && motion.motif) return motion.motif;
+  return html ? motionDataSetting(html, "motif") : undefined;
+}
+
+/** Resolve the document body: inline directly, externalized via fetch. */
+function useMotionDocumentHtml(motion: MotionGraphicDocument | null): {
+  html: string | null;
+  failed: boolean;
+} {
+  const inline = motion?.html ?? null;
+  const fileId = motion?.html_file_id ?? null;
+  const [fetched, setFetched] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (inline || !fileId) return undefined;
+    let cancelled = false;
+    setFetched(null);
+    setFailed(false);
+    fetchMotionDocument(fileId)
+      .then((text) => {
+        if (!cancelled) setFetched(text);
+      })
+      .catch(() => {
+        // Fail open: an unreachable externalized body must release the
+        // readiness gate instead of pinning the preview notice forever.
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fileId, inline]);
+  if (inline) return { html: inline, failed: false };
+  return { html: fileId ? fetched : null, failed };
+}
+
 function MotionOverlayLayer({
   layer,
   playheadTick,
@@ -259,12 +355,26 @@ function MotionOverlayLayer({
   onVisualReadyChange: (visualKey: string, ready: boolean) => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const { t } = useTranslation();
   const { element } = layer;
   const motion =
     element.creation.type === "overlay" ? element.creation.motion : null;
+  // js-timeline documents never execute in the preview (the iframe
+  // sandbox forbids scripts and vendored runtimes cannot resolve from
+  // srcDoc); a backend-rendered settled poster stands in instead, and
+  // readiness comes from that real image load. Inline html_js bodies
+  // cannot exist in committed Projects (the schema rejects them), so
+  // the poster is the only html_js preview surface.
+  const isJsTimeline = motion?.format === "html_js";
+  const posterFileId = isJsTimeline ? motion?.html_file_id ?? null : null;
+  const [posterFailed, setPosterFailed] = useState(false);
+  const { html, failed: htmlFailed } = useMotionDocumentHtml(
+    isJsTimeline ? null : motion ?? null,
+  );
   const isTextOverlay =
     element.creation.type === "overlay" &&
-    ["pet_os", "interview_summary"].includes(element.creation.overlay_kind);
+    overlayContentKind(element.creation) === "copy" &&
+    Boolean(element.creation.text.trim());
   const localTimeMs =
     (Math.max(0, playheadTick - element.span.start_tick) / ticksPerSecond) *
     1000;
@@ -273,8 +383,7 @@ function MotionOverlayLayer({
   const pausedSeekTimeMs = playing ? null : localTimeMs;
   const durationMs = (element.span.duration_tick / ticksPerSecond) * 1000;
   const exitStyle =
-    motion?.exit ??
-    (motion?.html ? motionDataSetting(motion.html, "exit") : undefined);
+    motion?.exit ?? (html ? motionDataSetting(html, "exit") : undefined);
   const exitProgress = motionExitProgress(exitStyle, localTimeMs, durationMs);
   const boxStyle = locationBoxStyle(element.location);
   const exitScale = exitStyle === "shrink" ? 1 - exitProgress * 0.18 : 1;
@@ -293,16 +402,67 @@ function MotionOverlayLayer({
   useEffect(() => {
     return () => onVisualReadyChange(visualKey, false);
   }, [onVisualReadyChange, visualKey]);
+  // A js timeline whose poster cannot be served fails closed: it
+  // renders nothing but releases the readiness gate, because the
+  // decoration is additive polish and may not hold the whole preview
+  // hostage. Its document body never renders without the seek engine.
+  useEffect(() => {
+    if (isJsTimeline && (!posterFileId || posterFailed)) {
+      onVisualReadyChange(visualKey, true);
+    }
+  }, [
+    isJsTimeline,
+    posterFileId,
+    posterFailed,
+    onVisualReadyChange,
+    visualKey,
+  ]);
+  // An externalized html_css body whose fetch failed also fails open:
+  // there is nothing to render, so it must not hold the preview hostage.
+  useEffect(() => {
+    if (!isJsTimeline && htmlFailed) {
+      onVisualReadyChange(visualKey, true);
+    }
+  }, [isJsTimeline, htmlFailed, onVisualReadyChange, visualKey]);
 
-  if (!motion?.html) return null;
-  const motif = motionDataSetting(motion.html, "motif");
+  if (!motion) return null;
+  if (isJsTimeline) {
+    if (!posterFileId || posterFailed) return null;
+    const motif = motionMotif(motion, null);
+    if (motif && RETIRED_MOTION_MOTIFS.has(motif)) return null;
+    return (
+      <img
+        data-live-motion-overlay={element.element_id}
+        data-live-motion-poster="true"
+        src={getMotionDocumentPosterUrl(
+          posterFileId,
+          Math.round(1280 * (element.location?.width ?? 1)),
+          Math.round(720 * (element.location?.height ?? 1)),
+        )}
+        alt={element.label || "动态动效"}
+        onLoad={() => onVisualReadyChange(visualKey, true)}
+        onError={() => setPosterFailed(true)}
+        className="pointer-events-none absolute border-0 bg-transparent"
+        style={{
+          ...boxStyle,
+          opacity:
+            exitStyle === "none"
+              ? baseOpacity
+              : baseOpacity * (1 - exitProgress),
+          transform: `${boxStyle.transform ?? ""} scale(${exitScale})`.trim(),
+        }}
+      />
+    );
+  }
+  if (!html) return null;
+  const motif = motionMotif(motion, html);
   if (motif && RETIRED_MOTION_MOTIFS.has(motif)) return null;
   return (
     <iframe
       ref={iframeRef}
       data-live-motion-overlay={element.element_id}
-      srcDoc={motionPreviewDocument(motion.html, isTextOverlay)}
-      title={element.label || "动态动效"}
+      srcDoc={motionPreviewDocument(html, isTextOverlay)}
+      title={element.label || t("livePreview.motionEffect")}
       // No scripts allowed; allow-same-origin exists only so the parent page
       // can sync the CSS animation timeline.
       sandbox="allow-same-origin"
@@ -326,7 +486,10 @@ function MotionOverlayLayer({
  * element's span/z_index/location without waiting for final composition.
  * Whenever any visible layer is still generating, loading or seeking, an
  * opaque full-frame notice covers the pre-mounted background layers so users
- * never see a half-assembled frame with missing layers.
+ * never see a half-assembled frame with missing layers. Once a complete
+ * frame has been painted, transient regressions (drift-correction seeks,
+ * short buffer stalls) keep the last frame on screen and only surface the
+ * notice when the gap persists beyond INCOMPLETE_NOTICE_DELAY_MS.
  */
 export default function TimelineLivePreview({
   project,
@@ -339,6 +502,7 @@ export default function TimelineLivePreview({
   onPlayheadChange,
   onPlayingChange,
 }: TimelineLivePreviewProps) {
+  const { t } = useTranslation();
   const ticksPerSecond = timeline.ticks_per_second || 1;
   const mediaRefs = useRef(new Map<string, HTMLVideoElement>());
   const imageRefs = useRef(new Map<string, HTMLImageElement>());
@@ -350,6 +514,7 @@ export default function TimelineLivePreview({
   );
   const clock = useRef<{ baseTick: number; baseTime: number } | null>(null);
   const lastEmittedTick = useRef(playheadTick);
+  const lastCorrectionSeekAt = useRef(new Map<string, number>());
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageWidth, setStageWidth] = useState(1280);
   const [stageHeight, setStageHeight] = useState(720);
@@ -462,22 +627,63 @@ export default function TimelineLivePreview({
       if (!media) return;
       const target = mediaTargetSeconds(layer, playheadTick, ticksPerSecond);
       const visible = visibleIds.has(layer.element.element_id);
+
+      // Check if playhead is beyond source material duration
+      const sourceWindowSeconds =
+        layer.media.sourceOutSeconds != null
+          ? layer.media.sourceOutSeconds - layer.media.sourceInSeconds
+          : layer.media.durationSeconds;
+      const effectiveWindowSeconds = Math.min(
+        sourceWindowSeconds ?? Infinity,
+        layer.media.durationSeconds ?? Infinity,
+      );
+      const localSeconds =
+        Math.max(0, playheadTick - layer.element.span.start_tick) /
+        ticksPerSecond;
+      const isBeyondSource = localSeconds > effectiveWindowSeconds;
+
       if (media.playbackRate !== layer.media.playbackRate) {
         media.playbackRate = layer.media.playbackRate;
       }
-      if (!visible || !playing) {
+
+      if (!visible || !playing || isBeyondSource) {
+        // Pause when beyond source duration, out of view, or not playing
         if (!media.paused) media.pause();
-        if (
+        if (visible && isBeyondSource) {
+          // Freeze on the same last-window frame the readiness check
+          // expects: mediaTargetSeconds already clamps to the window end
+          // and includes the source-in offset. Writing a bare
+          // window-relative time here (without source-in) left the
+          // element seconds away from the drift target forever.
+          const frozen = reachableTargetSeconds(target, media);
+          if (Math.abs(media.currentTime - frozen) > 0.001) {
+            media.currentTime = frozen;
+          }
+        } else if (
           !playing &&
           visible &&
-          Math.abs(media.currentTime - target) > DRIFT_TOLERANCE_SECONDS
+          Math.abs(media.currentTime - reachableTargetSeconds(target, media)) >
+            DRIFT_TOLERANCE_SECONDS
         ) {
-          media.currentTime = target;
+          media.currentTime = reachableTargetSeconds(target, media);
         }
         return;
       }
-      if (Math.abs(media.currentTime - target) > DRIFT_TOLERANCE_SECONDS) {
-        media.currentTime = target;
+      if (
+        Math.abs(media.currentTime - reachableTargetSeconds(target, media)) >
+        PLAYING_DRIFT_TOLERANCE_SECONDS
+      ) {
+        // Rate-limit correction seeks: each one flips the element into
+        // `seeking` and repeated pull-backs on a slow decoder turned into a
+        // visible stutter loop. The rAF clock keeps this effect running, so
+        // a skipped correction is retried on a later frame.
+        const now = performance.now();
+        const lastSeek =
+          lastCorrectionSeekAt.current.get(layer.element.element_id) ?? 0;
+        if (!media.seeking && now - lastSeek >= PLAYING_SEEK_INTERVAL_MS) {
+          lastCorrectionSeekAt.current.set(layer.element.element_id, now);
+          media.currentTime = reachableTargetSeconds(target, media);
+        }
       }
       if (media.paused) {
         media.play()?.catch(() => undefined);
@@ -524,7 +730,10 @@ export default function TimelineLivePreview({
 
   const anyVisible = visibleIds.size > 0;
   const semanticIncompleteLayers = useMemo(
-    () => visibleLayers.filter((layer) => layer.status !== "ready"),
+    () =>
+      visibleLayers.filter(
+        (layer) => layer.status !== "ready" && layer.status !== "stale",
+      ),
     [visibleLayers],
   );
   const visualIncompleteLayers = useMemo(
@@ -540,7 +749,10 @@ export default function TimelineLivePreview({
           return (
             Math.abs(
               node.currentTime -
-                mediaTargetSeconds(layer, playheadTick, ticksPerSecond),
+                reachableTargetSeconds(
+                  mediaTargetSeconds(layer, playheadTick, ticksPerSecond),
+                  node,
+                ),
             ) > DRIFT_TOLERANCE_SECONDS
           );
         }
@@ -551,15 +763,13 @@ export default function TimelineLivePreview({
         if (media) return true;
         if (
           element.creation.type === "overlay" &&
-          element.creation.motion?.html
+          hasMotionDocument(element.creation.motion)
         ) {
-          const motif = motionDataSetting(
-            element.creation.motion.html,
-            "motif",
-          );
+          const overlayMotion = element.creation.motion;
+          const motif = motionMotif(overlayMotion, overlayMotion.html ?? null);
           if (motif && RETIRED_MOTION_MOTIFS.has(motif)) return false;
           return !readyMotionKeys.has(
-            `${element.element_id}:${element.creation.motion.html}`,
+            `${element.element_id}:${motionDocumentKey(overlayMotion)}`,
           );
         }
         return false;
@@ -582,6 +792,36 @@ export default function TimelineLivePreview({
     ),
   ).size;
 
+  // Debounced notice: a composite that was already complete keeps its last
+  // painted frame during transient seeks/buffering instead of flashing the
+  // opaque cover for a few frames. Semantic gaps (layers still generating)
+  // and cold starts (nothing painted yet) cover immediately — a
+  // half-assembled frame must never be presented as content.
+  const hadCompleteFrame = useRef(false);
+  const [noticeVisible, setNoticeVisible] = useState(true);
+  const noticeImmediate =
+    semanticIncompleteLayers.length > 0 || !hadCompleteFrame.current;
+  useEffect(() => {
+    if (!previewIncomplete) {
+      if (anyVisible) hadCompleteFrame.current = true;
+      setNoticeVisible(false);
+      return;
+    }
+    if (noticeImmediate) {
+      setNoticeVisible(true);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setNoticeVisible(true),
+      INCOMPLETE_NOTICE_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [anyVisible, noticeImmediate, previewIncomplete]);
+  // First paint has no effect pass yet: fall back to the immediate rule so a
+  // cold start is covered from the very first frame.
+  const showIncompleteNotice =
+    previewIncomplete && (noticeVisible || noticeImmediate);
+
   return (
     <div
       data-timeline-live-preview
@@ -598,7 +838,7 @@ export default function TimelineLivePreview({
       >
         {!anyVisible && (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-white/55">
-            该时刻还没有画面内容
+            {t("livePreview.noContentYet")}
           </div>
         )}
         {layers.map((layer) => {
@@ -674,7 +914,7 @@ export default function TimelineLivePreview({
           if (status === "ready") {
             if (
               element.creation.type === "overlay" &&
-              element.creation.motion?.html
+              hasMotionDocument(element.creation.motion)
             ) {
               return (
                 <MotionOverlayLayer
@@ -683,7 +923,9 @@ export default function TimelineLivePreview({
                   playheadTick={playheadTick}
                   ticksPerSecond={ticksPerSecond}
                   playing={playing}
-                  visualKey={`${elementId}:${element.creation.motion.html}`}
+                  visualKey={`${elementId}:${motionDocumentKey(
+                    element.creation.motion,
+                  )}`}
                   onVisualReadyChange={handleMotionVisualReady}
                 />
               );
@@ -699,7 +941,7 @@ export default function TimelineLivePreview({
           }
           return <PlaceholderLayer key={elementId} layer={layer} />;
         })}
-        {previewIncomplete && (
+        {showIncompleteNotice && (
           <div
             data-live-preview-incomplete
             role="status"
@@ -709,13 +951,13 @@ export default function TimelineLivePreview({
             <Loader2 className="h-7 w-7 animate-spin text-white/75" />
             <span className="text-sm font-semibold text-white/90">
               {semanticIncompleteLayers.length > 0
-                ? "该时间点尚未渲染完成"
-                : "正在定位画面"}
+                ? t("livePreview.notRenderedYet")
+                : t("livePreview.locating")}
             </span>
             <span className="max-w-md text-xs leading-5 text-white/60">
               {semanticIncompleteLayers.length > 0
-                ? `${incompleteLayerCount} 个图层仍在生成、排队或等待重新渲染，完整画面就绪后才能预览。`
-                : "已渲染内容加载寻帧中，画面就绪后立即显示，无需重新渲染。"}
+                ? `${incompleteLayerCount} ${t("livePreview.layersGenerating")}`
+                : t("livePreview.loadingFrame")}
             </span>
           </div>
         )}

@@ -117,7 +117,7 @@ export function getAssetUnderstanding(
   versionId?: string,
 ) {
   const suffix = versionId ? `/${encodeURIComponent(versionId)}` : "";
-  return creatorRequest<Record<string, unknown>>(
+  return creatorRequest<import("@/contracts/creator").AssetUnderstandingView>(
     `${assetsPath(projectId)}/${encodeURIComponent(
       assetId,
     )}/understanding${suffix}`,

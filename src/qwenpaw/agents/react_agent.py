@@ -41,6 +41,10 @@ from ..constant import (
 from ..loop.gates import StopAction, StopHandlerResult
 from ..providers.error_utils import extract_status_code
 from ..providers.model_capability_cache import get_capability_cache
+from ..utils.tool_call_extra import (
+    collect_transient_tool_call_extras,
+    persist_tool_call_extras,
+)
 
 if TYPE_CHECKING:
     from ..agents.memory import BaseMemoryManager
@@ -240,9 +244,16 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     def _save_to_context(self, blocks: Any, usage: Any = None) -> None:
         """Append blocks, then let the context manager write them through."""
-        super()._save_to_context(blocks, usage)
+        block_list = list(blocks or [])
+        tool_call_extras = collect_transient_tool_call_extras(block_list)
+
+        super()._save_to_context(block_list, usage)
+        if tool_call_extras:
+            last_msg = self._get_last_msg()
+            if last_msg is not None and last_msg.role == "assistant":
+                persist_tool_call_extras(last_msg, tool_call_extras)
         if self._context_manager is not None:
-            self._context_manager.on_save(self, blocks)
+            self._context_manager.on_save(self, block_list)
 
     # Session persistence calls state_dict/load_state_dict on the agent;
     # these round-trip through self.state (AgentState pydantic model).

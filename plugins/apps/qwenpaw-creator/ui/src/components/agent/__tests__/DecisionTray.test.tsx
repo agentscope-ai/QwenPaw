@@ -30,8 +30,6 @@ const pendingAuthorization = {
   authorizationToken: "token-1",
   provider: "dashscope",
   model: "qwen-image-2.0-pro",
-  estimatedCost: 0.5,
-  currency: "CNY",
   maxCandidates: 1,
   createdAt: "now",
 };

@@ -216,7 +216,7 @@
       "language": "Bahasa",
       "theme": "Tema",
       "mode": "Mode",
-      "enterDesktopMode": "Masuk ke Mode Desktop"
+      "desktopMode": "Mode Desktop"
     },
     "desktopModeHint": {
       "title": "Coba Mode Desktop",
