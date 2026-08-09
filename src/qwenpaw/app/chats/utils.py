@@ -553,12 +553,16 @@ def agentscope_msg_to_message(
         ts_value = msg.timestamp
         if ts_value:
             ts_value = _normalize_msg_timestamp(ts_value, user_tz)
+        finished_at = getattr(msg, "finished_at", None)
+        if finished_at:
+            finished_at = _normalize_msg_timestamp(finished_at, user_tz)
 
         metadata = {
             "original_id": msg.id,
             "original_name": msg.name,
             "metadata": msg.metadata,
             "timestamp": ts_value,
+            "finished_at": finished_at,
         }
 
         if isinstance(msg.content, str):

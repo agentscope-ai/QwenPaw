@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import Any, AsyncGenerator
 
+from agentscope.event import ReplyEndEvent
+
 from .envelope import Envelope
 from .heartbeat import (
     _iter_with_heartbeat,
@@ -33,6 +35,22 @@ class AgentExecutor:
         self._agent = agent
         self._envelope = envelope
 
+    def _record_reply_completion(self, event: ReplyEndEvent) -> None:
+        """Apply a terminal reply event to its persisted context message."""
+        state = getattr(self._agent, "state", None)
+        context = getattr(state, "context", None)
+        if not context:
+            return
+        for message in reversed(context):
+            if getattr(message, "id", None) != event.reply_id:
+                continue
+            if (
+                getattr(message, "role", None) == "assistant"
+                and getattr(message, "finished_at", None) is None
+            ):
+                message.append_event(event)
+            return
+
     async def run(
         self,
         msgs: list[Any],
@@ -52,6 +70,9 @@ class AgentExecutor:
                 async for obj in self._envelope.heartbeat():
                     yield obj
                 continue
+
+            if isinstance(event, ReplyEndEvent):
+                self._record_reply_completion(event)
 
             async for obj in self._envelope.translate_event(event):
                 yield obj

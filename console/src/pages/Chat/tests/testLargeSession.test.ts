@@ -549,6 +549,50 @@ describe("buildUserCard / buildResponseCard helpers", () => {
     expect(data.sequence_number).toBe(13);
   });
 
+  it("buildResponseCard uses the persisted reply completion time", () => {
+    const card = buildResponseCard([
+      toOutputMessage({
+        role: "assistant",
+        content: "working",
+        metadata: {
+          timestamp: "2026-08-08T10:00:00+00:00",
+          finished_at: "2026-08-08T10:02:00+00:00",
+        },
+      }),
+      toOutputMessage({
+        role: "assistant",
+        content: "done",
+        metadata: {
+          timestamp: "2026-08-08T10:00:00+00:00",
+          finished_at: "2026-08-08T10:02:00+00:00",
+        },
+      }),
+    ]);
+    const data = card.cards![0].data as Record<string, unknown>;
+
+    expect(data.created_at).toBe(
+      Date.parse("2026-08-08T10:00:00+00:00") / 1000,
+    );
+    expect(data.completed_at).toBe(
+      Date.parse("2026-08-08T10:02:00+00:00") / 1000,
+    );
+  });
+
+  it("buildResponseCard falls back to the last persisted creation time", () => {
+    const card = buildResponseCard([
+      toOutputMessage({
+        role: "assistant",
+        content: "legacy reply",
+        metadata: { timestamp: "2026-08-08T10:00:00+00:00" },
+      }),
+    ]);
+    const data = card.cards![0].data as Record<string, unknown>;
+
+    expect(data.completed_at).toBe(
+      Date.parse("2026-08-08T10:00:00+00:00") / 1000,
+    );
+  });
+
   it("parseTimestamp handles malformed timestamps without throwing", () => {
     expect(parseTimestamp({ metadata: {} } as any)).toBe(0);
     expect(

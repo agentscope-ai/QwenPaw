@@ -155,6 +155,34 @@ def test_msg_to_message_hides_headline_in_history_path():
     assert "all set" in rendered
 
 
+def test_msg_to_message_preserves_reply_completion_time(monkeypatch):
+    monkeypatch.setattr(
+        "qwenpaw.app.chats.utils.load_config",
+        lambda: SimpleNamespace(user_timezone="UTC"),
+    )
+    msg = Msg(
+        id="reply-1",
+        name="assistant",
+        role="assistant",
+        created_at="2026-08-08T10:00:00+00:00",
+        finished_at="2026-08-08T10:02:00+00:00",
+        content=[
+            {"type": "thinking", "thinking": "working"},
+            {"type": "text", "text": "done"},
+        ],
+    )
+
+    messages = agentscope_msg_to_message(msg)
+
+    assert len(messages) == 2
+    assert {message.metadata["timestamp"] for message in messages} == {
+        "2026-08-08T10:00:00+00:00",
+    }
+    assert {message.metadata["finished_at"] for message in messages} == {
+        "2026-08-08T10:02:00+00:00",
+    }
+
+
 def test_msg_to_message_omits_tagged_scroll_memory_placeholder():
     placeholder = Msg(
         name="memory",

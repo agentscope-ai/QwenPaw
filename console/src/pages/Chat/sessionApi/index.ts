@@ -145,9 +145,12 @@ function generateId(): string {
   return `${Date.now()}-${randomBase36(9)}`;
 }
 
-/** Parse metadata.timestamp string (e.g. "2026-05-27 10:44:53.362") to unix seconds. */
-const parseTimestamp = (msg: Record<string, unknown>): number => {
-  const ts = (msg.metadata as Record<string, unknown>)?.timestamp;
+/** Parse a metadata timestamp string to unix seconds. */
+const parseTimestamp = (
+  msg: Record<string, unknown>,
+  field: "timestamp" | "finished_at" = "timestamp",
+): number => {
+  const ts = (msg.metadata as Record<string, unknown>)?.[field];
   if (!ts || typeof ts !== "string") return 0;
   const ms = new Date(ts.replace(" ", "T")).getTime();
   return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
@@ -282,7 +285,9 @@ const buildResponseCard = (
   );
 
   const firstTs = parseTimestamp(outputMessages[0]);
-  const lastTs = parseTimestamp(outputMessages[outputMessages.length - 1]);
+  const lastMessage = outputMessages[outputMessages.length - 1];
+  const lastTs = parseTimestamp(lastMessage);
+  const completedTs = parseTimestamp(lastMessage, "finished_at");
 
   const normalizedMessages = outputMessages.map((msg) => ({
     ...msg,
@@ -305,7 +310,7 @@ const buildResponseCard = (
           created_at: firstTs || fallbackNow,
           sequence_number: maxSeq + 1,
           error: null,
-          completed_at: lastTs || fallbackNow,
+          completed_at: completedTs || lastTs || fallbackNow,
           usage: turnUsage?.usage ?? null,
           context_usage: turnUsage?.context_usage ?? null,
         },
