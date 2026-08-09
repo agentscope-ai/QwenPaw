@@ -353,6 +353,99 @@ class HistoryStore:
                     )
         return inserted
 
+    def clone_session_rows(
+        self,
+        *,
+        source_session_id: str,
+        destination_session_id: str,
+    ) -> dict[int, int]:
+        """Copy one session's durable rows into an independent session.
+
+        The destination rows receive new globally unique ``seq`` values. The
+        returned mapping lets callers rebase every checkpoint pointer that
+        referenced a source row. ``dedup_key`` values are preserved because
+        they are scoped by ``session_id`` and identify the same logical live
+        messages in the copied AgentState.
+
+        The destination must be empty. All row and FTS writes happen in one
+        SQLite transaction, so a partial history clone is never observable.
+        """
+        if source_session_id == destination_session_id:
+            raise ValueError("source and destination sessions must differ")
+
+        placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
+        insert_sql = (
+            f"INSERT INTO conversation_history "
+            f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders})"
+        )
+        seq_map: dict[int, int] = {}
+
+        with self._lock, self._conn:
+            existing = self._conn.execute(
+                "SELECT 1 FROM conversation_history "
+                "WHERE session_id = ? LIMIT 1",
+                (destination_session_id,),
+            ).fetchone()
+            if existing is not None:
+                raise ValueError(
+                    "destination session already has durable history: "
+                    f"{destination_session_id}",
+                )
+
+            rows = self._conn.execute(
+                "SELECT * FROM conversation_history "
+                "WHERE session_id = ? ORDER BY seq",
+                (source_session_id,),
+            ).fetchall()
+            for row in rows:
+                values = tuple(
+                    destination_session_id
+                    if column == "session_id"
+                    else row[column]
+                    for column in _INSERT_COLUMNS
+                )
+                cur = self._conn.execute(insert_sql, values)
+                destination_seq = int(cur.lastrowid or 0)
+                source_seq = int(row["seq"])
+                seq_map[source_seq] = destination_seq
+                if self._fts and row["name"] not in _RECALL_TOOL_NAMES:
+                    self._conn.execute(
+                        "INSERT INTO conversation_history_fts(rowid, content) "
+                        "VALUES (?, ?)",
+                        (destination_seq, row["content"] or ""),
+                    )
+
+        return seq_map
+
+    def delete_session_rows(self, session_id: str) -> int:
+        """Delete every durable row owned by ``session_id``.
+
+        Used to roll back a fork whose later session-file or ChatSpec write
+        failed. The FTS external-content index is updated in the same
+        transaction. Returns the number of removed rows.
+        """
+        with self._lock, self._conn:
+            doomed = self._conn.execute(
+                "SELECT seq, content FROM conversation_history "
+                "WHERE session_id = ?",
+                (session_id,),
+            ).fetchall()
+            if not doomed:
+                return 0
+            if self._fts:
+                for row in doomed:
+                    self._conn.execute(
+                        "INSERT INTO conversation_history_fts"
+                        "(conversation_history_fts, rowid, content) "
+                        "VALUES('delete', ?, ?)",
+                        (row["seq"], row["content"] or ""),
+                    )
+            self._conn.execute(
+                "DELETE FROM conversation_history WHERE session_id = ?",
+                (session_id,),
+            )
+            return len(doomed)
+
     def update_entry(
         self,
         seq: int,

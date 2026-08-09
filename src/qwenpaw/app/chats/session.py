@@ -480,11 +480,14 @@ class SafeJSONSession:
         user_id: str = "",
         channel: str = "",
         allow_missing_source: bool = False,
+        scroll_seq_map: dict[int, int] | None = None,
     ) -> bool:
-        """Copy session state from src to dst at the raw JSON level.
+        """Copy and rebase session state from ``src`` to ``dst``.
 
-        Reads the full source session dict under path lock, then writes it
-        atomically to a new destination file under path lock.
+        Reads the full source session dict under path lock, changes the
+        AgentScope session identity to the destination, rebases Scroll's
+        durable sequence pointers, then writes the result atomically under the
+        destination path lock. Other persisted state modules are preserved.
 
         When *allow_missing_source* is True and the source file does not
         exist, writes an empty dict ``{}`` to the destination instead of
@@ -520,6 +523,27 @@ class SafeJSONSession:
                     source_missing = True
                 else:
                     raise
+
+        # A fork must own a distinct AgentScope/memory identity. Scroll's
+        # checkpoint also addresses global history.db sequence values, which
+        # must be replaced with the destination rows created by the caller.
+        agent_state = src_state.get("agent")
+        if isinstance(agent_state, dict):
+            raw_state = agent_state.get("state")
+            if isinstance(raw_state, dict):
+                raw_state["session_id"] = dst_session_id
+
+            raw_scroll = agent_state.get("scroll")
+            if isinstance(raw_scroll, dict):
+                from ...agents.context.scroll.manager import (
+                    ScrollContextManager,
+                )
+
+                agent_state["scroll"] = ScrollContextManager.rebase_checkpoint(
+                    raw_scroll,
+                    session_id=dst_session_id,
+                    seq_map=scroll_seq_map or {},
+                )
 
         # 2. Write to destination file (path lock + atomic write)
         dst_path = await run_sync_io(
