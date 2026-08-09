@@ -50,6 +50,7 @@ interface AgentTableProps {
   onDelete: (agentId: string) => void;
   onToggle: (agentId: string, currentEnabled: boolean) => void;
   onPin: (agentId: string, currentPinned: boolean) => void;
+  onHide: (agentId: string, currentHidden: boolean) => void;
   onReorder: (activeId: string, overId: string) => void;
 }
 
@@ -62,6 +63,7 @@ export function AgentTable({
   onDelete,
   onToggle,
   onPin,
+  onHide,
   onReorder,
 }: AgentTableProps) {
   const { t } = useTranslation();
@@ -244,7 +246,7 @@ export function AgentTable({
     {
       title: t("common.actions"),
       key: "actions",
-      width: 240,
+      width: 275,
       fixed: "right",
       render: (_value: unknown, record: AgentSummary) => {
         const startupInProgress =
@@ -257,6 +259,9 @@ export function AgentTable({
             : record.pinned
             ? t("agent.unpinAgent")
             : t("agent.pinAgent");
+        const hideActionLabel = record.hidden
+          ? t("agent.unhideAgent")
+          : t("agent.hideAgent");
 
         return (
           <Space>
@@ -273,6 +278,17 @@ export function AgentTable({
                   )
                 }
                 onClick={() => onPin(record.id, Boolean(record.pinned))}
+                disabled={record.id === "default"}
+                style={record.id === "default" ? disabledStyle : iconStyle}
+              />
+            </Tooltip>
+            <Tooltip title={hideActionLabel}>
+              <Button
+                type="text"
+                size="middle"
+                aria-label={hideActionLabel}
+                icon={record.hidden ? <Eye size={14} /> : <EyeOff size={14} />}
+                onClick={() => onHide(record.id, Boolean(record.hidden))}
                 disabled={record.id === "default"}
                 style={record.id === "default" ? disabledStyle : iconStyle}
               />

@@ -88,4 +88,13 @@ export const agentsApi = {
         body: JSON.stringify({ pinned }),
       },
     ),
+
+  setAgentHidden: (agentId: string, hidden: boolean) =>
+    request<{ success: boolean; agent_id: string; hidden: boolean }>(
+      `/agents/${agentId}/hide`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ hidden }),
+      },
+    ),
 };

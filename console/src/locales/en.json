@@ -755,6 +755,11 @@
     "pinSuccess": "Agent pinned",
     "unpinSuccess": "Agent unpinned",
     "pinFailed": "Failed to update pinned state",
+    "hideAgent": "Hide agent",
+    "unhideAgent": "Unhide agent",
+    "hideSuccess": "Agent hidden",
+    "unhideSuccess": "Agent unhidden",
+    "hideFailed": "Failed to update hidden state",
     "status": {
       "disabled": "Disabled",
       "pending": "Waiting to start",

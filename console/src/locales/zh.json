@@ -537,6 +537,11 @@
     "pinSuccess": "智能体已固定",
     "unpinSuccess": "智能体已取消固定",
     "pinFailed": "更新固定状态失败",
+    "hideAgent": "隐藏智能体",
+    "unhideAgent": "取消隐藏智能体",
+    "hideSuccess": "智能体已隐藏",
+    "unhideSuccess": "智能体已取消隐藏",
+    "hideFailed": "更新隐藏状态失败",
     "status": {
       "disabled": "已禁用",
       "pending": "等待启动",

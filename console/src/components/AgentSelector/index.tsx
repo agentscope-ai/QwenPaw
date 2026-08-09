@@ -70,27 +70,31 @@ export default function AgentSelector({
     void loadAgents();
   }, [loadAgents]);
 
-  const enabledAgents = useMemo(
-    () => agents.filter((agent) => agent.enabled),
+  const visibleAgents = useMemo(
+    () => agents.filter((agent) => !agent.hidden),
     [agents],
   );
+  const enabledAgents = useMemo(
+    () => visibleAgents.filter((agent) => agent.enabled),
+    [visibleAgents],
+  );
   const pinnedAgents = useMemo(
-    () => agents.filter((agent) => agent.id === "default" || agent.pinned),
-    [agents],
+    () => visibleAgents.filter((agent) => agent.id === "default" || agent.pinned),
+    [visibleAgents],
   );
   const regularEnabledAgents = useMemo(
     () =>
-      agents.filter(
+      visibleAgents.filter(
         (agent) => agent.enabled && agent.id !== "default" && !agent.pinned,
       ),
-    [agents],
+    [visibleAgents],
   );
   const regularDisabledAgents = useMemo(
     () =>
-      agents.filter(
+      visibleAgents.filter(
         (agent) => !agent.enabled && agent.id !== "default" && !agent.pinned,
       ),
-    [agents],
+    [visibleAgents],
   );
 
   const handleChange = (value: string) => {

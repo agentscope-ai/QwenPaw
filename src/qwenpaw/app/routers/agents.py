@@ -51,6 +51,7 @@ class AgentSummary(BaseModel):
     workspace_dir: str
     enabled: bool
     pinned: bool
+    hidden: bool = False
     startup_status: AgentStartupStatus
     backend: str = "qwenpaw"
     backend_capabilities: dict[str, Any] = Field(default_factory=dict)
@@ -287,6 +288,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
             "pinned",
             False,
         )
+        hidden = getattr(agent_ref, "hidden", False)
         startup_status = (
             manager.get_agent_startup_status(agent_id, enabled=enabled)
             if manager is not None
@@ -326,6 +328,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     workspace_dir=agent_ref.workspace_dir,
                     enabled=enabled,
                     pinned=pinned,
+                    hidden=hidden,
                     startup_status=startup_status,
                     backend=agent_config.backend,
                     backend_capabilities=backend_capabilities,
@@ -347,6 +350,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     workspace_dir=agent_ref.workspace_dir,
                     enabled=enabled,
                     pinned=pinned,
+                    hidden=hidden,
                     startup_status=startup_status,
                 ),
             )
@@ -427,6 +431,46 @@ async def set_agent_pinned(
         "success": True,
         "agent_id": agentId,
         "pinned": True if agentId == "default" else pinned,
+    }
+
+
+@router.patch(
+    "/{agentId}/hide",
+    summary="Hide or unhide an agent",
+    description=(
+        "Persist an agent's hidden state. Hidden agents remain enabled "
+        "and addressable via submit_to_agent but do not appear in agent "
+        "selectors."
+    ),
+)
+async def set_agent_hidden(
+    agentId: str = PathParam(...),
+    hidden: bool = Body(..., embed=True),
+) -> dict:
+    """Persist an agent's hidden state without changing enabled state."""
+    config = load_config()
+
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    if agentId == "default" and hidden:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot hide the default agent",
+        )
+
+    agent_ref = config.agents.profiles[agentId]
+    agent_ref.hidden = hidden
+    config.agents.agent_order = _display_agent_order(config)
+    save_config(config)
+
+    return {
+        "success": True,
+        "agent_id": agentId,
+        "hidden": hidden,
     }
 
 
