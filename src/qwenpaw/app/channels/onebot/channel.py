@@ -1362,8 +1362,6 @@ class OneBotChannel(BaseChannel):
             return local_path
         if not ref.startswith(("http://", "https://")):
             return None
-        if not self._media_base64:
-            return ref
 
         filename_hint = (
             seg_data.get("name")

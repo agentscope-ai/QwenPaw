@@ -5,7 +5,7 @@ Covers:
 - is_first_user_interaction
 - prepend_to_message_content
 """
-# pylint: disable=redefined-outer-name
+# pylint: disable=redefined-outer-name,protected-access
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,6 +17,10 @@ from qwenpaw.agents.utils.message_processing import (
     prepend_to_message_content,
     process_file_and_media_blocks_in_message,
 )
+from qwenpaw.app.channels.onebot.channel import OneBotChannel
+from qwenpaw.config.config import OneBotConfig
+from qwenpaw.runtime.message_convert import _request_input_to_msgs
+from qwenpaw.schemas import AudioContent, ContentType, Message, Role
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +186,57 @@ class TestPrependToMessageContent:
 
 class TestProcessAudioDataBlock:
     """P0: local AgentScope audio blocks reach transcription."""
+
+    @pytest.mark.asyncio
+    async def test_default_onebot_remote_audio_reaches_transcription(
+        self,
+        tmp_path,
+        _audio_config,
+    ):
+        async def _noop_process(_request):
+            yield  # pragma: no cover
+
+        channel = OneBotChannel.from_config(
+            _noop_process,
+            OneBotConfig(enabled=True, media_dir=str(tmp_path)),
+        )
+        assert channel._media_base64 is False
+
+        local_audio = tmp_path / "voice.mp3"
+        local_audio.write_bytes(b"ID3")
+        channel._download_remote_media = AsyncMock(
+            return_value=str(local_audio),
+        )
+        remote_audio = AudioContent(
+            type=ContentType.AUDIO,
+            data="https://cdn.example.com/voice.amr",
+        )
+
+        resolved = await channel._resolve_inbound_media(
+            [remote_audio],
+            [{"type": "record", "data": {"url": remote_audio.data}}],
+            "private",
+            {},
+        )
+
+        assert resolved[0].data == str(local_audio)
+        channel._download_remote_media.assert_awaited_once()
+
+        messages = _request_input_to_msgs(
+            [Message(role=Role.USER, content=resolved)],
+        )
+        block = messages[0].content[0]
+        assert str(block.source.url) == local_audio.resolve().as_uri()
+
+        with _mock_transcription("hello from OneBot") as transcribe:
+            await process_file_and_media_blocks_in_message(messages[0])
+
+        transcribe.assert_awaited_once_with(str(local_audio.resolve()))
+        assert len(messages[0].content) == 1
+        assert isinstance(messages[0].content[0], TextBlock)
+        assert messages[0].content[0].text == (
+            "[Voice message]: hello from OneBot"
+        )
 
     @pytest.mark.asyncio
     async def test_local_audio_is_replaced_with_transcription(

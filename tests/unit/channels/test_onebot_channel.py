@@ -16,11 +16,14 @@ from aiohttp.test_utils import make_mocked_request
 from aiohttp.web import TCPSite
 from pydantic import ValidationError
 from qwenpaw.config.config import OneBotConfig
+from qwenpaw.runtime.message_convert import _request_input_to_msgs
 from qwenpaw.schemas import (
     AudioContent,
     ContentType,
     FileContent,
     ImageContent,
+    Message,
+    Role,
     TextContent,
     VideoContent,
 )
@@ -318,7 +321,13 @@ class TestParseMessageSegments:
 
 class TestInboundMediaResolution:
     async def test_resolve_downloads_all_media_to_local_paths(self, tmp_path):
-        ch = _make_channel(media_base64=True, media_dir=str(tmp_path))
+        config = OneBotConfig(enabled=True, media_dir=str(tmp_path))
+
+        async def _noop_process(_request):
+            yield  # pragma: no cover
+
+        ch = OneBotChannel.from_config(_noop_process, config)
+        assert ch._media_base64 is False
         parts = [
             TextContent(type=ContentType.TEXT, text="see files"),
             ImageContent(
@@ -373,6 +382,30 @@ class TestInboundMediaResolution:
         assert resolved[2].data == local_paths[1]
         assert resolved[3].video_url == local_paths[2]
         assert resolved[4].file_url == local_paths[3]
+        assert ch._download_remote_media.await_count == 4
+        assert [
+            call.args[1] for call in ch._download_remote_media.await_args_list
+        ] == [
+            "image",
+            "audio",
+            "video",
+            "file",
+        ]
+
+        messages = _request_input_to_msgs(
+            [Message(role=Role.USER, content=resolved)],
+        )
+        media_blocks = messages[0].content[1:]
+        assert [str(block.source.url) for block in media_blocks] == [
+            Path(path).resolve().as_uri() for path in local_paths
+        ]
+        media_types = [block.source.media_type for block in media_blocks]
+        assert media_types[0] == "image/png"
+        assert media_types[1].startswith("audio/")
+        assert media_types[2:] == [
+            "video/mp4",
+            "application/octet-stream",
+        ]
 
     async def test_existing_local_media_is_not_downloaded(self, tmp_path):
         media_file = tmp_path / "pic.png"
@@ -885,6 +918,9 @@ class TestHandleMessageEvent:
                 },
             },
         )
+        ch._download_remote_media = AsyncMock(
+            return_value="C:/media/quoted-pic.jpg",
+        )
         enqueued: list = []
         ch._enqueue = enqueued.append
 
@@ -903,7 +939,7 @@ class TestHandleMessageEvent:
         assert content[0].text == "[Quoted message]"
         assert content[1].text == "[Quoted image message]"
         assert content[2].type == ContentType.IMAGE
-        assert content[2].image_url == "https://img.example.com/pic.jpg"
+        assert content[2].image_url == "C:/media/quoted-pic.jpg"
         assert content[3].text == "[Current message]"
         assert content[4].text == "describe it"
 
@@ -921,6 +957,9 @@ class TestHandleMessageEvent:
                 },
             },
         )
+        ch._download_remote_media = AsyncMock(
+            return_value="C:/media/quoted-raw-pic.jpg",
+        )
         enqueued: list = []
         ch._enqueue = enqueued.append
 
@@ -939,7 +978,7 @@ class TestHandleMessageEvent:
         assert content[0].text == "[Quoted message]"
         assert content[1].text == "[Quoted image message]"
         assert content[2].type == ContentType.IMAGE
-        assert content[2].image_url == "https://img.example.com/pic.jpg"
+        assert content[2].image_url == "C:/media/quoted-raw-pic.jpg"
         assert content[3].text == "[Current message]"
         assert content[4].text == "describe it"
 
@@ -963,6 +1002,9 @@ class TestHandleMessageEvent:
                 },
             },
         )
+        ch._download_remote_media = AsyncMock(
+            return_value="C:/media/quoted-voice.amr",
+        )
         enqueued: list = []
         ch._enqueue = enqueued.append
 
@@ -980,7 +1022,7 @@ class TestHandleMessageEvent:
         content = enqueued[0].input[0].content
         assert content[1].text == "[Quoted voice message]"
         assert content[2].type == ContentType.AUDIO
-        assert content[2].data == ("https://qq.example/download?file=voice")
+        assert content[2].data == "C:/media/quoted-voice.amr"
         assert content[3].text == "[Current message]"
         assert content[4].text == "what is it"
 
@@ -1006,6 +1048,9 @@ class TestHandleMessageEvent:
                 {"data": {"url": "https://files.example.com/doc.pdf"}},
             ],
         )
+        ch._download_remote_media = AsyncMock(
+            return_value="C:/media/quoted-doc.pdf",
+        )
         enqueued: list = []
         ch._enqueue = enqueued.append
 
@@ -1028,9 +1073,8 @@ class TestHandleMessageEvent:
             {"group_id": 67890, "file_id": "quoted-file-id"},
         )
         assert len(enqueued) == 1
-        assert (
-            enqueued[0].input[0].content[2].file_url
-            == "https://files.example.com/doc.pdf"
+        assert enqueued[0].input[0].content[2].file_url == (
+            "C:/media/quoted-doc.pdf"
         )
         assert enqueued[0].input[0].content[1].text == (
             "[Quoted file message: doc.pdf]"
@@ -1057,6 +1101,12 @@ class TestHandleMessageEvent:
                 },
                 {"data": {"url": "https://files.example/quoted.pdf"}},
                 {"data": {"url": "https://files.example/current.pdf"}},
+            ],
+        )
+        ch._download_remote_media = AsyncMock(
+            side_effect=[
+                "C:/media/quoted.pdf",
+                "C:/media/current.pdf",
             ],
         )
         enqueued: list = []
@@ -1089,8 +1139,8 @@ class TestHandleMessageEvent:
             {"group_id": 67890, "file_id": "current-file-id"},
         )
         content = enqueued[0].input[0].content
-        assert content[2].file_url == "https://files.example/quoted.pdf"
-        assert content[4].file_url == "https://files.example/current.pdf"
+        assert content[2].file_url == "C:/media/quoted.pdf"
+        assert content[4].file_url == "C:/media/current.pdf"
 
     async def test_unmentioned_reply_does_not_call_get_msg(self):
         ch = _make_channel(require_mention=True)
@@ -1242,7 +1292,7 @@ class TestSend:
             },
         ]
 
-    def test_normalize_media_ref_policy(self, tmp_path):
+    def test_outbound_normalize_media_ref_policy(self, tmp_path):
         image = tmp_path / "pic.png"
         image.write_bytes(b"fake")
 
