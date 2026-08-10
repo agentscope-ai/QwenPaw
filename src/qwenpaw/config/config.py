@@ -2749,7 +2749,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         AgentProfileConfig: Complete agent configuration
 
     Raises:
-        ValueError: If agent ID not found in root config
+        ConfigurationException: If agent ID not found in root config
     """
     from .utils import (
         load_config,

@@ -31,7 +31,7 @@ interface OsRouteStore {
    * Settings window (selecting the pane); everything else opens the app whose
    * route id is given. Returns true when handled.
    */
-  navigateTo: (routeId: string, path: string, replaceRouteId?: string) => void;
+  navigateTo: (routeId: string, path: string) => void;
   /** Transactional cleanup: drop deep-links for confirmed-removed apps. */
   purge: (ids: ReadonlySet<string>) => void;
 }
@@ -54,7 +54,7 @@ export const useOsRoute = create<OsRouteStore>((set) => ({
     useOsWindows.getState().open(routeId);
   },
 
-  navigateTo: (routeId, path, replaceRouteId) => {
+  navigateTo: (routeId, path) => {
     if (SETTINGS_ROUTE_IDS.has(routeId)) {
       // Settings routes live inside the aggregate System Settings window; the
       // "path" for that window is the target pane's route id.
@@ -68,9 +68,6 @@ export const useOsRoute = create<OsRouteStore>((set) => ({
         },
       }));
       useOsWindows.getState().open(SETTINGS_APP_ID);
-      if (replaceRouteId && replaceRouteId !== SETTINGS_APP_ID) {
-        useOsWindows.getState().close(replaceRouteId);
-      }
       return;
     }
     set((s) => ({
@@ -83,9 +80,6 @@ export const useOsRoute = create<OsRouteStore>((set) => ({
       },
     }));
     useOsWindows.getState().open(routeId);
-    if (replaceRouteId && replaceRouteId !== routeId) {
-      useOsWindows.getState().close(replaceRouteId);
-    }
   },
 
   purge: (ids) =>

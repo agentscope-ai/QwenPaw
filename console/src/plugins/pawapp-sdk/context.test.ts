@@ -8,10 +8,14 @@ import {
 afterEach(() => setActivePawAppId(null));
 
 describe("PawApp context", () => {
-  it("extracts app ids from classic and OS-owned paths", () => {
+  it("extracts app ids from classic console paths", () => {
     expect(getPawAppIdFromPath("/apps/office")).toBe("office");
-    expect(getPawAppIdFromPath("/os/apps/office/settings")).toBe("office");
-    expect(getPawAppIdFromPath("/console/os/apps/office")).toBe("office");
+    expect(getPawAppIdFromPath("/console/apps/office/settings")).toBe("office");
+  });
+
+  it("does not infer app context from unsupported OS subpaths", () => {
+    expect(getPawAppIdFromPath("/os/apps/office/settings")).toBe("");
+    expect(getPawAppIdFromPath("/console/os/apps/office")).toBe("");
   });
 
   it("prefers the explicit active app context", () => {
@@ -20,8 +24,8 @@ describe("PawApp context", () => {
     expect(getActivePawAppId()).toBe("office");
   });
 
-  it("falls back to the current browser path", () => {
-    window.history.replaceState({}, "", "/os/apps/reviewer");
+  it("falls back to the current classic browser path", () => {
+    window.history.replaceState({}, "", "/apps/reviewer");
     expect(getActivePawAppId()).toBe("reviewer");
   });
 });

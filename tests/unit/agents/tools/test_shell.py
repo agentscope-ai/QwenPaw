@@ -2419,6 +2419,7 @@ async def test_execute_shell_command_win32_uses_windows_host():
 async def test_non_dataclass_sandbox_config_ignored(
     monkeypatch,
     tmp_path,
+    caplog,
 ):
     """Model-supplied non-SandboxConfig value must not crash replace().
 
@@ -2427,15 +2428,28 @@ async def test_non_dataclass_sandbox_config_ignored(
     ``dataclasses.replace()`` raises ``TypeError``. The fix discards
     any non-``SandboxConfig`` value and falls through to direct
     execution.
+
+    Also verifies that a WARNING is emitted so the discard is observable
+    (not silently swallowed).
     """
+    import logging
+
     from qwenpaw.agents.tools.shell import execute_shell_command
 
     monkeypatch.setenv("SHELL", "/bin/sh")
 
-    result = await execute_shell_command(
-        "echo hello",
-        cwd=tmp_path,
-        sandbox_config={},
-    )
+    with caplog.at_level(logging.WARNING, logger="qwenpaw.agents.tools.shell"):
+        result = await execute_shell_command(
+            "echo hello",
+            cwd=tmp_path,
+            sandbox_config={},
+        )
 
     assert "hello" in result.content[0].text
+    assert any(
+        "dict" in rec.message and "discarding" in rec.message
+        for rec in caplog.records
+    ), (
+        "Expected a WARNING about discarding dict sandbox_config, "
+        f"got: {[r.message for r in caplog.records]}"
+    )
