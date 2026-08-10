@@ -199,6 +199,25 @@ fn wait_child_with_timeout(
     }
 }
 
+/// Marker pair wrapping the PATH printed by the login-shell probe: rc
+/// files may write arbitrary stdout, so only text between them is trusted.
+#[cfg(any(test, all(not(debug_assertions), target_os = "macos")))]
+const LOGIN_PATH_BEGIN: &str = "__QWENPAW_LOGIN_PATH_BEGIN__";
+#[cfg(any(test, all(not(debug_assertions), target_os = "macos")))]
+const LOGIN_PATH_END: &str = "__QWENPAW_LOGIN_PATH_END__";
+
+/// Extracts the marked PATH from raw login-shell stdout, ignoring any
+/// noise the rc files printed before or after the markers.
+#[cfg(any(test, all(not(debug_assertions), target_os = "macos")))]
+fn parse_marked_login_path(stdout: &str) -> Option<String> {
+    stdout
+        .split_once(LOGIN_PATH_BEGIN)
+        .and_then(|(_, rest)| rest.split_once(LOGIN_PATH_END))
+        .map(|(path, _)| path.trim())
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
+}
+
 /// Spawns a login+interactive shell (`$SHELL -l -i`) and captures its PATH.
 ///
 /// `-i` loads interactive rc files where nvm/mise/asdf/pyenv usually add
@@ -208,12 +227,10 @@ fn wait_child_with_timeout(
 fn resolve_login_shell_path() -> Option<String> {
     use std::time::Duration;
 
-    const TIMEOUT: Duration = Duration::from_secs(3);
-    const BEGIN: &str = "__QWENPAW_LOGIN_PATH_BEGIN__";
-    const END: &str = "__QWENPAW_LOGIN_PATH_END__";
+    const TIMEOUT: Duration = Duration::from_secs(5);
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let cmd = format!("printf '{BEGIN}%s{END}' \"$PATH\"");
+    let cmd = format!("printf '{LOGIN_PATH_BEGIN}%s{LOGIN_PATH_END}' \"$PATH\"");
     let mut child = StdCommand::new(&shell)
         .args(["-l", "-i", "-c", &cmd])
         .stdout(Stdio::piped())
@@ -229,12 +246,7 @@ fn resolve_login_shell_path() -> Option<String> {
     }
 
     let stdout = String::from_utf8(child.wait_with_output().ok()?.stdout).ok()?;
-    stdout
-        .split_once(BEGIN)
-        .and_then(|(_, rest)| rest.split_once(END))
-        .map(|(_, path)| path.trim())
-        .filter(|path| !path.is_empty())
-        .map(str::to_owned)
+    parse_marked_login_path(&stdout)
 }
 
 #[cfg(all(not(debug_assertions), windows))]
@@ -292,5 +304,38 @@ fn python_command(repo_root: &Path) -> (String, Vec<&'static str>) {
         ("python3".to_string(), vec![])
     } else {
         ("python".to_string(), vec![])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_marked_login_path, LOGIN_PATH_BEGIN, LOGIN_PATH_END};
+
+    #[test]
+    fn marked_path_is_extracted_with_noise_before_and_after_markers() {
+        let stdout = format!(
+            "profile-banner-before\n\
+             {LOGIN_PATH_BEGIN}/custom/version-manager/bin:/usr/bin:/bin{LOGIN_PATH_END}\n\
+             profile-banner-after\n"
+        );
+        assert_eq!(
+            parse_marked_login_path(&stdout).as_deref(),
+            Some("/custom/version-manager/bin:/usr/bin:/bin")
+        );
+    }
+
+    #[test]
+    fn marked_path_is_extracted_from_clean_output() {
+        let stdout = format!("{LOGIN_PATH_BEGIN}/usr/bin:/bin{LOGIN_PATH_END}");
+        assert_eq!(
+            parse_marked_login_path(&stdout).as_deref(),
+            Some("/usr/bin:/bin")
+        );
+    }
+
+    #[test]
+    fn output_without_markers_is_rejected() {
+        assert_eq!(parse_marked_login_path("profile-banner-only\n"), None);
+        assert_eq!(parse_marked_login_path(""), None);
     }
 }
