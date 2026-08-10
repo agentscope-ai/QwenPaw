@@ -42,6 +42,7 @@ ComputerUseAction = Literal[
     "drag",
     "type",
     "press_key",
+    "sequence",
     "invoke",
     "set_value",
     "wait",
@@ -49,7 +50,7 @@ ComputerUseAction = Literal[
 ]
 
 
-def _check_rate_limit() -> None:
+def _check_rate_limit(cost: int = 1) -> None:
     # The tool can be entered from more than one event loop -- the host runs
     # per-workspace loops on their own threads -- so the guard is a threading
     # lock rather than an asyncio one, which serialises only within a single
@@ -62,12 +63,49 @@ def _check_rate_limit() -> None:
         _action_times[:] = [
             value for value in _action_times if now - value < 60
         ]
-        if len(_action_times) >= _MAX_ACTIONS_PER_MINUTE:
+        if len(_action_times) + cost > _MAX_ACTIONS_PER_MINUTE:
             raise ComputerUseProtocolError(
                 "rate_limited",
                 "Computer Use rate limit exceeded; wait before continuing.",
             )
-        _action_times.append(now)
+        _action_times.extend([now] * cost)
+
+
+def _sequence_steps(steps: Any) -> list[dict[str, str]]:
+    """Validate the bounded keyboard-only sequence contract."""
+    if isinstance(steps, str):
+        try:
+            steps = json.loads(steps)
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                "sequence steps must be a JSON array.",
+            ) from error
+    if not isinstance(steps, list) or not 1 <= len(steps) <= 20:
+        raise ValueError("sequence requires 1 to 20 steps.")
+    normalized = []
+    text_length = 0
+    for index, step in enumerate(steps):
+        if not isinstance(step, Mapping):
+            raise ValueError(f"sequence step {index} must be an object.")
+        action = str(step.get("action") or "").strip().lower()
+        if action not in {"type", "press_key"}:
+            raise ValueError(f"sequence step {index} must use type or press_key.")
+        field = "text" if action == "type" else "key"
+        value = step.get(field)
+        if (
+            not isinstance(value, str)
+            or not value
+            or (action == "press_key" and not value.strip())
+        ):
+            raise ValueError(f"sequence step {index} requires non-empty {field}.")
+        if set(step) != {"action", field}:
+            raise ValueError(f"sequence step {index} accepts only action and {field}.")
+        if action == "type":
+            text_length += len(value)
+            if text_length > 512:
+                raise ValueError("sequence text is limited to 512 characters.")
+        normalized.append({"action": action, field: value})
+    return normalized
 
 
 def _without_screenshot_urls(payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -190,11 +228,14 @@ def _response(
 
 
 def _error(code: str, message: str) -> ToolChunk:
+    payload = {
+        "ok": False,
+        "error": {"code": code, "message": message},
+    }
+    if code == "user_intervention":
+        payload["requires_observe"] = True
     return _response(
-        {
-            "ok": False,
-            "error": {"code": code, "message": message},
-        },
+        payload,
         state=ToolResultState.ERROR,
     )
 
@@ -229,6 +270,7 @@ async def computer_use(
     text: str = "",
     value: str = "",
     key: str = "",
+    steps: list[dict[str, Any]] | str | None = None,
     wait_ms: int = 500,
     timeout_ms: int = 10000,
 ) -> ToolChunk:
@@ -244,7 +286,6 @@ async def computer_use(
     # tell apart, so they are reported individually rather than merged.
     # pylint: disable=too-many-return-statements
     try:
-        _check_rate_limit()
         action = str(action or "").strip().lower()
         if not action:
             raise ValueError("action is required.")
@@ -255,6 +296,7 @@ async def computer_use(
                 "panel to allow desktop automation.",
             )
         if action == "wait":
+            _check_rate_limit()
             await asyncio.sleep(max(0, min(wait_ms, 30_000)) / 1000)
             return _response(
                 {"ok": True, "action": action, "waited_ms": wait_ms},
@@ -262,6 +304,7 @@ async def computer_use(
 
         client = get_computer_use_client()
         if action == "stop":
+            _check_rate_limit()
             await client.stop_turn()
             return _response({"ok": True, "action": action})
 
@@ -284,16 +327,23 @@ async def computer_use(
             text=text,
             value=value,
             key=key,
+            steps=steps,
         )
+        if method == "sequence":
+            _check_rate_limit(len(params["steps"]))
+        else:
+            _check_rate_limit()
         result = await client.execute(
             method,
             params,
             deadline_ms=max(100, min(timeout_ms, 30_000)),
         )
-        payload = {"ok": True, "action": action, **result}
+        failed = action == "sequence" and isinstance(result.get("error"), Mapping)
+        payload = {"ok": not failed, "action": action, **result}
         return _response(
             payload,
             include_images=include_images or bool(result.get("screenshots")),
+            state=ToolResultState.ERROR if failed else ToolResultState.SUCCESS,
         )
     except ComputerUseProtocolError as error:
         return _error(error.code, str(error))
@@ -412,9 +462,11 @@ def _native_request(
         if not key:
             raise ValueError("press_key requires key.")
         return action, {"key": key}, False
+    if action == "sequence":
+        return action, {"steps": _sequence_steps(values.get("steps"))}, False
     raise ValueError(
         "Unknown action. Valid actions: list_apps, list_windows, "
         "observe_window, launch_app, close_window, click, "
         "double_click, right_click, scroll, drag, type, press_key, invoke, "
-        "set_value, wait, stop.",
+        "set_value, sequence, wait, stop.",
     )

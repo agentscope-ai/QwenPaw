@@ -26,7 +26,10 @@ use objc2_app_kit::{
 };
 use serde_json::{json, Map, Value};
 
-use super::super::state::{map_point, Observation, PendingAction, WindowInfo};
+use super::super::state::{
+    map_point, Observation, PendingAction, WindowInfo, INPUT_GUARD_GRACE_MS,
+};
+use super::super::InputStep;
 use super::accessibility_tree::{
     element_point, element_point_by_id, find_ax_window, interactive_window_at_point,
     invoke_accessibility_element, show_accessibility_menu,
@@ -309,6 +312,69 @@ pub(crate) fn press_key(
         parse_key(key).ok_or(("invalid_request", format!("Unsupported key: {key}")))?;
     let _focus_lease = set_focus(&observation.window)?;
     let source = event_source()?;
+    post_key_event(&source, keycode, flags)?;
+    Ok(json!({"applied": true}))
+}
+
+enum PreparedStep {
+    Type(String),
+    PressKey(u16, CGEventFlags),
+}
+
+pub(crate) fn input_sequence(
+    observation: &Observation,
+    steps: &[InputStep],
+) -> Result<Value, (&'static str, String)> {
+    let prepared = prepare_sequence(steps)?;
+    let _focus_lease = set_focus(&observation.window)?;
+    let source = event_source()?;
+    let mut completed = 0;
+    for step in prepared {
+        ensure_sequence_idle()?;
+        let result = match step {
+            PreparedStep::Type(text) => post_sequence_text(&source, &text),
+            PreparedStep::PressKey(keycode, flags) => post_key_event(&source, keycode, flags),
+        };
+        if let Err(error) = result {
+            if error.0 == "user_intervention" {
+                return Err(error);
+            }
+            return Ok(sequence_failure(completed, error));
+        }
+        completed += 1;
+    }
+    ensure_sequence_idle()?;
+    Ok(json!({"applied": true, "completed_steps": completed}))
+}
+
+fn prepare_sequence(steps: &[InputStep]) -> Result<Vec<PreparedStep>, (&'static str, String)> {
+    steps
+        .iter()
+        .map(|step| match step {
+            InputStep::Type(text) => Ok(PreparedStep::Type(text.clone())),
+            InputStep::PressKey(key) => parse_key(key)
+                .map(|(keycode, flags)| PreparedStep::PressKey(keycode, flags))
+                .ok_or(("invalid_request", format!("Unsupported key: {key}"))),
+        })
+        .collect()
+}
+
+fn post_sequence_text(source: &CGEventSource, text: &str) -> Result<(), (&'static str, String)> {
+    for character in text.chars() {
+        ensure_sequence_idle()?;
+        let value = character.to_string();
+        post_text_event(source, &value, true)?;
+        post_text_event(source, "", false)?;
+        std::thread::sleep(std::time::Duration::from_millis(TEXT_INPUT_INTERVAL_MS));
+    }
+    Ok(())
+}
+
+fn post_key_event(
+    source: &CGEventSource,
+    keycode: u16,
+    flags: CGEventFlags,
+) -> Result<(), (&'static str, String)> {
     let down = CGEvent::new_keyboard_event(source.clone(), keycode, true).map_err(|_| {
         (
             "input_failed",
@@ -317,7 +383,7 @@ pub(crate) fn press_key(
     })?;
     down.set_flags(flags);
     down.post(CGEventTapLocation::HID);
-    let up = CGEvent::new_keyboard_event(source, keycode, false).map_err(|_| {
+    let up = CGEvent::new_keyboard_event(source.clone(), keycode, false).map_err(|_| {
         (
             "input_failed",
             "Could not create the key event.".to_string(),
@@ -325,7 +391,29 @@ pub(crate) fn press_key(
     })?;
     up.set_flags(flags);
     up.post(CGEventTapLocation::HID);
-    Ok(json!({"applied": true}))
+    Ok(())
+}
+
+fn ensure_sequence_idle() -> Result<(), (&'static str, String)> {
+    if last_input_age_ms().is_some_and(|age| age < INPUT_GUARD_GRACE_MS) {
+        return Err((
+            "user_intervention",
+            "Recent user input was detected; observe again before continuing.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn sequence_failure(completed: usize, error: (&'static str, String)) -> Value {
+    json!({
+        "completed_steps": completed,
+        "error": {
+            "code": error.0,
+            "message": error.1,
+            "step_index": completed,
+            "outcome": "unknown",
+        },
+    })
 }
 
 /// Parse a key spec such as "cmd+shift+a" or "Return" into a virtual key code

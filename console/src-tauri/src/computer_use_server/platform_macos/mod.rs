@@ -36,7 +36,8 @@ mod window;
 pub(super) use accessibility_tree::{set_value, validate_observation, AxElement};
 pub(super) use capture::observe_window;
 pub(super) use input::{
-    click, desktop_locked, drag, invoke_element, last_input_age_ms, press_key, scroll, type_text,
+    click, desktop_locked, drag, input_sequence, invoke_element, last_input_age_ms, press_key,
+    scroll, type_text,
 };
 pub(super) use permissions::ensure_for as ensure_permissions;
 pub(super) use window::{

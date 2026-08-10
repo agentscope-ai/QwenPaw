@@ -9,6 +9,18 @@ metadata:
 
 # Computer Use
 
+## Tool Boundaries
+
+Read this Skill completely before Windows automation work, before reporting
+Computer Use unavailable, and before falling back to another Windows
+automation method. During a Computer Use workflow, do not switch to PowerShell
+UI Automation; keep Windows UI automation on the native desktop runtime.
+
+Use Computer Use when command-line tools or structured integrations are not
+enough, including tasks that require the live GUI or visual verification. Keep
+data operations on a purpose-built integration when it can complete and verify
+them.
+
 Use this tool only through its native desktop runtime. It operates on one
 approved application at a time and never accepts a free-form screen target.
 
@@ -215,8 +227,34 @@ the requested state change in the replacement observation.
 They bring that window to the foreground themselves, so do not add a click
 merely to focus the window. If a control inside the window must first be
 selected, click it, inspect the replacement observation, then type or press the
-key with that new identifier. Send the smallest useful batch and confirm what
-arrived in the replacement observation.
+key with that new identifier.
+
+Use `sequence` for deterministic keyboard input that stays in the same window
+and does not depend on an intermediate screen change. It accepts 1 to 20
+`type` or `press_key` steps, with at most 512 typed characters in total, and
+returns one replacement observation after the sequence.
+
+```json
+{
+  "action": "sequence",
+  "steps": [
+    {"action": "type", "text": "INV-001"},
+    {"action": "press_key", "key": "TAB"},
+    {"action": "type", "text": "125.50"}
+  ]
+}
+```
+
+Do not put clicks, waits, dialogs, or actions that require checking a changed
+screen into a sequence. Split at those boundaries and inspect the replacement
+observation first. `completed_steps` counts input steps dispatched by the
+runtime; it does not verify the application's business result. On a sequence
+error, inspect the replacement observation before deciding what to send next.
+After user intervention, stop and observe the window again first.
+
+Key names and shortcuts belong in `press_key`, never in `type`. If a key such
+as `F5` opens a dialog or moves focus to another interface, send it as a
+standalone action and observe the result before typing into that interface.
 
 Use `type` only when `accessibility.focused_element` identifies the intended
 editable control. A missing focus summary, a focused list, or a selected row is

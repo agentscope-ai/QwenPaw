@@ -17,10 +17,13 @@ use super::state::{Observation, PendingAction, ServerState, WindowInfo, INPUT_GU
 #[cfg(target_os = "macos")]
 use super::target_is_frontmost;
 use super::{
-    click, close_window, desktop_locked, drag, ensure_permissions, invoke_element,
+    click, close_window, desktop_locked, drag, ensure_permissions, input_sequence, invoke_element,
     last_input_age_ms, list_apps, list_windows, observe_window, press_key, resolve_window, scroll,
-    set_value, type_text, validate_observation, PROTOCOL_VERSION,
+    set_value, type_text, validate_observation, InputStep, PROTOCOL_VERSION,
 };
+
+const MAX_SEQUENCE_STEPS: usize = 20;
+const MAX_SEQUENCE_TEXT_CHARS: usize = 512;
 
 /// How recently a person must have used the keyboard or mouse for an action to
 /// be refused as racing them.
@@ -47,6 +50,7 @@ const SERVED_METHODS: &[&str] = &[
     "observe_window",
     "press_key",
     "scroll",
+    "sequence",
     "set_value",
     "type_text",
 ];
@@ -141,6 +145,11 @@ pub(super) fn dispatch_request(
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+    let sequence_steps = if method == "sequence" {
+        Some(parse_input_steps(&params)?)
+    } else {
+        None
+    };
     let meta = message
         .get("meta")
         .and_then(Value::as_object)
@@ -244,6 +253,20 @@ pub(super) fn dispatch_request(
         "scroll" => scroll(observation(state, observation_id)?, &params),
         "drag" => drag(observation(state, observation_id)?, &params),
         "press_key" => press_key(observation(state, observation_id)?, &params),
+        "sequence" => {
+            let result = input_sequence(
+                observation(state, observation_id)?,
+                sequence_steps.as_deref().unwrap_or_default(),
+            );
+            if result
+                .as_ref()
+                .err()
+                .is_some_and(|error| error.0 == "user_intervention")
+            {
+                state.invalidate_observations();
+            }
+            result
+        }
         "type_text" => type_text(observation(state, observation_id)?, &params),
         "invoke_element" => {
             let pending = state.pending_action();
@@ -289,7 +312,11 @@ pub(super) fn dispatch_request(
     // window, so the response itself carries the only identifier valid for
     // the next action. If the action removed or replaced that window, retain
     // the dispatch receipt and direct the caller to discover the new target.
-    let refreshed = refresh_after_action(state, &window);
+    let refreshed = if method == "sequence" {
+        refresh_after_sequence(state, &window)?
+    } else {
+        refresh_after_action(state, &window)
+    };
     let has_refreshed_observation = refreshed.is_some();
     let mut response = action_receipt(result, refreshed);
     if let Some(pending) = state.pending_action().filter(|pending| {
@@ -309,6 +336,78 @@ fn refresh_after_action(state: &mut ServerState, previous: &WindowInfo) -> Optio
     }
     state.settle_before_observe(current.hwnd);
     observe_window(state, &current).ok()
+}
+
+fn refresh_after_sequence(
+    state: &mut ServerState,
+    previous: &WindowInfo,
+) -> Result<Option<Value>, (&'static str, String)> {
+    let Ok(current) = resolve_window(&previous.hwnd.to_string()) else {
+        return Ok(None);
+    };
+    if current.app_id != previous.app_id {
+        return Ok(None);
+    }
+    state.settle_before_observe(current.hwnd);
+    enforce_input_guard(state)?;
+    Ok(observe_window(state, &current).ok())
+}
+
+fn parse_input_steps(
+    params: &serde_json::Map<String, Value>,
+) -> Result<Vec<InputStep>, (&'static str, String)> {
+    let steps = params
+        .get("steps")
+        .and_then(Value::as_array)
+        .filter(|steps| !steps.is_empty() && steps.len() <= MAX_SEQUENCE_STEPS)
+        .ok_or((
+            "invalid_request",
+            "steps must contain 1 to 20 input steps.".to_string(),
+        ))?;
+    let mut parsed = Vec::with_capacity(steps.len());
+    let mut text_chars = 0;
+    for (index, step) in steps.iter().enumerate() {
+        let step = step.as_object().ok_or((
+            "invalid_request",
+            format!("steps[{index}] must be an object."),
+        ))?;
+        let action = step.get("action").and_then(Value::as_str).unwrap_or("");
+        let (field, value) = match action {
+            "type" => ("text", step.get("text").and_then(Value::as_str)),
+            "press_key" => ("key", step.get("key").and_then(Value::as_str)),
+            _ => {
+                return Err((
+                    "invalid_request",
+                    format!("steps[{index}] must use type or press_key."),
+                ))
+            }
+        };
+        let value = value
+            .filter(|value| !value.is_empty() && (action == "type" || !value.trim().is_empty()))
+            .ok_or((
+                "invalid_request",
+                format!("steps[{index}] requires non-empty {field}."),
+            ))?;
+        if step.len() != 2 {
+            return Err((
+                "invalid_request",
+                format!("steps[{index}] accepts only action and {field}."),
+            ));
+        }
+        if action == "type" {
+            text_chars += value.chars().count();
+            if text_chars > MAX_SEQUENCE_TEXT_CHARS {
+                return Err((
+                    "invalid_request",
+                    "Sequence text is limited to 512 characters.".to_string(),
+                ));
+            }
+            parsed.push(InputStep::Type(value.to_string()));
+        } else {
+            parsed.push(InputStep::PressKey(value.to_string()));
+        }
+    }
+    Ok(parsed)
 }
 
 /// Keep an incomplete native edit from being crossed with another mutation.
@@ -447,6 +546,7 @@ fn changes_window_state(method: &str) -> bool {
             | "scroll"
             | "drag"
             | "press_key"
+            | "sequence"
             | "type_text"
             | "invoke_element"
             | "set_value"
@@ -484,7 +584,7 @@ fn requires_user_idle(method: &str, window: &WindowInfo) -> bool {
 fn requires_user_idle_on_mac(method: &str, target_is_frontmost: bool) -> bool {
     matches!(
         method,
-        "click" | "scroll" | "drag" | "press_key" | "type_text" | "launch_app"
+        "click" | "scroll" | "drag" | "press_key" | "sequence" | "type_text" | "launch_app"
     ) || (matches!(method, "invoke_element" | "set_value" | "close_window") && target_is_frontmost)
 }
 
@@ -509,6 +609,34 @@ mod tests {
             display_height: 100,
             accessibility_revision: None,
             elements: Default::default(),
+        }
+    }
+
+    #[test]
+    fn input_sequence_contract_is_bounded_and_keyboard_only() {
+        let value = json!({
+            "steps": [
+                {"action": "type", "text": "INV-001"},
+                {"action": "press_key", "key": "TAB"},
+            ]
+        });
+        let steps = parse_input_steps(value.as_object().unwrap()).unwrap();
+
+        assert_eq!(
+            steps,
+            vec![
+                InputStep::Type("INV-001".to_string()),
+                InputStep::PressKey("TAB".to_string()),
+            ]
+        );
+
+        for invalid in [
+            json!({"steps": []}),
+            json!({"steps": [{"action": "click", "x": 1, "y": 1}]}),
+            json!({"steps": [{"action": "type", "text": "x", "extra": true}]}),
+            json!({"steps": [{"action": "type", "text": "x".repeat(513)}]}),
+        ] {
+            assert!(parse_input_steps(invalid.as_object().unwrap()).is_err());
         }
     }
 
@@ -578,6 +706,7 @@ mod tests {
             "scroll",
             "drag",
             "press_key",
+            "sequence",
             "type_text",
             "invoke_element",
             "set_value",
@@ -623,7 +752,14 @@ mod tests {
                 "{method} must not race a user in the target app"
             );
         }
-        for method in ["click", "drag", "type_text", "press_key", "launch_app"] {
+        for method in [
+            "click",
+            "drag",
+            "type_text",
+            "press_key",
+            "sequence",
+            "launch_app",
+        ] {
             assert!(
                 requires_user_idle_on_mac(method, false),
                 "{method} must guard its foreground input"
