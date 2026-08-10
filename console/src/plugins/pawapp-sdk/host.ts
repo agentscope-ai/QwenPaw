@@ -5,7 +5,11 @@
  * which delegate to the host's existing QwenPaw namespace and APIs.
  */
 import { hostFetch } from "../hostSdk/fetch";
-import type { PawChatOptions, PawStorageApi } from "./types";
+import type {
+  PawChatOptions,
+  PawChatStreamEvent,
+  PawStorageApi,
+} from "./types";
 import { getActivePawAppId } from "./context";
 import { createApiNamespace } from "./api";
 import type { PawHostNamespace } from "./types";
@@ -24,9 +28,7 @@ export async function chat(
 ): Promise<string> {
   // Use unified route: /{appId}/... -> /api/{appId}/... via hostFetch
   const agentId =
-    options.agentId ??
-    window.QwenPaw.host?.getSelectedAgentId?.() ??
-    "default";
+    options.agentId ?? window.QwenPaw.host?.getSelectedAgentId?.() ?? "default";
   const sessionId =
     options.sessionId === undefined
       ? window.QwenPaw.host?.getCurrentSessionId?.() ?? undefined
@@ -48,6 +50,75 @@ export async function chat(
 
   const data = await res.json();
   return data.text ?? data.reply ?? "";
+}
+
+function chatRouteOptions(options: PawChatOptions) {
+  const agentId =
+    options.agentId ?? window.QwenPaw.host?.getSelectedAgentId?.() ?? "default";
+  const sessionId =
+    options.sessionId === undefined
+      ? window.QwenPaw.host?.getCurrentSessionId?.() ?? undefined
+      : options.sessionId ?? undefined;
+  return { agentId, sessionId };
+}
+
+async function* streamChatWithApi(
+  api: ReturnType<typeof createApiNamespace>,
+  message: string,
+  options: PawChatOptions = {},
+): AsyncGenerator<PawChatStreamEvent> {
+  const { agentId, sessionId } = chatRouteOptions(options);
+  for await (const event of api.events("/chat/stream", {
+    method: "POST",
+    body: {
+      message,
+      session_id: sessionId,
+      skill: options.skill,
+    },
+    query: { agent_id: agentId },
+  })) {
+    let payload: PawChatStreamEvent;
+    try {
+      payload = JSON.parse(event.data) as PawChatStreamEvent;
+    } catch (error) {
+      const invalidPayloadError = new Error(
+        "PawApp chat stream returned invalid JSON",
+      ) as Error & { cause?: unknown };
+      invalidPayloadError.cause = error;
+      throw invalidPayloadError;
+    }
+
+    if (payload.type === "error") {
+      const detail = payload.error;
+      const messageText =
+        typeof detail === "object" && detail !== null && "message" in detail
+          ? String((detail as { message?: unknown }).message || "Chat failed")
+          : typeof detail === "string"
+          ? detail
+          : "Chat failed";
+      const streamError = new Error(messageText) as Error & {
+        code?: string;
+        detail?: unknown;
+      };
+      if (typeof detail === "object" && detail !== null && "code" in detail) {
+        streamError.code = String(
+          (detail as { code?: unknown }).code || "CHAT_STREAM_ERROR",
+        );
+      }
+      streamError.detail = detail;
+      throw streamError;
+    }
+
+    yield payload;
+  }
+}
+
+/** Stream a chat turn as decoded QwenPaw envelope events. */
+export function chatStream(
+  message: string,
+  options: PawChatOptions = {},
+): AsyncGenerator<PawChatStreamEvent> {
+  return streamChatWithApi(createApiNamespace(getAppId), message, options);
 }
 
 /**
@@ -160,20 +231,16 @@ export function createHostNamespace(
 
   return {
     async chat(message, options = {}) {
-      const agentId =
-        options.agentId ??
-        window.QwenPaw.host?.getSelectedAgentId?.() ??
-        "default";
-      const sessionId =
-        options.sessionId === undefined
-          ? window.QwenPaw.host?.getCurrentSessionId?.() ?? undefined
-          : options.sessionId ?? undefined;
+      const { agentId, sessionId } = chatRouteOptions(options);
       const data = await api.post<{ text?: string; reply?: string }>(
         "/chat",
         { message, session_id: sessionId, skill: options.skill },
         { query: { agent_id: agentId } },
       );
       return data.text ?? data.reply ?? "";
+    },
+    chatStream(message, options = {}) {
+      return streamChatWithApi(api, message, options);
     },
     storage: scopedStorage,
     getSelectedAgentId: () =>
@@ -199,6 +266,7 @@ export function createHostNamespace(
 /** The paw.host namespace. */
 export const hostNamespace = {
   chat,
+  chatStream,
   storage,
   getSelectedAgentId: () =>
     window.QwenPaw.host?.getSelectedAgentId?.() ?? "default",

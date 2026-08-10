@@ -126,6 +126,47 @@ describe("app-scoped PawApp SDK", () => {
     );
   });
 
+  it("streams decoded chat envelopes through the managed agent", async () => {
+    const encoder = new TextEncoder();
+    mockedFetch.mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                'data: {"object":"content","type":"text","delta":true,"text":"Hel"}\n\n' +
+                  'data: {"object":"content","type":"text","delta":true,"text":"lo"}\n\n',
+              ),
+            );
+            controller.close();
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+
+    const events = [];
+    for await (const event of forApp("datapaw").chatStream("compare revenue", {
+      agentId: "datapaw",
+      sessionId: "datapaw-session",
+    })) {
+      events.push(event);
+    }
+
+    expect(mockedFetch).toHaveBeenCalledWith(
+      "/datapaw/chat/stream?agent_id=datapaw",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Accept: "text/event-stream" }),
+        body: JSON.stringify({
+          message: "compare revenue",
+          session_id: "datapaw-session",
+        }),
+      }),
+    );
+    expect(events.map((event) => event.text)).toEqual(["Hel", "lo"]);
+  });
+
   it("reads authenticated GET SSE with event names and multiline data", async () => {
     const encoder = new TextEncoder();
     mockedFetch.mockResolvedValue(
@@ -135,7 +176,7 @@ describe("app-scoped PawApp SDK", () => {
             controller.enqueue(
               encoder.encode(
                 ": ready\r\nevent: task_status\r\nid: 7\r\n" +
-                  "data: {\"step\":1,\r\ndata: \"state\":\"running\"}\r\n\r\n",
+                  'data: {"step":1,\r\ndata: "state":"running"}\r\n\r\n',
               ),
             );
             controller.close();

@@ -8,13 +8,15 @@ import {
 import { ChatWorkspace } from "./ChatWorkspace";
 import { DataSources } from "./DataSources";
 import { GraphExplorer } from "./GraphExplorer";
+import { SemanticCatalog } from "./SemanticCatalog";
 import type { PawAppSdk } from "./sdk";
 import type { PawDependencyAction, PawDependencySnapshot } from "./sdk";
 
-type Page = "analysis" | "graph" | "sources";
+type Page = "analysis" | "semantic" | "graph" | "sources";
 
 const NAVIGATION: Array<{ id: Page; icon: string; label: string }> = [
   { id: "analysis", icon: "✦", label: "Analysis" },
+  { id: "semantic", icon: "◇", label: "Semantic model" },
   { id: "graph", icon: "⌘", label: "Context graph" },
   { id: "sources", icon: "◉", label: "Data sources" },
 ];
@@ -54,19 +56,24 @@ export function App({ paw }: { paw: PawAppSdk }) {
   const [selectedId, setSelectedId] = useState("");
   const [sourceLoading, setSourceLoading] = useState(true);
   const [sourceError, setSourceError] = useState("");
+  const [sourcesUpdatedAt, setSourcesUpdatedAt] = useState<Date>();
 
-  const loadSources = useCallback(async () => {
-    setSourceLoading(true);
-    setSourceError("");
-    try {
-      const response = await api.listDataSources();
-      setSources(response.records ?? []);
-    } catch (error) {
-      setSourceError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSourceLoading(false);
-    }
-  }, [api]);
+  const loadSources = useCallback(
+    async (background = false) => {
+      if (!background) setSourceLoading(true);
+      setSourceError("");
+      try {
+        const response = await api.listDataSources();
+        setSources(response.records ?? []);
+        setSourcesUpdatedAt(new Date());
+      } catch (error) {
+        setSourceError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (!background) setSourceLoading(false);
+      }
+    },
+    [api],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +93,11 @@ export function App({ paw }: { paw: PawAppSdk }) {
       cancelled = true;
     };
   }, [api, loadSources, paw.storage]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => void loadSources(true), 5_000);
+    return () => window.clearInterval(interval);
+  }, [loadSources]);
 
   useEffect(() => {
     const subscription = paw.dependencies.subscribe(setDependencies, {
@@ -161,6 +173,9 @@ export function App({ paw }: { paw: PawAppSdk }) {
         {page === "analysis" ? (
           <ChatWorkspace paw={paw} selectedSource={selectedSource} />
         ) : null}
+        {page === "semantic" ? (
+          <SemanticCatalog api={api} selectedSource={selectedSource} />
+        ) : null}
         {page === "graph" ? (
           <GraphExplorer api={api} selectedSource={selectedSource} />
         ) : null}
@@ -172,6 +187,7 @@ export function App({ paw }: { paw: PawAppSdk }) {
             error={sourceError}
             onSelect={(id) => void selectSource(id)}
             onReload={() => void loadSources()}
+            lastUpdatedAt={sourcesUpdatedAt}
             dependencies={dependencies?.dependencies ?? []}
             onDependencyAction={runDependencyAction}
           />

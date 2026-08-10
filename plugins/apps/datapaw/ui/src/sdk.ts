@@ -15,6 +15,22 @@ export interface PawSseEvent {
   retry?: number;
 }
 
+export interface PawChatStreamEvent {
+  object?: "response" | "message" | "content" | string;
+  type?: string;
+  id?: string;
+  msg_id?: string;
+  role?: string;
+  status?: string;
+  delta?: boolean;
+  text?: string;
+  content?: unknown[];
+  output?: unknown[];
+  data?: unknown;
+  error?: unknown;
+  [key: string]: unknown;
+}
+
 export interface PawApi {
   get<T>(path: string, options?: PawRequestOptions): Promise<T>;
   post<T>(
@@ -108,6 +124,14 @@ export interface PawAppSdk {
       skill?: string;
     },
   ): Promise<string>;
+  chatStream(
+    message: string,
+    options?: {
+      agentId?: string;
+      sessionId?: string | null;
+      skill?: string;
+    },
+  ): AsyncGenerator<PawChatStreamEvent>;
   storage: {
     get<T>(key: string, fallback?: T): Promise<T>;
     set(key: string, value: unknown): Promise<void>;

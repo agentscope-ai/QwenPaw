@@ -97,6 +97,57 @@ export interface DataSourcePage {
   size: number;
 }
 
+export type SemanticResourceKey =
+  | "domains"
+  | "datasets"
+  | "columns"
+  | "dimensions"
+  | "bindings"
+  | "metrics"
+  | "formulas";
+
+export interface SemanticRecord {
+  [key: string]: unknown;
+  id?: number;
+  domain_id?: number | null;
+  dataset_id?: number | null;
+  metric_id?: number | null;
+  datasource_id?: string | null;
+  datasource_name?: string | null;
+  domain_name?: string | null;
+  display_name?: string | null;
+  dataset_name?: string | null;
+  column_name?: string | null;
+  dimension_name?: string | null;
+  metric_name?: string | null;
+  description?: string | null;
+  formula?: string | null;
+}
+
+export interface SemanticPage<T> {
+  records: T[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface WeaveTask extends SemanticRecord {
+  task_id?: string | null;
+  task_name?: string | null;
+  weave_mode?: string | null;
+  status?: string | null;
+  error_msg?: string | null;
+  created_at?: string | null;
+}
+
+export interface SemanticCatalogSnapshot {
+  datasource_id: string;
+  fetched_at: string;
+  resources: Record<SemanticResourceKey, SemanticRecord[]>;
+  totals: Record<SemanticResourceKey, number>;
+  weave_tasks: WeaveTask[];
+}
+
 interface RawDataSourcePage {
   records: Array<{
     datasource_id?: string | null;
@@ -157,6 +208,17 @@ export function createQwenPawDataApi(paw: PawAppSdk) {
     paw.api.get<T>(`/context/${path.replace(/^\//, "")}`, options);
   const contextPost = <T>(path: string, body?: unknown) =>
     paw.api.post<T>(`/context/${path.replace(/^\//, "")}`, body);
+  const semanticPage = <T>(
+    path: string,
+    datasourceId?: string,
+  ): Promise<SemanticPage<T>> =>
+    contextGet<SemanticPage<T>>(`semantic-config/${path}`, {
+      query: {
+        page: 1,
+        size: 200,
+        ...(datasourceId ? { datasource_id: datasourceId } : {}),
+      },
+    });
 
   return {
     status: () => paw.api.get<AppStatus>("/status"),
@@ -178,6 +240,55 @@ export function createQwenPawDataApi(paw: PawAppSdk) {
             ),
             datasource_type: String(source.datasource_type || "unknown"),
           })),
+      };
+    },
+    semanticCatalog: async (
+      datasourceId?: string,
+    ): Promise<SemanticCatalogSnapshot> => {
+      const [
+        domains,
+        datasets,
+        columns,
+        dimensions,
+        bindings,
+        metrics,
+        formulas,
+        weaveTasks,
+      ] = await Promise.all([
+        semanticPage<SemanticRecord>("biz-domain", datasourceId),
+        semanticPage<SemanticRecord>("dataset-meta", datasourceId),
+        semanticPage<SemanticRecord>("dataset-column-meta", datasourceId),
+        semanticPage<SemanticRecord>("dimension", datasourceId),
+        semanticPage<SemanticRecord>("dataset-dimension", datasourceId),
+        semanticPage<SemanticRecord>("metric-lib", datasourceId),
+        semanticPage<SemanticRecord>("metric-formula-lib", datasourceId),
+        semanticPage<WeaveTask>("weave-task"),
+      ]);
+      const resources = {
+        domains: domains.records,
+        datasets: datasets.records,
+        columns: columns.records,
+        dimensions: dimensions.records,
+        bindings: bindings.records,
+        metrics: metrics.records,
+        formulas: formulas.records,
+      };
+      return {
+        datasource_id: datasourceId || "",
+        fetched_at: new Date().toISOString(),
+        resources,
+        totals: {
+          domains: domains.total,
+          datasets: datasets.total,
+          columns: columns.total,
+          dimensions: dimensions.total,
+          bindings: bindings.total,
+          metrics: metrics.total,
+          formulas: formulas.total,
+        },
+        weave_tasks: weaveTasks.records.filter(
+          (task) => !datasourceId || task.datasource_id === datasourceId,
+        ),
       };
     },
     graphSchema: async () =>

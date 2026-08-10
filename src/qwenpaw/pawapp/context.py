@@ -533,6 +533,9 @@ class ChatReply:
         """
         # pylint: disable=too-many-branches
 
+        def _enum_value(value: Any) -> Any:
+            return getattr(value, "value", value)
+
         def _content_text(content_list: Any) -> str:
             parts: List[str] = []
             for block in content_list or []:
@@ -545,6 +548,24 @@ class ChatReply:
                     parts.append(str(t))
             return "".join(parts)
 
+        def _last_assistant_text(messages: Any) -> str:
+            candidates: List[str] = []
+            fallback: List[str] = []
+            for message in messages or []:
+                text = _content_text(getattr(message, "content", []))
+                if not text.strip():
+                    continue
+                fallback.append(text)
+                message_type = _enum_value(getattr(message, "type", None))
+                role = _enum_value(getattr(message, "role", None))
+                if message_type in (None, "message") and role in (
+                    None,
+                    "assistant",
+                ):
+                    candidates.append(text)
+            selected = candidates or fallback
+            return selected[-1].strip() if selected else ""
+
         # 1) Last AgentResponse (.output list of messages)
         final_response = None
         for chunk in self._chunks:
@@ -552,40 +573,41 @@ class ChatReply:
             if isinstance(out, list):
                 final_response = chunk
         if final_response is not None:
-            joined = "".join(
-                _content_text(getattr(msg, "content", []))
-                for msg in final_response.output
-            ).strip()
-            if joined:
+            final_text = _last_assistant_text(final_response.output)
+            if final_text:
                 logger.debug("ChatReply: resolved via AgentResponse.output")
-                return joined
+                return final_text
             err = getattr(final_response, "error", None)
             if err:
                 logger.debug("ChatReply: resolved via AgentResponse.error")
                 return str(err)
 
         # 2) Completed Message objects (non-delta)
-        msg_texts = []
+        messages = []
         for chunk in self._chunks:
             if getattr(chunk, "output", None) is not None:
                 continue
             content = getattr(chunk, "content", None)
             if isinstance(content, list):
-                msg_texts.append(_content_text(content))
-        joined = "".join(msg_texts).strip()
-        if joined:
+                messages.append(chunk)
+        final_text = _last_assistant_text(messages)
+        if final_text:
             logger.debug("ChatReply: resolved via Message objects")
-            return joined
+            return final_text
 
         # 3) Streaming text deltas
-        delta_texts = [
-            str(chunk.text)
-            for chunk in self._chunks
-            if getattr(chunk, "delta", False) and getattr(chunk, "text", None)
-        ]
-        if delta_texts:
+        deltas_by_message: Dict[str, List[str]] = {}
+        for chunk in self._chunks:
+            if not getattr(chunk, "delta", False):
+                continue
+            text = getattr(chunk, "text", None)
+            if not text:
+                continue
+            message_id = str(getattr(chunk, "msg_id", None) or "default")
+            deltas_by_message.setdefault(message_id, []).append(str(text))
+        if deltas_by_message:
             logger.debug("ChatReply: resolved via streaming deltas")
-            return "".join(delta_texts).strip()
+            return "".join(next(reversed(deltas_by_message.values()))).strip()
 
         # 4) Legacy dict/str chunks
         logger.debug("ChatReply: falling back to legacy dict/str")

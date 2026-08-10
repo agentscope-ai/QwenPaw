@@ -54,6 +54,23 @@ export interface PawChatOptions {
   skill?: string;
 }
 
+/** One decoded event from the PawApp chat SSE stream. */
+export interface PawChatStreamEvent {
+  object?: "response" | "message" | "content" | string;
+  type?: string;
+  id?: string;
+  msg_id?: string;
+  role?: string;
+  status?: string;
+  delta?: boolean;
+  text?: string;
+  content?: unknown[];
+  output?: unknown[];
+  data?: unknown;
+  error?: unknown;
+  [key: string]: unknown;
+}
+
 /** PawTask event handler. */
 export type PawTaskEventHandler<T = unknown> = (data: T) => void;
 
@@ -107,6 +124,10 @@ export interface PawApiNamespace {
 /** Host capabilities namespace. */
 export interface PawHostNamespace {
   chat(message: string, options?: PawChatOptions): Promise<string>;
+  chatStream(
+    message: string,
+    options?: PawChatOptions,
+  ): AsyncGenerator<PawChatStreamEvent>;
   storage: PawStorageApi;
   getSelectedAgentId(): string;
   getCurrentSessionId(): string | null;
@@ -219,8 +240,14 @@ export interface PawChatUiNamespace {
         fallback: () => React.ReactElement;
       }) => React.ReactNode,
     ): PawDisposable;
-    prepend(render: PawChatRequestSlot, opts?: PawChatItemOptions): PawDisposable;
-    append(render: PawChatRequestSlot, opts?: PawChatItemOptions): PawDisposable;
+    prepend(
+      render: PawChatRequestSlot,
+      opts?: PawChatItemOptions,
+    ): PawDisposable;
+    append(
+      render: PawChatRequestSlot,
+      opts?: PawChatItemOptions,
+    ): PawDisposable;
   };
   response: {
     set(
@@ -236,8 +263,14 @@ export interface PawChatUiNamespace {
         fallback: () => React.ReactElement;
       }) => React.ReactNode,
     ): PawDisposable;
-    prepend(render: PawChatResponseSlot, opts?: PawChatItemOptions): PawDisposable;
-    append(render: PawChatResponseSlot, opts?: PawChatItemOptions): PawDisposable;
+    prepend(
+      render: PawChatResponseSlot,
+      opts?: PawChatItemOptions,
+    ): PawDisposable;
+    append(
+      render: PawChatResponseSlot,
+      opts?: PawChatItemOptions,
+    ): PawDisposable;
   };
   toolRender(
     toolName: string,
@@ -347,6 +380,10 @@ export interface PawSdk {
   ui: PawUiNamespace;
   dependencies: PawDependenciesNamespace;
   chat(message: string, options?: PawChatOptions): Promise<string>;
+  chatStream(
+    message: string,
+    options?: PawChatOptions,
+  ): AsyncGenerator<PawChatStreamEvent>;
   storage: PawStorageApi;
   toast(
     message: string,

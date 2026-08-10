@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,6 +18,7 @@ from qwenpaw.pawapp import (
     PawApp,
 )
 from qwenpaw.pawapp.app import _build_capability_router
+from qwenpaw.pawapp.context import ChatReply
 from qwenpaw.pawapp.deps import get_ctx
 from qwenpaw.pawapp import service as service_module
 
@@ -360,3 +362,27 @@ def test_chat_reports_missing_model_as_actionable_unavailable() -> None:
             },
         }
     }
+
+
+def test_chat_reply_returns_only_the_last_assistant_message() -> None:
+    def message(text: str, *, message_type: str = "message", role: str = "assistant"):
+        return SimpleNamespace(
+            type=message_type,
+            role=role,
+            content=[SimpleNamespace(text=text, delta=False)],
+        )
+
+    reply = ChatReply(
+        chunks=[
+            SimpleNamespace(
+                output=[
+                    message("I will inspect the schema."),
+                    message("tool details", message_type="plugin_call"),
+                    message("The final answer is 42."),
+                ],
+                error=None,
+            ),
+        ],
+    )
+
+    assert reply.text == "The final answer is 42."

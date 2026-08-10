@@ -13,7 +13,6 @@ from fastapi.responses import Response
 
 from qwenpaw.pawapp import ManagedService
 
-
 _ALLOWED_ROUTES = (
     ("/api/health", False),
     ("/api/v1", True),
@@ -78,8 +77,7 @@ class ContextGateway:
         return response.json()
 
     async def proxy(self, path: str, request: Request) -> Response:
-        upstream_path = "/api/" + path.lstrip("/")
-        self._validate_path(upstream_path)
+        upstream_path = self._proxy_upstream_path(path)
         headers = {
             key: value
             for key, value in request.headers.items()
@@ -104,6 +102,26 @@ class ContextGateway:
             headers=response_headers,
             media_type=response.headers.get("content-type"),
         )
+
+    @classmethod
+    def _proxy_upstream_path(cls, path: str) -> str:
+        """Resolve browser and CLI-style paths onto the Context API.
+
+        The embedded UI uses paths such as ``semantic-config/metric-lib``.
+        QwenPaw-Data CLI clients append canonical paths beginning with
+        ``/api`` to ``DATAPAW_CM_BASE_URL``.  Accept both shapes so callers can
+        point the CLI at ``.../api/datapaw/context`` and reach the same managed
+        Context service that backs the portal.
+        """
+
+        normalized = path.lstrip("/")
+        upstream_path = (
+            f"/{normalized}"
+            if normalized == "api" or normalized.startswith("api/")
+            else f"/api/{normalized}"
+        )
+        cls._validate_path(upstream_path)
+        return upstream_path
 
     async def _send(self, method: str, path: str, **kwargs) -> httpx.Response:
         self._validate_path(path)

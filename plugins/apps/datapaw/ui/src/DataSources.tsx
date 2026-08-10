@@ -15,6 +15,7 @@ export function DataSources({
   error,
   onSelect,
   onReload,
+  lastUpdatedAt,
   dependencies,
   onDependencyAction,
 }: {
@@ -24,6 +25,7 @@ export function DataSources({
   error: string;
   onSelect(id: string): void;
   onReload(): void;
+  lastUpdatedAt?: Date;
   dependencies: PawDependencyStatus[];
   onDependencyAction(id: string, action: PawDependencyAction): Promise<void>;
 }) {
@@ -47,13 +49,25 @@ export function DataSources({
           <h1>Data sources</h1>
           <p>Select the default source for chat and graph exploration.</p>
         </div>
-        <button
-          className="datapaw-secondary-button"
-          type="button"
-          onClick={onReload}
-        >
-          Reload
-        </button>
+        <div className="datapaw-live-controls">
+          <span className="datapaw-live-status">
+            <i /> Live
+            {lastUpdatedAt
+              ? ` · ${lastUpdatedAt.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}`
+              : ""}
+          </span>
+          <button
+            className="datapaw-secondary-button"
+            type="button"
+            onClick={onReload}
+          >
+            Reload
+          </button>
+        </div>
       </header>
 
       {error ? <div className="datapaw-error-banner">{error}</div> : null}
@@ -139,8 +153,8 @@ export function DataSources({
         <div className="datapaw-empty-panel">
           <strong>No data sources configured yet.</strong>
           <span>
-            Add a source through the QwenPaw-Data context configuration, then
-            reload this page.
+            Add a source with the QwenPaw-Data CLI. This page refreshes every
+            five seconds.
           </span>
         </div>
       ) : null}

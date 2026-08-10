@@ -6,15 +6,9 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 GATEWAY_FILE = (
-    REPOSITORY_ROOT
-    / "plugins"
-    / "apps"
-    / "datapaw"
-    / "backend"
-    / "context_gateway.py"
+    REPOSITORY_ROOT / "plugins" / "apps" / "datapaw" / "backend" / "context_gateway.py"
 )
 
 
@@ -40,6 +34,22 @@ def _gateway_class():
 )
 def test_context_gateway_allows_declared_routes(path: str) -> None:
     _gateway_class()._validate_path(path)
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("v1/cm/datasources", "/api/v1/cm/datasources"),
+        ("semantic-config/metric-lib", "/api/semantic-config/metric-lib"),
+        ("api/v1/cm/datasources", "/api/v1/cm/datasources"),
+        ("api/semantic-config/metric-lib", "/api/semantic-config/metric-lib"),
+    ],
+)
+def test_context_gateway_accepts_ui_and_cli_path_shapes(
+    path: str,
+    expected: str,
+) -> None:
+    assert _gateway_class()._proxy_upstream_path(path) == expected
 
 
 @pytest.mark.parametrize(

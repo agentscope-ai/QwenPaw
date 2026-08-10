@@ -15,6 +15,7 @@
 import { apiNamespace, createApiNamespace } from "./api";
 import {
   chat,
+  chatStream,
   createHostNamespace,
   hostNamespace,
   notify,
@@ -46,6 +47,7 @@ export const paw: PawSdk = {
 
   // Convenience re-exports at top level
   chat,
+  chatStream,
   storage,
   toast,
   notify,
@@ -68,6 +70,7 @@ export function forApp(appId: string): PawSdk {
       createApiNamespace(appIdProvider),
     ),
     chat: host.chat,
+    chatStream: host.chatStream,
     storage: host.storage,
     toast: host.toast,
     notify: host.notify,
@@ -98,6 +101,7 @@ export type {
   PawSseEvent,
   PawSseOptions,
   PawChatOptions,
+  PawChatStreamEvent,
   PawSdk,
   PawSdkFactory,
   PawStorageApi,
