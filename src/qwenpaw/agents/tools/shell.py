@@ -5,6 +5,7 @@
 
 import asyncio
 import locale
+import logging
 import os
 import re
 import signal
@@ -26,31 +27,181 @@ from ...config.context import (
     get_current_shell_command_timeout,
     get_current_workspace_dir,
 )
-from ...constant import WORKING_DIR
+from ...constant import SHELL_MAX_OUTPUT_BYTES, WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
 from ...utils.io_utils import run_sync_io
 
+logger = logging.getLogger(__name__)
+
 _SHELL_OUTPUT_MAX_BYTES = 1024 * 1024
 _SHELL_OUTPUT_DRAIN_GRACE_SECS = 10.0
+_SHELL_OUTPUT_POLL_SECS = 0.2
+
+# Prefixes of the temp files this module creates for shell stdout/stderr.
+_TEMP_FILE_PREFIXES = ("qwenpaw_out_", "qwenpaw_err_")
+
+# A file with one of our prefixes that still exists but is not locked can
+# only be an orphan: current code either deletes temp files right after each
+# command or marks them for automatic deletion on last-handle close (Windows
+# ``O_TEMPORARY``).  Remaining files were leaked by older versions or by a
+# crashed run, so stale ones may be swept once per process.
+_STALE_TEMP_FILE_AGE_SECS = 3600
+
+_sweep_done = False
+_sweep_lock = threading.Lock()
 
 
-def _kill_process_tree_win32(pid: int) -> None:
-    """Kill a process and all its descendants on Windows via taskkill.
+# ---------------------------------------------------------------------------
+# Windows job-object helpers.
+#
+# ``taskkill /F /T`` walks the parent/child PID chain, so descendants that
+# detached from the tree (independent session, dead intermediate parent)
+# can survive a kill and keep holding the stdout/stderr temp-file handles —
+# which keeps the output files alive and growing on disk.  Placing the
+# command in a job object lets us terminate *every* member on
+# timeout/cancel regardless of tree topology.  All helpers degrade
+# gracefully: on any failure they return None/False and callers fall back
+# to the taskkill-only behaviour.
+# ---------------------------------------------------------------------------
 
-    Uses ``taskkill /F /T`` which forcefully terminates the entire process
-    tree, including grandchild processes that ``Popen.kill()`` would miss.
-    """
+_PROCESS_TERMINATE = 0x0001
+_PROCESS_SET_QUOTA = 0x0100
+
+_win_kernel32 = None
+
+
+def _get_kernel32():
+    """Return a ctypes handle to ``kernel32`` with prototypes configured."""
+    global _win_kernel32
+    if _win_kernel32 is None:
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+        kernel32.CreateJobObjectW.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_wchar_p,
+        ]
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.OpenProcess.argtypes = [
+            ctypes.c_uint32,
+            ctypes.c_int,
+            ctypes.c_uint32,
+        ]
+        kernel32.AssignProcessToJobObject.restype = ctypes.c_int
+        kernel32.AssignProcessToJobObject.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
+        kernel32.TerminateJobObject.restype = ctypes.c_int
+        kernel32.TerminateJobObject.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+        ]
+        kernel32.CloseHandle.restype = ctypes.c_int
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        _win_kernel32 = kernel32
+    return _win_kernel32
+
+
+def _create_job_object_win32():
+    """Create a Windows job object; return its handle or ``None``."""
+    if sys.platform != "win32":
+        return None
     try:
-        subprocess.call(
+        import ctypes
+
+        handle = _get_kernel32().CreateJobObjectW(None, None)
+        if not handle:
+            logger.debug(
+                "CreateJobObjectW failed (error %s)",
+                ctypes.get_last_error(),
+            )
+            return None
+        return handle
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("Job object creation unavailable: %s", exc)
+        return None
+
+
+def _assign_process_to_job_win32(job_handle, pid: int) -> bool:
+    """Assign *pid* to the job object.  Returns ``True`` on success."""
+    try:
+        import ctypes
+
+        kernel32 = _get_kernel32()
+        proc_handle = kernel32.OpenProcess(
+            _PROCESS_TERMINATE | _PROCESS_SET_QUOTA,
+            False,
+            pid,
+        )
+        if not proc_handle:
+            logger.debug("OpenProcess(%s) failed", pid)
+            return False
+        try:
+            ok = kernel32.AssignProcessToJobObject(job_handle, proc_handle)
+        finally:
+            kernel32.CloseHandle(proc_handle)
+        if not ok:
+            logger.debug(
+                "AssignProcessToJobObject failed for PID %s (error %s); "
+                "falling back to taskkill-only kill",
+                pid,
+                ctypes.get_last_error(),
+            )
+            return False
+        return True
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("Job assignment unavailable: %s", exc)
+        return False
+
+
+def _terminate_job_object_win32(job_handle) -> None:
+    """Terminate every process that is a member of the job object."""
+    try:
+        _get_kernel32().TerminateJobObject(job_handle, 1)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("TerminateJobObject failed: %s", exc)
+
+
+def _close_handle_win32(handle) -> None:
+    """Close a Windows handle, ignoring errors."""
+    try:
+        _get_kernel32().CloseHandle(handle)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
+def _kill_process_tree_win32(pid: int, job_handle=None) -> None:
+    """Kill a process and all its descendants on Windows.
+
+    When *job_handle* is given, the job object is terminated first: this
+    catches descendants that detached from the PID tree and that
+    ``taskkill /F /T`` may miss.  ``taskkill /F /T`` still runs afterwards
+    as a fallback for processes created before the job assignment.
+    Failures are logged rather than silently swallowed.
+    """
+    if job_handle is not None:
+        _terminate_job_object_win32(job_handle)
+    try:
+        returncode = subprocess.call(
             ["taskkill", "/F", "/T", "/PID", str(pid)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=10,
         )
-    except Exception:
-        pass
+        if returncode != 0:
+            # Non-zero usually means the process was already gone (killed
+            # via the job object or exited on its own), so stay at debug.
+            logger.debug(
+                "taskkill /F /T /PID %s exited with code %s",
+                pid,
+                returncode,
+            )
+    except Exception as exc:
+        logger.warning("taskkill for PID %s failed: %s", pid, exc)
 
 
 def _windows_shell_creationflags() -> int:
@@ -210,8 +361,8 @@ class _PosixTempOutputs:
             if path is not None:
                 try:
                     os.unlink(path)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    _log_unlink_failure(path, exc)
                 setattr(self, attr, None)
 
 
@@ -258,6 +409,81 @@ def _read_temp_output(
 ) -> str:
     """Read a bounded snapshot from an independent Windows handle."""
     return _read_output_snapshot(output_file, max_bytes)
+
+
+def _sweep_stale_temp_files_once() -> None:
+    """Best-effort cleanup of orphaned shell temp files from earlier runs.
+
+    Current code never leaves unlocked temp files behind (explicit unlink,
+    or Windows ``O_TEMPORARY`` auto-deletion on last-handle close), so a
+    file with one of our prefixes that still exists but is not locked is
+    an orphan leaked by an older version or a crashed run.  Stale files
+    are safe to delete; locked files raise ``OSError`` and are skipped.
+    Runs at most once per process.
+    """
+    global _sweep_done
+    with _sweep_lock:
+        if _sweep_done:
+            return
+        _sweep_done = True
+    try:
+        with os.scandir(tempfile.gettempdir()) as entries:
+            for entry in entries:
+                try:
+                    if not entry.name.startswith(_TEMP_FILE_PREFIXES):
+                        continue
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                    mtime = entry.stat(follow_symlinks=False).st_mtime
+                    if time.time() - mtime < _STALE_TEMP_FILE_AGE_SECS:
+                        continue
+                    os.unlink(entry.path)
+                    logger.info(
+                        "Removed stale shell temp file: %s",
+                        entry.path,
+                    )
+                except OSError:
+                    continue
+    except OSError:
+        pass
+
+
+def _log_unlink_failure(path: str, exc: OSError) -> None:
+    """Make temp-file deletion failures visible instead of silent.
+
+    On POSIX this is rare; on older Windows-style paths it means another
+    process still holds the file open.  Either way the leak must be
+    observable.
+    """
+    logger.warning(
+        "Could not remove shell temp file %s (%s). A process likely "
+        "still holds it open; it will be swept on a future start once "
+        "it is released.",
+        path,
+        exc,
+    )
+
+
+def _temp_output_size(
+    *files_or_paths: BinaryIO | str | None,
+) -> int:
+    """Total size in bytes of open output files and/or paths.
+
+    Accepts file objects (measured via ``fstat`` so a concurrent writer
+    inherited by the child is accounted for) and paths; errors count 0.
+    """
+    total = 0
+    for item in files_or_paths:
+        if item is None:
+            continue
+        try:
+            if isinstance(item, str):
+                total += os.stat(item).st_size
+            else:
+                total += os.fstat(item.fileno()).st_size
+        except (OSError, ValueError):
+            pass
+    return total
 
 
 def _consume_background_task(task: asyncio.Task[Any]) -> None:
@@ -359,6 +585,17 @@ def _execute_subprocess_sync(
     only waits for the direct child (``cmd.exe``) to exit, so commands
     that spawn background processes return immediately.
 
+    Safety mechanisms around the temp files:
+
+    * The combined captured output is capped at ``SHELL_MAX_OUTPUT_BYTES``;
+      when exceeded, the process tree is terminated so a runaway command
+      cannot fill the disk (reads are separately bounded by
+      ``_SHELL_OUTPUT_MAX_BYTES``).
+    * On Windows the child is placed in a job object so timeout/cancel
+      terminates even descendants that ``taskkill /F /T`` cannot reach.
+    * Any ``os.unlink`` failure is logged, and stale orphaned files from
+      earlier runs are swept once per process.
+
     When *stop_event* is set (bridged from ``cancel_event`` / kill
     deadline), the process tree is killed via
     :func:`_kill_process_tree_win32` so host cancel is not ignored.
@@ -402,6 +639,15 @@ def _execute_subprocess_sync(
     stderr_file = None
     stdout_reader = None
     stderr_reader = None
+    proc = None
+    job_handle = None
+
+    # Disk cap for the captured output: when the combined temp files exceed
+    # this the process tree is terminated so a runaway command cannot fill
+    # the disk.  Reads stay bounded by the smaller ``_SHELL_OUTPUT_MAX_BYTES``.
+    max_output_bytes = SHELL_MAX_OUTPUT_BYTES
+
+    _sweep_stale_temp_files_once()
 
     try:
         if shell_executable and _is_powershell(shell_executable):
@@ -453,8 +699,22 @@ def _execute_subprocess_sync(
         stderr_file.close()
         stderr_file = None
 
+        # Track the command in a job object (Windows) so timeout/cancel can
+        # terminate every descendant, even ones that detach from the PID
+        # tree and would survive ``taskkill /F /T``.  Descendants inherit
+        # job membership automatically.  On failure we simply fall back to
+        # the taskkill-only behaviour.
+        if sys.platform == "win32":
+            candidate = _create_job_object_win32()
+            if candidate is not None:
+                if _assign_process_to_job_win32(candidate, proc.pid):
+                    job_handle = candidate
+                else:
+                    _close_handle_win32(candidate)
+
         timed_out = False
         stopped = False
+        output_exceeded = False
         deadline = (
             None if timeout is None else time.monotonic() + max(0.0, timeout)
         )
@@ -475,10 +735,23 @@ def _execute_subprocess_sync(
                 proc.wait(timeout=wait_for)
                 break
             except subprocess.TimeoutExpired:
-                continue
+                pass
+            # Enforce the captured-output cap while the command runs so a
+            # runaway writer cannot fill the disk (checked once per poll).
+            if (
+                _temp_output_size(
+                    stdout_reader,
+                    stderr_reader,
+                    stdout_path,
+                    stderr_path,
+                )
+                > max_output_bytes
+            ):
+                output_exceeded = True
+                break
 
-        if timed_out or stopped:
-            _kill_process_tree_win32(proc.pid)
+        if timed_out or stopped or output_exceeded:
+            _kill_process_tree_win32(proc.pid, job_handle)
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
@@ -518,11 +791,32 @@ def _execute_subprocess_sync(
             else:
                 stderr_str = timeout_msg
             return -1, stdout_str, stderr_str
+        if output_exceeded:
+            limit_msg = (
+                f"⚠️ Command output exceeded the limit of "
+                f"{max_output_bytes} bytes, so the process was terminated "
+                f"to prevent unbounded disk usage. Redirect large output "
+                f"to a file (e.g. '> output.log') and read it back in "
+                f"chunks instead."
+            )
+            if stderr_str:
+                stderr_str = f"{stderr_str}\n{limit_msg}"
+            else:
+                stderr_str = limit_msg
+            return -1, stdout_str, stderr_str
 
         returncode = proc.returncode if proc.returncode is not None else -1
         return returncode, stdout_str, stderr_str
 
     except Exception as e:
+        if proc is not None:
+            # An unexpected error after Popen must not leave the child
+            # running with the temp-file handles still open.
+            try:
+                _kill_process_tree_win32(proc.pid, job_handle)
+                proc.kill()
+            except Exception:
+                pass
         return -1, "", str(e)
     finally:
         for f in (
@@ -536,12 +830,14 @@ def _execute_subprocess_sync(
                     f.close()
                 except OSError:
                     pass
+        if job_handle is not None:
+            _close_handle_win32(job_handle)
         for path in (stdout_path, stderr_path):
             if path is not None:
                 try:
                     os.unlink(path)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    _log_unlink_failure(path, exc)
 
 
 # Extra seconds added to the tool-call deadline to accommodate first-time
@@ -820,6 +1116,34 @@ async def _cleanup_proc(proc: asyncio.subprocess.Process) -> None:
             pass
 
 
+class _PosixOutputMonitor:
+    """Watch the POSIX temp-file sizes while the shell runs.
+
+    When the combined captured output exceeds ``SHELL_MAX_OUTPUT_BYTES``,
+    the process group is terminated and :attr:`exceeded` is set so the
+    caller can report an explicit output-limit result instead of waiting
+    for the ordinary timeout.
+    """
+
+    def __init__(self, outputs: _PosixTempOutputs, max_bytes: int) -> None:
+        self._outputs = outputs
+        self._max_bytes = max_bytes
+        self.exceeded = False
+
+    async def run(self, proc: asyncio.subprocess.Process) -> None:
+        while proc.returncode is None:
+            await asyncio.sleep(_SHELL_OUTPUT_POLL_SECS)
+            size = await run_sync_io(
+                _temp_output_size,
+                self._outputs.stdout_path,
+                self._outputs.stderr_path,
+            )
+            if size > self._max_bytes:
+                self.exceeded = True
+                await _cleanup_proc(proc)
+                return
+
+
 async def _execute_posix_host(
     cmd: str,
     cwd: str,
@@ -834,11 +1158,17 @@ async def _execute_posix_host(
     every such descendant to close the descriptors.  Redirect output to
     regular temporary files instead, and wait only for the direct shell.
     Once it exits, capture at most ``_SHELL_OUTPUT_MAX_BYTES`` from the fixed
-    file-size snapshot observed at that moment.  Background services must
-    redirect their own stdout/stderr; inherited descriptors can otherwise keep
-    consuming storage even after the temporary path is unlinked.
+    file-size snapshot observed at that moment.  While the command runs, the
+    combined temp-file size is monitored against ``SHELL_MAX_OUTPUT_BYTES``
+    and the process group is terminated if it is exceeded, so a runaway
+    writer cannot fill the disk.  Background services must redirect their own
+    stdout/stderr; inherited descriptors can otherwise keep consuming storage
+    even after the temporary path is unlinked.
     """
     outputs: _PosixTempOutputs | None = None
+    monitor: _PosixOutputMonitor | None = None
+    _sweep_stale_temp_files_once()
+    max_output_bytes = SHELL_MAX_OUTPUT_BYTES
     loop = asyncio.get_running_loop()
     local_deadline = loop.time() + max(0.0, timeout)
 
@@ -869,15 +1199,30 @@ async def _execute_posix_host(
         # regular files do not have pipe EOF semantics and cannot block wait().
         await run_sync_io(outputs.close_writers)
 
+        # mypy cannot narrow ``outputs`` past the attribute check above.
+        assert outputs is not None
+
+        output_exceeded = False
         stderr_suffix = ""
         try:
             from ...tool_calls import cancellable_wait
 
-            returncode = await cancellable_wait(
-                proc.wait(),
-                fallback_secs=remaining_timeout(),
-                as_kill_deadline=True,
-            )
+            monitor = _PosixOutputMonitor(outputs, max_output_bytes)
+            wait_task = asyncio.create_task(proc.wait())
+            monitor_task = asyncio.create_task(monitor.run(proc))
+            try:
+                returncode = await cancellable_wait(
+                    wait_task,
+                    fallback_secs=remaining_timeout(),
+                    as_kill_deadline=True,
+                )
+                output_exceeded = monitor.exceeded
+            finally:
+                monitor_task.cancel()
+                try:
+                    await monitor_task
+                except asyncio.CancelledError:
+                    pass
         except asyncio.TimeoutError:
             stderr_suffix = (
                 f"⚠️ TimeoutError: The command execution exceeded "
@@ -928,6 +1273,19 @@ async def _execute_posix_host(
             if ctx is None or not ctx.cancel_event.is_set():
                 raise
             stderr_suffix = _cancel_stderr_message(timeout)
+            returncode = -1
+        if output_exceeded:
+            limit_msg = (
+                f"⚠️ Command output exceeded the limit of "
+                f"{max_output_bytes} bytes, so the process was terminated "
+                f"to prevent unbounded disk usage. Redirect large output "
+                f"to a file (e.g. '> output.log') and read it back in "
+                f"chunks instead."
+            )
+            if stderr_str:
+                stderr_str = f"{stderr_str}\n{limit_msg}"
+            else:
+                stderr_str = limit_msg
             returncode = -1
         if stderr_suffix:
             if stderr_str:
@@ -1132,9 +1490,7 @@ async def execute_shell_command(
             ],
         )
 
-    import logging as _logging
-
-    _logging.getLogger(__name__).debug(
+    logger.debug(
         "[sandbox] SKIP: sandbox_config is None, executing directly",
     )
 

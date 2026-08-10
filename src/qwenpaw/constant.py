@@ -318,6 +318,17 @@ UPLOAD_MAX_SIZE_MB: int | None = (
     else None
 )
 
+# Shell tool: maximum combined stdout/stderr bytes the captured temp files
+# may reach before the command's process tree is terminated.  Guards against
+# a runaway command filling the disk (agents/tools/shell.py).  The amount
+# actually read back into memory is bounded separately by the smaller
+# ``_SHELL_OUTPUT_MAX_BYTES`` in that module.
+SHELL_MAX_OUTPUT_BYTES = EnvVarLoader.get_int(
+    "QWENPAW_SHELL_MAX_OUTPUT_BYTES",
+    10 * 1024 * 1024,
+    min_value=1024,
+)
+
 # LLM API retry configuration
 LLM_MAX_RETRIES = EnvVarLoader.get_int(
     "QWENPAW_LLM_MAX_RETRIES",
