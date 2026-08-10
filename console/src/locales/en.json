@@ -2866,7 +2866,6 @@
     "rebuildMemoryIndexConfirm": "CPU and memory usage may increase significantly during the rebuild. This is not recommended unless the index is damaged or needs repair.",
     "rebuildMemoryIndexSuccess": "Memory index rebuild completed",
     "rebuildMemoryIndexFailed": "Memory index rebuild failed: {{error}}",
-    "rebuildMemoryIndexRunning": "The memory index is being rebuilt. Wait for it to finish before testing or saving configuration.",
     "rebuildMemoryIndexRequired": "The embedding vector space changed. Rebuild the memory index before searching long-term memory.",
     "goToLongTermMemory": "Go to long-term memory",
     "toolResultCompactRecentGtOld": "Recent tool result preview bytes must be greater than or equal to compact preview bytes",

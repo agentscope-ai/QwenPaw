@@ -2724,7 +2724,6 @@
     "rebuildMemoryIndexConfirm": "重建期间 CPU 和内存占用可能明显升高。除非索引损坏或需要修复，否则不建议执行。",
     "rebuildMemoryIndexSuccess": "记忆索引重建完成",
     "rebuildMemoryIndexFailed": "记忆索引重建失败：{{error}}",
-    "rebuildMemoryIndexRunning": "记忆索引正在重建，请等待完成后再测试或保存配置。",
     "rebuildMemoryIndexRequired": "Embedding 向量空间已变化，请先重建记忆索引再使用长期记忆搜索。",
     "goToLongTermMemory": "前往长期记忆",
     "toolResultCompactRecentGtOld": "最近工具结果预览字节数必须大于或等于 compact 预览字节数",
