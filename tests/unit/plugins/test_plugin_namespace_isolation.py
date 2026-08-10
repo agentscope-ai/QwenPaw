@@ -359,6 +359,72 @@ class TestBareImportNamespaceIsolation:
         assert sys.modules["plugin_pep_b"].VALUE == "B"
 
     @pytest.mark.asyncio
+    async def test_pep420_package_without_sys_path_insert(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """A PEP 420 package imports fine (and stays isolated) even when
+        the plugin never touches sys.path — same as a regular package."""
+        for name, val in (("noins-a", "A"), ("noins-b", "B")):
+            plugin_dir = tmp_path / name
+            (plugin_dir / "helpers").mkdir(parents=True)
+            (plugin_dir / "helpers" / "value.py").write_text(
+                f"VALUE = '{val}'\n",
+                encoding="utf-8",
+            )
+            _write_manifest(plugin_dir)
+            (plugin_dir / "plugin.py").write_text(
+                "from helpers.value import VALUE\n" + _REGISTER_OK,
+                encoding="utf-8",
+            )
+            await _load(loader, plugin_dir)
+
+        assert sys.modules["plugin_noins_a"].VALUE == "A"
+        assert sys.modules["plugin_noins_b"].VALUE == "B"
+
+    @pytest.mark.asyncio
+    async def test_regular_package_then_pep420_package(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """A regular package left on sys.path by an earlier plugin must
+        not pull a later plugin's same-named PEP 420 package out of its
+        namespace."""
+        code = (
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "from helpers.value import VALUE\n" + _REGISTER_OK
+        )
+        dir_a = tmp_path / "reg-a"
+        (dir_a / "helpers").mkdir(parents=True)
+        (dir_a / "helpers" / "__init__.py").write_text("", encoding="utf-8")
+        (dir_a / "helpers" / "value.py").write_text(
+            "VALUE = 'A'\n",
+            encoding="utf-8",
+        )
+        _write_manifest(dir_a)
+        (dir_a / "plugin.py").write_text(code, encoding="utf-8")
+
+        dir_b = tmp_path / "pep-late-b"
+        (dir_b / "helpers").mkdir(parents=True)
+        # No __init__.py on purpose — a PEP 420 namespace package.
+        (dir_b / "helpers" / "value.py").write_text(
+            "VALUE = 'B'\n",
+            encoding="utf-8",
+        )
+        _write_manifest(dir_b)
+        (dir_b / "plugin.py").write_text(code, encoding="utf-8")
+
+        await _load(loader, dir_a)
+        await _load(loader, dir_b)
+
+        assert sys.modules["plugin_reg_a"].VALUE == "A"
+        assert sys.modules["plugin_pep_late_b"].VALUE == "B"
+        assert "plugin_pep_late_b.helpers.value" in sys.modules
+
+    @pytest.mark.asyncio
     async def test_data_directory_does_not_shadow_stdlib(
         self,
         loader,

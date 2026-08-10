@@ -148,6 +148,22 @@ def _norm(path: Any) -> str:
     return os.path.normcase(os.path.realpath(str(path)))
 
 
+_CODE_SUFFIXES = tuple(importlib.machinery.all_suffixes())
+
+
+def _has_importable_code(portions: List[str]) -> bool:
+    """True if any directory portion contains importable code.
+
+    Walks recursively (short-circuiting on the first hit) so a PEP 420
+    package whose code lives only in nested subpackages still counts.
+    """
+    for portion in portions:
+        for _dirpath, _dirnames, filenames in os.walk(portion):
+            if any(f.endswith(_CODE_SUFFIXES) for f in filenames):
+                return True
+    return False
+
+
 def build_plugin_builtins(
     module_name: str,
     search_paths: List[str],
@@ -174,15 +190,17 @@ def build_plugin_builtins(
                 search_paths,
             )
             # A namespace-package portion (loader is None) needs a
-            # tie-break mirroring the real machinery: a plain data
-            # directory (``locale/`` assets) loses to a concrete module
-            # elsewhere on sys.path (the stdlib ``locale`` must win),
-            # but a genuine PEP 420 namespace package the plugin ships
-            # stays plugin-local — sending it to the global namespace
-            # would reopen the cross-plugin collision (#6683).
+            # tie-break: a genuine PEP 420 package the plugin ships
+            # stays plugin-local, but a plain data directory
+            # (``locale/`` assets) must fall through so a concrete
+            # stdlib/third-party module can win.  Decide purely from
+            # the plugin's own files — probing sys.path here would
+            # couple the decision to sys.path entries left behind by
+            # earlier plugins, reopening the cross-plugin collision
+            # this module exists to fix (#6683).
             if spec is not None and spec.loader is None:
-                resolved = importlib.machinery.PathFinder.find_spec(top)
-                if resolved is None or resolved.loader is not None:
+                portions = list(spec.submodule_search_locations or [])
+                if not _has_importable_code(portions):
                     spec = None
             spec_cache[top] = spec
         return spec_cache[top]
