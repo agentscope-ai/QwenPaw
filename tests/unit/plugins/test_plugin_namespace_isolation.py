@@ -632,6 +632,46 @@ class TestBareImportNamespaceIsolation:
         assert "plugin_l10n_plug.wave" not in sys.modules
 
     @pytest.mark.asyncio
+    async def test_stale_bytecode_does_not_make_data_dir_a_package(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """Leftover bytecode (``__pycache__`` contents or a stray legacy
+        ``.pyc``) is not importable source — a data directory holding
+        only bytecode must still fall through to the stdlib.  The
+        ``__pycache__/x.py`` file locks the cache-dir pruning: nothing
+        under ``__pycache__`` counts, whatever its suffix."""
+        plugin_dir = tmp_path / "pyc-plug"
+        (plugin_dir / "wave" / "__pycache__").mkdir(parents=True)
+        (plugin_dir / "wave" / "sample.bin").write_bytes(b"\x00")
+        (plugin_dir / "wave" / "__pycache__" / "x.py").write_text(
+            "X = 1\n",
+            encoding="utf-8",
+        )
+        (
+            plugin_dir / "wave" / "__pycache__" / "x.cpython-312.pyc"
+        ).write_bytes(
+            b"\x00",
+        )
+        (plugin_dir / "wave" / "legacy.pyc").write_bytes(b"\x00")
+        _write_manifest(plugin_dir)
+        (plugin_dir / "plugin.py").write_text(
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "import wave\n"
+            "WAVE = wave\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        await _load(loader, plugin_dir)
+
+        import wave as real_wave
+
+        assert sys.modules["plugin_pyc_plug"].WAVE is real_wave
+        assert "plugin_pyc_plug.wave" not in sys.modules
+
+    @pytest.mark.asyncio
     async def test_failed_load_unregisters_namespace(
         self,
         loader,

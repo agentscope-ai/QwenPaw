@@ -180,7 +180,15 @@ def strip_plugin_sys_path(source_path: Any) -> None:
     sys.path[:] = [p for p in sys.path if _keep(p)]
 
 
-_CODE_SUFFIXES = tuple(importlib.machinery.all_suffixes())
+# Source and extension modules only: stale bytecode (__pycache__/*.pyc
+# or a stray legacy .pyc) is not evidence that a directory is a real
+# package, and must not let a data directory shadow a concrete module.
+# Deliberate trade-off: a PEP 420 portion shipping ONLY sourceless
+# bytecode no longer counts as plugin code either.
+_CODE_SUFFIXES = tuple(
+    importlib.machinery.SOURCE_SUFFIXES
+    + importlib.machinery.EXTENSION_SUFFIXES,
+)
 
 
 def _has_importable_code(portions: List[str]) -> bool:
@@ -192,10 +200,14 @@ def _has_importable_code(portions: List[str]) -> bool:
     file like ``locale/en_US.UTF-8/tool.py`` cannot be imported as a
     module, so it must not make a data directory look like a package.
     The pruning also keeps the walk cheap on large asset trees.
+    Bytecode caches are skipped entirely: they are derived artifacts,
+    not code the plugin ships.
     """
     for portion in portions:
         for _dirpath, dirnames, filenames in os.walk(portion):
-            dirnames[:] = [d for d in dirnames if d.isidentifier()]
+            dirnames[:] = [
+                d for d in dirnames if d.isidentifier() and d != "__pycache__"
+            ]
             for filename in filenames:
                 for suffix in _CODE_SUFFIXES:
                     if (
