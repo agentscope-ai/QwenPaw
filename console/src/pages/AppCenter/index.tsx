@@ -35,7 +35,10 @@ import { MarketplaceHeader } from "@/pages/Market/components/MarketplaceHeader";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { pawappApi } from "../../api/modules/pawapp";
 import { useRoutes } from "../../plugins/registry/hooks";
-import { setActivePawAppId } from "../../plugins/pawapp-sdk/context";
+import {
+  getPawAppIdFromPath,
+  setActivePawAppId,
+} from "../../plugins/pawapp-sdk/context";
 import { AppCard, pickAppDescription, type AppCardData } from "./AppCard";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import {
@@ -250,7 +253,7 @@ export default function AppCenterPage() {
     const onPop = (event: PopStateEvent) => {
       const appId = isOsPath(window.location.pathname)
         ? getOsPawAppIdFromHistoryState(event.state)
-        : window.location.pathname.match(/\/apps\/([^/?#]+)/)?.[1];
+        : getPawAppIdFromPath(window.location.pathname);
       if (!appId) {
         setActiveApp(null);
         return;
