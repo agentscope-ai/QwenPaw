@@ -455,7 +455,9 @@ def _execute_subprocess_sync(
 
         timed_out = False
         stopped = False
-        deadline = None if timeout is None else time.monotonic() + max(0.0, timeout)
+        deadline = (
+            None if timeout is None else time.monotonic() + max(0.0, timeout)
+        )
         poll_secs = 0.2
         while True:
             if stop_event is not None and stop_event.is_set():
@@ -674,7 +676,9 @@ async def _execute_in_sandbox(
     # cancel_event. Do not freeze sandbox wait_for to the original timeout or
     # ``extend_kill_deadline`` cannot actually prolong execution.
     sandbox_timeout = (
-        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS if ctx is not None else int(timeout)
+        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS
+        if ctx is not None
+        else int(timeout)
     )
     effective_config = replace(
         sandbox_config,
@@ -994,7 +998,9 @@ async def execute_shell_command(
     """
 
     shell_executable = (
-        get_current_shell_command_executable() or os.environ.get("SHELL") or None
+        get_current_shell_command_executable()
+        or os.environ.get("SHELL")
+        or None
     )
     cmd = _collapse_embedded_newlines(
         (command or "").strip(),
@@ -1034,7 +1040,9 @@ async def execute_shell_command(
         working_dir = cwd
     else:
         working_dir = (
-            get_current_project_dir() or get_current_workspace_dir() or WORKING_DIR
+            get_current_project_dir()
+            or get_current_workspace_dir()
+            or WORKING_DIR
         )
 
     # Ensure the venv Python is on PATH for subprocesses
@@ -1050,6 +1058,15 @@ async def execute_shell_command(
         sandbox_config,
         SandboxConfig,
     ):
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning(
+            "[sandbox] Received sandbox_config of type %s instead of "
+            "SandboxConfig dataclass; discarding and falling back to "
+            "direct execution (no sandbox). If this was intended to "
+            "enforce sandboxing, pass a SandboxConfig instance.",
+            type(sandbox_config).__qualname__,
+        )
         sandbox_config = None
 
     if sandbox_config is not None:
