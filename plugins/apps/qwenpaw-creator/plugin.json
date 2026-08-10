@@ -3,10 +3,10 @@
   "name": "QwenPaw Creator",
   "version": "1.0.1",
   "type": "app",
-  "description": "QwenPaw plugin that brings the QwenPaw-Creator script-to-assets-to-video workflow into QwenPaw.",
+  "description": "An agentic video creation platform. Start from an idea or existing footage: an Agent team of screenwriting, directing, visual, motion, and editing Specialists handles planning, generation, editing, and composition; select anything in the project and hand it to the Agent for a precise change, with every key decision staying in your hands.",
   "description_i18n": {
-    "zh-CN": "将 QwenPaw-Creator 的剧本、资产、分镜与视频工作流作为插件接入 QwenPaw。",
-    "en-US": "QwenPaw plugin that brings the QwenPaw-Creator script, asset, storyboard, and video workflow into QwenPaw."
+    "zh-CN": "Agentic 视频创作平台。从一句创意生成短剧，或将已有素材剪成成片：编剧、导演、视觉、动效、剪辑等 Agent 协同完成策划、生成、剪辑与合成；项目中所见皆可选中交给 Agent 精准修改，每个关键决定都由你确认。",
+    "en-US": "An agentic video creation platform. Start from an idea or existing footage: an Agent team of screenwriting, directing, visual, motion, and editing Specialists handles planning, generation, editing, and composition; select anything in the project and hand it to the Agent for a precise change, with every key decision staying in your hands."
   },
   "author": "QwenPaw Creator Team",
   "entry": {
@@ -15,11 +15,16 @@
   },
   "dependencies": [
     "oss2",
-    "imageio-ffmpeg"
+    "imageio-ffmpeg",
+    "pypdfium2",
+    "pandas",
+    "matplotlib",
+    "openpyxl",
+    "tabulate",
+    "numpy"
   ],
   "qwenpaw_version": {
-    "min": "2.0.1",
-    "max": "3.1.0"
+    "min": "2.0.1"
   },
   "meta": {
     "pawapp": {
@@ -49,6 +54,12 @@
         "required": false,
         "path_env": "CREATOR_FFPROBE_PATH",
         "fallback": "ffmpeg metadata probing"
+      },
+      "libreoffice": {
+        "required": false,
+        "required_for": "office document (doc/docx/ppt/pptx/vsdx) rendering in read_document",
+        "path_env": "CREATOR_LIBREOFFICE_PATH",
+        "fallback": "xlsx renders via the data renderer; other office formats return a readable install hint"
       }
     },
     "features": [
@@ -143,6 +154,14 @@
             "required": false,
             "placeholder": "tvly-...",
             "help": "Optional primary text and image retrieval provider."
+          },
+          {
+            "name": "serper_api_key",
+            "label": "Serper API Key",
+            "type": "password",
+            "required": false,
+            "placeholder": "serper key",
+            "help": "Optional Google search provider tried after Tavily."
           },
           {
             "name": "native_search_enabled",
@@ -254,6 +273,15 @@
             "placeholder": "gpt-image-2"
           },
           {
+            "name": "translate_model",
+            "label": "Image Translate Model",
+            "type": "text",
+            "required": false,
+            "default": "qwen-mt-image",
+            "placeholder": "qwen-mt-image",
+            "help": "Optional in-image text translation model (DashScope provider only). Environment fallback: IMAGE_TRANSLATE_MODEL_NAME."
+          },
+          {
             "name": "quality",
             "label": "Image Quality",
             "type": "select",
@@ -283,6 +311,62 @@
           {"name": "base_url", "label": "ASR Base URL", "type": "text", "required": true, "default": "https://dashscope.aliyuncs.com/api/v1"},
           {"name": "model", "label": "ASR Model", "type": "text", "required": true, "default": "fun-asr"},
           {"name": "language", "label": "Language", "type": "text", "required": false}
+        ]
+      },
+      {
+        "name": "creator_tts_model",
+        "description": "QwenPaw Creator text-to-speech configuration for narration and character voices",
+        "icon": "🔊",
+        "requires_config": false,
+        "config_fields": [
+          {"name": "api_key", "label": "TTS API Key", "type": "password", "required": false, "placeholder": "sk-...", "help": "Optional capability. TTS tools appear only when a key is configured. Environment fallback: TTS_API_KEY."},
+          {"name": "base_url", "label": "TTS Base URL", "type": "text", "required": false, "default": "https://dashscope.aliyuncs.com/api/v1"},
+          {"name": "model", "label": "TTS Model", "type": "text", "required": false, "default": "qwen3-tts-flash"},
+          {"name": "voice", "label": "Default Voice", "type": "select", "required": false, "default": "Cherry", "options": ["Cherry", "Serena", "Ethan", "Chelsie", "Dylan", "Sunny", "Jada", "Nofish"], "help": "System voice used when a request does not pick one. Custom enrolled voices are selected per character."}
+        ]
+      },
+      {
+        "name": "creator_s2v_model",
+        "description": "QwenPaw Creator digital-human lip-sync (Wan2.2-S2V) configuration",
+        "icon": "🧍",
+        "requires_config": false,
+        "config_fields": [
+          {"name": "api_key", "label": "S2V API Key", "type": "password", "required": false, "placeholder": "sk-...", "help": "Optional capability. The s2v_generation tool appears only when a key is resolvable. Environment fallback: S2V_API_KEY."},
+          {"name": "base_url", "label": "S2V Base URL", "type": "text", "required": false, "default": "https://dashscope.aliyuncs.com/api/v1"},
+          {"name": "model", "label": "S2V Model", "type": "text", "required": false, "default": "wan2.2-s2v"},
+          {"name": "detect_model", "label": "Face Detect Model", "type": "text", "required": false, "default": "wan2.2-s2v-detect", "help": "Free portrait suitability check that always runs before the billed submission."}
+        ]
+      },
+      {
+        "name": "creator_embedding_model",
+        "description": "QwenPaw Creator text embedding configuration for long-source graph memory",
+        "icon": "🧠",
+        "requires_config": false,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "Embedding API Key",
+            "type": "password",
+            "required": false,
+            "help": "Optional. May reuse creator_vlm_model when enabled in Creator settings. Environment fallback: EMBEDDING_API_KEY."
+          },
+          {
+            "name": "model",
+            "label": "Embedding Model",
+            "type": "text",
+            "required": false,
+            "default": "qwen3-vl-embedding",
+            "placeholder": "qwen3-vl-embedding"
+          },
+          {
+            "name": "base_url",
+            "label": "Embedding Base URL",
+            "type": "text",
+            "required": false,
+            "default": "https://dashscope.aliyuncs.com/api/v1",
+            "placeholder": "https://dashscope.aliyuncs.com/api/v1",
+            "help": "DashScope native multimodal-embedding endpoint root. Note the per-request batch cap."
+          }
         ]
       },
       {

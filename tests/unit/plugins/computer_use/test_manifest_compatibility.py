@@ -12,10 +12,11 @@ from qwenpaw.plugins.architecture import PluginManifest
 _MANIFEST = (
     Path(__file__).resolve().parents[4]
     / "plugins"
-    / "tool"
+    / "bundle"
     / "computer-use"
     / "plugin.json"
 )
+_FRONTEND_BUNDLE = _MANIFEST.parent / "dist" / "index.js"
 
 
 def _manifest_range() -> tuple[str, str]:
@@ -28,6 +29,16 @@ def _manifest() -> PluginManifest:
     # The real manifest is the subject: a test fixture would pass while the
     # shipped file stays wrong.
     return PluginManifest(**json.loads(_MANIFEST.read_text(encoding="utf-8")))
+
+
+def test_built_frontend_embeds_the_manifest_version():
+    version = json.loads(_MANIFEST.read_text(encoding="utf-8"))["version"]
+    bundle = _FRONTEND_BUNDLE.read_text(encoding="utf-8")
+
+    assert f'"{version}"' in bundle, (
+        f"frontend bundle does not embed manifest version {version}; "
+        "rebuild it with `npm run build`"
+    )
 
 
 def test_the_running_qwenpaw_is_inside_the_declared_range():

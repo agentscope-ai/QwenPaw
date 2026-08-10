@@ -36,6 +36,28 @@ from ...constant import (
 logger = logging.getLogger(__name__)
 
 
+def _process_local_tz():
+    """Return the process-local timezone used by ``datetime.now()``."""
+    return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def _normalize_msg_timestamp(ts_value: str, user_tz: ZoneInfo) -> str:
+    """Normalize a Msg timestamp string into the user's timezone.
+
+    AgentScope writes ``Msg.created_at`` with ``datetime.now().isoformat()``,
+    so a naive value is a process-local wall clock — not UTC and not
+    ``user_timezone``. Aware values keep their encoded offset.
+    Unparseable inputs are returned unchanged.
+    """
+    try:
+        dt_obj = datetime.fromisoformat(ts_value)
+        if dt_obj.tzinfo is None:
+            dt_obj = dt_obj.replace(tzinfo=_process_local_tz())
+        return dt_obj.astimezone(user_tz).isoformat()
+    except (ValueError, TypeError):
+        return ts_value
+
+
 def _is_scroll_memory_placeholder(msg: Msg) -> bool:
     """Return whether *msg* is model-only Scroll context, not transcript.
 
@@ -142,7 +164,7 @@ def build_env_context(
         default_shell: Shell executable used by execute_shell_command.
             When provided, included in the context so the LLM can
             generate syntax appropriate for that shell.
-        project_dir: When set (Coding Mode), the agent's "Working
+        project_dir: When set, the agent's "Working
             directory" line is replaced with an explicit
             "Project directory" + "Agent workspace (internal)" pair
             so the LLM stops treating the workspace as home.
@@ -194,8 +216,8 @@ def build_env_context(
 
     if project_dir:
         parts.append(
-            f"- Project directory (Coding Mode — operate here): "
-            f"{project_dir}",
+            f"- Project directory (relative files and commands resolve "
+            f"here): {project_dir}",
         )
         if working_dir is not None and str(working_dir) != str(project_dir):
             parts.append(
@@ -530,13 +552,7 @@ def agentscope_msg_to_message(
 
         ts_value = msg.timestamp
         if ts_value:
-            try:
-                dt_obj = datetime.fromisoformat(ts_value)
-                if dt_obj.tzinfo is None:
-                    dt_obj = dt_obj.replace(tzinfo=timezone.utc)
-                ts_value = dt_obj.astimezone(user_tz).isoformat()
-            except (ValueError, TypeError):
-                pass
+            ts_value = _normalize_msg_timestamp(ts_value, user_tz)
 
         metadata = {
             "original_id": msg.id,

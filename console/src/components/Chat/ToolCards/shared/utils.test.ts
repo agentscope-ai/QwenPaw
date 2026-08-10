@@ -7,7 +7,12 @@ vi.mock("@/api/modules/chat", () => ({
   },
 }));
 
-import { formatAgentList, formatMemorySearch, getMediaInfo } from "./utils";
+import {
+  formatAgentList,
+  formatMemorySearch,
+  getMediaInfo,
+  hasMultimediaPreview,
+} from "./utils";
 import type { ToolCallContent } from "./types";
 
 const translate = ((key: string) => {
@@ -143,6 +148,19 @@ describe("getMediaInfo", () => {
     );
     expect(media?.url).toBe("/api/files/preview/abs/path/file1.txt");
     expect(media?.name).toBe("file1.txt");
+  });
+
+  it("only auto-expands multimedia file previews", () => {
+    expect(
+      hasMultimediaPreview(
+        baseToolCall({ params: { file_path: "/abs/path/image.png" } }),
+      ),
+    ).toBe(true);
+    expect(
+      hasMultimediaPreview(
+        baseToolCall({ params: { file_path: "/abs/path/readme.txt" } }),
+      ),
+    ).toBe(false);
   });
 });
 

@@ -1,4 +1,5 @@
 import { Modal } from "antd";
+import { useTranslation } from "react-i18next";
 
 interface KeyboardShortcutsPanelProps {
   open: boolean;
@@ -20,24 +21,26 @@ const isMac =
   /Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
 const modKey = isMac ? "⌘" : "Ctrl";
 
-const SHORTCUT_GROUPS: ShortcutGroup[] = [
-  {
-    title: "通用",
-    shortcuts: [
-      { keys: [modKey, "S"], description: "保存项目" },
-      { keys: ["?"], description: "打开快捷键面板" },
-      { keys: ["Esc"], description: "关闭面板/弹窗" },
-    ],
-  },
-  {
-    title: "导航",
-    shortcuts: [
-      { keys: [modKey, "1"], description: "前往剧本大纲" },
-      { keys: [modKey, "2"], description: "前往资产库" },
-      { keys: [modKey, "4"], description: "前往视频" },
-    ],
-  },
-];
+function getShortcutGroups(t: (key: string) => string): ShortcutGroup[] {
+  return [
+    {
+      title: t("keyboard.general"),
+      shortcuts: [
+        { keys: [modKey, "S"], description: t("keyboard.saveProject") },
+        { keys: ["?"], description: t("keyboard.openShortcuts") },
+        { keys: ["Esc"], description: t("keyboard.closePanel") },
+      ],
+    },
+    {
+      title: t("keyboard.navigation"),
+      shortcuts: [
+        { keys: [modKey, "1"], description: t("keyboard.goToScript") },
+        { keys: [modKey, "2"], description: t("keyboard.goToAssets") },
+        { keys: [modKey, "4"], description: t("keyboard.goToVideo") },
+      ],
+    },
+  ];
+}
 
 function KbdKey({ children }: { children: React.ReactNode }) {
   return (
@@ -51,6 +54,7 @@ export default function KeyboardShortcutsPanel({
   open,
   onClose,
 }: KeyboardShortcutsPanelProps) {
+  const { t } = useTranslation();
   return (
     <Modal
       title={
@@ -67,7 +71,7 @@ export default function KeyboardShortcutsPanel({
             <rect x="2" y="4" width="20" height="16" rx="2" />
             <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8" />
           </svg>
-          <span>键盘快捷键</span>
+          <span>{t("keyboard.title")}</span>
         </div>
       }
       open={open}
@@ -78,7 +82,7 @@ export default function KeyboardShortcutsPanel({
       destroyOnHidden
     >
       <div className="mt-2 space-y-5">
-        {SHORTCUT_GROUPS.map((group) => (
+        {getShortcutGroups(t).map((group) => (
           <div key={group.title}>
             <h4 className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">
               {group.title}
@@ -112,7 +116,8 @@ export default function KeyboardShortcutsPanel({
       </div>
       <div className="mt-4 pt-3 border-t border-[var(--color-border)] text-center">
         <span className="text-xs text-[var(--color-text-tertiary)]">
-          按 <KbdKey>?</KbdKey> 随时打开此面板
+          {t("keyboard.pressHint")} <KbdKey>?</KbdKey>{" "}
+          {t("keyboard.openShortcuts")}
         </span>
       </div>
     </Modal>

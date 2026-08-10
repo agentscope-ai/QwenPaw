@@ -29,12 +29,22 @@ from domain.enums import (
     SpecialistRunStatus,
     TaskStatus,
 )
-from domain.errors import ConflictError, ReviewPendingError
+from domain.errors import (
+    ConflictError,
+    CreatorError,
+    ReviewPendingError,
+    ValidationError,
+)
 from models.config import (
     CREATION_CHECKPOINT_REQUIRED,
     EXECUTION_AUTHORIZATION_ALLOW_ALL,
+    MEDIA_REVIEW_AUTO_APPROVE,
     get_creation_checkpoint_mode,
     get_execution_authorization_mode,
+    get_mainline_max_model_turns,
+    get_media_review_mode,
+    get_specialist_max_model_turns,
+    scale_mainline_max_model_turns,
     get_text_model_name,
     get_vlm_model_name,
     get_web_grounding_enabled,
@@ -47,13 +57,23 @@ from models.config import (
     get_video_backend,
     get_video_model_name,
 )
-from models.media_transport import validate_reference_image_bytes
+from models.media_transport import (
+    read_reference_media,
+    validate_reference_image_bytes,
+)
+from services.object_grounding import ground_image_objects
+from services.object_grounding import object_grounding_image_suffix
+from services.object_grounding import render_object_grounding_annotation
 from services.project_files.agent_tools import (
+    AgentProjectToolError,
     AgentProjectToolContext,
     AgentProjectTools,
     JQ_PROJECT_TOOL_NAME,
+    PATCH_PROJECT_TOOL_NAME,
+    READ_PROJECT_TOOL_NAME,
     agent_project_tool_manifest,
 )
+from services.project_files.jq_transform import JqTransformError
 from services.project_files.commit import ProjectCommitBoundary
 from services.project_files.facade import CreatorFileServices
 from services.project_files.assets import AssetAlreadyExists, AssetFileStore
@@ -62,6 +82,7 @@ from services.project_files.models import (
     Project,
     SourceAssetVersion,
 )
+from services.project_files.remote_cache import public_source_url
 from services.runtime_files.models import (
     ChangeOrigin,
     CreatorMessageRecord,
@@ -78,9 +99,10 @@ from services.runtime_files.execution_store import (
     ProjectExecutionStore,
 )
 from services.runtime_files.errors import RecordNotFoundError
-from services.execution_pricing import (
-    CostEstimate,
-    estimate_execution_cost,
+from services.runtime_files.atomic_store import atomic_replace_bytes
+from services.media_files.call_budget import (
+    MediaCallBudgetExhausted,
+    ensure_media_call_budget,
 )
 from services.observability import trace_event, traced_async
 from services.source_analysis import SourceAgentToolContext
@@ -96,6 +118,10 @@ from services.runtime_files.session_store import (
 )
 from services.web_grounding import ground_prompt_context
 from utils.logger import setup_logger
+from utils.paths import media_path_from_url
+from utils.paths import media_task_scope
+from utils.paths import media_url_for
+from utils.paths import unique_task_work_path
 
 from .checkpoints import (
     CHECKPOINT_PROVIDER,
@@ -123,9 +149,14 @@ from .models import (
     CreatorAgentRunRecord,
     TERMINAL_AGENT_RUN_STATUSES,
 )
-from .native_media import source_intelligence_content_parts
+from .native_media import (
+    document_page_content_parts,
+    source_intelligence_content_parts,
+)
 from .prompts import render_creator_system_prompt
 from .run_store import AgentRunStateConflict, CreatorAgentRunStore
+from .work_graph import derive_work_graph
+from .work_scheduler import WorkGraphScheduler
 from .subagents import (
     DELEGATE_TOOL_NAME,
     DelegateToAgentInput,
@@ -135,19 +166,143 @@ from .subagents import (
 
 logger = setup_logger("creator.agent_runtime")
 
+# Arguments the provider prices on: they must still match the approved scope
+# at invocation time, or the user would pay for terms they never saw.
+_BILLING_SENSITIVE_ARGUMENTS = ("durationSeconds", "resolution", "mode")
+
 GROUND_PROMPT_CONTEXT_TOOL_NAME = "ground_prompt_context"
+OBJECT_GROUNDING_TOOL_NAME = "ground_image_objects"
 GROUNDING_VISUAL_MAX_BYTES = 16 * 1024 * 1024
 MAX_MALFORMED_JQ_PROJECT_RETRIES = 2
+MAX_REPEATED_DETERMINISTIC_TOOL_FAILURES = 2
+DEFAULT_MODEL_TURN_TIMEOUT_SECONDS = 180.0
+# The workspace schema prompt instructs the model to keep each jq_project
+# argument JSON under 4KB; the advisory fires at 2x that guidance so the
+# diagnosis surfaces payloads that ignored the instruction.
+JQ_PROJECT_ARGUMENT_SIZE_GUIDANCE_BYTES = 4 * 1024
+JQ_PROJECT_LARGE_ARGUMENT_ADVISORY_BYTES = (
+    2 * JQ_PROJECT_ARGUMENT_SIZE_GUIDANCE_BYTES
+)
+TOOL_ARGUMENT_PROGRESS_BYTES = 1024
+MAX_PERSISTED_RAW_TOOL_ARGUMENT_BYTES = 256 * 1024
+
+_PROJECT_SNAPSHOT_RESULT_KIND = "project_snapshot"
+_PROJECT_CHANGE_RECEIPT_RESULT_KIND = "project_change_receipt"
+_PROJECT_SNAPSHOT_TOOL_NAMES = frozenset(
+    {READ_PROJECT_TOOL_NAME, JQ_PROJECT_TOOL_NAME, PATCH_PROJECT_TOOL_NAME},
+)
+
+
+@dataclass
+class _ToolArgumentProgressState:
+    tool: str
+    received_bytes: int = 0
+    provider_chunk_count: int = 0
+    last_reported_bytes: int = 0
+
+
+class _ToolArgumentProgressReporter:
+    """Collapse provider fragments into bounded, content-free progress events."""
+
+    def __init__(self, emit: Any) -> None:
+        self._emit = emit
+        self._states: dict[str, _ToolArgumentProgressState] = {}
+
+    async def feed(
+        self,
+        tool_call_id: str,
+        tool_name: str,
+        arguments_delta: str,
+    ) -> None:
+        if not arguments_delta:
+            return
+        state = self._states.setdefault(
+            tool_call_id,
+            _ToolArgumentProgressState(tool=tool_name),
+        )
+        state.tool = tool_name or state.tool
+        state.received_bytes += len(arguments_delta.encode("utf-8"))
+        state.provider_chunk_count += 1
+        if (
+            state.last_reported_bytes == 0
+            or state.received_bytes - state.last_reported_bytes
+            >= TOOL_ARGUMENT_PROGRESS_BYTES
+        ):
+            await self._emit(tool_call_id, state, False)
+            state.last_reported_bytes = state.received_bytes
+
+    async def finish(self, calls: tuple[AgentToolCall, ...]) -> None:
+        for call in calls:
+            state = self._states.setdefault(
+                call.call_id,
+                _ToolArgumentProgressState(tool=call.name),
+            )
+            state.tool = call.name
+            state.received_bytes = max(
+                state.received_bytes,
+                call.raw_arguments_bytes,
+            )
+            state.provider_chunk_count = max(
+                state.provider_chunk_count,
+                call.provider_chunk_count,
+            )
+            await self._emit(call.call_id, state, True)
+            state.last_reported_bytes = state.received_bytes
+
+
+def _tool_call_transport_metadata(call: AgentToolCall) -> dict[str, Any]:
+    """Return one bounded forensic record for a completed provider payload."""
+
+    raw = call.raw_arguments
+    raw_bytes = raw.encode("utf-8")
+    payload: dict[str, Any] = {
+        "rawArgumentsBytes": call.raw_arguments_bytes or len(raw_bytes),
+        "providerChunkCount": call.provider_chunk_count,
+        "argumentsRepaired": call.arguments_repaired,
+        "strictJsonError": call.strict_json_error,
+        "rawArgumentsCaptured": bool(raw),
+    }
+    if raw:
+        payload["rawArgumentsSha256"] = hashlib.sha256(raw_bytes).hexdigest()
+        if len(raw_bytes) <= MAX_PERSISTED_RAW_TOOL_ARGUMENT_BYTES:
+            payload["rawArguments"] = raw
+        else:
+            # Preserve useful forensic boundaries without allowing one model
+            # response to make an unbounded Runtime record.
+            boundary = MAX_PERSISTED_RAW_TOOL_ARGUMENT_BYTES // 2
+            payload.update(
+                {
+                    "rawArgumentsCaptured": False,
+                    "rawArgumentsTruncated": True,
+                    "rawArgumentsPrefix": raw_bytes[:boundary].decode(
+                        "utf-8",
+                        errors="replace",
+                    ),
+                    "rawArgumentsSuffix": raw_bytes[-boundary:].decode(
+                        "utf-8",
+                        errors="replace",
+                    ),
+                },
+            )
+    return payload
 
 
 def _specialist_waiting_review_summary(
     role: SpecialistRole,
     target_refs: list[str],
 ) -> str:
+    # The Runtime does not auto-resume a paused specialist: after approval
+    # the mainline must re-delegate the same target. The summary must not
+    # promise an automation that does not exist, or the mainline skips the
+    # re-delegation and falsely reports the video as in progress.
     target = "、".join(target_refs) or "当前目标"
     if role is SpecialistRole.R2V_GENERATION_DIRECTOR:
-        return f"{target} 的分镜图已生成，视频尚未开始。" "请先审阅分镜图；审阅通过后将自动继续生成视频。"
-    return f"{target} 的产物已生成，后续步骤尚未开始。请先完成审阅；审阅通过后将自动继续。"
+        return (
+            f"{target} 的分镜图已生成，视频尚未开始。请先审阅分镜图；"
+            "审阅通过后，主线需对该 Element 重新委派 R2V 生成 Director 以继续生成视频；"
+            "这不算重新生成已通过产物。"
+        )
+    return f"{target} 的产物已生成，后续步骤尚未开始。请先完成审阅；" "审阅通过后，主线需重新委派同一目标以继续后续步骤。"
 
 
 def _agent_waiting_review_summary(
@@ -155,8 +310,90 @@ def _agent_waiting_review_summary(
 ) -> str:
     summary = (specialist_summary or "").strip()
     if not summary:
-        summary = "当前产物已生成，后续步骤尚未开始。请先完成审阅；审阅通过后系统将自动继续。"
+        summary = "当前产物已生成，后续步骤尚未开始。请先完成审阅；审阅通过后主线需重新委派同一目标以继续。"
     return f"{summary}\n\n无需另行发送消息。"
+
+
+def _deterministic_tool_failure_fingerprint(
+    call: AgentToolCall,
+    error: Exception,
+) -> str | None:
+    """Identify an exact, non-retryable tool failure across model turns."""
+
+    supported = isinstance(
+        error,
+        (CreatorError, AgentProjectToolError, JqTransformError),
+    )
+    if not supported or bool(getattr(error, "retryable", False)):
+        return None
+    payload = json.dumps(
+        {
+            "tool": call.name,
+            "arguments": call.arguments,
+            "errorType": type(error).__name__,
+            "errorCode": getattr(error, "code", None),
+            "error": str(error),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _tool_failure_result(
+    name: str,
+    error: Exception,
+    *,
+    recovery: str | None = None,
+) -> dict[str, Any]:
+    """Expose stable error fields without flattening useful diagnostics."""
+
+    error_payload: dict[str, Any] = {
+        "type": type(error).__name__,
+        "message": str(error),
+        "recovery": recovery
+        or _specialist_tool_recovery(
+            name,
+            str(error),
+            code=getattr(error, "code", None),
+        ),
+    }
+    code = getattr(error, "code", None)
+    if isinstance(code, str) and code:
+        error_payload["code"] = code
+        error_payload["retryable"] = bool(
+            getattr(error, "retryable", False),
+        )
+    details = getattr(error, "details", None)
+    if isinstance(details, Mapping) and details:
+        error_payload["details"] = dict(details)
+    return {"ok": False, "error": error_payload}
+
+
+def _unfinished_video_element_ids(project: Any) -> list[str]:
+    """Timeline r2v elements that do not have an accepted main video yet.
+
+    This is the YOLO completion criterion (and the seed of the future DAG
+    node state): an element whose creative facts exist but whose
+    ``element:{id}:main`` video slot has no selected version is unfinished.
+    """
+
+    finished_owners = {
+        slot.owner_ref
+        for slot in project.assets.artifact_slots_by_id.values()
+        if slot.kind == "element_video" and slot.selected_version_id
+    }
+    unfinished: list[str] = []
+    for timeline in project.timelines.items.values():
+        for element_id, element in timeline.elements_by_id.items():
+            creation = getattr(element, "creation", None)
+            if getattr(creation, "type", None) != "r2v":
+                continue
+            if f"element:{element_id}" not in finished_owners:
+                unfinished.append(element_id)
+    return sorted(unfinished)
 
 
 def _grounding_stable_id(prefix: str, project_id: str, identity: str) -> str:
@@ -209,6 +446,25 @@ def _grounding_visual_is_usable(source: Mapping[str, Any]) -> bool:
     )
 
 
+def _object_grounding_version_ref(value: str) -> tuple[str, str] | None:
+    ref = str(value or "").strip()
+    for prefix, kind in (
+        ("asset-version:", "asset"),
+        ("artifact-version:", "artifact"),
+    ):
+        if ref.startswith(prefix):
+            version_id = ref.removeprefix(prefix).strip()
+            return (kind, version_id) if version_id else None
+    parsed = urlparse(ref)
+    if parsed.scheme not in {"asset", "artifact"} or not parsed.netloc:
+        return None
+    identity = unquote(parsed.netloc)
+    if "@" not in identity:
+        return None
+    version_id = identity.rsplit("@", 1)[-1].strip()
+    return (parsed.scheme, version_id) if version_id else None
+
+
 def _ground_prompt_context_tool_manifest() -> dict[str, Any]:
     return {
         "type": "function",
@@ -256,10 +512,55 @@ def _ground_prompt_context_tool_manifest() -> dict[str, Any]:
     }
 
 
+def _object_grounding_tool_manifest() -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": OBJECT_GROUNDING_TOOL_NAME,
+            "description": (
+                "使用 Creator VLM 检测并定位一张图片中的指定对象。返回每个对象的 "
+                "0-1000 归一化 bbox 和原图像素 bbox；需要可视化时可生成带框标注图。"
+                "imageRef 接受本轮附件中的 asset-version/artifact-version ref、"
+                "asset:// 或 artifact:// workspace ref、安全公网图片 URL，或当前 "
+                "Project 的 /generated URL。不要传本机文件路径。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "projectId": {"type": "string", "minLength": 1},
+                    "imageRef": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": (
+                            "要检测的 exact AssetVersion/ArtifactVersion workspace "
+                            "ref、安全公网图片 URL，或当前 Project 的 /generated URL。"
+                        ),
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000,
+                        "description": (
+                            "要检测的对象，例如 all cats、the red car、画面中的所有人。"
+                        ),
+                    },
+                    "returnImage": {
+                        "type": "boolean",
+                        "description": "是否生成带检测框的临时标注图。",
+                    },
+                },
+                "required": ["projectId", "imageRef", "prompt"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 def _creator_agent_tool_manifest() -> list[dict[str, Any]]:
     manifest = [*agent_project_tool_manifest()]
     if get_web_grounding_enabled():
         manifest.append(_ground_prompt_context_tool_manifest())
+    manifest.append(_object_grounding_tool_manifest())
     manifest.append(delegate_tool_manifest())
     return manifest
 
@@ -308,6 +609,9 @@ class _JqProjectArgumentDiagnosis:
     nested_required_paths: tuple[str, ...]
     nested_scan_truncated: bool
     raw_arguments_bytes: int
+    program_bytes: int
+    json_args_bytes: int
+    large_payload_advisory: bool
     strict_json_parsed: bool
     json_repair_applied: bool
     strict_json_error: str | None
@@ -337,6 +641,9 @@ class _JqProjectArgumentDiagnosis:
     def event_payload(self) -> dict[str, Any]:
         return {
             "rawArgumentsBytes": self.raw_arguments_bytes,
+            "programBytes": self.program_bytes,
+            "jsonArgsBytes": self.json_args_bytes,
+            "largePayloadAdvisory": self.large_payload_advisory,
             "strictJsonParsed": self.strict_json_parsed,
             "jsonRepairApplied": self.json_repair_applied,
             "strictJsonError": self.strict_json_error,
@@ -437,10 +744,12 @@ class MalformedJqProjectArguments(FileAgentRuntimeError):
                     "payload was complete. "
                 )
             recovery = (
-                syntax_hint
-                + "Re-send the work as one jq_project call per timeline "
-                "element or settings change, keeping every payload well "
-                "under the size that failed. " + recovery
+                syntax_hint + "Your arguments were "
+                f"{self.diagnosis.raw_arguments_bytes} bytes; keep each "
+                "call's JSON under "
+                f"{JQ_PROJECT_ARGUMENT_SIZE_GUIDANCE_BYTES} bytes and "
+                "write one timeline element or settings change per "
+                "jq_project call. " + recovery
             )
         if self.repeated_payload:
             recovery = (
@@ -451,7 +760,9 @@ class MalformedJqProjectArguments(FileAgentRuntimeError):
             "ok": False,
             "error": {
                 "type": type(self).__name__,
+                "code": "JQ_ARGUMENTS_MALFORMED",
                 "message": str(self),
+                "retryable": self.retries_remaining > 0,
                 "details": self.diagnosis.event_payload(),
                 "retry": {
                     "attempt": self.attempt,
@@ -531,6 +842,25 @@ def _jq_project_argument_diagnosis(
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
+    program = arguments.get("program")
+    program_bytes = (
+        len(program.encode("utf-8")) if isinstance(program, str) else 0
+    )
+    json_args = arguments.get("jsonArgs")
+    json_args_bytes = (
+        len(
+            json.dumps(
+                json_args,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8"),
+        )
+        if isinstance(json_args, Mapping)
+        else 0
+    )
+    raw_arguments_bytes = call.raw_arguments_bytes or len(encoded)
     fingerprint = hashlib.sha256(encoded).hexdigest()[:16]
     nested_paths, nested_truncated = _nested_required_key_paths(
         arguments,
@@ -542,7 +872,12 @@ def _jq_project_argument_diagnosis(
         unexpected_top_level=unexpected,
         nested_required_paths=nested_paths,
         nested_scan_truncated=nested_truncated,
-        raw_arguments_bytes=call.raw_arguments_bytes or len(encoded),
+        raw_arguments_bytes=raw_arguments_bytes,
+        program_bytes=program_bytes,
+        json_args_bytes=json_args_bytes,
+        large_payload_advisory=(
+            raw_arguments_bytes >= JQ_PROJECT_LARGE_ARGUMENT_ADVISORY_BYTES
+        ),
         strict_json_parsed=not call.arguments_repaired,
         json_repair_applied=call.arguments_repaired,
         strict_json_error=call.strict_json_error,
@@ -556,6 +891,10 @@ class ToolArgumentsJSONError(FileAgentRuntimeError):
     Raised per tool call and fed back to the model as a failed tool result;
     it must never terminate the whole run.
     """
+
+
+class RepeatedDeterministicToolFailure(AgentModelError):
+    """The model repeated an identical non-retryable tool failure."""
 
 
 class StaleAgentRun(FileAgentRuntimeError, AgentStreamCallbackPassthrough):
@@ -618,12 +957,22 @@ class FileCreatorAgentRuntime:
         model_client: AgentChatClient | None = None,
         source_model_client: AgentChatClient | None = None,
         poll_interval_seconds: float = 1.0,
-        max_model_turns: int = 16,
+        max_model_turns: int | None = None,
+        specialist_max_model_turns: int | None = None,
+        model_turn_timeout_seconds: float = DEFAULT_MODEL_TURN_TIMEOUT_SECONDS,
     ) -> None:
         if poll_interval_seconds <= 0:
             raise ValueError("poll_interval_seconds must be positive")
+        if max_model_turns is None:
+            max_model_turns = get_mainline_max_model_turns()
+        if specialist_max_model_turns is None:
+            specialist_max_model_turns = get_specialist_max_model_turns()
         if max_model_turns <= 0:
             raise ValueError("max_model_turns must be positive")
+        if specialist_max_model_turns <= 0:
+            raise ValueError("specialist_max_model_turns must be positive")
+        if model_turn_timeout_seconds <= 0:
+            raise ValueError("model_turn_timeout_seconds must be positive")
         self.services = services
         self.sessions = ProjectRuntimeSessionStore(services.root)
         self.runs = CreatorAgentRunStore(services.root)
@@ -638,6 +987,8 @@ class FileCreatorAgentRuntime:
         )
         self.poll_interval_seconds = poll_interval_seconds
         self.max_model_turns = max_model_turns
+        self.specialist_max_model_turns = specialist_max_model_turns
+        self.model_turn_timeout_seconds = model_turn_timeout_seconds
         self._loop: asyncio.AbstractEventLoop | None = None
         self._dispatcher: asyncio.Task[None] | None = None
         self._wake = asyncio.Event()
@@ -646,6 +997,39 @@ class FileCreatorAgentRuntime:
         self._blocked_heads: dict[str, int] = {}
         self._epochs: dict[str, int] = {}
         self._publication_lock = threading.RLock()
+        # Event-driven media fan-out: the model plans, the Runtime executes
+        # READY work-graph nodes in parallel (unattended ladder only).
+        self.work_scheduler = WorkGraphScheduler(services)
+
+    async def _complete_model_turn(
+        self,
+        client: AgentChatClient,
+        *,
+        label: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        on_text_delta: Any,
+        on_thinking_delta: Any,
+        on_tool_call_delta: Any,
+    ) -> AgentModelTurn:
+        """Bound one provider turn; max_model_turns cannot stop a hung turn."""
+
+        try:
+            return await asyncio.wait_for(
+                client.complete(
+                    messages=messages,
+                    tools=tools,
+                    on_text_delta=on_text_delta,
+                    on_thinking_delta=on_thinking_delta,
+                    on_tool_call_delta=on_tool_call_delta,
+                ),
+                timeout=self.model_turn_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise AgentModelError(
+                f"{label} model turn exceeded "
+                f"{self.model_turn_timeout_seconds:g} seconds",
+            ) from exc
 
     @property
     def started(self) -> bool:
@@ -1262,6 +1646,16 @@ class FileCreatorAgentRuntime:
                         context.review_boundary.interrupted_run_id
                     ),
                 )
+            elif not needs_review:
+                # Unattended (YOLO) projects treat a succeeded mainline as a
+                # checkpoint, not a finish line: resume until every element
+                # has its video (fused against runaway loops inside).
+                await self._queue_yolo_completion_resume(
+                    project_id=project_id,
+                    session_id=session.session_id,
+                    conversation_id=message.conversation_id,
+                    run_id=run_id,
+                )
             self._blocked_heads.pop(project_id, None)
         except asyncio.CancelledError:
             await self._cancel_run(
@@ -1294,6 +1688,23 @@ class FileCreatorAgentRuntime:
                 run_id,
                 message,
                 code="MODEL_CONFIG_MISSING",
+                message_text=str(exc),
+                retryable=False,
+            )
+            self._blocked_heads[project_id] = message.message_seq
+        except RepeatedDeterministicToolFailure as exc:
+            logger.error(
+                "Agent run %s stopped after repeated deterministic tool failure: %s",
+                run_id,
+                exc,
+            )
+            await self._fail_run(
+                project_id,
+                session.session_id,
+                goal.goal_id,
+                run_id,
+                message,
+                code="TOOL_NON_PROGRESS",
                 message_text=str(exc),
                 retryable=False,
             )
@@ -1396,8 +1807,29 @@ class FileCreatorAgentRuntime:
         waiting_review_summary: str | None = None
         malformed_jq_attempts = 0
         malformed_jq_fingerprints: set[str] = set()
-        for _turn_number in range(1, self.max_model_turns + 1):
+        deterministic_failure_counts: dict[str, int] = {}
+        # Element-heavy projects legitimately need more mainline turns
+        # (one element per jq_project call plus one delegation each), so
+        # the runaway cap scales with the current timeline size instead of
+        # failing healthy long runs.
+        try:
+            snapshot = await asyncio.to_thread(
+                self.services.projects.read,
+                project_id,
+            )
+            element_count = sum(
+                len(timeline.elements_by_id)
+                for timeline in snapshot.project.timelines.items.values()
+            )
+        except Exception:
+            element_count = 0
+        turn_budget = scale_mainline_max_model_turns(
+            self.max_model_turns,
+            element_count,
+        )
+        for _turn_number in range(1, turn_budget + 1):
             self._assert_epoch(project_id, run_id, epoch)
+            _compact_wire_project_snapshots(messages)
             assistant_message_id = f"message-{uuid4().hex}"
             delta_index = 0
             # The authoritative assistant message is still persisted durably by
@@ -1439,39 +1871,50 @@ class FileCreatorAgentRuntime:
             async def persist_thinking_delta(delta: str) -> None:
                 await persist_message_delta("thinking", delta)
 
-            async def persist_tool_delta(
+            async def persist_tool_progress(
                 tool_call_id: str,
-                tool_name: str,
-                arguments_delta: str,
+                state: _ToolArgumentProgressState,
+                complete: bool,
             ) -> None:
                 nonlocal delta_index
-                if not arguments_delta:
-                    return
                 self._assert_epoch(project_id, run_id, epoch)
                 await self._event(
                     project_id,
                     session_id,
-                    "agent.tool_delta",
+                    "agent.tool_progress",
                     run_id,
                     request,
                     {
                         "runId": run_id,
                         "messageId": assistant_message_id,
                         "toolCallId": tool_call_id,
-                        "tool": tool_name,
+                        "tool": state.tool,
                         "deltaIndex": delta_index,
-                        "argumentsDelta": arguments_delta,
+                        "receivedBytes": state.received_bytes,
+                        "providerChunkCount": state.provider_chunk_count,
+                        "complete": complete,
+                        "stage": (
+                            "arguments_complete"
+                            if complete
+                            else "assembling_arguments"
+                        ),
                     },
                 )
                 delta_index += 1
 
-            turn = await self.model_client.complete(
+            tool_progress = _ToolArgumentProgressReporter(
+                persist_tool_progress,
+            )
+            turn = await self._complete_model_turn(
+                self.model_client,
+                label="Creator Agent",
                 messages=messages,
                 tools=tool_manifest,
                 on_text_delta=persist_text_delta,
                 on_thinking_delta=persist_thinking_delta,
-                on_tool_call_delta=persist_tool_delta,
+                on_tool_call_delta=tool_progress.feed,
             )
+            await tool_progress.finish(turn.tool_calls)
             self._assert_epoch(project_id, run_id, epoch)
             if len(turn.tool_calls) > 1:
                 raise AgentModelError(
@@ -1489,6 +1932,8 @@ class FileCreatorAgentRuntime:
                     content=canonical_summary,
                     thinking=turn.thinking,
                     provider_message_id=turn.provider_message_id,
+                    finish_reason=turn.finish_reason,
+                    usage=turn.usage,
                 )
                 await persist_message_delta("text", canonical_summary)
             await self._persist_assistant_turn(
@@ -1519,6 +1964,7 @@ class FileCreatorAgentRuntime:
                 tool_call_count += 1
                 tool_failed = False
                 malformed_budget_exhausted = False
+                repeated_failure_exhausted = False
                 self._assert_epoch(project_id, run_id, epoch)
                 logger.info(
                     "tool: project=%s run=%s tool=%s call_id=%s args=%s",
@@ -1526,9 +1972,11 @@ class FileCreatorAgentRuntime:
                     run_id,
                     call.name,
                     call.call_id,
-                    _prompt_preview(call.arguments, limit=200)
-                    if call.name != DELEGATE_TOOL_NAME
-                    else call.arguments.get("task"),
+                    (
+                        _prompt_preview(call.arguments, limit=200)
+                        if call.name != DELEGATE_TOOL_NAME
+                        else call.arguments.get("task")
+                    ),
                 )
                 await self._event(
                     project_id,
@@ -1542,6 +1990,11 @@ class FileCreatorAgentRuntime:
                         "toolCallId": call.call_id,
                         "tool": call.name,
                         "messageId": assistant_message_id,
+                        "arguments": dict(call.arguments),
+                        "rawArgumentsBytes": call.raw_arguments_bytes,
+                        "providerChunkCount": call.provider_chunk_count,
+                        "argumentsRepaired": call.arguments_repaired,
+                        "finishReason": turn.finish_reason,
                     },
                 )
                 try:
@@ -1612,6 +2065,11 @@ class FileCreatorAgentRuntime:
                             request=request,
                             arguments=call.arguments,
                         )
+                    elif call.name == OBJECT_GROUNDING_TOOL_NAME:
+                        result = await self._run_object_grounding(
+                            request=request,
+                            arguments=call.arguments,
+                        )
                     else:
                         result = await asyncio.to_thread(
                             tools.invoke,
@@ -1642,7 +2100,7 @@ class FileCreatorAgentRuntime:
                         tool_name=call.name,
                         result=result,
                     )
-                    if call.name == "jq_project":
+                    if call.name in {"jq_project", "patch_project"}:
                         await self._workspace_changed(
                             project_id,
                             session_id,
@@ -1666,17 +2124,25 @@ class FileCreatorAgentRuntime:
                             exc.attempt > MAX_MALFORMED_JQ_PROJECT_RETRIES
                         )
                     else:
-                        error_result = {
-                            "ok": False,
-                            "error": {
-                                "type": type(exc).__name__,
-                                "message": str(exc),
-                                "recovery": _specialist_tool_recovery(
-                                    call.name,
-                                    str(exc),
-                                ),
-                            },
-                        }
+                        failure_fingerprint = (
+                            _deterministic_tool_failure_fingerprint(call, exc)
+                        )
+                        if failure_fingerprint is not None:
+                            failure_count = (
+                                deterministic_failure_counts.get(
+                                    failure_fingerprint,
+                                    0,
+                                )
+                                + 1
+                            )
+                            deterministic_failure_counts[
+                                failure_fingerprint
+                            ] = failure_count
+                            repeated_failure_exhausted = (
+                                failure_count
+                                >= MAX_REPEATED_DETERMINISTIC_TOOL_FAILURES
+                            )
+                        error_result = _tool_failure_result(call.name, exc)
                     await self._persist_tool_result(
                         project_id,
                         session_id,
@@ -1702,13 +2168,20 @@ class FileCreatorAgentRuntime:
                     },
                 )
                 if malformed_budget_exhausted:
-                    raise AgentModelError(
+                    raise RepeatedDeterministicToolFailure(
                         "jq_project produced structurally corrupted tool "
                         "arguments after 2 bounded retries; the run stopped "
                         "before jq execution",
                     )
+                if repeated_failure_exhausted:
+                    raise RepeatedDeterministicToolFailure(
+                        "Creator Agent repeated the same non-retryable "
+                        f"{call.name} failure twice without changing its "
+                        "arguments; the run stopped instead of starting "
+                        "another model turn",
+                    )
         raise AgentModelError(
-            f"Creator Agent exceeded {self.max_model_turns} model turns",
+            f"Creator Agent exceeded {turn_budget} model turns",
         )
 
     async def _run_ground_prompt_context(
@@ -1794,6 +2267,197 @@ class FileCreatorAgentRuntime:
             request_id=request.message_id,
             result=result,
         )
+
+    def _read_object_grounding_project_image(
+        self,
+        project_id: str,
+        image_ref: str,
+    ) -> tuple[bytes | None, str | None]:
+        parsed_ref = _object_grounding_version_ref(image_ref)
+        if parsed_ref is None:
+            raise FileAgentRuntimeError(
+                "ground_image_objects imageRef is not a supported Project ref",
+            )
+        kind, version_id = parsed_ref
+        snapshot = self.services.projects.read(project_id)
+        if kind == "asset":
+            version = snapshot.project.assets.source_versions_by_id.get(
+                version_id,
+            )
+        else:
+            version = snapshot.project.assets.artifact_versions_by_id.get(
+                version_id,
+            )
+        if version is None:
+            raise FileAgentRuntimeError(
+                f"ground_image_objects image version does not exist: {version_id}",
+            )
+        if not str(version.media_type or "").casefold().startswith("image/"):
+            raise FileAgentRuntimeError(
+                f"ground_image_objects imageRef is not an image: {version_id}",
+            )
+        if version.file_id:
+            indexed = snapshot.project.assets.files_by_id.get(version.file_id)
+            if indexed is None:
+                raise FileAgentRuntimeError(
+                    f"ground_image_objects image file is missing from the index: {version_id}",
+                )
+            if indexed.sha256 != version.checksum:
+                raise FileAgentRuntimeError(
+                    f"ground_image_objects image checksum does not match the index: {version_id}",
+                )
+            content = AssetFileStore(
+                self.services.projects.project_root(project_id),
+            ).read_verified(indexed)
+            return content, None
+        if kind == "asset" and isinstance(version, SourceAssetVersion):
+            remote_url = public_source_url(version)
+            if remote_url:
+                return None, remote_url
+        raise FileAgentRuntimeError(
+            f"ground_image_objects image bytes are unavailable: {version_id}",
+        )
+
+    async def _resolve_object_grounding_image(
+        self,
+        project_id: str,
+        image_ref: str,
+    ) -> bytes:
+        ref = str(image_ref or "").strip()
+        if ref.startswith(("http://", "https://")):
+            content, _filename = await read_reference_media(
+                ref,
+                max_bytes=GROUNDING_VISUAL_MAX_BYTES,
+            )
+        elif ref.startswith("/generated/"):
+            path = media_path_from_url(ref)
+            project_root = self.services.projects.project_root(
+                project_id,
+            ).resolve()
+            try:
+                path.resolve().relative_to(project_root)
+            except ValueError as exc:
+                raise FileAgentRuntimeError(
+                    "ground_image_objects cannot read generated media outside the current Project",
+                ) from exc
+            content, _filename = await read_reference_media(
+                ref,
+                max_bytes=GROUNDING_VISUAL_MAX_BYTES,
+            )
+        else:
+            content, remote_url = await asyncio.to_thread(
+                self._read_object_grounding_project_image,
+                project_id,
+                ref,
+            )
+            if content is None:
+                if not remote_url:
+                    raise FileAgentRuntimeError(
+                        "ground_image_objects image bytes are unavailable",
+                    )
+                content, _filename = await read_reference_media(
+                    remote_url,
+                    max_bytes=GROUNDING_VISUAL_MAX_BYTES,
+                )
+        if len(content) > GROUNDING_VISUAL_MAX_BYTES:
+            raise FileAgentRuntimeError(
+                f"ground_image_objects image exceeds {GROUNDING_VISUAL_MAX_BYTES} bytes",
+            )
+        try:
+            validate_reference_image_bytes(content)
+        except ValueError as exc:
+            raise FileAgentRuntimeError(
+                "ground_image_objects image cannot be decoded",
+            ) from exc
+        return content
+
+    @staticmethod
+    def _write_object_grounding_runtime_image(
+        *,
+        project_id: str,
+        request_id: str,
+        content: bytes,
+        subdir: str,
+        prefix: str,
+        suffix: str,
+    ) -> str:
+        with media_task_scope(request_id, project_id=project_id):
+            path = unique_task_work_path(
+                subdir,
+                suffix,
+                prefix=prefix,
+                task_id=request_id,
+            )
+            atomic_replace_bytes(path, content)
+            return media_url_for(path)
+
+    async def _run_object_grounding(
+        self,
+        *,
+        request: CreatorMessageRecord,
+        arguments: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        image_ref = str(arguments.get("imageRef") or "").strip()
+        prompt = str(arguments.get("prompt") or "").strip()
+        return_image = arguments.get("returnImage", False)
+        if not image_ref:
+            raise FileAgentRuntimeError(
+                "ground_image_objects requires imageRef",
+            )
+        if not prompt:
+            raise FileAgentRuntimeError(
+                "ground_image_objects requires prompt",
+            )
+        if len(prompt) > 1000:
+            raise FileAgentRuntimeError(
+                "ground_image_objects prompt exceeds 1000 characters",
+            )
+        if not isinstance(return_image, bool):
+            raise FileAgentRuntimeError(
+                "ground_image_objects returnImage must be boolean",
+            )
+        content = await self._resolve_object_grounding_image(
+            request.project_id,
+            image_ref,
+        )
+        suffix = object_grounding_image_suffix(content)
+        input_url = await asyncio.to_thread(
+            self._write_object_grounding_runtime_image,
+            project_id=request.project_id,
+            request_id=request.message_id,
+            content=content,
+            subdir="object-grounding",
+            prefix="input-",
+            suffix=suffix,
+        )
+        result = await ground_image_objects(
+            content,
+            input_url,
+            prompt,
+        )
+        response: dict[str, Any] = {
+            "ok": True,
+            "status": "success",
+            "imageRef": image_ref,
+            "inputImageUrl": input_url,
+            **result,
+        }
+        if return_image:
+            annotated = await asyncio.to_thread(
+                render_object_grounding_annotation,
+                content,
+                list(result.get("detections") or []),
+            )
+            response["annotatedImageUrl"] = await asyncio.to_thread(
+                self._write_object_grounding_runtime_image,
+                project_id=request.project_id,
+                request_id=request.message_id,
+                content=annotated,
+                subdir="object-grounding",
+                prefix="annotated-",
+                suffix=".png",
+            )
+        return response
 
     async def _promote_grounding_visuals(
         self,
@@ -2088,6 +2752,7 @@ class FileCreatorAgentRuntime:
             self.services.projects.read,
             project_id,
         )
+        delegated.validate_project_targets(project=snapshot.project)
         specialist_run_id = f"specialist-run-{uuid4().hex}"
         round_id = tools.context.round_id or f"agent-round-{parent_run_id}"
         prompt = specialist_system_prompt(
@@ -2095,6 +2760,8 @@ class FileCreatorAgentRuntime:
             project_id=project_id,
             project=snapshot.project,
             workspace_schema=tools.schema_prompt.text,
+            project_root=self.services.projects.project_root(project_id),
+            target_refs=delegated.target_refs,
         )
         record_metadata: dict[str, Any] = {"parentActionId": parent_action_id}
         if request.source == "review_rejection_feedback":
@@ -2225,8 +2892,12 @@ class FileCreatorAgentRuntime:
         review_ids: list[str] = []
         malformed_jq_attempts = 0
         malformed_jq_fingerprints: set[str] = set()
+        deterministic_failure_counts: dict[str, int] = {}
         try:
-            for _turn_number in range(1, self.max_model_turns + 1):
+            for _turn_number in range(
+                1,
+                self.specialist_max_model_turns + 1,
+            ):
                 self._assert_epoch(project_id, parent_run_id, epoch)
                 message_id = f"specialist-message-{uuid4().hex}"
                 delta_index = 0
@@ -2258,28 +2929,33 @@ class FileCreatorAgentRuntime:
                 async def thinking_delta(delta: str) -> None:
                     await message_delta("thinking", delta)
 
-                async def tool_delta(
+                async def subagent_tool_progress(
                     tool_call_id: str,
-                    tool_name: str,
-                    arguments_delta: str,
+                    state: _ToolArgumentProgressState,
+                    complete: bool,
                 ) -> None:
                     nonlocal delta_index
-                    if not arguments_delta:
-                        return
                     self._assert_epoch(project_id, parent_run_id, epoch)
                     await self._event(
                         project_id,
                         session_id,
-                        "subagent.tool_delta",
+                        "subagent.tool_progress",
                         parent_run_id,
                         request,
                         {
                             **common,
                             "messageId": message_id,
                             "toolCallId": tool_call_id,
-                            "tool": tool_name,
+                            "tool": state.tool,
                             "deltaIndex": delta_index,
-                            "argumentsDelta": arguments_delta,
+                            "receivedBytes": state.received_bytes,
+                            "providerChunkCount": state.provider_chunk_count,
+                            "complete": complete,
+                            "stage": (
+                                "arguments_complete"
+                                if complete
+                                else "assembling_arguments"
+                            ),
                         },
                     )
                     delta_index += 1
@@ -2289,13 +2965,20 @@ class FileCreatorAgentRuntime:
                     if role is SpecialistRole.SOURCE_INTELLIGENCE
                     else self.model_client
                 )
-                turn = await model_client.complete(
+                _compact_wire_project_snapshots(messages)
+                tool_progress = _ToolArgumentProgressReporter(
+                    subagent_tool_progress,
+                )
+                turn = await self._complete_model_turn(
+                    model_client,
+                    label=role_name,
                     messages=messages,
                     tools=tool_manifest,
                     on_text_delta=text_delta,
                     on_thinking_delta=thinking_delta,
-                    on_tool_call_delta=tool_delta,
+                    on_tool_call_delta=tool_progress.feed,
                 )
+                await tool_progress.finish(turn.tool_calls)
                 if len(turn.tool_calls) > 1:
                     raise AgentModelError(
                         f"{role_name} returned more than one tool call in one turn",
@@ -2304,6 +2987,8 @@ class FileCreatorAgentRuntime:
                     "parentActionId": parent_action_id,
                     "providerMessageId": turn.provider_message_id,
                     "providerThinking": turn.thinking,
+                    "providerFinishReason": turn.finish_reason,
+                    "providerUsage": turn.usage,
                 }
                 if turn.tool_calls:
                     call = turn.tool_calls[0]
@@ -2311,6 +2996,7 @@ class FileCreatorAgentRuntime:
                         "id": call.call_id,
                         "name": call.name,
                         "arguments": dict(call.arguments),
+                        "transport": _tool_call_transport_metadata(call),
                     }
                 await asyncio.to_thread(
                     self.executions.append_specialist_message,
@@ -2334,6 +3020,8 @@ class FileCreatorAgentRuntime:
                         **common,
                         "messageId": message_id,
                         "text": turn.content or "",
+                        "finishReason": turn.finish_reason,
+                        "usage": turn.usage,
                     },
                 )
                 assistant_wire: dict[str, Any] = {
@@ -2535,10 +3223,16 @@ class FileCreatorAgentRuntime:
                         "messageId": message_id,
                         "toolCallId": call.call_id,
                         "tool": call.name,
+                        "arguments": dict(call.arguments),
+                        "rawArgumentsBytes": call.raw_arguments_bytes,
+                        "providerChunkCount": call.provider_chunk_count,
+                        "argumentsRepaired": call.arguments_repaired,
+                        "finishReason": turn.finish_reason,
                     },
                 )
                 failed = False
                 malformed_budget_exhausted = False
+                repeated_failure_exhausted = False
                 waiting_review: ReviewPendingError | None = None
                 try:
                     if call.parse_error is not None:
@@ -2610,7 +3304,7 @@ class FileCreatorAgentRuntime:
                         and review_id not in review_ids
                     ):
                         review_ids.append(review_id)
-                    if call.name == "jq_project":
+                    if call.name in {"jq_project", "patch_project"}:
                         await self._workspace_changed(
                             project_id,
                             session_id,
@@ -2657,24 +3351,36 @@ class FileCreatorAgentRuntime:
                         )
                     else:
                         failed = True
-                        result = {
-                            "ok": False,
-                            "error": {
-                                "type": type(exc).__name__,
-                                "message": str(exc),
-                                "recovery": (
-                                    exc.recovery()
-                                    if isinstance(
-                                        exc,
-                                        CreationCheckpointBlocked,
-                                    )
-                                    else _specialist_tool_recovery(
-                                        call.name,
-                                        str(exc),
-                                    )
-                                ),
-                            },
-                        }
+                        failure_fingerprint = (
+                            _deterministic_tool_failure_fingerprint(call, exc)
+                        )
+                        if failure_fingerprint is not None:
+                            failure_count = (
+                                deterministic_failure_counts.get(
+                                    failure_fingerprint,
+                                    0,
+                                )
+                                + 1
+                            )
+                            deterministic_failure_counts[
+                                failure_fingerprint
+                            ] = failure_count
+                            repeated_failure_exhausted = (
+                                failure_count
+                                >= MAX_REPEATED_DETERMINISTIC_TOOL_FAILURES
+                            )
+                        result = _tool_failure_result(
+                            call.name,
+                            exc,
+                            recovery=(
+                                exc.recovery()
+                                if isinstance(
+                                    exc,
+                                    CreationCheckpointBlocked,
+                                )
+                                else None
+                            ),
+                        )
                 await asyncio.to_thread(
                     self.executions.append_specialist_message,
                     project_id,
@@ -2722,6 +3428,52 @@ class FileCreatorAgentRuntime:
                         "failed": failed,
                     },
                 )
+                if call.name == "read_document" and not failed:
+                    # Rendered pages enter the VLM context as native images
+                    # via the existing multimodal user-message mechanism.
+                    page_content: list[dict[str, Any]] = []
+                    try:
+                        page_parts = await document_page_content_parts(
+                            self.services,
+                            project_id=project_id,
+                            tool_result=result,
+                        )
+                    except (asyncio.CancelledError, StaleAgentRun):
+                        raise
+                    except Exception as exc:  # noqa: BLE001
+                        page_parts = []
+                        page_content = [
+                            {
+                                "type": "text",
+                                "text": ("文档页图注入失败，请基于工具返回的" f"文本摘要继续：{exc}"),
+                            },
+                        ]
+                    if page_parts:
+                        page_note = (
+                            f"以下是 read_document 渲染的 {len(page_parts)} 张"
+                            "文档页图，按页序排列；请直接观察页图内容，"
+                            "结合工具返回的文本摘要形成文档理解。"
+                        )
+                        page_content = [
+                            {"type": "text", "text": page_note},
+                            *page_parts,
+                        ]
+                    if page_content:
+                        await asyncio.to_thread(
+                            self.executions.append_specialist_message,
+                            project_id,
+                            specialist_run_id,
+                            message_id=f"specialist-message-{uuid4().hex}",
+                            role="user",
+                            content_parts=page_content,
+                            metadata={
+                                "parentActionId": parent_action_id,
+                                "documentPagesForToolCallId": call.call_id,
+                            },
+                        )
+                        messages.append(
+                            {"role": "user", "content": page_content},
+                        )
                 if waiting_review is not None:
                     target_ref = str(
                         waiting_review.details.get("targetRef") or "当前目标",
@@ -2738,7 +3490,7 @@ class FileCreatorAgentRuntime:
                         summary = (
                             f"{target_ref} 的前置产物已生成，"
                             "本步骤尚未开始。请先完成审阅；"
-                            "审阅通过后将自动继续。"
+                            "审阅通过后，主线需重新委派同一目标以继续。"
                         )
                     waiting_metadata = {
                         **record_metadata,
@@ -2797,13 +3549,21 @@ class FileCreatorAgentRuntime:
                         "reviewId": waiting_review.details.get("reviewId"),
                     }
                 if malformed_budget_exhausted:
-                    raise AgentModelError(
+                    raise RepeatedDeterministicToolFailure(
                         "jq_project produced structurally corrupted tool "
                         "arguments after 2 bounded retries; the specialist "
                         "stopped before jq execution",
                     )
+                if repeated_failure_exhausted:
+                    raise RepeatedDeterministicToolFailure(
+                        f"{role_name} repeated the same non-retryable "
+                        f"{call.name} failure twice without changing its "
+                        "arguments; the specialist stopped instead of "
+                        "starting another model turn",
+                    )
             raise AgentModelError(
-                f"{role_name} exceeded {self.max_model_turns} model turns",
+                f"{role_name} exceeded "
+                f"{self.specialist_max_model_turns} model turns",
             )
         except (asyncio.CancelledError, StaleAgentRun):
             logger.warning(
@@ -2907,6 +3667,25 @@ class FileCreatorAgentRuntime:
                 role=role,
                 tools=tools,
             )
+        if spec is not None and spec.name == "s2v_generation":
+            # Free wan2.2-s2v-detect gate: an unsuitable portrait must fail
+            # with a readable error before the billed submission — and, in
+            # required-authorization mode, before any execution
+            # authorization is created (the detect call itself is free).
+            from services.media_files.r2v_execution import (
+                preflight_s2v_face_detect,
+            )
+
+            inner_arguments = arguments.get("arguments")
+            await preflight_s2v_face_detect(
+                self.services,
+                project_id=project_id,
+                arguments=(
+                    inner_arguments
+                    if isinstance(inner_arguments, Mapping)
+                    else {}
+                ),
+            )
         if (
             spec is not None
             and spec.requires_execution_authorization
@@ -2932,7 +3711,14 @@ class FileCreatorAgentRuntime:
                 project_id,
                 authorization_id,
             )
-            active_provider, active_model = _execution_provider_model(spec)
+            active_provider, active_model = _execution_provider_model(
+                spec,
+                (
+                    arguments.get("arguments")
+                    if isinstance(arguments.get("arguments"), Mapping)
+                    else {}
+                ),
+            )
             if (
                 active_provider != authorization.requested_provider
                 or active_model != authorization.requested_model
@@ -2941,6 +3727,41 @@ class FileCreatorAgentRuntime:
                     "execution model configuration changed after authorization; "
                     "request a new authorization",
                 )
+            # The billing terms must still be the approved ones: a video_edit
+            # input whose duration only became probeable while the user was
+            # deciding would otherwise be billed on a length nobody approved.
+            approved_parameters = (
+                authorization.scope.get("parameters")
+                if isinstance(authorization.scope, Mapping)
+                else None
+            )
+            if isinstance(approved_parameters, Mapping):
+                active_billing = await self._billing_arguments(
+                    spec,
+                    project_id=project_id,
+                    tool_arguments=(
+                        dict(arguments.get("arguments"))
+                        if isinstance(arguments.get("arguments"), Mapping)
+                        else {}
+                    ),
+                )
+                drifted = [
+                    key
+                    for key in _BILLING_SENSITIVE_ARGUMENTS
+                    if key in active_billing
+                    and approved_parameters.get(key) != active_billing[key]
+                ]
+                if drifted:
+                    raise FileAgentRuntimeError(
+                        "billing terms changed after authorization "
+                        f"({', '.join(drifted)}): "
+                        + ", ".join(
+                            f"{key} {approved_parameters.get(key)!r} -> "
+                            f"{active_billing[key]!r}"
+                            for key in drifted
+                        )
+                        + "; request a new authorization",
+                    )
 
         waiting_runtime = bool(spec and spec.long_running)
         if waiting_runtime:
@@ -3291,6 +4112,76 @@ class FileCreatorAgentRuntime:
         )
         return authorization
 
+    async def _billing_arguments(
+        self,
+        spec: SpecialistToolSpec,
+        *,
+        project_id: str,
+        tool_arguments: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Tool arguments adjusted so the estimate matches what is billed.
+
+        ``video_edit`` ignores the tool's ``durationSeconds``: the provider
+        bills the input video's own length (truncated to its documented
+        keep-window), so the estimate reads that duration from the exact
+        version instead of the requested one.
+        """
+
+        arguments = dict(tool_arguments)
+        if spec.provider_kind != "video":
+            return arguments
+        if str(arguments.get("mode") or "").strip().casefold() != "video_edit":
+            return arguments
+        video_ref = str(arguments.get("videoRef") or "").strip()
+        if not video_ref:
+            return arguments
+        from models.video_capabilities import (
+            HAPPYHORSE_VIDEO_EDIT_KEPT_SECONDS,
+        )
+        from services.media_files.r2v_execution import (
+            effective_video_duration_seconds,
+        )
+
+        try:
+            snapshot = await asyncio.to_thread(
+                self.services.projects.read,
+                project_id,
+            )
+            # Same resolver execution uses, so a probed-only asset is priced
+            # and authorized on the duration it will actually be billed for.
+            duration = await asyncio.to_thread(
+                effective_video_duration_seconds,
+                snapshot.project,
+                self.services.projects.project_root(project_id),
+                video_ref,
+            )
+        # Expected resolution failures (missing version, unreadable
+        # metadata) fall back to "unknown duration", which surfaces as a
+        # readable ValidationError below. Programming errors must propagate
+        # instead of masquerading as a bad user request.
+        except (CreatorError, ValueError, OSError) as error:
+            logger.warning(
+                "could not resolve the video_edit input duration | "
+                "project=%s ref=%s: %s",
+                project_id,
+                video_ref,
+                error,
+            )
+            duration = None
+        if not duration:
+            # Never offer an approvable price for terms we cannot verify:
+            # execution rejects an unknown video_edit length anyway, so fail
+            # here instead of authorizing the unverified requested duration.
+            raise ValidationError(
+                "无法确定 videoRef 的时长，video_edit 按输入视频计费，"
+                "因此无法给出可批准的费用；请重新引入该视频以补齐元数据后重试",
+            )
+        arguments["durationSeconds"] = min(
+            HAPPYHORSE_VIDEO_EDIT_KEPT_SECONDS,
+            max(1, round(duration)),
+        )
+        return arguments
+
     async def _await_execution_authorization(
         self,
         *,
@@ -3320,14 +4211,22 @@ class FileCreatorAgentRuntime:
             ).hex
         )
         target_ref = str(arguments.get("targetRef") or "project:unknown")
-        provider, model = _execution_provider_model(spec)
         tool_arguments = dict(arguments.get("arguments") or {})
-        estimate = estimate_execution_cost(
-            provider_kind=spec.provider_kind,
-            provider=provider,
-            model=model,
-            arguments=tool_arguments,
+        provider, model = _execution_provider_model(spec, tool_arguments)
+        # What the provider will actually bill: video_edit follows its input
+        # video, not the requested durationSeconds. The user must approve
+        # those effective terms, so summary and scope both read them
+        # (upstream dropped the local price estimate entirely).
+        billing_arguments = await self._billing_arguments(
+            spec,
+            project_id=project_id,
+            tool_arguments=tool_arguments,
         )
+        adjusted_parameters = {
+            key: value
+            for key, value in billing_arguments.items()
+            if tool_arguments.get(key) != value
+        }
         record = ExecutionAuthorizationRecord(
             authorization_id=authorization_id,
             project_id=project_id,
@@ -3342,20 +4241,25 @@ class FileCreatorAgentRuntime:
                 target_ref=target_ref,
                 provider=provider,
                 model=model,
-                tool_arguments=tool_arguments,
-                estimate=estimate,
+                tool_arguments=billing_arguments,
             ),
             scope={
                 "operation": spec.name,
                 "targetRefs": [target_ref],
-                "parameters": tool_arguments,
+                "parameters": billing_arguments,
+                # Keep the literal tool request when it differs, so the
+                # approval record shows both what was asked and what is
+                # billed.
+                **(
+                    {"requestedParameters": tool_arguments}
+                    if adjusted_parameters
+                    else {}
+                ),
                 "promptPreview": _prompt_preview(tool_arguments, limit=200),
-                "billing": estimate.as_payload() if estimate else None,
             },
             requested_provider=provider,
             requested_model=model,
             requested_candidates=1,
-            estimated_cost=estimate.estimated_cost if estimate else None,
             caused_by_request_id=tools.context.caused_by_request_id,
             caused_by_message_id=request.message_id,
             caused_by_message_seq=request.message_seq,
@@ -3382,8 +4286,6 @@ class FileCreatorAgentRuntime:
                 "provider": provider,
                 "model": model,
                 "summary": authorization.summary,
-                "estimatedCost": authorization.estimated_cost,
-                "billing": estimate.as_payload() if estimate else None,
                 "toolCallId": call_id,
             },
         )
@@ -3499,6 +4401,8 @@ class FileCreatorAgentRuntime:
             "runId": run_id,
             "providerMessageId": turn.provider_message_id,
             "providerThinking": turn.thinking,
+            "providerFinishReason": turn.finish_reason,
+            "providerUsage": turn.usage,
         }
         open_action_ids: list[str] = []
         if turn.tool_calls:
@@ -3512,6 +4416,7 @@ class FileCreatorAgentRuntime:
                         "id": call.call_id,
                         "name": call.name,
                         "arguments": dict(call.arguments),
+                        "transport": _tool_call_transport_metadata(call),
                     },
                 },
             )
@@ -3557,6 +4462,11 @@ class FileCreatorAgentRuntime:
             ensure_ascii=False,
             separators=(",", ":"),
         )
+        result_kind = _runtime_action_result_kind(
+            tool_name,
+            result,
+            failed=failed,
+        )
         appended = await asyncio.to_thread(
             self.sessions.append_message,
             project_id,
@@ -3571,11 +4481,7 @@ class FileCreatorAgentRuntime:
                 "toolCallId": call_id,
                 "toolName": tool_name,
                 "tool": tool_name,
-                **(
-                    {"resultKind": "web_grounding"}
-                    if tool_name == GROUND_PROMPT_CONTEXT_TOOL_NAME
-                    else {}
-                ),
+                **({"resultKind": result_kind} if result_kind else {}),
                 "failed": failed,
                 "generation": result.get("generation"),
                 "etag": result.get("etag"),
@@ -3659,6 +4565,180 @@ class FileCreatorAgentRuntime:
         )
 
     MAINLINE_RESUME_SOURCE = "mainline_resume"
+    YOLO_RESUME_SOURCE = "yolo_auto_resume"
+    # Fuse 1: never chain more unattended resumes than this since the last
+    # human message — a stuck project must fall back to a human.
+    YOLO_RESUME_MAX_CONSECUTIVE = 5
+
+    async def _queue_yolo_completion_resume(  # pylint: disable=too-many-return-statements
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        conversation_id: str,
+        run_id: str,
+        after_failure: bool = False,
+    ) -> None:
+        """Keep an unattended (YOLO) project moving until it is finished.
+
+        A succeeded mainline run is a model decision to stop narrating, not
+        proof the project reached its goal: models habitually wrap up with a
+        progress report after a batch of work. Under media_review
+        auto_approve the operator asked for zero attendance, so when timeline
+        elements still lack their main video the Runtime injects the same
+        “继续” a supervising user would type. Two fuses stop runaway loops:
+        a consecutive-resume cap and a no-progress breaker.
+
+        ``after_failure`` covers retryable faults (empty model turns,
+        transport blips): the failure itself proves the work is unfinished,
+        so the completion criterion is skipped — an early failure with no
+        elements yet must still resume.
+        """
+
+        if get_media_review_mode() != MEDIA_REVIEW_AUTO_APPROVE:
+            return
+        try:
+            snapshot = await asyncio.to_thread(
+                self.services.projects.read,
+                project_id,
+            )
+        except Exception:  # pylint: disable=broad-except
+            return
+        try:
+            records = await asyncio.to_thread(
+                self.executions.list_tasks,
+                project_id,
+            )
+        except Exception:  # pylint: disable=broad-except
+            records = []
+        graph = derive_work_graph(snapshot.project, tasks=records)
+        unfinished_nodes = graph.unfinished()
+        if not unfinished_nodes and not after_failure:
+            return
+        # Let the machine take every dispatchable gap before deciding to
+        # spend a model turn: the scheduler fans out READY media nodes.
+        self.work_scheduler.wake(project_id)
+        try:
+            await asyncio.to_thread(
+                ensure_media_call_budget,
+                self.services,
+                project_id,
+            )
+        except MediaCallBudgetExhausted as exc:
+            # A spent wallet fuse paralyzes every media path — a resume
+            # would only make the model walk into the same wall.
+            logger.warning(
+                "YOLO auto-resume stopped for %s: %s",
+                project_id,
+                exc,
+            )
+            return
+        model_required = graph.model_required_nodes()
+        if (
+            not after_failure
+            and self.work_scheduler.enabled()
+            and not model_required
+        ):
+            # Every remaining gap is machine-dispatchable (READY/RUNNING):
+            # the scheduler owns it; a resume would only burn model turns.
+            return
+        unfinished = [
+            node.label for node in (model_required or unfinished_nodes)
+        ]
+        messages = await asyncio.to_thread(
+            self.sessions.list_messages,
+            project_id,
+            session_id,
+            after_seq=0,
+            limit=None,
+        )
+        resume_streak = 0
+        last_resume_generation: int | None = None
+        for item in reversed(messages):
+            if item.role != "user":
+                continue
+            if item.source == self.YOLO_RESUME_SOURCE:
+                if resume_streak == 0:
+                    generation = item.metadata.get("projectGeneration")
+                    if isinstance(generation, int):
+                        last_resume_generation = generation
+                resume_streak += 1
+                continue
+            if item.source == self.MAINLINE_RESUME_SOURCE:
+                continue
+            break
+        if resume_streak >= self.YOLO_RESUME_MAX_CONSECUTIVE:
+            logger.warning(
+                "YOLO auto-resume stopped for %s: %d consecutive resumes "
+                "without a human message",
+                project_id,
+                resume_streak,
+            )
+            return
+        # Fuse 2: the previous auto-resume produced no committed progress,
+        # so another identical nudge would only burn model turns.
+        if last_resume_generation == snapshot.generation:
+            logger.warning(
+                "YOLO auto-resume stopped for %s: no progress since the "
+                "previous resume (generation %d)",
+                project_id,
+                snapshot.generation,
+            )
+            return
+        if after_failure:
+            text = (
+                "【系统自动消息 · YOLO 持续执行】上一回合因瞬态故障中止"
+                "（如模型空响应或传输抖动），项目尚未完成。\n"
+                "请回顾会话历史，从中断处继续执行，不要重复已完成的工作。"
+            )
+            if unfinished:
+                text += (
+                    "\n以下环节尚未完成："
+                    + "、".join(unfinished[:8])
+                    + "。可自动派发的媒体生成已由 Runtime 并行执行，无需重复委派。"
+                )
+        else:
+            reasons = []
+            for node in model_required[:8]:
+                why = node.error or "、".join(node.missing[:3]) or "待处理"
+                reasons.append(f"{node.label}（{why}）")
+            text = (
+                "【系统自动消息 · YOLO 持续执行】主线回合已结束，但以下环节需要"
+                "你处理（可自动派发的媒体生成已由 Runtime 并行执行，无需重复委派）：\n"
+                + "\n".join(f"- {reason}" for reason in reasons)
+                + "\n请针对上述环节修复结构、补全 prompt 或调整参数；不要重复已完成的工作。"
+            )
+        appended = await asyncio.to_thread(
+            self.sessions.append_message,
+            project_id,
+            session_id,
+            conversation_id,
+            role="user",
+            content_parts=[{"type": "text", "text": text}],
+            source=self.YOLO_RESUME_SOURCE,
+            channel=MessageChannel.RUNTIME,
+            metadata={
+                "resumeAfterRunId": run_id,
+                "projectGeneration": snapshot.generation,
+                "unfinishedElements": unfinished,
+                "modelRequiredNodes": [
+                    node.node_id for node in model_required[:12]
+                ],
+            },
+        )
+        await self._event(
+            project_id,
+            session_id,
+            "agent.yolo.resumed",
+            run_id,
+            appended.message,
+            {
+                "runId": run_id,
+                "messageSeq": appended.message.message_seq,
+                "unfinishedElements": unfinished,
+            },
+        )
+        self._wake.set()
 
     async def _queue_mainline_resume(
         self,
@@ -4008,6 +5088,20 @@ class FileCreatorAgentRuntime:
             retryable=retryable,
             details={"runId": run_id, "messageSeq": request.message_seq},
         )
+        # Unattended (YOLO) projects must not stay parked on a transient
+        # model fault at 3am: a retryable failure gets the same completion
+        # check as a succeeded run. The resume fuses (consecutive cap and
+        # the no-progress generation breaker) bound a run that keeps dying
+        # at the same spot, so this cannot loop forever. Non-retryable
+        # failures still wait for a human.
+        if retryable:
+            await self._queue_yolo_completion_resume(
+                project_id=project_id,
+                session_id=session_id,
+                conversation_id=request.conversation_id,
+                run_id=run_id,
+                after_failure=True,
+            )
         await self._event(
             project_id,
             session_id,
@@ -4203,6 +5297,7 @@ def _message_text(message: CreatorMessageRecord) -> str:
             "extraRefs",
             "targetRef",
             "targetRefs",
+            "userEdits",
         )
         structured = {
             key: context[key]
@@ -4212,7 +5307,9 @@ def _message_text(message: CreatorMessageRecord) -> str:
         if structured:
             chunks.append(
                 "[Creator UI 结构化上下文；path 是 project.json 的 RFC 6901 "
-                "字段指针，field/ref 是语义定位。修改前读取对应字段核验]\n"
+                "字段指针，field/ref 是语义定位。userEdits 是用户自上条消息以来"
+                "在编辑台手动应用且已生效的 project.json 修改记录，不需要重新"
+                "执行；评估这些修改对方案依赖的影响。修改前读取对应字段核验]\n"
                 + json.dumps(
                     structured,
                     ensure_ascii=False,
@@ -4222,64 +5319,226 @@ def _message_text(message: CreatorMessageRecord) -> str:
     return "\n".join(chunks).strip() or "请处理本消息中的项目请求。"
 
 
-# A conversation accumulates full project.json echoes from runtime
-# actions; a 50-element Project makes each echo ~400KB and the sum
-# overflows the model input window (observed: 2.09MB of history against a
-# 0.98MB limit, every run failing instantly with an invalid-parameter
-# 400). Only the newest echo can describe the current Project, so older
-# ones are pure — and misleading — weight. They are elided at prompt
-# assembly only; the durable history keeps every byte.
+# A conversation accumulates full project.json echoes from read_project and
+# jq_project; a 50-element Project makes each echo ~400KB and the sum overflows
+# the model input window (observed: 2.09MB of history against a 0.98MB limit).
+# Keep one latest materialized snapshot as the model's source of truth and turn
+# older snapshots into compact mutation receipts. The jq tool call immediately
+# before each receipt still records the exact mutation program and arguments,
+# so history remains change-based without asking the model to replay those
+# changes to reconstruct current state. Durable Runtime history keeps every
+# original byte.
 _SNAPSHOT_SOURCE = "runtime_action_result"
-_SNAPSHOT_ELISION_MIN_CHARS = 4096
 
 
-def _snapshot_generation(text: str) -> int | None:
+@dataclass(frozen=True)
+class _ProjectSnapshotEnvelope:
+    payload: Mapping[str, Any]
+    project_id: str
+    generation: int
+    etag: str
+
+
+def _project_snapshot_envelope(
+    payload: Mapping[str, Any],
+) -> _ProjectSnapshotEnvelope | None:
+    project = payload.get("project")
+    if not isinstance(project, Mapping):
+        return None
+    project_id = project.get("project_id")
+    generation = payload.get("generation")
+    project_generation = project.get("generation")
+    etag = payload.get("etag")
+    if not isinstance(project_id, str) or not project_id.strip():
+        return None
+    if not isinstance(generation, int) or isinstance(generation, bool):
+        return None
+    if (
+        not isinstance(project_generation, int)
+        or isinstance(project_generation, bool)
+        or project_generation != generation
+    ):
+        return None
+    if not isinstance(etag, str) or not etag.strip():
+        return None
+    return _ProjectSnapshotEnvelope(
+        payload=payload,
+        project_id=project_id,
+        generation=generation,
+        etag=etag,
+    )
+
+
+def _project_snapshot_from_text(text: str) -> _ProjectSnapshotEnvelope | None:
     try:
         payload = json.loads(text)
     except ValueError:
         return None
-    if not isinstance(payload, dict):
+    if not isinstance(payload, Mapping):
         return None
-    project = payload.get("project")
-    document = project if isinstance(project, dict) else payload
-    generation = document.get("generation")
-    return generation if isinstance(generation, int) else None
+    return _project_snapshot_envelope(payload)
+
+
+def _runtime_action_result_kind(
+    tool_name: str,
+    result: Mapping[str, Any],
+    *,
+    failed: bool,
+) -> str | None:
+    if (
+        not failed
+        and tool_name in _PROJECT_SNAPSHOT_TOOL_NAMES
+        and _project_snapshot_envelope(result) is not None
+    ):
+        return _PROJECT_SNAPSHOT_RESULT_KIND
+    if not failed and tool_name == GROUND_PROMPT_CONTEXT_TOOL_NAME:
+        return "web_grounding"
+    if not failed and tool_name == OBJECT_GROUNDING_TOOL_NAME:
+        return "object_grounding"
+    return None
+
+
+def _message_project_snapshot(
+    message: CreatorMessageRecord,
+) -> tuple[_ProjectSnapshotEnvelope, str] | None:
+    tool_name = str(
+        message.metadata.get("toolName") or message.metadata.get("tool") or "",
+    ).strip()
+    if tool_name not in _PROJECT_SNAPSHOT_TOOL_NAMES:
+        return None
+    result_kind = message.metadata.get("resultKind")
+    if result_kind not in (None, "", _PROJECT_SNAPSHOT_RESULT_KIND):
+        return None
+    for part in message.content_parts:
+        if not part.text:
+            continue
+        snapshot = _project_snapshot_from_text(part.text)
+        if snapshot is not None:
+            return snapshot, tool_name
+    return None
+
+
+def _project_change_receipt(
+    snapshot: _ProjectSnapshotEnvelope,
+    *,
+    tool_name: str,
+    metadata: Mapping[str, Any] | None = None,
+) -> str:
+    source = metadata or snapshot.payload
+    receipt: dict[str, Any] = {
+        "resultKind": _PROJECT_CHANGE_RECEIPT_RESULT_KIND,
+        "supersededProjectSnapshot": True,
+        "toolName": tool_name,
+        "projectId": snapshot.project_id,
+        "generation": snapshot.generation,
+        "etag": snapshot.etag,
+        "note": (
+            "The full project snapshot from this historical tool result was "
+            "omitted. A later project_snapshot in this conversation is the "
+            "authoritative materialized state."
+        ),
+    }
+    for key in ("transactionId", "reviewId"):
+        value = source.get(key)
+        if value in (None, ""):
+            value = snapshot.payload.get(key)
+        if value not in (None, ""):
+            receipt[key] = value
+    changed_pointers = source.get("changedPointers")
+    if not isinstance(changed_pointers, list):
+        changed_pointers = snapshot.payload.get("changedPointers")
+    if isinstance(changed_pointers, list):
+        receipt["changedPointers"] = [
+            str(pointer)
+            for pointer in changed_pointers
+            if isinstance(pointer, str) and pointer
+        ]
+    return json.dumps(receipt, ensure_ascii=False, separators=(",", ":"))
 
 
 def _elide_stale_snapshots(
     prior_context: list[CreatorMessageRecord],
 ) -> dict[int, str]:
-    """Map message seq → stub for every superseded project echo."""
+    """Map message seq to a receipt for each superseded snapshot."""
 
-    candidates = [
-        item
-        for item in prior_context
-        if item.role == "tool"
-        and item.source == _SNAPSHOT_SOURCE
-        and sum(
-            len(part.text or "")
-            for part in item.content_parts
-            if part.text is not None
+    snapshots: list[
+        tuple[CreatorMessageRecord, _ProjectSnapshotEnvelope, str]
+    ] = []
+    for item in prior_context:
+        if item.role != "tool" or item.source != _SNAPSHOT_SOURCE:
+            continue
+        identified = _message_project_snapshot(item)
+        if identified is None:
+            continue
+        snapshot, tool_name = identified
+        snapshots.append((item, snapshot, tool_name))
+
+    receipts: dict[int, str] = {}
+    for item, snapshot, tool_name in snapshots[:-1]:
+        receipts[item.message_seq] = _project_change_receipt(
+            snapshot,
+            tool_name=tool_name,
+            metadata=item.metadata,
         )
-        >= _SNAPSHOT_ELISION_MIN_CHARS
-    ]
-    stubs: dict[int, str] = {}
-    for item in candidates[:-1]:
-        generation = next(
-            (
-                _snapshot_generation(part.text)
-                for part in item.content_parts
-                if part.text
-            ),
-            None,
+    return receipts
+
+
+def _compact_wire_project_snapshots(messages: list[dict[str, Any]]) -> None:
+    """Compact superseded snapshots in the ephemeral model wire context.
+
+    Tool content is normally a string, but OpenAI-compatible wire messages
+    may represent it as text content parts. Mutates message content in place
+    while preserving any multipart structure and part metadata. Durable
+    conversation and execution records remain unchanged. The operation is
+    idempotent because receipts are not recognized as full Project snapshots.
+    """
+
+    snapshots: list[
+        tuple[dict[str, Any], _ProjectSnapshotEnvelope, str, int | None]
+    ] = []
+    for message in messages:
+        if message.get("role") != "tool":
+            continue
+        tool_name = str(message.get("name") or "").strip()
+        if tool_name not in _PROJECT_SNAPSHOT_TOOL_NAMES:
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            snapshot = _project_snapshot_from_text(content)
+            if snapshot is not None:
+                snapshots.append((message, snapshot, tool_name, None))
+            continue
+        if not isinstance(content, list):
+            continue
+        for part_index, part in enumerate(content):
+            if not isinstance(part, Mapping) or part.get("type") != "text":
+                continue
+            text = part.get("text")
+            if not isinstance(text, str):
+                continue
+            snapshot = _project_snapshot_from_text(text)
+            if snapshot is not None:
+                snapshots.append(
+                    (message, snapshot, tool_name, part_index),
+                )
+                break
+    for message, snapshot, tool_name, part_index in snapshots[:-1]:
+        receipt = _project_change_receipt(
+            snapshot,
+            tool_name=tool_name,
         )
-        marker = (
-            f"generation {generation} 时点" if generation is not None else "历史时点"
-        )
-        stubs[item.message_seq] = (
-            f"[已省略{marker}的项目快照；它早已过期，" "当前项目状态请用 read_project 获取]"
-        )
-    return stubs
+        if part_index is None:
+            message["content"] = receipt
+            continue
+        content = message.get("content")
+        if not isinstance(content, list) or part_index >= len(content):
+            continue
+        part = content[part_index]
+        if not isinstance(part, Mapping):
+            continue
+        updated_content = list(content)
+        updated_content[part_index] = {**part, "text": receipt}
+        message["content"] = updated_content
 
 
 def _continuation_message_text(
@@ -4291,21 +5550,33 @@ def _continuation_message_text(
     current = _message_text(request)
     if not prior_context:
         return current
-    stubs = _elide_stale_snapshots(prior_context)
+    snapshot_receipts = _elide_stale_snapshots(prior_context)
     history = [
         {
             "messageSeq": item.message_seq,
             "role": item.role,
             "source": item.source,
             "content": (
-                [{"type": "text", "text": stubs[item.message_seq]}]
-                if item.message_seq in stubs
+                [
+                    {
+                        "type": "text",
+                        "text": snapshot_receipts[item.message_seq],
+                    },
+                ]
+                if item.message_seq in snapshot_receipts
                 else [
                     part.model_dump(mode="json", exclude_none=True)
                     for part in item.content_parts
                 ]
             ),
-            "metadata": dict(item.metadata),
+            "metadata": {
+                **dict(item.metadata),
+                **(
+                    {"resultKind": _PROJECT_CHANGE_RECEIPT_RESULT_KIND}
+                    if item.message_seq in snapshot_receipts
+                    else {}
+                ),
+            },
         }
         for item in prior_context
     ]
@@ -4477,7 +5748,53 @@ def _specialist_terminal(content: str) -> tuple[str, str]:
     )
 
 
-def _specialist_tool_recovery(name: str, error: str = "") -> str:
+def _jq_project_recovery(code: str | None) -> str:
+    if code == "JQ_ARGUMENT_TYPE_MISMATCH":
+        return (
+            "Preserve each jsonArgs value's JSON type. The failed "
+            "from_entries input is already an object map; assign or "
+            "merge it directly. Use from_entries only for an array of "
+            "{key, value} entries, and do not repeat the failed call."
+        )
+    if code == "JQ_RESULT_NOT_PROJECT_ROOT":
+        return (
+            "Issue a new jq_project transform rooted at the input "
+            "Project `.` and return the complete Project object. Do not "
+            "finish with a Timeline, Element, jsonArgs value, or other "
+            "child object."
+        )
+    if code == "JQ_PROJECT_SCHEMA_INVALID":
+        return (
+            "Use the reported validation paths to correct program or "
+            "jsonArgs, then issue a changed jq_project call. The invalid "
+            "candidate was not published."
+        )
+    return (
+        "Re-read project.json and retry jq_project with a transform "
+        "that returns the complete Project root and preserves all "
+        "Runtime-protected root fields. Never assign schema_version, "
+        "project_id, generation, created_at, or updated_at; the "
+        "Runtime maintains them. Start from the input Project `.`, "
+        "not `$jsonArgs`. If the failure was malformed or misnested "
+        "argument JSON: " + _JQ_PROJECT_CALL_SHAPE_RECOVERY + " For "
+        "structured jsonArgs, preserve their JSON type: assign or merge "
+        "object maps directly, and use from_entries only for an array "
+        "of {key, value} entries. "
+        "Remove nonexistent references; not-yet-produced artifacts "
+        "stay null. Parenthesize computed jq values before binding "
+        "them, for example "
+        '("source:" + $logicalId) as $sourceKey, and parenthesize '
+        "expressions used as object values. Never finish with a saved "
+        "pre-edit root such as $project because that discards mutations."
+    )
+
+
+def _specialist_tool_recovery(
+    name: str,
+    error: str = "",
+    *,
+    code: str | None = None,
+) -> str:
     media_tools = {"image_generation", "r2v_generation", "ai_edit"}
     if name in media_tools and (
         "PROJECT_INPUT_SNAPSHOT_STALE" in error
@@ -4514,25 +5831,32 @@ def _specialist_tool_recovery(name: str, error: str = "") -> str:
             "artifact-version references such as the character design and "
             "storyboard images, then call r2v_generation again."
         )
-    if name == "jq_project":
-        return (
-            "Re-read project.json and retry jq_project with a transform "
-            "that returns the complete Project root and preserves all "
-            "Runtime-protected root fields. Never assign schema_version, "
-            "project_id, generation, created_at, or updated_at; the "
-            "Runtime maintains them. Start from the input Project `.`, "
-            "not `$jsonArgs`. If the failure was malformed or misnested "
-            "argument JSON: " + _JQ_PROJECT_CALL_SHAPE_RECOVERY + " For "
-            "every Edit item, set duration_tick to "
-            "round((source_out_tick - source_in_tick) / playback_rate). "
-            "Remove nonexistent references; not-yet-produced artifacts "
-            "stay null. Parenthesize computed jq values before binding "
-            "them, for example "
-            '("source:" + $logicalId) as $sourceKey, and parenthesize '
-            "expressions used as object values. Never finish with a saved "
-            "pre-edit root such as $project because that discards "
-            "mutations."
+    if name == "image_generation" and any(
+        marker in error.casefold()
+        for marker in (
+            "rejected by the safety system",
+            "content policy",
+            "content_policy_violation",
         )
+    ):
+        # The image provider's safety system deterministically rejects the
+        # request; identical resubmission can never succeed. The dominant
+        # cause in practice is real-person photos travelling as reference
+        # images — including into scene/prop generations that do not need
+        # any face at all.
+        return (
+            "The image provider's safety system rejected this request — a "
+            "deterministic content policy, not a transient failure; do not "
+            "resubmit the same arguments. For scene or prop targets, remove "
+            "every reference image that contains a person before retrying. "
+            "For character targets, drop real-photo references "
+            "(asset-version IDs of downloaded or uploaded images) and use "
+            "already generated stylized artifact-version references — or a "
+            "text-only prompt — instead, then call image_generation again "
+            "with the adjusted references or a rephrased prompt."
+        )
+    if name == "jq_project":
+        return _jq_project_recovery(code)
     if name == "ai_edit":
         return (
             "Use the persisted Runtime Task error as the cause and retry ai_edit with "
@@ -4583,21 +5907,62 @@ def _specialist_tool_invocation_id(
     )
 
 
-def _execution_provider_model(spec: SpecialistToolSpec) -> tuple[str, str]:
-    """Snapshot model identity for an approval without loading a provider."""
+def _execution_provider_model(
+    spec: SpecialistToolSpec,
+    tool_arguments: Mapping[str, Any] | None = None,
+) -> tuple[str, str]:
+    """Snapshot the model an approval actually authorizes.
 
+    The identity must be the *effective* model, not just the configured
+    one: image translate runs on ``translate_model`` and the video modes run
+    on names derived from the configured base, so pricing and the
+    post-approval identity check would otherwise cover a different model
+    than the one submitted.
+    """
+
+    arguments = tool_arguments or {}
+    mode = str(arguments.get("mode") or "").strip().casefold()
     if spec.provider_kind == "image":
         from models.image import get_image_backend
 
+        if mode == "translate":
+            from models.config import get_image_translate_model_name
+
+            return "dashscope", get_image_translate_model_name()
         return get_image_backend().casefold(), get_image_model_name()
     if spec.provider_kind == "video":
-        return get_video_backend(), get_video_model_name()
+        from models.video_capabilities import (
+            effective_video_model_name,
+            video_backend_key,
+        )
+
+        backend = get_video_backend()
+        configured = get_video_model_name()
+        # Same rule as the submit path, so the approval can never name a
+        # different model than the billed request (HappyHorse derives even
+        # for the default r2v).
+        return backend, effective_video_model_name(
+            configured,
+            mode,
+            video_backend_key(configured, backend),
+        )
+    if spec.provider_kind == "tts":
+        from models.config import get_tts_model_name
+
+        return "dashscope", get_tts_model_name()
+    if spec.provider_kind == "s2v":
+        from models.config import get_s2v_model_name
+
+        return "dashscope", get_s2v_model_name()
     return str(spec.provider_kind or "creator-tool"), "configured"
 
 
 _AUTHORIZATION_OPERATION_LABELS = {
     "image_generation": "生成图片",
     "r2v_generation": "生成视频",
+    "s2v_generation": "生成数字人视频",
+    "tts_generation": "生成语音",
+    "create_character_voice": "复刻角色音色",
 }
 
 
@@ -4615,9 +5980,13 @@ def _authorization_summary(
     provider: str,
     model: str,
     tool_arguments: Mapping[str, Any],
-    estimate: CostEstimate | None,
 ) -> str:
-    """One human-readable line telling the user exactly what will run."""
+    """One human-readable line telling the user exactly what will run.
+
+    Deliberately no price estimate: locally transcribed price tables go
+    stale silently and an authoritative-looking wrong number misleads
+    worse than no number. Call counts are the honest metric.
+    """
 
     label = _AUTHORIZATION_OPERATION_LABELS.get(spec.name, f"执行 {spec.name}")
     parts = [f"{label}：{target_ref}", f"模型 {provider}/{model}"]
@@ -4625,9 +5994,16 @@ def _authorization_summary(
         ratio = str(tool_arguments.get("aspectRatio") or "16:9")
         parts.append(f"画幅 {ratio}")
     elif spec.provider_kind == "video":
+        mode = str(tool_arguments.get("mode") or "r2v").strip().casefold()
         duration = tool_arguments.get("durationSeconds")
         if duration:
-            parts.append(f"{duration}秒")
+            # video_edit follows its input video, so name the source of the
+            # number the price is computed from.
+            parts.append(
+                f"{duration}秒（按输入视频计费）"
+                if mode == "video_edit"
+                else f"{duration}秒",
+            )
         resolution = tool_arguments.get("resolution")
         if resolution:
             parts.append(str(resolution).upper())
@@ -4638,8 +6014,6 @@ def _authorization_summary(
             parts.append(
                 "有声" if tool_arguments.get("generateAudio") else "无声",
             )
-    if estimate is not None:
-        parts.append(f"预计费用 {estimate.display_text}（{estimate.formula}）")
     return " · ".join(parts)
 
 

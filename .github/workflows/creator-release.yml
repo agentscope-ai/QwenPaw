@@ -223,7 +223,8 @@ jobs:
           python3 scripts/pack/merge_plugin_index.py \
             --new dist/plugins/index.json \
             --old existing-index.json \
-            --out dist/plugins/index.json
+            --out dist/plugins/index.json \
+            --retire-plugin-id computer-use-tool
 
       - name: Upload plugins index (short-cache)
         run: |

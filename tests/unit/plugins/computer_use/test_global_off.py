@@ -14,8 +14,8 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from computer_use_tool import client as client_module
-from computer_use_tool import router as router_module
+from computer_use import client as client_module
+from computer_use import router as router_module
 
 
 @dataclass

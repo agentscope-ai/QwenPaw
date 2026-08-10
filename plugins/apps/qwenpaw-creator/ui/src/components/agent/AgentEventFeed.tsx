@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button, message } from "antd";
 import { CircleCheck, CircleX, Clock3, PlayCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { interruptCreator } from "@/api/creator";
 import type {
   CreatorEvent,
@@ -11,6 +12,7 @@ import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
+import { useWorkGraphStore } from "@/store/workGraphStore";
 import { isTechnicalControlText } from "@/lib/creatorMessagePresentation";
 import {
   creatorRoleLabel,
@@ -24,6 +26,7 @@ import {
   authorizationJumpTarget,
 } from "./ExecutionAuthorizationCard";
 import { navigateToLocator } from "@/routing/locators";
+import i18n from "@/i18n";
 
 type OriginRunStatus =
   | "running"
@@ -35,48 +38,38 @@ type OriginRunStatus =
   | "error"
   | "cancelled";
 
-const RUN_STATUS_META: Record<
-  OriginRunStatus,
-  { label: string; tone: string }
-> = {
-  running: {
-    label: "执行中",
-    tone: "text-[var(--color-warning)] bg-[var(--color-warning-soft)]",
-  },
-  waiting_confirm: {
-    label: "等待确认",
-    tone: "text-[var(--color-accent)] bg-[var(--color-accent-soft)]",
-  },
-  waiting_review: {
-    label: "等待审阅",
-    tone: "text-[var(--color-accent)] bg-[var(--color-accent-soft)]",
-  },
-  done: {
-    label: "已完成",
-    tone: "text-[var(--color-success)] bg-[var(--color-success-soft)]",
-  },
-  partial: {
-    label: "部分完成",
-    tone: "text-[var(--color-warning)] bg-[var(--color-warning-soft)]",
-  },
-  timeout: {
-    label: "后台等待中",
-    tone: "text-[var(--color-warning)] bg-[var(--color-warning-soft)]",
-  },
-  error: {
-    label: "失败",
-    tone: "text-[var(--color-danger)] bg-[var(--color-danger-soft)]",
-  },
-  cancelled: {
-    label: "已取消",
-    tone: "text-[var(--color-text-tertiary)] bg-[var(--color-bg-secondary)]",
-  },
-};
+function runStatusMeta(status: OriginRunStatus): {
+  label: string;
+  tone: string;
+} {
+  const tones: Record<OriginRunStatus, string> = {
+    running: "text-[var(--color-warning)] bg-[var(--color-warning-soft)]",
+    waiting_confirm: "text-[var(--color-accent)] bg-[var(--color-accent-soft)]",
+    waiting_review: "text-[var(--color-accent)] bg-[var(--color-accent-soft)]",
+    done: "text-[var(--color-success)] bg-[var(--color-success-soft)]",
+    partial: "text-[var(--color-warning)] bg-[var(--color-warning-soft)]",
+    timeout: "text-[var(--color-warning)] bg-[var(--color-warning-soft)]",
+    error: "text-[var(--color-danger)] bg-[var(--color-danger-soft)]",
+    cancelled:
+      "text-[var(--color-text-tertiary)] bg-[var(--color-bg-secondary)]",
+  };
+  const labels: Record<OriginRunStatus, string> = {
+    running: i18n.t("agentEventFeed.executing"),
+    waiting_confirm: i18n.t("agentEventFeed.waitingConfirm"),
+    waiting_review: i18n.t("agentEventFeed.waitingReview"),
+    done: i18n.t("agentEventFeed.completed"),
+    partial: i18n.t("agentEventFeed.partialComplete"),
+    timeout: i18n.t("agentEventFeed.backendWaiting"),
+    error: i18n.t("agentEventFeed.failed"),
+    cancelled: i18n.t("agentEventFeed.cancelled"),
+  };
+  return { label: labels[status], tone: tones[status] };
+}
 
 const NESTED_SUBAGENT_DETAIL_EVENTS = new Set([
   "subagent.message_delta",
   "subagent.message_completed",
-  "subagent.tool_delta",
+  "subagent.tool_progress",
   "subagent.tool_started",
   "subagent.tool_completed",
 ]);
@@ -191,7 +184,8 @@ function EventCard({
         className="rounded-lg border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] p-3 text-[11px] leading-5 text-[var(--color-text-primary)]"
       >
         <b className="block text-xs text-[var(--color-accent)]">
-          执行计划：{summary}
+          {i18n.t("agentEventFeed.executionPlan")}
+          {summary}
         </b>
         {steps.length > 0 && (
           <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-[var(--color-text-secondary)]">
@@ -202,7 +196,7 @@ function EventCard({
         )}
         {Boolean(data.scope) && (
           <p className="mt-1 text-[var(--color-text-tertiary)]">
-            范围：
+            {i18n.t("agentEventFeed.scope")}
             {(Array.isArray(data.scope) ? data.scope : [data.scope])
               .map((ref) => creatorTargetLabel(String(ref), project))
               .join("、")}
@@ -232,7 +226,9 @@ function EventCard({
                 : "text-[var(--color-warning)]"
             }
           >
-            {completed ? "完成" : "执行中"}
+            {completed
+              ? i18n.t("agentEventFeed.done")
+              : i18n.t("agentEventFeed.executing")}
           </span>
         </div>
         {summary && (
@@ -293,7 +289,32 @@ function EventCard({
   );
 }
 
+function WorkGraphSummaryChip() {
+  // One-line production summary sourced from the derived work graph; the
+  // full lane view lives in the workspace dropdown (WorkGraphPanel).
+  const graph = useWorkGraphStore((state) => state.graph);
+  if (!graph || !graph.counts.total) return null;
+  const done = graph.counts.done ?? 0;
+  const running = graph.counts.running ?? 0;
+  const failed = graph.counts.failed ?? 0;
+  return (
+    <span
+      data-testid="work-graph-summary"
+      className="text-[10px] font-normal text-[var(--color-text-tertiary)]"
+    >
+      进度 {done}/{graph.counts.total}
+      {running > 0 && ` · 并行 ${running}`}
+      {failed > 0 && (
+        <span className="text-[var(--color-danger,#ef4444)]">
+          {` · 失败 ${failed}`}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function AgentEventFeed() {
+  const { t } = useTranslation();
   const taskProjectId = useCreatorTaskViewStore((state) => state.projectId);
   const runs = useCreatorTaskViewStore((state) => state.runs);
   const tasks = useCreatorTaskViewStore((state) => state.tasks);
@@ -313,7 +334,7 @@ export default function AgentEventFeed() {
     runs,
     pendingAuthorizations.length,
   );
-  const meta = RUN_STATUS_META[status];
+  const meta = runStatusMeta(status);
   const pendingTasks = tasks.filter(
     (task) =>
       task.kind === "r2v_generation" &&
@@ -337,7 +358,7 @@ export default function AgentEventFeed() {
               "message.appended",
               "message.completed",
               "agent.message_delta",
-              "agent.tool_delta",
+              "agent.tool_progress",
               "agent.plan",
               "agent.tool_started",
               "agent.tool_completed",
@@ -399,8 +420,9 @@ export default function AgentEventFeed() {
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-primary)]">
             <PlayCircle className="h-3.5 w-3.5 text-[var(--color-accent)]" />
-            制作流程
+            {t("agentEventFeed.productionFlow")}
           </span>
+          <WorkGraphSummaryChip />
           <span className="flex items-center gap-1.5">
             <span
               className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.tone}`}
@@ -415,7 +437,7 @@ export default function AgentEventFeed() {
                 onClick={() => void cancelRun()}
                 className="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)]"
               >
-                终止
+                {t("agentEventFeed.terminate")}
               </button>
             )}
           </span>
@@ -441,10 +463,10 @@ export default function AgentEventFeed() {
                   {run.displayName} ·{" "}
                   {run.targetRefs
                     .map((ref) => creatorTargetLabel(ref, project))
-                    .join("、") || "当前项目"}{" "}
+                    .join("、") || t("agentEventFeed.currentProject")}{" "}
                   ·{" "}
                   {isReviewWaitingRun(run)
-                    ? "等待审阅"
+                    ? t("agentEventFeed.waitingReview")
                     : runStatusLabel(run.status)}
                 </span>
               </li>
@@ -455,7 +477,7 @@ export default function AgentEventFeed() {
         {failedTargetRuns.length > 0 && (
           <div className="mt-2 rounded-md border border-[var(--color-danger)]/25 bg-[var(--color-danger-soft)] p-2 text-[11px] leading-4">
             <b className="text-[var(--color-danger)]">
-              {failedTargetRuns.length} 项专业制作失败
+              {failedTargetRuns.length} {t("agentEventFeed.specialistsFailed")}
             </b>
             <ul className="mt-1 space-y-0.5 text-[var(--color-text-secondary)]">
               {failedTargetRuns.slice(0, 3).map(({ run, targetRefs }) => (
@@ -483,7 +505,7 @@ export default function AgentEventFeed() {
                 onClick={() => void continueRun()}
                 className="!h-6 !text-[11px] !font-semibold"
               >
-                继续
+                {t("agentEventFeed.continue")}
               </Button>
               <Button
                 size="small"
@@ -491,7 +513,7 @@ export default function AgentEventFeed() {
                 onClick={() => void cancelRun()}
                 className="!h-6 !text-[11px]"
               >
-                取消
+                {t("agentEventFeed.cancel")}
               </Button>
               {projectId &&
                 (() => {
@@ -504,17 +526,19 @@ export default function AgentEventFeed() {
                     <Button
                       size="small"
                       disabled={busy}
-                      title="跳转到将要生成的 Prompt / 编辑位置，确认前先检查输入"
+                      title={t("agentEventFeed.jumpToPrompt")}
                       onClick={() =>
                         navigateToLocator(projectId, jumpTarget.locator, {
                           review: true,
                           field: jumpTarget.field,
-                          description: "生产确认 / 查看生成输入",
+                          description: t(
+                            "agentEventFeed.productionConfirmOrView",
+                          ),
                         })
                       }
                       className="!h-6 !text-[11px]"
                     >
-                      查看
+                      {t("agentEventFeed.view")}
                     </Button>
                   );
                 })()}

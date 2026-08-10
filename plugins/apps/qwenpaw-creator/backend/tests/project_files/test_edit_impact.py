@@ -46,7 +46,6 @@ def _project() -> dict:
                             },
                             "creation": {
                                 "type": "overlay",
-                                "overlay_kind": "pet_os",
                                 "text": "old copy",
                                 "prompt": "",
                                 "reference_version_ids": [],

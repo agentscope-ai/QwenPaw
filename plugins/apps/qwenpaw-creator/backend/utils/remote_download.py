@@ -16,6 +16,7 @@ import httpx
 
 from services.runtime_files.safe_remote_download import (
     SafeRemoteDownloadError,
+    safe_curl_download_to_file,
     safe_download_to_file,
 )
 
@@ -83,6 +84,37 @@ def download_remote_file(url: str, local_path: str) -> None:
                     connect=CONNECT_TIMEOUT_SECONDS,
                 ),
             )
+        except (httpx.TransportError, OSError) as error:
+            # Some local/network stacks cannot establish the OSS route
+            # through httpx even though the system curl can (observed as
+            # ConnectError / EBADF on short-lived DashScope result URLs).
+            # Retry through the bounded, SSRF-validated curl transport;
+            # HTTP status failures stay authoritative and are not retried.
+            logger.warning(
+                "httpx download failed (%s: %s); retrying with bounded curl",
+                type(error).__name__,
+                str(error)[:200],
+            )
+            try:
+                (
+                    size_bytes,
+                    _media_type,
+                    _final_url,
+                ) = safe_curl_download_to_file(
+                    url,
+                    temporary,
+                    max_bytes=MAX_BYTES,
+                    timeout_seconds=TIMEOUT_SECONDS,
+                    connect_timeout_seconds=CONNECT_TIMEOUT_SECONDS,
+                )
+            except SafeRemoteDownloadError as curl_error:
+                # curl_error.__context__ keeps the original httpx failure;
+                # the message carries both for log-only consumers.
+                raise RuntimeError(
+                    "Remote file download failed: "
+                    f"{type(error).__name__}: {str(error)[:200]}; "
+                    f"curl fallback: {str(curl_error)[:200]}",
+                ) from curl_error
         except SafeRemoteDownloadError as error:
             hint = ""
             if "bytes 限制" in str(error):
