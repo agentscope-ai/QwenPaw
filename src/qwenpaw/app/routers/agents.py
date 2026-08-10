@@ -119,7 +119,9 @@ class MemoryWorkerRuntimeStatus(BaseModel):
 
     status: Literal["idle", "busy", "stopping", "error"]
     queue_pending: int
+    tasks_pending: int
     tasks_running: int
+    current_task_started_at: str | None = None
 
 
 class AutoMemoryRuntimeStatus(BaseModel):
@@ -153,7 +155,9 @@ class ReMeMemoryStatusResponse(BaseModel):
     """Structured memory information returned by ReMe's status job."""
 
     components: dict[str, dict[str, ReMeComponentMemoryUsage]]
+    components_total_bytes: int
     components_total: str
+    process_rss_bytes: int
     process_rss: str
     runtime: MemoryRuntimeStatus
 

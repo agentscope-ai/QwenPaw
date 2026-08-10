@@ -140,6 +140,8 @@ Daily Paper selects papers from Hugging Face weekly/monthly rankings, stores arX
 The Markdown output enters the existing memory index and the job result is delivered to QwenPaw's inbox.
 
 Daily Paper is disabled by default. When `daily_paper_cron_enabled` is on, `daily_paper_cron` controls its schedule.
+Before registering the scheduled task, QwenPaw verifies that `pypdf` can be imported; otherwise it logs an error and
+does not register the task.
 
 > For a complete walkthrough of Auto-Memory, Auto-Dream, Auto-Memory-Search, and Proactive, see [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive). The sections below cover technical implementation details and configuration only.
 

@@ -128,6 +128,20 @@ async def test_embedding_model(
         )
 
 
+def embedding_config_fingerprint(
+    config: EmbeddingModelConfig,
+) -> tuple[Any, ...]:
+    """Fingerprint fields that determine the remote embedding service."""
+    return (
+        config.backend,
+        config.api_key,
+        config.base_url.strip().rstrip("/"),
+        config.model_name.strip(),
+        config.dimensions,
+        config.use_dimensions,
+    )
+
+
 def embedding_vector_space_fingerprint(
     config: EmbeddingModelConfig,
 ) -> tuple[Any, ...]:

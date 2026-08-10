@@ -149,6 +149,7 @@ PDF 保存在 `resource_dir/papers/`，Markdown 保存在 `daily_dir/<date>/` �
 QwenPaw inbox 推送，不包含 DingTalk step。
 
 `daily_paper_cron_enabled` 默认是 `false`；启用后按 `daily_paper_cron` 调度，默认表达式为 `0 9 * * *`。
+注册定时任务前会检查 `pypdf` 是否可导入；不可用时记录错误并跳过注册。
 
 ---
 

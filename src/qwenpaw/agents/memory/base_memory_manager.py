@@ -397,6 +397,7 @@ class BaseMemoryManager(ABC):
                 continue
 
             info["status"] = "running"
+            info["started_at"] = datetime.now(timezone.utc)
             logger.info(f"Summary task {task_id} started")
             try:
                 result = await self.summarize(messages=messages, **kwargs)
@@ -474,6 +475,7 @@ class BaseMemoryManager(ABC):
             "status": "pending",
             "result": None,
             "error": None,
+            "started_at": None,
             "finished_at": None,
         }
 
@@ -553,12 +555,8 @@ class BaseMemoryManager(ABC):
         self._update_task_statuses()
 
         task_infos = list(self._summary_task_info.values())
-        pending_tasks = sum(
-            info.get("status") == "pending" for info in task_infos
-        )
-        running_tasks = sum(
-            info.get("status") == "running" for info in task_infos
-        )
+        pending_tasks = sum(info.get("status") == "pending" for info in task_infos)
+        running_tasks = sum(info.get("status") == "running" for info in task_infos)
 
         worker = self._worker_task
         if self._worker_stopping:
@@ -573,11 +571,13 @@ class BaseMemoryManager(ABC):
             worker_status = "error" if pending_tasks else "idle"
         else:
             worker_status = (
-                "error"
-                if worker.exception() is not None or pending_tasks
-                else "idle"
+                "error" if worker.exception() is not None or pending_tasks else "idle"
             )
 
+        current = next(
+            (info for info in reversed(task_infos) if info.get("status") == "running"),
+            None,
+        )
         last_completed = next(
             (
                 info
@@ -587,11 +587,7 @@ class BaseMemoryManager(ABC):
             None,
         )
         last_failed = next(
-            (
-                info
-                for info in reversed(task_infos)
-                if info.get("status") == "failed"
-            ),
+            (info for info in reversed(task_infos) if info.get("status") == "failed"),
             None,
         )
 
@@ -620,7 +616,9 @@ class BaseMemoryManager(ABC):
             "worker": {
                 "status": worker_status,
                 "queue_pending": self._task_queue.qsize(),
+                "tasks_pending": pending_tasks,
                 "tasks_running": running_tasks,
+                "current_task_started_at": _iso_time(current, "started_at"),
             },
             "auto_memory": {
                 "enabled": interval > 0,

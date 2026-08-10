@@ -150,7 +150,8 @@ PDFs are stored under `resource_dir/papers/`; Markdown is stored under `daily_di
 memory index. Results are delivered through QwenPaw's inbox, with no DingTalk step.
 
 `daily_paper_cron_enabled` defaults to `false`. When enabled, `daily_paper_cron` controls the schedule and defaults to
-`0 9 * * *`.
+`0 9 * * *`. Before registering the task, QwenPaw verifies that `pypdf` can be imported; otherwise it logs an error and
+skips registration.
 
 ---
 

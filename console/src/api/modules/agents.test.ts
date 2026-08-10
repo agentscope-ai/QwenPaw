@@ -83,7 +83,9 @@ describe("agentsApi", () => {
   it("getMemoryStatus fetches structured ReMe status", async () => {
     const status = {
       components: {},
+      components_total_bytes: 0,
       components_total: "0 B",
+      process_rss_bytes: 1024,
       process_rss: "1.00 KiB",
     };
     vi.mocked(request).mockResolvedValue(status);

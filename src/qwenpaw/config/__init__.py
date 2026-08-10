@@ -27,6 +27,8 @@ from .utils import (
     save_config,
     strict_validate_config_file,
     update_last_dispatch,
+    get_dream_cron,
+    get_daily_paper_cron,
 )
 
 __all__ = [
@@ -47,6 +49,8 @@ __all__ = [
     "get_available_channels",
     "get_config_path",
     "get_heartbeat_config",
+    "get_dream_cron",
+    "get_daily_paper_cron",
     "get_heartbeat_query_path",
     "get_playwright_chromium_executable_path",
     "get_system_default_browser",

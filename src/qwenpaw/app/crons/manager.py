@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Literal, Optional, Union
@@ -303,6 +304,18 @@ class CronManager(ManagerBase):
             else:
                 logger.info("heartbeat disabled, job removed")
 
+    async def refresh_memory_jobs(self) -> None:
+        """Reconcile cron jobs declared by the active memory backend."""
+        async with self._lock:
+            if not self._started:
+                logger.warning(
+                    "CronManager not started for agent %s; cannot refresh "
+                    "memory jobs",
+                    self._agent_id,
+                )
+                return
+            self._refresh_memory_jobs_unlocked()
+
     def _refresh_memory_jobs_unlocked(self) -> None:
         memory_manager = getattr(self._workspace, "memory_manager", None)
         if memory_manager is None:
@@ -349,18 +362,9 @@ class CronManager(ManagerBase):
             declared_ids.add(job_id)
 
             try:
-                parts = declaration.cron.split()
-                if len(parts) != 5:
-                    raise ValueError("cron must have exactly 5 fields")
-                minute, hour, day, month, day_of_week = parts
-                trigger = CronTrigger(
-                    minute=minute,
-                    hour=hour,
-                    day=day,
-                    month=month,
-                    day_of_week=day_of_week,
+                trigger = CronTrigger.from_crontab(
+                    declaration.cron,
                     timezone=self._scheduler.timezone,
-                    jitter=declaration.jitter_seconds or None,
                 )
                 self._scheduler.add_job(
                     self._run_service_job,
@@ -729,6 +733,18 @@ class CronManager(ManagerBase):
     ) -> None:
         """Run a service-contributed job with common scheduler behavior."""
         try:
+            if declaration.jitter_seconds > 0:
+                delay_seconds = random.randint(
+                    0,
+                    declaration.jitter_seconds,
+                )
+                logger.info(
+                    "%s cron job %s will start in %s seconds",
+                    source,
+                    declaration.key,
+                    delay_seconds,
+                )
+                await asyncio.sleep(delay_seconds)
             await declaration.callback()
             logger.debug(
                 "%s cron job executed successfully: %s",

@@ -135,7 +135,8 @@ note，而不是无限创建重复文件。
 周榜/月榜筛选论文，将 arXiv PDF 保存到 `resource/papers/<arxiv_id>.pdf`，再把三篇论文精读和一份每日简报写入
 `memory/YYYY-MM-DD/`。简报及详细笔记会进入现有记忆索引，执行结果推送到 QwenPaw inbox。
 
-Daily Paper 默认关闭。启用 `daily_paper_cron_enabled` 后按 `daily_paper_cron` 调度。
+Daily Paper 默认关闭。启用 `daily_paper_cron_enabled` 后按 `daily_paper_cron` 调度；启动调度前会检查
+`pypdf` 是否可导入，缺失时记录错误并跳过任务注册。
 
 > 关于 Auto-Memory、Auto-Dream、Auto-Memory-Search 和 Proactive
 > 的完整工作流介绍，请参阅 [智能体记忆进化与主动交互](./memory-evolving-and-proactive)。以下仅补充技术实现细节与配置说明。

@@ -2249,7 +2249,7 @@
     "embeddingMaxBatchSize": "最大バッチサイズ",
     "embeddingMaxBatchSizeTooltip": "単一バッチ埋め込みリクエストの最大アイテム数",
     "embeddingMaxBatchSizeRequired": "最大バッチサイズは必須です",
-    "embeddingRestartWarning": "埋め込み設定を保存すると、サービスが自動的に再読み込みされます",
+    "embeddingRestartWarning": "テスト成功後、埋め込み設定のみの変更はホット更新されます。初回有効化、無効化、または他の設定も同時に変更した場合は自動的にリロードされます",
     "maxContextLength": "最大コンテキスト長",
     "maxContextLengthTooltip": "モデルコンテキストウィンドウの最大トークン数。各リクエストで保持できる最大履歴長を決定します",
     "maxContextLengthRequired": "最大コンテキスト長は必須です",

@@ -380,7 +380,9 @@ def test_get_memory_status_returns_structured_reme_metrics(
                             "default": {"bytes": 2048, "human": "2.00 KiB"},
                         },
                     },
+                    "components_total_bytes": 2048,
                     "components_total": "2.00 KiB",
+                    "process_rss_bytes": 83886080,
                     "process_rss": "80.00 MiB",
                 },
             },
@@ -392,7 +394,9 @@ def test_get_memory_status_returns_structured_reme_metrics(
         "worker": {
             "status": "busy",
             "queue_pending": 2,
+            "tasks_pending": 2,
             "tasks_running": 1,
+            "current_task_started_at": "2026-08-10T10:20:30",
         },
         "auto_memory": {
             "enabled": True,
