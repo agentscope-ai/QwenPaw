@@ -17,7 +17,7 @@
         "required_status_checks": [
           { "context": "Test Summary", "integration_id": 15368 },
           { "context": "Pre-commit", "integration_id": 15368 },
-          { "context": "Vitest Unit Tests", "integration_id": 15368 },
+          { "context": "Frontend Summary", "integration_id": 15368 },
           { "context": "console format check", "integration_id": 15368 },
           { "context": "website format check", "integration_id": 15368 }
         ]

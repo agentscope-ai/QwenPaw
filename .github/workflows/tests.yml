@@ -563,29 +563,52 @@ jobs:
   test-summary:
     name: Test Summary
     needs: [changes, approval-gate, unit-tests, contract-tests, integrated-tests, coverage-report]
-    # Skipped (= satisfied when used as a required check) on docs-only PRs;
-    # otherwise fails unless approval was granted and every tier passed.
-    if: always() && needs.changes.outputs.code == 'true'
+    # Fail-closed gate. This job ALWAYS runs (no path condition) so the
+    # required-check context can never be satisfied by an accidental skip.
+    # Three-state decision:
+    #   1. change detection did not succeed -> red (its `code` output is
+    #      unreliable when the detection job fails/is cancelled, so the
+    #      gate must close rather than open);
+    #   2. detection succeeded and reported a docs-only PR -> explicit
+    #      green (instead of skipping, which a ruleset cannot distinguish
+    #      from a bypass);
+    #   3. code change -> approval plus EVERY test tier must be strictly
+    #      `success`; failure/cancelled/skipped are all rejected.
+    # coverage-report is intentionally observed, not enforced: a coverage
+    # tooling outage must not block an otherwise green PR.
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Check test results
         shell: bash
         run: |
+          echo "Changes detection: ${{ needs.changes.result }}"
           echo "Approval gate: ${{ needs.approval-gate.result }}"
           echo "Unit tests: ${{ needs.unit-tests.result }}"
           echo "Contract tests: ${{ needs.contract-tests.result }}"
           echo "Integrated tests: ${{ needs.integrated-tests.result }}"
+          echo "Coverage report: ${{ needs.coverage-report.result }}"
+
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            echo "❌ Change detection did not succeed (${{ needs.changes.result }}) — gate closed, refusing untested merge"
+            exit 1
+          fi
+
+          if [ "${{ needs.changes.outputs.code }}" != "true" ]; then
+            echo "✅ Docs-only change — no test tiers required"
+            exit 0
+          fi
 
           if [ "${{ needs.approval-gate.result }}" != "success" ]; then
             echo "❌ Approval not granted"
             exit 1
           fi
 
-          if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
-             [ "${{ needs.contract-tests.result }}" = "failure" ] || \
-             [ "${{ needs.integrated-tests.result }}" = "failure" ]; then
-            echo "❌ Some tests failed"
+          if [ "${{ needs.unit-tests.result }}" != "success" ] || \
+             [ "${{ needs.contract-tests.result }}" != "success" ] || \
+             [ "${{ needs.integrated-tests.result }}" != "success" ]; then
+            echo "❌ Every test tier must be success (failure/cancelled/skipped are all rejected)"
             exit 1
-          else
-            echo "✅ All tests passed"
           fi
+
+          echo "✅ All tests passed"
