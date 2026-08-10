@@ -115,60 +115,24 @@ describe("AppCenterPage", () => {
     expect(await screen.findByText("alpha-app")).toBeInTheDocument();
     expect(screen.getByText("beta-app")).toBeInTheDocument();
 
-    // Neither external market channel may load on the default market tab.
+    // The market view must not load on the default tab.
     expect(
       screen.queryByLabelText("appCenter.searchMarket"),
     ).not.toBeInTheDocument();
     expect(hoisted.fetchMarketPlugins).not.toHaveBeenCalled();
   });
 
-  it("enters the official view and loads featured apps lazily", async () => {
-    hoisted.fetchMarketPlugins.mockResolvedValue({
-      plugins: [
-        {
-          id: "agent-kanban",
-          display_name: "Agent Kanban",
-          developer: "zhijianma",
-          owner: "zhijianma",
-          version: "0.1.0",
-          logo_url: null,
-          downloads: 1536,
-          view_count: 1266,
-          details_url: null,
-          locales: { en: { description: "Kanban", category: "App" } },
-          is_featured: true,
-        },
-      ],
-      total: 1,
-    });
-    renderPage();
-    await screen.findByText("alpha-app");
-
-    fireEvent.click(
-      screen.getByRole("tab", { name: /appCenter.officialApps/ }),
-    );
-
-    expect(screen.getByTestId("location")).toHaveTextContent(
-      "/market?view=official",
-    );
-    expect(await screen.findByText("Agent Kanban")).toBeInTheDocument();
-    await waitFor(() =>
-      expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(1),
-    );
-    expect(screen.queryByText("alpha-app")).not.toBeInTheDocument();
-  });
-
-  it("shows the official view when visiting /market?view=official directly", async () => {
+  it("shows the official view when visiting it directly", async () => {
     renderPage(["/market?view=official"]);
 
     expect(
       await screen.findByLabelText("appCenter.searchOfficial"),
     ).toBeInTheDocument();
-    expect(
-      await screen.findByText("appCenter.officialAppsEmpty"),
-    ).toBeInTheDocument();
     await waitFor(() =>
       expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(1),
+    );
+    expect(hoisted.fetchMarketPlugins.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ is_featured: true, page_number: 1 }),
     );
   });
 
@@ -224,7 +188,7 @@ describe("AppCenterPage", () => {
     expect(await screen.findByText("alpha-app")).toBeInTheDocument();
   });
 
-  it("offers official and market entry points when no apps are installed", async () => {
+  it("offers official apps and the app market when no apps are installed", async () => {
     hoisted.listApps.mockResolvedValue({ apps: [], total: 0 });
     renderPage();
 

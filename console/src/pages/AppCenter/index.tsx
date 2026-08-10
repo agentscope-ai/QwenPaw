@@ -472,7 +472,7 @@ export default function AppCenterPage() {
           )}
         </Empty>
       ) : (
-        <div className={styles.gridLarge}>
+        <div className={styles.grid}>
           {filteredApps.map((app) => (
             <AppCard
               key={app.id}
@@ -548,8 +548,7 @@ export default function AppCenterPage() {
             ]}
           />
 
-          {/* External-data views are mounted (chunk + request) only while
-              the user is actually on the corresponding tab. */}
+          {/* Market data is mounted (chunk + request) only while active. */}
           {view === "official" ? (
             <Suspense
               fallback={
