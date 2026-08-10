@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MarketPluginEntry } from "@/api/modules/pluginMarket";
 import { invoke, isTauri } from "@/test/tauri-mock";
 import { MarketPluginList } from "./MarketPluginList";
+import marketStyles from "./MarketPluginList.module.less";
 
 const hoisted = vi.hoisted(() => ({
   plugins: [] as MarketPluginEntry[],
@@ -21,7 +22,12 @@ const hoisted = vi.hoisted(() => ({
   hasMore: false,
 }));
 
-let intersectionCallbacks: IntersectionObserverCallback[] = [];
+interface MockIntersectionObserver {
+  callback: IntersectionObserverCallback;
+  elements: Element[];
+}
+
+let intersectionObservers: MockIntersectionObserver[] = [];
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -86,15 +92,20 @@ describe("MarketPluginList", () => {
   const windowOpen = vi.fn();
 
   beforeEach(() => {
-    intersectionCallbacks = [];
+    intersectionObservers = [];
     vi.stubGlobal(
       "IntersectionObserver",
       class {
+        private record: MockIntersectionObserver;
+
         constructor(callback: IntersectionObserverCallback) {
-          intersectionCallbacks.push(callback);
+          this.record = { callback, elements: [] };
+          intersectionObservers.push(this.record);
         }
 
-        observe() {}
+        observe(element: Element) {
+          this.record.elements.push(element);
+        }
         disconnect() {}
       },
     );
@@ -178,9 +189,16 @@ describe("MarketPluginList", () => {
 
     render(<MarketPluginList onInstalled={vi.fn()} />);
 
-    await waitFor(() => expect(intersectionCallbacks).toHaveLength(1));
+    const sentinel = document.querySelector(
+      `.${marketStyles.loadMoreSentinel}`,
+    );
+    expect(sentinel).not.toBeNull();
+    const sentinelObserver = intersectionObservers.find((observer) =>
+      observer.elements.includes(sentinel!),
+    );
+    expect(sentinelObserver).toBeDefined();
     act(() => {
-      intersectionCallbacks[0](
+      sentinelObserver!.callback(
         [{ isIntersecting: true } as IntersectionObserverEntry],
         {} as IntersectionObserver,
       );

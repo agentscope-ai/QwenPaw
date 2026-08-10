@@ -19,7 +19,12 @@ const hoisted = vi.hoisted(() => ({
   getVersion: vi.fn(),
 }));
 
-let intersectionCallbacks: IntersectionObserverCallback[] = [];
+interface MockIntersectionObserver {
+  callback: IntersectionObserverCallback;
+  elements: Element[];
+}
+
+let intersectionObservers: MockIntersectionObserver[] = [];
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -75,15 +80,20 @@ describe("AppMarket", () => {
   const windowOpen = vi.fn();
 
   beforeEach(() => {
-    intersectionCallbacks = [];
+    intersectionObservers = [];
     vi.stubGlobal(
       "IntersectionObserver",
       class {
+        private record: MockIntersectionObserver;
+
         constructor(callback: IntersectionObserverCallback) {
-          intersectionCallbacks.push(callback);
+          this.record = { callback, elements: [] };
+          intersectionObservers.push(this.record);
         }
 
-        observe() {}
+        observe(element: Element) {
+          this.record.elements.push(element);
+        }
         disconnect() {}
       },
     );
@@ -230,9 +240,13 @@ describe("AppMarket", () => {
     expect(screen.queryByText("community-page-two")).not.toBeInTheDocument();
     expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(1);
 
-    await waitFor(() => expect(intersectionCallbacks).toHaveLength(1));
+    const sentinel = await screen.findByText("common.loading");
+    const sentinelObserver = intersectionObservers.find((observer) =>
+      observer.elements.includes(sentinel),
+    );
+    expect(sentinelObserver).toBeDefined();
     act(() => {
-      intersectionCallbacks[0](
+      sentinelObserver!.callback(
         [{ isIntersecting: true } as IntersectionObserverEntry],
         {} as IntersectionObserver,
       );
