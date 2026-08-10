@@ -319,6 +319,30 @@ class TestRandomCapSid:
 # ============================================================================
 
 
+class TestBaseEnvironment:
+    """Test the environment inherited by sandboxed child processes."""
+
+    @patch.dict("os.environ", {}, clear=True)
+    @patch(
+        "qwenpaw.sandbox.windows_unelevated_sandbox."
+        "_get_python_install_dir",
+        return_value=r"C:\QwenPaw\binaries\qwenpaw-backend",
+    )
+    def test_does_not_inject_pythonhome(self, mock_python_dir):
+        """A frozen backend directory must not become PYTHONHOME."""
+        config = SandboxConfig(
+            mode=SandboxMode.WINDOWS,
+            workspace_dir=r"C:\project",
+            allow_read_all=True,
+        )
+        sandbox = WindowsUnelevatedSandbox(config)
+
+        env = sandbox._build_base_env()
+
+        mock_python_dir.assert_not_called()
+        assert "PYTHONHOME" not in env
+
+
 class TestEnvBlock:
     """Test _make_env_block sorts entries and terminates correctly."""
 
