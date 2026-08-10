@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input, Select } from "@agentscope-ai/design";
+import { Button, Input, Select, Tooltip } from "@agentscope-ai/design";
 import { Button as AntButton } from "antd";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -76,14 +76,21 @@ const ProviderSelect = memo(function ProviderSelect({
   const value = [...selectedKeys].filter((key) => availableKeys.includes(key));
   const options = useMemo(
     () =>
-      providers.map((provider) => ({
-        value: provider.key,
-        label: provider.label,
-        disabled: !provider.available,
-        title: provider.available
-          ? undefined
-          : provider.reason ?? t("market.providerUnavailable"),
-      })),
+      providers.map((provider) => {
+        const unavailableReason =
+          provider.reason ?? t("market.providerUnavailable");
+        return {
+          value: provider.key,
+          label: provider.available ? (
+            provider.label
+          ) : (
+            <Tooltip title={unavailableReason}>
+              <span className={styles.providerOption}>{provider.label}</span>
+            </Tooltip>
+          ),
+          disabled: !provider.available,
+        };
+      }),
     [providers, t],
   );
 

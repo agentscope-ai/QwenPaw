@@ -125,6 +125,11 @@
   flex-shrink: 0;
 }
 
+.providerOption {
+  display: block;
+  width: 100%;
+}
+
 .providerActions {
   display: flex;
   align-items: center;
@@ -237,7 +242,7 @@
     background: #1f1f1f;
     color: rgba(255, 255, 255, 0.65);
 
-    &:hover {
+    &:hover:not(.categoryChipActive) {
       border-color: rgba(255, 255, 255, 0.3);
       color: rgba(255, 255, 255, 0.88);
     }

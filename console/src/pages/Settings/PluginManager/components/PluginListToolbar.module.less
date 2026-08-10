@@ -76,10 +76,23 @@
   font-size: 13px;
 }
 
-:global(.dark-mode) .filterTagActive {
-  border-color: rgba(255, 127, 22, 0.5);
-  background: rgba(255, 127, 22, 0.18);
-  color: #ffad66;
+:global(.dark-mode) {
+  .filterTag {
+    border-color: rgba(255, 255, 255, 0.16);
+    background: #1f1f1f;
+    color: rgba(255, 255, 255, 0.65);
+
+    &:hover:not(.filterTagActive) {
+      border-color: rgba(255, 255, 255, 0.3);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .filterTagActive {
+    border-color: rgba(255, 127, 22, 0.5);
+    background: rgba(255, 127, 22, 0.18);
+    color: #ffad66;
+  }
 }
 
 @media (max-width: 767px) {

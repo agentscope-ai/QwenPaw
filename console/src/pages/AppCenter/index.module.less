@@ -113,12 +113,17 @@
 }
 
 .marketFilter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 30px;
+  flex-shrink: 0;
   padding: 4px 12px;
   border: 1px solid var(--app-border);
   border-radius: 16px;
   background: var(--app-surface);
   color: var(--app-text-secondary);
+  font: inherit;
   font-size: 13px;
   line-height: 20px;
   cursor: pointer;
@@ -513,6 +518,17 @@
 :global(.dark-mode) {
   .page {
     background: #141414;
+  }
+
+  .marketFilter {
+    border-color: rgba(255, 255, 255, 0.16);
+    background: #1f1f1f;
+    color: rgba(255, 255, 255, 0.65);
+
+    &:hover:not(:disabled):not(.marketFilterActive) {
+      border-color: rgba(255, 255, 255, 0.3);
+      color: rgba(255, 255, 255, 0.88);
+    }
   }
 
   .marketFilterActive {
