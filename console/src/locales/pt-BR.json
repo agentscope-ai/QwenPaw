@@ -2478,7 +2478,7 @@
     "embeddingMaxBatchSize": "Max Batch Tamanho",
     "embeddingMaxBatchSizeTooltip": "Maximum number of items in a single batch embedding request",
     "embeddingMaxBatchSizeRequired": "Max batch Tamanho e obrigatorio",
-    "embeddingRestartWarning": "Após um teste bem-sucedido, alterações apenas de embedding são aplicadas a quente. A primeira ativação, desativação ou outras alterações simultâneas acionam um recarregamento automático.",
+    "embeddingRestartWarning": "Salvar alterações de embedding recarrega o serviço automaticamente.",
     "toolExecutionLevelTitle": "Tool Execution Seguranca",
     "toolExecutionLevel": {
       "title": "Tool Execution Seguranca",

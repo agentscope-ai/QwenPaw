@@ -197,12 +197,7 @@ def test_reme_declares_its_enabled_cron_jobs() -> None:
         daily_paper_cron="0 9 * * *",
     )
 
-    with patch.object(
-        manager,
-        "_daily_paper_dependency_available",
-        return_value=True,
-    ):
-        jobs = manager.list_cron_jobs()
+    jobs = manager.list_cron_jobs()
 
     assert [job.key for job in jobs] == ["dream", "daily-paper"]
     assert jobs[0].callback.__self__ is manager
@@ -210,37 +205,6 @@ def test_reme_declares_its_enabled_cron_jobs() -> None:
     assert jobs[0].jitter_seconds == 60
     assert jobs[1].callback.__self__ is manager
     assert jobs[1].callback.__func__ is ReMeLightMemoryManager.daily_paper
-
-
-def test_reme_omits_daily_paper_when_dependency_is_unavailable() -> None:
-    manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    manager._reme = SimpleNamespace(is_started=True)
-    manager.get_memory_config = lambda: SimpleNamespace(
-        dream_cron_enabled=False,
-        dream_cron="0 23 * * *",
-        daily_paper_cron_enabled=True,
-        daily_paper_cron="0 9 * * *",
-    )
-
-    with patch.object(
-        manager,
-        "_daily_paper_dependency_available",
-        return_value=False,
-    ):
-        assert not manager.list_cron_jobs()
-
-
-def test_daily_paper_dependency_failure_is_owned_by_reme(caplog) -> None:
-    with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager."
-        "importlib.import_module",
-        side_effect=ImportError("missing pypdf"),
-    ):
-        assert (
-            ReMeLightMemoryManager._daily_paper_dependency_available() is False
-        )
-
-    assert "pypdf cannot be imported" in caplog.text
 
 
 @pytest.mark.asyncio

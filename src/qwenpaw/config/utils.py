@@ -727,49 +727,6 @@ def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
     return hb if hb is not None else HeartbeatConfig()
 
 
-def get_dream_cron(agent_id: Optional[str] = None) -> str:
-    """Return dream-based memory optimization job cron expression for
-    the agent.
-
-    Args:
-        agent_id: Agent ID to load config from. If None, tries to load from
-                  root config.agents.defaults (legacy behavior).
-
-    Returns:
-        str: Cron expression for dream-based memory optimization job, or an
-             empty string if disabled.
-    """
-    if agent_id is not None:
-        try:
-            agent_config = load_agent_config(agent_id)
-            memory_config = agent_config.running.reme_light_memory_config
-            if not getattr(memory_config, "dream_cron_enabled", True):
-                return ""
-            return memory_config.dream_cron
-        except Exception:
-            return ""
-    # Legacy: return empty string if no agent_id provided
-    return ""
-
-
-def get_daily_paper_cron(agent_id: Optional[str] = None) -> str:
-    """Return the enabled Daily Paper cron expression for an agent."""
-    if agent_id is not None:
-        try:
-            agent_config = load_agent_config(agent_id)
-            memory_config = agent_config.running.reme_light_memory_config
-            if not getattr(
-                memory_config,
-                "daily_paper_cron_enabled",
-                False,
-            ):
-                return ""
-            return memory_config.daily_paper_cron
-        except Exception:
-            return ""
-    return ""
-
-
 def update_last_dispatch(
     channel: str,
     user_id: str,

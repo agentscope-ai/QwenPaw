@@ -30,17 +30,13 @@ vi.mock("react-i18next", () => ({
 
 const memoryStatus = {
   components: {},
-  components_total_bytes: 0,
   components_total: "0 B",
-  process_rss_bytes: 1024,
   process_rss: "1.00 KiB",
   runtime: {
     worker: {
       status: "idle" as const,
       queue_pending: 0,
-      tasks_pending: 0,
       tasks_running: 0,
-      current_task_started_at: null,
     },
     auto_memory: {
       enabled: true,
@@ -259,7 +255,6 @@ describe("ReMe runtime status", () => {
           ...memoryStatus.runtime.worker,
           status: "busy",
           queue_pending: 2,
-          tasks_pending: 2,
           tasks_running: 1,
         },
       },
