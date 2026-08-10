@@ -30,6 +30,7 @@ from ...config import load_config
 from ...constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SCROLL_MEMORY_MESSAGE_TAG,
+    SYNTHETIC_USER_MESSAGE_TAGS,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,35 @@ def _is_scroll_memory_placeholder(msg: Msg) -> bool:
     return (
         text.lstrip().startswith("<system-info>")
         and "[context compressed]" in text
+    )
+
+
+# Visual compression collapses history/context ranges into user-role
+# messages with these names. They are model-only reconstructions.
+_VISUAL_PLACEHOLDER_NAMES = frozenset(
+    {"visual_context", "visual_history"},
+)
+
+
+def _is_synthetic_user_message(msg: Msg) -> bool:
+    """Return whether *msg* is a runtime-injected user-role message.
+
+    Loop gates, stop handlers, and rubric evaluation append tagged
+    ``role="user"`` stubs to keep a turn going; visual compression
+    collapses history into ``visual_history`` / ``visual_context``
+    user messages. None of them is user transcript — rendering them as
+    user cards made the original instruction appear rewritten after a
+    session switch.
+    """
+    if msg.role != "user":
+        return False
+    if msg.name in _VISUAL_PLACEHOLDER_NAMES:
+        return True
+    metadata = getattr(msg, "metadata", None)
+    return (
+        isinstance(metadata, dict)
+        and metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+        in SYNTHETIC_USER_MESSAGE_TAGS
     )
 
 
@@ -112,7 +142,7 @@ def build_env_context(
         default_shell: Shell executable used by execute_shell_command.
             When provided, included in the context so the LLM can
             generate syntax appropriate for that shell.
-        project_dir: When set (Coding Mode), the agent's "Working
+        project_dir: When set, the agent's "Working
             directory" line is replaced with an explicit
             "Project directory" + "Agent workspace (internal)" pair
             so the LLM stops treating the workspace as home.
@@ -164,8 +194,8 @@ def build_env_context(
 
     if project_dir:
         parts.append(
-            f"- Project directory (Coding Mode — operate here): "
-            f"{project_dir}",
+            f"- Project directory (relative files and commands resolve "
+            f"here): {project_dir}",
         )
         if working_dir is not None and str(working_dir) != str(project_dir):
             parts.append(
@@ -426,7 +456,8 @@ def _build_media_message_from_block(
 
 
 # Matches the trailing <skill> block appended to a user message by
-# slash-command skill expansion (runner._maybe_inject_skill).
+# slash-command skill expansion
+# (runtime.builtin_commands._skill_fallback_handler).
 _INJECTED_SKILL_BLOCK_RE = re.compile(
     r"\s*<skill\b[^>]*>.*</skill>\s*$",
     re.DOTALL,
@@ -493,14 +524,18 @@ def agentscope_msg_to_message(
     for msg in msgs:
         if _is_scroll_memory_placeholder(msg):
             continue
+        if _is_synthetic_user_message(msg):
+            continue
         role = msg.role or "assistant"
 
         ts_value = msg.timestamp
         if ts_value:
             try:
-                dt_obj = datetime.strptime(ts_value, "%Y-%m-%d %H:%M:%S.%f")
-                ts_value = dt_obj.replace(tzinfo=user_tz).isoformat()
-            except ValueError:
+                dt_obj = datetime.fromisoformat(ts_value)
+                if dt_obj.tzinfo is None:
+                    dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+                ts_value = dt_obj.astimezone(user_tz).isoformat()
+            except (ValueError, TypeError):
                 pass
 
         metadata = {

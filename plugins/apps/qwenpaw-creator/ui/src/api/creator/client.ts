@@ -1,4 +1,5 @@
 import type { CreatorApiError } from "@/contracts/creator";
+import i18n from "@/i18n";
 
 export const CREATOR_API_BASE = "/api/qwenpaw-creator";
 
@@ -13,7 +14,7 @@ export class CreatorHttpError extends Error {
   readonly details: Record<string, unknown>;
 
   constructor(status: number, error: Partial<CreatorApiError> = {}) {
-    super(error.message || `Creator 请求失败（${status}）`);
+    super(error.message || i18n.t("api.requestFailed", { status }));
     this.name = "CreatorHttpError";
     this.status = status;
     this.code = error.code || `HTTP_${status}`;
@@ -52,7 +53,7 @@ export function newClientId(prefix = "client"): string {
   return `${prefix}-${id}`;
 }
 
-function hostToken(): string | null {
+export function hostToken(): string | null {
   try {
     const current = window as HostWindow;
     const parent = window.parent as HostWindow;

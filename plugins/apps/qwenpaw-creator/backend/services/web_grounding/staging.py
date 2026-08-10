@@ -23,7 +23,7 @@ from services.storage_root import (
 from services.workspace.content_store import ContentStore, atomic_replace_bytes
 from utils.logger import setup_logger
 
-DEFAULT_TIMEOUT = 8.0
+DEFAULT_TIMEOUT = 30.0
 DEFAULT_VISUAL_DOWNLOAD_MAX_BYTES = 8 * 1024 * 1024
 USER_AGENT = "QwenPaw-Creator/0.1 web-grounding"
 logger = setup_logger("services.web_grounding.staging")

@@ -540,6 +540,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """Return embedded ReMe component memory estimates and process RSS."""
         return await self._run_reme_job("status")
 
+    async def graph_snapshot(self) -> "Response | None":
+        """Return the complete indexed wikilink graph for the console."""
+        return await self._run_reme_job("graph_snapshot")
+
     async def rebuild_index(self) -> "Response | None":
         """Clear and rebuild the ReMe search index on explicit request."""
         if self._reindex_lock.locked():

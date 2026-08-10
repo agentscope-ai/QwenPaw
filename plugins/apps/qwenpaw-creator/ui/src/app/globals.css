@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Bind the dark: variant to the .dark class toggled by the theme provider. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #f9f8f4;
   --foreground: #241f1a;
@@ -180,7 +183,8 @@ a {
 
 /* ====== Badge ====== */
 
-/* Agent 改动字符级 diff 高亮：红删（删除线）/ 绿增 */
+/* Character-level diff highlight for Agent edits: red strikethrough for
+   deletions, green for insertions */
 .agent-diff-del {
   color: var(--color-danger);
   background: var(--color-danger-soft);
@@ -333,7 +337,7 @@ a {
   }
 }
 
-/* v2 壳层：面板切换淡入上移过渡（迭代计划 1.1） */
+/* v2 shell: fade-in / slide-up transition between panels */
 @keyframes agent-dock-enter {
   from {
     opacity: 0;
@@ -349,7 +353,8 @@ a {
   animation: agent-dock-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* AgentDock 停止按钮：呼吸光圈提示 Agent 正在运行且可立即停止 */
+/* AgentDock stop button: breathing halo signals the Agent is running and
+   can be stopped immediately */
 @keyframes agent-dock-stop-glow {
   0% {
     box-shadow: 0 0 0 0
@@ -367,7 +372,8 @@ a {
   animation: agent-dock-stop-glow 1.6s ease-out infinite;
 }
 
-/* AgentDock 输入框上方实时状态行（方案 A）：呼吸光点 + 流光文字 */
+/* AgentDock live status line above the input: breathing dot + shimmering
+   text */
 @keyframes agent-live-breathe {
   0%,
   100% {
@@ -445,7 +451,8 @@ a {
   }
 }
 
-/* 内联决策托盘：分级提醒呼吸点 / 阻塞项到达闪烁 / 卡片入场 */
+/* Inline decision tray: tiered breathing dot, blocking-arrival flash and
+   card entrance */
 @keyframes decision-tray-dot-breathe {
   0%,
   100% {
@@ -498,7 +505,7 @@ a {
   animation: decision-tray-card-in 0.28s ease;
 }
 
-/* Dock 收起把手上的阻塞气泡提示条 */
+/* Blocking bubble hint on the collapsed dock handle */
 @keyframes agent-dock-handle-toast-in {
   from {
     opacity: 0;
@@ -694,10 +701,9 @@ a {
   background: var(--color-bg-primary);
 }
 
-/* 审阅定位强调：在待审模块框自身上做「忽闪 → 变灭」的整框发光脉冲。
-   用一个贴合圆角、覆盖整框的叠加层（inset:0），同时叠加：整框底色染色 +
-   内投影(inset)自发光 + 边框 + 外发光，四者一起脉冲，让整个模块从内到外
-   均匀变亮/变暗，四条边宽度一致；闪三下后自然消失。 */
+/* Review locating pulse: a rounded overlay (inset:0) covering the pending
+   module box glows tint + inset shadow + border + outer glow together, so
+   the whole box brightens and dims evenly; flashes three times then fades. */
 @keyframes slide-progress {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(300%); }
@@ -752,8 +758,8 @@ a {
   display: inline-block;
 }
 
-/* 工作区空状态：Agent 工作中动效（时间轴/时间线内容在 project 尚未写入时的
-   "进行中"反馈，消除卡住错觉）。 */
+/* Workspace empty state: "Agent working" feedback while the project has
+   no timeline content yet, so the page never looks stuck. */
 @keyframes agent-working-breathe {
   0%,
   100% {
@@ -807,7 +813,8 @@ a {
   animation: slide-progress 1.4s ease-in-out infinite;
 }
 
-/* 时间轴轨道块：Element 产物生成中的斜纹流动动效（颜色跟随类型色）。 */
+/* Timeline track block: flowing stripes while an Element is generating,
+   tinted by the element type color. */
 @keyframes element-generating-stripes {
   to {
     background-position: 17px 0;
@@ -822,4 +829,138 @@ a {
   );
   opacity: 0.18;
   animation: element-generating-stripes 0.9s linear infinite;
+}
+
+/* ====== Home hero ====== */
+
+/* Blurred glow canvas behind the home hero; it bleeds past the viewport so
+   drifting blobs never expose an edge. */
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: #ffffff;
+}
+
+.hero-bg-canvas {
+  position: absolute;
+  inset: -18%;
+  filter: blur(70px);
+  opacity: 0.85;
+}
+
+.hero-bg-blob {
+  position: absolute;
+  border-radius: 9999px;
+  will-change: transform;
+  /* Closed orbit (0% and 100% coincide) keeps the drift continuous. */
+  animation: hero-blob-orbit 28s ease-in-out infinite;
+}
+
+@keyframes hero-blob-orbit {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  25% {
+    transform: translate3d(var(--drift-x), var(--drift-y), 0) scale(1.08);
+  }
+  50% {
+    transform: translate3d(
+        calc(var(--drift-x) * 0.35),
+        calc(var(--drift-y) * -0.75),
+        0
+      )
+      scale(0.95);
+  }
+  75% {
+    transform: translate3d(
+        calc(var(--drift-x) * -0.65),
+        calc(var(--drift-y) * 0.45),
+        0
+      )
+      scale(1.04);
+  }
+}
+
+/* Hero title: wordmark artwork + gradient "Creator" (PingFang SC Semibold
+   60.16px / 82.04px, gradient 259deg per the draft). */
+.hero-title-creator {
+  font-family:
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans",
+    sans-serif;
+  font-weight: 600;
+  font-size: 60.16px;
+  line-height: 82.04px;
+  white-space: nowrap;
+  background-image: linear-gradient(
+    259deg,
+    #f34214 0%,
+    #f48017 25%,
+    #ff9d4d 75%,
+    #f6851c 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* Collaborator cursors floating around the hero title. */
+.hero-role-tag {
+  position: absolute;
+  display: block;
+  animation: hero-tag-float 5s ease-in-out infinite;
+  z-index: 2;
+}
+
+.hero-role-tag .hero-role-pill {
+  display: block;
+  border-radius: 9999px;
+  border: 1px solid #fff;
+  padding: 0 10px;
+  font-size: 14px;
+  line-height: 22px;
+  letter-spacing: 0.4px;
+  color: #fff;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.hero-role-tag .hero-role-cursor {
+  position: absolute;
+}
+
+@keyframes hero-tag-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+.hero-fade-up {
+  animation: hero-fade-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes hero-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-bg-blob,
+  .hero-role-tag,
+  .hero-fade-up {
+    animation: none;
+  }
 }

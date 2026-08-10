@@ -183,7 +183,8 @@ function extractUrlFromResultBlocks(
 }
 
 /** Read the first usable path from params (multiple key variants). */
-function getPathFromParams(params: Record<string, unknown>): string {
+export function getFileOperationPath(tc: ToolCallContent): string {
+  const params = tc.params || {};
   return (params.file_path ||
     params.image_path ||
     params.video_path ||
@@ -212,8 +213,7 @@ function isPreviewablePath(path: string): boolean {
 
 /** Extract media info from tool params/result (unified for all tool names) */
 export function getMediaInfo(tc: ToolCallContent): MediaInfo | null {
-  const params = tc.params || {};
-  const paramPath = getPathFromParams(params);
+  const paramPath = getFileOperationPath(tc);
 
   // 1) Try to get a reliable URL from result content blocks
   const fromResult = extractUrlFromResultBlocks(tc.result);
@@ -237,6 +237,11 @@ export function getMediaInfo(tc: ToolCallContent): MediaInfo | null {
   const mediaType = classifyMediaType(ext);
 
   return { url: toDisplayUrl(rawUrl), name, type: mediaType };
+}
+
+export function hasMultimediaPreview(tc: ToolCallContent): boolean {
+  const media = getMediaInfo(tc);
+  return Boolean(media && media.type !== "file");
 }
 
 /** Try to extract a file URL from a text result via regex patterns */

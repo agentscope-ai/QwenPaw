@@ -6,7 +6,8 @@ management. :class:`~qwenpaw.agents.react_agent.QwenPawAgent` delegates its
 AgentScope hooks and provider-overflow recovery to it:
 
 * ``_save_to_context`` -> :meth:`on_save` (after the base append)
-* ``compress_context`` -> :meth:`compress` (instead of the base compression)
+* ``_compress_context_impl`` -> :meth:`compress`
+  (instead of native compression)
 * overflow retry -> :meth:`recover_from_context_overflow`
 
 When no manager is injected, the agent keeps its native AgentScope behavior —
@@ -36,8 +37,8 @@ class ContextManager(Protocol):
     ) -> None:
         """Compress ``agent.state.context`` when it exceeds the threshold.
 
-        Called from ``QwenPawAgent.compress_context`` in place of the native
-        AgentScope compression. ``instructions`` is optional, one-shot
+        Called from ``QwenPawAgent._compress_context_impl`` after AgentScope's
+        compression middleware chain. ``instructions`` is optional, one-shot
         guidance for a manual compaction and must not be persisted as active
         conversation state.
         """

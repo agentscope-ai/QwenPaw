@@ -207,12 +207,52 @@ Write-Host "== Staging bundled Python runtime ==" -ForegroundColor Yellow
 & $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_python_runtime.py") `
     --dest (Join-Path $BINARIES_DIR "python-runtime")
 Assert-LastExit "Failed to stage bundled Python runtime"
+
+# The Chrome Native Messaging host runs under this standalone interpreter,
+# outside the PyInstaller backend, so its dependencies must be installed here.
+$NATIVE_HOST_PYTHON = Join-Path $BINARIES_DIR "python-runtime\python\python.exe"
+$NATIVE_HOST_REQUIREMENTS = Join-Path $REPO_ROOT "scripts\pack-tauri\native-host-requirements.txt"
+& $NATIVE_HOST_PYTHON -m pip install `
+    --disable-pip-version-check `
+    --no-input `
+    --no-deps `
+    --only-binary=:all: `
+    -r $NATIVE_HOST_REQUIREMENTS
+Assert-LastExit "Failed to install Chrome Native Messaging host dependencies"
+& $NATIVE_HOST_PYTHON `
+    (Join-Path $REPO_ROOT "plugins\bundle\chrome\assets\scripts\nm_host.py") `
+    --check-runtime
+Assert-LastExit "Bundled Python runtime cannot run the Native Messaging host"
 Write-Host ""
 
 Write-Host "== Staging bundled Node runtime ==" -ForegroundColor Yellow
 & $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_node_runtime.py") `
     --dest (Join-Path $BINARIES_DIR "node-runtime")
 Assert-LastExit "Failed to stage bundled Node runtime"
+Write-Host "== Building Computer Use helper ==" -ForegroundColor Yellow
+$CARGO_BIN = (Get-Command cargo -ErrorAction SilentlyContinue).Source
+if (-not $CARGO_BIN) {
+    throw "cargo not found; Rust toolchain is required to build qwenpaw-computer-use-helper"
+}
+$TAURI_DIR = Join-Path $REPO_ROOT "console\src-tauri"
+Push-Location $TAURI_DIR
+try {
+    & $CARGO_BIN build --release --bin qwenpaw-computer-use-helper
+    Assert-LastExit "Failed to build qwenpaw-computer-use-helper"
+} finally {
+    Pop-Location
+}
+$TARGET_DIR = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $TAURI_DIR "target" }
+if (-not [System.IO.Path]::IsPathRooted($TARGET_DIR)) {
+    $TARGET_DIR = Join-Path $TAURI_DIR $TARGET_DIR
+}
+$COMPUTER_USE_HELPER_EXE = Join-Path $TARGET_DIR "release\qwenpaw-computer-use-helper.exe"
+if (-not (Test-Path $COMPUTER_USE_HELPER_EXE)) {
+    throw "Computer Use helper executable not found at $COMPUTER_USE_HELPER_EXE"
+}
+$COMPUTER_USE_HELPER_DEST = Join-Path $DEST "qwenpaw-computer-use-helper.exe"
+Copy-Item -Force $COMPUTER_USE_HELPER_EXE $COMPUTER_USE_HELPER_DEST
+Write-Host "Computer Use helper staged: $COMPUTER_USE_HELPER_DEST" -ForegroundColor Green
 Write-Host ""
 
 Write-Host "=========================================" -ForegroundColor Cyan

@@ -72,11 +72,14 @@ export function useSkills() {
     try {
       const result = await harnessApi.listSkills(selectedBackend);
       setProviderSkills(result.skills);
+      if (result.message) {
+        message.warning(result.message);
+      }
     } catch (error) {
       console.warn("Failed to discover Provider Skills:", error);
       setProviderSkills([]);
     }
-  }, [canDiscoverProviderSkills, selectedBackend]);
+  }, [canDiscoverProviderSkills, message, selectedBackend]);
 
   const fetchSkills = useCallback(async () => {
     setLoading(true);

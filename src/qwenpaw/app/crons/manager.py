@@ -270,11 +270,23 @@ class CronManager(ManagerBase):
 
     async def pause_job(self, job_id: str) -> None:
         async with self._lock:
-            self._scheduler.pause_job(job_id)
+            job = await self._repo.get_job(job_id)
+            if job is None:
+                raise KeyError(f"Job not found: {job_id}")
+            disabled_job = job.model_copy(update={"enabled": False})
+            await self._repo.upsert_job(disabled_job)
+            if self._scheduler.get_job(job_id):
+                self._scheduler.pause_job(job_id)
 
     async def resume_job(self, job_id: str) -> None:
         async with self._lock:
-            self._scheduler.resume_job(job_id)
+            job = await self._repo.get_job(job_id)
+            if job is None:
+                raise KeyError(f"Job not found: {job_id}")
+            enabled_job = job.model_copy(update={"enabled": True})
+            await self._repo.upsert_job(enabled_job)
+            if self._scheduler.get_job(job_id):
+                self._scheduler.resume_job(job_id)
 
     async def reschedule_heartbeat(self) -> None:
         """Reload heartbeat config and update or remove the heartbeat job.

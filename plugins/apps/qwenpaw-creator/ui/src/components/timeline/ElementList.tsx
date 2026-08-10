@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Film, Layers3, Music2, Sparkles, WandSparkles } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type {
   TaskView,
   TimelineDocument,
@@ -12,11 +13,18 @@ import {
   resolveElementVisualMeta,
 } from "@/selectors/timelineElementSelectors";
 import { useAgentWorkingState } from "@/selectors/agentWorkingSelectors";
+import { formatSeconds } from "@/lib/timecode";
 
 interface ElementListProps {
   timeline: TimelineDocument;
   playheadTick: number;
   activeElementIds: string[];
+  /**
+   * True while an explicit selection (block/lane/junction click or range
+   * drag) pins the list; the header then describes a selection instead of
+   * pretending everything is active at the playhead.
+   */
+  selectionPinned: boolean;
   selectedElementId: string | null;
   tasks: TaskView[];
   onSelect: (elementId: string) => void;
@@ -36,10 +44,11 @@ function TypeIcon({ element }: { element: TimelineElementDocument }) {
 function statusOf(
   element: TimelineElementDocument,
   tasks: TaskView[],
+  t: (key: string) => string,
 ): { label: string; tone: string } {
   if (!element.enabled)
     return {
-      label: "已停用",
+      label: t("elementList.disabled"),
       tone: "bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)]",
     };
   const related = tasks.find(
@@ -47,36 +56,40 @@ function statusOf(
   );
   if (related?.status === "RUNNING" || related?.status === "QUEUED") {
     return {
-      label: related.status === "RUNNING" ? "生成中" : "等待中",
+      label:
+        related.status === "RUNNING"
+          ? t("elementList.generating")
+          : t("elementList.waiting"),
       tone: "bg-[var(--color-warning-soft)] text-[var(--color-warning)]",
     };
   }
   if (related?.status === "FAILED" || related?.status === "QUARANTINED") {
     return {
-      label: "需处理",
+      label: t("elementList.needsProcessing"),
       tone: "bg-[var(--color-danger-soft)] text-[var(--color-danger)]",
     };
   }
   if (Object.keys(element.outputs).length > 0) {
     return {
-      label: "已有产物",
+      label: t("elementList.hasProduct"),
       tone: "bg-[var(--color-success-soft)] text-[var(--color-success)]",
     };
   }
   return {
-    label: "可编辑",
+    label: t("elementList.editable"),
     tone: "bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)]",
   };
 }
 
 function sec(tick: number, ticksPerSecond: number): string {
-  return (tick / ticksPerSecond).toFixed(1).replace(/\.0$/, "");
+  return formatSeconds(tick, ticksPerSecond);
 }
 
 export default function ElementList({
   timeline,
   playheadTick,
   activeElementIds,
+  selectionPinned,
   selectedElementId,
   tasks,
   onSelect,
@@ -84,6 +97,7 @@ export default function ElementList({
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef(new Map<string, HTMLButtonElement>());
   const agentWorking = useAgentWorkingState();
+  const { t } = useTranslation();
   const elements = useMemo(
     () => trackOrderedTimelineElements(timeline),
     [timeline],
@@ -108,11 +122,19 @@ export default function ElementList({
       <header className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
         <div className="flex min-w-0 items-baseline gap-1.5">
           <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
-            时间点:{sec(playheadTick, timeline.ticks_per_second)}s,{" "}
-            {activeElementIds.length}项内容
+            {selectionPinned
+              ? t("elementList.selectedItems", {
+                  count: activeElementIds.length,
+                })
+              : `${t("elementList.timePoint")}${sec(
+                  playheadTick,
+                  timeline.ticks_per_second,
+                )}s, ${t("elementList.itemsCount", {
+                  count: activeElementIds.length,
+                })}`}
           </h3>
           <span className="truncate text-[10px] text-[var(--color-text-tertiary)]">
-            按开始时间排序
+            {t("elementList.sortByStart")}
           </span>
         </div>
       </header>
@@ -131,16 +153,16 @@ export default function ElementList({
                 <Sparkles className="h-6 w-6 text-[var(--color-accent)]" />
               </div>
               <p className="agent-working-dots text-sm font-semibold text-[var(--color-text-primary)]">
-                Agent 正在规划视频方案
+                {t("elementList.agentPlanning")}
               </p>
               <span className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full bg-[var(--color-bg-secondary)] px-3 py-1 text-[11px] text-[var(--color-text-secondary)]">
                 <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--color-warning)]" />
                 <span className="truncate">
-                  {agentWorking.hint || "正在分析你的创作需求"}
+                  {agentWorking.hint || t("elementList.analyzingNeeds")}
                 </span>
               </span>
               <p className="mt-2 text-xs leading-5 text-[var(--color-text-tertiary)]">
-                方案生成后，时间线内容会自动出现在这里。
+                {t("elementList.planGenDesc")}
               </p>
               <div className="agent-working-shimmer mt-4 h-1 w-40 rounded-full bg-[var(--color-bg-secondary)]" />
             </div>
@@ -148,10 +170,10 @@ export default function ElementList({
             <div className="flex h-full min-h-44 flex-col items-center justify-center px-6 text-center">
               <Sparkles className="mb-3 h-7 w-7 text-[var(--color-accent)]" />
               <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-                时间轴还是空的
+                {t("elementList.timelineEmpty")}
               </p>
               <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">
-                在 Agent 中描述想生成、剪辑和叠加的画面，方案会自动出现在这里。
+                {t("elementList.timelineEmptyDesc")}
               </p>
             </div>
           )
@@ -162,7 +184,7 @@ export default function ElementList({
               const selected = selectedElementId === element.element_id;
               const active = activeElementIds.includes(element.element_id);
               const meta = resolveElementVisualMeta(element);
-              const status = statusOf(element, tasks);
+              const status = statusOf(element, tasks, t);
               const start = element.span.start_tick;
               const end = start + element.span.duration_tick;
               return (
@@ -197,13 +219,17 @@ export default function ElementList({
                         {active && (
                           <span
                             className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--color-accent)]"
-                            title="当前时刻活跃"
+                            title={
+                              selectionPinned
+                                ? t("elementList.selected")
+                                : t("elementList.activeAtMoment")
+                            }
                           />
                         )}
                       </div>
                       <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-[var(--color-text-secondary)]">
                         {elementCreationSummary(element.creation) ||
-                          "尚未补充创作说明"}
+                          t("elementList.noCreativeNote")}
                       </p>
                     </div>
                     <div className="ml-auto flex shrink-0 items-center gap-1">

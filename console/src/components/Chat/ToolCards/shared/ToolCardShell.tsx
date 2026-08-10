@@ -12,7 +12,7 @@
  * tool name, call ID, and parameters.
  */
 
-import React, { useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Settings } from "lucide-react";
 import type { ToolCallContent } from "./types";
@@ -37,8 +37,12 @@ export interface ToolCardShellProps {
   inlineResult?: string | null;
   /** Optional badge elements (line counts, diff counts). */
   badges?: React.ReactNode;
+  /** Optional compact action rendered immediately after the title. */
+  summaryAction?: React.ReactNode;
   /** Expandable body content. */
   children?: React.ReactNode;
+  /** Open the tool details when its user-facing result should be visible. */
+  defaultExpanded?: boolean;
 }
 
 const AUTO_POPUP_TOTAL_SECS = 30;
@@ -50,23 +54,44 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
   title,
   inlineResult,
   badges,
+  summaryAction,
   children,
+  defaultExpanded = false,
 }) => {
   const { t } = useTranslation();
   const sessionId = useToolCallSessionId();
+  // Lazy-mount the expandable body: children stay unmounted until the
+  // <details> is first opened, so collapsed cards never pay the render
+  // cost of heavy result blocks.
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [bodyMounted, setBodyMounted] = useState(defaultExpanded);
+  const handleToggle = useCallback(
+    (e: React.SyntheticEvent<HTMLDetailsElement>) => {
+      setExpanded(e.currentTarget.open);
+      if (e.currentTarget.open) setBodyMounted(true);
+    },
+    [],
+  );
   const isLoading = content.status === "calling" && isStreaming;
   const isError = content.status === "error";
   const inputProgress = content.inputProgress;
   const inputPreview = inputProgress
     ? `${inputProgress.truncated ? "…\n" : ""}${inputProgress.preview}`
     : "";
+  useEffect(() => {
+    if (defaultExpanded) {
+      setExpanded(true);
+      setBodyMounted(true);
+    }
+  }, [defaultExpanded]);
 
-  const showGear = content.status === "calling" && !!sessionId;
+  const isExecuting = content.status === "calling" && !inputProgress;
+  const showGear = isExecuting && !!sessionId;
 
   const control = useToolCallControl(
     sessionId,
     content.id,
-    content.status,
+    isExecuting,
     content.name || title,
   );
 
@@ -109,11 +134,13 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
   }, [control.offloadRemaining, control.killRemaining]);
 
   return (
-    <div>
+    <div className={styles.toolCallContainer}>
       <details
+        open={expanded}
         className={`${styles.toolCallCompact} ${
           isLoading ? styles.toolCallCompactLoading : ""
         } ${isError ? styles.toolCallCompactError : ""}`}
+        onToggle={handleToggle}
       >
         <summary className={styles.toolCallCompactSummary}>
           {isLoading ? (
@@ -131,6 +158,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
             {title}
             {isLoading && ` ${t("tool.loading")}`}
           </span>
+          {summaryAction}
           {isLoading && inputProgress && (
             <span className={styles.toolCallInputProgress}>
               {t("tool.inputProgress", {
@@ -163,34 +191,35 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
           )}
         </summary>
 
-        {isError ? (
-          <>
-            <DefaultBlock
-              title="Input"
-              content={JSON.stringify(content.params, null, 2)}
-            />
-            <DefaultBlock
-              title="Error"
-              content={stringifyResult(content.result)}
-            />
-          </>
-        ) : (
-          <>
-            {isLoading && inputPreview && (
+        {bodyMounted &&
+          (isError ? (
+            <>
               <DefaultBlock
-                title={t("tool.rawInputPreview")}
-                content={inputPreview}
+                title="Input"
+                content={JSON.stringify(content.params, null, 2)}
               />
-            )}
-            {isLoading && staticMetadata && (
-              <DefaultBlock title="Parameters" content={staticMetadata} />
-            )}
-            {isLoading && dynamicMetadata && (
-              <DefaultBlock title="Runtime" content={dynamicMetadata} />
-            )}
-            {children}
-          </>
-        )}
+              <DefaultBlock
+                title="Error"
+                content={stringifyResult(content.result)}
+              />
+            </>
+          ) : (
+            <>
+              {isLoading && inputPreview && (
+                <DefaultBlock
+                  title={t("tool.rawInputPreview")}
+                  content={inputPreview}
+                />
+              )}
+              {isLoading && staticMetadata && (
+                <DefaultBlock title="Parameters" content={staticMetadata} />
+              )}
+              {isLoading && dynamicMetadata && (
+                <DefaultBlock title="Runtime" content={dynamicMetadata} />
+              )}
+              {children}
+            </>
+          ))}
       </details>
 
       {control.bannerVisible && showGear && (

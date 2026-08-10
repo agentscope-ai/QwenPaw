@@ -16,6 +16,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import type { InboxEvent } from "../../../api/modules/console";
+import { PUSH_MESSAGE_SOURCES } from "../../../utils/inboxEvents";
 
 const { stableT, mockGetInboxEvents, mockMarkInboxRead, mockDeleteInboxEvent } =
   vi.hoisted(() => ({
@@ -101,7 +102,10 @@ describe("useInboxData", () => {
 
     await waitFor(() => expect(result.current.pushMessages).toHaveLength(2));
 
-    expect(mockGetInboxEvents).toHaveBeenCalledWith({ limit: 200 });
+    expect(mockGetInboxEvents).toHaveBeenCalledWith({
+      limit: 200,
+      source_types: [...PUSH_MESSAGE_SOURCES],
+    });
     expect(result.current.summary.pushMessages.total).toBe(2);
     expect(result.current.summary.pushMessages.unread).toBe(1);
   });

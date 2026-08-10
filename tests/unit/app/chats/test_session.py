@@ -9,6 +9,7 @@ Covers:
 - ``migrate_legacy_weixin_session_files`` weixin -> wechat rename
 - ``AgentStateError`` raised for missing-file ``allow_not_exist=False``
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -24,6 +25,8 @@ from qwenpaw.app.chats.session import (
     _safe_json_loads,
     migrate_legacy_weixin_session_files,
     sanitize_filename,
+    session_filename,
+    session_relative_paths,
 )
 from qwenpaw.exceptions import AgentStateError
 
@@ -332,6 +335,25 @@ def test_get_save_path_uses_channel_subdir(session, tmp_path: Path):
 
     assert Path(path) == tmp_path / "console" / "u_sess.json"
     assert (tmp_path / "console").is_dir()
+
+
+def test_session_path_helpers_match_save_layout():
+    assert session_filename("console:sid", "user") == "user_console--sid.json"
+    assert session_relative_paths(
+        "console:sid",
+        "user",
+        "console",
+    ) == {
+        "user_console--sid.json",
+        "console/user_console--sid.json",
+    }
+
+
+def test_session_path_helpers_reject_parent_channel(session):
+    with pytest.raises(ValueError, match="invalid session channel"):
+        session_relative_paths("sid", "user", "..")
+    with pytest.raises(ValueError, match="invalid session channel"):
+        session._get_save_path("sid", "user", "..")
 
 
 def test_get_save_path_migrates_legacy_session_into_channel(
