@@ -68,7 +68,7 @@ def test_resolve_tool_presentation_prefers_curated() -> None:
 
 
 def test_default_builtin_tools_have_curated_browser_docs() -> None:
-    """Curated docs must track default registry keys, not legacy browser_use."""
+    """Curated docs must track default registry keys, not legacy browser."""
     from qwenpaw.config.config import _default_builtin_tools
 
     names = set(_default_builtin_tools())
