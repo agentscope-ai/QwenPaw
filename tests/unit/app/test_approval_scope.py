@@ -175,7 +175,8 @@ class TestApprovalDisplayFields:
     def test_pending_description_is_used_without_display_metadata(self):
         fields = approval_display_fields(
             _FakePending(
-                None, "Inspect the requested file before editing it."
+                None,
+                "Inspect the requested file before editing it.",
             ),
         )
         assert fields["description"] == (

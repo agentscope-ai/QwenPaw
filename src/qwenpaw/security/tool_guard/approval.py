@@ -29,6 +29,23 @@ class ApprovalScope(str, Enum):
     SIMILAR = "similar"  # record the generalized pattern
 
 
+_APPROVAL_DESCRIPTION_FALLBACKS = (
+    ("zh", "使用 {name} 完成当前任务。"),
+    ("ja", "現在のタスクを完了するために {name} を使用します。"),
+    ("ru", "Использовать {name} для выполнения текущей задачи."),
+    ("pt", "Usar {name} para concluir a tarefa atual."),
+    ("id", "Gunakan {name} untuk menyelesaikan tugas saat ini."),
+    ("vi", "Dùng {name} để hoàn thành tác vụ hiện tại."),
+)
+
+
+def _fallback_approval_description(name: str, language_key: str) -> str:
+    for prefix, template in _APPROVAL_DESCRIPTION_FALLBACKS:
+        if language_key.startswith(prefix):
+            return template.format(name=name)
+    return f"Use {name} to complete the current task."
+
+
 def build_approval_description(
     tool_name: str,
     *,
@@ -50,19 +67,7 @@ def build_approval_description(
 
     name = " ".join(str(tool_name or "tool").split()) or "tool"
     language_key = str(language or "en").lower().replace("_", "-")
-    if language_key.startswith("zh"):
-        return f"使用 {name} 完成当前任务。"
-    if language_key.startswith("ja"):
-        return f"現在のタスクを完了するために {name} を使用します。"
-    if language_key.startswith("ru"):
-        return f"Использовать {name} для выполнения текущей задачи."
-    if language_key.startswith("pt"):
-        return f"Usar {name} para concluir a tarefa atual."
-    if language_key.startswith("id"):
-        return f"Gunakan {name} untuk menyelesaikan tugas saat ini."
-    if language_key.startswith("vi"):
-        return f"Dùng {name} để hoàn thành tác vụ hiện tại."
-    return f"Use {name} to complete the current task."
+    return _fallback_approval_description(name, language_key)
 
 
 def format_findings_summary(

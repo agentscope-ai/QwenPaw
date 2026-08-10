@@ -58,7 +58,7 @@ class _ControlledTransport(ComputerUseTransport):
 
     def set_reverse_request_handler(
         self,
-        handler: ReverseRequestHandler,
+        _handler: ReverseRequestHandler,
     ) -> None:
         return None
 
