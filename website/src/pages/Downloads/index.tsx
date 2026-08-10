@@ -18,6 +18,7 @@ import {
   detectOS,
   isRecommendedDesktopPlatform,
   isPreviewVersion,
+  normalizeDesktopDownloadMetadata,
   orderVersionsWithDefault,
 } from "./utils";
 
@@ -242,6 +243,7 @@ export default function Downloads() {
                         const platformVersions = (platformData.versions || [])
                           .map((fileId) => desktopIndex.files[fileId])
                           .filter((item): item is FileMetadata => Boolean(item))
+                          .map(normalizeDesktopDownloadMetadata)
                           .sort((a, b) =>
                             compareVersionDesc(a.version, b.version),
                           );
