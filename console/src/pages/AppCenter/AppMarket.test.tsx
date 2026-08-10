@@ -121,9 +121,6 @@ describe("AppMarket", () => {
       screen.queryByRole("button", { name: "appCenter.filterAll" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("combobox", { name: "appCenter.marketSortLabel" }),
-    ).not.toBeInTheDocument();
-    expect(
       screen.queryByRole("button", { name: "common.refresh" }),
     ).not.toBeInTheDocument();
     expect(hoisted.fetchMarketPlugins.mock.calls[0][0]).not.toHaveProperty(
@@ -150,38 +147,10 @@ describe("AppMarket", () => {
     expect(screen.getAllByText("appCenter.featured")).toHaveLength(2);
 
     const initialParams = hoisted.fetchMarketPlugins.mock.calls[0][0];
-    expect(initialParams.sort_by).toBe("updated_time");
+    expect(initialParams).not.toHaveProperty("sort_by");
     expect(initialParams).not.toHaveProperty("is_featured");
     expect(initialParams).not.toHaveProperty("is_trending");
   });
-
-  it.each([
-    ["appCenter.sortDownloads", "downloads"],
-    ["appCenter.sortFavorites", "fauvarate"],
-  ] as const)(
-    "requests page one when selecting %s",
-    async (optionLabel, expectedSort) => {
-      render(<AppMarket onInstalled={vi.fn()} />);
-      await screen.findByText("appCenter.marketEmpty");
-
-      fireEvent.mouseDown(
-        screen.getByRole("combobox", {
-          name: "appCenter.marketSortLabel",
-        }),
-      );
-      fireEvent.click(screen.getByText(optionLabel));
-
-      await waitFor(() =>
-        expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(2),
-      );
-      expect(hoisted.fetchMarketPlugins.mock.calls[1][0]).toEqual(
-        expect.objectContaining({
-          page_number: 1,
-          sort_by: expectedSort,
-        }),
-      );
-    },
-  );
 
   it("passes the selected featured and trending filters to the API", async () => {
     render(<AppMarket onInstalled={vi.fn()} />);
@@ -211,23 +180,13 @@ describe("AppMarket", () => {
     );
   });
 
-  it("refreshes page one with the current market filter and sort", async () => {
+  it("refreshes page one with the current market filter", async () => {
     render(<AppMarket onInstalled={vi.fn()} />);
     await screen.findByText("appCenter.marketEmpty");
 
     fireEvent.click(screen.getByRole("button", { name: "appCenter.featured" }));
     await waitFor(() =>
       expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(2),
-    );
-
-    fireEvent.mouseDown(
-      screen.getByRole("combobox", {
-        name: "appCenter.marketSortLabel",
-      }),
-    );
-    fireEvent.click(screen.getByText("appCenter.sortDownloads"));
-    await waitFor(() =>
-      expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(3),
     );
 
     const refreshButton = screen.getByRole("button", {
@@ -237,14 +196,16 @@ describe("AppMarket", () => {
     fireEvent.click(refreshButton);
 
     await waitFor(() =>
-      expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(4),
+      expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(3),
     );
-    expect(hoisted.fetchMarketPlugins.mock.calls[3][0]).toEqual(
+    expect(hoisted.fetchMarketPlugins.mock.calls[2][0]).toEqual(
       expect.objectContaining({
         page_number: 1,
         is_featured: true,
-        sort_by: "downloads",
       }),
+    );
+    expect(hoisted.fetchMarketPlugins.mock.calls[2][0]).not.toHaveProperty(
+      "sort_by",
     );
   });
 
@@ -284,9 +245,11 @@ describe("AppMarket", () => {
       expect.objectContaining({
         page_number: 2,
         page_size: 20,
-        sort_by: "updated_time",
       }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(hoisted.fetchMarketPlugins.mock.calls[1][0]).not.toHaveProperty(
+      "sort_by",
     );
     expect(screen.getByText("appCenter.noMoreApps")).toBeInTheDocument();
   });

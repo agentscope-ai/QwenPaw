@@ -14,7 +14,6 @@ import {
   Empty,
   Input,
   Modal,
-  Select,
   Spin,
   Typography,
 } from "antd";
@@ -32,7 +31,6 @@ import {
   buildMarketDownloadUrl,
   fetchMarketPlugins,
   type MarketPluginEntry,
-  type MarketPluginSortBy,
 } from "@/api/modules/pluginMarket";
 import { installPlugin } from "@/api/modules/plugin";
 import { rootApi } from "@/api/modules/root";
@@ -45,15 +43,6 @@ const APP_CATEGORY = "app";
 const MARKET_PAGE_SIZE = 20;
 
 type AppMarketFilter = "all" | "featured" | "trending";
-
-const MARKET_SORT_OPTIONS: Array<{
-  value: MarketPluginSortBy;
-  labelKey: string;
-}> = [
-  { value: "updated_time", labelKey: "appCenter.sortUpdated" },
-  { value: "downloads", labelKey: "appCenter.sortDownloads" },
-  { value: "fauvarate", labelKey: "appCenter.sortFavorites" },
-];
 
 function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
   const { t } = useTranslation();
@@ -139,7 +128,6 @@ export function AppMarket({
   const [error, setError] = useState<string | null>(null);
   const [plugins, setPlugins] = useState<MarketPluginEntry[]>([]);
   const [filter, setFilter] = useState<AppMarketFilter>("all");
-  const [sortBy, setSortBy] = useState<MarketPluginSortBy>("updated_time");
   const [refreshKey, setRefreshKey] = useState(0);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -159,7 +147,6 @@ export function AppMarket({
       nextPage: number,
       keyword: string,
       selectedFilter: AppMarketFilter,
-      selectedSort: MarketPluginSortBy,
       signal: AbortSignal,
       append: boolean,
     ) => {
@@ -183,7 +170,6 @@ export function AppMarket({
             page_size: MARKET_PAGE_SIZE,
             search: keyword || undefined,
             category: APP_CATEGORY,
-            ...(channel === "community" ? { sort_by: selectedSort } : {}),
             ...requestFilter,
           },
           { signal },
@@ -237,9 +223,9 @@ export function AppMarket({
     setLoadingMore(false);
     setAutoLoadBlocked(false);
     const controller = new AbortController();
-    void load(1, search, filter, sortBy, controller.signal, false);
+    void load(1, search, filter, controller.signal, false);
     return () => controller.abort();
-  }, [filter, refreshKey, search, sortBy, load]);
+  }, [filter, refreshKey, search, load]);
 
   useEffect(
     () => () => {
@@ -342,28 +328,14 @@ export function AppMarket({
     loadingMoreRef.current = true;
     const controller = new AbortController();
     loadMoreControllerRef.current = controller;
-    void load(
-      pageNumber + 1,
-      search,
-      filter,
-      sortBy,
-      controller.signal,
-      true,
-    ).finally(() => {
-      if (loadMoreControllerRef.current === controller) {
-        loadMoreControllerRef.current = null;
-      }
-    });
-  }, [
-    filter,
-    load,
-    loading,
-    pageNumber,
-    plugins.length,
-    search,
-    sortBy,
-    total,
-  ]);
+    void load(pageNumber + 1, search, filter, controller.signal, true).finally(
+      () => {
+        if (loadMoreControllerRef.current === controller) {
+          loadMoreControllerRef.current = null;
+        }
+      },
+    );
+  }, [filter, load, loading, pageNumber, plugins.length, search, total]);
 
   const handleAutoLoadMore = useCallback(() => {
     if (autoLoadBlocked) return;
@@ -382,11 +354,29 @@ export function AppMarket({
     ? t("appCenter.searchOfficial", "Search official apps...")
     : t("appCenter.searchMarket", "Search app market...");
   const hasMore = plugins.length < total;
+  const searchControl = (
+    <Input
+      prefix={<Search size={14} />}
+      placeholder={searchLabel}
+      aria-label={searchLabel}
+      value={searchInput}
+      onChange={(event) => {
+        setSearchInput(event.target.value);
+        if (!event.target.value) setSearch("");
+      }}
+      onPressEnter={() => setSearch(searchInput)}
+      className={styles.searchInput}
+      allowClear
+    />
+  );
 
   return (
     <div>
-      {!isOfficial && (
+      {isOfficial ? (
+        <div className={styles.toolbar}>{searchControl}</div>
+      ) : (
         <div className={styles.marketFilterBar}>
+          {searchControl}
           <div
             className={styles.marketFilterOptions}
             role="group"
@@ -414,18 +404,6 @@ export function AppMarket({
             ))}
           </div>
           <div className={styles.marketFilterActions}>
-            <Select<MarketPluginSortBy>
-              className={styles.marketSort}
-              aria-label={t("appCenter.marketSortLabel", "应用排序")}
-              value={sortBy}
-              onChange={setSortBy}
-              disabled={loading || loadingMore}
-              options={MARKET_SORT_OPTIONS.map((option) => ({
-                value: option.value,
-                label: t(option.labelKey),
-              }))}
-              popupMatchSelectWidth={false}
-            />
             <button
               type="button"
               className={styles.refreshBtn}
@@ -439,22 +417,6 @@ export function AppMarket({
           </div>
         </div>
       )}
-
-      <div className={styles.toolbar}>
-        <Input
-          prefix={<Search size={14} />}
-          placeholder={searchLabel}
-          aria-label={searchLabel}
-          value={searchInput}
-          onChange={(e) => {
-            setSearchInput(e.target.value);
-            if (!e.target.value) setSearch("");
-          }}
-          onPressEnter={() => setSearch(searchInput)}
-          className={styles.searchInput}
-          allowClear
-        />
-      </div>
 
       {error && (
         <Alert

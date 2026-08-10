@@ -94,15 +94,15 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
+  margin-bottom: 20px;
+  flex-wrap: nowrap;
 }
 
 .marketFilterOptions {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .marketFilterActions {
@@ -110,21 +110,6 @@
   align-items: center;
   gap: 8px;
   margin-left: auto;
-
-  @media (max-width: 639px) {
-    width: 100%;
-    margin-left: 0;
-  }
-}
-
-.marketSort {
-  width: 140px;
-
-  @media (max-width: 639px) {
-    width: auto;
-    min-width: 0;
-    flex: 1;
-  }
 }
 
 .marketFilter {
@@ -178,9 +163,32 @@
 }
 
 .searchInput {
+  width: 320px;
   max-width: 320px;
 
   @media (max-width: 639px) {
+    max-width: none;
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .marketFilterBar {
+    flex-wrap: wrap;
+  }
+
+  .marketFilterOptions {
+    min-width: 0;
+    flex: 1;
+    overflow-x: auto;
+  }
+
+  .marketFilterActions {
+    margin-left: auto;
+  }
+
+  .marketFilterBar .searchInput {
+    width: 100%;
     max-width: none;
     flex-basis: 100%;
   }
