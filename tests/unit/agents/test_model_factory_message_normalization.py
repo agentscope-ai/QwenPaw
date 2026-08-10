@@ -870,7 +870,7 @@ async def test_formatter_base_call_does_not_block_event_loop() -> None:
     class BlockingFormatter(OpenAIChatFormatter):
         """Formatter that models a synchronous upstream media operation."""
 
-        async def format(self, msgs):
+        async def format(self, _msgs):
             entered.set()
             release.wait(timeout=2)
             return [{"role": "user", "content": "formatted"}]
