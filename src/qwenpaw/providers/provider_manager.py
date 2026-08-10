@@ -249,22 +249,60 @@ class ProviderManager(
     ) -> bool:
         """Update a provider and persist its snapshot off the event loop."""
         provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
-        if provider is None:
-            return False
-        revision = self._provider_revision(provider_id)
         lock = self._provider_save_locks.setdefault(
             provider_id,
             asyncio.Lock(),
         )
         async with lock:
-            return await run_sync_io(
-                self._update_provider_transaction,
-                provider_id,
-                config,
-                expected_provider=provider,
-                expected_revision=revision,
+            return await run_async_to_completion(
+                self._update_provider_async_locked(provider_id, config),
             )
+
+    async def _update_provider_async_locked(
+        self,
+        provider_id: str,
+        config: Dict,
+    ) -> bool:
+        """Persist a detached update snapshot, then commit it in memory."""
+        provider = self.get_provider(provider_id)
+        if provider is None:
+            return False
+        revision = self._provider_revision(provider_id)
+        candidate = provider.model_copy(deep=True)
+        before_update = candidate.model_dump()
+        candidate.update_config(config)
+        changed_fields = {
+            field
+            for field in config
+            if field in candidate.__class__.model_fields
+            and before_update.get(field) != getattr(candidate, field)
+        }
+        if _CONNECTION_CONFIG_FIELDS.intersection(changed_fields):
+            self._reset_model_availability(candidate)
+            candidate.models_syncing = False
+
+        provider_path = self._provider_config_path(provider_id)
+        await run_sync_io(
+            self._save_provider_snapshot_locked,
+            provider_id,
+            candidate,
+            provider_path,
+        )
+
+        if not self._is_current_provider(provider_id, provider, revision):
+            return False
+        current = self.get_provider(provider_id)
+        if current is None:
+            return False
+        if provider_id in self.plugin_providers:
+            self.plugin_providers[provider_id]["info"] = ProviderInfo(
+                **candidate.model_dump(),
+            )
+        else:
+            self._copy_provider_state(current, candidate)
+        if changed_fields:
+            self._bump_provider_revision(provider_id)
+        return True
 
     def _update_provider_transaction(
         self,
@@ -289,6 +327,7 @@ class ProviderManager(
                 )
             ):
                 return False
+            self._merge_persisted_discovery_state(provider_id, provider)
             before_update = provider.model_dump()
             provider.update_config(config)
             changed_fields = {
@@ -308,6 +347,27 @@ class ProviderManager(
                     **provider.model_dump(),
                 )
             return True
+
+    def _merge_persisted_discovery_state(
+        self,
+        provider_id: str,
+        provider: Provider,
+    ) -> None:
+        """Keep a completed discovery snapshot during a legacy sync update."""
+        if provider_id in self.plugin_providers:
+            return
+        persisted = self.load_provider(
+            provider_id,
+            is_builtin=provider_id in self.builtin_providers,
+        )
+        if persisted is None or persisted.models_last_synced_at is None:
+            return
+        provider.discovered_models = [
+            model.model_copy(deep=True)
+            for model in persisted.discovered_models
+        ]
+        provider.models_last_synced_at = persisted.models_last_synced_at
+        provider.models_last_sync_error = persisted.models_last_sync_error
 
     def _bump_provider_revision(self, provider_id: str) -> int:
         """Advance the revision used to reject stale async operations."""

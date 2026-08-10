@@ -23,6 +23,7 @@ from ..utils import schedule_agent_reload
 from ...config.config import (
     AgentProfileConfig,
     AgentProfileRef,
+    FallbackPolicyConfig,
     ModelSlotConfig,
     load_agent_config,
     save_agent_config,
@@ -107,6 +108,21 @@ class BackendSettingsRequest(BaseModel):
 
     model: str | None = None
     reasoning_effort: str | None = None
+
+
+class AgentModelSettingsPatch(BaseModel):
+    """Model-routing fields editable from the Chat model selector."""
+
+    fallback_models: list[ModelSlotConfig] | None = None
+    fallback_policy: FallbackPolicyConfig | None = None
+    subagent_model: ModelSlotConfig | None = None
+    thinking_level: Literal[
+        "inherit",
+        "off",
+        "low",
+        "medium",
+        "high",
+    ] | None = None
 
 
 class CreateAgentRequest(BaseModel):
@@ -829,6 +845,43 @@ async def update_agent(
     return existing_config
 
 
+def _patch_agent_model_settings(
+    agent_id: str,
+    values: dict[str, Any],
+) -> AgentProfileConfig:
+    """Apply model-routing fields to the latest persisted agent config."""
+    existing_config = load_agent_config(agent_id)
+    for key, value in values.items():
+        setattr(existing_config, key, value)
+    save_agent_config(agent_id, existing_config)
+    return existing_config
+
+
+@router.patch(
+    "/{agentId}/model-settings",
+    response_model=AgentProfileConfig,
+    summary="Update agent model settings",
+    description="Update only model-routing settings and trigger reload",
+)
+async def update_agent_model_settings(
+    agentId: str = PathParam(...),
+    body: AgentModelSettingsPatch = Body(...),
+    request: Request = None,
+) -> AgentProfileConfig:
+    """Patch model-routing fields without overwriting other settings."""
+    values = {field: getattr(body, field) for field in body.model_fields_set}
+    try:
+        updated = await run_sync_io(
+            _patch_agent_model_settings,
+            agentId,
+            values,
+        )
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    schedule_agent_reload(request, agentId)
+    return updated
+
+
 @router.post(
     "/{agentId}/memory/reindex",
     summary="Rebuild agent memory index",
@@ -942,7 +995,8 @@ async def get_agent_memory_graph(
             prefix = f"{root}/"
             if root and node_path.startswith(prefix):
                 node.section = section
-                node.relative_path = node_path[len(prefix) :]
+                prefix_length = len(prefix)
+                node.relative_path = node_path[prefix_length:]
                 break
 
     return snapshot

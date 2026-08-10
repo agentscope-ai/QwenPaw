@@ -97,6 +97,16 @@ export interface AgentProfileConfig {
   security?: unknown;
 }
 
+export interface AgentModelSettingsPatch {
+  fallback_models?: ModelSlotConfig[];
+  fallback_policy?: {
+    enabled: boolean;
+    target_scope: "configured" | "free_only";
+  };
+  subagent_model?: ModelSlotConfig | null;
+  thinking_level?: "inherit" | "off" | "low" | "medium" | "high";
+}
+
 export interface CreateAgentRequest {
   id?: string;
   name: string;

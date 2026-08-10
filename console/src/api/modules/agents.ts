@@ -1,6 +1,7 @@
 import { request } from "../request";
 import type {
   AgentListResponse,
+  AgentModelSettingsPatch,
   AgentProfileConfig,
   CreateAgentRequest,
   CopyAgentRequest,
@@ -37,6 +38,12 @@ export const agentsApi = {
     request<AgentProfileConfig>(`/agents/${agentId}`, {
       method: "PUT",
       body: JSON.stringify(agent),
+    }),
+
+  updateModelSettings: (agentId: string, settings: AgentModelSettingsPatch) =>
+    request<AgentProfileConfig>(`/agents/${agentId}/model-settings`, {
+      method: "PATCH",
+      body: JSON.stringify(settings),
     }),
 
   updateBackendSettings: (

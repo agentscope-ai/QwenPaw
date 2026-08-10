@@ -694,6 +694,59 @@ async def test_connection_config_change_resets_model_availability(
     assert model.availability_checked_at is None
 
 
+async def test_async_provider_update_commits_only_after_snapshot_write(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    """A worker write must not expose a partially updated provider."""
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    provider.api_key = "old-key"
+    started = threading.Event()
+    release = threading.Event()
+    original_save = manager._save_provider_snapshot
+
+    def delayed_save(*args, **kwargs):
+        started.set()
+        release.wait(timeout=2)
+        return original_save(*args, **kwargs)
+
+    monkeypatch.setattr(manager, "_save_provider_snapshot", delayed_save)
+    update = asyncio.create_task(
+        manager.update_provider_async("openai", {"api_key": "new-key"}),
+    )
+    assert await asyncio.to_thread(started.wait, 1)
+    assert provider.api_key == "old-key"
+
+    release.set()
+    assert await update is True
+    assert provider.api_key == "new-key"
+
+
+async def test_async_provider_update_keeps_memory_on_write_failure(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    """A failed snapshot write must leave the live provider untouched."""
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    provider.api_key = "old-key"
+    revision = manager._provider_revision("openai")
+
+    def fail_save(*_args, **_kwargs):
+        raise OSError("write failed")
+
+    monkeypatch.setattr(manager, "_save_provider_snapshot", fail_save)
+
+    with pytest.raises(OSError, match="write failed"):
+        await manager.update_provider_async("openai", {"api_key": "new-key"})
+
+    assert provider.api_key == "old-key"
+    assert manager._provider_revision("openai") == revision
+
+
 async def test_stale_model_check_does_not_restore_old_failure(
     isolated_secret_dir,
     monkeypatch,
@@ -1356,6 +1409,43 @@ async def test_failed_discovery_preserves_last_cache_and_user_models(
     assert caplog.records[-1].getMessage() == (
         "Model discovery failed; using static fallback"
     )
+
+
+async def test_discovery_write_failure_preserves_live_model_cache(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    """A failed discovery write must not replace the running cache."""
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    provider.discovered_models = [
+        ModelInfo(id="cached-model", name="Cached Model", source="discovered"),
+    ]
+    original_save = manager._save_provider_snapshot
+    attempts = 0
+
+    async def fetch_models(_self, timeout=5):
+        _ = timeout
+        return [ModelInfo(id="new-model", name="New Model")]
+
+    def fail_first_save(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise OSError("write failed")
+        return original_save(*args, **kwargs)
+
+    monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
+    monkeypatch.setattr(manager, "_save_provider_snapshot", fail_first_save)
+
+    result = await manager.discover_provider_models("openai")
+
+    assert result.success is False
+    assert [model.id for model in provider.discovered_models] == [
+        "cached-model",
+    ]
+    assert provider.models_syncing is False
 
 
 def _configure_single_startup_provider(
@@ -2171,7 +2261,7 @@ async def test_plugin_save_failure_does_not_mutate_canonical_state(
         "class": OpenAIProvider,
     }
 
-    def fail_save(_provider_id, _provider):
+    def fail_save(_provider_id, _provider, **_kwargs):
         raise OSError("write failed")
 
     monkeypatch.setattr(manager, "_save_provider_snapshot", fail_save)

@@ -152,6 +152,10 @@ _LOCAL_MEDIA_CACHE: ContextVar[dict[str, _LocalMediaRead] | None] = ContextVar(
     "qwenpaw_local_media_cache",
     default=None,
 )
+_FORMATTER_SEEN_MEDIA_KEYS: ContextVar[set[str] | None] = ContextVar(
+    "qwenpaw_formatter_seen_media_keys",
+    default=None,
+)
 
 
 def _local_media_path(url: str) -> str | None:
@@ -1215,8 +1219,10 @@ def _create_file_block_support_formatter(
             source = getattr(block, "source", None)
             media_type = getattr(source, "media_type", "") or ""
 
-            seen: set[str] = getattr(self, "_seen_media_keys", None) or set()
-            self._seen_media_keys = seen
+            seen = _FORMATTER_SEEN_MEDIA_KEYS.get()
+            if seen is None:
+                seen = set()
+                _FORMATTER_SEEN_MEDIA_KEYS.set(seen)
             key = _anthropic_media_dedup_key(source) if source else None
             if key is not None:
                 if key in seen:
@@ -1235,7 +1241,15 @@ def _create_file_block_support_formatter(
             return super()._format_anthropic_data_block(block)
 
         # pylint: disable=too-many-branches, too-many-statements
+        def _format_in_worker(self, msgs):
+            """Run the complete formatting pipeline outside the main loop."""
+            return asyncio.run(self._format_impl(msgs))
+
         async def format(self, msgs):
+            """Format messages without blocking the application event loop."""
+            return await run_sync_io(self._format_in_worker, msgs)
+
+        async def _format_impl(self, msgs):
             """Override ``format`` (2.0 API) to inject normalization,
             reasoning_content relay, and provider-specific fixups.
             """
@@ -1243,7 +1257,7 @@ def _create_file_block_support_formatter(
             # Per-wire-request dedup scope — second occurrence of the
             # same media source becomes a text placeholder.  Reset on
             # every call so state never leaks across requests.
-            self._seen_media_keys = set()
+            _FORMATTER_SEEN_MEDIA_KEYS.set(set())
 
             def _battr(block, key, default=None):
                 """Get attribute from dict or Pydantic block."""

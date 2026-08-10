@@ -8,7 +8,7 @@ from typing import Dict, List, Literal
 
 from ..constant import EnvVarLoader
 from ..exceptions import ProviderError
-from ..utils.io_utils import get_sync_path_lock, run_sync_io
+from ..utils.io_utils import run_async_to_completion, run_sync_io
 from . import model_catalog
 from .capability_baseline import (
     CAPABILITY_URL_ENV,
@@ -116,15 +116,16 @@ class ProviderManagerDiscoveryMixin:
             asyncio.Lock(),
         )
         async with lock:
-            await run_sync_io(
-                self._save_discovery_transaction,
-                provider_id,
-                provider,
-                revision=revision,
-                generation=generation,
-                fetched=fetched,
-                models=models,
-                synced_at=synced_at,
+            await run_async_to_completion(
+                self._save_discovery_snapshot(
+                    provider_id,
+                    provider,
+                    revision=revision,
+                    generation=generation,
+                    fetched=fetched,
+                    models=models,
+                    synced_at=synced_at,
+                ),
             )
 
     async def _save_failed_discovery(
@@ -142,16 +143,53 @@ class ProviderManagerDiscoveryMixin:
             asyncio.Lock(),
         )
         async with lock:
-            await run_sync_io(
-                self._save_discovery_transaction,
-                provider_id,
-                provider,
-                revision=revision,
-                generation=generation,
-                error=error,
+            await run_async_to_completion(
+                self._save_discovery_snapshot(
+                    provider_id,
+                    provider,
+                    revision=revision,
+                    generation=generation,
+                    error=error,
+                ),
             )
 
-    def _save_discovery_transaction(
+    async def _begin_discovery(
+        self,
+        provider_id: str,
+    ) -> tuple[Provider, int, int] | None:
+        """Mark one provider as syncing and reserve its generation."""
+        lock = self._provider_save_locks.setdefault(
+            provider_id,
+            asyncio.Lock(),
+        )
+        async with lock:
+            provider = self.get_provider(provider_id)
+            if provider is None:
+                return None
+            provider.models_syncing = True
+            generation = self._discovery_generations.get(provider_id, 0) + 1
+            self._discovery_generations[provider_id] = generation
+            return provider, self._provider_revision(provider_id), generation
+
+    async def _clear_discovery_syncing(
+        self,
+        provider_id: str,
+        generation: int | None,
+    ) -> None:
+        """Clear transient sync state only for the latest discovery."""
+        lock = self._provider_save_locks.setdefault(
+            provider_id,
+            asyncio.Lock(),
+        )
+        async with lock:
+            if generation != self._discovery_generations.get(provider_id):
+                return
+            provider = self.get_provider(provider_id)
+            if provider is not None:
+                provider.models_syncing = False
+
+    # pylint: disable=too-many-branches,too-many-return-statements
+    async def _save_discovery_snapshot(
         self,
         provider_id: str,
         expected_provider: Provider,
@@ -163,36 +201,92 @@ class ProviderManagerDiscoveryMixin:
         synced_at: str | None = None,
         error: str | None = None,
     ) -> bool:
-        """Apply and persist discovery state under the provider path lock."""
+        """Persist discovery data before committing canonical state."""
+        if generation != self._discovery_generations.get(provider_id):
+            return False
+        if not self._is_current_provider(
+            provider_id,
+            expected_provider,
+            revision,
+        ):
+            return False
+        provider = self.get_provider(provider_id)
+        if provider is None:
+            return False
+        candidate = provider.model_copy(deep=True)
+        if error is None:
+            apply_discovery_metadata(candidate, fetched or [])
+            candidate.discovered_models = [
+                model.model_copy(deep=True) for model in models or []
+            ]
+            candidate.models_last_synced_at = synced_at
+            candidate.models_last_sync_error = None
+        else:
+            candidate.models_last_sync_error = error
+        candidate.models_syncing = False
         provider_path = self._provider_config_path(provider_id)
-        with get_sync_path_lock(provider_path):
-            if generation != self._discovery_generations.get(provider_id):
-                return False
-            if not self._is_current_provider(
+        await run_sync_io(
+            self._save_provider_snapshot_locked,
+            provider_id,
+            candidate,
+            provider_path,
+        )
+        if generation != self._discovery_generations.get(provider_id):
+            return False
+        if not self._is_current_provider(
+            provider_id,
+            expected_provider,
+            revision,
+        ):
+            return False
+        if provider_id in self.plugin_providers:
+            persisted = self._merge_plugin_snapshot(
+                provider_id,
+                candidate,
+                "discovery",
+                model_id=None,
+                fields=None,
+            )
+        else:
+            persisted = self._merge_provider_snapshot(
+                provider_id,
+                candidate,
+                "discovery",
+                model_id=None,
+                fields=None,
+            )
+        await run_sync_io(
+            self._save_provider_snapshot_locked,
+            provider_id,
+            persisted,
+            provider_path,
+        )
+        if generation != self._discovery_generations.get(provider_id) or not (
+            self._is_current_provider(
                 provider_id,
                 expected_provider,
                 revision,
-            ):
-                return False
-            provider = self.get_provider(provider_id)
-            if provider is None:
-                return False
-            if error is None:
-                apply_discovery_metadata(provider, fetched or [])
-                provider.discovered_models = [
-                    model.model_copy(deep=True) for model in models or []
-                ]
-                provider.models_last_synced_at = synced_at
-                provider.models_last_sync_error = None
-            else:
-                provider.models_last_sync_error = error
-            provider.models_syncing = False
-            self._save_provider_snapshot(provider_id, provider)
-            if provider_id in self.plugin_providers:
-                self.plugin_providers[provider_id]["info"] = ProviderInfo(
-                    **provider.model_dump(),
+            )
+        ):
+            latest = self.get_provider(provider_id)
+            if latest is not None:
+                await run_sync_io(
+                    self._save_provider_snapshot_locked,
+                    provider_id,
+                    latest.model_copy(deep=True),
+                    provider_path,
                 )
-            return True
+            return False
+        if provider_id in self.plugin_providers:
+            self.plugin_providers[provider_id]["info"] = ProviderInfo(
+                **persisted.model_dump(),
+            )
+        else:
+            current = self.get_provider(provider_id)
+            if current is None:
+                return False
+            self._copy_provider_state(current, persisted)
+        return True
 
     # This orchestration method intentionally keeps fetch, normalization,
     # catalog merge, persistence, and fallback handling in one transaction.
@@ -219,16 +313,20 @@ class ProviderManagerDiscoveryMixin:
                 error=f"Provider '{provider_id}' not found",
                 error_kind="configuration",
             )
-        fetch_provider = provider_override or provider
-
         generation = None
-        revision = self._provider_revision(provider_id)
         if save:
-            provider.models_syncing = True
-            self._discovery_generations[provider_id] = (
-                self._discovery_generations.get(provider_id, 0) + 1
-            )
-            generation = self._discovery_generations[provider_id]
+            started = await self._begin_discovery(provider_id)
+            if started is None:
+                return ProviderModelDiscoveryResult(
+                    success=False,
+                    used_static_fallback=True,
+                    error=f"Provider '{provider_id}' not found",
+                    error_kind="configuration",
+                )
+            provider, revision, generation = started
+        else:
+            revision = self._provider_revision(provider_id)
+        fetch_provider = provider_override or provider
 
         previous_api_ids = {
             model.id
@@ -332,12 +430,8 @@ class ProviderManagerDiscoveryMixin:
                 error_kind=classify_discovery_error(exc, error),
             )
         finally:
-            if save and generation == self._discovery_generations.get(
-                provider_id,
-            ):
-                current = self.get_provider(provider_id)
-                if current is provider:
-                    current.models_syncing = False
+            if save:
+                await self._clear_discovery_syncing(provider_id, generation)
 
     # pylint: enable=too-many-branches,too-many-statements
 

@@ -153,8 +153,8 @@ export function AgentModelSettings({
     setThinkingLevel(next.thinking_level ?? "inherit");
   };
 
-  const loadConfig = async () => {
-    if (config || loading) return;
+  const loadConfig = async (force = false) => {
+    if ((!force && config) || loading) return;
     const targetAgentId = agentId;
     const revision = ++loadRevision.current;
     setLoadError(null);
@@ -185,7 +185,7 @@ export function AgentModelSettings({
   const toggleOpen = async () => {
     const next = !open;
     setOpen(next);
-    if (next) await loadConfig();
+    if (next) await loadConfig(true);
   };
 
   const moveFallback = (index: number, offset: -1 | 1) => {
@@ -215,18 +215,19 @@ export function AgentModelSettings({
         return slot ? [slot] : [];
       });
       const subagentSlot = slotByKey.get(subagentKey);
-      const updated = await agentsApi.updateAgent(targetAgentId, {
-        ...config,
+      const settings = {
         fallback_models: fallbackModels,
         fallback_policy: {
           enabled: fallbackEnabled,
           target_scope: fallbackScope,
         },
         subagent_model: subagentSlot ?? null,
-        thinking_level: thinkingSupported
-          ? thinkingLevel
-          : config.thinking_level ?? "inherit",
-      });
+        ...(thinkingSupported ? { thinking_level: thinkingLevel } : {}),
+      };
+      const updated = await agentsApi.updateModelSettings(
+        targetAgentId,
+        settings,
+      );
       if (
         revision !== saveRevision.current ||
         targetAgentId !== agentIdRef.current

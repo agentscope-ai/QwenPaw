@@ -27,6 +27,7 @@ vi.mock("@/api/modules/agents", () => ({
   agentsApi: {
     getAgent: vi.fn(),
     updateAgent: vi.fn(),
+    updateModelSettings: vi.fn(),
   },
 }));
 
@@ -174,8 +175,12 @@ function setupDefaultMocks() {
     subagent_model: null,
     thinking_level: "inherit",
   });
-  vi.mocked(agentsApi.updateAgent).mockImplementation(async (_id, config) =>
-    Promise.resolve(config),
+  vi.mocked(agentsApi.updateModelSettings).mockImplementation(
+    async (_id, settings) => ({
+      id: "default",
+      name: "Default",
+      ...settings,
+    }),
   );
 }
 
@@ -970,9 +975,11 @@ describe("ModelSelector", () => {
         ],
       },
     ]);
-    vi.mocked(agentsApi.updateAgent).mockImplementation(
-      async (_agentId, config) => ({
-        ...config,
+    vi.mocked(agentsApi.updateModelSettings).mockImplementation(
+      async (_agentId, settings) => ({
+        id: "default",
+        name: "Default",
+        ...settings,
         description: "preserved by backend merge",
       }),
     );
@@ -1003,8 +1010,10 @@ describe("ModelSelector", () => {
     );
     await user.click(screen.getByRole("button", { name: /common.save/ }));
 
-    await waitFor(() => expect(agentsApi.updateAgent).toHaveBeenCalledOnce());
-    expect(agentsApi.updateAgent).toHaveBeenCalledWith(
+    await waitFor(() =>
+      expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
+    );
+    expect(agentsApi.updateModelSettings).toHaveBeenCalledWith(
       "default",
       expect.objectContaining({
         fallback_models: [{ provider_id: "openai", model: "gpt-3.5-turbo" }],
@@ -1019,6 +1028,47 @@ describe("ModelSelector", () => {
         thinking_level: "high",
       }),
     );
+  });
+
+  it("does not send a cached active model when saving settings", async () => {
+    const user = userEvent.setup();
+    const settingsProps = {
+      providers: [
+        {
+          id: mockProvider.id,
+          name: mockProvider.name,
+          chatModel: mockProvider.chat_model,
+          models: mockProvider.models,
+        },
+      ],
+      activeProviderId: "openai",
+      activeModelId: "gpt-4",
+    };
+    const view = renderWithProviders(
+      <AgentModelSettings agentId="default" {...settingsProps} />,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: /modelSelector.agentModelSettings/,
+      }),
+    );
+    await screen.findByLabelText("modelSelector.enableFallback");
+
+    view.rerender(
+      <AgentModelSettings
+        agentId="default"
+        {...settingsProps}
+        activeModelId="gpt-3.5-turbo"
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /common.save/ }));
+
+    await waitFor(() =>
+      expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
+    );
+    const [, patch] = vi.mocked(agentsApi.updateModelSettings).mock.calls[0];
+    expect(patch).not.toHaveProperty("active_model");
+    expect(patch).not.toHaveProperty("channels");
   });
 
   it("preserves unavailable fallback and subagent slots when saving", async () => {
@@ -1047,8 +1097,10 @@ describe("ModelSelector", () => {
     await screen.findByText("removed-provider:removed-model");
     await user.click(screen.getByRole("button", { name: /common.save/ }));
 
-    await waitFor(() => expect(agentsApi.updateAgent).toHaveBeenCalledOnce());
-    expect(agentsApi.updateAgent).toHaveBeenCalledWith(
+    await waitFor(() =>
+      expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
+    );
+    expect(agentsApi.updateModelSettings).toHaveBeenCalledWith(
       "default",
       expect.objectContaining({
         fallback_models: [
@@ -1126,7 +1178,7 @@ describe("ModelSelector", () => {
 
   it("ignores agent settings saved for the previously selected agent", async () => {
     const oldSave =
-      deferred<Awaited<ReturnType<typeof agentsApi.updateAgent>>>();
+      deferred<Awaited<ReturnType<typeof agentsApi.updateModelSettings>>>();
     vi.mocked(agentsApi.getAgent).mockImplementation((agentId) =>
       Promise.resolve({
         id: agentId,
@@ -1140,7 +1192,7 @@ describe("ModelSelector", () => {
         thinking_level: "inherit",
       }),
     );
-    vi.mocked(agentsApi.updateAgent).mockReturnValue(oldSave.promise);
+    vi.mocked(agentsApi.updateModelSettings).mockReturnValue(oldSave.promise);
     const user = userEvent.setup();
     const settingsProps = {
       providers: [
@@ -1240,10 +1292,12 @@ describe("ModelSelector", () => {
       screen.getByText("modelSelector.thinkingUnsupported"),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /common.save/ }));
-    await waitFor(() => expect(agentsApi.updateAgent).toHaveBeenCalledOnce());
-    expect(agentsApi.updateAgent).toHaveBeenCalledWith(
+    await waitFor(() =>
+      expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
+    );
+    expect(agentsApi.updateModelSettings).toHaveBeenCalledWith(
       "default",
-      expect.objectContaining({ thinking_level: "inherit" }),
+      expect.not.objectContaining({ thinking_level: expect.anything() }),
     );
   });
 
@@ -1292,8 +1346,10 @@ describe("ModelSelector", () => {
     ).not.toBeDisabled();
     await user.click(screen.getByRole("button", { name: /common.save/ }));
 
-    await waitFor(() => expect(agentsApi.updateAgent).toHaveBeenCalledOnce());
-    expect(agentsApi.updateAgent).toHaveBeenCalledWith(
+    await waitFor(() =>
+      expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
+    );
+    expect(agentsApi.updateModelSettings).toHaveBeenCalledWith(
       "default",
       expect.objectContaining({ thinking_level: "high" }),
     );

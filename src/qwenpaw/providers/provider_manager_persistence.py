@@ -312,12 +312,14 @@ class ProviderManagerPersistenceMixin:
             asyncio.Lock(),
         )
         async with lock:
-            await self._save_provider_config_locked(
-                provider_id,
-                provider,
-                update_kind=update_kind,
-                model_id=model_id,
-                fields=fields,
+            await run_async_to_completion(
+                self._save_provider_config_locked(
+                    provider_id,
+                    provider,
+                    update_kind=update_kind,
+                    model_id=model_id,
+                    fields=fields,
+                ),
             )
 
     async def _save_provider_config_locked(
@@ -330,14 +332,45 @@ class ProviderManagerPersistenceMixin:
         fields: set[str] | None,
     ) -> None:
         """Save a provider while its per-provider lock is held."""
+        provider_path = self._provider_config_path(provider_id)
+        if provider_id in self.plugin_providers:
+            snapshot = self._merge_plugin_snapshot(
+                provider_id,
+                provider,
+                update_kind,
+                model_id=model_id,
+                fields=fields,
+            )
+        else:
+            snapshot = self._merge_provider_snapshot(
+                provider_id,
+                provider,
+                update_kind,
+                model_id=model_id,
+                fields=fields,
+            )
         await run_sync_io(
-            self._merge_and_save_provider_snapshot,
+            self._save_provider_snapshot_locked,
             provider_id,
-            provider,
-            update_kind,
-            model_id,
-            fields,
+            snapshot,
+            provider_path,
         )
+        self._commit_provider_snapshot(provider_id, snapshot)
+
+    def _commit_provider_snapshot(
+        self,
+        provider_id: str,
+        snapshot: Provider,
+    ) -> None:
+        """Commit a successfully persisted snapshot on the event loop."""
+        if provider_id in self.plugin_providers:
+            self.plugin_providers[provider_id]["info"] = ProviderInfo(
+                **snapshot.model_dump(),
+            )
+            return
+        current = self.get_provider(provider_id)
+        if current is not None:
+            self._copy_provider_state(current, snapshot)
 
     def _merge_and_save_provider_snapshot(
         self,
@@ -382,7 +415,40 @@ class ProviderManagerPersistenceMixin:
         """Replace one in-memory provider state with a deep snapshot."""
         snapshot = source.model_copy(deep=True)
         for field in target.__class__.model_fields:
+            if field in {"models", "extra_models", "discovered_models"}:
+                existing = {
+                    model.id: model for model in getattr(target, field)
+                }
+                copied_models = []
+                for source_model in getattr(snapshot, field):
+                    target_model = existing.get(source_model.id)
+                    if target_model is None:
+                        copied_models.append(source_model)
+                        continue
+                    for model_field in target_model.__class__.model_fields:
+                        setattr(
+                            target_model,
+                            model_field,
+                            getattr(source_model, model_field),
+                        )
+                    copied_models.append(target_model)
+                setattr(target, field, copied_models)
+                continue
             setattr(target, field, getattr(snapshot, field))
+
+    def _save_provider_snapshot_locked(
+        self,
+        provider_id: str,
+        provider: Provider,
+        provider_path: Path,
+    ) -> None:
+        """Write a detached snapshot under the shared filesystem lock."""
+        with get_sync_path_lock(provider_path):
+            self._save_provider_snapshot(
+                provider_id,
+                provider,
+                provider_path=provider_path,
+            )
 
     def _merge_provider_snapshot(
         self,

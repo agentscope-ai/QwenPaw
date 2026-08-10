@@ -377,6 +377,62 @@ def test_update_agent_returns_merged_config(client, fake_config):
     reload.assert_called_once()
 
 
+def test_patch_agent_model_settings_preserves_active_model(
+    client,
+    fake_config,
+):
+    """Model settings PATCH must not overwrite unrelated agent fields."""
+    existing = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        workspace_dir="/tmp/ws/bot",
+        active_model=ModelSlotConfig(
+            provider_id="openai",
+            model="new-active-model",
+        ),
+        subagent_model=ModelSlotConfig(
+            provider_id="openai",
+            model="old-subagent-model",
+        ),
+        thinking_level="high",
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=existing,
+        ),
+        patch("qwenpaw.app.routers.agents.save_agent_config") as save,
+        patch("qwenpaw.app.routers.agents.schedule_agent_reload") as reload,
+    ):
+        response = client.patch(
+            "/api/agents/bot/model-settings",
+            json={
+                "fallback_models": [
+                    {
+                        "provider_id": "openai",
+                        "model": "fallback-model",
+                    },
+                ],
+                "subagent_model": None,
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["active_model"] == {
+        "provider_id": "openai",
+        "model": "new-active-model",
+    }
+    assert body["subagent_model"] is None
+    assert body["thinking_level"] == "high"
+    assert body["fallback_models"] == [
+        {"provider_id": "openai", "model": "fallback-model"},
+    ]
+    save.assert_called_once_with("bot", existing)
+    reload.assert_called_once()
+
+
 def test_get_agent_returns_404_for_app_base_exception(client):
     with patch(
         "qwenpaw.app.routers.agents.load_agent_config",

@@ -862,6 +862,44 @@ async def test_local_video_preparation_does_not_block_event_loop(
 
 
 @pytest.mark.asyncio
+async def test_formatter_base_call_does_not_block_event_loop() -> None:
+    """Base formatter media work must run outside the application loop."""
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingFormatter(OpenAIChatFormatter):
+        """Formatter that models a synchronous upstream media operation."""
+
+        async def format(self, msgs):
+            entered.set()
+            release.wait(timeout=2)
+            return [{"role": "user", "content": "formatted"}]
+
+    formatter_class = model_factory._create_file_block_support_formatter(
+        BlockingFormatter,
+    )
+    formatter = formatter_class()
+    formatting = asyncio.create_task(
+        formatter.format(
+            [Msg(name="user", role="user", content=[TextBlock(text="hello")])],
+        ),
+    )
+    await asyncio.wait_for(asyncio.to_thread(entered.wait), timeout=1)
+
+    ticks = 0
+    deadline = asyncio.get_running_loop().time() + 0.05
+    while asyncio.get_running_loop().time() < deadline:
+        ticks += 1
+        await asyncio.sleep(0)
+
+    release.set()
+    formatted = await formatting
+
+    assert ticks > 0
+    assert formatted == [{"role": "user", "content": "formatted"}]
+
+
+@pytest.mark.asyncio
 async def test_openai_formatter_uses_prepared_local_video(
     tmp_path,
     monkeypatch,
