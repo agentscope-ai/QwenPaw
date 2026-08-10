@@ -417,13 +417,29 @@ class DriverManager:
             (request_context or {}).get(DRIVER_SCOPE_CONTEXT_KEY) or "",
         )
         handlers = self._iter_handlers(protocol, scope_id=scope_id)
-        capabilities: list[DriverCapability] = []
-        for handler in handlers:
-            for capability in await handler.list_capabilities(
-                request_context=request_context,
-            ):
-                if kind is None or capability.kind == kind:
-                    capabilities.append(capability)
+        tasks = [
+            asyncio.create_task(
+                handler.list_capabilities(
+                    request_context=request_context,
+                ),
+                name=f"driver-capabilities:{handler.name}",
+            )
+            for handler in handlers
+        ]
+        try:
+            capability_groups = await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        capabilities = [
+            capability
+            for group in capability_groups
+            for capability in group
+            if kind is None or capability.kind == kind
+        ]
         return sorted(capabilities, key=lambda item: item.capability_id)
 
     async def list_driver_capabilities(
