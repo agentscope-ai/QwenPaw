@@ -471,6 +471,60 @@ def test_search_cjk_multiple_terms_are_and_combined(tmp_path: Path):
     ]
 
 
+def test_search_cjk_uppercase_or_matches_either_term(tmp_path: Path):
+    history = HistoryStore(tmp_path / "history.db")
+    project_seq = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="project",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="项目状态",
+        ),
+    )
+    deadline_seq = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="deadline",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="截止日期",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        hits = space.search(
+            "项目 OR 截止日期",
+            session_id="archive",
+            k=10,
+        )
+        matching_rows = space.search(
+            "项目 OR 截止日期",
+            session_id="archive",
+            k=10,
+            include_turn=False,
+        )
+    finally:
+        space.close()
+
+    assert {hit["match_seq"] for hit in hits} == {
+        project_seq,
+        deadline_seq,
+    }
+    assert {row["content"] for row in matching_rows} == {
+        "项目状态",
+        "截止日期",
+    }
+
+
 def test_search_like_metacharacters_are_literal(tmp_path: Path):
     history = HistoryStore(tmp_path / "history.db")
     for index, content in enumerate(
@@ -1328,6 +1382,16 @@ def test_like_fallback_respects_scope(ms: MemorySpace):
     # explicit targeting works on the LIKE path too
     pinned = _hits(ms.search("tanks", agent_id="ag2"))
     assert pinned == {"tanks of another agent"}
+
+
+def test_like_fallback_preserves_uppercase_or(ms: MemorySpace):
+    """The public OR contract also holds when FTS5 is unavailable."""
+    ms._fts_ok = False
+
+    assert _hits(ms.search("rolled OR regrouped")) == {
+        "tanks rolled in",
+        "tanks regrouped later",
+    }
 
 
 def test_like_fallback_emits_degradation_notice(ms: MemorySpace):

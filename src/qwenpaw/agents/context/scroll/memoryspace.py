@@ -188,11 +188,49 @@ def fts_match_query(raw: str) -> str:
     operator sequence just raises in ``MATCH`` and the caller degrades to LIKE.
     Returns ``""`` when there are no word tokens (caller falls back to LIKE).
     """
-    toks = _FTS_TOKEN_RE.findall(raw)
-    return " ".join(
-        t if t in _FTS_OPERATORS else '"' + t.replace('"', '""') + '"'
-        for t in toks
-    )
+
+    def render(group: str) -> str:
+        toks = _FTS_TOKEN_RE.findall(group)
+        return " ".join(
+            t if t in _FTS_OPERATORS else '"' + t.replace('"', '""') + '"'
+            for t in toks
+        )
+
+    groups = _or_query_groups(raw)
+    rendered = [render(group) for group in groups]
+    # Preserve the old malformed-query behavior when one OR arm contains no
+    # searchable word token: MATCH raises and the caller safely falls back to
+    # the literal LIKE path instead of silently dropping that arm.
+    if any(not group for group in rendered):
+        return render(raw)
+    return " OR ".join(rendered)
+
+
+def _or_query_groups(raw: str) -> list[str]:
+    """Split a valid bare-uppercase ``OR`` query into alternative groups.
+
+    Whitespace-separated terms inside each group retain implicit-AND
+    semantics. Malformed leading, trailing, or repeated ``OR`` is kept as one
+    literal group so the fallback remains restrictive instead of broadening a
+    bad query by discarding an empty alternative.
+    """
+    tokens = raw.split()
+    if not tokens:
+        return [raw]
+    groups: list[str] = []
+    current: list[str] = []
+    for token in tokens:
+        if token == "OR":
+            if not current:
+                return [raw]
+            groups.append(" ".join(current))
+            current = []
+        else:
+            current.append(token)
+    if not current:
+        return [raw]
+    groups.append(" ".join(current))
+    return groups
 
 
 def _like_search_terms(raw: str) -> list[str]:
@@ -201,6 +239,11 @@ def _like_search_terms(raw: str) -> list[str]:
     # Keep direct/internal all-whitespace calls restrictive instead of
     # accidentally producing a predicate-free query that returns every row.
     return terms or [raw]
+
+
+def _like_search_groups(raw: str) -> list[list[str]]:
+    """Literal LIKE terms grouped as implicit AND arms joined by OR."""
+    return [_like_search_terms(group) for group in _or_query_groups(raw)]
 
 
 def _like_pattern(term: str) -> str:
@@ -1371,9 +1414,10 @@ class MemorySpace:
         # If this is the *FTS-unavailable* fallback (not just an
         # all-punctuation query on an FTS-capable build), tell the model its
         # search degraded:
-        # LIKE is a literal substring scan with no ranking and no boolean/OR
-        # grammar. The notice shares the row schema so a ``r["content"]`` loop
-        # over results never breaks.
+        # LIKE is a literal substring scan with no ranking. It preserves the
+        # public uppercase-OR contract, but not the rest of FTS5's grammar.
+        # The notice shares the row schema so a ``r["content"]`` loop over
+        # results never breaks.
         if not self._fts_available():
             rows.insert(0, self._like_notice())
         return rows
@@ -1388,14 +1432,23 @@ class MemorySpace:
         offset: int = 0,
         created_bounds: tuple[str | None, str | None] = (None, None),
     ) -> list[dict]:
-        """Return one stable page matching every literal query term."""
-        terms = _like_search_terms(query)
+        """Return one stable page matching AND terms in any OR group."""
+        groups = _like_search_groups(query)
+        query_clauses: list[str] = []
+        query_params: list[str] = []
+        for terms in groups:
+            query_clauses.append(
+                "("
+                + " AND ".join("content LIKE ? ESCAPE '\\'" for _ in terms)
+                + ")",
+            )
+            query_params.extend(map(_like_pattern, terms))
         # Exclude the recall tool's own turns (NULL-safe: keep un-named rows).
         where = [
-            *("content LIKE ? ESCAPE '\\'" for _ in terms),
+            "(" + " OR ".join(query_clauses) + ")",
             f"(name IS NULL OR name NOT IN ({_RECALL_EXCL_PLACEHOLDERS}))",
         ]
-        params: list = [*map(_like_pattern, terms), *_RECALL_TOOL_NAMES]
+        params: list = [*query_params, *_RECALL_TOOL_NAMES]
         excl = self._active_turn_exclusion()
         if excl:
             where.append(excl[0])
@@ -1870,9 +1923,10 @@ class MemorySpace:
             "content": (
                 "NOTE: full-text search is unavailable (no FTS5 in this "
                 "SQLite build), so this is a literal substring (LIKE) scan — "
-                "no relevance ranking, and boolean/OR syntax is NOT supported "
-                "(operators are matched as ordinary terms). Whitespace-"
-                "separated terms are AND-combined."
+                "no relevance ranking. Bare uppercase OR alternatives are "
+                "supported; whitespace-separated terms within each "
+                "alternative are AND-combined. Other boolean operators are "
+                "matched as ordinary terms."
             ),
         }
 

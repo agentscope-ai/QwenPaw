@@ -313,6 +313,52 @@ async def test_search_cjk_multiple_terms_returns_complete_turn(
     assert "好的，我记住了" in text
 
 
+async def test_search_cjk_uppercase_or_does_not_report_false_empty(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "cjk-or.db"
+    history = HistoryStore(db_path)
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="project",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="项目状态",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="deadline",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="截止日期",
+        ),
+    )
+    history.close()
+    recall = make_recall_history(
+        history_db_path=str(db_path),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    chunk = await recall(
+        op="search",
+        query="项目 OR 截止日期",
+        session_id="archive",
+        k=10,
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "项目状态" in text
+    assert "截止日期" in text
+    assert "0 rows" not in text
+
+
 async def test_search_filters_and_displays_created_at(tool):
     chunk = await tool(
         op="search",
