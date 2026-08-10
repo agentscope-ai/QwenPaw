@@ -60,7 +60,7 @@
 
 ## ニュース
 
-- [2026-08-10] **v2.1.0** | QwenPaw OS Shell、統合 Files ワークスペース、QwenPaw Creator、cross-harness 接続、新しい Browser-use、Computer Use、ワークスペースチェックポイント、長いコンテキストの継続性強化など。[v2.1.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
+- [2026-08-11] **v2.1.0** | QwenPaw OS Shell、統合 Files ワークスペース、QwenPaw Creator、Codex/Qoder エージェント連携、Browser-use、Computer-use、ワークスペースチェックポイント、長時間の対話タスク継続など。[v2.1.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | PawApp ミニアプリプラットフォーム、ユーザー編集可能な Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) メモリ強化、デスクトップ UX 改善など。[v2.0.1 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
@@ -445,17 +445,17 @@ QwenPaw には 4 つのコアセキュリティレイヤーが含まれていま
 | **横展開**                     | チャネル、モデル、スキル、MCP の追加          | 貢献者募集中 |
 | **既存機能の拡張**             | 表示、ダウンロード、Windows 対応の改善        | 貢献者募集中 |
 | **モデル**                     | マルチモデル切り替え                          | 進行中       |
-| **安全と承認**                 | 遅延実行アクションパック                      | 進行中       |
-| **自動化**                     | Routines 自動化タスクセンター                 | 進行中       |
-| **エージェント連携**           | Handoff Packet タスク引き継ぎ                 | 進行中       |
-|                                | Steer ガイドモード                            | 進行中       |
+| **安全と承認**                 | 操作の一括確認と承認                          | 進行中       |
+| **自動化**                     | 自動化タスク                                  | 進行中       |
+| **エージェント連携**           | エージェント間のタスク引き継ぎ                | 進行中       |
+|                                | 実行中タスクの調整                            | 進行中       |
 | **ワークスペース**             | マルチワークスペース                          | 進行中       |
-| **コンテキスト**               | Hint Block 改善                               | 進行中       |
-| **ツールシステム**             | Patch ファイル編集                            | 進行中       |
-|                                | 永続 PTY とバックグラウンドタスク管理         | 進行中       |
-| **Computer-use**               | Screen Intent / Point & Act                   | 進行中       |
-| **音声対話**                   | Voice Chat                                    | 進行中       |
-| **コンテキスト管理とメモリ**   | Embedding のホット設定と複数バックエンド      | 進行中       |
+| **コンテキスト**               | システムプロンプト圧縮                        | 進行中       |
+| **ツールシステム**             | 複数箇所のファイル変更                        | 進行中       |
+|                                | 永続ターミナルとバックグラウンドタスク        | 進行中       |
+| **Computer-use**               | 画面上の対象特定と操作                        | 進行中       |
+| **音声対話**                   | リアルタイム音声タスク                        | 進行中       |
+| **コンテキスト管理とメモリ**   | ベクトルモデルと保存先のホット切り替え        | 進行中       |
 |                                | 個人ナレッジベース                            | 進行中       |
 | **QwenPaw アプリケーション**   | QwenPaw Insight                               | 進行中       |
 |                                | QwenPaw Mail                                  | 進行中       |

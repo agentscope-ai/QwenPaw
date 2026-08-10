@@ -60,7 +60,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 ## Tin Tức
 
-- [2026-08-10] **v2.1.0** | QwenPaw OS Shell, không gian làm việc Files hợp nhất, QwenPaw Creator, tích hợp đa harness, Browser-use mới, Computer Use, điểm khôi phục workspace, khả năng duy trì ngữ cảnh dài tốt hơn, v.v. [Ghi chú phát hành v2.1.0 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
+- [2026-08-11] **v2.1.0** | QwenPaw OS Shell, không gian làm việc Files hợp nhất, QwenPaw Creator, tích hợp agent Codex/Qoder, Browser-use, Computer-use, điểm khôi phục workspace và tiếp tục tác vụ hội thoại dài. [Ghi chú phát hành v2.1.0 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | Nền tảng mini-app PawApp, Agent Mode do người dùng chỉnh sửa, Oh-My-Paw plugins, nâng cấp bộ nhớ [ReMe](https://github.com/agentscope-ai/ReMe), cải thiện UX desktop v.v. [Ghi chú phát hành v2.0.1 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
@@ -445,17 +445,17 @@ Tài liệu đầy đủ: [qwenpaw.agentscope.io/docs](https://qwenpaw.agentscop
 | **Mở rộng ngang**              | Thêm kênh, mô hình, Skills và MCP             | Đang kêu gọi đóng góp |
 | **Mở rộng tính năng hiện có**  | Cải thiện hiển thị, tải xuống và Windows      | Đang kêu gọi đóng góp |
 | **Mô hình**                    | Chuyển đổi đa mô hình                         | Đang thực hiện        |
-| **An toàn và phê duyệt**       | Gói hành động thực thi trì hoãn               | Đang thực hiện        |
-| **Tự động hóa**                | Trung tâm tự động hóa Routines                | Đang thực hiện        |
-| **Tương tác agent**            | Bàn giao tác vụ Handoff Packet                | Đang thực hiện        |
-|                                | Chế độ định hướng Steer                       | Đang thực hiện        |
+| **An toàn và phê duyệt**       | Xem trước và phê duyệt hàng loạt              | Đang thực hiện        |
+| **Tự động hóa**                | Tác vụ tự động                                | Đang thực hiện        |
+| **Tương tác agent**            | Bàn giao tác vụ giữa các agent                | Đang thực hiện        |
+|                                | Điều chỉnh tác vụ đang chạy                   | Đang thực hiện        |
 | **Không gian làm việc**        | Nhiều workspace                               | Đang thực hiện        |
-| **Ngữ cảnh**                   | Tối ưu Hint Block                             | Đang thực hiện        |
-| **Hệ thống công cụ**           | Chỉnh sửa tệp bằng Patch                      | Đang thực hiện        |
-|                                | PTY bền vững và quản lý tác vụ nền            | Đang thực hiện        |
-| **Computer-use**               | Screen Intent / Point & Act                   | Đang thực hiện        |
-| **Tương tác giọng nói**        | Voice Chat                                    | Đang thực hiện        |
-| **Quản lý ngữ cảnh và bộ nhớ** | Cấu hình nóng embedding và nhiều backend      | Đang thực hiện        |
+| **Ngữ cảnh**                   | Nén lời nhắc hệ thống                         | Đang thực hiện        |
+| **Hệ thống công cụ**           | Thay đổi tệp ở nhiều vị trí                   | Đang thực hiện        |
+|                                | Terminal liên tục và tác vụ nền               | Đang thực hiện        |
+| **Computer-use**               | Xác định và thao tác mục tiêu trên màn hình   | Đang thực hiện        |
+| **Tương tác giọng nói**        | Tác vụ giọng nói thời gian thực               | Đang thực hiện        |
+| **Quản lý ngữ cảnh và bộ nhớ** | Chuyển nóng mô hình vector và backend lưu trữ | Đang thực hiện        |
 |                                | Cơ sở tri thức cá nhân                        | Đang thực hiện        |
 | **Ứng dụng QwenPaw**           | QwenPaw Insight                               | Đang thực hiện        |
 |                                | QwenPaw Mail                                  | Đang thực hiện        |

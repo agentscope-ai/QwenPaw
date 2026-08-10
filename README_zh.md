@@ -60,7 +60,7 @@
 
 ## 新闻
 
-- [2026-08-10] **v2.1.0** | QwenPaw OS Shell、统一文件工作区、QwenPaw Creator、跨 harness 接入、新Browser-use、 Computer Use、工作区检查点、长上下文续航增强等。[v2.1.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
+- [2026-08-11] **v2.1.0** | QwenPaw OS Shell、统一文件工作区、QwenPaw Creator、Codex/Qoder 智能体接入、Browser-use、Computer-use、工作区检查点和长对话任务续接等。[v2.1.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | PawApp 小程序平台、用户可编辑 Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) 记忆增强、桌面端用户体验增强等。[v2.0.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
@@ -447,17 +447,17 @@ QwenPaw 内置四层核心安全防护：
 | **横向拓展**             | 更多频道、模型、技能、MCP                 | 征集中 |
 | **已有功能扩展与完善**   | 展示、下载与 Windows 兼容优化             | 征集中 |
 | **模型**                 | 多模型切换                                | 进行中 |
-| **安全与审批**           | 延迟执行动作包                            | 进行中 |
-| **自动化**               | Routines 自动化任务中心                   | 进行中 |
-| **智能体交互**           | Handoff Packet 任务交接                   | 进行中 |
-|                          | Steer 引导模式                            | 进行中 |
+| **安全与审批**           | 批量预览与批准                            | 进行中 |
+| **自动化**               | 自动化任务                                | 进行中 |
+| **智能体交互**           | 智能体任务交接                            | 进行中 |
+|                          | 运行中任务调整                            | 进行中 |
 | **工作区**               | 多工作区                                  | 进行中 |
-| **上下文**               | Hint Block 优化                           | 进行中 |
-| **工具系统**             | Patch 文件修改                            | 进行中 |
-|                          | 持久 PTY 与后台任务管理                   | 进行中 |
-| **Computer-use**         | Screen Intent / Point & Act               | 进行中 |
-| **语音交互**             | Voice Chat                                | 进行中 |
-| **上下文管理与记忆**     | Embedding 热配置与多后端                  | 进行中 |
+| **上下文**               | 系统提示压缩                              | 进行中 |
+| **工具系统**             | 多位置文件修改                            | 进行中 |
+|                          | 持久终端与后台任务                        | 进行中 |
+| **Computer-use**         | 屏幕目标定位与操作                        | 进行中 |
+| **语音交互**             | 实时语音任务                              | 进行中 |
+| **上下文管理与记忆**     | 向量模型与存储热切换                      | 进行中 |
 |                          | 个人知识库                                | 进行中 |
 | **QwenPaw 应用**         | QwenPaw Insight                           | 进行中 |
 |                          | QwenPaw Mail                              | 进行中 |
