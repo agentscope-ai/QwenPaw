@@ -144,6 +144,9 @@ async def test_partial_agent_save_preserves_registered_extensions(
                 "state": {"context": ["before"]},
                 "scroll": {"index": 2},
                 "workspace_artifact_manifests": manifests,
+                "workspace_artifact_roots": {
+                    "root-1": {"root": "workspace", "path": "/tmp/workspace"},
+                },
             },
         ),
     )
@@ -160,6 +163,9 @@ async def test_partial_agent_save_preserves_registered_extensions(
     assert saved["agent"] == {
         "state": {"context": ["after"]},
         "workspace_artifact_manifests": manifests,
+        "workspace_artifact_roots": {
+            "root-1": {"root": "workspace", "path": "/tmp/workspace"},
+        },
     }
 
 
@@ -190,6 +196,38 @@ async def test_explicit_empty_manifest_history_is_not_restored(
         (tmp_path / "user-1_sess-clear-extensions.json").read_text("utf-8"),
     )
     assert saved["agent"]["workspace_artifact_manifests"] == []
+
+
+@pytest.mark.asyncio
+async def test_explicit_empty_artifact_roots_are_not_restored(
+    session,
+    tmp_path: Path,
+):
+    await session.save_session_state(
+        session_id="sess-clear-roots",
+        user_id="user-1",
+        agent=_StateModule(
+            {
+                "workspace_artifact_roots": {
+                    "root-pinned": {
+                        "root": "project",
+                        "path": str(tmp_path / "project"),
+                    },
+                },
+            },
+        ),
+    )
+
+    await session.save_session_state(
+        session_id="sess-clear-roots",
+        user_id="user-1",
+        agent=_StateModule({"workspace_artifact_roots": {}}),
+    )
+
+    saved = json.loads(
+        (tmp_path / "user-1_sess-clear-roots.json").read_text("utf-8"),
+    )
+    assert saved["agent"]["workspace_artifact_roots"] == {}
 
 
 @pytest.mark.asyncio

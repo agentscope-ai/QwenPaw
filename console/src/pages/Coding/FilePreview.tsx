@@ -21,6 +21,7 @@ import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import {
   getArtifactPreviewLimit,
+  type WorkspaceArtifactLocator,
   type WorkspaceArtifactPreviewKind,
 } from "../../types/workspaceArtifacts";
 import { isDesktopTauriRuntime } from "../../utils/openExternalLink";
@@ -131,7 +132,7 @@ function useAuthBlobUrl(
   chatId?: string,
   binaryUrl?: string,
   root?: WorkspaceRoot,
-  artifactAgentId?: string,
+  artifactLocator?: WorkspaceArtifactLocator,
   artifactSize?: number,
   previewKind?: WorkspaceArtifactPreviewKind,
 ): {
@@ -166,7 +167,7 @@ function useAuthBlobUrl(
     }
 
     const loadBlob = async (): Promise<Blob | null> => {
-      if (isDesktopTauriRuntime() && !artifactAgentId) {
+      if (isDesktopTauriRuntime() && !artifactLocator) {
         try {
           const response = await invoke<ArrayBuffer | number[]>(
             "read_workspace_binary_file",
@@ -183,13 +184,14 @@ function useAuthBlobUrl(
           // Fall back to the authenticated HTTP endpoint.
         }
       }
-      const url = artifactAgentId
-        ? workspaceApi.getArtifactPreviewUrl(artifactAgentId, filePath, root)
+      const url = artifactLocator
+        ? workspaceApi.getArtifactPreviewUrl(artifactLocator)
         : binaryUrl ?? workspaceApi.getFileDownloadUrl(filePath, root);
+      const requestChatId = artifactLocator?.chatId ?? chatId;
       const res = await fetch(url, {
         headers: {
           ...buildAuthHeaders(),
-          ...(chatId ? { "X-Chat-Id": chatId } : {}),
+          ...(requestChatId ? { "X-Chat-Id": requestChatId } : {}),
         },
         signal: controller.signal,
       });
@@ -234,7 +236,7 @@ function useAuthBlobUrl(
       });
     };
   }, [
-    artifactAgentId,
+    artifactLocator,
     artifactSize,
     binaryUrl,
     chatId,
@@ -273,7 +275,7 @@ function ImagePreview({
   chatId,
   binaryUrl,
   root,
-  artifactAgentId,
+  artifactLocator,
   artifactSize,
   previewKind,
 }: {
@@ -281,7 +283,7 @@ function ImagePreview({
   chatId?: string;
   binaryUrl?: string;
   root?: WorkspaceRoot;
-  artifactAgentId?: string;
+  artifactLocator?: WorkspaceArtifactLocator;
   artifactSize?: number;
   previewKind?: WorkspaceArtifactPreviewKind;
 }) {
@@ -291,7 +293,7 @@ function ImagePreview({
     chatId,
     binaryUrl,
     root,
-    artifactAgentId,
+    artifactLocator,
     artifactSize,
     previewKind,
   );
@@ -325,7 +327,7 @@ function PdfPreview({
   chatId,
   binaryUrl,
   root,
-  artifactAgentId,
+  artifactLocator,
   artifactSize,
   previewKind,
 }: {
@@ -333,7 +335,7 @@ function PdfPreview({
   chatId?: string;
   binaryUrl?: string;
   root?: WorkspaceRoot;
-  artifactAgentId?: string;
+  artifactLocator?: WorkspaceArtifactLocator;
   artifactSize?: number;
   previewKind?: WorkspaceArtifactPreviewKind;
 }) {
@@ -343,7 +345,7 @@ function PdfPreview({
     chatId,
     binaryUrl,
     root,
-    artifactAgentId,
+    artifactLocator,
     artifactSize,
     previewKind,
   );
@@ -617,32 +619,37 @@ function TextPreview({
 // Main component
 // ---------------------------------------------------------------------------
 
-export interface FilePreviewProps {
-  filePath: string;
-  /** Text content – used by Markdown and CSV renderers. */
+interface FilePreviewBaseProps {
+  /** Text content — used by Markdown and CSV renderers. */
   content: string;
   chatId?: string;
   binaryUrl?: string;
   root?: WorkspaceRoot;
   projectDirOverride?: string;
   workspaceBacked?: boolean;
-  artifactAgentId?: string;
   artifactSize?: number;
   previewKind?: WorkspaceArtifactPreviewKind;
 }
 
-export default function FilePreview({
-  filePath,
-  content,
-  chatId,
-  binaryUrl,
-  root,
-  projectDirOverride,
-  workspaceBacked,
-  artifactAgentId,
-  artifactSize,
-  previewKind,
-}: FilePreviewProps) {
+export type FilePreviewProps = FilePreviewBaseProps &
+  (
+    | { filePath: string; artifactLocator?: never }
+    | { filePath?: never; artifactLocator: WorkspaceArtifactLocator }
+  );
+
+export default function FilePreview(props: FilePreviewProps) {
+  const {
+    content,
+    chatId,
+    binaryUrl,
+    root,
+    projectDirOverride,
+    workspaceBacked,
+    artifactLocator,
+    artifactSize,
+    previewKind,
+  } = props;
+  const filePath = artifactLocator?.path ?? props.filePath;
   const type = previewKind ?? getPreviewType(filePath);
 
   if (type === "image") {
@@ -652,7 +659,7 @@ export default function FilePreview({
         chatId={chatId}
         binaryUrl={binaryUrl}
         root={root}
-        artifactAgentId={artifactAgentId}
+        artifactLocator={artifactLocator}
         artifactSize={artifactSize}
         previewKind={previewKind}
       />
@@ -665,7 +672,7 @@ export default function FilePreview({
         chatId={chatId}
         binaryUrl={binaryUrl}
         root={root}
-        artifactAgentId={artifactAgentId}
+        artifactLocator={artifactLocator}
         artifactSize={artifactSize}
         previewKind={previewKind}
       />

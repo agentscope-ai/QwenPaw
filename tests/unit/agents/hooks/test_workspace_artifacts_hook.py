@@ -63,6 +63,39 @@ async def test_workspace_scans_run_outside_event_loop(
     )
 
 
+async def test_root_canonicalization_runs_once_off_event_loop(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    event_loop_thread = threading.get_ident()
+    calls: list[int] = []
+    resolve_roots = artifact_lifecycle_module.resolve_artifact_roots
+
+    def tracked_resolve(workspace_dir, project_dir):
+        calls.append(threading.get_ident())
+        return resolve_roots(workspace_dir, project_dir)
+
+    monkeypatch.setattr(
+        artifact_lifecycle_module,
+        "resolve_artifact_roots",
+        tracked_resolve,
+    )
+    workspace = SimpleNamespace()
+    ctx = SimpleNamespace(
+        workspace_dir=tmp_path,
+        workspace=workspace,
+        extras={"turn_id": "turn-1"},
+        agent_id="agent-1",
+        session_id="chat-1",
+    )
+
+    await WorkspaceArtifactsHook().run(ctx)
+    await WorkspaceArtifactsCleanupHook().run(ctx)
+
+    assert len(calls) == 1
+    assert calls[0] != event_loop_thread
+
+
 async def test_external_project_artifact_uses_project_root(
     tmp_path: Path,
 ) -> None:

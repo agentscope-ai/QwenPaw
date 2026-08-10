@@ -42,10 +42,10 @@ class ArtifactCoordinator:
         turn_id: str,
         roots: Mapping[ArtifactRoot, Path],
     ) -> ArtifactTurnHandle:
-        """Register a turn and mark all intersecting turns ambiguous."""
+        """Register a turn with canonical roots and mark overlaps."""
         handle = ArtifactTurnHandle(
             turn_id=turn_id,
-            roots=tuple(path.resolve() for path in roots.values()),
+            roots=tuple(roots.values()),
         )
         async with self._lock:
             for current in self._active:

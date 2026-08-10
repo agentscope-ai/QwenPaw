@@ -339,6 +339,7 @@ async def _save_agent_state(
     state: "Any",
     *,
     scroll_block: dict | None = None,
+    reset_artifacts: bool = False,
 ) -> None:
     """Save AgentState back to workspace.session.
 
@@ -360,6 +361,9 @@ async def _save_agent_state(
 
     proxy = StateProxy()
     proxy.data = {"state": state.model_dump(mode="json")}
+    if reset_artifacts:
+        proxy.data["workspace_artifact_manifests"] = []
+        proxy.data["workspace_artifact_roots"] = {}
     if scroll_block is not None:
         proxy.data["scroll"] = scroll_block
     proxy.data["mode_state"] = getattr(ctx, "mode_state", {})
@@ -483,7 +487,13 @@ def _make_conversation_adapter(
             context_empty=not state.context,
             existing=existing_scroll,
         )
-        await _save_agent_state(ctx, state, scroll_block=scroll_block)
+        reset_artifacts = name in {"clear", "new"} and not state.context
+        await _save_agent_state(
+            ctx,
+            state,
+            scroll_block=scroll_block,
+            reset_artifacts=reset_artifacts,
+        )
         return result
 
     return CommandSpec(

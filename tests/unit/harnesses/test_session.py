@@ -25,6 +25,17 @@ from qwenpaw.schemas import (
 )
 
 
+class _StateModule:
+    """Provide the state-module protocol required by SafeJSONSession."""
+
+    def __init__(self, data: dict) -> None:
+        self.data = data
+
+    def state_dict(self) -> dict:
+        """Return the state payload for persistence."""
+        return self.data
+
+
 @pytest.mark.asyncio
 async def test_bridge_persists_refreshable_reasoning_and_tools(
     tmp_path: Path,
@@ -169,3 +180,36 @@ async def test_bridge_persists_attachment_only_message(
     assert Path(restored[0].content[1].file_url) == file_path
     assert Path(restored[0].content[2].data) == audio_path
     assert Path(restored[0].content[3].video_url) == video_path
+
+
+@pytest.mark.asyncio
+async def test_bridge_clear_resets_artifact_extensions(tmp_path: Path) -> None:
+    session = SafeJSONSession(str(tmp_path))
+    bridge = HarnessSessionBridge(session)
+    await session.save_session_state(
+        session_id="chat-1",
+        user_id="user-1",
+        agent=_StateModule(
+            {
+                "workspace_artifact_manifests": [
+                    {"version": 3, "turn_id": "turn-1"},
+                ],
+                "workspace_artifact_roots": {
+                    "root-pinned": {
+                        "root": "project",
+                        "path": str(tmp_path / "project"),
+                    },
+                },
+            },
+        ),
+    )
+
+    await bridge.clear(
+        session_id="chat-1",
+        user_id="user-1",
+        channel="",
+    )
+
+    persisted = await session.get_session_state_dict("chat-1", "user-1")
+    assert persisted["agent"]["workspace_artifact_manifests"] == []
+    assert persisted["agent"]["workspace_artifact_roots"] == {}

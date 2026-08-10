@@ -67,11 +67,16 @@ class ArtifactLimits:
     """Limits applied after merging all discovery sources."""
 
     max_artifacts: int = 100
+    max_changes: int = 200
 
     def __post_init__(self) -> None:
         if self.max_artifacts < 1:
             raise ValueError(
                 f"max_artifacts must be positive: {self.max_artifacts}",
+            )
+        if self.max_changes < 1:
+            raise ValueError(
+                f"max_changes must be positive: {self.max_changes}",
             )
 
 
@@ -216,6 +221,9 @@ class ArtifactCollector:
                     ),
                 )
         changes.sort(key=lambda item: (item.root, item.path))
+        if len(changes) > self._limits.max_changes:
+            changes = changes[: self._limits.max_changes]
+            truncated = True
 
         return ArtifactCollection(
             artifacts=tuple(artifacts),
@@ -285,6 +293,9 @@ class ArtifactCollectorGroup:
         changes.sort(key=lambda item: (item.root, item.path))
         if len(artifacts) > self._limits.max_artifacts:
             artifacts = artifacts[: self._limits.max_artifacts]
+            truncated = True
+        if len(changes) > self._limits.max_changes:
+            changes = changes[: self._limits.max_changes]
             truncated = True
         return ArtifactCollection(
             artifacts=tuple(artifacts),

@@ -14,6 +14,7 @@ import type {
   FileMetadata,
   WorkspaceRoot,
 } from "../../features/files-workspace/types";
+import type { WorkspaceArtifactLocator } from "../../types/workspaceArtifacts";
 
 function getSelectedAgentId(): string {
   try {
@@ -473,45 +474,30 @@ export const workspaceApi = {
         .join("/")}`,
     ),
 
-  getArtifactFileUrl: (
-    agentId: string,
-    filePath: string,
-    root: WorkspaceRoot = "workspace",
-    rootRef?: string,
-  ) =>
+  getArtifactFileUrl: (locator: WorkspaceArtifactLocator) =>
     getAgentWorkspaceUrl(
-      agentId,
-      workspaceQuery(`/artifacts/${encodePath(filePath)}`, {
-        root,
-        root_ref: rootRef,
+      locator.agentId,
+      workspaceQuery(`/artifacts/${encodePath(locator.path)}`, {
+        root: locator.root,
+        root_ref: locator.rootRef,
       }),
     ),
 
-  getArtifactPreviewUrl: (
-    agentId: string,
-    filePath: string,
-    root: WorkspaceRoot = "workspace",
-    rootRef?: string,
-  ) =>
+  getArtifactPreviewUrl: (locator: WorkspaceArtifactLocator) =>
     getAgentWorkspaceUrl(
-      agentId,
-      workspaceQuery(`/artifact-previews/${encodePath(filePath)}`, {
-        root,
-        root_ref: rootRef,
+      locator.agentId,
+      workspaceQuery(`/artifact-previews/${encodePath(locator.path)}`, {
+        root: locator.root,
+        root_ref: locator.rootRef,
       }),
     ),
 
-  getArtifactFileUriUrl: (
-    agentId: string,
-    filePath: string,
-    root: WorkspaceRoot = "workspace",
-    rootRef?: string,
-  ) =>
+  getArtifactFileUriUrl: (locator: WorkspaceArtifactLocator) =>
     getAgentWorkspaceUrl(
-      agentId,
-      workspaceQuery(`/artifact-file-uri/${encodePath(filePath)}`, {
-        root,
-        root_ref: rootRef,
+      locator.agentId,
+      workspaceQuery(`/artifact-file-uri/${encodePath(locator.path)}`, {
+        root: locator.root,
+        root_ref: locator.rootRef,
       }),
     ),
 };

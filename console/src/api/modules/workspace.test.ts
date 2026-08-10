@@ -116,22 +116,36 @@ describe("workspaceApi.getWatchUrl", () => {
 describe("workspaceApi artifact URLs", () => {
   it("selects the artifact root", () => {
     expect(
-      workspaceApi.getArtifactFileUrl(
-        "agent-1",
-        "reports/final.txt",
-        "project",
-      ),
+      workspaceApi.getArtifactFileUrl({
+        agentId: "agent-1",
+        chatId: "chat-1",
+        path: "reports/final.txt",
+        root: "project",
+      }),
     ).toBe(
       "/api/agents/agent-1/workspace/artifacts/reports/final.txt?root=project",
     );
     expect(
-      workspaceApi.getArtifactPreviewUrl(
-        "agent-1",
-        "reports/final.txt",
-        "workspace",
-      ),
+      workspaceApi.getArtifactPreviewUrl({
+        agentId: "agent-1",
+        chatId: "chat-1",
+        path: "reports/final.txt",
+        root: "workspace",
+        rootRef: "root-pinned",
+      }),
     ).toBe(
-      "/api/agents/agent-1/workspace/artifact-previews/reports/final.txt?root=workspace",
+      "/api/agents/agent-1/workspace/artifact-previews/reports/final.txt?root=workspace&root_ref=root-pinned",
+    );
+    expect(
+      workspaceApi.getArtifactFileUriUrl({
+        agentId: "agent-1",
+        chatId: "chat-1",
+        path: "reports/final.txt",
+        root: "project",
+        rootRef: "root-pinned",
+      }),
+    ).toBe(
+      "/api/agents/agent-1/workspace/artifact-file-uri/reports/final.txt?root=project&root_ref=root-pinned",
     );
   });
 });

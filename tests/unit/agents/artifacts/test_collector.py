@@ -13,6 +13,11 @@ from qwenpaw.agents.artifacts import (
 )
 
 
+def test_artifact_limits_require_positive_change_limit() -> None:
+    with pytest.raises(ValueError, match="max_changes must be positive"):
+        ArtifactLimits(max_changes=0)
+
+
 def test_collector_merges_explicit_and_snapshot_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -158,6 +163,26 @@ def test_collector_applies_artifact_limit(tmp_path: Path) -> None:
     assert result.truncated is True
 
 
+def test_collector_applies_change_limit(tmp_path: Path) -> None:
+    before = capture_workspace_snapshot(tmp_path)
+    for index in range(3):
+        (tmp_path / f"result-{index}.txt").write_text(
+            "result",
+            encoding="utf-8",
+        )
+    collector = ArtifactCollector(
+        tmp_path,
+        before,
+        limits=ArtifactLimits(max_changes=2),
+    )
+
+    result = collector.collect(capture_workspace_snapshot(tmp_path))
+
+    assert len(result.artifacts) == 3
+    assert len(result.changes) == 2
+    assert result.truncated is True
+
+
 def test_collector_preserves_initial_snapshot_truncation(
     tmp_path: Path,
 ) -> None:
@@ -281,4 +306,42 @@ def test_collector_group_applies_one_global_limit(tmp_path: Path) -> None:
     )
 
     assert len(result.artifacts) == 1
+    assert result.truncated is True
+
+
+def test_collector_group_applies_one_global_change_limit(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    project = tmp_path / "project"
+    workspace.mkdir()
+    project.mkdir()
+    roots = {"workspace": workspace, "project": project}
+    before = {
+        root: capture_workspace_snapshot(path) for root, path in roots.items()
+    }
+    collector = ArtifactCollectorGroup(
+        roots,
+        before,
+        limits=ArtifactLimits(max_changes=2),
+    )
+    for index in range(2):
+        (workspace / f"workspace-{index}.txt").write_text(
+            "workspace",
+            encoding="utf-8",
+        )
+        (project / f"project-{index}.txt").write_text(
+            "project",
+            encoding="utf-8",
+        )
+
+    result = collector.collect(
+        {
+            root: capture_workspace_snapshot(path)
+            for root, path in roots.items()
+        },
+    )
+
+    assert len(result.artifacts) == 4
+    assert len(result.changes) == 2
     assert result.truncated is True

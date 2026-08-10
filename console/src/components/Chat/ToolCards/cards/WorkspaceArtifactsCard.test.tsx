@@ -50,33 +50,33 @@ vi.mock("../../../../api/authHeaders", () => ({
 
 vi.mock("../../../../api/modules/workspace", () => ({
   workspaceApi: {
-    getArtifactFileUrl: (
-      agentId: string,
-      path: string,
-      root = "workspace",
-      rootRef?: string,
-    ) =>
-      `/artifacts/${agentId}/${path}?root=${root}${
-        rootRef ? `&root_ref=${rootRef}` : ""
+    getArtifactFileUrl: (locator: {
+      agentId: string;
+      path: string;
+      root: string;
+      rootRef?: string;
+    }) =>
+      `/artifacts/${locator.agentId}/${locator.path}?root=${locator.root}${
+        locator.rootRef ? `&root_ref=${locator.rootRef}` : ""
       }`,
-    getArtifactPreviewUrl: (
-      agentId: string,
-      path: string,
-      root = "workspace",
-      rootRef?: string,
-    ) =>
-      `/artifact-previews/${agentId}/${path}?root=${root}${
-        rootRef ? `&root_ref=${rootRef}` : ""
-      }`,
-    getArtifactFileUriUrl: (
-      agentId: string,
-      path: string,
-      root = "workspace",
-      rootRef?: string,
-    ) =>
-      `/artifact-file-uris/${agentId}/${path}?root=${root}${
-        rootRef ? `&root_ref=${rootRef}` : ""
-      }`,
+    getArtifactPreviewUrl: (locator: {
+      agentId: string;
+      path: string;
+      root: string;
+      rootRef?: string;
+    }) =>
+      `/artifact-previews/${locator.agentId}/${locator.path}?root=${
+        locator.root
+      }${locator.rootRef ? `&root_ref=${locator.rootRef}` : ""}`,
+    getArtifactFileUriUrl: (locator: {
+      agentId: string;
+      path: string;
+      root: string;
+      rootRef?: string;
+    }) =>
+      `/artifact-file-uri/${locator.agentId}/${locator.path}?root=${
+        locator.root
+      }${locator.rootRef ? `&root_ref=${locator.rootRef}` : ""}`,
   },
 }));
 
@@ -91,15 +91,18 @@ vi.mock("../../../../utils/downloadFileFromUrl", () => {
 vi.mock("../../../../pages/Coding/FilePreview", () => ({
   default: ({
     filePath,
+    artifactLocator,
     content,
     previewKind,
   }: {
-    filePath: string;
+    filePath?: string;
+    artifactLocator?: { path: string; rootRef?: string };
     content: string;
     previewKind: string;
   }) => (
     <div data-testid="file-preview">
-      {filePath}:{content}:{previewKind}
+      {artifactLocator?.path ?? filePath}:{content}:{previewKind}:
+      {artifactLocator?.rootRef ?? ""}
     </div>
   ),
 }));
@@ -318,7 +321,7 @@ describe("WorkspaceArtifactsCard", () => {
     await waitFor(() => {
       expect(mocks.invoke).toHaveBeenCalledWith("open_workspace_artifact", {
         url: new URL(
-          "/artifact-file-uris/analyst/first.txt?root=workspace",
+          "/artifact-file-uri/analyst/first.txt?root=workspace",
           window.location.origin,
         ).toString(),
         headers: {
@@ -351,7 +354,7 @@ describe("WorkspaceArtifactsCard", () => {
     await waitFor(() => {
       expect(mocks.invoke).toHaveBeenCalledWith("open_workspace_artifact", {
         url: new URL(
-          "/artifact-file-uris/analyst/first.txt?root=project",
+          "/artifact-file-uri/analyst/first.txt?root=project",
           window.location.origin,
         ).toString(),
         headers: {
@@ -382,7 +385,7 @@ describe("WorkspaceArtifactsCard", () => {
     await waitFor(() => {
       expect(mocks.invoke).toHaveBeenCalledWith("open_workspace_artifact", {
         url: new URL(
-          "/artifact-file-uris/analyst/first.txt?root=project&root_ref=root-pinned",
+          "/artifact-file-uri/analyst/first.txt?root=project&root_ref=root-pinned",
           window.location.origin,
         ).toString(),
         headers: {
@@ -390,6 +393,51 @@ describe("WorkspaceArtifactsCard", () => {
           "X-Chat-Id": "chat-1",
         },
       });
+    });
+
+    fireEvent.click(screen.getByLabelText("Reveal first.txt"));
+
+    await waitFor(() => {
+      expect(mocks.invoke).toHaveBeenCalledWith("reveal_workspace_artifact", {
+        url: new URL(
+          "/artifact-file-uri/analyst/first.txt?root=project&root_ref=root-pinned",
+          window.location.origin,
+        ).toString(),
+        headers: {
+          ...mocks.authHeaders,
+          "X-Chat-Id": "chat-1",
+        },
+      });
+    });
+  });
+
+  it("passes the pinned root reference to binary previews", async () => {
+    const manifest = JSON.parse(manifestResult());
+    manifest.version = 3;
+    manifest.artifacts = [
+      {
+        ...manifest.artifacts[0],
+        path: "report.png",
+        name: "report.png",
+        extension: ".png",
+        mime_type: "image/png",
+        preview: "image",
+        root: "project",
+        root_ref: "project-a",
+      },
+    ];
+    render(
+      <WorkspaceArtifactsCard
+        content={{ ...artifactContent(), result: JSON.stringify(manifest) }}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Preview report.png"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("file-preview")).toHaveTextContent(
+        "report.png::image:project-a",
+      );
     });
   });
 

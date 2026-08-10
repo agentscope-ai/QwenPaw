@@ -48,12 +48,14 @@ def merge_artifact_root_mappings(
     for manifest in manifests:
         for item in manifest.get("artifacts", []):
             if isinstance(item, dict) and isinstance(
-                item.get("root_ref"), str
+                item.get("root_ref"),
+                str,
             ):
                 referenced.add(item["root_ref"])
         for item in manifest.get("changes", []):
             if isinstance(item, dict) and isinstance(
-                item.get("root_ref"), str
+                item.get("root_ref"),
+                str,
             ):
                 referenced.add(item["root_ref"])
     return {key: roots[key] for key in referenced if key in roots}

@@ -104,14 +104,14 @@ class ArtifactTurn:
         turn_id: str,
     ) -> None:
         self._workspace = workspace
-        self._roots = resolve_artifact_roots(workspace_dir, project_dir)
+        self._workspace_dir = workspace_dir
+        self._project_dir = project_dir
+        self._roots: dict[ArtifactRoot, Path] = {}
         self._agent_id = agent_id
         self._session_id = session_id
         self._turn_id = turn_id
         self._coordinator = _get_coordinator(workspace)
-        self._root_refs = {
-            root: f"root_{uuid.uuid4().hex}" for root in self._roots
-        }
+        self._root_refs: dict[ArtifactRoot, str] = {}
         self._handle: ArtifactTurnHandle | None = None
         self._collector: ArtifactCollectorGroup | None = None
         self._collector_token = None
@@ -143,6 +143,14 @@ class ArtifactTurn:
         """Capture initial state and expose the collector to file tools."""
         if self._collector is not None:
             return
+        self._roots = await run_sync_io(
+            resolve_artifact_roots,
+            self._workspace_dir,
+            self._project_dir,
+        )
+        self._root_refs = {
+            root: f"root_{uuid.uuid4().hex}" for root in self._roots
+        }
         self._handle = await self._coordinator.begin(
             self._turn_id,
             self._roots,

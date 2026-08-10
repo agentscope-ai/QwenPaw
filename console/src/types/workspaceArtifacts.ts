@@ -1,3 +1,13 @@
+import type { WorkspaceRoot } from "../features/files-workspace/types";
+
+export interface WorkspaceArtifactLocator {
+  agentId: string;
+  chatId: string;
+  path: string;
+  root: WorkspaceRoot;
+  rootRef?: string;
+}
+
 export type WorkspaceArtifactPreviewKind =
   | "image"
   | "pdf"

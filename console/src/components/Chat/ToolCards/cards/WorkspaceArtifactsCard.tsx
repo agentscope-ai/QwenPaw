@@ -22,11 +22,12 @@ import {
 import { isTauriRuntime } from "../../../../tauri/backendRuntime";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell } from "../shared";
-import type { ArtifactEntry } from "./workspaceArtifacts";
+import type { ArtifactEntry, ArtifactManifest } from "./workspaceArtifacts";
 import { parseManifest } from "./workspaceArtifacts";
 import {
   ARTIFACT_TEXT_PREVIEW_MAX_BYTES,
   getArtifactPreviewLimit,
+  type WorkspaceArtifactLocator,
 } from "../../../../types/workspaceArtifacts";
 import styles from "./workspaceArtifacts.module.less";
 
@@ -80,6 +81,19 @@ function isInlinePreview(artifact: ArtifactEntry): boolean {
   return ["image", "pdf", "markdown", "csv", "text"].includes(artifact.preview);
 }
 
+function createArtifactLocator(
+  manifest: ArtifactManifest,
+  artifact: ArtifactEntry,
+): WorkspaceArtifactLocator {
+  return {
+    agentId: manifest.agent_id,
+    chatId: manifest.chat_id,
+    path: artifact.path,
+    root: artifact.root,
+    rootRef: artifact.root_ref,
+  };
+}
+
 const WorkspaceArtifactsCard: React.FC<{
   content: ToolCallContent;
   isStreaming?: boolean;
@@ -105,6 +119,13 @@ const WorkspaceArtifactsCard: React.FC<{
     () => parseManifest(content.result),
     [content.result],
   );
+  const previewLocator = useMemo(
+    () =>
+      manifest && previewArtifact
+        ? createArtifactLocator(manifest, previewArtifact)
+        : null,
+    [manifest, previewArtifact],
+  );
   const artifacts = manifest?.artifacts ?? [];
   const desktop = isTauriRuntime();
   const title = t("tool.workspaceArtifacts", "Workspace artifacts");
@@ -118,19 +139,15 @@ const WorkspaceArtifactsCard: React.FC<{
 
   const downloadArtifact = async (artifact: ArtifactEntry) => {
     if (!manifest) return;
+    const locator = createArtifactLocator(manifest, artifact);
     try {
       await downloadFileFromUrl(
-        workspaceApi.getArtifactFileUrl(
-          manifest.agent_id,
-          artifact.path,
-          artifact.root,
-          artifact.root_ref,
-        ),
+        workspaceApi.getArtifactFileUrl(locator),
         artifact.name,
         {
           headers: {
             ...buildAuthHeaders(),
-            "X-Chat-Id": manifest.chat_id,
+            "X-Chat-Id": locator.chatId,
           },
           errorMessage: "Artifact download failed",
         },
@@ -145,6 +162,7 @@ const WorkspaceArtifactsCard: React.FC<{
 
   const openPreview = async (artifact: ArtifactEntry) => {
     if (!manifest) return;
+    const locator = createArtifactLocator(manifest, artifact);
     const requestId = previewRequestId.current + 1;
     previewRequestId.current = requestId;
     previewAbortController.current?.abort();
@@ -165,16 +183,11 @@ const WorkspaceArtifactsCard: React.FC<{
       setPreviewStatus("loading");
       try {
         const response = await fetch(
-          workspaceApi.getArtifactPreviewUrl(
-            manifest.agent_id,
-            artifact.path,
-            artifact.root,
-            artifact.root_ref,
-          ),
+          workspaceApi.getArtifactPreviewUrl(locator),
           {
             headers: {
               ...buildAuthHeaders(),
-              "X-Chat-Id": manifest.chat_id,
+              "X-Chat-Id": locator.chatId,
             },
             signal: controller.signal,
           },
@@ -217,21 +230,17 @@ const WorkspaceArtifactsCard: React.FC<{
     artifact: ArtifactEntry,
   ) => {
     if (!manifest) return;
+    const locator = createArtifactLocator(manifest, artifact);
     try {
       const resolverUrl = new URL(
-        workspaceApi.getArtifactFileUriUrl(
-          manifest.agent_id,
-          artifact.path,
-          artifact.root,
-          artifact.root_ref,
-        ),
+        workspaceApi.getArtifactFileUriUrl(locator),
         window.location.origin,
       ).toString();
       await invoke(command, {
         url: resolverUrl,
         headers: {
           ...buildAuthHeaders(),
-          "X-Chat-Id": manifest.chat_id,
+          "X-Chat-Id": locator.chatId,
         },
       });
     } catch {
@@ -385,7 +394,7 @@ const WorkspaceArtifactsCard: React.FC<{
               ))}
             </div>
           )}
-          {drawer === "preview" && previewArtifact && (
+          {drawer === "preview" && previewArtifact && previewLocator && (
             <div className={styles.previewBody}>
               {previewStatus === "loading" ? (
                 <div className={styles.previewState}>
@@ -405,11 +414,8 @@ const WorkspaceArtifactsCard: React.FC<{
                 </div>
               ) : (
                 <FilePreview
-                  filePath={previewArtifact.path}
                   content={previewContent}
-                  chatId={manifest.chat_id}
-                  root={previewArtifact.root}
-                  artifactAgentId={manifest.agent_id}
+                  artifactLocator={previewLocator}
                   artifactSize={previewArtifact.size}
                   previewKind={previewArtifact.preview}
                 />

@@ -442,7 +442,9 @@ async def test_runtime_routes_declared_provider_command(
 
 
 @pytest.mark.asyncio
-async def test_runtime_handles_host_clear_for_every_backend(
+@pytest.mark.parametrize("command", ["clear", "new"])
+async def test_runtime_handles_host_reset_for_every_backend(
+    command: str,
     tmp_path: Path,
 ) -> None:
     runtime = HarnessRuntime(tmp_path)
@@ -453,7 +455,7 @@ async def test_runtime_handles_host_clear_for_every_backend(
         input=[
             Message(
                 role=Role.USER,
-                content=[TextContent(text="/clear")],
+                content=[TextContent(text=f"/{command}")],
             ),
         ],
     )

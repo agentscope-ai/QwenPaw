@@ -127,7 +127,11 @@ class HarnessSessionBridge:
     ) -> None:
         """Replace a materialized third-party transcript with empty state."""
         proxy = StateProxy()
-        proxy.data = {"state": AgentState().model_dump(mode="json")}
+        proxy.data = {
+            "state": AgentState().model_dump(mode="json"),
+            "workspace_artifact_manifests": [],
+            "workspace_artifact_roots": {},
+        }
         await self._session.save_session_state(
             session_id=session_id,
             user_id=user_id,
