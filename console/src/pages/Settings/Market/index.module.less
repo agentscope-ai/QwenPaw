@@ -130,6 +130,13 @@
   width: 100%;
 }
 
+.providerDropdown {
+  :global(.ant-select-item-option-selected),
+  :global(.qwenpaw-select-item-option-selected) {
+    background: var(--color-fill-secondary, #e8e6e3) !important;
+  }
+}
+
 .providerActions {
   display: flex;
   align-items: center;
@@ -237,6 +244,13 @@
 
 /* ─── Dark mode ──────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .providerDropdown {
+    :global(.ant-select-item-option-selected),
+    :global(.qwenpaw-select-item-option-selected) {
+      background: rgba(255, 255, 255, 0.1) !important;
+    }
+  }
+
   .categoryChip {
     border-color: rgba(255, 255, 255, 0.16);
     background: #1f1f1f;
