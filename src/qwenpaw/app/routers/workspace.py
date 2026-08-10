@@ -44,7 +44,10 @@ from ...config import (
 )
 from ...config.config import load_agent_config, save_agent_config
 from ...config.config import EmbeddingModelConfig
-from ...agents.memory.embedding_model import test_embedding_model
+from ...agents.memory.embedding_model import (
+    embedding_vector_space_fingerprint,
+    test_embedding_model,
+)
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.templates import get_workspace_md_template_id
 from ...agents.utils import copy_workspace_md_files
@@ -112,6 +115,7 @@ def _running_config_without_embedding(
     reme_config = data.get("reme_light_memory_config")
     if isinstance(reme_config, dict):
         reme_config.pop("embedding_model_config", None)
+        reme_config.pop("needs_reindex", None)
     return data
 
 
@@ -1565,6 +1569,13 @@ async def put_agents_running_config(
     )
     new_embedding_config = (
         running_config.reme_light_memory_config.embedding_model_config
+    )
+    vector_space_changed = embedding_vector_space_fingerprint(
+        old_embedding_config,
+    ) != embedding_vector_space_fingerprint(new_embedding_config)
+    running_config.reme_light_memory_config.needs_reindex = (
+        old_running_config.reme_light_memory_config.needs_reindex
+        or vector_space_changed
     )
     only_embedding_changed = (
         old_embedding_config != new_embedding_config

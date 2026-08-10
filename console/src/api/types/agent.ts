@@ -66,6 +66,7 @@ export interface EmbeddingModelConfig {
 }
 
 export interface ReMeLightMemoryConfig {
+  needs_reindex: boolean;
   auto_memory_inbox_push_enabled: boolean;
   auto_dream_inbox_push_enabled: boolean;
   daily_paper_inbox_push_enabled: boolean;

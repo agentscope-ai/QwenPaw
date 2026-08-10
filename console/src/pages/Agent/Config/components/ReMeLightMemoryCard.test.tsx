@@ -1,6 +1,7 @@
 import { Form } from "@agentscope-ai/design";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 
 import { agentsApi, api } from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
@@ -10,6 +11,7 @@ import {
   ReMeLightMemoryCard,
 } from "./ReMeLightMemoryCard";
 import { EmbeddingModelCard } from "./EmbeddingModelCard";
+import { MemoryMaintenanceContext } from "../memoryMaintenanceContext";
 import {
   getEmbeddingServiceFingerprint,
   isEmbeddingEnabled,
@@ -32,6 +34,28 @@ const memoryStatus = {
   components_total: "0 B",
   process_rss_bytes: 1024,
   process_rss: "1.00 KiB",
+  runtime: {
+    worker: {
+      status: "idle" as const,
+      queue_pending: 0,
+      tasks_pending: 0,
+      tasks_running: 0,
+      current_task_started_at: null,
+    },
+    auto_memory: {
+      enabled: true,
+      interval: 5,
+      active_sessions: 1,
+      sessions_with_pending: 1,
+      pending_turns: 3,
+    },
+    recent: {
+      last_completed_at: "2026-08-10T10:18:00",
+      last_failed_at: null,
+      last_error: null,
+    },
+    reindexing: false,
+  },
 };
 
 function MemoryForm() {
@@ -86,6 +110,53 @@ function ConfiguredEmbeddingForm() {
     >
       <EmbeddingModelCard />
     </Form>
+  );
+}
+
+function NeedsReindexEmbeddingForm({ onOpen = vi.fn() }) {
+  const [needsReindex, setNeedsReindex] = useState(true);
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex,
+        setNeedsReindex,
+        openMemorySettings: onOpen,
+      }}
+    >
+      <ConfiguredEmbeddingForm />
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+function MemoryAndEmbeddingForm() {
+  const [form] = Form.useForm();
+  const [needsReindex, setNeedsReindex] = useState(false);
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex,
+        setNeedsReindex,
+        openMemorySettings: vi.fn(),
+      }}
+    >
+      <Form
+        form={form}
+        initialValues={{
+          reme_light_memory_config: {
+            auto_memory_interval: 0,
+            embedding_model_config: {
+              backend: "openai",
+              model_name: "text-embedding-v4",
+              api_key: "secret",
+              dimensions: 1024,
+            },
+          },
+        }}
+      >
+        <ReMeLightMemoryCard />
+        <EmbeddingModelCard />
+      </Form>
+    </MemoryMaintenanceContext.Provider>
   );
 }
 
@@ -153,6 +224,56 @@ describe("ReMe runtime status", () => {
     expect(
       await screen.findByText("agentConfig.memoryStatusRunning"),
     ).toBeInTheDocument();
+  });
+
+  it("does not poll for maintenance state after the initial check", async () => {
+    vi.useFakeTimers();
+    try {
+      const getMemoryStatus = vi
+        .spyOn(agentsApi, "getMemoryStatus")
+        .mockResolvedValue(memoryStatus);
+      renderWithProviders(<MemoryAndEmbeddingForm />);
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+      const initialRequestCount = getMemoryStatus.mock.calls.length;
+      expect(initialRequestCount).toBeGreaterThan(0);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+
+      expect(getMemoryStatus).toHaveBeenCalledTimes(initialRequestCount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows aggregated worker and pending-turn status", async () => {
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue({
+      ...memoryStatus,
+      runtime: {
+        ...memoryStatus.runtime,
+        worker: {
+          ...memoryStatus.runtime.worker,
+          status: "busy",
+          queue_pending: 2,
+          tasks_pending: 2,
+          tasks_running: 1,
+        },
+      },
+    });
+
+    renderWithProviders(<MemoryForm />);
+
+    expect(
+      await screen.findByText("agentConfig.memoryStatusBusy"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.memoryWorkerStatus.busy"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
   });
 });
 
@@ -302,6 +423,17 @@ describe("embedding card separation", () => {
     expect(
       screen.getByText("agentConfig.embeddingVerificationMetrics"),
     ).toBeInTheDocument();
+  });
+
+  it("links to long-term memory when a rebuild is required", async () => {
+    const onOpen = vi.fn();
+    renderWithProviders(<NeedsReindexEmbeddingForm onOpen={onOpen} />);
+
+    const button = await screen.findByRole("button", {
+      name: "agentConfig.goToLongTermMemory",
+    });
+    fireEvent.click(button);
+    expect(onOpen).toHaveBeenCalledOnce();
   });
 });
 

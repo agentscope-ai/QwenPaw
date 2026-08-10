@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Alert,
   Button,
   Card,
   Form,
@@ -21,6 +22,7 @@ import {
   isEmbeddingEnabled,
 } from "./embeddingUtils";
 import styles from "../index.module.less";
+import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 
 const EMBEDDING_BACKEND_OPTIONS = [
   { value: "openai", label: "OpenAI" },
@@ -34,6 +36,7 @@ export function EmbeddingModelCard() {
   const { t } = useTranslation();
   const { modal } = useAppMessage();
   const form = Form.useFormInstance();
+  const { needsReindex, openMemorySettings } = useMemoryMaintenance();
   const [testingEmbedding, setTestingEmbedding] = useState(false);
   const [testedEmbedding, setTestedEmbedding] = useState<{
     fingerprint: string;
@@ -130,6 +133,19 @@ export function EmbeddingModelCard() {
 
   return (
     <Card className={styles.formCard}>
+      {needsReindex && (
+        <Alert
+          type="warning"
+          showIcon
+          message={t("agentConfig.rebuildMemoryIndexRequired")}
+          action={
+            <Button size="small" onClick={openMemorySettings}>
+              {t("agentConfig.goToLongTermMemory")}
+            </Button>
+          }
+          className={styles.embeddingReindexAlert}
+        />
+      )}
       <section className={styles.memoryOverview}>
         <div className={styles.memoryOverviewHeader}>
           <div>

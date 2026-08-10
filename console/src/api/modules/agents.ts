@@ -20,6 +20,28 @@ export interface ReMeMemoryStatusResponse {
   components_total: string;
   process_rss_bytes: number;
   process_rss: string;
+  runtime: {
+    worker: {
+      status: "idle" | "busy" | "stopping" | "error";
+      queue_pending: number;
+      tasks_pending: number;
+      tasks_running: number;
+      current_task_started_at: string | null;
+    };
+    auto_memory: {
+      enabled: boolean;
+      interval: number;
+      active_sessions: number;
+      sessions_with_pending: number;
+      pending_turns: number;
+    };
+    recent: {
+      last_completed_at: string | null;
+      last_failed_at: string | null;
+      last_error: string | null;
+    };
+    reindexing: boolean;
+  };
 }
 
 // Multi-agent management API

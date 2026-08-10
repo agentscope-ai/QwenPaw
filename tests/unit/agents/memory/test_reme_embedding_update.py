@@ -5,7 +5,7 @@
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -15,7 +15,7 @@ from qwenpaw.agents.memory.embedding_model import (
 from qwenpaw.agents.memory.reme_light_memory_manager import (
     ReMeLightMemoryManager,
 )
-from qwenpaw.config.config import EmbeddingModelConfig
+from qwenpaw.config.config import AgentProfileConfig, EmbeddingModelConfig
 
 
 class FakeReMe:
@@ -54,6 +54,7 @@ def _manager(tmp_path: Path, config: EmbeddingModelConfig):
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
     manager._embedding_update_lock = asyncio.Lock()
     manager._reindex_lock = asyncio.Lock()
+    manager.agent_id = "bot"
     manager._active_embedding_config = config.model_copy(deep=True)
     wrapper = SimpleNamespace(model=object())
     store = SimpleNamespace(
@@ -66,7 +67,7 @@ def _manager(tmp_path: Path, config: EmbeddingModelConfig):
         cache_path=tmp_path / "embedding-cache.npz",
     )
     manager._reme = FakeReMe(wrapper, store)
-    manager.rebuild_index = AsyncMock(
+    manager._run_reme_job = AsyncMock(
         return_value=SimpleNamespace(success=True, answer="ok"),
     )
     return manager, wrapper, store
@@ -91,11 +92,13 @@ async def test_hot_update_reuses_tested_object_without_reindex(
     assert wrapper.model is tested_model
     assert tested_model.context_size == new_config.max_input_length
     assert store._cache == {"old": [1, 2, 3]}
-    manager.rebuild_index.assert_not_awaited()
+    manager._run_reme_job.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_model_change_invalidates_cache_and_reindexes(tmp_path) -> None:
+async def test_model_change_invalidates_cache_without_auto_reindex(
+    tmp_path,
+) -> None:
     old_config = _config(model_name="old-model")
     new_config = _config(model_name="new-model")
     manager, _wrapper, store = _manager(tmp_path, old_config)
@@ -110,7 +113,30 @@ async def test_model_change_invalidates_cache_and_reindexes(tmp_path) -> None:
     assert applied is True
     assert store._cache == {}
     assert not store.cache_path.exists()
-    manager.rebuild_index.assert_awaited_once_with()
+    manager._run_reme_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_manual_reindex_clears_persisted_requirement(tmp_path) -> None:
+    config = _config()
+    manager, _wrapper, _store = _manager(tmp_path, config)
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    profile.running.reme_light_memory_config.needs_reindex = True
+
+    with (
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager.load_agent_config",
+            return_value=profile,
+        ),
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager.save_agent_config",
+        ) as save_config,
+    ):
+        response = await manager.rebuild_index()
+
+    assert response.success is True
+    assert profile.running.reme_light_memory_config.needs_reindex is False
+    save_config.assert_called_once_with("bot", profile)
 
 
 @pytest.mark.asyncio

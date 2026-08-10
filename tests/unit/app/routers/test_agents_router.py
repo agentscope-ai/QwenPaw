@@ -390,6 +390,29 @@ def test_get_memory_status_returns_structured_reme_metrics(
     )
     memory_manager = MagicMock()
     memory_manager.reme_status = AsyncMock(return_value=status_response)
+    runtime_status = {
+        "worker": {
+            "status": "busy",
+            "queue_pending": 2,
+            "tasks_pending": 2,
+            "tasks_running": 1,
+            "current_task_started_at": "2026-08-10T10:20:30",
+        },
+        "auto_memory": {
+            "enabled": True,
+            "interval": 5,
+            "active_sessions": 2,
+            "sessions_with_pending": 1,
+            "pending_turns": 3,
+        },
+        "recent": {
+            "last_completed_at": "2026-08-10T10:18:00",
+            "last_failed_at": None,
+            "last_error": None,
+        },
+        "reindexing": False,
+    }
+    memory_manager.get_runtime_status.return_value = runtime_status
     manager_mock.get_loaded_agent.return_value = MagicMock(
         memory_manager=memory_manager,
     )
@@ -407,8 +430,12 @@ def test_get_memory_status_returns_structured_reme_metrics(
         response = client.get("/api/agents/bot/memory/status")
 
     assert response.status_code == 200
-    assert response.json() == status_response.metadata["status"]["memory"]
+    assert response.json() == {
+        **status_response.metadata["status"]["memory"],
+        "runtime": runtime_status,
+    }
     memory_manager.reme_status.assert_awaited_once_with()
+    memory_manager.get_runtime_status.assert_called_once_with()
 
 
 def test_get_memory_status_rejects_invalid_payload(

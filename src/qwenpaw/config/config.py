@@ -779,6 +779,14 @@ class ReMeLightMemoryConfig(BaseModel):
         default_factory=EmbeddingModelConfig,
     )
 
+    needs_reindex: bool = Field(
+        default=False,
+        description=(
+            "Whether the memory index must be rebuilt after an embedding "
+            "vector-space change"
+        ),
+    )
+
     memory_search_enabled: bool = Field(
         default=True,
         description="Whether to expose the memory_search tool to the agent",

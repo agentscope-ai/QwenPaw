@@ -17,6 +17,7 @@ import type { ReMeLightMemoryConfig } from "@/api/types/agent";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { useAgentStore } from "@/stores/agentStore";
 import styles from "../index.module.less";
+import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 
 type RuntimeStatus =
   | { type: "unknown" }
@@ -40,6 +41,7 @@ export function ReMeLightMemoryCard() {
   const { message, modal } = useAppMessage();
   const form = Form.useFormInstance();
   const { selectedAgent } = useAgentStore();
+  const { setNeedsReindex } = useMemoryMaintenance();
   const [reindexing, setReindexing] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [dailyPaperExpanded, setDailyPaperExpanded] = useState(false);
@@ -58,6 +60,7 @@ export function ReMeLightMemoryCard() {
         setReindexing(true);
         try {
           await agentsApi.rebuildMemoryIndex(selectedAgent || "default");
+          setNeedsReindex(false);
           message.success(t("agentConfig.rebuildMemoryIndexSuccess"));
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
@@ -116,6 +119,15 @@ export function ReMeLightMemoryCard() {
     runtimeStatus.type === "healthy" ? runtimeStatus.data : null;
   const statusError =
     runtimeStatus.type === "error" ? runtimeStatus.message : "";
+  const backendStatus = memoryStatus?.runtime.worker.status;
+  const statusBadgeType =
+    backendStatus === "error"
+      ? "error"
+      : backendStatus === "busy" ||
+        backendStatus === "stopping" ||
+        memoryStatus?.runtime.reindexing
+      ? "checking"
+      : runtimeStatus.type;
   const statusBadge = {
     unknown: {
       className: styles.memoryStatusUnknown,
@@ -133,7 +145,28 @@ export function ReMeLightMemoryCard() {
       className: styles.memoryStatusError,
       label: t("agentConfig.memoryStatusCheckFailed"),
     },
-  }[runtimeStatus.type];
+  }[statusBadgeType];
+  const statusBadgeLabel =
+    backendStatus === "error"
+      ? t("agentConfig.memoryStatusNeedsAttention")
+      : backendStatus === "busy" || memoryStatus?.runtime.reindexing
+      ? t("agentConfig.memoryStatusBusy")
+      : backendStatus === "stopping"
+      ? t("agentConfig.memoryStatusStopping")
+      : statusBadge.label;
+
+  const workerStatusLabel = backendStatus
+    ? t(`agentConfig.memoryWorkerStatus.${backendStatus}`)
+    : "—";
+  const queueHint = memoryStatus
+    ? t("agentConfig.memoryQueueSummary", {
+        running: memoryStatus.runtime.worker.tasks_running,
+        pending: memoryStatus.runtime.worker.queue_pending,
+      })
+    : "—";
+  const autoMemoryStatus = memoryStatus?.runtime.auto_memory;
+  const formatRuntimeTime = (value: string | null) =>
+    value ? new Date(value).toLocaleString() : t("agentConfig.memoryNeverRun");
 
   const remeConfig = Form.useWatch(["reme_light_memory_config"], form) as
     | ReMeLightMemoryConfig
@@ -194,7 +227,7 @@ export function ReMeLightMemoryCard() {
                 className={`${styles.memoryStatusBadge} ${statusBadge.className}`}
               >
                 <i />
-                {statusBadge.label}
+                {statusBadgeLabel}
               </strong>
             </div>
             <Button
@@ -206,14 +239,27 @@ export function ReMeLightMemoryCard() {
             </Button>
           </div>
           <div className={styles.memoryOverviewItem}>
-            <span>{t("agentConfig.remeStatusComponentsTotal")}</span>
-            <strong>{memoryStatus?.components_total || "—"}</strong>
-            <small>{t("agentConfig.remeStatusEstimated")}</small>
+            <span>{t("agentConfig.memoryBackgroundTasks")}</span>
+            <strong>{workerStatusLabel}</strong>
+            <small>{queueHint}</small>
           </div>
           <div className={styles.memoryOverviewItem}>
-            <span>{t("agentConfig.remeStatusProcessRss")}</span>
-            <strong>{memoryStatus?.process_rss || "—"}</strong>
-            <small>{t("agentConfig.remeStatusProcessRssHint")}</small>
+            <span>{t("agentConfig.memoryPendingTurns")}</span>
+            <strong>
+              {autoMemoryStatus
+                ? autoMemoryStatus.enabled
+                  ? autoMemoryStatus.pending_turns
+                  : t("agentConfig.memoryStatusDisabled")
+                : "—"}
+            </strong>
+            <small>
+              {autoMemoryStatus?.enabled
+                ? t("agentConfig.memoryPendingTurnsHint", {
+                    sessions: autoMemoryStatus.sessions_with_pending,
+                    interval: autoMemoryStatus.interval,
+                  })
+                : t("agentConfig.memoryAutoRecordDisabledHint")}
+            </small>
           </div>
           <div
             className={`${styles.memoryOverviewItem} ${styles.memoryOverviewMaintenance}`}
@@ -616,7 +662,7 @@ export function ReMeLightMemoryCard() {
 
       <Modal
         open={statusOpen}
-        width={680}
+        width={740}
         title={
           <div className={styles.memoryStatusModalTitle}>
             <span className={styles.memoryStatusModalIcon}>R</span>
@@ -652,6 +698,79 @@ export function ReMeLightMemoryCard() {
           />
         ) : memoryStatus ? (
           <div className={styles.memoryStatusContent}>
+            <section className={styles.memoryRuntimeSection}>
+              <div className={styles.memoryRuntimeSectionHeader}>
+                <div>
+                  <h4>{t("agentConfig.memoryRuntimeActivity")}</h4>
+                  <p>{t("agentConfig.memoryRuntimeActivityDescription")}</p>
+                </div>
+                <strong
+                  className={`${styles.memoryStatusBadge} ${statusBadge.className}`}
+                >
+                  <i />
+                  {statusBadgeLabel}
+                </strong>
+              </div>
+              <div className={styles.memoryRuntimeGrid}>
+                <div>
+                  <span>{t("agentConfig.memoryWorker")}</span>
+                  <strong>{workerStatusLabel}</strong>
+                  <small>{queueHint}</small>
+                </div>
+                <div>
+                  <span>{t("agentConfig.memoryQueue")}</span>
+                  <strong>{memoryStatus.runtime.worker.queue_pending}</strong>
+                  <small>{t("agentConfig.memoryQueuePendingHint")}</small>
+                </div>
+                <div>
+                  <span>{t("agentConfig.memoryPendingTurns")}</span>
+                  <strong>
+                    {memoryStatus.runtime.auto_memory.enabled
+                      ? memoryStatus.runtime.auto_memory.pending_turns
+                      : "—"}
+                  </strong>
+                  <small>
+                    {memoryStatus.runtime.auto_memory.enabled
+                      ? t("agentConfig.memoryActiveSessionsHint", {
+                          sessions:
+                            memoryStatus.runtime.auto_memory.active_sessions,
+                        })
+                      : t("agentConfig.memoryAutoRecordDisabledHint")}
+                  </small>
+                </div>
+              </div>
+              <div className={styles.memoryRecentActivity}>
+                <div>
+                  <span>{t("agentConfig.memoryLastCompleted")}</span>
+                  <strong>
+                    {formatRuntimeTime(
+                      memoryStatus.runtime.recent.last_completed_at,
+                    )}
+                  </strong>
+                </div>
+                <div>
+                  <span>{t("agentConfig.memoryLastFailed")}</span>
+                  <strong>
+                    {formatRuntimeTime(
+                      memoryStatus.runtime.recent.last_failed_at,
+                    )}
+                  </strong>
+                </div>
+              </div>
+              {memoryStatus.runtime.recent.last_error ? (
+                <Alert
+                  type="error"
+                  showIcon
+                  message={t("agentConfig.memoryLastError")}
+                  description={memoryStatus.runtime.recent.last_error}
+                />
+              ) : null}
+            </section>
+
+            <div className={styles.memoryResourceHeading}>
+              <h4>{t("agentConfig.memoryResourceUsage")}</h4>
+              <p>{t("agentConfig.memoryResourceUsageDescription")}</p>
+            </div>
             <div className={styles.memoryStatusMetrics}>
               <div>
                 <span>{t("agentConfig.remeStatusComponentsTotal")}</span>

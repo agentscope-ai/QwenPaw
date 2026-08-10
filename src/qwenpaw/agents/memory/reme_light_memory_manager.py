@@ -34,6 +34,7 @@ from ...app.crons.contracts import ServiceCronJob
 from ...config import load_config
 from ...config.config import (
     load_agent_config,
+    save_agent_config,
     AgentProfileConfig,
     EmbeddingModelConfig,
 )
@@ -181,7 +182,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return
 
     async def close(self) -> bool:
-        """Close ReMe and cleanup background summary worker state."""
+        """Close ReMe and clean up background summary worker state."""
         logger.info(
             "ReMeLightMemoryManager closing: agent_id=%s",
             self.agent_id,
@@ -359,13 +360,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 cache_path = getattr(store, "cache_path", None)
                 if cache_path is not None:
                     cache_path.unlink(missing_ok=True)
-
-                response = await self.rebuild_index()
-                if response is None or not response.success:
-                    detail = "ReMe index rebuild failed"
-                    if response is not None:
-                        detail = str(response.answer)
-                    raise RuntimeError(detail)
 
             self._active_embedding_config = config.model_copy(deep=True)
             self._tested_embedding = None
@@ -746,7 +740,17 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
     async def rebuild_index(self) -> "Response | None":
         """Clear and rebuild the ReMe search index on explicit request."""
-        if self._reindex_lock.locked():
+        if self.is_reindexing:
             raise RuntimeError("Memory index rebuild is already running")
         async with self._reindex_lock:
-            return await self._run_reme_job("reindex")
+            response = await self._run_reme_job("reindex")
+        if response is not None and response.success:
+            agent_config = load_agent_config(self.agent_id)
+            agent_config.running.reme_light_memory_config.needs_reindex = False
+            save_agent_config(self.agent_id, agent_config)
+        return response
+
+    @property
+    def is_reindexing(self) -> bool:
+        """Whether an explicit index rebuild is active."""
+        return self._reindex_lock.locked()

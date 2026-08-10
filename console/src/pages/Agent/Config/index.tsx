@@ -19,12 +19,20 @@ import {
 import api from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
 import styles from "./index.module.less";
+import { MemoryMaintenanceContext } from "./memoryMaintenanceContext";
 
 function AgentConfigPage() {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(
     searchParams.get("tab") || "reactAgent",
+  );
+  const [needsReindex, setNeedsReindex] = useState(false);
+  const syncReindexRequirement = useCallback(
+    (config: { reme_light_memory_config?: { needs_reindex?: boolean } }) => {
+      setNeedsReindex(config.reme_light_memory_config?.needs_reindex === true);
+    },
+    [],
   );
   const {
     form,
@@ -41,7 +49,7 @@ function AgentConfigPage() {
     handleSave,
     handleLanguageChange,
     handleTimezoneChange,
-  } = useAgentConfig();
+  } = useAgentConfig(syncReindexRequirement);
 
   const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
   const contextBackend =
@@ -286,15 +294,23 @@ function AgentConfigPage() {
       <PageHeader parent={t("nav.agent")} current={t("agentConfig.title")} />
 
       <div className={styles.content}>
-        <Form form={form} layout="vertical" className={styles.form}>
-          <Tabs
-            className={styles.mainTabs}
-            activeKey={activeTab}
-            onChange={setActiveTab}
-            items={dynamicTabs}
-            destroyInactiveTabPane={false}
-          />
-        </Form>
+        <MemoryMaintenanceContext.Provider
+          value={{
+            needsReindex,
+            setNeedsReindex,
+            openMemorySettings: () => setActiveTab("remeLightMemory"),
+          }}
+        >
+          <Form form={form} layout="vertical" className={styles.form}>
+            <Tabs
+              className={styles.mainTabs}
+              activeKey={activeTab}
+              onChange={setActiveTab}
+              items={dynamicTabs}
+              destroyInactiveTabPane={false}
+            />
+          </Form>
+        </MemoryMaintenanceContext.Provider>
       </div>
 
       <div className={styles.footerActions}>

@@ -114,6 +114,43 @@ class ReMeComponentMemoryUsage(BaseModel):
     human: str
 
 
+class MemoryWorkerRuntimeStatus(BaseModel):
+    """Sanitized state of the background memory worker."""
+
+    status: Literal["idle", "busy", "stopping", "error"]
+    queue_pending: int
+    tasks_pending: int
+    tasks_running: int
+    current_task_started_at: str | None = None
+
+
+class AutoMemoryRuntimeStatus(BaseModel):
+    """Aggregate auto-memory progress without exposing session identity."""
+
+    enabled: bool
+    interval: int
+    active_sessions: int
+    sessions_with_pending: int
+    pending_turns: int
+
+
+class RecentMemoryRuntimeStatus(BaseModel):
+    """Latest terminal task timestamps and a bounded error summary."""
+
+    last_completed_at: str | None = None
+    last_failed_at: str | None = None
+    last_error: str | None = None
+
+
+class MemoryRuntimeStatus(BaseModel):
+    """Operational state surfaced to the Console."""
+
+    worker: MemoryWorkerRuntimeStatus
+    auto_memory: AutoMemoryRuntimeStatus
+    recent: RecentMemoryRuntimeStatus
+    reindexing: bool
+
+
 class ReMeMemoryStatusResponse(BaseModel):
     """Structured memory information returned by ReMe's status job."""
 
@@ -122,6 +159,7 @@ class ReMeMemoryStatusResponse(BaseModel):
     components_total: str
     process_rss_bytes: int
     process_rss: str
+    runtime: MemoryRuntimeStatus
 
 
 class CreateAgentRequest(BaseModel):
@@ -912,7 +950,9 @@ async def get_agent_memory_status(
             detail="ReMe returned an invalid memory status payload",
         )
     try:
-        return ReMeMemoryStatusResponse.model_validate(memory)
+        return ReMeMemoryStatusResponse.model_validate(
+            {**memory, "runtime": memory_manager.get_runtime_status()},
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=500,

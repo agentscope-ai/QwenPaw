@@ -295,6 +295,59 @@ class TestBaseMemoryManagerAddSummarizeTask:
         worker.cancel()
         await asyncio.wait({worker}, timeout=0.5)
 
+    def test_runtime_status_aggregates_internal_state(self, manager):
+        now = base_memory_manager.time.monotonic()
+        manager.get_auto_memory_interval = MagicMock(return_value=5)
+        manager._auto_memory_turn_states = {
+            "session-a": {"pending": ["t1", "t2"], "touched_at": now},
+            "session-b": {"pending": [], "touched_at": now},
+            "expired": {
+                "pending": ["old"],
+                "touched_at": now
+                - base_memory_manager.AUTO_MEMORY_TURN_STATE_TTL_SECONDS
+                - 1,
+            },
+        }
+        manager._summary_task_info = {
+            "task_1": {
+                "status": "completed",
+                "finished_at": base_memory_manager.datetime(
+                    2026,
+                    8,
+                    10,
+                    tzinfo=base_memory_manager.timezone.utc,
+                ),
+            },
+            "task_2": {
+                "status": "failed",
+                "finished_at": base_memory_manager.datetime(
+                    2026,
+                    8,
+                    10,
+                    1,
+                    tzinfo=base_memory_manager.timezone.utc,
+                ),
+                "error": "summary failed\nretry later",
+            },
+        }
+
+        status = manager.get_runtime_status()
+
+        assert status["worker"]["status"] == "idle"
+        assert status["auto_memory"] == {
+            "enabled": True,
+            "interval": 5,
+            "active_sessions": 2,
+            "sessions_with_pending": 1,
+            "pending_turns": 2,
+        }
+        assert status["recent"]["last_completed_at"] == (
+            "2026-08-10T00:00:00+00:00"
+        )
+        assert status["recent"]["last_error"] == (
+            "summary failed retry later"
+        )
+
 
 class TestAutoMemorySearchSanitization:
     """P1: auto_memory input should exclude auto-search blocks only."""

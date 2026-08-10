@@ -8,7 +8,7 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from agentscope.message import AssistantMsg, Msg, TextBlock, ThinkingBlock
@@ -397,6 +397,7 @@ class BaseMemoryManager(ABC):
                 continue
 
             info["status"] = "running"
+            info["started_at"] = datetime.now(timezone.utc)
             logger.info(f"Summary task {task_id} started")
             try:
                 result = await self.summarize(messages=messages, **kwargs)
@@ -412,6 +413,7 @@ class BaseMemoryManager(ABC):
                 info["error"] = str(e)
                 logger.error(f"Summary task {task_id} failed: {e}")
             finally:
+                info["finished_at"] = datetime.now(timezone.utc)
                 self._prune_summary_task_info()
 
     async def _shutdown_summarize_worker(
@@ -469,10 +471,12 @@ class BaseMemoryManager(ABC):
 
         self._summary_task_info[task_id] = {
             "task_id": task_id,
-            "start_time": datetime.now(),
+            "start_time": datetime.now(timezone.utc),
             "status": "pending",
             "result": None,
             "error": None,
+            "started_at": None,
+            "finished_at": None,
         }
 
         # Enqueue for serial execution
@@ -500,6 +504,7 @@ class BaseMemoryManager(ABC):
             if info["status"] == "running":
                 if self._worker_task.cancelled():
                     info["status"] = "cancelled"
+                    info["finished_at"] = datetime.now(timezone.utc)
                     logger.info(
                         f"Summary task {task_id} cancelled (worker stopped)",
                     )
@@ -508,6 +513,7 @@ class BaseMemoryManager(ABC):
                     if exc is not None:
                         info["status"] = "failed"
                         info["error"] = str(exc)
+                        info["finished_at"] = datetime.now(timezone.utc)
                         logger.error(f"Summary task {task_id} failed: {exc}")
         self._prune_summary_task_info()
 
@@ -539,6 +545,100 @@ class BaseMemoryManager(ABC):
                 },
             )
         return result
+
+    def get_runtime_status(self) -> dict[str, Any]:
+        """Return a sanitized operational snapshot for status UIs.
+
+        This deliberately exposes aggregate counters rather than task results,
+        message markers, session identifiers, or other implementation details.
+        """
+        self._update_task_statuses()
+
+        task_infos = list(self._summary_task_info.values())
+        pending_tasks = sum(info.get("status") == "pending" for info in task_infos)
+        running_tasks = sum(info.get("status") == "running" for info in task_infos)
+
+        worker = self._worker_task
+        if self._worker_stopping:
+            worker_status = "stopping"
+        elif running_tasks:
+            worker_status = "busy"
+        elif worker is None:
+            worker_status = "error" if pending_tasks else "idle"
+        elif not worker.done():
+            worker_status = "idle"
+        elif worker.cancelled():
+            worker_status = "error" if pending_tasks else "idle"
+        else:
+            worker_status = (
+                "error" if worker.exception() is not None or pending_tasks else "idle"
+            )
+
+        current = next(
+            (info for info in reversed(task_infos) if info.get("status") == "running"),
+            None,
+        )
+        last_completed = next(
+            (
+                info
+                for info in reversed(task_infos)
+                if info.get("status") == "completed"
+            ),
+            None,
+        )
+        last_failed = next(
+            (info for info in reversed(task_infos) if info.get("status") == "failed"),
+            None,
+        )
+
+        now = time.monotonic()
+        expired_before = now - AUTO_MEMORY_TURN_STATE_TTL_SECONDS
+        active_turn_states = [
+            state
+            for state in self._auto_memory_turn_states.values()
+            if float(state.get("touched_at") or 0) >= expired_before
+        ]
+        pending_turn_counts = [
+            len(state.get("pending") or []) for state in active_turn_states
+        ]
+        interval = max(0, int(self.get_auto_memory_interval()))
+
+        def _iso_time(info: dict[str, Any] | None, key: str) -> str | None:
+            if info is None:
+                return None
+            value = info.get(key)
+            return value.isoformat() if isinstance(value, datetime) else None
+
+        error = str(last_failed.get("error") or "") if last_failed else ""
+        error = " ".join(error.split())[:240] or None
+
+        return {
+            "worker": {
+                "status": worker_status,
+                "queue_pending": self._task_queue.qsize(),
+                "tasks_pending": pending_tasks,
+                "tasks_running": running_tasks,
+                "current_task_started_at": _iso_time(current, "started_at"),
+            },
+            "auto_memory": {
+                "enabled": interval > 0,
+                "interval": interval,
+                "active_sessions": len(active_turn_states),
+                "sessions_with_pending": sum(
+                    count > 0 for count in pending_turn_counts
+                ),
+                "pending_turns": sum(pending_turn_counts),
+            },
+            "recent": {
+                "last_completed_at": _iso_time(
+                    last_completed,
+                    "finished_at",
+                ),
+                "last_failed_at": _iso_time(last_failed, "finished_at"),
+                "last_error": error,
+            },
+            "reindexing": bool(getattr(self, "is_reindexing", False)),
+        }
 
 
 # ---------------------------------------------------------------------------
