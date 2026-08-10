@@ -15,6 +15,7 @@ import { MarketPluginList } from "./MarketPluginList";
 const hoisted = vi.hoisted(() => ({
   plugins: [] as MarketPluginEntry[],
   handleInstall: vi.fn(),
+  handleHighlightFilterChange: vi.fn(),
   handleSortChange: vi.fn(),
   handleLoadMore: vi.fn(),
   hasMore: false,
@@ -38,6 +39,7 @@ vi.mock("../hooks/useMarketPlugins", () => ({
     page: 1,
     pageSize: 20,
     category: undefined,
+    highlightFilter: undefined,
     sortBy: "downloads",
     loadingMore: false,
     hasMore: hoisted.hasMore,
@@ -47,6 +49,7 @@ vi.mock("../hooks/useMarketPlugins", () => ({
     isCompatible: () => true,
     handleSearch: vi.fn(),
     handleCategoryChange: vi.fn(),
+    handleHighlightFilterChange: hoisted.handleHighlightFilterChange,
     handleSortChange: hoisted.handleSortChange,
     handleRefresh: vi.fn(),
     handleLoadMore: hoisted.handleLoadMore,
@@ -98,6 +101,7 @@ describe("MarketPluginList", () => {
     hoisted.plugins.length = 0;
     hoisted.hasMore = false;
     hoisted.handleInstall.mockReset();
+    hoisted.handleHighlightFilterChange.mockReset();
     hoisted.handleSortChange.mockReset();
     hoisted.handleLoadMore.mockReset();
     invoke.mockReset();
@@ -196,5 +200,19 @@ describe("MarketPluginList", () => {
     fireEvent.click(screen.getByText("pluginManager.marketSortUpdated"));
 
     expect(hoisted.handleSortChange.mock.calls[0]?.[0]).toBe("updated_time");
+  });
+
+  it("filters featured and trending plugins", () => {
+    render(<MarketPluginList onInstalled={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("pluginManager.marketFeatured"));
+    expect(hoisted.handleHighlightFilterChange).toHaveBeenLastCalledWith(
+      "featured",
+    );
+
+    fireEvent.click(screen.getByText("pluginManager.marketTrending"));
+    expect(hoisted.handleHighlightFilterChange).toHaveBeenLastCalledWith(
+      "trending",
+    );
   });
 });

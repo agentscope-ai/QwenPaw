@@ -113,4 +113,68 @@ describe("useMarketPlugins", () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
+
+  it("uses the application market parameters for featured and trending", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({ plugins: [], total: 0 });
+    const { result } = renderHook(() =>
+      useMarketPlugins({ onInstalled: vi.fn() }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initialParams = hoisted.fetchMarketPlugins.mock.calls[0]?.[0];
+    expect(initialParams).not.toHaveProperty("is_featured");
+    expect(initialParams).not.toHaveProperty("is_trending");
+
+    act(() => result.current.handleHighlightFilterChange("featured"));
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPlugins).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          is_featured: true,
+          page_number: 1,
+          page_size: 20,
+        }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+    expect(
+      hoisted.fetchMarketPlugins.mock.calls[
+        hoisted.fetchMarketPlugins.mock.calls.length - 1
+      ]?.[0],
+    ).not.toHaveProperty("is_trending");
+
+    act(() => result.current.handleHighlightFilterChange("trending"));
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPlugins).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          is_trending: true,
+          page_number: 1,
+          page_size: 20,
+        }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+    expect(
+      hoisted.fetchMarketPlugins.mock.calls[
+        hoisted.fetchMarketPlugins.mock.calls.length - 1
+      ]?.[0],
+    ).not.toHaveProperty("is_featured");
+  });
+
+  it("keeps featured and category filters mutually exclusive", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({ plugins: [], total: 0 });
+    const { result } = renderHook(() =>
+      useMarketPlugins({ onInstalled: vi.fn() }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.handleHighlightFilterChange("featured"));
+    await waitFor(() =>
+      expect(result.current.highlightFilter).toBe("featured"),
+    );
+    expect(result.current.category).toBeUndefined();
+
+    act(() => result.current.handleCategoryChange("agent-tool"));
+    await waitFor(() => expect(result.current.category).toBe("agent-tool"));
+    expect(result.current.highlightFilter).toBeUndefined();
+  });
 });

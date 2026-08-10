@@ -3128,7 +3128,7 @@
     "kindTool": "ツール",
     "filterByName": "名前で絞り込み",
     "filterByKind": "タグで絞り込み",
-    "marketTitle": "Plugin Market",
+    "marketTitle": "プラグインマーケット",
     "marketEmpty": "No plugins found in market",
     "marketLoadFailed": "Failed to load plugin market",
     "marketUnavailable": "Plugin Market is currently under maintenance, please try again later",

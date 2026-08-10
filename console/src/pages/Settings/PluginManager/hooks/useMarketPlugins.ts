@@ -18,6 +18,8 @@ interface UseMarketPluginsOptions {
 
 const MARKET_PAGE_SIZE = 20;
 
+export type MarketPluginHighlightFilter = "featured" | "trending" | undefined;
+
 export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -31,6 +33,8 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string | undefined>(undefined);
+  const [highlightFilter, setHighlightFilter] =
+    useState<MarketPluginHighlightFilter>(undefined);
   const [sortBy, setSortBy] = useState<MarketPluginSortBy>("downloads");
   const [loadingMore, setLoadingMore] = useState(false);
   const [autoLoadBlocked, setAutoLoadBlocked] = useState(false);
@@ -71,6 +75,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
       pageNum: number,
       keyword: string,
       cat: string | undefined,
+      highlight: MarketPluginHighlightFilter,
       sort: MarketPluginSortBy,
       append: boolean,
       signal: AbortSignal,
@@ -83,6 +88,15 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
       }
       setError(null);
       try {
+        const highlightParams: {
+          is_featured?: boolean;
+          is_trending?: boolean;
+        } = {};
+        if (highlight === "featured") {
+          highlightParams.is_featured = true;
+        } else if (highlight === "trending") {
+          highlightParams.is_trending = true;
+        }
         const data = await fetchMarketPlugins(
           {
             page_number: pageNum,
@@ -90,6 +104,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
             search: keyword || undefined,
             category: cat || undefined,
             sort_by: sort,
+            ...highlightParams,
           },
           { signal },
         );
@@ -137,12 +152,20 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
     setAutoLoadBlocked(false);
     const controller = new AbortController();
     requestControllerRef.current = controller;
-    void loadPlugins(1, search, category, sortBy, false, controller.signal);
+    void loadPlugins(
+      1,
+      search,
+      category,
+      highlightFilter,
+      sortBy,
+      false,
+      controller.signal,
+    );
     return () => {
       controller.abort();
       requestControllerRef.current?.abort();
     };
-  }, [category, loadPlugins, refreshKey, search, sortBy]);
+  }, [category, highlightFilter, loadPlugins, refreshKey, search, sortBy]);
 
   const handleSearch = useCallback((keyword: string) => {
     setSearch(keyword);
@@ -150,7 +173,16 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
 
   const handleCategoryChange = useCallback((cat: string | undefined) => {
     setCategory(cat);
+    setHighlightFilter(undefined);
   }, []);
+
+  const handleHighlightFilterChange = useCallback(
+    (filter: MarketPluginHighlightFilter) => {
+      setHighlightFilter(filter);
+      setCategory(undefined);
+    },
+    [],
+  );
 
   const handleSortChange = useCallback((sort: MarketPluginSortBy) => {
     setSortBy(sort);
@@ -177,6 +209,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
         page + 1,
         search,
         category,
+        highlightFilter,
         sortBy,
         true,
         controller.signal,
@@ -189,6 +222,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
     [
       autoLoadBlocked,
       category,
+      highlightFilter,
       loadPlugins,
       loading,
       page,
@@ -246,6 +280,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
     page,
     pageSize: MARKET_PAGE_SIZE,
     category,
+    highlightFilter,
     sortBy,
     loadingMore,
     hasMore: plugins.length < total,
@@ -255,6 +290,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
     isCompatible,
     handleSearch,
     handleCategoryChange,
+    handleHighlightFilterChange,
     handleSortChange,
     handleRefresh,
     handleLoadMore,

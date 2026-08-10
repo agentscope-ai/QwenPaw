@@ -3340,6 +3340,8 @@
     "marketUnavailable": "Plugin Market is currently under maintenance, please try again later",
     "marketSearch": "Search plugins...",
     "marketAll": "All",
+    "marketFeatured": "Featured",
+    "marketTrending": "Trending",
     "marketCategory": "Filter by category",
     "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
     "marketDetails": "Details",

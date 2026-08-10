@@ -1084,6 +1084,7 @@
     "title": "Quản lý Plugin",
     "description": "Cài đặt, quản lý và gỡ cài plugin mà không cần khởi động lại dịch vụ.",
     "installed": "Plugin đã cài đặt",
+    "marketTitle": "Thị trường Plugin",
     "noPlugins": "Chưa có plugin nào được cài đặt",
     "installBtn": "Cài đặt Plugin",
     "publishBtn": "Xuất bản Plugin",

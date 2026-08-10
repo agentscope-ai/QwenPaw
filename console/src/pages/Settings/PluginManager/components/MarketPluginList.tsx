@@ -111,6 +111,7 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
     plugins,
     total,
     category,
+    highlightFilter,
     sortBy,
     loadingMore,
     hasMore,
@@ -120,6 +121,7 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
     isCompatible,
     handleSearch,
     handleCategoryChange,
+    handleHighlightFilterChange,
     handleSortChange,
     handleRefresh,
     handleLoadMore,
@@ -206,12 +208,30 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
         <button
           type="button"
           className={`${toolbarStyles.filterTag} ${
-            !category ? toolbarStyles.filterTagActive : ""
+            !category && !highlightFilter ? toolbarStyles.filterTagActive : ""
           }`}
           onClick={() => onCategoryClick(null)}
         >
           {t("pluginManager.marketAll")}
         </button>
+        {(
+          [
+            ["featured", t("pluginManager.marketFeatured")],
+            ["trending", t("pluginManager.marketTrending")],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            type="button"
+            key={value}
+            className={`${toolbarStyles.filterTag} ${
+              highlightFilter === value ? toolbarStyles.filterTagActive : ""
+            }`}
+            aria-pressed={highlightFilter === value}
+            onClick={() => handleHighlightFilterChange(value)}
+          >
+            {label}
+          </button>
+        ))}
         {PLUGIN_CATEGORIES.map((cat) => (
           <button
             type="button"
