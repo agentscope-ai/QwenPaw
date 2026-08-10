@@ -246,8 +246,8 @@ what arrived in the replacement observation.
 
 Use `sequence` for deterministic keyboard input that stays in the same window
 and does not depend on an intermediate screen change. It accepts 1 to 20
-`type` or `press_key` steps, with at most 512 typed characters in total, and
-returns one replacement observation after the sequence.
+`type` or `press_key` steps, with at most 512 typed characters in total. After
+it runs, use the replacement observation when the response includes one.
 
 ```json
 {
@@ -264,8 +264,9 @@ Do not put clicks, waits, dialogs, or actions that require checking a changed
 screen into a sequence. Split at those boundaries and inspect the replacement
 observation first. `completed_steps` counts input steps dispatched by the
 runtime; it does not verify the application's business result. On a sequence
-error, inspect the replacement observation before deciding what to send next.
-After user intervention, stop and observe the window again first.
+error, inspect any replacement observation in the response. If the response
+includes `requires_observe` or `next_action`, follow it before sending more
+input. After user intervention, stop and observe the window again first.
 
 Key names and shortcuts belong in `press_key`, never in `type`. If a key such
 as `F5` opens a dialog or moves focus to another interface, send it as a
