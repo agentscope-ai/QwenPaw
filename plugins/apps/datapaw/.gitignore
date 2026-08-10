@@ -1,0 +1,4 @@
+.datapaw-dev/
+.venv-datapaw
+ui/dist/
+ui/node_modules/

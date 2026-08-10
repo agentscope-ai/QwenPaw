@@ -5,8 +5,10 @@
  * which delegate to the host's existing QwenPaw namespace and APIs.
  */
 import { hostFetch } from "../hostSdk/fetch";
-import type { PawStorageApi } from "./types";
+import type { PawChatOptions, PawStorageApi } from "./types";
 import { getActivePawAppId } from "./context";
+import { createApiNamespace } from "./api";
+import type { PawHostNamespace } from "./types";
 
 /** Get the current PawApp ID from page context. */
 function getAppId(): string {
@@ -16,12 +18,28 @@ function getAppId(): string {
 /**
  * Send a chat message to the Agent and get a text reply.
  */
-export async function chat(message: string): Promise<string> {
+export async function chat(
+  message: string,
+  options: PawChatOptions = {},
+): Promise<string> {
   // Use unified route: /{appId}/... -> /api/{appId}/... via hostFetch
-  const res = await hostFetch(`/${getAppId()}/chat`, {
+  const agentId =
+    options.agentId ??
+    window.QwenPaw.host?.getSelectedAgentId?.() ??
+    "default";
+  const sessionId =
+    options.sessionId === undefined
+      ? window.QwenPaw.host?.getCurrentSessionId?.() ?? undefined
+      : options.sessionId ?? undefined;
+  const query = new URLSearchParams({ agent_id: agentId }).toString();
+  const res = await hostFetch(`/${getAppId()}/chat?${query}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({
+      message,
+      session_id: sessionId,
+      skill: options.skill,
+    }),
   });
 
   if (!res.ok) {
@@ -113,10 +131,79 @@ export async function notify(title: string, body?: string): Promise<void> {
   });
 }
 
+export function createHostNamespace(
+  appIdProvider: () => string,
+): PawHostNamespace {
+  const api = createApiNamespace(appIdProvider);
+  const scopedStorage: PawStorageApi = {
+    get: async <T = unknown>(key: string, defaultValue?: T) => {
+      try {
+        const data = await api.get<{ value?: T }>(
+          `/storage/${encodeURIComponent(key)}`,
+        );
+        return data.value ?? (defaultValue as T);
+      } catch {
+        return defaultValue as T;
+      }
+    },
+    set: async (key, value) => {
+      await api.put(`/storage/${encodeURIComponent(key)}`, { value });
+    },
+    delete: async (key) => {
+      await api.delete(`/storage/${encodeURIComponent(key)}`);
+    },
+    keys: async () => {
+      const data = await api.get<{ keys?: string[] }>("/storage");
+      return data.keys ?? [];
+    },
+  };
+
+  return {
+    async chat(message, options = {}) {
+      const agentId =
+        options.agentId ??
+        window.QwenPaw.host?.getSelectedAgentId?.() ??
+        "default";
+      const sessionId =
+        options.sessionId === undefined
+          ? window.QwenPaw.host?.getCurrentSessionId?.() ?? undefined
+          : options.sessionId ?? undefined;
+      const data = await api.post<{ text?: string; reply?: string }>(
+        "/chat",
+        { message, session_id: sessionId, skill: options.skill },
+        { query: { agent_id: agentId } },
+      );
+      return data.text ?? data.reply ?? "";
+    },
+    storage: scopedStorage,
+    getSelectedAgentId: () =>
+      window.QwenPaw.host?.getSelectedAgentId?.() ?? "default",
+    getCurrentSessionId: () =>
+      window.QwenPaw.host?.getCurrentSessionId?.() ?? null,
+    async toast(message, kind = "info") {
+      const host = window.QwenPaw.host as {
+        toast?: (m: string, k: string) => void;
+      };
+      if (host?.toast) {
+        host.toast(message, kind);
+        return;
+      }
+      await api.post("/toast", { message, kind });
+    },
+    async notify(title, body) {
+      await api.post("/notify", { title, body });
+    },
+  };
+}
+
 /** The paw.host namespace. */
 export const hostNamespace = {
   chat,
   storage,
+  getSelectedAgentId: () =>
+    window.QwenPaw.host?.getSelectedAgentId?.() ?? "default",
+  getCurrentSessionId: () =>
+    window.QwenPaw.host?.getCurrentSessionId?.() ?? null,
   toast,
   notify,
 };

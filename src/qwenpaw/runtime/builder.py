@@ -261,8 +261,12 @@ class AgentBuilder:
         if not (active and active.provider_id and active.model):
             active = ProviderManager.get_instance().get_active_model()
         if active is None or not active.provider_id or not active.model:
-            raise RuntimeError(
+            from ..exceptions import ConfigurationException
+
+            raise ConfigurationException(
                 "No active model configured; pick one in the UI",
+                config_key="active_model",
+                error_code="MODEL_NOT_CONFIGURED",
             )
 
         workspace_dir = getattr(ctx, "workspace_dir", None)
