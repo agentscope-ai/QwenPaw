@@ -195,6 +195,22 @@ def fts_match_query(raw: str) -> str:
     )
 
 
+def _like_search_terms(raw: str) -> list[str]:
+    """Whitespace-delimited literal terms for the LIKE search path."""
+    terms = raw.split()
+    # Keep direct/internal all-whitespace calls restrictive instead of
+    # accidentally producing a predicate-free query that returns every row.
+    return terms or [raw]
+
+
+def _like_pattern(term: str) -> str:
+    """Wrap one literal term as a SQLite LIKE contains-pattern."""
+    escaped = (
+        term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    )
+    return f"%{escaped}%"
+
+
 def sanitize_suffix(session_id: str | None) -> str:
     """Turn a session id into a SQL-identifier-safe table suffix."""
     if not session_id:
@@ -1356,8 +1372,8 @@ class MemorySpace:
         # all-punctuation query on an FTS-capable build), tell the model its
         # search degraded:
         # LIKE is a literal substring scan with no ranking and no boolean/OR
-        # grammar, so it must query one term at a time. The notice shares the
-        # row schema so a ``r["content"]`` loop over results never breaks.
+        # grammar. The notice shares the row schema so a ``r["content"]`` loop
+        # over results never breaks.
         if not self._fts_available():
             rows.insert(0, self._like_notice())
         return rows
@@ -1372,13 +1388,14 @@ class MemorySpace:
         offset: int = 0,
         created_bounds: tuple[str | None, str | None] = (None, None),
     ) -> list[dict]:
-        """Return one stable page from the literal LIKE fallback."""
+        """Return one stable page matching every literal query term."""
+        terms = _like_search_terms(query)
         # Exclude the recall tool's own turns (NULL-safe: keep un-named rows).
         where = [
-            "content LIKE ?",
+            *("content LIKE ? ESCAPE '\\'" for _ in terms),
             f"(name IS NULL OR name NOT IN ({_RECALL_EXCL_PLACEHOLDERS}))",
         ]
-        params: list = [f"%{query}%", *_RECALL_TOOL_NAMES]
+        params: list = [*map(_like_pattern, terms), *_RECALL_TOOL_NAMES]
         excl = self._active_turn_exclusion()
         if excl:
             where.append(excl[0])
@@ -1854,8 +1871,8 @@ class MemorySpace:
                 "NOTE: full-text search is unavailable (no FTS5 in this "
                 "SQLite build), so this is a literal substring (LIKE) scan — "
                 "no relevance ranking, and boolean/OR syntax is NOT supported "
-                "(it would be matched literally). Search a single term at a "
-                "time and scan the rows yourself."
+                "(operators are matched as ordinary terms). Whitespace-"
+                "separated terms are AND-combined."
             ),
         }
 

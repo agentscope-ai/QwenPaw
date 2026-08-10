@@ -424,6 +424,105 @@ def test_search_cjk_substring_returns_complete_turn(tmp_path: Path):
     assert [row["seq"] for row in legacy_hits] == [user_seq]
 
 
+def test_search_cjk_multiple_terms_are_and_combined(tmp_path: Path):
+    history = HistoryStore(tmp_path / "history.db")
+    user_seq = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="u1",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="项目的截止日期是周二",
+        ),
+    )
+    assistant_seq = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="a1",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="好的，我记住了",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        hits = space.search(
+            "项目 截止日期",
+            session_id="archive",
+            k=10,
+        )
+    finally:
+        space.close()
+
+    assert len(hits) == 1
+    assert hits[0]["match_seq"] == user_seq
+    assert hits[0]["turn_complete"] is True
+    assert [row["seq"] for row in hits[0]["turn"]] == [
+        user_seq,
+        assistant_seq,
+    ]
+
+
+def test_search_like_metacharacters_are_literal(tmp_path: Path):
+    history = HistoryStore(tmp_path / "history.db")
+    for index, content in enumerate(
+        (
+            "项目_编号",
+            "项目X编号",
+            "项目%进度",
+            "项目任意长度进度",
+            "项目\\路径",
+        ),
+    ):
+        history.append(
+            session_id="archive",
+            agent_id="ag1",
+            dedup_key=f"row-{index}",
+            entry=LogEntry(
+                kind="model_turn",
+                role="assistant",
+                content=content,
+            ),
+        )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        underscore = space.search(
+            "项目_编号",
+            session_id="archive",
+            include_turn=False,
+        )
+        percent = space.search(
+            "项目%进度",
+            session_id="archive",
+            include_turn=False,
+        )
+        backslash = space.search(
+            "项目\\路径",
+            session_id="archive",
+            include_turn=False,
+        )
+    finally:
+        space.close()
+
+    assert [row["content"] for row in underscore] == ["项目_编号"]
+    assert [row["content"] for row in percent] == ["项目%进度"]
+    assert [row["content"] for row in backslash] == ["项目\\路径"]
+
+
 def test_search_loads_duplicate_hit_turn_once(
     tmp_path: Path,
     monkeypatch,

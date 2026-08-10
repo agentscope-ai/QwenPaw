@@ -266,6 +266,53 @@ async def test_search_cjk_substring_returns_same_complete_turn(
     assert "工具结果" in text
 
 
+async def test_search_cjk_multiple_terms_returns_complete_turn(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "cjk-multiple-terms.db"
+    history = HistoryStore(db_path)
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="u1",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="项目的截止日期是周二",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="a1",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="好的，我记住了",
+        ),
+    )
+    history.close()
+    recall = make_recall_history(
+        history_db_path=str(db_path),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    chunk = await recall(
+        op="search",
+        query="项目 截止日期",
+        session_id="archive",
+        k=10,
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "matched_seq=1" in text
+    assert "turn_seq=1–2" in text
+    assert "项目的截止日期是周二" in text
+    assert "好的，我记住了" in text
+
+
 async def test_search_filters_and_displays_created_at(tool):
     chunk = await tool(
         op="search",
