@@ -65,3 +65,31 @@ def test_resolve_tool_presentation_prefers_curated() -> None:
     assert "读取文件" in zh["summary"]
     assert zh["detail"]
     assert "file_path" in (zh["input_schema"].get("properties") or {})
+
+
+def test_default_builtin_tools_have_curated_browser_docs() -> None:
+    """Curated docs must track default registry keys, not legacy browser_use."""
+    from qwenpaw.config.config import _default_builtin_tools
+
+    names = set(_default_builtin_tools())
+    assert "browser" in names
+    assert "browser_use" not in names
+
+    assert load_tool_doc("browser_use", "zh") is None
+    assert load_tool_doc("browser_use", "en") is None
+
+    zh_doc = load_tool_doc("browser", "zh")
+    en_doc = load_tool_doc("browser", "en")
+    assert zh_doc is not None
+    assert en_doc is not None
+    assert "Browser SDK" in zh_doc["summary"] or "浏览器" in zh_doc["summary"]
+    assert "code" in zh_doc["body"]
+    assert "action" in zh_doc["body"]
+
+    zh = resolve_tool_presentation("browser", lang="zh")
+    en = resolve_tool_presentation("browser", lang="en")
+    assert "Run Browser SDK code" not in zh["detail"]
+    assert "Run Browser SDK code" not in en["detail"]
+    assert "code" in (zh["input_schema"].get("properties") or {})
+    assert "code" in (en["input_schema"].get("properties") or {})
+    assert "action" not in (zh["input_schema"].get("properties") or {})
