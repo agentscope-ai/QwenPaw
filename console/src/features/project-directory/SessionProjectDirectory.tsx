@@ -5,6 +5,8 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  Eye,
+  EyeOff,
   Folder,
   FolderOpen,
   LoaderCircle,
@@ -62,6 +64,11 @@ export default function SessionProjectDirectory({
   );
   const [browser, setBrowser] = useState<BrowseDirsResponse | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
+  // Mirrored in a ref so `browse` keeps a stable identity: it is a dependency
+  // of the panel-open effect, which would otherwise re-run on every toggle and
+  // navigate back to the project directory.
+  const showHiddenRef = useRef(false);
   const announceChanged = () => {
     notifyProjectDirectoryChanged(scope);
     onChanged?.();
@@ -114,7 +121,10 @@ export default function SessionProjectDirectory({
     async (path?: string, selectCurrent = false) => {
       setBrowseLoading(true);
       try {
-        const next = await projectDirectoryApi.browseDirs(path);
+        const next = await projectDirectoryApi.browseDirs(
+          path,
+          showHiddenRef.current,
+        );
         setBrowser(next);
         if (selectCurrent) {
           updateDraft(next.current);
@@ -173,6 +183,13 @@ export default function SessionProjectDirectory({
   const clearDraft = () => {
     updateDraft("");
     setSelectedRecentPath(null);
+  };
+
+  const toggleHidden = () => {
+    const next = !showHidden;
+    showHiddenRef.current = next;
+    setShowHidden(next);
+    void browse(browser?.current ?? draft);
   };
 
   const save = async () => {
@@ -377,6 +394,14 @@ export default function SessionProjectDirectory({
                   />
                 }
                 onClick={() => void browse(browser?.current ?? draft)}
+              />
+              <Button
+                type={showHidden ? "primary" : "text"}
+                size="small"
+                aria-label={t("codingMode.openDirHiddenFolders")}
+                aria-pressed={showHidden}
+                icon={showHidden ? <Eye size={14} /> : <EyeOff size={14} />}
+                onClick={toggleHidden}
               />
             </div>
           </div>

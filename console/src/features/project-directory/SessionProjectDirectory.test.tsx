@@ -180,6 +180,37 @@ describe("SessionProjectDirectory", () => {
     });
   });
 
+  it("re-browses the current directory when hidden folders are toggled", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={scope} />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.sessionTitle",
+      }),
+    );
+    await waitFor(() => {
+      expect(mockBrowseDirs).toHaveBeenCalledWith(
+        "/projects/agentscope",
+        false,
+      );
+    });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "codingMode.openDirHiddenFolders",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(mockBrowseDirs).toHaveBeenLastCalledWith("/projects", true);
+    });
+    expect(screen.getByRole("button", { name: /agentscope/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("applies the path that owns the visible selection state", async () => {
     const user = userEvent.setup();
     mockSetSessionDirectory.mockResolvedValue({
