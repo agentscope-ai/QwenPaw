@@ -38,6 +38,11 @@ Known limitations (documented, not silently broken):
   not visible inside plugin modules.
 - Objects pickled with a ``plugin_<id>.…`` ``__module__`` are only
   unpicklable in a process where that plugin is loaded.
+- The local/non-local decision per bare top-level name is cached for
+  the plugin's lifetime; code generated into the plugin directory at
+  runtime after a name was first probed resolves globally.  Extension
+  modules only count as plugin code when importable by the current
+  interpreter (a vendored wrong-ABI ``.so`` reads as data).
 """
 
 import builtins
@@ -75,7 +80,13 @@ class _NamespaceLoader:
         self._wrapped.exec_module(module)
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._wrapped, name)
+        # Read via __dict__: on an instance created without __init__
+        # (e.g. cls.__new__ during copy) a plain self._wrapped access
+        # would re-enter __getattr__ and recurse forever.
+        wrapped = self.__dict__.get("_wrapped")
+        if wrapped is None:
+            raise AttributeError(name)
+        return getattr(wrapped, name)
 
 
 class PluginNamespaceFinder(importlib.abc.MetaPathFinder):
@@ -148,6 +159,27 @@ def _norm(path: Any) -> str:
     return os.path.normcase(os.path.realpath(str(path)))
 
 
+def strip_plugin_sys_path(source_path: Any) -> None:
+    """Remove *source_path* and its subdirectories from ``sys.path``.
+
+    Nested-entry plugins insert e.g. their ``backend/`` dir, so subpaths
+    must go too.  Relative entries (``''`` — the CWD — and any other
+    non-absolute path) are never touched: resolving them depends on the
+    CWD at sweep time, so stripping them could remove entries that
+    belong to the process, not the plugin.
+    """
+    root = _norm(source_path)
+    prefix = root + os.sep
+
+    def _keep(entry: str) -> bool:
+        if not os.path.isabs(entry):
+            return True
+        resolved = _norm(entry)
+        return resolved != root and not resolved.startswith(prefix)
+
+    sys.path[:] = [p for p in sys.path if _keep(p)]
+
+
 _CODE_SUFFIXES = tuple(importlib.machinery.all_suffixes())
 
 
@@ -156,11 +188,21 @@ def _has_importable_code(portions: List[str]) -> bool:
 
     Walks recursively (short-circuiting on the first hit) so a PEP 420
     package whose code lives only in nested subpackages still counts.
+    Only paths reachable through valid-identifier components count — a
+    file like ``locale/en_US.UTF-8/tool.py`` cannot be imported as a
+    module, so it must not make a data directory look like a package.
+    The pruning also keeps the walk cheap on large asset trees.
     """
     for portion in portions:
-        for _dirpath, _dirnames, filenames in os.walk(portion):
-            if any(f.endswith(_CODE_SUFFIXES) for f in filenames):
-                return True
+        for _dirpath, dirnames, filenames in os.walk(portion):
+            dirnames[:] = [d for d in dirnames if d.isidentifier()]
+            for filename in filenames:
+                for suffix in _CODE_SUFFIXES:
+                    if (
+                        filename.endswith(suffix)
+                        and filename[: -len(suffix)].isidentifier()
+                    ):
+                        return True
     return False
 
 
@@ -227,6 +269,16 @@ def build_plugin_builtins(
                     # alias the running entry module instead of
                     # executing the file a second time (which would
                     # duplicate module-level state and side effects).
+                    # With a fromlist, delegate so submodules named in
+                    # it are imported, mirroring _handle_fromlist.
+                    if fromlist:
+                        return builtins.__import__(
+                            module_name,
+                            globals,
+                            locals,
+                            fromlist,
+                            0,
+                        )
                     return sys.modules[module_name]
                 full = f"{module_name}.{name}"
                 if fromlist:

@@ -26,6 +26,7 @@ from .api import PluginApi
 from .module_isolation import (
     build_plugin_builtins,
     get_namespace_finder,
+    strip_plugin_sys_path,
     unregister_namespace,
 )
 from .registry import PluginRegistry
@@ -659,16 +660,8 @@ class PluginLoader:
         #    without the plugin builtins in the window between the two.
         unregister_namespace(module_name)
 
-        # 5. sys.path — remove the plugin directory and any of its
-        #    subdirectories (nested-entry plugins insert e.g. backend/)
-        plugin_dir_real = _norm_realpath(source_path)
-        plugin_dir_prefix = plugin_dir_real + os.sep
-        sys.path[:] = [
-            p
-            for p in sys.path
-            if _norm_realpath(p) != plugin_dir_real
-            and not _norm_realpath(p).startswith(plugin_dir_prefix)
-        ]
+        # 5. sys.path — remove the plugin directory and its subdirs
+        strip_plugin_sys_path(source_path)
 
     async def load_plugin(
         self,
@@ -1331,19 +1324,11 @@ class PluginLoader:
         # without the plugin builtins in the window between the two.
         unregister_namespace(module_name)
 
-        # Remove the plugin directory — and any of its subdirectories,
-        # e.g. the backend/ dir nested-entry plugins insert — from
+        # Remove the plugin directory and its subdirectories from
         # sys.path (plugins add these at import time for sibling
         # imports; leaving them leaks into later imports and prevents
         # clean hot-reload).
-        plugin_dir_real = _norm_realpath(record.source_path)
-        plugin_dir_prefix = plugin_dir_real + os.sep
-        sys.path[:] = [
-            p
-            for p in sys.path
-            if _norm_realpath(p) != plugin_dir_real
-            and not _norm_realpath(p).startswith(plugin_dir_prefix)
-        ]
+        strip_plugin_sys_path(record.source_path)
 
         # Remove tools from agents.tools + runtime registries while
         # ownership records still exist, then drop plugin registry state.

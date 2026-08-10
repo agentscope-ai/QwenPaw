@@ -531,6 +531,107 @@ class TestBareImportNamespaceIsolation:
         assert sys.modules["plugin_dotted_as"].VAL == 7
 
     @pytest.mark.asyncio
+    async def test_cleanup_keeps_relative_sys_path_entries(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """Failed-load cleanup must not strip relative sys.path entries
+        ('' — the CWD) even when the CWD is inside the plugin dir."""
+        import os as os_mod
+
+        plugin_dir = tmp_path / "cwd-plug"
+        (plugin_dir / "sub").mkdir(parents=True)
+        _write_manifest(plugin_dir)
+        (plugin_dir / "plugin.py").write_text(
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "raise RuntimeError('boom')\n",
+            encoding="utf-8",
+        )
+
+        old_cwd = os_mod.getcwd()
+        had_empty = "" in sys.path
+        if not had_empty:
+            sys.path.insert(0, "")
+        os_mod.chdir(plugin_dir / "sub")
+        try:
+            with pytest.raises(RuntimeError, match="boom"):
+                await _load(loader, plugin_dir)
+            # The plugin's own absolute entry is swept …
+            plugin_real = os_mod.path.realpath(str(plugin_dir))
+            assert plugin_real not in [
+                os_mod.path.realpath(p) for p in sys.path if p
+            ]
+            # … but the relative CWD entry survives.
+            assert "" in sys.path
+        finally:
+            os_mod.chdir(old_cwd)
+            if not had_empty and "" in sys.path:
+                sys.path.remove("")
+
+    @pytest.mark.asyncio
+    async def test_entry_alias_with_fromlist_imports_sibling(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """``from <entry> import <sibling_module>`` imports the sibling
+        as a namespaced submodule without re-executing the entry."""
+        plugin_dir = tmp_path / "fromlist-plug"
+        plugin_dir.mkdir()
+        (plugin_dir / "sib.py").write_text("S = 'sib'\n", encoding="utf-8")
+        (plugin_dir / "helper.py").write_text(
+            "from plugin import sib\nS = sib.S\n",
+            encoding="utf-8",
+        )
+        _write_manifest(plugin_dir)
+        (plugin_dir / "plugin.py").write_text(
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "RUNS = globals().get('RUNS', 0) + 1\n"
+            "import helper\n"
+            "S = helper.S\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        await _load(loader, plugin_dir)
+
+        mod = sys.modules["plugin_fromlist_plug"]
+        assert mod.S == "sib"
+        assert mod.RUNS == 1
+        assert "plugin_fromlist_plug.sib" in sys.modules
+        assert "plugin_fromlist_plug.plugin" not in sys.modules
+
+    @pytest.mark.asyncio
+    async def test_non_importable_nested_code_stays_data(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """Code reachable only through non-identifier path components
+        (e.g. ``wave/en-US/tool.py``) does not make a data directory
+        shadow the stdlib."""
+        plugin_dir = tmp_path / "l10n-plug"
+        (plugin_dir / "wave" / "en-US").mkdir(parents=True)
+        (plugin_dir / "wave" / "en-US" / "tool.py").write_text(
+            "X = 1\n",
+            encoding="utf-8",
+        )
+        _write_manifest(plugin_dir)
+        (plugin_dir / "plugin.py").write_text(
+            "import wave\n" "WAVE = wave\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        await _load(loader, plugin_dir)
+
+        import wave as real_wave
+
+        assert sys.modules["plugin_l10n_plug"].WAVE is real_wave
+        assert "plugin_l10n_plug.wave" not in sys.modules
+
+    @pytest.mark.asyncio
     async def test_failed_load_unregisters_namespace(
         self,
         loader,

@@ -15,6 +15,7 @@ from pathlib import Path
 from .module_isolation import (
     build_plugin_builtins,
     get_namespace_finder,
+    strip_plugin_sys_path,
     unregister_namespace,
 )
 
@@ -95,9 +96,16 @@ def validate_plugin_module(
             )
     finally:
         # Clean up ephemeral validation modules to avoid
-        # leaking into the process on repeated installs.
-        unregister_namespace(module_name)
+        # leaking into the process on repeated installs.  Sweep
+        # sys.modules BEFORE unregistering the namespace — same
+        # ordering invariant as PluginLoader cleanup, so a lazy
+        # import cannot resolve a submodule without the plugin
+        # builtins in the window between the two.
         prefix = module_name + "."
         for key in list(sys.modules):
             if key == module_name or key.startswith(prefix):
                 sys.modules.pop(key, None)
+        unregister_namespace(module_name)
+        # Drop any sys.path entries the plugin inserted at import
+        # time, so validation leaves no residue in the CLI process.
+        strip_plugin_sys_path(plugin_path)
