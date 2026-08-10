@@ -226,4 +226,4 @@ def test_ollama_embedding_without_host_still_enables_with_model() -> None:
         cfg["components"]["file_store"]["default"]["embedding_store"]
         == "default"
     )
-    assert cfg["components"]["as_embedding"]["default"]["credential"] == {}
+    assert not cfg["components"]["as_embedding"]["default"]["credential"]

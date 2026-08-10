@@ -122,14 +122,15 @@ async def test_manual_reindex_clears_persisted_requirement(tmp_path) -> None:
     manager, _wrapper, _store = _manager(tmp_path, config)
     profile = AgentProfileConfig(id="bot", name="Bot")
     profile.running.reme_light_memory_config.needs_reindex = True
+    manager_module = "qwenpaw.agents.memory.reme_light_memory_manager"
 
     with (
         patch(
-            "qwenpaw.agents.memory.reme_light_memory_manager.load_agent_config",
+            f"{manager_module}.load_agent_config",
             return_value=profile,
         ),
         patch(
-            "qwenpaw.agents.memory.reme_light_memory_manager.save_agent_config",
+            f"{manager_module}.save_agent_config",
         ) as save_config,
     ):
         response = await manager.rebuild_index()

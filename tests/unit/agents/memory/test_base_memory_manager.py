@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 """Tests for BaseMemoryManager abstract base class."""
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -344,9 +345,7 @@ class TestBaseMemoryManagerAddSummarizeTask:
         assert status["recent"]["last_completed_at"] == (
             "2026-08-10T00:00:00+00:00"
         )
-        assert status["recent"]["last_error"] == (
-            "summary failed retry later"
-        )
+        assert status["recent"]["last_error"] == ("summary failed retry later")
 
 
 class TestAutoMemorySearchSanitization:

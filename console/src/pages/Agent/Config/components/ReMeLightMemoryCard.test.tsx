@@ -145,13 +145,14 @@ function NeedsReindexEmbeddingForm({ onOpen = vi.fn() }) {
 function MemoryAndEmbeddingForm() {
   const [form] = Form.useForm();
   const [needsReindex, setNeedsReindex] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
   return (
     <MemoryMaintenanceContext.Provider
       value={{
         needsReindex,
         setNeedsReindex,
-        reindexing: false,
-        setReindexing: vi.fn(),
+        reindexing,
+        setReindexing,
         openMemorySettings: vi.fn(),
       }}
     >
@@ -242,25 +243,35 @@ describe("ReMe runtime status", () => {
     ).toBeInTheDocument();
   });
 
-  it("does not poll for maintenance state after the initial check", async () => {
+  it("polls remote reindex state and keeps embedding fields in sync", async () => {
     vi.useFakeTimers();
     try {
+      const rebuildingStatus = {
+        ...memoryStatus,
+        runtime: { ...memoryStatus.runtime, reindexing: true },
+      };
       const getMemoryStatus = vi
         .spyOn(agentsApi, "getMemoryStatus")
+        .mockResolvedValueOnce(rebuildingStatus)
         .mockResolvedValue(memoryStatus);
-      renderWithProviders(<MemoryAndEmbeddingForm />);
+      const { container } = renderWithProviders(<MemoryAndEmbeddingForm />);
 
       await act(async () => {
         await Promise.resolve();
+        await Promise.resolve();
       });
-      const initialRequestCount = getMemoryStatus.mock.calls.length;
-      expect(initialRequestCount).toBeGreaterThan(0);
+      expect(getMemoryStatus).toHaveBeenCalledTimes(1);
+      const modelInput = container.querySelector(
+        'input[placeholder="agentConfig.embeddingModelNamePlaceholder"]',
+      );
+      expect(modelInput).toBeDisabled();
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(5_000);
+        await vi.advanceTimersByTimeAsync(2_000);
       });
 
-      expect(getMemoryStatus).toHaveBeenCalledTimes(initialRequestCount);
+      expect(getMemoryStatus).toHaveBeenCalledTimes(2);
+      expect(modelInput).toBeEnabled();
     } finally {
       vi.useRealTimers();
     }
@@ -452,21 +463,16 @@ describe("embedding card separation", () => {
   });
 
   it("disables every embedding config field while rebuilding", () => {
-    renderWithProviders(<ReindexingEmbeddingForm />);
+    const { container } = renderWithProviders(<ReindexingEmbeddingForm />);
 
-    const configFields = [
-      ...screen.getAllByRole("combobox"),
-      ...screen.getAllByRole("textbox"),
-      ...screen.getAllByRole("spinbutton"),
-      ...screen.getAllByRole("switch"),
-    ];
+    const configFields = container.querySelectorAll(
+      '[role="combobox"], [role="textbox"], [role="spinbutton"], [role="switch"]',
+    );
 
     expect(configFields.length).toBeGreaterThan(1);
     configFields.forEach((control) => expect(control).toBeDisabled());
     expect(
-      screen.getByRole("button", {
-        name: "agentConfig.embeddingTestConnection",
-      }),
+      screen.getByText("agentConfig.embeddingTestConnection").closest("button"),
     ).toBeEnabled();
   });
 });

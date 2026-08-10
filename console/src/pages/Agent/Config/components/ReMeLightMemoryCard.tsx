@@ -25,6 +25,8 @@ type RuntimeStatus =
   | { type: "healthy"; data: ReMeMemoryStatusResponse }
   | { type: "error"; message: string };
 
+const REINDEX_STATUS_POLL_INTERVAL_MS = 2_000;
+
 export function isValidDreamCronShape(value?: string) {
   if (!value?.trim()) {
     return false;
@@ -68,6 +70,7 @@ export function ReMeLightMemoryCard() {
     type: "unknown",
   });
   const statusRequestRef = useRef<AbortController | null>(null);
+  const rebuildRequestRef = useRef(false);
 
   const rebuildMemoryIndex = () => {
     modal.confirm({
@@ -76,6 +79,7 @@ export function ReMeLightMemoryCard() {
       okText: t("agentConfig.rebuildMemoryIndex"),
       cancelText: t("common.cancel"),
       onOk: async () => {
+        rebuildRequestRef.current = true;
         setReindexing(true);
         try {
           await agentsApi.rebuildMemoryIndex(selectedAgent || "default");
@@ -88,6 +92,7 @@ export function ReMeLightMemoryCard() {
           );
           throw error;
         } finally {
+          rebuildRequestRef.current = false;
           setReindexing(false);
         }
       },
@@ -110,6 +115,9 @@ export function ReMeLightMemoryCard() {
         );
         if (!controller.signal.aborted) {
           setRuntimeStatus({ type: "healthy", data: status });
+          if (!rebuildRequestRef.current) {
+            setReindexing(status.runtime.reindexing);
+          }
         }
       } catch (error) {
         if (!controller.signal.aborted) {
@@ -124,13 +132,21 @@ export function ReMeLightMemoryCard() {
         }
       }
     },
-    [selectedAgent],
+    [selectedAgent, setReindexing],
   );
 
   useEffect(() => {
     void checkMemoryStatus();
     return () => statusRequestRef.current?.abort();
   }, [checkMemoryStatus]);
+
+  useEffect(() => {
+    if (!reindexing) return undefined;
+    const timer = window.setInterval(() => {
+      void checkMemoryStatus();
+    }, REINDEX_STATUS_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [checkMemoryStatus, reindexing]);
 
   const inspectMemoryStatus = () => void checkMemoryStatus(true);
   const statusLoading = runtimeStatus.type === "checking";
