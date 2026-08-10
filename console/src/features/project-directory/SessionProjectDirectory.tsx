@@ -69,6 +69,10 @@ export default function SessionProjectDirectory({
   // of the panel-open effect, which would otherwise re-run on every toggle and
   // navigate back to the project directory.
   const showHiddenRef = useRef(false);
+  // Monotonically increasing sequence number for browse requests.
+  // Only the most recent request is allowed to update state, preventing stale
+  // responses from overwriting newer results when requests complete out of order.
+  const browseSeq = useRef(0);
   const announceChanged = () => {
     notifyProjectDirectoryChanged(scope);
     onChanged?.();
@@ -119,19 +123,25 @@ export default function SessionProjectDirectory({
 
   const browse = useCallback(
     async (path?: string, selectCurrent = false) => {
+      const seq = ++browseSeq.current;
       setBrowseLoading(true);
       try {
         const next = await projectDirectoryApi.browseDirs(
           path,
           showHiddenRef.current,
         );
+        if (seq !== browseSeq.current) return;
         setBrowser(next);
         if (selectCurrent) {
           updateDraft(next.current);
           setSelectedRecentPath(null);
         }
+      } catch {
+        // Stale or failed requests are silently discarded; only the latest
+        // request is allowed to clear the loading indicator.
+        if (seq !== browseSeq.current) return;
       } finally {
-        setBrowseLoading(false);
+        if (seq === browseSeq.current) setBrowseLoading(false);
       }
     },
     [updateDraft],
