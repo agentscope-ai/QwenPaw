@@ -404,16 +404,15 @@ export function AppMarket({
             ))}
           </div>
           <div className={styles.marketFilterActions}>
-            <button
-              type="button"
+            <Button
+              type="default"
               className={styles.refreshBtn}
+              icon={<RefreshCw size={14} />}
               onClick={() => setRefreshKey((current) => current + 1)}
               disabled={loading || loadingMore}
               aria-label={t("common.refresh", "Refresh")}
               title={t("common.refresh", "Refresh")}
-            >
-              <RefreshCw size={15} />
-            </button>
+            />
           </div>
         </div>
       )}

@@ -408,14 +408,15 @@ export default function AppCenterPage() {
             </Select>
           )}
           <div className={styles.toolbarSpacer} />
-          <button
+          <Button
+            type="default"
             className={styles.refreshBtn}
+            icon={<RefreshCw size={14} />}
             onClick={fetchApps}
+            disabled={loading}
             aria-label={t("common.refresh", "Refresh")}
             title={t("common.refresh", "Refresh")}
-          >
-            <RefreshCw size={15} />
-          </button>
+          />
         </div>
       )}
 

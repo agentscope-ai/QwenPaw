@@ -940,6 +940,7 @@
   },
   "market": {
     "searchPlaceholder": "Tìm kiếm kỹ năng trên các nền tảng",
+    "categoryAll": "Tất cả",
     "providerUnavailable": "Nhà cung cấp không khả dụng",
     "noResults": "Không có kết quả",
     "startTyping": "Nhập từ khóa để tìm kiếm",

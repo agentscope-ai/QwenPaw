@@ -199,34 +199,8 @@
 }
 
 .refreshBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 32px;
-  height: 32px;
-  border: 1px solid var(--app-border-strong);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--app-text-secondary);
-  cursor: pointer;
-  transition:
-    color 0.18s ease,
-    border-color 0.18s ease;
-
-  &:hover:not(:disabled) {
-    border-color: var(--app-accent);
-    color: var(--app-accent);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--app-accent);
-    outline-offset: 1px;
-  }
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
-  }
+  padding: 0;
 }
 
 // ── Grid & cards ────────────────────────────────────────────────────────────
@@ -531,13 +505,44 @@
     transition: none;
   }
 
-  .refreshBtn,
   .cardHoverActions {
     transition: none;
   }
 }
 
 :global(.dark-mode) {
+  .page {
+    background: #141414;
+  }
+
+  .marketFilterActive {
+    border-color: rgba(255, 127, 22, 0.5);
+    background: rgba(255, 127, 22, 0.18);
+    color: #ffad66;
+  }
+
+  .viewTabs {
+    :global(.ant-tabs-nav::before),
+    :global(.qwenpaw-tabs-nav::before) {
+      border-bottom-color: rgba(255, 255, 255, 0.12);
+    }
+
+    :global(.ant-tabs-tab),
+    :global(.qwenpaw-tabs-tab) {
+      color: rgba(255, 255, 255, 0.55);
+    }
+
+    :global(.ant-tabs-tab-active .ant-tabs-tab-btn),
+    :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn) {
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    :global(.ant-tabs-ink-bar),
+    :global(.qwenpaw-tabs-ink-bar) {
+      background: #ff7f16;
+    }
+  }
+
   .appCard:hover {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   }
