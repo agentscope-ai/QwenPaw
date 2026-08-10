@@ -205,7 +205,11 @@ export default function DesktopOS() {
     if (
       `${window.location.pathname}${window.location.search}` !== browserPath
     ) {
-      window.history.replaceState({ osApp: activeId }, "", browserPath);
+      window.history.replaceState(
+        { ...window.history.state, osApp: activeId },
+        "",
+        browserPath,
+      );
     }
   }, [activeId, routeById]);
 
