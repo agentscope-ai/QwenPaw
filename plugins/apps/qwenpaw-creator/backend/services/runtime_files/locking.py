@@ -15,6 +15,7 @@ from pathlib import Path
 import time
 from types import TracebackType
 
+from .durability import set_descriptor_mode
 from .errors import LockTimeoutError, RuntimeFileValidationError
 
 logger = logging.getLogger("qwenpaw.creator.runtime_files.locking")
@@ -125,8 +126,7 @@ class CrossProcessFileLock:
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         descriptor = os.open(self.path, flags, self.mode)
-        if hasattr(os, "fchmod"):
-            os.fchmod(descriptor, self.mode)
+        set_descriptor_mode(descriptor, self.mode)
         started = time.monotonic()
         try:
             while True:

@@ -24,6 +24,7 @@ from .atomic_store import (
     fsync_directory,
     strict_json_loads,
 )
+from .durability import set_descriptor_mode
 from .errors import (
     JsonlCorruptionError,
     RuntimeFileValidationError,
@@ -284,7 +285,7 @@ class DurableJsonlStore(Generic[T]):
                 flags |= os.O_CLOEXEC
             descriptor = os.open(self.path, flags, self.mode)
             try:
-                os.fchmod(descriptor, self.mode)
+                set_descriptor_mode(descriptor, self.mode)
                 view = memoryview(line)
                 while view:
                     written = os.write(descriptor, view)

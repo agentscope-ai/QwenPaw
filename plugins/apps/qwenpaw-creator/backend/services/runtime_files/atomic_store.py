@@ -16,6 +16,7 @@ from typing import Any, Generic, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError as PydanticValidationError
 
+from .durability import fsync_directory, set_descriptor_mode
 from .errors import (
     CorruptRecordError,
     RecordAlreadyExistsError,
@@ -40,20 +41,6 @@ def strict_json_loads(payload: str | bytes | bytearray) -> Any:
     """Decode standards-compliant JSON (Python accepts NaN by default)."""
 
     return json.loads(payload, parse_constant=_reject_nonfinite_json)
-
-
-def fsync_directory(path: str | os.PathLike[str]) -> None:
-    """Persist directory-entry changes on POSIX filesystems."""
-
-    directory = Path(path)
-    flags = os.O_RDONLY
-    if hasattr(os, "O_DIRECTORY"):
-        flags |= os.O_DIRECTORY
-    descriptor = os.open(directory, flags)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 def _json_value(value: Any) -> Any:
@@ -134,7 +121,7 @@ def atomic_replace_bytes(
     if stage_hook is not None:
         stage_hook("temp_created", temporary)
     try:
-        os.fchmod(descriptor, mode)
+        set_descriptor_mode(descriptor, mode)
         with os.fdopen(descriptor, "wb") as handle:
             descriptor = -1
             handle.write(payload)
@@ -182,7 +169,7 @@ def atomic_create_bytes(
         stage_hook("temp_created", temporary)
     published = False
     try:
-        os.fchmod(descriptor, mode)
+        set_descriptor_mode(descriptor, mode)
         with os.fdopen(descriptor, "wb") as handle:
             descriptor = -1
             handle.write(payload)

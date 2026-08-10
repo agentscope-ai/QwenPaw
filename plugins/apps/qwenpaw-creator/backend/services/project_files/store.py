@@ -19,6 +19,9 @@ from typing import Any, Final
 from uuid import uuid4
 
 from pydantic import ValidationError
+from services.runtime_files.durability import (
+    fsync_directory as _fsync_directory,
+)
 from services.runtime_files.locking import CrossProcessFileLock
 from services.storage_root import require_creator_data_root
 from utils.logger import setup_logger
@@ -707,17 +710,6 @@ def _snapshot(project: Project) -> ProjectSnapshot:
         etag=project_etag(project),
         generation=project.generation,
     )
-
-
-def _fsync_directory(directory: Path) -> None:
-    flags = os.O_RDONLY
-    if hasattr(os, "O_DIRECTORY"):
-        flags |= os.O_DIRECTORY
-    descriptor = os.open(directory, flags)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 __all__ = [
