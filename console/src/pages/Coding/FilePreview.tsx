@@ -631,11 +631,10 @@ interface FilePreviewBaseProps {
   previewKind?: WorkspaceArtifactPreviewKind;
 }
 
-export type FilePreviewProps = FilePreviewBaseProps &
-  (
-    | { filePath: string; artifactLocator?: never }
-    | { filePath?: never; artifactLocator: WorkspaceArtifactLocator }
-  );
+export interface FilePreviewProps extends FilePreviewBaseProps {
+  filePath: string;
+  artifactLocator?: WorkspaceArtifactLocator;
+}
 
 export default function FilePreview(props: FilePreviewProps) {
   const {

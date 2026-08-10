@@ -44,6 +44,7 @@ describe("FilePreview", () => {
     render(
       <FilePreview
         content=""
+        filePath="report.png"
         artifactLocator={{
           agentId: "analyst",
           chatId: "chat-1",

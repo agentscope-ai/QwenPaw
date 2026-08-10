@@ -415,6 +415,7 @@ const WorkspaceArtifactsCard: React.FC<{
               ) : (
                 <FilePreview
                   content={previewContent}
+                  filePath={previewArtifact.path}
                   artifactLocator={previewLocator}
                   artifactSize={previewArtifact.size}
                   previewKind={previewArtifact.preview}
