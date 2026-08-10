@@ -120,12 +120,10 @@ async def test_manifest_is_persisted_without_built_agent():
 
     await SessionSaveHook().run(ctx)
 
-    assert session.updated_key == (
-        "agent",
-        "workspace_artifact_manifests",
-    )
-    assert session.updated_value == [
+    assert session.saved is True
+    assert session.saved_payload["workspace_artifact_manifests"] == [
         {"version": 1, "turn_id": "turn-1"},
         {"version": 1, "turn_id": "turn-2"},
     ]
+    assert session.saved_payload["workspace_artifact_roots"] == {}
     assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is True

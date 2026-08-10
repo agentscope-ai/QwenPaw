@@ -12,6 +12,7 @@ Request processing is handled by ``Runtime`` (see ``stream_query``).
 """
 import asyncio
 import logging
+import uuid
 from typing import Any, AsyncGenerator, Iterable, Optional
 
 from ...config.timezone import normalize_tz
@@ -32,6 +33,8 @@ from ..chats.session import SafeJSONSession
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
+from ...agents.artifacts import ArtifactTurn
+from ...services.project_directory import resolve_effective_project_dir
 from ...config.paths import resolve_agent_workspace_path
 
 logger = logging.getLogger(__name__)
@@ -319,13 +322,50 @@ class Workspace:
                 "user_id": getattr(request, "user_id", None),
                 "channel": getattr(request, "channel", None) or "console",
             }
-            async for item in self.harness_runtime.stream(
-                backend=backend,
-                request=request,
-                cwd=self.workspace_dir.resolve(),
-                settings=settings,
-            ):
-                yield item
+            trusted_override = request_context.get("project_dir")
+            if not isinstance(trusted_override, str):
+                trusted_override = None
+            project_dir, _source = resolve_effective_project_dir(
+                self.workspace_dir,
+                agent_project_dir=getattr(config, "project_dir", None),
+                trusted_override=trusted_override,
+            )
+            artifact_turn = ArtifactTurn(
+                workspace=self,
+                workspace_dir=self.workspace_dir,
+                project_dir=project_dir,
+                agent_id=self.agent_id,
+                session_id=str(
+                    getattr(request, "session_id", None) or "default",
+                ),
+                turn_id=uuid.uuid4().hex,
+            )
+            try:
+                await artifact_turn.begin()
+            except Exception:
+                logger.debug(
+                    "Harness artifact pre-scan failed",
+                    exc_info=True,
+                )
+                artifact_turn = None
+            try:
+                async for item in self.harness_runtime.stream(
+                    backend=backend,
+                    request=request,
+                    cwd=project_dir,
+                    settings=settings,
+                    artifact_turn=artifact_turn,
+                ):
+                    yield item
+            finally:
+                if artifact_turn is not None:
+                    try:
+                        await artifact_turn.cleanup()
+                    except Exception:
+                        logger.debug(
+                            "Harness artifact cleanup failed",
+                            exc_info=True,
+                        )
             return
 
         from ...runtime import Runtime

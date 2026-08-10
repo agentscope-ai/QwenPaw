@@ -11,6 +11,11 @@ from types import SimpleNamespace
 import pytest
 
 import qwenpaw.hooks.workspace_artifacts_hook as artifacts_hook_module
+import qwenpaw.agents.artifacts.lifecycle as artifact_lifecycle_module
+from qwenpaw.agents.artifacts import (
+    ArtifactCollectorGroup,
+    WorkspaceSnapshot,
+)
 from qwenpaw.config.context import set_current_project_dir
 from qwenpaw.hooks.workspace_artifacts_hook import (
     WorkspaceArtifactsCleanupHook,
@@ -25,18 +30,18 @@ async def test_workspace_scans_run_outside_event_loop(
 ) -> None:
     event_loop_thread = threading.get_ident()
     scan_threads: list[int] = []
-    capture_snapshot = artifacts_hook_module.capture_workspace_snapshot
+    capture_snapshot = artifact_lifecycle_module.capture_workspace_snapshot
 
     def tracked_capture(workspace_dir):
         scan_threads.append(threading.get_ident())
         return capture_snapshot(workspace_dir)
 
     monkeypatch.setattr(
-        artifacts_hook_module,
+        artifact_lifecycle_module,
         "capture_workspace_snapshot",
         tracked_capture,
     )
-    workspace = SimpleNamespace(artifact_turn_lock=asyncio.Lock())
+    workspace = SimpleNamespace()
     ctx = SimpleNamespace(
         workspace_dir=tmp_path,
         workspace=workspace,
@@ -65,7 +70,7 @@ async def test_external_project_artifact_uses_project_root(
     project_dir = tmp_path / "project"
     workspace_dir.mkdir()
     project_dir.mkdir()
-    workspace = SimpleNamespace(artifact_turn_lock=asyncio.Lock())
+    workspace = SimpleNamespace()
     ctx = SimpleNamespace(
         workspace_dir=workspace_dir,
         workspace=workspace,
@@ -107,10 +112,31 @@ def test_nested_project_root_is_scanned_once(tmp_path: Path) -> None:
     assert roots == {"workspace": workspace_dir.resolve()}
 
 
-async def test_turns_share_one_workspace_artifact_lock(
+def test_truncated_only_collection_generates_manifest(tmp_path: Path) -> None:
+    collector = ArtifactCollectorGroup(
+        {"workspace": tmp_path},
+        {"workspace": WorkspaceSnapshot.create({}, truncated=True)},
+    )
+
+    # pylint: disable=protected-access
+    manifest = artifact_lifecycle_module._collect_manifest(
+        collector,
+        agent_id="agent-1",
+        session_id="chat-1",
+        turn_id="turn-1",
+    )
+    # pylint: enable=protected-access
+
+    assert manifest is not None
+    assert manifest["artifacts"] == []
+    assert manifest["changes"] == []
+    assert manifest["truncated"] is True
+
+
+async def test_overlapping_turns_run_without_cross_claiming_files(
     tmp_path: Path,
 ) -> None:
-    workspace = SimpleNamespace(artifact_turn_lock=asyncio.Lock())
+    workspace = SimpleNamespace()
     first_ctx = SimpleNamespace(
         workspace_dir=tmp_path,
         workspace=workspace,
@@ -125,35 +151,50 @@ async def test_turns_share_one_workspace_artifact_lock(
         agent_id="agent-1",
         session_id="chat-2",
     )
-    second_started = asyncio.Event()
     second_acquired = asyncio.Event()
-    allow_second_cleanup = asyncio.Event()
+    finish_second = asyncio.Event()
 
     async def run_second_turn() -> None:
-        second_started.set()
         await WorkspaceArtifactsHook().run(second_ctx)
         second_acquired.set()
-        await allow_second_cleanup.wait()
+        await finish_second.wait()
+        await WorkspaceArtifactsFinalizeHook().run(second_ctx)
         await WorkspaceArtifactsCleanupHook().run(second_ctx)
 
     await WorkspaceArtifactsHook().run(first_ctx)
     second_task = asyncio.create_task(run_second_turn())
-    await second_started.wait()
-    await asyncio.sleep(0)
-
-    assert second_acquired.is_set() is False
-
-    await WorkspaceArtifactsCleanupHook().run(first_ctx)
     await asyncio.wait_for(second_acquired.wait(), timeout=1)
-    allow_second_cleanup.set()
+    first_file = tmp_path / "first.txt"
+    second_file = tmp_path / "second.txt"
+    first_file.write_text("first", encoding="utf-8")
+    second_file.write_text("second", encoding="utf-8")
+    first_ctx.extras["workspace_artifact_turn"].collector.register(first_file)
+    second_ctx.extras["workspace_artifact_turn"].collector.register(
+        second_file,
+    )
+
+    await WorkspaceArtifactsFinalizeHook().run(first_ctx)
+    await WorkspaceArtifactsCleanupHook().run(first_ctx)
+    finish_second.set()
     await second_task
 
+    first_manifest = first_ctx.extras["workspace_artifact_manifest"]
+    second_manifest = second_ctx.extras["workspace_artifact_manifest"]
+    assert [item["path"] for item in first_manifest["artifacts"]] == [
+        "first.txt",
+    ]
+    assert [item["path"] for item in second_manifest["artifacts"]] == [
+        "second.txt",
+    ]
+    assert first_manifest["truncated"] is True
+    assert second_manifest["truncated"] is True
 
-async def test_cancelled_pre_scan_releases_turn_lock(
+
+async def test_cancelled_pre_scan_finishes_coordination(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    workspace = SimpleNamespace(artifact_turn_lock=asyncio.Lock())
+    workspace = SimpleNamespace()
     ctx = SimpleNamespace(
         workspace_dir=tmp_path,
         workspace=workspace,
@@ -165,9 +206,32 @@ async def test_cancelled_pre_scan_releases_turn_lock(
     async def cancel_scan(*_args, **_kwargs):
         raise asyncio.CancelledError
 
-    monkeypatch.setattr(artifacts_hook_module, "run_sync_io", cancel_scan)
+    original_run_sync_io = artifact_lifecycle_module.run_sync_io
+    monkeypatch.setattr(
+        artifact_lifecycle_module,
+        "run_sync_io",
+        cancel_scan,
+    )
 
     with pytest.raises(asyncio.CancelledError):
         await WorkspaceArtifactsHook().run(ctx)
 
-    assert workspace.artifact_turn_lock.locked() is False
+    monkeypatch.setattr(
+        artifact_lifecycle_module,
+        "run_sync_io",
+        original_run_sync_io,
+    )
+    next_ctx = SimpleNamespace(
+        workspace_dir=tmp_path,
+        workspace=workspace,
+        extras={"turn_id": "turn-2"},
+        agent_id="agent-1",
+        session_id="chat-2",
+    )
+    await WorkspaceArtifactsHook().run(next_ctx)
+    (tmp_path / "report.txt").write_text("ready", encoding="utf-8")
+    await WorkspaceArtifactsFinalizeHook().run(next_ctx)
+    await WorkspaceArtifactsCleanupHook().run(next_ctx)
+
+    manifest = next_ctx.extras["workspace_artifact_manifest"]
+    assert manifest["truncated"] is False

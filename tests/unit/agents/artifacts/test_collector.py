@@ -8,6 +8,7 @@ from qwenpaw.agents.artifacts import (
     ArtifactCollectorGroup,
     ArtifactLimits,
     WorkspaceSnapshot,
+    SnapshotLimits,
     capture_workspace_snapshot,
 )
 
@@ -165,6 +166,30 @@ def test_collector_preserves_initial_snapshot_truncation(
 
     result = collector.collect(capture_workspace_snapshot(tmp_path))
 
+    assert result.truncated is True
+
+
+def test_collector_keeps_registered_file_outside_snapshot_window(
+    tmp_path: Path,
+) -> None:
+    before = capture_workspace_snapshot(tmp_path)
+    collector = ArtifactCollector(tmp_path, before)
+    first = tmp_path / "a.txt"
+    registered = tmp_path / "z.txt"
+    first.write_text("first", encoding="utf-8")
+    registered.write_text("registered", encoding="utf-8")
+    assert collector.register(registered) is True
+
+    after = capture_workspace_snapshot(
+        tmp_path,
+        limits=SnapshotLimits(max_files=1),
+    )
+    result = collector.collect(after)
+
+    assert [(item.path, item.change) for item in result.artifacts] == [
+        ("a.txt", "created"),
+        ("z.txt", "modified"),
+    ]
     assert result.truncated is True
 
 

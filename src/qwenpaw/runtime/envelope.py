@@ -843,65 +843,11 @@ class Envelope:
         manifest: dict[str, Any],
     ) -> AsyncGenerator[Any, None]:
         """Append a completed internal tool call and result pair."""
-        from ..schemas import (
-            ContentType,
-            DataContent,
-            FunctionCall,
-            FunctionCallOutput,
-            Message,
-            MessageType,
-            Role,
-            RunStatus,
-        )
+        from .artifact_messages import build_artifact_messages
 
-        call_id = f"workspace_artifacts_{uuid.uuid4().hex}"
-        call_message = Message(
-            id=_gen_msg_id(),
-            type=MessageType.PLUGIN_CALL,
-            role=Role.ASSISTANT,
-            content=[],
-            status=RunStatus.Completed,
-        )
-        call_message.name = "assistant"
-        call_message.object = "message"
-        call_content = DataContent(
-            type=ContentType.DATA,
-            data=FunctionCall(
-                call_id=call_id,
-                name="workspace_artifacts",
-                arguments="{}",
-            ).model_dump(),
-            delta=False,
-            index=0,
-        )
-        call_content.msg_id = call_message.id
-        call_message.content.append(call_content)
-        self._response.output.append(call_message)
-        yield self._tag_seq(call_message)
-
-        output_message = Message(
-            id=_gen_msg_id(),
-            type=MessageType.PLUGIN_CALL_OUTPUT,
-            role=Role.TOOL,
-            content=[],
-            status=RunStatus.Completed,
-        )
-        output_message.name = "assistant"
-        output_message.object = "message"
-        output_content = DataContent(
-            type=ContentType.DATA,
-            data=FunctionCallOutput(
-                call_id=call_id,
-                name="workspace_artifacts",
-                output=json.dumps(manifest, ensure_ascii=False),
-            ).model_dump(),
-            delta=False,
-            index=0,
-        )
-        output_content.msg_id = output_message.id
-        output_message.content.append(output_content)
-        self._response.output.append(output_message)
-        yield self._tag_seq(output_message)
+        for message in build_artifact_messages(manifest):
+            self._response.output.append(message)
+            yield self._tag_seq(message)
 
     async def finalize(self) -> AsyncGenerator[Any, None]:
         if self._finalized:
@@ -945,9 +891,8 @@ class Envelope:
         * ``("text", text)`` — from text blocks (reset on every tool-call
           start, so they belong to the current iteration only).
 
-        This is a public-API entry point so that callers (e.g.
-        ``Runtime._try_save_on_cancel``) do not need to reach into
-        private state.
+        This public API lets the interrupted-turn finalizer inspect
+        accumulated output without reaching into private state.
         """
         from ..schemas import RunStatus
 

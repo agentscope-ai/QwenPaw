@@ -139,6 +139,7 @@ class Runtime:
 
             # --- [phase 6] POST_RESPONSE ---
             await hooks.run(Phase.POST_RESPONSE, ctx)
+            await self._run_finalize_turn(ctx, hooks)
 
             async for ev in envelope.finalize_message():
                 yield ev
@@ -169,17 +170,21 @@ class Runtime:
                     getattr(ctx, "session_id", ""),
                 )
 
-            # Persist agent state so the interrupted turn is not lost.
-            # asyncio.shield protects the save from task re-cancellation.
-            await self._try_save_on_cancel(ctx)
+            await self._finalize_interrupted_turn(ctx, hooks, envelope)
+
+            async for ev in envelope.finalize_message():
+                yield ev
+            manifest = ctx.extras.get("workspace_artifact_manifest")
+            if manifest is not None:
+                async for ev in envelope.append_artifact_manifest(manifest):
+                    yield ev
 
             async for ev in envelope.cancel_envelope():
                 yield ev
             raise
         except BaseException as e:
-            await self._try_save_on_cancel(ctx)
-
             ctx.error = e
+            await self._finalize_interrupted_turn(ctx, hooks, envelope)
             logger.error(
                 "runtime: unhandled error session=%s: %s",
                 getattr(ctx, "session_id", ""),
@@ -195,6 +200,12 @@ class Runtime:
                 "_error_code",
                 e.__class__.__name__,
             )
+            async for ev in envelope.finalize_message():
+                yield ev
+            manifest = ctx.extras.get("workspace_artifact_manifest")
+            if manifest is not None:
+                async for ev in envelope.append_artifact_manifest(manifest):
+                    yield ev
             async for ev in envelope.error_envelope(
                 err_text,
                 err_code,
@@ -231,80 +242,40 @@ class Runtime:
                     exc_info=True,
                 )
 
-    async def _try_save_on_cancel(self, ctx: HookContext) -> None:
-        """Best-effort session save on cancellation.
+    async def _run_finalize_turn(self, ctx: HookContext, hooks: Any) -> None:
+        """Run the always-on finalization phase at most once."""
+        if ctx.extras.get("_finalize_turn_complete"):
+            return
+        await hooks.run(Phase.FINALIZE_TURN, ctx)
+        ctx.extras["_finalize_turn_complete"] = True
 
-        Before snapshotting, any partial streaming content accumulated in
-        the ``Envelope`` is injected into the agent's context so the
-        interrupted turn's text is not lost on reload.
-
-        ``state_dict()`` is called synchronously to snapshot the agent
-        state *before* any further event-loop iteration.  The I/O write
-        is wrapped in ``asyncio.shield`` so it completes even when the
-        outer task's ``_must_cancel`` flag triggers a re-cancellation on
-        the next ``await``.  In that case the shielded inner task still
-        runs to completion in the background; the ``proxy`` owns an
-        independent copy of the data so ``agent.close()`` in the
-        ``finally`` block cannot corrupt it.
-
-        .. note:: Why hardcoded instead of a hook?
-
-           This runs *outside* the ``try/except`` that wraps
-           ``hooks.run(Phase.ON_ERROR)``, so it executes even when
-           re-cancellation skips all ON_ERROR hooks.  The synchronous
-           parts (inject + state_dict) complete before any ``await``,
-           and ``asyncio.shield`` protects the I/O — guarantees that a
-           generic hook framework cannot provide.
-
-        TODO: Currently only ``SessionSaveHook`` has a cancel-path
-         equivalent here.  Other ``POST_RESPONSE`` hooks (e.g.
-         ``CronMemoryRestoreHook``) and plugin-registered hooks are
-         skipped on /stop.  A future improvement should unify the
-         cancel and normal paths — e.g. via a dedicated ``ON_CANCEL``
-         phase with per-hook shield execution — so plugins can
-         participate in the cancel lifecycle.  ``ctx._envelope`` should
-         also be promoted to a first-class ``HookContext`` field.
-        """
+    async def _finalize_interrupted_turn(
+        self,
+        ctx: HookContext,
+        hooks: Any,
+        envelope: Envelope,
+    ) -> None:
+        """Persist partial response and artifacts despite cancellation."""
         agent = getattr(ctx, "agent", None)
-        if agent is None:
-            return
-        workspace = getattr(ctx, "workspace", None)
-        session = getattr(workspace, "session", None) if workspace else None
-        if session is None:
-            return
         try:
-            envelope = getattr(ctx, "_envelope", None)
-            if envelope is not None:
+            if agent is not None:
                 self._inject_partial_response(agent, envelope)
-
-            from ._state_utils import StateProxy
-
-            proxy = StateProxy()
-            proxy.data = agent.state_dict()
-            request = ctx.request
-            user_id = getattr(request, "user_id", "") or ctx.session_id
-            channel = getattr(request, "channel", "") or ""
-            await asyncio.shield(
-                session.save_session_state(
-                    session_id=ctx.session_id,
-                    user_id=user_id,
-                    channel=channel,
-                    agent=proxy,
-                ),
+            finalization = asyncio.create_task(
+                self._run_finalize_turn(ctx, hooks),
             )
+            while not finalization.done():
+                try:
+                    await asyncio.shield(finalization)
+                except asyncio.CancelledError:
+                    continue
+            await finalization
             logger.info(
-                "cancel-save: persisted interrupted turn (session=%s)",
-                ctx.session_id,
-            )
-        except asyncio.CancelledError:
-            logger.info(
-                "cancel-save: outer await re-cancelled, inner save "
-                "continues in background (session=%s)",
+                "turn-finalize: persisted interrupted turn (session=%s)",
                 ctx.session_id,
             )
         except Exception:
             logger.debug(
-                "cancel-save: failed (session=%s)",
+                "turn-finalize: failed (session=%s)",
                 ctx.session_id,
                 exc_info=True,
             )

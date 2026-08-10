@@ -47,16 +47,16 @@ async def test_coding_mode_routes_directly_to_harness(
     output = [item async for item in workspace.stream_query(request)]
 
     assert output == ["harness-output"]
-    assert runtime.call == {
-        "backend": "codex",
-        "request": request,
-        "cwd": (tmp_path / "workspace").resolve(),
-        "settings": {
-            "_request_context": {
-                "agent_id": "agent-1",
-                "session_id": None,
-                "user_id": None,
-                "channel": "console",
-            },
+    assert runtime.call is not None
+    assert runtime.call["backend"] == "codex"
+    assert runtime.call["request"] is request
+    assert runtime.call["cwd"] == (tmp_path / "workspace").resolve()
+    assert runtime.call["artifact_turn"] is not None
+    assert runtime.call["settings"] == {
+        "_request_context": {
+            "agent_id": "agent-1",
+            "session_id": None,
+            "user_id": None,
+            "channel": "console",
         },
     }

@@ -1,7 +1,13 @@
 # -*- coding: utf-8 -*-
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
-from qwenpaw.app.chats.api import _get_workspace_artifact_manifests
+from qwenpaw.app.chats.api import (
+    _get_workspace_artifact_manifests,
+    get_chat,
+)
+from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.utils import (
     artifact_manifest_to_messages,
     merge_artifact_manifests,
@@ -27,6 +33,69 @@ def test_history_keeps_root_manifest_compatibility() -> None:
     )
 
     assert result == manifests
+
+
+async def test_history_restores_version_two_project_manifest() -> None:
+    manifest = {
+        "version": 2,
+        "agent_id": "analyst",
+        "chat_id": "chat-1",
+        "turn_id": "turn-1",
+        "created_at": "2026-08-03T10:30:00+00:00",
+        "artifacts": [
+            {
+                "path": "report.txt",
+                "name": "report.txt",
+                "extension": ".txt",
+                "mime_type": "text/plain",
+                "size": 12,
+                "modified_ns": 34,
+                "change": "created",
+                "preview": "text",
+                "root": "project",
+            },
+        ],
+        "changes": [
+            {
+                "path": "report.txt",
+                "change": "created",
+                "root": "project",
+            },
+        ],
+        "truncated": False,
+    }
+    chat = ChatSpec(
+        id="chat-1",
+        session_id="chat-1",
+        user_id="user-1",
+        channel="console",
+    )
+    manager = SimpleNamespace(get_chat=AsyncMock(return_value=chat))
+    session = SimpleNamespace(
+        get_session_state_dict=AsyncMock(
+            return_value={
+                "agent": {"workspace_artifact_manifests": [manifest]},
+            },
+        ),
+    )
+    workspace = SimpleNamespace(
+        config=SimpleNamespace(backend="qwenpaw"),
+        task_tracker=SimpleNamespace(
+            get_status=AsyncMock(return_value="idle"),
+        ),
+    )
+
+    history = await get_chat(
+        "chat-1",
+        mgr=manager,
+        session=session,
+        workspace=workspace,
+    )
+
+    output = history.messages[1].content[0].data["output"]
+    restored = json.loads(output)
+    assert restored["version"] == 2
+    assert restored["artifacts"][0]["root"] == "project"
 
 
 def test_artifact_manifest_history_uses_tool_pair() -> None:

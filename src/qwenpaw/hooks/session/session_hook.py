@@ -10,6 +10,11 @@ from __future__ import annotations
 
 import logging
 
+from ...agents.artifacts import (
+    MAX_WORKSPACE_ARTIFACT_MANIFESTS,
+    merge_artifact_manifests,
+    merge_artifact_root_mappings,
+)
 from ..base import LifecycleHook
 from ...agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ...runtime._state_utils import StateProxy
@@ -19,24 +24,7 @@ from .signals import SESSION_SAVE_SUCCEEDED_KEY
 
 logger = logging.getLogger(__name__)
 
-_MAX_WORKSPACE_ARTIFACT_MANIFESTS = 200
-
-
-def _merge_workspace_artifact_manifests(
-    session_state: dict | None,
-    manifest: dict | None,
-) -> list[dict]:
-    """Preserve history and append one deduplicated bounded manifest."""
-    loaded = session_state or {}
-    prior = loaded.get("workspace_artifact_manifests", [])
-    manifests = [item for item in prior if isinstance(item, dict)]
-    if manifest is not None:
-        turn_id = manifest.get("turn_id")
-        manifests = [
-            item for item in manifests if item.get("turn_id") != turn_id
-        ]
-        manifests.append(manifest)
-    return manifests[-_MAX_WORKSPACE_ARTIFACT_MANIFESTS:]
+_merge_workspace_artifact_manifests = merge_artifact_manifests
 
 
 def _is_ephemeral_request(ctx: HookContext) -> bool:
@@ -98,7 +86,7 @@ class SessionLoadHook(LifecycleHook):
 class SessionSaveHook(LifecycleHook):
     """Persist agent state before the response envelope is finalized."""
 
-    phase = Phase.POST_RESPONSE
+    phase = Phase.FINALIZE_TURN
     name = "session_save"
     priority = 90
 
@@ -116,6 +104,7 @@ class SessionSaveHook(LifecycleHook):
             user_id = getattr(request, "user_id", "") or ctx.session_id
             channel = getattr(request, "channel", "") or ""
             manifest = ctx.extras.get("workspace_artifact_manifest")
+            root_mappings = ctx.extras.get("workspace_artifact_roots")
 
             if ctx.agent is None:
                 if manifest is None:
@@ -132,12 +121,20 @@ class SessionSaveHook(LifecycleHook):
                     agent_state,
                     manifest,
                 )
-                await session.update_session_state(
+                roots = merge_artifact_root_mappings(
+                    agent_state,
+                    manifests,
+                    root_mappings,
+                )
+                agent_state["workspace_artifact_manifests"] = manifests
+                agent_state["workspace_artifact_roots"] = roots
+                proxy = StateProxy()
+                proxy.data = agent_state
+                await session.save_session_state(
                     session_id=ctx.session_id,
-                    key=("agent", "workspace_artifact_manifests"),
-                    value=manifests,
                     user_id=user_id,
                     channel=channel,
+                    agent=proxy,
                 )
                 ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = True
                 return HookResult()
@@ -151,8 +148,15 @@ class SessionSaveHook(LifecycleHook):
             )
             if manifests:
                 proxy.data["workspace_artifact_manifests"] = manifests[
-                    -_MAX_WORKSPACE_ARTIFACT_MANIFESTS:
+                    -MAX_WORKSPACE_ARTIFACT_MANIFESTS:
                 ]
+            proxy.data[
+                "workspace_artifact_roots"
+            ] = merge_artifact_root_mappings(
+                ctx.session_state,
+                manifests,
+                root_mappings,
+            )
             await session.save_session_state(
                 session_id=ctx.session_id,
                 user_id=user_id,

@@ -14,6 +14,7 @@ from .models import (
     PreviewKind,
     WorkspaceArtifact,
     WorkspaceChange,
+    WorkspaceFileState,
     WorkspaceSnapshot,
 )
 from .snapshot import diff_workspace_snapshots
@@ -105,6 +106,23 @@ class ArtifactCollector:
         self._limits = limits or ArtifactLimits()
         self._explicit_paths: set[str] = set()
 
+    def _registered_state(
+        self,
+        relative_path: str,
+    ) -> WorkspaceFileState | None:
+        """Read final metadata for an explicitly registered file."""
+        candidate = self._workspace_dir / relative_path
+        try:
+            stat = candidate.stat()
+        except OSError:
+            return None
+        if not candidate.is_file():
+            return None
+        return WorkspaceFileState(
+            size=stat.st_size,
+            modified_ns=stat.st_mtime_ns,
+        )
+
     def register(self, file_path: str | Path) -> bool:
         """Register a regular file when it remains inside the workspace."""
         candidate = Path(file_path)
@@ -133,12 +151,16 @@ class ArtifactCollector:
     def collect(
         self,
         after: WorkspaceSnapshot,
+        *,
+        include_snapshot_changes: bool = True,
     ) -> ArtifactCollection:
         """Merge registrations and snapshot changes into a bounded result."""
-        changes = [
-            WorkspaceChange(change.path, change.change, self._root)
-            for change in diff_workspace_snapshots(self._before, after)
-        ]
+        changes = []
+        if include_snapshot_changes:
+            changes = [
+                WorkspaceChange(change.path, change.change, self._root)
+                for change in diff_workspace_snapshots(self._before, after)
+            ]
         change_by_path = {change.path: change.change for change in changes}
         artifact_paths = {
             change.path for change in changes if change.change != "deleted"
@@ -148,6 +170,8 @@ class ArtifactCollector:
         artifacts: list[WorkspaceArtifact] = []
         for relative_path in sorted(artifact_paths):
             state = after.files.get(relative_path)
+            if state is None and relative_path in self._explicit_paths:
+                state = self._registered_state(relative_path)
             if state is None:
                 continue
             raw_change = change_by_path.get(relative_path, "modified")
@@ -173,7 +197,11 @@ class ArtifactCollector:
                 ),
             )
 
-        truncated = self._before.truncated or after.truncated
+        truncated = (
+            self._before.truncated
+            or after.truncated
+            or not include_snapshot_changes
+        )
         if len(artifacts) > self._limits.max_artifacts:
             artifacts = artifacts[: self._limits.max_artifacts]
             truncated = True
@@ -237,13 +265,18 @@ class ArtifactCollectorGroup:
     def collect(
         self,
         after: Mapping[ArtifactRoot, WorkspaceSnapshot],
+        *,
+        include_snapshot_changes: bool = True,
     ) -> ArtifactCollection:
         """Merge root collections under one global artifact limit."""
         artifacts: list[WorkspaceArtifact] = []
         changes: list[WorkspaceChange] = []
         truncated = False
         for root, collector in self._collectors.items():
-            collection = collector.collect(after[root])
+            collection = collector.collect(
+                after[root],
+                include_snapshot_changes=include_snapshot_changes,
+            )
             artifacts.extend(collection.artifacts)
             changes.extend(collection.changes)
             truncated = truncated or collection.truncated

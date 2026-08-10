@@ -11,6 +11,8 @@ from .context import (
     reset_current_artifact_collector,
     set_current_artifact_collector,
 )
+from .coordinator import ArtifactCoordinator, ArtifactTurnHandle
+from .lifecycle import ArtifactTurn, resolve_artifact_roots
 from .models import (
     ArtifactCollection,
     ArtifactRoot,
@@ -24,14 +26,23 @@ from .snapshot import (
     capture_workspace_snapshot,
     diff_workspace_snapshots,
 )
-from .serializer import serialize_manifest
+from .serializer import parse_manifest, serialize_manifest
+from .session import (
+    MAX_WORKSPACE_ARTIFACT_MANIFESTS,
+    merge_artifact_manifests,
+    merge_artifact_root_mappings,
+)
 
 __all__ = [
     "ArtifactCollection",
     "ArtifactCollector",
     "ArtifactCollectorGroup",
+    "ArtifactCoordinator",
     "ArtifactLimits",
     "ArtifactRoot",
+    "ArtifactTurn",
+    "ArtifactTurnHandle",
+    "MAX_WORKSPACE_ARTIFACT_MANIFESTS",
     "SnapshotLimits",
     "WorkspaceArtifact",
     "WorkspaceChange",
@@ -39,8 +50,12 @@ __all__ = [
     "WorkspaceSnapshot",
     "capture_workspace_snapshot",
     "diff_workspace_snapshots",
+    "parse_manifest",
+    "merge_artifact_manifests",
+    "merge_artifact_root_mappings",
     "register_current_artifact",
     "reset_current_artifact_collector",
+    "resolve_artifact_roots",
     "serialize_manifest",
     "set_current_artifact_collector",
 ]

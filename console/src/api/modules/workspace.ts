@@ -477,19 +477,41 @@ export const workspaceApi = {
     agentId: string,
     filePath: string,
     root: WorkspaceRoot = "workspace",
+    rootRef?: string,
   ) =>
     getAgentWorkspaceUrl(
       agentId,
-      workspaceQuery(`/artifacts/${encodePath(filePath)}`, { root }),
+      workspaceQuery(`/artifacts/${encodePath(filePath)}`, {
+        root,
+        root_ref: rootRef,
+      }),
     ),
 
   getArtifactPreviewUrl: (
     agentId: string,
     filePath: string,
     root: WorkspaceRoot = "workspace",
+    rootRef?: string,
   ) =>
     getAgentWorkspaceUrl(
       agentId,
-      workspaceQuery(`/artifact-previews/${encodePath(filePath)}`, { root }),
+      workspaceQuery(`/artifact-previews/${encodePath(filePath)}`, {
+        root,
+        root_ref: rootRef,
+      }),
+    ),
+
+  getArtifactFileUriUrl: (
+    agentId: string,
+    filePath: string,
+    root: WorkspaceRoot = "workspace",
+    rootRef?: string,
+  ) =>
+    getAgentWorkspaceUrl(
+      agentId,
+      workspaceQuery(`/artifact-file-uri/${encodePath(filePath)}`, {
+        root,
+        root_ref: rootRef,
+      }),
     ),
 };

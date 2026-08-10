@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 # Characters forbidden in Windows filenames
 _UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|]')
 _PRESERVED_STATE_FIELDS = {
-    "agent": frozenset({"workspace_artifact_manifests"}),
+    "agent": frozenset(
+        {"workspace_artifact_manifests", "workspace_artifact_roots"},
+    ),
 }
 
 

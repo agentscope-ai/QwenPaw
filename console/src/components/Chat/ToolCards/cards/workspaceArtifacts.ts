@@ -13,12 +13,13 @@ export interface ArtifactEntry {
   change: "created" | "modified";
   preview: WorkspaceArtifactPreviewKind;
   root: ArtifactRoot;
+  root_ref?: string;
 }
 
 export type ArtifactRoot = "workspace" | "project";
 
 export interface ArtifactManifest {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   agent_id: string;
   chat_id: string;
   turn_id: string;
@@ -28,6 +29,7 @@ export interface ArtifactManifest {
     path: string;
     change: "created" | "modified" | "deleted";
     root: ArtifactRoot;
+    root_ref?: string;
   }>;
   truncated: boolean;
 }
@@ -56,7 +58,7 @@ function isArtifactRoot(value: unknown): value is ArtifactRoot {
 
 function parseArtifactEntry(
   value: unknown,
-  version: 1 | 2,
+  version: 1 | 2 | 3,
 ): ArtifactEntry | null {
   if (!isRecord(value)) return null;
   if (
@@ -68,7 +70,8 @@ function parseArtifactEntry(
     isNonNegativeFiniteNumber(value.modified_ns) &&
     (value.change === "created" || value.change === "modified") &&
     isWorkspaceArtifactPreviewKind(value.preview) &&
-    (version === 1 || isArtifactRoot(value.root))
+    (version === 1 || isArtifactRoot(value.root)) &&
+    (version !== 3 || isNonEmptyString(value.root_ref))
   ) {
     return {
       path: value.path,
@@ -80,6 +83,7 @@ function parseArtifactEntry(
       change: value.change,
       preview: value.preview,
       root: version === 1 ? "workspace" : (value.root as ArtifactRoot),
+      ...(version === 3 ? { root_ref: value.root_ref as string } : {}),
     };
   }
   return null;
@@ -93,18 +97,20 @@ function isArtifactChange(
 
 function parseArtifactChangeEntry(
   value: unknown,
-  version: 1 | 2,
+  version: 1 | 2 | 3,
 ): ArtifactChangeEntry | null {
   if (
     isRecord(value) &&
     isNonEmptyString(value.path) &&
     isArtifactChange(value.change) &&
-    (version === 1 || isArtifactRoot(value.root))
+    (version === 1 || isArtifactRoot(value.root)) &&
+    (version !== 3 || isNonEmptyString(value.root_ref))
   ) {
     return {
       path: value.path,
       change: value.change,
       root: version === 1 ? "workspace" : (value.root as ArtifactRoot),
+      ...(version === 3 ? { root_ref: value.root_ref as string } : {}),
     };
   }
   return null;
@@ -120,7 +126,7 @@ export function parseManifest(result: unknown): ArtifactManifest | null {
     const changes = manifest.changes;
     const version = manifest.version;
     if (
-      (version !== 1 && version !== 2) ||
+      (version !== 1 && version !== 2 && version !== 3) ||
       !isNonEmptyString(manifest.agent_id) ||
       !isNonEmptyString(manifest.chat_id) ||
       !isNonEmptyString(manifest.turn_id) ||

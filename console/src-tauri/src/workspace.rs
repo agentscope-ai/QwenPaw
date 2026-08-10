@@ -1,12 +1,24 @@
 //! Tauri command for opening an agent workspace in the file manager.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
+use reqwest::Url;
+use serde::Deserialize;
 use tauri_plugin_shell::ShellExt;
 
-use crate::workspace_resolver::{
-    get_agent_workspace_directory, resolve_agent_artifact_file_path,
-};
+use crate::backend_download::{parse_headers, parse_local_backend_url};
+use crate::workspace_resolver::get_agent_workspace_directory;
+
+const ARTIFACT_RESOLVER_TIMEOUT: Duration = Duration::from_secs(30);
+
+#[derive(Debug, Deserialize)]
+struct ArtifactFileUriResponse {
+    uri: String,
+}
 
 /// Open a validated workspace directory through the operating system shell.
 #[tauri::command]
@@ -31,41 +43,96 @@ pub(crate) async fn open_workspace_directory(
 #[tauri::command]
 pub(crate) async fn open_workspace_artifact(
     app: tauri::AppHandle,
-    agent_id: String,
-    file_path: String,
-    root: Option<String>,
+    url: String,
+    headers: Option<HashMap<String, String>>,
 ) -> Result<(), String> {
-    let artifact = resolve_artifact_path(agent_id, file_path, root).await?;
+    let artifact = resolve_artifact_path(url, headers).await?;
     open_with_shell(app, artifact).await
 }
 
 #[tauri::command]
 pub(crate) async fn reveal_workspace_artifact(
-    agent_id: String,
-    file_path: String,
-    root: Option<String>,
+    url: String,
+    headers: Option<HashMap<String, String>>,
 ) -> Result<(), String> {
-    let artifact = resolve_artifact_path(agent_id, file_path, root).await?;
+    let artifact = resolve_artifact_path(url, headers).await?;
     tauri::async_runtime::spawn_blocking(move || reveal_file(&artifact))
         .await
         .map_err(|err| format!("artifact reveal task failed: {err}"))?
 }
 
 async fn resolve_artifact_path(
-    agent_id: String,
-    file_path: String,
-    root: Option<String>,
+    url: String,
+    headers: Option<HashMap<String, String>>,
 ) -> Result<PathBuf, String> {
-    let artifact_root = root.unwrap_or_else(|| "workspace".into());
-    tauri::async_runtime::spawn_blocking(move || {
-        resolve_agent_artifact_file_path(
-            &file_path,
-            &agent_id,
-            &artifact_root,
-        )
-    })
-    .await
-    .map_err(|err| format!("artifact resolver task failed: {err}"))?
+    let resolver_url = parse_local_backend_url(&url)?;
+    validate_artifact_resolver_url(&resolver_url)?;
+    let request_headers = parse_headers(headers.unwrap_or_default())?;
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(ARTIFACT_RESOLVER_TIMEOUT)
+        .build()
+        .map_err(|err| format!("failed to create artifact resolver client: {err}"))?
+        .get(resolver_url)
+        .headers(request_headers)
+        .send()
+        .await
+        .map_err(|err| format!("artifact resolver request failed: {err}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "artifact resolver request failed with status code {}",
+            response.status()
+        ));
+    }
+    let response_body = response
+        .bytes()
+        .await
+        .map_err(|err| format!("failed to read artifact resolver response: {err}"))?;
+    let payload = serde_json::from_slice::<ArtifactFileUriResponse>(&response_body)
+        .map_err(|err| format!("invalid artifact resolver response: {err}"))?;
+    let artifact = parse_artifact_file_uri(&payload.uri)?;
+    tauri::async_runtime::spawn_blocking(move || validate_artifact_file(&artifact))
+        .await
+        .map_err(|err| format!("artifact resolver task failed: {err}"))?
+}
+
+fn validate_artifact_resolver_url(url: &Url) -> Result<(), String> {
+    let segments = url
+        .path_segments()
+        .ok_or("artifact resolver URL is not supported")?
+        .collect::<Vec<_>>();
+    if segments.len() < 6
+        || segments[0] != "api"
+        || segments[1] != "agents"
+        || segments[2].is_empty()
+        || segments[3] != "workspace"
+        || segments[4] != "artifact-file-uri"
+        || segments[5].is_empty()
+    {
+        return Err("artifact resolver URL is not supported".into());
+    }
+    Ok(())
+}
+
+fn parse_artifact_file_uri(uri: &str) -> Result<PathBuf, String> {
+    let artifact_url =
+        Url::parse(uri).map_err(|err| format!("invalid artifact file URI: {err}"))?;
+    if artifact_url.scheme() != "file" {
+        return Err("artifact resolver did not return a file URI".into());
+    }
+    artifact_url
+        .to_file_path()
+        .map_err(|_| "artifact file URI is invalid".to_string())
+}
+
+fn validate_artifact_file(path: &Path) -> Result<PathBuf, String> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|err| format!("failed to resolve artifact path: {err}"))?;
+    if !canonical.is_file() {
+        return Err("artifact path is not a file".into());
+    }
+    Ok(path.to_path_buf())
 }
 
 async fn open_with_shell(
@@ -137,9 +204,69 @@ fn validate_workspace_directory(path: &Path) -> Result<PathBuf, String> {
 mod tests {
     use std::{fs, path::Path};
 
+    use reqwest::Url;
     use tempfile::tempdir;
 
-    use super::validate_workspace_directory;
+    use super::{
+        parse_artifact_file_uri, validate_artifact_file,
+        validate_artifact_resolver_url, validate_workspace_directory,
+    };
+
+    #[test]
+    fn validates_artifact_resolver_route_shape() {
+        let valid = Url::parse(
+            "http://127.0.0.1:54377/api/agents/\
+             QwenPaw_QA_Agent_0.2/workspace/artifact-file-uri/report.txt\
+             ?root=workspace",
+        )
+        .expect("parse valid resolver URL");
+        assert!(validate_artifact_resolver_url(&valid).is_ok());
+
+        for invalid in [
+            "http://127.0.0.1:54377/api/agents/agent-1/workspace/\
+             artifact-file-uri/",
+            "http://127.0.0.1:54377/api/agents/agent-1/other/\
+             workspace/artifact-file-uri/report.txt",
+            "http://127.0.0.1:54377/api/workspace/\
+             artifact-file-uri/report.txt",
+        ] {
+            let url = Url::parse(invalid).expect("parse invalid route URL");
+            assert!(validate_artifact_resolver_url(&url).is_err());
+        }
+    }
+
+    #[test]
+    fn parses_only_file_artifact_uris() {
+        let workspace = tempdir().expect("create temporary workspace");
+        let file_path = workspace.path().join("artifact.txt");
+        fs::write(&file_path, "artifact").expect("create temporary file");
+        let uri = Url::from_file_path(&file_path)
+            .expect("build file URI")
+            .to_string();
+
+        assert_eq!(
+            parse_artifact_file_uri(&uri).expect("parse file URI"),
+            file_path
+        );
+        assert!(parse_artifact_file_uri("https://example.com/file").is_err());
+        assert!(parse_artifact_file_uri("not a URI").is_err());
+    }
+
+    #[test]
+    fn artifact_validation_accepts_files_only() {
+        let workspace = tempdir().expect("create temporary workspace");
+        let file_path = workspace.path().join("artifact.txt");
+        fs::write(&file_path, "artifact").expect("create temporary file");
+
+        assert_eq!(
+            validate_artifact_file(&file_path).expect("validate file"),
+            file_path
+        );
+        assert!(validate_artifact_file(workspace.path()).is_err());
+        assert!(
+            validate_artifact_file(&workspace.path().join("missing")).is_err()
+        );
+    }
 
     #[test]
     fn accepts_an_existing_absolute_directory() {

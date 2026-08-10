@@ -50,13 +50,33 @@ vi.mock("../../../../api/authHeaders", () => ({
 
 vi.mock("../../../../api/modules/workspace", () => ({
   workspaceApi: {
-    getArtifactFileUrl: (agentId: string, path: string, root = "workspace") =>
-      `/artifacts/${agentId}/${path}?root=${root}`,
+    getArtifactFileUrl: (
+      agentId: string,
+      path: string,
+      root = "workspace",
+      rootRef?: string,
+    ) =>
+      `/artifacts/${agentId}/${path}?root=${root}${
+        rootRef ? `&root_ref=${rootRef}` : ""
+      }`,
     getArtifactPreviewUrl: (
       agentId: string,
       path: string,
       root = "workspace",
-    ) => `/artifact-previews/${agentId}/${path}?root=${root}`,
+      rootRef?: string,
+    ) =>
+      `/artifact-previews/${agentId}/${path}?root=${root}${
+        rootRef ? `&root_ref=${rootRef}` : ""
+      }`,
+    getArtifactFileUriUrl: (
+      agentId: string,
+      path: string,
+      root = "workspace",
+      rootRef?: string,
+    ) =>
+      `/artifact-file-uris/${agentId}/${path}?root=${root}${
+        rootRef ? `&root_ref=${rootRef}` : ""
+      }`,
   },
 }));
 
@@ -182,6 +202,18 @@ describe("WorkspaceArtifactsCard", () => {
     expect(parseManifest(JSON.stringify(manifest))).toEqual(manifest);
   });
 
+  it("accepts version 3 pinned project artifacts", () => {
+    const manifest = JSON.parse(manifestResult());
+    manifest.version = 3;
+    manifest.artifacts = manifest.artifacts.map((artifact: object) => ({
+      ...artifact,
+      root: "project",
+      root_ref: "root-pinned",
+    }));
+
+    expect(parseManifest(JSON.stringify(manifest))).toEqual(manifest);
+  });
+
   it("rejects unknown versions, preview kinds, and malformed output", () => {
     expect(parseManifest(JSON.stringify({ version: 3, artifacts: [] }))).toBe(
       null,
@@ -285,9 +317,14 @@ describe("WorkspaceArtifactsCard", () => {
 
     await waitFor(() => {
       expect(mocks.invoke).toHaveBeenCalledWith("open_workspace_artifact", {
-        agentId: "analyst",
-        filePath: "first.txt",
-        root: "workspace",
+        url: new URL(
+          "/artifact-file-uris/analyst/first.txt?root=workspace",
+          window.location.origin,
+        ).toString(),
+        headers: {
+          ...mocks.authHeaders,
+          "X-Chat-Id": "chat-1",
+        },
       });
       expect(mocks.messageError).toHaveBeenCalledWith(
         "Could not open workspace artifact",
@@ -313,9 +350,45 @@ describe("WorkspaceArtifactsCard", () => {
 
     await waitFor(() => {
       expect(mocks.invoke).toHaveBeenCalledWith("open_workspace_artifact", {
-        agentId: "analyst",
-        filePath: "first.txt",
-        root: "project",
+        url: new URL(
+          "/artifact-file-uris/analyst/first.txt?root=project",
+          window.location.origin,
+        ).toString(),
+        headers: {
+          ...mocks.authHeaders,
+          "X-Chat-Id": "chat-1",
+        },
+      });
+    });
+  });
+
+  it("passes the pinned root reference to desktop commands", async () => {
+    mocks.desktop = true;
+    const manifest = JSON.parse(manifestResult());
+    manifest.version = 3;
+    manifest.artifacts = manifest.artifacts.map((artifact: object) => ({
+      ...artifact,
+      root: "project",
+      root_ref: "root-pinned",
+    }));
+    render(
+      <WorkspaceArtifactsCard
+        content={{ ...artifactContent(), result: JSON.stringify(manifest) }}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Open first.txt"));
+
+    await waitFor(() => {
+      expect(mocks.invoke).toHaveBeenCalledWith("open_workspace_artifact", {
+        url: new URL(
+          "/artifact-file-uris/analyst/first.txt?root=project&root_ref=root-pinned",
+          window.location.origin,
+        ).toString(),
+        headers: {
+          ...mocks.authHeaders,
+          "X-Chat-Id": "chat-1",
+        },
       });
     });
   });

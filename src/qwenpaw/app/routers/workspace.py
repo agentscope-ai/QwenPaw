@@ -294,6 +294,60 @@ async def _resolve_files_root(
     )
 
 
+async def _resolve_artifact_root(
+    request: Request,
+    workspace: Any,
+    root: str,
+    root_ref: str | None,
+) -> Path:
+    """Resolve a pinned historical root or use the legacy resolver."""
+    if root_ref is None:
+        return await _resolve_files_root(request, workspace, root)
+    chat_id = request.headers.get("X-Chat-Id")
+    if not chat_id:
+        raise HTTPException(
+            status_code=400,
+            detail="X-Chat-Id is required with root_ref",
+        )
+    chat = await workspace.chat_manager.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    state = await workspace.session.get_session_state_dict(
+        chat.session_id,
+        chat.user_id,
+        chat.channel,
+    )
+    agent_state = state.get("agent", {})
+    roots = (
+        agent_state.get("workspace_artifact_roots", {})
+        if isinstance(agent_state, dict)
+        else {}
+    )
+    entry = roots.get(root_ref) if isinstance(roots, dict) else None
+    if not isinstance(entry, dict) or entry.get("root") != root:
+        raise HTTPException(status_code=404, detail="Artifact root not found")
+    raw_path = entry.get("path")
+    if not isinstance(raw_path, str) or not raw_path:
+        raise HTTPException(status_code=404, detail="Artifact root not found")
+
+    def _resolve() -> Path:
+        path = Path(raw_path).expanduser()
+        if not path.is_absolute():
+            raise ValueError("Artifact root is not absolute")
+        resolved = path.resolve(strict=True)
+        if not resolved.is_dir():
+            raise NotADirectoryError(str(resolved))
+        return resolved
+
+    try:
+        return await asyncio.to_thread(_resolve)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Artifact root is unavailable",
+        ) from exc
+
+
 @router.get(
     "/tree",
     summary="List one workspace directory page",
@@ -946,10 +1000,16 @@ async def download_artifact_file(
     file_path: str,
     request: Request,
     root: str = Query(default="workspace"),
+    root_ref: str | None = Query(default=None),
 ) -> FileResponse:
     """Download one regular file from a controlled artifact root."""
     workspace = await get_agent_for_request(request)
-    artifact_root = await _resolve_files_root(request, workspace, root)
+    artifact_root = await _resolve_artifact_root(
+        request,
+        workspace,
+        root,
+        root_ref,
+    )
     target = await asyncio.to_thread(
         _resolve_artifact_file,
         artifact_root,
@@ -1010,16 +1070,48 @@ async def preview_artifact_file(
     file_path: str,
     request: Request,
     root: str = Query(default="workspace"),
+    root_ref: str | None = Query(default=None),
 ) -> FileResponse:
     """Serve an artifact with the smaller preview-specific size limit."""
     workspace = await get_agent_for_request(request)
-    artifact_root = await _resolve_files_root(request, workspace, root)
+    artifact_root = await _resolve_artifact_root(
+        request,
+        workspace,
+        root,
+        root_ref,
+    )
     target, media_type = await asyncio.to_thread(
         _resolve_artifact_preview_file,
         artifact_root,
         file_path,
     )
     return FileResponse(target, media_type=media_type)
+
+
+@router.get(
+    "/artifact-file-uri/{file_path:path}",
+    summary="Resolve one artifact for a local desktop action",
+)
+async def artifact_file_uri(
+    file_path: str,
+    request: Request,
+    root: str = Query(default="workspace"),
+    root_ref: str | None = Query(default=None),
+) -> dict[str, str]:
+    """Return a validated file URI for the loopback desktop bridge."""
+    workspace = await get_agent_for_request(request)
+    artifact_root = await _resolve_artifact_root(
+        request,
+        workspace,
+        root,
+        root_ref,
+    )
+    target = await asyncio.to_thread(
+        _resolve_artifact_file,
+        artifact_root,
+        file_path,
+    )
+    return {"uri": target.as_uri()}
 
 
 def _file_etag(stat_result: os.stat_result) -> str:

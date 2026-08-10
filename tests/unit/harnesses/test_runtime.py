@@ -20,6 +20,8 @@ from qwenpaw.harnesses.events import (
     HarnessProvider,
 )
 from qwenpaw.harnesses.runtime import HarnessRuntime
+from qwenpaw.agents.artifacts import ArtifactTurn
+from qwenpaw.app.chats.session import SafeJSONSession
 from qwenpaw.schemas import (
     AgentRequest,
     FileContent,
@@ -127,6 +129,27 @@ class ToolAdapter(FakeAdapter):
         yield HarnessEvent(kind=HarnessEventKind.COMPLETED)
 
 
+class ArtifactAdapter(FakeAdapter):
+    """Create a file so the harness lifecycle can collect it."""
+
+    async def run_turn(  # pylint: disable=invalid-overridden-method
+        self,
+        *,
+        session_id: str,
+        prompt: str,
+        cwd: Path,
+        settings: dict,
+        attachments: list[HarnessAttachment] | None = None,
+    ) -> AsyncIterator[HarnessEvent]:
+        del session_id, prompt, settings, attachments
+        (cwd / "harness.txt").write_text("created", encoding="utf-8")
+        yield HarnessEvent(
+            kind=HarnessEventKind.TEXT_DELTA,
+            text="Created",
+        )
+        yield HarnessEvent(kind=HarnessEventKind.COMPLETED)
+
+
 class CommandAdapter(FakeAdapter):
     """Record a provider-owned command without starting a normal turn."""
 
@@ -213,6 +236,56 @@ async def test_runtime_emits_qwenpaw_envelopes(tmp_path: Path) -> None:
     assert output[-1].status == "completed"
     assert adapter.prompt == "Fix it"
     assert adapter.attachments == []
+
+
+@pytest.mark.asyncio
+async def test_runtime_collects_and_persists_artifacts(tmp_path: Path) -> None:
+    session = SafeJSONSession(str(tmp_path / "sessions"))
+    runtime = HarnessRuntime(tmp_path, session=session)
+    runtime._adapters["codex"] = ArtifactAdapter()
+    turn = ArtifactTurn(
+        workspace=type("Workspace", (), {})(),
+        workspace_dir=tmp_path,
+        project_dir=None,
+        agent_id="agent-1",
+        session_id="chat-1",
+        turn_id="turn-1",
+    )
+    await turn.begin()
+    request = AgentRequest(
+        session_id="chat-1",
+        user_id="user-1",
+        input=[
+            Message(
+                role=Role.USER,
+                content=[TextContent(text="Create it")],
+            ),
+        ],
+    )
+
+    output = [
+        item
+        async for item in runtime.stream(
+            backend="codex",
+            request=request,
+            cwd=tmp_path,
+            artifact_turn=turn,
+        )
+    ]
+    await turn.cleanup()
+
+    response = output[-1]
+    assert [item.type for item in response.output] == [
+        MessageType.MESSAGE,
+        MessageType.PLUGIN_CALL,
+        MessageType.PLUGIN_CALL_OUTPUT,
+    ]
+    persisted = await session.get_session_state_dict(
+        "chat-1",
+        "user-1",
+    )
+    manifest = persisted["agent"]["workspace_artifact_manifests"][0]
+    assert manifest["artifacts"][0]["path"] == "harness.txt"
 
 
 @pytest.mark.asyncio

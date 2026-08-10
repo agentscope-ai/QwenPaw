@@ -17,6 +17,7 @@ from ..schemas import (
     MessageType,
     RunStatus,
 )
+from ..agents.artifacts import ArtifactTurn
 from .base import HarnessAdapter
 from .capabilities import HarnessCapabilityResolver
 from .events import (
@@ -116,6 +117,7 @@ class HarnessRuntime:
         request: Any,
         cwd: Path,
         settings: dict[str, Any] | None = None,
+        artifact_turn: ArtifactTurn | None = None,
     ) -> AsyncGenerator[Any, None]:
         """Run a harness turn and emit the established QwenPaw protocol."""
         settings = dict(settings or {})
@@ -230,6 +232,30 @@ class HarnessRuntime:
         for item in text_stream.finish():
             yield tagged(item)
 
+        manifest = None
+        root_mappings = None
+        if artifact_turn is not None:
+            try:
+                if task_cancelled:
+                    finalize_task = asyncio.create_task(
+                        artifact_turn.finalize(),
+                    )
+                    while not finalize_task.done():
+                        try:
+                            await asyncio.shield(finalize_task)
+                        except asyncio.CancelledError:
+                            continue
+                    manifest = await finalize_task
+                else:
+                    manifest = await artifact_turn.finalize()
+                root_mappings = artifact_turn.root_mappings
+            except Exception:
+                logger.warning(
+                    "Failed to finalize artifacts for harness session %s",
+                    session_id,
+                    exc_info=True,
+                )
+
         clear_history = command in {"new", "clear"}
         if clear_history and response.output:
             response.output[-1].metadata = {
@@ -268,6 +294,8 @@ class HarnessRuntime:
                     request=request,
                     response=response,
                     backend=backend,
+                    manifest=manifest,
+                    root_mappings=root_mappings,
                 )
             except Exception:
                 logger.warning(
@@ -275,9 +303,15 @@ class HarnessRuntime:
                     session_id,
                     exc_info=True,
                 )
+        if manifest is not None:
+            from ..runtime.artifact_messages import build_artifact_messages
+
+            for message in build_artifact_messages(manifest):
+                response.output.append(message)
+                yield tagged(message)
+        yield tagged(response)
         if task_cancelled:
             raise asyncio.CancelledError
-        yield tagged(response)
 
     async def stop(self) -> None:
         """Stop every initialized adapter."""

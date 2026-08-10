@@ -83,7 +83,7 @@ pub(crate) async fn download_backend_file(
         .map_err(|err| format!("failed to flush file: {err}"))
 }
 
-fn parse_local_backend_url(url: &str) -> Result<Url, String> {
+pub(crate) fn parse_local_backend_url(url: &str) -> Result<Url, String> {
     let parsed = Url::parse(url).map_err(|err| format!("invalid download URL: {err}"))?;
     if parsed.scheme() != "http" {
         return Err("download URL protocol is not supported".into());
@@ -113,7 +113,9 @@ fn parse_file_path(file_path: &str) -> Result<PathBuf, String> {
     Ok(PathBuf::from(file_path))
 }
 
-fn parse_headers(headers: HashMap<String, String>) -> Result<HeaderMap, String> {
+pub(crate) fn parse_headers(
+    headers: HashMap<String, String>,
+) -> Result<HeaderMap, String> {
     let mut header_map = HeaderMap::new();
     for (name, value) in headers {
         let header_name = HeaderName::from_bytes(name.as_bytes())

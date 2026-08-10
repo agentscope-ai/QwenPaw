@@ -14,6 +14,12 @@ from pydantic import BaseModel, Field
 from agentscope.message import Msg
 from agentscope.state import AgentState
 
+from ...agents.artifacts import parse_manifest
+from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
+from ...services.project_directory import (
+    resolve_effective_project_dir,
+    session_project_dir,
+)
 from .session import SafeJSONSession
 from .manager import ChatManager, MAX_BATCH_SIZE
 from .models import (
@@ -27,11 +33,6 @@ from .utils import (
     merge_artifact_manifests,
     parse_legacy_memory_state,
 )
-from ...services.project_directory import (
-    resolve_effective_project_dir,
-    session_project_dir,
-)
-from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 
 logger = logging.getLogger(__name__)
 
@@ -427,11 +428,11 @@ async def get_chat(
     messages = agentscope_msg_to_message(memories)
     manifests = _get_workspace_artifact_manifests(state, agent_raw)
     if isinstance(manifests, list):
-        valid_manifests = [
-            manifest
-            for manifest in manifests
-            if isinstance(manifest, dict) and manifest.get("version") == 1
-        ]
+        valid_manifests = []
+        for manifest in manifests:
+            parsed = parse_manifest(manifest)
+            if parsed is not None:
+                valid_manifests.append(parsed)
         messages = merge_artifact_manifests(messages, valid_manifests)
     return ChatHistory(messages=messages, status=status)
 

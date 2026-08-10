@@ -124,6 +124,7 @@ const WorkspaceArtifactsCard: React.FC<{
           manifest.agent_id,
           artifact.path,
           artifact.root,
+          artifact.root_ref,
         ),
         artifact.name,
         {
@@ -168,6 +169,7 @@ const WorkspaceArtifactsCard: React.FC<{
             manifest.agent_id,
             artifact.path,
             artifact.root,
+            artifact.root_ref,
           ),
           {
             headers: {
@@ -216,10 +218,21 @@ const WorkspaceArtifactsCard: React.FC<{
   ) => {
     if (!manifest) return;
     try {
+      const resolverUrl = new URL(
+        workspaceApi.getArtifactFileUriUrl(
+          manifest.agent_id,
+          artifact.path,
+          artifact.root,
+          artifact.root_ref,
+        ),
+        window.location.origin,
+      ).toString();
       await invoke(command, {
-        agentId: manifest.agent_id,
-        filePath: artifact.path,
-        root: artifact.root,
+        url: resolverUrl,
+        headers: {
+          ...buildAuthHeaders(),
+          "X-Chat-Id": manifest.chat_id,
+        },
       });
     } catch {
       message.error(
@@ -232,7 +245,10 @@ const WorkspaceArtifactsCard: React.FC<{
   };
 
   const renderArtifact = (artifact: ArtifactEntry) => (
-    <div className={styles.artifactRow} key={artifact.path}>
+    <div
+      className={styles.artifactRow}
+      key={`${artifact.root_ref ?? artifact.root}:${artifact.path}`}
+    >
       <FileText className={styles.fileIcon} size={17} aria-hidden="true" />
       <span className={styles.fileIdentity}>
         <span className={styles.fileName} title={artifact.path}>
@@ -358,7 +374,10 @@ const WorkspaceArtifactsCard: React.FC<{
           {drawer === "changes" && (
             <div className={styles.drawerBody}>
               {manifest.changes.map((change) => (
-                <div className={styles.artifactRow} key={change.path}>
+                <div
+                  className={styles.artifactRow}
+                  key={`${change.root_ref ?? change.root}:${change.path}`}
+                >
                   <ListTree size={16} aria-hidden="true" />
                   <span className={styles.fileName}>{change.path}</span>
                   <span className={styles.changeBadge}>{change.change}</span>
