@@ -28,6 +28,7 @@ async def test_daily_paper_runs_with_qwenpaw_model_and_defaults() -> None:
     manager._run_reme_job.assert_awaited_once_with(
         "daily_paper",
         needs_llm=True,
+        raise_on_error=True,
         date="",
         force=False,
         use_hf_mirror=False,
@@ -51,6 +52,7 @@ async def test_daily_paper_passes_configured_source_preferences() -> None:
     manager._run_reme_job.assert_awaited_once_with(
         "daily_paper",
         needs_llm=True,
+        raise_on_error=True,
         date="",
         force=False,
         use_hf_mirror=True,
@@ -68,6 +70,24 @@ async def test_daily_paper_fails_when_reme_is_unavailable() -> None:
     )
 
     with pytest.raises(RuntimeError, match="ReMe is not started"):
+        await manager.daily_paper()
+
+
+@pytest.mark.asyncio
+async def test_daily_paper_reports_the_real_execution_failure() -> None:
+    """An unreachable source must not be reported as "ReMe is not started"."""
+    manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
+    manager._reme = SimpleNamespace(
+        is_started=True,
+        run_job=AsyncMock(side_effect=ConnectionError("mirror unreachable")),
+    )
+    manager._update_qwenpaw_model = AsyncMock()
+    manager.get_memory_config = lambda: SimpleNamespace(
+        daily_paper_use_hf_mirror=True,
+        daily_paper_topics="",
+    )
+
+    with pytest.raises(ConnectionError, match="mirror unreachable"):
         await manager.daily_paper()
 
 

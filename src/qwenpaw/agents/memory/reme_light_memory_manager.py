@@ -376,8 +376,23 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         name: str,
         *,
         needs_llm: bool = False,
+        raise_on_error: bool = False,
         **kwargs: Any,
     ) -> "Response | None":
+        """Run one embedded ReMe job.
+
+        Args:
+            name: Job name registered in the embedded ReMe config.
+            needs_llm: Refresh the injected QwenPaw model before running.
+            raise_on_error: Propagate an execution failure instead of
+                flattening it into ``None``.  Callers that report failures to
+                the user should set this, so that ``None`` keeps its single
+                remaining meaning of "ReMe is not started".
+
+        Returns:
+            The job response, or ``None`` when ReMe is not started -- and,
+            unless ``raise_on_error`` is set, also when the job raised.
+        """
         if self._reme is None or not getattr(self._reme, "is_started", False):
             logger.debug("ReMe job skipped; app not started: %s", name)
             return None
@@ -393,6 +408,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return response
         except Exception:
             logger.exception("ReMe job failed: %s", name)
+            if raise_on_error:
+                raise
             return None
 
     def _install_reme_result_hook(self) -> None:
@@ -703,6 +720,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         response = await self._run_reme_job(
             "daily_paper",
             needs_llm=True,
+            raise_on_error=True,
             date=str(kwargs.get("date") or ""),
             force=bool(kwargs.get("force", False)),
             use_hf_mirror=bool(

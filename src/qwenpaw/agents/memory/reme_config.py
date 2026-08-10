@@ -525,7 +525,10 @@ def _base_config() -> dict[str, Any]:
                         },
                         "use_hf_mirror": {
                             "type": "boolean",
-                            "description": "Use the Hugging Face mirror.",
+                            "description": (
+                                "Fetch paper data through the Hugging Face "
+                                "mirror site instead of the official one."
+                            ),
                             "default": False,
                         },
                         "topics": {
