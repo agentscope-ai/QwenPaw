@@ -124,6 +124,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         try:
             from reme import ReMe as ReMeApp  # type: ignore
+            from .reme_dream import register_reme_dream_resilience_steps
+
+            register_reme_dream_resilience_steps()
 
             agent_config: AgentProfileConfig = load_agent_config(self.agent_id)
             memory_config = agent_config.running.reme_light_memory_config
@@ -478,6 +481,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             kwargs=kwargs or {},
         )
 
+    # The status mapping deliberately keeps memory-job handling in one place.
+    # pylint: disable=too-many-branches
     async def _append_reme_job_result_to_inbox(
         self,
         name: str,
@@ -517,6 +522,16 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if len(answer) > MAX_INBOX_BODY_CHARS:
             answer = f"{answer[:MAX_INBOX_BODY_CHARS].rstrip()}\n..."
         success = bool(getattr(response, "success", False))
+        result_status = "success" if success else "error"
+        if name == "auto_dream" and isinstance(response_metadata, dict):
+            candidate_status = str(
+                response_metadata.get("dream_status")
+                or response_metadata.get("status")
+                or "",
+            ).lower()
+            if candidate_status in {"success", "partial", "error"}:
+                result_status = candidate_status
+                success = result_status == "success"
         title = self._inbox_result_title(name)
         body = answer or self._empty_inbox_result_body(name)
         payload: dict[str, Any] = {
@@ -530,6 +545,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if name == "daily_paper":
             payload["force"] = bool(kwargs.get("force", False))
             payload["topics"] = str(kwargs.get("topics") or "")
+        if name == "auto_dream":
+            payload["status"] = result_status
+        if name == "auto_resource":
+            changes = kwargs.get("changes") or []
+            if isinstance(changes, list):
+                payload["change_count"] = len(changes)
             if isinstance(response_metadata, dict):
                 for key in (
                     "digest_path",
@@ -547,8 +568,14 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 source_type="memory",
                 source_id=name,
                 event_type=f"{name}_result",
-                status="success" if success else "error",
-                severity="info" if success else "error",
+                status=result_status,
+                severity=(
+                    "info"
+                    if result_status == "success"
+                    else "warning"
+                    if result_status == "partial"
+                    else "error"
+                ),
                 title=title,
                 body=body,
                 payload=payload,
@@ -1171,7 +1198,14 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             hint=str(kwargs.get("hint") or ""),
         )
         if response is not None and not response.success:
-            raise RuntimeError(str(response.answer))
+            metadata = getattr(response, "metadata", None)
+            status = (
+                metadata.get("dream_status")
+                if isinstance(metadata, dict)
+                else None
+            )
+            if status != "partial":
+                raise RuntimeError(str(response.answer))
 
     async def daily_paper(self, **kwargs: Any) -> None:
         """Build one Daily Paper brief and publish its result to inbox."""

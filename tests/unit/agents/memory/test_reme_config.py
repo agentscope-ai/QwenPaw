@@ -87,6 +87,14 @@ def test_graph_snapshot_job_exposes_complete_wikilink_graph() -> None:
     }
 
 
+def test_auto_dream_uses_qwenpaw_resilient_steps() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    steps = cfg["jobs"]["auto_dream"]["steps"]
+    assert steps[1]["backend"] == "qwenpaw_dream_integrate_step"
+    assert steps[-1]["backend"] == "qwenpaw_dream_finish_step"
+
+
 def test_openai_compatible_embedding_requires_api_key() -> None:
     cfg = _config_for_embedding(
         EmbeddingModelConfig(

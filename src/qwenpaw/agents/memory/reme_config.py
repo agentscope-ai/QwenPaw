@@ -447,13 +447,16 @@ def _base_config() -> dict[str, Any]:
                         "scan_days": 2,
                         "max_units": 5,
                     },
-                    {"backend": "dream_integrate_step"},
+                    {"backend": "qwenpaw_dream_integrate_step"},
                     {
                         "backend": "dream_topics_step",
                         "topic_count": 3,
                         "topic_diversity_days": 7,
                     },
-                    {"backend": "dream_finish_step", "file_catalog": "dream"},
+                    {
+                        "backend": "qwenpaw_dream_finish_step",
+                        "file_catalog": "dream",
+                    },
                 ],
             },
             "proactive": {
