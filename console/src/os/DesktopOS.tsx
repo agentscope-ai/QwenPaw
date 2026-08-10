@@ -243,9 +243,8 @@ export default function DesktopOS() {
     .map((id) => windows[id])
     .filter((w): w is NonNullable<typeof w> => Boolean(w));
 
-  // Auto-hide chrome: menu bar hides only while a window is maximized; the
-  // Spaces panel reveals on top-edge hover. The Dock stays visible by default.
-  const anyMaximized = isMobile || openWindows.some((w) => w.maximized);
+  // Desktop keeps the menu bar visible above maximized windows. Mobile uses
+  // full-screen windows and keeps the menu bar hidden.
   const { topHot } = useEdgeReveal();
 
   // Persisted desktop icon positions + transient drag handlers. While a
@@ -534,7 +533,7 @@ export default function DesktopOS() {
       <ConsolePollService />
 
       <SpacesPanel visible={topHot} />
-      <MenuBar hidden={anyMaximized} />
+      <MenuBar hidden={isMobile} />
       <Dock />
 
       {ctxMenu && (
