@@ -22,6 +22,7 @@ export function stripRouterBasename(pathname: string): string {
 
 export function isOsPath(path: string): boolean {
   const pathname = stripRouterBasename(pathnameOnly(path));
+  // Descendants still enter the shell so it can canonicalize them to /os.
   return pathname === "/os" || pathname.startsWith("/os/");
 }
 
@@ -57,7 +58,7 @@ export function getPostLoginHref(
   redirect: string,
 ): string | null {
   if (!isOsPath(redirect)) return null;
-  return addRouterBasename(currentPathname, redirect);
+  return getOsRootHref(currentPathname);
 }
 
 export function getOsRootHref(currentPathname: string): string {
@@ -67,9 +68,4 @@ export function getOsRootHref(currentPathname: string): string {
 /** Build the classic console entry URL while preserving an optional basename. */
 export function getConsoleRootHref(currentPathname: string): string {
   return addRouterBasename(currentPathname, "/chat");
-}
-
-export function getOsAppHref(currentPathname: string, appPath: string): string {
-  const normalized = appPath.startsWith("/") ? appPath : `/${appPath}`;
-  return addRouterBasename(currentPathname, `/os${normalized}`);
 }

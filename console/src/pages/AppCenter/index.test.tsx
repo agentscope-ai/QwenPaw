@@ -289,4 +289,17 @@ describe("AppCenterPage", () => {
       await screen.findByText("appCenter.appNotLoaded"),
     ).toBeInTheDocument();
   });
+
+  it("keeps the single OS entry path when opening an embedded app", async () => {
+    window.history.replaceState({}, "", "/os/apps/legacy");
+    renderPage();
+    await screen.findByText("alpha-app");
+
+    fireEvent.click(screen.getByText("alpha-app"));
+
+    expect(window.location.pathname).toBe("/os");
+    expect(
+      await screen.findByText("appCenter.appNotLoaded"),
+    ).toBeInTheDocument();
+  });
 });

@@ -5,7 +5,6 @@ import {
   getConsoleRootHref,
   getLoginHref,
   getLoginPath,
-  getOsAppHref,
   getOsRootHref,
   getPostLoginHref,
   getRouterBasename,
@@ -49,16 +48,17 @@ describe("navigationMode", () => {
     expect(isLoginPath("/console/login")).toBe(true);
   });
 
-  it("only requests a hard post-login redirect for OS destinations", () => {
+  it("canonicalizes OS destinations after login", () => {
     expect(getPostLoginHref("/console/login", "/os/apps/office")).toBe(
-      "/console/os/apps/office",
+      "/console/os",
     );
+    expect(getPostLoginHref("/login", "/os/chat")).toBe("/os");
     expect(getPostLoginHref("/login", "/chat")).toBeNull();
   });
 
-  it("builds OS-owned browser paths", () => {
+  it("builds the single OS browser entry path", () => {
     expect(getOsRootHref("/console/os/apps/office")).toBe("/console/os");
-    expect(getOsAppHref("/os", "/apps/office")).toBe("/os/apps/office");
+    expect(getOsRootHref("/os/chat")).toBe("/os");
     expect(addRouterBasename("/console/login", "/os")).toBe("/console/os");
   });
 

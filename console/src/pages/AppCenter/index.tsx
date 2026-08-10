@@ -3,8 +3,8 @@
  *
  * Lists all plugins with `meta.pawapp` from the backend. Clicking an
  * app renders its registered route component INLINE within this page
- * (no full-page navigation). The URL bar mirrors the app path while keeping
- * OS-owned pages under `/os`, so refresh never falls back to the classic UI.
+ * (no full-page navigation). The classic console mirrors the app path in the
+ * URL; the Desktop OS keeps its single `/os` browser entry point.
  */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -40,7 +40,6 @@ import { AppCard, pickAppDescription, type AppCardData } from "./AppCard";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import {
   addRouterBasename,
-  getOsAppHref,
   getOsRootHref,
   isOsPath,
 } from "../../utils/navigationMode";
@@ -178,7 +177,7 @@ export default function AppCenterPage() {
   const handleAppClick = (app: AppCardData) => {
     const target = appTarget(app);
     const browserPath = isOsPath(window.location.pathname)
-      ? getOsAppHref(window.location.pathname, target)
+      ? getOsRootHref(window.location.pathname)
       : addRouterBasename(window.location.pathname, target);
     window.history.pushState({ pawappInline: true }, "", browserPath);
     setActiveApp(app);
