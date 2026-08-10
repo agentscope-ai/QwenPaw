@@ -13,14 +13,17 @@ use std::sync::Mutex;
 
 use super::app_identity::{launch_at, resolve_launch_target};
 use super::approval::request_approval;
-use super::state::{Observation, PendingAction, ServerState, WindowInfo, INPUT_GUARD_GRACE_MS};
-#[cfg(target_os = "macos")]
-use super::target_is_frontmost;
+use super::state::{
+    accessibility_revision, Observation, PendingAction, ServerState, WindowInfo,
+    INPUT_GUARD_GRACE_MS,
+};
 use super::{
     click, close_window, desktop_locked, drag, ensure_permissions, input_sequence, invoke_element,
     last_input_age_ms, list_apps, list_windows, observe_window, press_key, resolve_window, scroll,
     set_value, type_text, validate_observation, InputStep, PROTOCOL_VERSION,
 };
+#[cfg(target_os = "macos")]
+use super::{element_requires_frontmost, target_is_frontmost};
 
 const MAX_SEQUENCE_STEPS: usize = 20;
 const MAX_SEQUENCE_TEXT_CHARS: usize = 512;
@@ -218,15 +221,24 @@ pub(super) fn dispatch_request(
     // Mutations are serialized across agent sessions. Human input is a
     // separate concern: this lock cannot prevent it, so only operations that
     // actually require foreground input apply the recent-input guard below.
+    let mut needs_user_idle = requires_user_idle(method, &window);
+    #[cfg(target_os = "macos")]
+    if method == "invoke_element" {
+        needs_user_idle |=
+            element_requires_frontmost(observation(state, observation_id)?, &params)?;
+    }
     let _desktop = if changes_window_state(method) {
         let held = take_desktop()?;
-        if requires_user_idle(method, &window) {
+        if needs_user_idle {
             enforce_input_guard(state)?;
         }
         Some(held)
     } else {
         None
     };
+    if needs_user_idle {
+        state.ensure_interaction_session()?;
+    }
     // Approval may wait for user input, so freshness must be checked only
     // after approval and the desktop guard, immediately before the action.
     if requires_stable_observation(method) {
@@ -241,6 +253,9 @@ pub(super) fn dispatch_request(
             "requires_observe": true,
         }));
     }
+    let previous_revision = observation_id
+        .and_then(|id| state.observations.get(id))
+        .and_then(|observation| observation.accessibility_revision);
     let mut pending_action: Option<PendingAction> = None;
     let mut completed_pending_action = false;
     let mut result = match method {
@@ -299,7 +314,7 @@ pub(super) fn dispatch_request(
     if !changes_window_state(method) {
         return Ok(result);
     }
-    state.note_action(window.hwnd);
+    state.note_action(&window);
     if completed_pending_action {
         state.clear_pending_action();
     }
@@ -318,7 +333,8 @@ pub(super) fn dispatch_request(
         refresh_after_action(state, &window)
     };
     let has_refreshed_observation = refreshed.is_some();
-    let mut response = action_receipt(result, refreshed);
+    let changed = accessibility_changed(previous_revision, refreshed.as_ref());
+    let mut response = action_receipt(result, refreshed, changed);
     if let Some(pending) = state.pending_action().filter(|pending| {
         should_attach_pending_action(has_refreshed_observation, pending.hwnd, window.hwnd)
     }) {
@@ -447,7 +463,18 @@ fn should_attach_pending_action(
 /// Combine the dispatch result with the post-action observation when the
 /// original window remains available. The old observation is never restored:
 /// only the new identifier in this response can authorize the next action.
-fn action_receipt(mut result: Value, refreshed: Option<Value>) -> Value {
+fn accessibility_changed(previous: Option<[u8; 32]>, refreshed: Option<&Value>) -> Option<bool> {
+    let current = refreshed?
+        .get("accessibility")
+        .and_then(accessibility_revision)?;
+    Some(previous? != current)
+}
+
+fn action_receipt(
+    mut result: Value,
+    refreshed: Option<Value>,
+    accessibility_changed: Option<bool>,
+) -> Value {
     let Some(mut observation) = refreshed else {
         if let Some(object) = result.as_object_mut() {
             if object.remove("applied").is_some() {
@@ -471,6 +498,9 @@ fn action_receipt(mut result: Value, refreshed: Option<Value>) -> Value {
     action.remove("next_action");
     if let Some(response) = observation.as_object_mut() {
         response.extend(std::mem::take(action));
+        if let Some(changed) = accessibility_changed {
+            response.insert("accessibility_changed".to_string(), json!(changed));
+        }
     }
     observation
 }
@@ -642,11 +672,50 @@ mod tests {
 
     #[test]
     fn an_action_without_a_refresh_requires_window_discovery() {
-        let result = action_receipt(json!({"applied": true}), None);
+        let result = action_receipt(json!({"applied": true}), None, None);
 
         assert_eq!(result.get("dispatched"), Some(&json!(true)));
         assert_eq!(result.get("requires_observe"), Some(&json!(true)));
         assert_eq!(result.get("next_action"), Some(&json!("list_windows")));
+    }
+
+    #[test]
+    fn refreshed_actions_report_accessibility_changes() {
+        let before = accessibility_revision(&json!({
+            "available": true,
+            "elements": ["before"],
+        }));
+        let refreshed = json!({
+            "accessibility": {
+                "available": true,
+                "elements": ["after"],
+            },
+        });
+
+        assert_eq!(accessibility_changed(before, Some(&refreshed)), Some(true));
+        assert_eq!(
+            accessibility_changed(
+                accessibility_revision(&refreshed["accessibility"]),
+                Some(&refreshed),
+            ),
+            Some(false),
+        );
+    }
+
+    #[test]
+    fn unavailable_accessibility_has_no_change_claim() {
+        let before = accessibility_revision(&json!({
+            "available": true,
+            "elements": ["before"],
+        }));
+        let refreshed = json!({
+            "accessibility": {
+                "available": false,
+                "elements": [],
+            },
+        });
+
+        assert_eq!(accessibility_changed(before, Some(&refreshed)), None);
     }
 
     #[test]

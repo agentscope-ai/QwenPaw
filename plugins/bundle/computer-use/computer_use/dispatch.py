@@ -89,7 +89,9 @@ def _sequence_steps(steps: Any) -> list[dict[str, str]]:
             raise ValueError(f"sequence step {index} must be an object.")
         action = str(step.get("action") or "").strip().lower()
         if action not in {"type", "press_key"}:
-            raise ValueError(f"sequence step {index} must use type or press_key.")
+            raise ValueError(
+                f"sequence step {index} must use type or press_key.",
+            )
         field = "text" if action == "type" else "key"
         value = step.get(field)
         if (
@@ -97,9 +99,13 @@ def _sequence_steps(steps: Any) -> list[dict[str, str]]:
             or not value
             or (action == "press_key" and not value.strip())
         ):
-            raise ValueError(f"sequence step {index} requires non-empty {field}.")
+            raise ValueError(
+                f"sequence step {index} requires non-empty {field}.",
+            )
         if set(step) != {"action", field}:
-            raise ValueError(f"sequence step {index} accepts only action and {field}.")
+            raise ValueError(
+                f"sequence step {index} accepts only action and {field}.",
+            )
         if action == "type":
             text_length += len(value)
             if text_length > 512:
@@ -108,16 +114,28 @@ def _sequence_steps(steps: Any) -> list[dict[str, str]]:
     return normalized
 
 
-def _without_screenshot_urls(payload: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Replace inline screenshot data with a placeholder for text output.
+def _without_screenshot_urls(
+    payload: Mapping[str, Any],
+    *,
+    attached: bool,
+) -> Mapping[str, Any]:
+    """Remove image data from text output, retaining metadata when attached.
 
     Screenshots are attached as image blocks; repeating the base64 data
     URL inside the JSON text block would double a multi-megabyte payload
-    and pollute the model's text context.
+    and pollute the model's text context. Post-action observations remain
+    available natively but omit their image metadata until an explicit visual
+    observation requests the attachment.
     """
     screenshots = payload.get("screenshots")
     if not isinstance(screenshots, list):
         return payload
+    if not attached:
+        return {
+            key: value
+            for key, value in payload.items()
+            if key != "screenshots"
+        }
     sanitized: list[Any] = []
     for screenshot in screenshots:
         if isinstance(screenshot, Mapping) and "url" in screenshot:
@@ -218,7 +236,9 @@ def _response(
         TextBlock(
             type="text",
             text=json.dumps(
-                _with_compact_elements(_without_screenshot_urls(payload)),
+                _with_compact_elements(
+                    _without_screenshot_urls(payload, attached=include_images),
+                ),
                 ensure_ascii=False,
                 separators=(",", ":"),
             ),
@@ -338,11 +358,14 @@ async def computer_use(
             params,
             deadline_ms=max(100, min(timeout_ms, 30_000)),
         )
-        failed = action == "sequence" and isinstance(result.get("error"), Mapping)
+        failed = action == "sequence" and isinstance(
+            result.get("error"),
+            Mapping,
+        )
         payload = {"ok": not failed, "action": action, **result}
         return _response(
             payload,
-            include_images=include_images or bool(result.get("screenshots")),
+            include_images=include_images,
             state=ToolResultState.ERROR if failed else ToolResultState.SUCCESS,
         )
     except ComputerUseProtocolError as error:

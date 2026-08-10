@@ -45,8 +45,8 @@ use platform_windows::{
 mod platform_macos;
 #[cfg(target_os = "macos")]
 use platform_macos::{
-    app_id_from_bundle_path, click, close_window, desktop_locked, drag, ensure_permissions,
-    input_sequence, invoke_element, is_forbidden, last_input_age_ms, list_apps, list_windows,
-    observe_window, press_key, resolve_window, scroll, set_value, target_is_frontmost, type_text,
-    validate_observation,
+    app_id_from_bundle_path, click, close_window, desktop_locked, drag, element_requires_frontmost,
+    ensure_permissions, input_sequence, invoke_element, is_forbidden, last_input_age_ms, list_apps,
+    list_windows, observe_window, press_key, resolve_window, scroll, set_value,
+    target_is_frontmost, type_text, validate_observation,
 };

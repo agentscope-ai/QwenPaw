@@ -138,29 +138,40 @@ for its actionable element to appear.
 
 Every successful action that can change the desktop invalidates its input
 observation. When the target remains open, the same response includes its
-settled screenshot and accessibility state, while the runtime installs the
-replacement observation internally. Inspect that state before the next
-action. Fields such as `dispatched: true` alone only confirm that native input
-was sent. If an action reports `next_action: list_windows`, the original
-window was closed or replaced; list windows and observe the new target. When
-an action opens a separate window or dialog, list windows and observe that
-target before acting. Standard macOS sheets are observed as their own target.
+settled accessibility state, while the runtime installs the replacement
+observation internally. Inspect that state before the next action.
+`accessibility_changed: false` means the refreshed AX surface did not change;
+it is evidence that an AX-visible transition did not occur, but it does not
+rule out a visual-only change. Action responses omit their screenshot
+attachment by default. Call `observe_window` with the returned window ID when
+AX is insufficient and visual confirmation is necessary. Fields such as
+`dispatched: true` alone only confirm that native input was sent. For text
+input, `effect: observed` means the native adapter also verified the editable
+buffer; `effect: unverified` requires confirmation from the replacement
+accessibility state or a fresh visual observation before claiming success. If
+an action reports `next_action: list_windows`, the original window was closed
+or replaced; list windows and observe the new target. When an action opens a
+separate window or dialog, list windows and observe that target before acting.
+Standard macOS sheets are observed as their own target.
 
 ## Choose One Target Channel
 
 Use UI Automation when the desired element is present in
 `accessibility.elements`. Locate it by its `control_type_name` and `name`,
-then act on it by `element_id`. Use `invoke` for a `Button`, `MenuItem`, or
-similar control; use `set_value` for an `Edit` or `ComboBox` that holds text.
-This is preferred over keystrokes when a matching element exists.
-Menu commands may remain semantically invokable even when the application does
-not publish a stable rectangle for them; invoke the matching enabled
-`MenuItem`, then verify its replacement observation instead of substituting a
-coordinate click.
+then act on it by `element_id`. Use `click` for ordinary visible controls,
+including buttons and menu items, and use `set_value` for an `Edit` or
+`ComboBox` that holds text. This is preferred over keystrokes when a matching
+element exists. Use `invoke` only when a normal click is unavailable and the
+element explicitly lists a suitable accessibility action, or when completing
+the pending semantic edit described below.
+
+For an application menu, click the observed top-level `MenuItem` by
+`element_id`, inspect its replacement observation, and then click the desired
+command from that open menu. Never act on a closed menu's unobserved children.
 
 ```json
 {
-  "action": "invoke",
+  "action": "click",
   "element_id": "uia-12"
 }
 ```
@@ -192,13 +203,14 @@ only when the surrounding application state shows the requested value. Do not su
 claim success or start another operation while confirmation remains pending.
 On macOS, only use `set_value` when `[settable]` is present. A
 `[resource-backed]` label must first be selected and put into edit mode through
-an explicit application command, such as an accessible edit or rename menu
-item. Use the replacement observation returned after invoking that command.
-Some inline editors are visible
-before macOS publishes their accessibility element; when you just invoked an
-explicit edit command and the screenshot clearly shows that editor, typing one
-value is allowed even if `focused_element` is temporarily absent. Verify the
-value in the replacement observation before confirming it.
+an explicit application command, such as an accessible edit or rename command.
+Some native editors are transient and appear only as the current focused AX
+element. Type only when the replacement observation identifies that editable
+focus; the runtime will reject keyboard fallback unless the focused element
+still belongs to the observed window and exposes text-editing capabilities.
+Use the application's documented completion action when one is required, and
+verify the durable result. Do not guess completion commands or repeat an
+unverified write.
 
 Use visual coordinates only when UI Automation is unavailable or unsuitable.
 Every visual action uses the current observation retained by the runtime.
@@ -227,7 +239,10 @@ the requested state change in the replacement observation.
 They bring that window to the foreground themselves, so do not add a click
 merely to focus the window. If a control inside the window must first be
 selected, click it, inspect the replacement observation, then type or press the
-key with that new identifier.
+key with that new identifier. On macOS, `type` uses semantic insertion for an
+accessible editor and process-targeted Unicode events for transient editors
+that do not expose a text buffer. Send the smallest useful batch and confirm
+what arrived in the replacement observation.
 
 Use `sequence` for deterministic keyboard input that stays in the same window
 and does not depend on an intermediate screen change. It accepts 1 to 20
@@ -258,11 +273,10 @@ standalone action and observe the result before typing into that interface.
 
 Use `type` only when `accessibility.focused_element` identifies the intended
 editable control. A missing focus summary, a focused list, or a selected row is
-not an editor. In those cases, wait for or select the correct control, or try
-`set_value` once on the matching editable element; an unsupported-operation
-response means that path is unavailable. If a fresh observation does not show
-the text where expected, the input did not succeed; do not continue with a
-confirm key.
+not an editor. Wait for or select the correct control, or try `set_value` once
+on the matching editable element; an unsupported-operation response means that
+path is unavailable. If a fresh observation does not show the text where
+expected, do not claim that it succeeded.
 
 `press_key` takes a single key or a chord of up to four names joined with `+`.
 Recognized names include modifiers (`CTRL`, `ALT`, `SHIFT`, `WIN`), letters and
@@ -270,6 +284,14 @@ digits, function keys (`F1`-`F12`), the numeric keypad (`NUMPAD0`-`NUMPAD9`),
 and editing or navigation keys such as `ENTER`, `TAB`, `ESC`, `SPACE`,
 `BACKSPACE`, `DELETE`, `INSERT`, `HOME`, `END`, `PAGEUP`, `PAGEDOWN`, and the
 arrow keys `UP`/`DOWN`/`LEFT`/`RIGHT`.
+
+When a command is expected to expose a temporary editor, menu, sheet, or
+dialog that the next action depends on, enter that state through a matching
+enabled semantic element whenever one is available. A shortcut receipt proves
+only that input was dispatched; it does not prove that the dependent control
+was created. Do not type into that state unless the replacement observation
+shows the intended editable control. Otherwise stop instead of guessing
+another shortcut or typing into the surrounding view.
 
 A chord must end with a non-modifier key; never send a modifier by itself or
 try to hold it across calls. On macOS, express the Command key as `WIN`, for
