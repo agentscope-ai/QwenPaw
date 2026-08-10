@@ -33,7 +33,8 @@ export function EmbeddingModelCard() {
   const { t } = useTranslation();
   const { modal } = useAppMessage();
   const form = Form.useFormInstance();
-  const { needsReindex, openMemorySettings } = useMemoryMaintenance();
+  const { needsReindex, reindexing, openMemorySettings } =
+    useMemoryMaintenance();
   const [testingEmbedding, setTestingEmbedding] = useState(false);
   const [testedEmbedding, setTestedEmbedding] = useState<{
     fingerprint: string;
@@ -234,6 +235,7 @@ export function EmbeddingModelCard() {
             tooltip={t("agentConfig.embeddingBackendTooltip")}
           >
             <Select
+              disabled={reindexing}
               options={EMBEDDING_BACKEND_OPTIONS}
               placeholder={t("agentConfig.embeddingBackendPlaceholder")}
               style={{ width: "100%" }}
@@ -259,6 +261,7 @@ export function EmbeddingModelCard() {
               }
             >
               <Input
+                disabled={reindexing}
                 placeholder={
                   baseUrlIsHost
                     ? t("agentConfig.embeddingHostPlaceholder")
@@ -278,6 +281,7 @@ export function EmbeddingModelCard() {
             tooltip={t("agentConfig.embeddingModelNameTooltip")}
           >
             <Input
+              disabled={reindexing}
               placeholder={t("agentConfig.embeddingModelNamePlaceholder")}
             />
           </Form.Item>
@@ -293,6 +297,7 @@ export function EmbeddingModelCard() {
               tooltip={t("agentConfig.embeddingApiKeyTooltip")}
             >
               <Input.Password
+                disabled={reindexing}
                 placeholder={t("agentConfig.embeddingApiKeyPlaceholder")}
               />
             </Form.Item>
@@ -309,7 +314,7 @@ export function EmbeddingModelCard() {
               valuePropName="checked"
               tooltip={t("agentConfig.embeddingUseDimensionsTooltip")}
             >
-              <Switch disabled={!embeddingEnabled} />
+              <Switch disabled={reindexing || !embeddingEnabled} />
             </Form.Item>
           )}
 
@@ -337,7 +342,7 @@ export function EmbeddingModelCard() {
               style={{ width: "100%" }}
               min={1}
               step={256}
-              disabled={!embeddingEnabled}
+              disabled={reindexing || !embeddingEnabled}
             />
           </Form.Item>
         </section>
@@ -365,7 +370,7 @@ export function EmbeddingModelCard() {
             valuePropName="checked"
             tooltip={t("agentConfig.embeddingEnableCacheTooltip")}
           >
-            <Switch disabled={!embeddingEnabled} />
+            <Switch disabled={reindexing || !embeddingEnabled} />
           </Form.Item>
 
           <Form.Item
@@ -387,7 +392,9 @@ export function EmbeddingModelCard() {
               style={{ width: "100%" }}
               min={1}
               step={100}
-              disabled={!embeddingEnabled || !embeddingCacheEnabled}
+              disabled={
+                reindexing || !embeddingEnabled || !embeddingCacheEnabled
+              }
             />
           </Form.Item>
 
@@ -410,7 +417,7 @@ export function EmbeddingModelCard() {
               style={{ width: "100%" }}
               min={1}
               step={1024}
-              disabled={!embeddingEnabled}
+              disabled={reindexing || !embeddingEnabled}
             />
           </Form.Item>
 
@@ -433,7 +440,7 @@ export function EmbeddingModelCard() {
               style={{ width: "100%" }}
               min={1}
               step={1}
-              disabled={!embeddingEnabled}
+              disabled={reindexing || !embeddingEnabled}
             />
           </Form.Item>
         </section>

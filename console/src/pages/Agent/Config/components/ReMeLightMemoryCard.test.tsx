@@ -109,6 +109,22 @@ function ConfiguredEmbeddingForm() {
   );
 }
 
+function ReindexingEmbeddingForm() {
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: true,
+        setReindexing: vi.fn(),
+        openMemorySettings: vi.fn(),
+      }}
+    >
+      <ConfiguredEmbeddingForm />
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
 function NeedsReindexEmbeddingForm({ onOpen = vi.fn() }) {
   const [needsReindex, setNeedsReindex] = useState(true);
   return (
@@ -116,6 +132,8 @@ function NeedsReindexEmbeddingForm({ onOpen = vi.fn() }) {
       value={{
         needsReindex,
         setNeedsReindex,
+        reindexing: false,
+        setReindexing: vi.fn(),
         openMemorySettings: onOpen,
       }}
     >
@@ -132,6 +150,8 @@ function MemoryAndEmbeddingForm() {
       value={{
         needsReindex,
         setNeedsReindex,
+        reindexing: false,
+        setReindexing: vi.fn(),
         openMemorySettings: vi.fn(),
       }}
     >
@@ -429,6 +449,25 @@ describe("embedding card separation", () => {
     });
     fireEvent.click(button);
     expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it("disables every embedding config field while rebuilding", () => {
+    renderWithProviders(<ReindexingEmbeddingForm />);
+
+    const configFields = [
+      ...screen.getAllByRole("combobox"),
+      ...screen.getAllByRole("textbox"),
+      ...screen.getAllByRole("spinbutton"),
+      ...screen.getAllByRole("switch"),
+    ];
+
+    expect(configFields.length).toBeGreaterThan(1);
+    configFields.forEach((control) => expect(control).toBeDisabled());
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
+    ).toBeEnabled();
   });
 });
 

@@ -61,8 +61,7 @@ export function ReMeLightMemoryCard() {
   const { message, modal } = useAppMessage();
   const form = Form.useFormInstance();
   const { selectedAgent } = useAgentStore();
-  const { setNeedsReindex } = useMemoryMaintenance();
-  const [reindexing, setReindexing] = useState(false);
+  const { setNeedsReindex, reindexing, setReindexing } = useMemoryMaintenance();
   const [statusOpen, setStatusOpen] = useState(false);
   const [dailyPaperExpanded, setDailyPaperExpanded] = useState(false);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({

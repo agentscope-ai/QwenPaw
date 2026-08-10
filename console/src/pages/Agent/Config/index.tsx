@@ -28,6 +28,7 @@ function AgentConfigPage() {
     searchParams.get("tab") || "reactAgent",
   );
   const [needsReindex, setNeedsReindex] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
   const syncReindexRequirement = useCallback(
     (config: { reme_light_memory_config?: { needs_reindex?: boolean } }) => {
       setNeedsReindex(config.reme_light_memory_config?.needs_reindex === true);
@@ -298,6 +299,8 @@ function AgentConfigPage() {
           value={{
             needsReindex,
             setNeedsReindex,
+            reindexing,
+            setReindexing,
             openMemorySettings: () => setActiveTab("remeLightMemory"),
           }}
         >

@@ -3,12 +3,16 @@ import { createContext, useContext } from "react";
 export interface MemoryMaintenanceState {
   needsReindex: boolean;
   setNeedsReindex: (value: boolean) => void;
+  reindexing: boolean;
+  setReindexing: (value: boolean) => void;
   openMemorySettings: () => void;
 }
 
 export const MemoryMaintenanceContext = createContext<MemoryMaintenanceState>({
   needsReindex: false,
   setNeedsReindex: () => {},
+  reindexing: false,
+  setReindexing: () => {},
   openMemorySettings: () => {},
 });
 
