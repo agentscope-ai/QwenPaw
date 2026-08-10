@@ -3320,6 +3320,7 @@
     "version": "Version",
     "author": "Author",
     "unknown": "Unknown",
+    "noMatchingPlugins": "No plugins match the current filters",
     "loadFailed": "Failed to load plugin list",
     "confirmTitle": "Confirm Uninstall",
     "officialTitle": "Official Plugins",

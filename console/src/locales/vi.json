@@ -1110,6 +1110,7 @@
     "disabled": "Đã tắt",
     "version": "Phiên bản",
     "author": "Tác giả",
+    "noMatchingPlugins": "Không có plugin nào khớp với bộ lọc hiện tại",
     "loadError": "Tải plugin thất bại"
   },
   "codingMode": {

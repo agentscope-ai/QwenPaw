@@ -1324,6 +1324,7 @@
     "version": "Versi",
     "author": "Penulis",
     "unknown": "Tidak diketahui",
+    "noMatchingPlugins": "Tidak ada plugin yang cocok dengan filter saat ini",
     "loadFailed": "Gagal memuat daftar plugin",
     "confirmTitle": "Konfirmasi Pencopotan",
     "officialTitle": "Plugin Resmi",

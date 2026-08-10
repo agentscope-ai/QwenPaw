@@ -3114,6 +3114,7 @@
     "version": "バージョン",
     "author": "作成者",
     "unknown": "不明",
+    "noMatchingPlugins": "現在の条件に一致するプラグインはありません",
     "loadFailed": "プラグイン一覧の読み込みに失敗しました",
     "confirmTitle": "アンインストールの確認",
     "officialTitle": "公式プラグイン",

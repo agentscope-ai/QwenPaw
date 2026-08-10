@@ -3169,6 +3169,7 @@
     "version": "Versão",
     "author": "Autor",
     "unknown": "Desconhecido",
+    "noMatchingPlugins": "Nenhum plugin corresponde aos filtros atuais",
     "loadFailed": "Falha ao carregar lista de plugins",
     "confirmTitle": "Confirmar Desinstalação",
     "officialTitle": "Plugins Oficiais",

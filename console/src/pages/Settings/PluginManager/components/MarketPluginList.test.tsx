@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MarketPluginEntry } from "@/api/modules/pluginMarket";
@@ -10,7 +16,11 @@ const hoisted = vi.hoisted(() => ({
   plugins: [] as MarketPluginEntry[],
   handleInstall: vi.fn(),
   handleSortChange: vi.fn(),
+  handleLoadMore: vi.fn(),
+  hasMore: false,
 }));
+
+let intersectionCallbacks: IntersectionObserverCallback[] = [];
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -29,14 +39,18 @@ vi.mock("../hooks/useMarketPlugins", () => ({
     pageSize: 20,
     category: undefined,
     sortBy: "downloads",
+    loadingMore: false,
+    hasMore: hoisted.hasMore,
+    autoLoadBlocked: false,
     installingId: null,
     qwenpawVersion: "2.0.0",
     isCompatible: () => true,
     handleSearch: vi.fn(),
     handleCategoryChange: vi.fn(),
     handleSortChange: hoisted.handleSortChange,
-    handlePageChange: vi.fn(),
     handleRefresh: vi.fn(),
+    handleLoadMore: hoisted.handleLoadMore,
+    handleRetryLoadMore: vi.fn(),
     handleInstall: hoisted.handleInstall,
   }),
 }));
@@ -69,9 +83,23 @@ describe("MarketPluginList", () => {
   const windowOpen = vi.fn();
 
   beforeEach(() => {
+    intersectionCallbacks = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(callback: IntersectionObserverCallback) {
+          intersectionCallbacks.push(callback);
+        }
+
+        observe() {}
+        disconnect() {}
+      },
+    );
     hoisted.plugins.length = 0;
+    hoisted.hasMore = false;
     hoisted.handleInstall.mockReset();
     hoisted.handleSortChange.mockReset();
+    hoisted.handleLoadMore.mockReset();
     invoke.mockReset();
     invoke.mockResolvedValue(undefined);
     isTauri.mockReturnValue(false);
@@ -117,6 +145,44 @@ describe("MarketPluginList", () => {
     render(<MarketPluginList onInstalled={vi.fn()} />);
 
     expect(screen.getByText("QwenPaw 1.x, 2.x")).toBeInTheDocument();
+  });
+
+  it("renders cards by default and keeps the existing list view available", () => {
+    hoisted.plugins.push(
+      makePlugin("https://platform.agentscope.io/plugins/agentscope/demo"),
+    );
+
+    render(<MarketPluginList onInstalled={vi.fn()} />);
+
+    expect(
+      screen.getByRole("article", { name: "Demo plugin" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("skills.listView"));
+
+    expect(
+      screen.queryByRole("article", { name: "Demo plugin" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Demo plugin")).toBeInTheDocument();
+  });
+
+  it("loads the next page when the bottom sentinel becomes visible", async () => {
+    hoisted.plugins.push(
+      makePlugin("https://platform.agentscope.io/plugins/agentscope/demo"),
+    );
+    hoisted.hasMore = true;
+
+    render(<MarketPluginList onInstalled={vi.fn()} />);
+
+    await waitFor(() => expect(intersectionCallbacks).toHaveLength(1));
+    act(() => {
+      intersectionCallbacks[0](
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+    });
+
+    expect(hoisted.handleLoadMore).toHaveBeenCalledTimes(1);
   });
 
   it("changes the plugin market sort order", () => {

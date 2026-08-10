@@ -71,14 +71,26 @@
 
 @media (max-width: 768px) {
   .pageHeader {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     padding: 12px 16px;
-    flex-wrap: wrap;
     gap: 8px;
   }
 
   .leading {
+    grid-column: 1;
+    grid-row: 1;
     width: 100%;
     min-width: 0;
+  }
+
+  .center {
+    position: static;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    justify-self: center;
+    transform: none;
   }
 
   .breadcrumbHeader {
@@ -99,10 +111,27 @@
   }
 
   .extra {
-    width: 100%;
-    justify-content: flex-start;
+    grid-column: 2;
+    grid-row: 1;
+    justify-content: flex-end;
     flex-wrap: wrap;
     gap: 8px;
+  }
+}
+
+@media (max-width: 520px) {
+  .pageHeader {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .center {
+    grid-row: 2;
+  }
+
+  .extra {
+    grid-column: 1;
+    grid-row: 3;
+    width: 100%;
   }
 }
 

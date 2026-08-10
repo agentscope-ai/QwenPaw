@@ -3338,6 +3338,7 @@
     "version": "版本",
     "author": "作者",
     "unknown": "未知",
+    "noMatchingPlugins": "没有符合当前筛选条件的插件",
     "loadFailed": "加载插件列表失败",
     "confirmTitle": "确认卸载",
     "officialTitle": "官方插件",
