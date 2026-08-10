@@ -49,9 +49,11 @@ def test_injection_role_is_user_not_system() -> None:
     A system-role message mid-conversation is rejected by
     ``_handle_incoming_messages()``. See #6358.
     """
-    ctx = _make_ctx([
-        {"content": "memory hint", "priority": 1},
-    ])
+    ctx = _make_ctx(
+        [
+            {"content": "memory hint", "priority": 1},
+        ],
+    )
     msg = _apply_and_get_msg(ctx)
     assert msg.role == "user", (
         f"Expected role='user', got role={msg.role!r}. "
@@ -61,13 +63,15 @@ def test_injection_role_is_user_not_system() -> None:
 
 def test_injection_name_preserved_as_system() -> None:
     """The name field stays 'system' for identification after the role fix."""
-    ctx = _make_ctx([
-        {"content": "memory hint", "priority": 1},
-    ])
-    msg = _apply_and_get_msg(ctx)
-    assert msg.name == "system", (
-        f"Expected name='system' for identification, got name={msg.name!r}"
+    ctx = _make_ctx(
+        [
+            {"content": "memory hint", "priority": 1},
+        ],
     )
+    msg = _apply_and_get_msg(ctx)
+    assert (
+        msg.name == "system"
+    ), f"Expected name='system' for identification, got name={msg.name!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -77,10 +81,12 @@ def test_injection_name_preserved_as_system() -> None:
 
 def test_priority_ordering_preserved() -> None:
     """Lower priority value = earlier in the merged text (ascending sort)."""
-    ctx = _make_ctx([
-        {"content": "second hint", "priority": 10},
-        {"content": "first hint", "priority": 1},
-    ])
+    ctx = _make_ctx(
+        [
+            {"content": "second hint", "priority": 10},
+            {"content": "first hint", "priority": 1},
+        ],
+    )
     msg = _apply_and_get_msg(ctx)
     text_block = msg.content[0]
     assert "first hint" in text_block.text
@@ -102,10 +108,12 @@ def test_empty_injections_is_noop() -> None:
 
 def test_injections_without_content_skipped() -> None:
     """Injections with no 'content' key are silently skipped."""
-    ctx = _make_ctx([
-        {"priority": 1},
-        {"content": "real hint", "priority": 2},
-    ])
+    ctx = _make_ctx(
+        [
+            {"priority": 1},
+            {"content": "real hint", "priority": 2},
+        ],
+    )
     msg = _apply_and_get_msg(ctx)
     text_block = msg.content[0]
     assert "real hint" in text_block.text
@@ -125,10 +133,12 @@ def test_injected_msg_passes_agentscope_incoming_validation() -> None:
     """
     from agentscope.message import Msg
 
-    ctx = _make_ctx([
-        {"content": "hint A", "priority": 1},
-        {"content": "hint B", "priority": 2},
-    ])
+    ctx = _make_ctx(
+        [
+            {"content": "hint A", "priority": 1},
+            {"content": "hint B", "priority": 2},
+        ],
+    )
     injected_msg = _apply_and_get_msg(ctx)
 
     # Build a message list that mimics a real mid-conversation position:
@@ -149,5 +159,5 @@ def test_injected_msg_passes_agentscope_incoming_validation() -> None:
             pytest.fail(
                 f"Message at index {i} has role='system' — "
                 "rejected by _handle_incoming_messages(). "
-                f"name={m.name!r}, content={str(m.content)[:60]!r}"
+                f"name={m.name!r}, content={str(m.content)[:60]!r}",
             )
