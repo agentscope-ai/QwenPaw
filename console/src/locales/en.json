@@ -1800,6 +1800,7 @@
     "noConfiguredModels": "No configured models",
     "noFreeModels": "No free models available",
     "switchFailed": "Failed to switch model",
+    "sessionNotReady": "Send the first message to create this session before selecting its model.",
     "searchModels": "Search models...",
     "noModelsFound": "No matching models found",
     "free": "Free",

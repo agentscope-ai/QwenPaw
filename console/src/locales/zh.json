@@ -1725,6 +1725,7 @@
     "noConfiguredModels": "暂无已配置模型",
     "noFreeModels": "暂无可用的免费模型",
     "switchFailed": "切换模型失败",
+    "sessionNotReady": "请先发送第一条消息创建会话，再为该会话选择模型。",
     "searchModels": "搜索模型...",
     "noModelsFound": "未找到匹配的模型",
     "free": "免费",

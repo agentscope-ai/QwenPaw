@@ -1390,6 +1390,28 @@ def _resolved_provider_id(provider: Any, configured_provider_id: str) -> str:
     return str(getattr(provider, "id", "") or configured_provider_id)
 
 
+def _resolve_model_context_ids(
+    agent_id: Optional[str],
+) -> tuple[Optional[str], Optional[str]]:
+    """Resolve the agent and session IDs available to model creation."""
+    from ..app.agent_context import get_current_agent_id
+    from ..app.agent_context import get_current_session_id
+
+    resolved_agent_id = agent_id
+    if resolved_agent_id is None:
+        try:
+            resolved_agent_id = get_current_agent_id()
+        except Exception:
+            pass
+
+    session_id = None
+    try:
+        session_id = get_current_session_id()
+    except Exception:
+        pass
+    return resolved_agent_id, session_id
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
@@ -1414,23 +1436,10 @@ def create_model_and_formatter(
     Example:
         >>> model, formatter = create_model_and_formatter()
     """
-    from ..app.agent_context import get_current_agent_id
-    from ..app.agent_context import get_current_session_id
     from ..config.config import load_agent_config
     from ..config.config import resolve_effective_model_slot
 
-    # Determine agent_id (parameter > context > None)
-    if agent_id is None:
-        try:
-            agent_id = get_current_agent_id()
-        except Exception:
-            pass
-
-    session_id = None
-    try:
-        session_id = get_current_session_id()
-    except Exception:
-        pass
+    agent_id, session_id = _resolve_model_context_ids(agent_id)
 
     # Try to get session/agent-specific model first
     model_slot = None

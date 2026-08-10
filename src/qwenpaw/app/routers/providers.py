@@ -78,9 +78,7 @@ def _active_models_info(
     return ActiveModelsInfo(
         active_llm=active_llm,
         effective_max_input_length=effective_max_input_length,
-        session_model_overrides_enabled=(
-            session_model_overrides_enabled()
-        ),
+        session_model_overrides_enabled=(session_model_overrides_enabled()),
     )
 
 
@@ -1008,6 +1006,8 @@ async def get_active_models(
             )
             target_agent_id = workspace.agent_id
 
+        if not target_agent_id:
+            raise ValueError("Unable to resolve an agent ID for model lookup")
         agent_config = load_agent_config(target_agent_id)
         active_model, source = resolve_effective_model_slot(
             agent_config=agent_config,
@@ -1038,6 +1038,46 @@ async def get_active_models(
     global_model = manager.get_active_model()
     logger.info("Returning global model: %s", global_model)
     return _active_models_info(manager, global_model)
+
+
+async def _set_session_active_model(
+    request: Request,
+    manager: ProviderManager,
+    body: ModelSlotRequest,
+) -> ActiveModelsInfo:
+    """Persist and return one session-specific model selection."""
+    if not body.session_id:
+        raise HTTPException(
+            status_code=400,
+            detail="session_id is required when scope is 'session'",
+        )
+
+    try:
+        workspace = await get_agent_for_request(
+            request,
+            agent_id=body.agent_id,
+        )
+        agent_config = load_agent_config(workspace.agent_id)
+        slot = ModelSlotConfig(
+            provider_id=body.provider_id,
+            model=body.model,
+        )
+        agent_config.session_model_overrides[body.session_id] = slot
+        save_agent_config(workspace.agent_id, agent_config)
+        schedule_agent_reload(request, workspace.agent_id)
+    except (OSError, ValueError, TypeError, AppBaseException) as exc:
+        logger.warning(
+            "Failed to save active model to session config: %s",
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save active model to session config",
+        ) from exc
+
+    manager.maybe_probe_multimodal(body.provider_id, body.model)
+    return _active_models_info(manager, slot)
 
 
 @router.put(
@@ -1100,41 +1140,7 @@ async def set_active_model(
     _validate_model_slot(manager, body.provider_id, body.model)
 
     if body.scope == "session":
-        if not body.session_id:
-            raise HTTPException(
-                status_code=400,
-                detail="session_id is required when scope is 'session'",
-            )
-
-        try:
-            workspace = await get_agent_for_request(
-                request,
-                agent_id=body.agent_id,
-            )
-            agent_config = load_agent_config(workspace.agent_id)
-            slot = ModelSlotConfig(
-                provider_id=body.provider_id,
-                model=body.model,
-            )
-            agent_config.session_model_overrides[body.session_id] = slot
-            save_agent_config(workspace.agent_id, agent_config)
-            schedule_agent_reload(request, workspace.agent_id)
-
-        except HTTPException:
-            raise
-        except (OSError, ValueError, TypeError, AppBaseException) as exc:
-            logger.warning(
-                "Failed to save active model to session config: %s",
-                exc,
-                exc_info=True,
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to save active model to session config",
-            ) from exc
-
-        manager.maybe_probe_multimodal(body.provider_id, body.model)
-        return _active_models_info(manager, slot)
+        return await _set_session_active_model(request, manager, body)
 
     try:
         workspace = await get_agent_for_request(

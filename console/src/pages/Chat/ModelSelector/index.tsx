@@ -94,9 +94,12 @@ export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
   const { selectedAgent } = useAgentStore();
   const { message } = useAppMessage();
   const normalizedSessionId = sessionId || undefined;
-  const useSessionModelScope = Boolean(
-    normalizedSessionId && activeModels?.session_model_overrides_enabled,
-  );
+  const modelScopeReady = activeModels !== null;
+  const sessionModelsEnabled =
+    activeModels?.session_model_overrides_enabled === true;
+  const sessionScopePending = sessionModelsEnabled && !normalizedSessionId;
+  const modelSelectionDisabled =
+    saving || !modelScopeReady || sessionScopePending;
 
   const getActiveModelRequest = useCallback((): GetActiveModelsRequest => {
     return {
@@ -107,14 +110,26 @@ export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
   }, [selectedAgent, normalizedSessionId]);
 
   const buildModelSlotRequest = useCallback(
-    (providerId: string, modelId: string): ModelSlotRequest => ({
-      provider_id: providerId,
-      model: modelId,
-      scope: useSessionModelScope ? "session" : "agent",
-      agent_id: selectedAgent,
-      ...(useSessionModelScope ? { session_id: normalizedSessionId } : {}),
-    }),
-    [selectedAgent, normalizedSessionId, useSessionModelScope],
+    (providerId: string, modelId: string): ModelSlotRequest | null => {
+      if (!modelScopeReady) return null;
+      if (sessionModelsEnabled) {
+        if (!normalizedSessionId) return null;
+        return {
+          provider_id: providerId,
+          model: modelId,
+          scope: "session",
+          agent_id: selectedAgent,
+          session_id: normalizedSessionId,
+        };
+      }
+      return {
+        provider_id: providerId,
+        model: modelId,
+        scope: "agent",
+        agent_id: selectedAgent,
+      };
+    },
+    [modelScopeReady, normalizedSessionId, selectedAgent, sessionModelsEnabled],
   );
 
   const [showMoreFree, setShowMoreFree] = useState(false);
@@ -324,6 +339,10 @@ export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
 
   const handleOpenChange = useCallback(
     async (next: boolean) => {
+      if (next && modelSelectionDisabled) {
+        setOpen(false);
+        return;
+      }
       setOpen(next);
       if (next) {
         try {
@@ -336,11 +355,16 @@ export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
         }
       }
     },
-    [getActiveModelRequest],
+    [getActiveModelRequest, modelSelectionDisabled],
   );
 
   const handleSelect = async (providerId: string, modelId: string) => {
     if (savingRef.current) return;
+    const modelSlotRequest = buildModelSlotRequest(providerId, modelId);
+    if (!modelSlotRequest) {
+      setOpen(false);
+      return;
+    }
     if (providerId === activeProviderId && modelId === activeModelId) {
       setOpen(false);
       return;
@@ -383,9 +407,7 @@ export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
     savingRef.current = true;
     setSaving(true);
     try {
-      const updated = await providerApi.setActiveLlm({
-        ...buildModelSlotRequest(providerId, modelId),
-      });
+      const updated = await providerApi.setActiveLlm(modelSlotRequest);
       setActiveModels(
         updated?.active_llm
           ? updated
@@ -409,15 +431,18 @@ export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
     setOauthModal((prev) => ({ ...prev, open: false }));
     await fetchData();
     if (oauthModal.providerId && oauthModal.pendingModelId) {
+      const modelSlotRequest = buildModelSlotRequest(
+        oauthModal.providerId,
+        oauthModal.pendingModelId,
+      );
+      if (!modelSlotRequest) {
+        message.warning(t("modelSelector.sessionNotReady"));
+        return;
+      }
       savingRef.current = true;
       setSaving(true);
       try {
-        const updated = await providerApi.setActiveLlm({
-          ...buildModelSlotRequest(
-            oauthModal.providerId,
-            oauthModal.pendingModelId,
-          ),
-        });
+        const updated = await providerApi.setActiveLlm(modelSlotRequest);
         setActiveModels(
           updated?.active_llm
             ? updated
@@ -776,6 +801,7 @@ export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
   return (
     <>
       <Dropdown
+        disabled={modelSelectionDisabled}
         open={open}
         onOpenChange={handleOpenChange}
         popupRender={() => (
@@ -784,11 +810,21 @@ export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
         trigger={["click"]}
         placement={isMobile ? "bottomCenter" : "bottomLeft"}
       >
-        <Tooltip title={t("chat.modelSelectTooltip")} mouseEnterDelay={0.5}>
+        <Tooltip
+          title={
+            sessionScopePending
+              ? t("modelSelector.sessionNotReady")
+              : t("chat.modelSelectTooltip")
+          }
+          mouseEnterDelay={0.5}
+        >
           <div
-            className={[styles.trigger, open ? styles.triggerActive : ""].join(
-              " ",
-            )}
+            className={[
+              styles.trigger,
+              open ? styles.triggerActive : "",
+              modelSelectionDisabled ? styles.triggerDisabled : "",
+            ].join(" ")}
+            aria-disabled={modelSelectionDisabled}
           >
             {saving && (
               <LoadingOutlined style={{ fontSize: 11, color: "#FF7F16" }} />

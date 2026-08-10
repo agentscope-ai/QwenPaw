@@ -207,6 +207,23 @@ describe("ModelSelector", () => {
     });
   });
 
+  it("does not fall back to agent scope before a new session is created", async () => {
+    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
+      ...mockActiveModels,
+      session_model_overrides_enabled: true,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    const modelName = (await screen.findAllByText("GPT-4"))[0];
+    const trigger = modelName.closest('[aria-disabled="true"]');
+
+    expect(trigger).not.toBeNull();
+    await user.click(trigger as HTMLElement);
+
+    expect(screen.queryByText("OpenAI")).not.toBeInTheDocument();
+    expect(providerApi.setActiveLlm).not.toHaveBeenCalled();
+  });
+
   it("keeps agent scope when per-session models are disabled", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ModelSelector sessionId="console:session-1" />);

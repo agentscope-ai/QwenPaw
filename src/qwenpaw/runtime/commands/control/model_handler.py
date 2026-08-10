@@ -81,7 +81,9 @@ class ModelCommandHandler(BaseControlCommandHandler):
             Formatted help text
         """
         session_models_enabled = self._session_models_enabled()
-        target = "current session" if session_models_enabled else "current agent"
+        target = (
+            "current session" if session_models_enabled else "current agent"
+        )
         reset_target = (
             "this session to the default model"
             if session_models_enabled
@@ -140,9 +142,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         source_label = {
             "session": "session-specific",
             "agent": (
-                "agent default"
-                if session_models_enabled
-                else "agent-specific"
+                "agent default" if session_models_enabled else "agent-specific"
             ),
             "global": "global default",
             "none": "not configured",
@@ -334,9 +334,9 @@ class ModelCommandHandler(BaseControlCommandHandler):
         agent_config = workspace.config
 
         if session_models_enabled:
-            agent_config.session_model_overrides[context.session_id] = (
-                ModelSlot(provider_id=provider_id, model=model_id)
-            )
+            agent_config.session_model_overrides[
+                context.session_id
+            ] = ModelSlot(provider_id=provider_id, model=model_id)
         else:
             agent_config.active_model = ModelSlot(
                 provider_id=provider_id,

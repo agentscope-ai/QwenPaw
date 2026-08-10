@@ -3639,15 +3639,21 @@ export default function ChatPage() {
                   type="default"
                   onClick={async () => {
                     try {
-                      const useSessionScope = Boolean(
-                        sessionModelOverridesEnabled && currentModelSessionId,
-                      );
+                      if (
+                        sessionModelOverridesEnabled &&
+                        !currentModelSessionId
+                      ) {
+                        message.warning(t("modelSelector.sessionNotReady"));
+                        return;
+                      }
                       await providerApi.setActiveLlm({
                         provider_id: alt.provider_id,
                         model: alt.model_id,
-                        scope: useSessionScope ? "session" : "agent",
+                        scope: sessionModelOverridesEnabled
+                          ? "session"
+                          : "agent",
                         agent_id: selectedAgent,
-                        ...(useSessionScope
+                        ...(sessionModelOverridesEnabled
                           ? { session_id: currentModelSessionId }
                           : {}),
                       });
