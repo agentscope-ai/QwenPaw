@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Literal, Optional, Union
@@ -89,7 +88,6 @@ class CronManager(ManagerBase):
         self._states: Dict[str, CronJobState] = {}
         self._history: Dict[str, list[CronExecutionRecord]] = {}
         self._rt: Dict[str, _Runtime] = {}
-        self._service_job_ids: Dict[str, set[str]] = {}
         self._started = False
         self._keepalive_task: Optional[asyncio.Task] = None
 
@@ -149,7 +147,7 @@ class CronManager(ManagerBase):
                     hb.every,
                 )
 
-            self._refresh_memory_jobs_unlocked()
+            self._register_memory_jobs()
 
             self._started = True
             self._keepalive_task = asyncio.create_task(
@@ -304,19 +302,7 @@ class CronManager(ManagerBase):
             else:
                 logger.info("heartbeat disabled, job removed")
 
-    async def refresh_memory_jobs(self) -> None:
-        """Reconcile cron jobs declared by the active memory backend."""
-        async with self._lock:
-            if not self._started:
-                logger.warning(
-                    "CronManager not started for agent %s; cannot refresh "
-                    "memory jobs",
-                    self._agent_id,
-                )
-                return
-            self._refresh_memory_jobs_unlocked()
-
-    def _refresh_memory_jobs_unlocked(self) -> None:
+    def _register_memory_jobs(self) -> None:
         memory_manager = getattr(self._workspace, "memory_manager", None)
         if memory_manager is None:
             declarations: list[ServiceCronJob] = []
@@ -330,15 +316,14 @@ class CronManager(ManagerBase):
                     self._agent_id,
                 )
                 return
-        self._reconcile_service_jobs("memory", declarations)
+        self._register_service_jobs("memory", declarations)
 
-    def _reconcile_service_jobs(
+    def _register_service_jobs(
         self,
         source: str,
         declarations: list[ServiceCronJob],
     ) -> None:
-        """Add, update, and remove jobs declared by one workspace service."""
-        previous_ids = self._service_job_ids.get(source, set())
+        """Register jobs declared by one workspace service."""
         declared_ids: set[str] = set()
 
         for declaration in declarations:
@@ -362,9 +347,18 @@ class CronManager(ManagerBase):
             declared_ids.add(job_id)
 
             try:
-                trigger = CronTrigger.from_crontab(
-                    declaration.cron,
+                parts = declaration.cron.split()
+                if len(parts) != 5:
+                    raise ValueError("cron must have exactly 5 fields")
+                minute, hour, day, month, day_of_week = parts
+                trigger = CronTrigger(
+                    minute=minute,
+                    hour=hour,
+                    day=day,
+                    month=month,
+                    day_of_week=day_of_week,
                     timezone=self._scheduler.timezone,
+                    jitter=declaration.jitter_seconds or None,
                 )
                 self._scheduler.add_job(
                     self._run_service_job,
@@ -389,15 +383,6 @@ class CronManager(ManagerBase):
                     declaration.cron,
                     exc,
                 )
-
-        for stale_id in previous_ids - declared_ids:
-            if self._scheduler.get_job(stale_id):
-                self._scheduler.remove_job(stale_id)
-                logger.info("Removed stale %s cron job: %s", source, stale_id)
-
-        # Invalid declarations remain tracked so a hot refresh does not remove
-        # the last known-good schedule for that same logical job.
-        self._service_job_ids[source] = declared_ids
 
     @staticmethod
     def _service_job_id(source: str, key: str) -> str:
@@ -733,18 +718,6 @@ class CronManager(ManagerBase):
     ) -> None:
         """Run a service-contributed job with common scheduler behavior."""
         try:
-            if declaration.jitter_seconds > 0:
-                delay_seconds = random.randint(
-                    0,
-                    declaration.jitter_seconds,
-                )
-                logger.info(
-                    "%s cron job %s will start in %s seconds",
-                    source,
-                    declaration.key,
-                    delay_seconds,
-                )
-                await asyncio.sleep(delay_seconds)
             await declaration.callback()
             logger.debug(
                 "%s cron job executed successfully: %s",

@@ -9,7 +9,6 @@ ReMe's application/job framework.
 import asyncio
 import base64
 import hashlib
-import importlib
 import logging
 import os
 import re
@@ -141,6 +140,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             working_dir,
         )
 
+        self._initialize_reme()
+
+    def _initialize_reme(self) -> None:
+        """Build the embedded ReMe application from persisted config."""
+
         try:
             from reme import ReMe as ReMeApp  # type: ignore
 
@@ -234,31 +238,15 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             )
 
         if cfg.daily_paper_cron_enabled and cfg.daily_paper_cron:
-            if self._daily_paper_dependency_available():
-                jobs.append(
-                    ServiceCronJob(
-                        key="daily-paper",
-                        cron=cfg.daily_paper_cron,
-                        callback=self.daily_paper,
-                        misfire_grace_seconds=600,
-                    ),
-                )
-        return jobs
-
-    @staticmethod
-    def _daily_paper_dependency_available() -> bool:
-        """Return whether the optional Daily Paper PDF reader is usable."""
-        try:
-            importlib.import_module("pypdf")
-            return True
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.error(
-                "Daily Paper is enabled but pypdf cannot be imported; "
-                "the scheduled job will not start: %s",
-                exc,
-                exc_info=True,
+            jobs.append(
+                ServiceCronJob(
+                    key="daily-paper",
+                    cron=cfg.daily_paper_cron,
+                    callback=self.daily_paper,
+                    misfire_grace_seconds=600,
+                ),
             )
-            return False
+        return jobs
 
     def list_memory_tools(self):
         """Return memory tool functions to register with the agent toolkit."""
@@ -364,6 +352,23 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             self._active_embedding_config = config.model_copy(deep=True)
             self._tested_embedding = None
             return True
+
+    async def reload_embedding_config(self) -> bool:
+        """Recreate ReMe when embedding components cannot be hot-updated.
+
+        Workspace reloads reuse this manager, so first-time enablement and
+        disabling must rebuild only the embedded ReMe application instead of
+        replacing the whole memory service on every workspace reload.
+        """
+        async with self._embedding_update_lock:
+            await self.close()
+            self._worker_stopping = False
+            self._initialize_reme()
+            await self.start()
+            self._tested_embedding = None
+            return self._reme is not None and bool(
+                getattr(self._reme, "is_started", False),
+            )
 
     async def _run_reme_job(
         self,

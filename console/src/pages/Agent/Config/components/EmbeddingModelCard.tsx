@@ -12,10 +12,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { api } from "@/api";
-import type {
-  EmbeddingModelConfig,
-  ReMeLightMemoryConfig,
-} from "@/api/types/agent";
+import type { EmbeddingModelConfig } from "@/api/types/agent";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import {
   getEmbeddingServiceFingerprint,
@@ -44,27 +41,13 @@ export function EmbeddingModelCard() {
     latency: number;
   } | null>(null);
 
-  const remeConfig = Form.useWatch(["reme_light_memory_config"], form) as
-    | ReMeLightMemoryConfig
-    | undefined;
-  const embeddingConfig = remeConfig?.embedding_model_config;
-  const watchedEmbeddingBackend = Form.useWatch(
-    ["reme_light_memory_config", "embedding_model_config", "backend"],
+  const embeddingConfig = Form.useWatch(
+    ["reme_light_memory_config", "embedding_model_config"],
     form,
-  ) as string | undefined;
-  const watchedEmbeddingModelName = Form.useWatch(
-    ["reme_light_memory_config", "embedding_model_config", "model_name"],
-    form,
-  ) as string | undefined;
-  const watchedEmbeddingApiKey = Form.useWatch(
-    ["reme_light_memory_config", "embedding_model_config", "api_key"],
-    form,
-  ) as string | undefined;
-  const backend =
-    watchedEmbeddingBackend ?? embeddingConfig?.backend ?? "openai";
-  const modelName =
-    watchedEmbeddingModelName ?? embeddingConfig?.model_name ?? "";
-  const apiKey = watchedEmbeddingApiKey ?? embeddingConfig?.api_key ?? "";
+  ) as EmbeddingModelConfig | undefined;
+  const backend = embeddingConfig?.backend ?? "openai";
+  const modelName = embeddingConfig?.model_name ?? "";
+  const apiKey = embeddingConfig?.api_key ?? "";
   const normalizedBackend = String(backend);
   const showApiKey = normalizedBackend !== "ollama";
   const showBaseUrl = normalizedBackend !== "gemini";

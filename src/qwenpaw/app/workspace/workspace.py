@@ -389,10 +389,7 @@ class Workspace:
                 },
                 start_method="start",
                 stop_method="close",
-                # Memory backends own configuration-bound clients and stores.
-                # In particular, reusing ReMe would make an embedding fallback
-                # reload keep the old runtime model and index components.
-                reusable=False,
+                reusable=True,
                 priority=20,
                 concurrent_init=True,
                 # reme depends on `agentscope.token`, which agentscope no

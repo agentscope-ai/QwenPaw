@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 from typing import Optional, Union, Dict, List, Literal, Any, Set, Tuple
 
+from apscheduler.triggers.cron import CronTrigger
 from pydantic import (
     BaseModel,
     Field,
@@ -613,12 +614,21 @@ class AutoMemorySearchConfig(BaseModel):
     )
 
 
+EmbeddingBackend = Literal[
+    "openai",
+    "dashscope",
+    "dashscope_multimodal",
+    "gemini",
+    "ollama",
+]
+
+
 class EmbeddingModelConfig(BaseModel):
     """Embedding model configuration."""
 
     model_config = ConfigDict(extra="ignore")
 
-    backend: str = Field(
+    backend: EmbeddingBackend = Field(
         default="openai",
         description="Embedding backend (openai, etc.)",
     )
@@ -628,7 +638,11 @@ class EmbeddingModelConfig(BaseModel):
     )
     base_url: str = Field(default="", description="Base URL for embedding API")
     model_name: str = Field(default="", description="Embedding model name")
-    dimensions: int = Field(default=1024, description="Embedding dimensions")
+    dimensions: int = Field(
+        default=1024,
+        ge=1,
+        description="Embedding dimensions",
+    )
     enable_cache: bool = Field(
         default=True,
         description="Whether to enable embedding cache",
@@ -639,14 +653,17 @@ class EmbeddingModelConfig(BaseModel):
     )
     max_cache_size: int = Field(
         default=10000,
+        ge=1,
         description="Maximum cache size",
     )
     max_input_length: int = Field(
         default=8192,
+        ge=1,
         description="Maximum input length for embedding",
     )
     max_batch_size: int = Field(
         default=10,
+        ge=1,
         description="Maximum batch size for embedding",
     )
 
@@ -791,6 +808,20 @@ class ReMeLightMemoryConfig(BaseModel):
         default=True,
         description="Whether to expose the memory_search tool to the agent",
     )
+
+    @field_validator("dream_cron", "daily_paper_cron")
+    @classmethod
+    def validate_service_cron(cls, value: str) -> str:
+        """Reject expressions that the runtime scheduler cannot install."""
+        if not value.strip():
+            # Preserve compatibility with legacy configs that used an empty
+            # dream cron to disable scheduling before the explicit switches.
+            return value
+        try:
+            CronTrigger.from_crontab(value)
+        except ValueError as exc:
+            raise ValueError(f"Invalid cron expression: {value!r}") from exc
+        return value
 
     @model_validator(mode="before")
     @classmethod

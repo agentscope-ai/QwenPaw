@@ -1,7 +1,6 @@
 import type { EmbeddingModelConfig } from "@/api/types/agent";
 
-// Keep in sync with src/qwenpaw/agents/memory/reme_config.py
-// _OPENAI_COMPAT_EMBEDDING_BACKENDS.
+// Keep in sync with reme_config.py::_OPENAI_COMPAT_EMBEDDING_BACKENDS.
 const OPENAI_COMPAT_EMBEDDING_BACKENDS = new Set([
   "openai",
   "dashscope",

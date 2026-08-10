@@ -26,6 +26,7 @@ def _embedding_update_configs():
 @pytest.mark.asyncio
 async def test_running_config_persists_before_embedding_hot_update() -> None:
     old_running, new_running = _embedding_update_configs()
+    new_running.max_iters += 1
     events: list[str] = []
 
     async def apply_embedding(_config):
@@ -74,7 +75,7 @@ async def test_running_config_persists_before_embedding_hot_update() -> None:
     assert events == ["save", "apply"]
     assert response is new_running
     assert response.reme_light_memory_config.needs_reindex is True
-    schedule_reload.assert_not_called()
+    schedule_reload.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -86,7 +87,11 @@ async def test_api_key_change_does_not_require_reindex() -> None:
     memory_manager = MagicMock()
     memory_manager.apply_tested_embedding = AsyncMock(return_value=True)
     workspace = SimpleNamespace(agent_id="bot", memory_manager=memory_manager)
-    agent_config = AgentProfileConfig(id="bot", name="Bot", running=old_running)
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
 
     with (
         patch(
@@ -145,7 +150,7 @@ async def test_running_config_save_failure_does_not_touch_runtime() -> None:
 
 
 @pytest.mark.asyncio
-async def test_embedding_hot_update_failure_falls_back_to_reload() -> None:
+async def test_embedding_hot_update_failure_restarts_reme() -> None:
     old_running, new_running = _embedding_update_configs()
     events: list[str] = []
 
@@ -153,9 +158,16 @@ async def test_embedding_hot_update_failure_falls_back_to_reload() -> None:
         events.append("apply")
         raise RuntimeError("index rebuild failed")
 
+    async def reload_embedding() -> bool:
+        events.append("reme-reload")
+        return True
+
     memory_manager = MagicMock()
     memory_manager.apply_tested_embedding = AsyncMock(
         side_effect=apply_embedding,
+    )
+    memory_manager.reload_embedding_config = AsyncMock(
+        side_effect=reload_embedding,
     )
     workspace = SimpleNamespace(
         agent_id="bot",
@@ -196,5 +208,5 @@ async def test_embedding_hot_update_failure_falls_back_to_reload() -> None:
             MagicMock(),
         )
 
-    assert events == ["save", "apply", "reload"]
+    assert events == ["save", "apply", "reme-reload", "reload"]
     assert response is new_running

@@ -7,7 +7,6 @@ ReMe as an in-process application, so it passes an equivalent configuration
 dict directly to ``reme.application.Application`` / ``reme.reme.ReMe``.
 """
 
-from copy import deepcopy
 from typing import Any
 
 from qwenpaw.config.config import AgentProfileConfig, EmbeddingModelConfig
@@ -684,9 +683,7 @@ def _is_embedding_enabled(embedding_config: EmbeddingModelConfig) -> bool:
 
     # Keep enablement aligned with AgentScope credential requirements.
     backend = embedding_config.backend
-    if backend in _OPENAI_COMPAT_EMBEDDING_BACKENDS:
-        return bool(embedding_config.api_key.strip())
-    if backend == "gemini":
+    if backend in _OPENAI_COMPAT_EMBEDDING_BACKENDS | {"gemini"}:
         return bool(embedding_config.api_key.strip())
     if backend == "ollama":
         return True
@@ -718,11 +715,9 @@ def get_reme_app_config(
     agent_config: AgentProfileConfig,
     user_timezone: str | None = None,
 ) -> dict[str, Any]:
-    """Public wrapper returning a deep copy safe for caller mutation."""
-    return deepcopy(
-        build_reme_app_config(
-            working_dir=working_dir,
-            agent_config=agent_config,
-            user_timezone=user_timezone,
-        ),
+    """Return a fresh embedded ReMe application configuration."""
+    return build_reme_app_config(
+        working_dir=working_dir,
+        agent_config=agent_config,
+        user_timezone=user_timezone,
     )

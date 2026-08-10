@@ -179,14 +179,6 @@
   }
 }
 
-.memoryOverviewEyebrow {
-  color: #d96b11;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
 .memoryStatusBadge {
   display: inline-flex;
   align-items: center;
@@ -516,35 +508,6 @@
   }
 }
 
-.memoryCapabilityActions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-
-  > a {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    color: #c46211;
-    font-size: 10px;
-    font-weight: 600;
-    text-decoration: none;
-
-    &:hover {
-      color: #ff7f16;
-    }
-
-    > span {
-      margin: 0;
-      color: inherit;
-      font-size: 10px;
-      letter-spacing: 0;
-      text-transform: none;
-    }
-  }
-}
-
 .memoryCapabilityTitleRow {
   display: flex;
   align-items: center;
@@ -717,20 +680,6 @@
   }
 }
 
-.memoryOptionalBadge {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 8px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgba(20, 20, 19, 0.055);
-  color: rgba(20, 20, 19, 0.5);
-  font-size: 10px;
-  font-weight: 550;
-  line-height: 16px;
-  vertical-align: 2px;
-}
-
 .memoryToggleRow {
   display: flex;
   align-items: center;
@@ -763,21 +712,6 @@
     color: rgba(20, 20, 19, 0.48);
     font-size: 11px;
     line-height: 1.45;
-  }
-}
-
-.memoryCronField {
-  margin-bottom: 0 !important;
-}
-
-.memoryRecallControls {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  align-items: start;
-
-  .memoryToggleRow {
-    margin-bottom: 0;
   }
 }
 
@@ -827,60 +761,6 @@
   min-width: 120px;
   max-width: 160px;
   margin-bottom: 0 !important;
-}
-
-.memorySearchModeActive,
-.memorySearchModeInactive {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 9px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 550;
-
-  i {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-  }
-}
-
-.memorySearchModeActive {
-  background: rgba(53, 168, 93, 0.08);
-  color: #258348;
-
-  i {
-    background: #35a85d;
-  }
-}
-
-.memorySearchModeInactive {
-  background: rgba(20, 20, 19, 0.05);
-  color: rgba(20, 20, 19, 0.52);
-
-  i {
-    background: rgba(20, 20, 19, 0.3);
-  }
-}
-
-.memoryEmbeddingSection {
-  margin-bottom: 18px;
-  padding: 20px;
-  border: 1px solid rgba(20, 20, 19, 0.09);
-  border-radius: 14px;
-  background: rgba(20, 20, 19, 0.018);
-}
-
-.memoryEmbeddingHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-
-  .memorySectionHeader {
-    margin-bottom: 18px;
-  }
 }
 
 .memoryStatusModalTitle {
@@ -1205,99 +1085,6 @@
   }
 }
 
-.embeddingCard {
-  :global(.ant-card-body),
-  :global(.qwenpaw-card-body) {
-    padding: 0;
-  }
-}
-
-.embeddingStatusPanel {
-  margin: 20px 20px 0;
-  overflow: hidden;
-  border: 1px solid rgba(255, 127, 22, 0.2);
-  border-radius: 14px;
-  background: linear-gradient(
-    135deg,
-    rgba(255, 127, 22, 0.075),
-    rgba(255, 255, 255, 0) 62%
-  );
-}
-
-.embeddingStatusHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 19px 20px 17px;
-
-  h3 {
-    margin: 3px 0 4px;
-    color: #242321;
-    font-size: 17px;
-    font-weight: 680;
-  }
-
-  p {
-    margin: 0;
-    color: rgba(20, 20, 19, 0.54);
-    font-size: 12px;
-    line-height: 1.5;
-  }
-}
-
-.embeddingStatusMetrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  border-top: 1px solid rgba(20, 20, 19, 0.07);
-  border-bottom: 1px solid rgba(20, 20, 19, 0.07);
-  background: rgba(255, 255, 255, 0.54);
-}
-
-.embeddingStatusMetric {
-  min-width: 0;
-  padding: 14px 18px;
-  border-right: 1px solid rgba(20, 20, 19, 0.07);
-
-  &:last-child {
-    border-right: 0;
-  }
-
-  > span,
-  > strong,
-  > small {
-    display: block;
-  }
-
-  > span {
-    margin-bottom: 6px;
-    color: rgba(20, 20, 19, 0.46);
-    font-size: 10px;
-    font-weight: 550;
-  }
-
-  > strong {
-    overflow: hidden;
-    color: #292724;
-    font-size: 14px;
-    font-weight: 650;
-    line-height: 20px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  > small {
-    min-height: 16px;
-    margin-top: 2px;
-    overflow: hidden;
-    color: rgba(20, 20, 19, 0.42);
-    font-size: 10px;
-    line-height: 16px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
 .embeddingStatusValueEnabled,
 .embeddingStatusValueDisabled {
   display: flex;
@@ -1382,60 +1169,6 @@
   }
 }
 
-.embeddingStatusNote {
-  margin: 0;
-  padding: 9px 20px 10px;
-  color: rgba(20, 20, 19, 0.46);
-  font-size: 10px;
-  line-height: 1.5;
-}
-
-.embeddingConfigSection {
-  padding: 18px 20px 20px;
-}
-
-.embeddingGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-  align-items: stretch;
-}
-
-.embeddingPanel {
-  min-width: 0;
-  padding: 20px 20px 18px;
-  border: 1px solid rgba(20, 20, 19, 0.09);
-  border-radius: 14px;
-  background: rgba(20, 20, 19, 0.018);
-
-  :global(.ant-form-item:last-child),
-  :global(.qwenpaw-form-item:last-child) {
-    margin-bottom: 0;
-  }
-}
-
-.embeddingPanelHeader {
-  min-height: 64px;
-  margin-bottom: 18px;
-  padding-bottom: 15px;
-  border-bottom: 1px solid rgba(20, 20, 19, 0.07);
-
-  h4 {
-    margin: 0 0 5px;
-    color: #242321;
-    font-size: 16px;
-    font-weight: 650;
-    line-height: 1.4;
-  }
-
-  p {
-    margin: 0;
-    color: rgba(20, 20, 19, 0.56);
-    font-size: 12px;
-    line-height: 1.55;
-  }
-}
-
 @media (max-width: 1100px) {
   .memoryOverviewGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1449,27 +1182,13 @@
     border-bottom: 1px solid rgba(20, 20, 19, 0.07);
   }
 
-  .memoryConfigGrid,
-  .embeddingGrid {
+  .memoryConfigGrid {
     grid-template-columns: 1fr;
-  }
-
-  .embeddingStatusMetrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .embeddingStatusMetric:nth-child(2) {
-    border-right: 0;
-  }
-
-  .embeddingStatusMetric:nth-child(-n + 2) {
-    border-bottom: 1px solid rgba(20, 20, 19, 0.07);
   }
 }
 
 @media (max-width: 720px) {
-  .memoryOverviewGrid,
-  .memoryRecallControls {
+  .memoryOverviewGrid {
     grid-template-columns: 1fr;
   }
 
@@ -1483,7 +1202,6 @@
     border-bottom: 0;
   }
 
-  .memoryEmbeddingHeader,
   .memoryOverviewActionItem,
   .memoryOverviewMaintenance {
     align-items: flex-start;
@@ -1554,30 +1272,6 @@
       display: none;
     }
   }
-
-  .embeddingStatusHeader {
-    align-items: stretch;
-    flex-direction: column;
-
-    :global(.ant-btn),
-    :global(.qwenpaw-btn) {
-      width: 100%;
-    }
-  }
-
-  .embeddingStatusMetrics {
-    grid-template-columns: 1fr;
-  }
-
-  .embeddingStatusMetric,
-  .embeddingStatusMetric:nth-child(2) {
-    border-right: 0;
-    border-bottom: 1px solid rgba(20, 20, 19, 0.07);
-  }
-
-  .embeddingStatusMetric:last-child {
-    border-bottom: 0;
-  }
 }
 
 :global(.dark-mode) {
@@ -1599,47 +1293,6 @@
       rgba(117, 137, 255, 0.08)
     );
     color: #a8b0ff;
-  }
-
-  .embeddingStatusPanel {
-    border-color: rgba(255, 127, 22, 0.25);
-    background: linear-gradient(
-      135deg,
-      rgba(255, 127, 22, 0.1),
-      rgba(255, 255, 255, 0.015) 62%
-    );
-  }
-
-  .embeddingStatusHeader {
-    h3 {
-      color: rgba(255, 255, 255, 0.9);
-    }
-
-    p {
-      color: rgba(255, 255, 255, 0.52);
-    }
-  }
-
-  .embeddingStatusMetrics {
-    border-color: rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.025);
-  }
-
-  .embeddingStatusMetric {
-    border-color: rgba(255, 255, 255, 0.08);
-
-    > span,
-    > small {
-      color: rgba(255, 255, 255, 0.45);
-    }
-
-    > strong {
-      color: rgba(255, 255, 255, 0.88);
-    }
-  }
-
-  .embeddingStatusNote {
-    color: rgba(255, 255, 255, 0.45);
   }
 
   .memoryReferences,
@@ -1702,8 +1355,7 @@
   }
 
   .memoryConfigPanel,
-  .memoryRecallPanel,
-  .memoryEmbeddingSection {
+  .memoryRecallPanel {
     border-color: rgba(255, 255, 255, 0.1);
     background: rgba(255, 255, 255, 0.025);
   }
@@ -1757,10 +1409,6 @@
     }
   }
 
-  .memoryCapabilityActions > a {
-    color: #ff9d4c;
-  }
-
   .memoryDevelopingBadge {
     border-color: rgba(133, 169, 231, 0.26);
     background: linear-gradient(
@@ -1797,20 +1445,6 @@
     > div:first-child > span {
       color: rgba(255, 255, 255, 0.46);
     }
-  }
-
-  .memorySearchModeInactive {
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.52);
-
-    i {
-      background: rgba(255, 255, 255, 0.32);
-    }
-  }
-
-  .memoryOptionalBadge {
-    background: rgba(255, 255, 255, 0.07);
-    color: rgba(255, 255, 255, 0.54);
   }
 
   .memoryStatusButton {
@@ -1915,23 +1549,6 @@
     > div > span,
     > div > small {
       color: rgba(255, 255, 255, 0.48);
-    }
-  }
-
-  .embeddingPanel {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.025);
-  }
-
-  .embeddingPanelHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-
-    h4 {
-      color: rgba(255, 255, 255, 0.9);
-    }
-
-    p {
-      color: rgba(255, 255, 255, 0.52);
     }
   }
 }

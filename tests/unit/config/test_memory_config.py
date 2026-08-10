@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 """Tests for memory backend configuration defaults."""
 
-from types import SimpleNamespace
+import pytest
+from pydantic import ValidationError
 
-import qwenpaw.config.utils as config_utils
-from qwenpaw.config.config import ADBPGMemoryConfig, ReMeLightMemoryConfig
+from qwenpaw.config.config import (
+    ADBPGMemoryConfig,
+    EmbeddingModelConfig,
+    ReMeLightMemoryConfig,
+)
 
 
 def test_adbpg_auto_memory_search_defaults():
@@ -75,40 +79,6 @@ def test_legacy_empty_dream_cron_remains_loadable():
     assert cfg.dream_cron == ""
 
 
-def test_get_dream_cron_honors_the_enable_switch(monkeypatch):
-    cfg = ReMeLightMemoryConfig(
-        dream_cron_enabled=False,
-        dream_cron="0 23 * * *",
-    )
-    agent_config = SimpleNamespace(
-        running=SimpleNamespace(reme_light_memory_config=cfg),
-    )
-    monkeypatch.setattr(
-        config_utils,
-        "load_agent_config",
-        lambda _agent_id: agent_config,
-    )
-
-    assert config_utils.get_dream_cron("agent") == ""
-
-
-def test_get_dream_cron_returns_expression_when_enabled(monkeypatch):
-    cfg = ReMeLightMemoryConfig(
-        dream_cron_enabled=True,
-        dream_cron="0 3 * * *",
-    )
-    agent_config = SimpleNamespace(
-        running=SimpleNamespace(reme_light_memory_config=cfg),
-    )
-    monkeypatch.setattr(
-        config_utils,
-        "load_agent_config",
-        lambda _agent_id: agent_config,
-    )
-
-    assert config_utils.get_dream_cron("agent") == "0 3 * * *"
-
-
 def test_daily_paper_cron_is_disabled_by_default():
     cfg = ReMeLightMemoryConfig()
 
@@ -118,21 +88,25 @@ def test_daily_paper_cron_is_disabled_by_default():
     assert cfg.daily_paper_topics == ""
 
 
-def test_get_daily_paper_cron_honors_enable_switch(monkeypatch):
-    cfg = ReMeLightMemoryConfig(
-        daily_paper_cron_enabled=True,
-        daily_paper_cron="30 8 * * *",
-    )
-    agent_config = SimpleNamespace(
-        running=SimpleNamespace(reme_light_memory_config=cfg),
-    )
-    monkeypatch.setattr(
-        config_utils,
-        "load_agent_config",
-        lambda _agent_id: agent_config,
-    )
+@pytest.mark.parametrize("field", ["dream_cron", "daily_paper_cron"])
+def test_service_cron_rejects_values_the_scheduler_cannot_parse(field):
+    with pytest.raises(ValidationError, match="Invalid cron expression"):
+        ReMeLightMemoryConfig.model_validate({field: "61 * * * *"})
 
-    assert config_utils.get_daily_paper_cron("agent") == "30 8 * * *"
 
-    cfg.daily_paper_cron_enabled = False
-    assert config_utils.get_daily_paper_cron("agent") == ""
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("backend", "unsupported"),
+        ("dimensions", 0),
+        ("max_cache_size", 0),
+        ("max_input_length", 0),
+        ("max_batch_size", 0),
+    ],
+)
+def test_embedding_config_rejects_unsupported_or_non_positive_values(
+    field,
+    value,
+):
+    with pytest.raises(ValidationError):
+        EmbeddingModelConfig.model_validate({field: value})

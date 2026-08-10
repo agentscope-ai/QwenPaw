@@ -53,7 +53,12 @@ export interface AutoMemorySearchConfig {
 }
 
 export interface EmbeddingModelConfig {
-  backend: string;
+  backend:
+    | "openai"
+    | "dashscope"
+    | "dashscope_multimodal"
+    | "gemini"
+    | "ollama";
   api_key: string;
   base_url: string;
   model_name: string;

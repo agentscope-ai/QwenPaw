@@ -106,19 +106,6 @@ class EmbeddingTestResponse(BaseModel):
     message: str
 
 
-def _running_config_without_embedding(
-    running_config: AgentsRunningConfig,
-) -> dict:
-    """Return config data with transient and embedding fields removed."""
-    data = running_config.model_dump(mode="python")
-    data.pop("approval_level", None)
-    reme_config = data.get("reme_light_memory_config")
-    if isinstance(reme_config, dict):
-        reme_config.pop("embedding_model_config", None)
-        reme_config.pop("needs_reindex", None)
-    return data
-
-
 def _dir_stats(root: Path) -> tuple[int, int]:
     """Return (file_count, total_size) for *root* recursively."""
     count = 0
@@ -1577,11 +1564,7 @@ async def put_agents_running_config(
         old_running_config.reme_light_memory_config.needs_reindex
         or vector_space_changed
     )
-    only_embedding_changed = (
-        old_embedding_config != new_embedding_config
-        and _running_config_without_embedding(old_running_config)
-        == _running_config_without_embedding(running_config)
-    )
+    embedding_changed = old_embedding_config != new_embedding_config
 
     if running_config.approval_level is not None:
         agent_config.approval_level = running_config.approval_level
@@ -1590,32 +1573,50 @@ async def put_agents_running_config(
     agent_config.running = running_config
 
     # Persist before touching the live workspace. If persistence fails, the
-    # running model and index remain unchanged. Once persistence succeeds, a
-    # failed hot update can safely converge through a normal workspace reload.
+    # running model and index remain unchanged. A failed hot update rebuilds
+    # only embedded ReMe because workspace reloads reuse the memory manager.
     save_agent_config(workspace.agent_id, agent_config)
 
-    hot_updated = False
     memory_manager = workspace.memory_manager
-    if (
-        only_embedding_changed
-        and memory_manager is not None
-        and hasattr(memory_manager, "apply_tested_embedding")
-    ):
-        try:
-            hot_updated = await memory_manager.apply_tested_embedding(
-                new_embedding_config,
-            )
-        except Exception as exc:
+    if embedding_changed and memory_manager is not None:
+        embedding_updated = False
+        if hasattr(memory_manager, "apply_tested_embedding"):
+            try:
+                embedding_updated = (
+                    await memory_manager.apply_tested_embedding(
+                        new_embedding_config,
+                    )
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Embedding hot update failed for agent '%s': %s",
+                    workspace.agent_id,
+                    exc,
+                    exc_info=True,
+                )
+        if not embedding_updated and hasattr(
+            memory_manager,
+            "reload_embedding_config",
+        ):
+            try:
+                embedding_updated = (
+                    await memory_manager.reload_embedding_config()
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Embedding runtime reload failed for agent '%s': %s",
+                    workspace.agent_id,
+                    exc,
+                    exc_info=True,
+                )
+        if not embedding_updated:
             logger.warning(
-                "Embedding hot update failed for agent '%s'; "
-                "falling back to workspace reload: %s",
+                "Saved embedding config for agent '%s' could not be applied "
+                "to the reused ReMe instance",
                 workspace.agent_id,
-                exc,
-                exc_info=True,
             )
 
-    if not hot_updated:
-        schedule_agent_reload(request, workspace.agent_id)
+    schedule_agent_reload(request, workspace.agent_id)
 
     running_config.approval_level = agent_config.approval_level
     return running_config

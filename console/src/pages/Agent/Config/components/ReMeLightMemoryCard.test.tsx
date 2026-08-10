@@ -30,17 +30,13 @@ vi.mock("react-i18next", () => ({
 
 const memoryStatus = {
   components: {},
-  components_total_bytes: 0,
   components_total: "0 B",
-  process_rss_bytes: 1024,
   process_rss: "1.00 KiB",
   runtime: {
     worker: {
       status: "idle" as const,
       queue_pending: 0,
-      tasks_pending: 0,
       tasks_running: 0,
-      current_task_started_at: null,
     },
     auto_memory: {
       enabled: true,
@@ -259,7 +255,6 @@ describe("ReMe runtime status", () => {
           ...memoryStatus.runtime.worker,
           status: "busy",
           queue_pending: 2,
-          tasks_pending: 2,
           tasks_running: 1,
         },
       },
@@ -447,6 +442,9 @@ describe("isValidDreamCronShape", () => {
     expect(isValidDreamCronShape("")).toBe(false);
     expect(isValidDreamCronShape("0 23 * *")).toBe(false);
     expect(isValidDreamCronShape("0 23 * * ?")).toBe(false);
+    expect(isValidDreamCronShape("61 * * * *")).toBe(false);
+    expect(isValidDreamCronShape("0 24 * * *")).toBe(false);
+    expect(isValidDreamCronShape("0 9 0 * *")).toBe(false);
   });
 });
 
@@ -509,21 +507,11 @@ describe("isEmbeddingEnabled", () => {
       }),
     ).toBe(true);
   });
-
-  it("disables unknown backends", () => {
-    expect(
-      isEmbeddingEnabled({
-        backend: "unknown",
-        model_name: "embedding-model",
-        api_key: "key",
-      }),
-    ).toBe(false);
-  });
 });
 
 describe("getEmbeddingServiceFingerprint", () => {
   const base = {
-    backend: "openai",
+    backend: "openai" as const,
     api_key: "key",
     base_url: "https://example.com/v1/",
     model_name: "embedding-model",

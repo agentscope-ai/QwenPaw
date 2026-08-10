@@ -75,7 +75,7 @@ describe("agentApi", () => {
 
   it("testEmbedding sends unsaved embedding config", async () => {
     const config = {
-      backend: "openai",
+      backend: "openai" as const,
       api_key: "key",
       base_url: "https://example.com/v1",
       model_name: "embedding-model",

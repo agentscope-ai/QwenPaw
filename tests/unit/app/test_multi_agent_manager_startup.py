@@ -79,14 +79,14 @@ def test_get_loaded_agent_never_starts_a_workspace() -> None:
     assert manager.get_loaded_agent("not-loaded") is None
 
 
-def test_workspace_reload_recreates_memory_manager(tmp_path) -> None:
+def test_workspace_reload_reuses_memory_manager(tmp_path) -> None:
     workspace = Workspace(
         agent_id="agent-1",
         workspace_dir=str(tmp_path),
     )
 
     descriptor = workspace._service_manager.descriptors["memory_manager"]
-    assert descriptor.reusable is False
+    assert descriptor.reusable is True
 
 
 @pytest.mark.asyncio

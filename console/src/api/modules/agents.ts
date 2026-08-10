@@ -16,17 +16,13 @@ export interface ReMeComponentMemoryUsage {
 
 export interface ReMeMemoryStatusResponse {
   components: Record<string, Record<string, ReMeComponentMemoryUsage>>;
-  components_total_bytes: number;
   components_total: string;
-  process_rss_bytes: number;
   process_rss: string;
   runtime: {
     worker: {
       status: "idle" | "busy" | "stopping" | "error";
       queue_pending: number;
-      tasks_pending: number;
       tasks_running: number;
-      current_task_started_at: string | null;
     };
     auto_memory: {
       enabled: boolean;
