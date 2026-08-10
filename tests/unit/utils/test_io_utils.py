@@ -17,6 +17,7 @@ import yaml
 from qwenpaw.utils.io_utils import (
     append_text_async,
     read_bytes_async,
+    read_json,
     read_json_async,
     read_text_async,
     run_sync_io,
@@ -333,3 +334,80 @@ async def test_cancelled_append_holds_lock_until_worker_finishes(
         await second
 
     assert second_started.is_set()
+
+
+def test_read_json_strips_bom(tmp_path: Path) -> None:
+    """Reading JSON with utf-8-sig correctly strips BOM if present."""
+    path = tmp_path / "bom.json"
+    content = '{"key": "value"}'
+    # Write manually with BOM
+    path.write_bytes(b"\xef\xbb\xbf" + content.encode("utf-8"))
+    data = read_json(path)
+    assert data == {"key": "value"}
+
+
+def test_write_text_atomic_rotates_backups(tmp_path: Path) -> None:
+    """Atomic write rotates up to backup_count previous versions."""
+    path = tmp_path / "state.txt"
+    path.write_text("v1", encoding="utf-8")
+    write_text_atomic(path, "v2", backup_count=3)
+    assert path.read_text(encoding="utf-8") == "v2"
+    assert path.with_suffix(".bak.1").read_text(encoding="utf-8") == "v1"
+
+    write_text_atomic(path, "v3", backup_count=3)
+    assert path.read_text(encoding="utf-8") == "v3"
+    assert path.with_suffix(".bak.1").read_text(encoding="utf-8") == "v2"
+    assert path.with_suffix(".bak.2").read_text(encoding="utf-8") == "v1"
+
+    write_text_atomic(path, "v4", backup_count=3)
+    assert path.read_text(encoding="utf-8") == "v4"
+    assert path.with_suffix(".bak.1").read_text(encoding="utf-8") == "v3"
+    assert path.with_suffix(".bak.2").read_text(encoding="utf-8") == "v2"
+    assert path.with_suffix(".bak.3").read_text(encoding="utf-8") == "v1"
+
+    write_text_atomic(path, "v5", backup_count=3)
+    assert path.read_text(encoding="utf-8") == "v5"
+    assert path.with_suffix(".bak.1").read_text(encoding="utf-8") == "v4"
+    assert path.with_suffix(".bak.2").read_text(encoding="utf-8") == "v3"
+    assert path.with_suffix(".bak.3").read_text(encoding="utf-8") == "v2"
+    assert not path.with_suffix(".bak.4").exists()
+
+
+def test_write_text_atomic_negative_backup_count(tmp_path: Path) -> None:
+    """Atomic write raises ValueError if backup_count is negative."""
+    path = tmp_path / "state.txt"
+    with pytest.raises(ValueError, match="backup_count must be >= 0"):
+        write_text_atomic(path, "v2", backup_count=-1)
+
+
+def test_write_json_atomic_validator(tmp_path: Path) -> None:
+    """Failed JSON validation cancels atomic write and prevents rotation."""
+    path = tmp_path / "state.json"
+    path.write_text('{"key": "v1"}', encoding="utf-8")
+
+    # We'll mock json.loads inside write_json_atomic's validator
+    mock_error = json.JSONDecodeError("mock", "doc", 0)
+    with patch("qwenpaw.utils.io_utils.json.loads", side_effect=mock_error):
+        with pytest.raises(json.JSONDecodeError):
+            write_json_atomic(path, {"key": "v2"}, backup_count=3)
+
+    # File is intact, no backups created
+    assert path.read_text(encoding="utf-8") == '{"key": "v1"}'
+    assert not path.with_suffix(".bak.1").exists()
+
+
+def test_write_text_atomic_fails_closed_on_backup_failure(
+    tmp_path: Path,
+) -> None:
+    """If backup creation fails, the write aborts and leaves target intact."""
+    path = tmp_path / "state.txt"
+    path.write_text("v1", encoding="utf-8")
+
+    with (
+        patch("shutil.copy2", side_effect=OSError("backup unavailable")),
+        pytest.raises(OSError, match="backup unavailable"),
+    ):
+        write_text_atomic(path, "v2", backup_count=3)
+
+    assert path.read_text(encoding="utf-8") == "v1"
+    assert not path.with_suffix(".bak.1").exists()

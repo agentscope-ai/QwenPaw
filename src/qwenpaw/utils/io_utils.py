@@ -253,7 +253,7 @@ def read_json(path: Path | str) -> Any:
     Synchronous worker functions may use this directly. Async application
     code should use :func:`read_json_async`.
     """
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    return json.loads(Path(path).read_text(encoding="utf-8-sig"))
 
 
 def write_text_atomic(
@@ -262,6 +262,8 @@ def write_text_atomic(
     *,
     encoding: str = "utf-8",
     new_file_mode: int = 0o600,
+    backup_count: int = 0,
+    validator: Callable[[Path], None] | None = None,
 ) -> None:
     """Synchronously replace a file with complete text content.
 
@@ -283,6 +285,8 @@ def write_text_atomic(
     :func:`write_text_atomic_async`.
     """
     target = _resolve_write_target(Path(path))
+    if backup_count < 0:
+        raise ValueError("backup_count must be >= 0")
     target.parent.mkdir(parents=True, exist_ok=True)
     original_mode = (
         stat.S_IMODE(target.stat().st_mode) if target.exists() else None
@@ -295,7 +299,23 @@ def write_text_atomic(
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
+
+        if validator is not None:
+            validator(temp_path)
+
         temp_path.chmod(final_mode)
+
+        if backup_count > 0 and target.exists():
+            for i in range(backup_count - 1, 0, -1):
+                src = target.with_suffix(f".bak.{i}")
+                dst = target.with_suffix(f".bak.{i + 1}")
+                if src.exists():
+                    os.replace(src, dst)
+
+            import shutil
+
+            shutil.copy2(target, target.with_suffix(".bak.1"))
+
         os.replace(temp_path, target)
         temp_path = None
     finally:
@@ -349,6 +369,7 @@ def write_json_atomic(
     indent: int | None = 2,
     sort_keys: bool = False,
     new_file_mode: int = 0o600,
+    backup_count: int = 0,
 ) -> None:
     """Synchronously serialize and atomically replace one JSON file.
 
@@ -358,6 +379,10 @@ def write_json_atomic(
     Synchronous worker functions may use this directly. Async application
     code should use :func:`write_json_atomic_async`.
     """
+
+    def _validate_json(temp_file: Path) -> None:
+        json.loads(temp_file.read_text(encoding="utf-8-sig"))
+
     write_text_atomic(
         path,
         json.dumps(
@@ -367,6 +392,8 @@ def write_json_atomic(
             sort_keys=sort_keys,
         ),
         new_file_mode=new_file_mode,
+        backup_count=backup_count,
+        validator=_validate_json,
     )
 
 

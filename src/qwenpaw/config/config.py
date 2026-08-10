@@ -2791,7 +2791,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                 return cached_config
 
         # Need to reload config from disk
-        with open(agent_config_path, "r", encoding="utf-8") as f:
+        with open(agent_config_path, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
 
         project_dir_migrated = migrate_project_directory_config(data)
@@ -2837,12 +2837,11 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                         f"{migration_name}-migrate.bak",
                     )
                     _shutil.copy2(agent_config_path, backup_path)
-                with open(
+                write_json_atomic(
                     agent_config_path,
-                    "w",
-                    encoding="utf-8",
-                ) as file:
-                    json.dump(data, file, ensure_ascii=False, indent=2)
+                    data,
+                    backup_count=3,
+                )
                 try:
                     current_mtime = agent_config_path.stat().st_mtime
                 except OSError:
@@ -2912,6 +2911,7 @@ def save_agent_config(
         write_json_atomic(
             agent_config_path,
             agent_config.model_dump(exclude_none=True),
+            backup_count=3,
         )
         _agent_config_cache.pop(agent_id, None)
 
@@ -2995,13 +2995,11 @@ def migrate_legacy_config_to_multi_agent() -> bool:
 
     # Save default agent configuration to workspace
     agent_config_path = default_workspace / "agent.json"
-    with open(agent_config_path, "w", encoding="utf-8") as f:
-        json.dump(
-            default_agent_config.model_dump(exclude_none=True),
-            f,
-            ensure_ascii=False,
-            indent=2,
-        )
+    write_json_atomic(
+        agent_config_path,
+        default_agent_config.model_dump(exclude_none=True),
+        backup_count=3,
+    )
 
     # Migrate existing workspace files from legacy default working dir.
     # When QWENPAW_WORKING_DIR is customized, historical data may still exist
