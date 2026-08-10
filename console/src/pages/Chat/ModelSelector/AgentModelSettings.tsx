@@ -280,7 +280,7 @@ export function AgentModelSettings({
               <span>
                 {loadError ?? t("modelSelector.agentSettingsLoadFailed")}
               </span>
-              <button type="button" onClick={loadConfig}>
+              <button type="button" onClick={() => void loadConfig()}>
                 {t("modelSelector.retry")}
               </button>
             </div>

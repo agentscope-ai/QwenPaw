@@ -129,11 +129,12 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
     else:
         kind = "unknown"
     retryable = kind in {"rate_limited", "transient"}
+    fallback_eligible = retryable or kind == "model_not_found"
     return ModelErrorDecision(
         kind=kind,
         status_code=status,
         retryable=retryable,
-        fallback_eligible=retryable,
+        fallback_eligible=fallback_eligible,
     )
 
 

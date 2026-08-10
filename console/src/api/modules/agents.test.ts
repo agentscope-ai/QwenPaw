@@ -59,7 +59,7 @@ describe("agentsApi", () => {
     const settings = {
       fallback_models: [{ provider_id: "openai", model: "fallback" }],
       subagent_model: null,
-    } as const;
+    };
     vi.mocked(request).mockResolvedValue(settings);
 
     const result = await agentsApi.updateModelSettings("a1", settings);

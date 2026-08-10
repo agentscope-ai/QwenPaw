@@ -27,12 +27,20 @@ def test_transient_http_errors_allow_retry_and_fallback(status: int) -> None:
     assert decision.fallback_eligible is True
 
 
-@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+@pytest.mark.parametrize("status", [400, 401, 403, 422])
 def test_permanent_http_errors_do_not_fallback(status: int) -> None:
     decision = classify_model_error(HttpError(status))
 
     assert decision.retryable is False
     assert decision.fallback_eligible is False
+
+
+def test_model_not_found_allows_fallback_without_retry() -> None:
+    decision = classify_model_error(HttpError(404))
+
+    assert decision.kind == "model_not_found"
+    assert decision.retryable is False
+    assert decision.fallback_eligible is True
 
 
 def test_context_overflow_does_not_fallback() -> None:

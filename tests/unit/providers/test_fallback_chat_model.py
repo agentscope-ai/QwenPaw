@@ -105,6 +105,36 @@ async def test_falls_back_on_transient_error_before_output() -> None:
     ]
 
 
+async def test_falls_back_when_primary_model_is_not_found() -> None:
+    primary = FakeModel(
+        "retired-primary",
+        HttpError(404),
+        provider_id="primary-provider",
+    )
+    fallback = FakeModel(
+        "fallback",
+        lambda: _response("fallback-ok"),
+        provider_id="fallback-provider",
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    response = await model(messages=[], tools=[])
+
+    assert response.content[0]["text"] == "fallback-ok"
+    assert primary.calls == 1
+    assert fallback.calls == 1
+    assert response.metadata["qwenpaw_model_fallbacks"] == [
+        {
+            "type": "model_fallback",
+            "from_provider_id": "primary-provider",
+            "from_model_id": "retired-primary",
+            "to_provider_id": "fallback-provider",
+            "to_model_id": "fallback",
+            "reason_kind": "model_not_found",
+        },
+    ]
+
+
 @pytest.mark.parametrize(
     ("primary_size", "fallback_size"),
     [
