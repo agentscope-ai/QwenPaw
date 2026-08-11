@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DataSourceMetadata } from "./api";
+import { LogoMark } from "./LogoMark";
+import { PageHeader } from "./PageHeader";
 import type {
   PawAppSdk,
   PawChatHistoryMessage,
@@ -380,16 +382,21 @@ function streamMessagePatch(state: ChatStreamState): Partial<ChatMessage> {
   };
 }
 
-function analysisErrorMessage(error: unknown): string {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "MODEL_NOT_CONFIGURED"
-  ) {
+export function analysisErrorMessage(error: unknown): string {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String(error.code || "")
+      : "";
+  if (code === "MODEL_NOT_CONFIGURED") {
     return (
       "No language model is configured for this QwenPaw workspace. " +
       "Open Settings → Models, configure and activate a model, then retry."
+    );
+  }
+  if (code === "UNAUTHORIZED_MODEL_ACCESS") {
+    return (
+      "The configured language model rejected its credentials. " +
+      "Open Settings → Models, update the API key, then retry."
     );
   }
   const detail = error instanceof Error ? error.message : String(error);
@@ -479,7 +486,6 @@ export function ChatWorkspace({
   const [sending, setSending] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [creatingSession, setCreatingSession] = useState(false);
-  const [compactHeader, setCompactHeader] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const sourceLabel = useMemo(
@@ -592,7 +598,6 @@ export function ChatWorkspace({
       });
       setSessions((current) => [created, ...current]);
       setActiveSessionId(created.sessionId);
-      setCompactHeader(false);
     } catch (error) {
       await paw.toast(
         `Could not create a new dialogue. ${
@@ -608,7 +613,6 @@ export function ChatWorkspace({
   function switchDialogue(sessionId: string) {
     if (!sessionId || sessionId === activeSessionId || sending) return;
     setActiveSessionId(sessionId);
-    setCompactHeader(false);
   }
 
   function updateSession(updated: PawChatSession) {
@@ -714,55 +718,48 @@ export function ChatWorkspace({
 
   return (
     <section className="datapaw-chat" aria-label="Data analysis chat">
-      <div
-        className={`datapaw-chat__topline ${compactHeader ? "is-compact" : ""}`}
-      >
-        <div className="datapaw-chat__heading">
-          <span className="datapaw-eyebrow">Analysis workspace</span>
-          <h1>
-            {compactHeader
-              ? activeSession?.name || "Analysis"
-              : "Ask your data, with context."}
-          </h1>
-        </div>
-        <div className="datapaw-chat__controls">
-          <label className="datapaw-dialogue-picker">
-            <span>Dialogue</span>
-            <select
-              aria-label="Active dialogue"
-              value={activeSessionId}
-              disabled={sending || restoring}
-              onChange={(event) => switchDialogue(event.target.value)}
+      <PageHeader
+        className="datapaw-chat__topline"
+        eyebrow="Analysis workspace"
+        title="Ask your data, with context."
+        description="Explore governed data with semantic and graph-grounded context."
+        actions={
+          <div className="datapaw-chat__controls">
+            <label className="datapaw-dialogue-picker">
+              <span>Dialogue</span>
+              <select
+                aria-label="Active dialogue"
+                value={activeSessionId}
+                disabled={sending || restoring}
+                onChange={(event) => switchDialogue(event.target.value)}
+              >
+                {sessions.map((session) => (
+                  <option key={session.id} value={session.sessionId}>
+                    {session.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="datapaw-new-chat"
+              disabled={sending || restoring || creatingSession}
+              onClick={() => void createDialogue()}
             >
-              {sessions.map((session) => (
-                <option key={session.id} value={session.sessionId}>
-                  {session.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="datapaw-new-chat"
-            disabled={sending || restoring || creatingSession}
-            onClick={() => void createDialogue()}
-          >
-            {creatingSession ? "Creating…" : "+ New chat"}
-          </button>
-          <div className="datapaw-source-pill">
-            <span className="datapaw-source-pill__dot" />
-            {sourceLabel || "All available context"}
+              {creatingSession ? "Creating…" : "+ New chat"}
+            </button>
+            <div className="datapaw-source-pill">
+              <span className="datapaw-source-pill__dot" />
+              {sourceLabel || "All available context"}
+            </div>
           </div>
-        </div>
-      </div>
+        }
+      />
 
       <div
         className="datapaw-conversation"
         aria-live="polite"
         ref={conversationRef}
-        onScroll={(event) =>
-          setCompactHeader(event.currentTarget.scrollTop > 24)
-        }
       >
         {restoring ? (
           <div className="datapaw-welcome">
@@ -771,10 +768,7 @@ export function ChatWorkspace({
         ) : messages.length === 0 ? (
           <div className="datapaw-welcome">
             <div className="datapaw-welcome__mark">
-              <img
-                src="/api/frontend_plugin/datapaw/files/ui/dist/app/logo-mark-v4.png"
-                alt=""
-              />
+              <LogoMark />
             </div>
             <h2>What would you like to understand?</h2>
             <p>

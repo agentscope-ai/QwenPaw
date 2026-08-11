@@ -1,12 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  analysisErrorMessage,
   createChatStreamState,
   historyToChatMessages,
   reduceChatStreamEvent,
 } from "./ChatWorkspace";
 
 describe("DataPaw chat stream reducer", () => {
+  it("renders an actionable model credential error", () => {
+    const error = Object.assign(new Error("provider rejected the key"), {
+      code: "UNAUTHORIZED_MODEL_ACCESS",
+    });
+
+    expect(analysisErrorMessage(error)).toBe(
+      "The configured language model rejected its credentials. " +
+        "Open Settings → Models, update the API key, then retry.",
+    );
+  });
+
   it("keeps live narration separate from the final assistant answer", () => {
     let state = createChatStreamState();
     state = reduceChatStreamEvent(state, {

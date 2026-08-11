@@ -6,6 +6,7 @@ import { routeRegistry } from "../registry/store";
 import { hostFetch } from "../hostSdk/fetch";
 import { apiNamespace, forApp } from "./index";
 import { PawApiError } from "./api";
+import { PawChatStreamError } from "./host";
 import { createUiNamespace } from "./ui";
 import { setActivePawAppId } from "./context";
 
@@ -165,6 +166,66 @@ describe("app-scoped PawApp SDK", () => {
       }),
     );
     expect(events.map((event) => event.text)).toEqual(["Hel", "lo"]);
+  });
+
+  it("rejects failed response envelopes with their structured error code", async () => {
+    const encoder = new TextEncoder();
+    mockedFetch.mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                'data: {"object":"response","type":"response","status":"failed","error":{"code":"UNAUTHORIZED_MODEL_ACCESS","message":"Unauthorized access to model \'qwen3-max\'"}}\n\n',
+              ),
+            );
+            controller.close();
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+
+    const next = forApp("datapaw")
+      .chatStream("compare revenue", { agentId: "datapaw" })
+      .next();
+
+    await expect(next).rejects.toBeInstanceOf(PawChatStreamError);
+    await expect(next).rejects.toMatchObject({
+      name: "PawChatStreamError",
+      code: "UNAUTHORIZED_MODEL_ACCESS",
+      message: "Unauthorized access to model 'qwen3-max'",
+      detail: {
+        code: "UNAUTHORIZED_MODEL_ACCESS",
+        message: "Unauthorized access to model 'qwen3-max'",
+      },
+    });
+  });
+
+  it("keeps legacy chat error events compatible", async () => {
+    const encoder = new TextEncoder();
+    mockedFetch.mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                'data: {"type":"error","error":{"code":"MODEL_NOT_CONFIGURED","message":"Configure a model"}}\n\n',
+              ),
+            );
+            controller.close();
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+
+    const next = forApp("datapaw").chatStream("compare revenue").next();
+    await expect(next).rejects.toMatchObject({
+      name: "PawChatStreamError",
+      code: "MODEL_NOT_CONFIGURED",
+      message: "Configure a model",
+    });
   });
 
   it("restores history from the same managed agent and session", async () => {

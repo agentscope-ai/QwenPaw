@@ -33,9 +33,13 @@ cp "$APP_DIR/backend/__init__.py" "$APP_DIR/backend/context_gateway.py" \
 cp "$APP_DIR/agents/datapaw/en/PROFILE.md" \
   "$APP_DIR/agents/datapaw/en/SOUL.md" "$STAGE_DIR/agents/datapaw/en/"
 cp "$APP_DIR/ui/dist/index.js" "$APP_DIR/ui/dist/index.js.map" "$STAGE_DIR/ui/dist/"
-if [[ -d "$APP_DIR/ui/dist/app" ]]; then
-  cp -R "$APP_DIR/ui/dist/app" "$STAGE_DIR/ui/dist/"
+LOGO_ASSET="$APP_DIR/ui/dist/app/logo-mark-v4.png"
+if [[ ! -f "$LOGO_ASSET" ]]; then
+  echo "Required QwenPaw-Data logo asset was not built: $LOGO_ASSET" >&2
+  exit 1
 fi
+mkdir -p "$STAGE_DIR/ui/dist/app"
+cp "$LOGO_ASSET" "$STAGE_DIR/ui/dist/app/"
 
 echo "==> Installing the staged PawApp"
 "$QWENPAW_BIN" --host "$QWENPAW_HOST" --port "$QWENPAW_PORT" \

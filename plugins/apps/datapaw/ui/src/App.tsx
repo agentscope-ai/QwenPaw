@@ -8,6 +8,7 @@ import {
 import { ChatWorkspace } from "./ChatWorkspace";
 import { DataSources } from "./DataSources";
 import { GraphExplorer } from "./GraphExplorer";
+import { LogoMark } from "./LogoMark";
 import { SemanticCatalog } from "./SemanticCatalog";
 import type { PawAppSdk } from "./sdk";
 import type { PawDependencyAction, PawDependencySnapshot } from "./sdk";
@@ -160,10 +161,7 @@ export function App({ paw }: { paw: PawAppSdk }) {
       <aside className="datapaw-nav">
         <div className="datapaw-brand">
           <div className="datapaw-brand__mark">
-            <img
-              src="/api/frontend_plugin/datapaw/files/ui/dist/app/logo-mark-v4.png"
-              alt=""
-            />
+            <LogoMark />
           </div>
           <div>
             <b>QwenPaw-Data</b>

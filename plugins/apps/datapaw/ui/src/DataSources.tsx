@@ -1,6 +1,7 @@
 import type { DataSourceMetadata } from "./api";
 import type { PawDependencyAction, PawDependencyStatus } from "./sdk";
 import { useState } from "react";
+import { PageHeader } from "./PageHeader";
 import { groupDependencies } from "./status";
 
 function sourceInitial(source: DataSourceMetadata): string {
@@ -44,32 +45,32 @@ export function DataSources({
 
   return (
     <section className="datapaw-sources">
-      <header className="datapaw-section-heading">
-        <div>
-          <span className="datapaw-eyebrow">Query scope</span>
-          <h1>Data sources</h1>
-          <p>Select the default source for chat and graph exploration.</p>
-        </div>
-        <div className="datapaw-live-controls">
-          <span className="datapaw-live-status">
-            <i /> Live
-            {lastUpdatedAt
-              ? ` · ${lastUpdatedAt.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                })}`
-              : ""}
-          </span>
-          <button
-            className="datapaw-secondary-button"
-            type="button"
-            onClick={onReload}
-          >
-            Reload
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow="Query scope"
+        title="Data sources"
+        description="Select the default source for chat and graph exploration."
+        actions={
+          <div className="datapaw-live-controls">
+            <span className="datapaw-live-status">
+              <i /> Live
+              {lastUpdatedAt
+                ? ` · ${lastUpdatedAt.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })}`
+                : ""}
+            </span>
+            <button
+              className="datapaw-secondary-button"
+              type="button"
+              onClick={onReload}
+            >
+              Reload
+            </button>
+          </div>
+        }
+      />
 
       {error ? <div className="datapaw-error-banner">{error}</div> : null}
       <div className="datapaw-dependency-sections">

@@ -6,6 +6,9 @@
   --datapaw-purple: #6558e8;
   --datapaw-purple-deep: #5144d6;
   --datapaw-mint: #12a594;
+  --datapaw-page-max-width: 1280px;
+  --datapaw-page-gutter: 44px;
+  --datapaw-page-top: 32px;
 }
 
 .datapaw-app,
@@ -70,11 +73,21 @@
 }
 
 .datapaw-brand__mark img,
-.datapaw-welcome__mark img {
+.datapaw-welcome__mark img,
+.datapaw-logo-fallback {
   width: 100%;
   height: 100%;
   border-radius: inherit;
   object-fit: contain;
+}
+
+.datapaw-logo-fallback {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(145deg, #6558e8, #12a594);
+  font-size: 10px;
+  letter-spacing: -0.02em;
 }
 
 .datapaw-brand b,
@@ -261,65 +274,61 @@
   text-transform: uppercase;
 }
 
+.datapaw-chat,
+.datapaw-sources,
+.datapaw-semantic,
+.datapaw-graph-page {
+  width: min(var(--datapaw-page-max-width), 100%);
+  margin: 0 auto;
+  padding-right: var(--datapaw-page-gutter);
+  padding-left: var(--datapaw-page-gutter);
+}
+
 .datapaw-chat {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(1040px, 100%);
   height: calc(100vh - 56px);
   min-height: 560px;
-  margin: 0 auto;
-  padding: 0 52px 24px;
+  padding-top: var(--datapaw-page-top);
+  padding-bottom: 24px;
   overflow: hidden;
 }
 
-.datapaw-chat__topline,
-.datapaw-section-heading,
-.datapaw-graph-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+.datapaw-page-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 24px;
+  min-height: 104px;
+  padding-bottom: 24px;
 }
 
 .datapaw-chat__topline {
-  position: sticky;
   z-index: 5;
-  top: 0;
-  align-items: center;
-  min-height: 104px;
-  padding: 26px 0 20px;
-  border-bottom: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(16px);
-  transition:
-    min-height 160ms ease,
-    padding 160ms ease,
-    border-color 160ms ease,
-    box-shadow 160ms ease;
+  background: #fff;
 }
 
-.datapaw-chat__topline.is-compact {
-  min-height: 66px;
-  padding: 10px 0;
-  border-bottom-color: var(--datapaw-line);
-  box-shadow: 0 7px 18px rgba(37, 43, 67, 0.04);
+.datapaw-page-header__copy {
+  min-width: 0;
 }
 
-.datapaw-chat__heading {
-  min-width: 190px;
+.datapaw-page-header__actions {
+  min-width: 0;
+  align-self: start;
 }
 
-.datapaw-chat__topline.is-compact .datapaw-eyebrow {
-  margin-bottom: 2px;
-  font-size: 8px;
+.datapaw-page-header h1 {
+  margin: 0;
+  font-size: 27px;
+  line-height: 1.16;
+  letter-spacing: -0.04em;
 }
 
-.datapaw-chat__topline.is-compact h1 {
-  max-width: 360px;
-  overflow: hidden;
-  font-size: 16px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.datapaw-page-header__description {
+  margin: 8px 0 0;
+  color: var(--datapaw-muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .datapaw-chat__controls {
@@ -380,15 +389,6 @@
   color: #a0a4b0;
   background: #f2f3f6;
   cursor: wait;
-}
-
-.datapaw-chat h1,
-.datapaw-section-heading h1,
-.datapaw-graph-header h1 {
-  margin: 0;
-  font-size: 27px;
-  line-height: 1.16;
-  letter-spacing: -0.04em;
 }
 
 .datapaw-source-pill {
@@ -741,14 +741,8 @@
 }
 
 .datapaw-sources {
-  width: min(1080px, 100%);
-  margin: 0 auto;
-  padding: 42px 50px;
-}
-.datapaw-section-heading p {
-  margin: 8px 0 0;
-  color: var(--datapaw-muted);
-  font-size: 12px;
+  padding-top: var(--datapaw-page-top);
+  padding-bottom: 44px;
 }
 .datapaw-secondary-button {
   padding: 8px 13px;
@@ -1004,9 +998,8 @@
 }
 
 .datapaw-semantic {
-  width: min(1120px, 100%);
-  margin: 0 auto;
-  padding: 38px 44px 48px;
+  padding-top: var(--datapaw-page-top);
+  padding-bottom: 48px;
 }
 
 .datapaw-semantic__scope {
@@ -1014,7 +1007,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  margin-top: 24px;
+  margin-top: 0;
   padding: 11px 14px;
   border: 1px solid #e8e9f0;
   border-radius: 11px;
@@ -1361,12 +1354,9 @@
   grid-template-rows: auto minmax(0, 1fr);
   height: calc(100vh - 56px);
   min-height: 680px;
-  padding: 26px 28px 22px;
+  padding-top: var(--datapaw-page-top);
+  padding-bottom: 22px;
   overflow: hidden;
-}
-.datapaw-graph-header {
-  align-items: center;
-  padding: 0 2px 18px;
 }
 .datapaw-segmented {
   display: flex;
@@ -1737,6 +1727,11 @@
 }
 
 @media (max-width: 900px) {
+  :root {
+    --datapaw-page-gutter: 24px;
+    --datapaw-page-top: 28px;
+  }
+
   .datapaw-app {
     grid-template-columns: 68px minmax(0, 1fr);
   }
@@ -1754,7 +1749,7 @@
     padding: 10px;
   }
   .datapaw-chat {
-    padding: 0 24px 20px;
+    padding-bottom: 20px;
   }
   .datapaw-chat__controls {
     flex-wrap: wrap;
@@ -1772,7 +1767,7 @@
     grid-template-columns: 1fr;
   }
   .datapaw-semantic {
-    padding: 30px 24px 40px;
+    padding-bottom: 40px;
   }
   .datapaw-semantic-summary {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1783,6 +1778,11 @@
 }
 
 @media (max-width: 660px) {
+  :root {
+    --datapaw-page-gutter: 16px;
+    --datapaw-page-top: 24px;
+  }
+
   .datapaw-app {
     display: block;
     overflow: auto;
@@ -1808,24 +1808,19 @@
   .datapaw-nav nav button {
     flex: 1;
   }
-  .datapaw-chat__topline,
-  .datapaw-section-heading {
-    flex-direction: column;
+  .datapaw-page-header {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    min-height: 0;
+    padding-bottom: 18px;
   }
   .datapaw-chat {
     height: calc(100vh - 52px);
     min-height: 520px;
-    padding: 0 16px 14px;
+    padding-bottom: 14px;
   }
   .datapaw-chat__topline {
-    align-items: stretch;
-    min-height: 126px;
-    padding: 16px 0 12px;
-    gap: 10px;
-  }
-  .datapaw-chat__topline.is-compact {
-    min-height: 104px;
-    padding: 9px 0;
+    min-height: 0;
   }
   .datapaw-chat__controls {
     flex-wrap: nowrap;
@@ -1838,11 +1833,8 @@
   .datapaw-source-pill {
     max-width: 100%;
   }
-  .datapaw-sources {
-    padding: 28px 16px;
-  }
   .datapaw-semantic {
-    padding: 24px 16px 36px;
+    padding-bottom: 36px;
   }
   .datapaw-live-controls {
     width: 100%;
@@ -1870,7 +1862,7 @@
   .datapaw-graph-page {
     height: auto;
     min-height: calc(100vh - 52px);
-    padding: 18px 10px;
+    padding-bottom: 18px;
     overflow: visible;
   }
   .datapaw-graph-layout {

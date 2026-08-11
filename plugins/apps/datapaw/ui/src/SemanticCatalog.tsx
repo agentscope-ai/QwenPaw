@@ -6,6 +6,7 @@ import type {
   SemanticRecord,
   SemanticResourceKey,
 } from "./api";
+import { PageHeader } from "./PageHeader";
 
 interface SemanticApi {
   semanticCatalog(datasourceId?: string): Promise<SemanticCatalogSnapshot>;
@@ -208,29 +209,26 @@ export function SemanticCatalog({
 
   return (
     <section className="datapaw-semantic">
-      <header className="datapaw-section-heading">
-        <div>
-          <span className="datapaw-eyebrow">Configuration state</span>
-          <h1>Semantic model</h1>
-          <p>
-            Live view of datasource and semantic changes made through the
-            QwenPaw-Data CLI.
-          </p>
-        </div>
-        <div className="datapaw-live-controls">
-          <span className="datapaw-live-status" aria-live="polite">
-            <i /> {refreshing ? "Syncing…" : `Live · ${lastUpdated}`}
-          </span>
-          <button
-            className="datapaw-secondary-button"
-            type="button"
-            onClick={() => void refresh(false)}
-            disabled={refreshing}
-          >
-            Refresh
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow="Configuration state"
+        title="Semantic model"
+        description="Live view of datasource and semantic changes made through the QwenPaw-Data CLI."
+        actions={
+          <div className="datapaw-live-controls">
+            <span className="datapaw-live-status" aria-live="polite">
+              <i /> {refreshing ? "Syncing…" : `Live · ${lastUpdated}`}
+            </span>
+            <button
+              className="datapaw-secondary-button"
+              type="button"
+              onClick={() => void refresh(false)}
+              disabled={refreshing}
+            >
+              Refresh
+            </button>
+          </div>
+        }
+      />
 
       <div className="datapaw-semantic__scope">
         <span>Scope</span>

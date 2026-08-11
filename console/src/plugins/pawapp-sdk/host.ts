@@ -18,6 +18,59 @@ import { getActivePawAppId } from "./context";
 import { createApiNamespace } from "./api";
 import type { PawHostNamespace } from "./types";
 
+/** Structured failure raised when a PawApp chat stream terminates in error. */
+export class PawChatStreamError extends Error {
+  readonly code: string;
+  readonly detail: unknown;
+  readonly event: PawChatStreamEvent;
+
+  constructor(
+    message: string,
+    options: {
+      code: string;
+      detail: unknown;
+      event: PawChatStreamEvent;
+    },
+  ) {
+    super(message);
+    this.name = "PawChatStreamError";
+    this.code = options.code;
+    this.detail = options.detail;
+    this.event = options.event;
+  }
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function chatStreamError(
+  payload: PawChatStreamEvent,
+): PawChatStreamError | undefined {
+  const status = String(payload.status || "").toLowerCase();
+  const isLegacyError = payload.type === "error";
+  const isFailedResponse = payload.object === "response" && status === "failed";
+  if (!isLegacyError && !isFailedResponse) return undefined;
+
+  const detail = payload.error ?? payload;
+  const detailRecord = recordValue(detail);
+  const message =
+    (detailRecord && typeof detailRecord.message === "string"
+      ? detailRecord.message
+      : typeof detail === "string"
+      ? detail
+      : "Chat failed") || "Chat failed";
+  const code =
+    (detailRecord && typeof detailRecord.code === "string"
+      ? detailRecord.code
+      : "CHAT_STREAM_ERROR") || "CHAT_STREAM_ERROR";
+
+  return new PawChatStreamError(message, { code, detail, event: payload });
+}
+
 /** Get the current PawApp ID from page context. */
 function getAppId(): string {
   return getActivePawAppId();
@@ -92,26 +145,8 @@ async function* streamChatWithApi(
       throw invalidPayloadError;
     }
 
-    if (payload.type === "error") {
-      const detail = payload.error;
-      const messageText =
-        typeof detail === "object" && detail !== null && "message" in detail
-          ? String((detail as { message?: unknown }).message || "Chat failed")
-          : typeof detail === "string"
-          ? detail
-          : "Chat failed";
-      const streamError = new Error(messageText) as Error & {
-        code?: string;
-        detail?: unknown;
-      };
-      if (typeof detail === "object" && detail !== null && "code" in detail) {
-        streamError.code = String(
-          (detail as { code?: unknown }).code || "CHAT_STREAM_ERROR",
-        );
-      }
-      streamError.detail = detail;
-      throw streamError;
-    }
+    const streamError = chatStreamError(payload);
+    if (streamError) throw streamError;
 
     yield payload;
   }

@@ -194,6 +194,9 @@ for await (const event of paw.chatStream("Analyze it", scope)) {
 
 `paw.chat()` 和 `paw.chatStream()` 支持显式 `agentId`、`sessionId` 和 `skill`，不依赖可变的
 Host 当前选中 Agent。Streaming 保留 assistant delta、tool call、tool output 和错误事件。
+当 Runtime 以 `response.status = "failed"` 结束，SDK 必须抛出 `PawChatStreamError`，
+并保留 Runtime 返回的 `code`、`message` 和 `detail`。App 不应自行解析失败 envelope，
+也不应将已知失败降级为“无文本回复”。旧版 `{ type: "error" }` 事件保持兼容。
 
 ### 6.2 History 恢复
 

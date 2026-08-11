@@ -18,6 +18,7 @@ import type {
 } from "./api";
 import { normalizeEdge, normalizeNode } from "./api";
 import { compactLabel, layoutGraph } from "./graph-layout";
+import { PageHeader } from "./PageHeader";
 
 interface GraphApi {
   graphSchema(): Promise<GraphSchema>;
@@ -179,26 +180,27 @@ export function GraphExplorer({
 
   return (
     <section className="datapaw-graph-page">
-      <header className="datapaw-graph-header">
-        <div>
-          <span className="datapaw-eyebrow">Context memory</span>
-          <h1>Context graph</h1>
-        </div>
-        <div className="datapaw-segmented">
-          <button
-            className={mode === "graph" ? "is-active" : ""}
-            onClick={() => setMode("graph")}
-          >
-            Explore
-          </button>
-          <button
-            className={mode === "query" ? "is-active" : ""}
-            onClick={() => setMode("query")}
-          >
-            Cypher
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow="Context memory"
+        title="Context graph"
+        description="Explore semantic context, knowledge, and analysis relationships."
+        actions={
+          <div className="datapaw-segmented">
+            <button
+              className={mode === "graph" ? "is-active" : ""}
+              onClick={() => setMode("graph")}
+            >
+              Explore
+            </button>
+            <button
+              className={mode === "query" ? "is-active" : ""}
+              onClick={() => setMode("query")}
+            >
+              Cypher
+            </button>
+          </div>
+        }
+      />
 
       <div className="datapaw-graph-layout">
         <aside className="datapaw-graph-sidebar">

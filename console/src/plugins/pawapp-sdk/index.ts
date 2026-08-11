@@ -124,4 +124,5 @@ export type {
 export { createPawTask } from "./task";
 export { createDependenciesNamespace } from "./dependencies";
 export { PawApiError } from "./api";
+export { PawChatStreamError } from "./host";
 export { apiNamespace, hostNamespace, createApiNamespace, createHostNamespace };
