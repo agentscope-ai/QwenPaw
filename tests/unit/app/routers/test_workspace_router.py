@@ -45,6 +45,128 @@ def _config_transaction(
     return AsyncMock(side_effect=update)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("old_backend", ["none", "adbpg"])
+async def test_backend_switch_to_remelight_skips_old_manager_embedding_update(
+    old_backend: str,
+) -> None:
+    old_running, new_running = _embedding_update_configs()
+    old_running.memory_manager_backend = old_backend
+    new_running.memory_manager_backend = "remelight"
+    old_manager = SimpleNamespace()
+    workspace = SimpleNamespace(agent_id="bot", memory_manager=old_manager)
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    transaction = _config_transaction(agent_config)
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            transaction,
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.schedule_agent_reload",
+        ) as schedule_reload,
+    ):
+        response = await put_agents_running_config(new_running, MagicMock())
+
+    assert response.memory_manager_backend == "remelight"
+    assert agent_config.running == new_running
+    assert transaction.await_count == 1
+    schedule_reload.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("old_backend", "new_backend"),
+    [
+        ("none", "remelight"),
+        ("adbpg", "remelight"),
+        ("remelight", "none"),
+    ],
+)
+async def test_backend_only_switch_persists_and_schedules_reload(
+    old_backend: str,
+    new_backend: str,
+) -> None:
+    old_running = AgentsRunningConfig(memory_manager_backend=old_backend)
+    new_running = old_running.model_copy(deep=True)
+    new_running.memory_manager_backend = new_backend
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=SimpleNamespace(),
+    )
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.schedule_agent_reload",
+        ) as schedule_reload,
+    ):
+        response = await put_agents_running_config(new_running, MagicMock())
+
+    assert response.memory_manager_backend == new_backend
+    assert agent_config.running.memory_manager_backend == new_backend
+    schedule_reload.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_remelight_switch_skips_embedding_hot_update() -> None:
+    old_running, new_running = _embedding_update_configs()
+    new_running.memory_manager_backend = "none"
+    memory_manager = MagicMock()
+    memory_manager.apply_tested_embedding = AsyncMock(return_value=True)
+    memory_manager.reload_embedding_config = AsyncMock(return_value=True)
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=memory_manager,
+    )
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.schedule_agent_reload",
+        ) as schedule_reload,
+    ):
+        response = await put_agents_running_config(new_running, MagicMock())
+
+    assert response.memory_manager_backend == "none"
+    memory_manager.apply_tested_embedding.assert_not_awaited()
+    memory_manager.reload_embedding_config.assert_not_awaited()
+    schedule_reload.assert_called_once()
+
+
 def test_embedding_rollback_preserves_unrelated_concurrent_changes() -> None:
     old_running, new_running = _embedding_update_configs()
     before = AgentProfileConfig(id="bot", name="Bot", running=old_running)

@@ -1692,14 +1692,21 @@ async def put_agents_running_config(
     async with get_path_lock(config_path):
         old_agent_config = None
         embedding_changed = False
+        memory_manager_backend_changed = False
         new_embedding_config = (
             running_config.reme_light_memory_config.embedding_model_config
         )
+        new_memory_manager_backend = running_config.memory_manager_backend
 
         def persist_running_config(agent_config):
             nonlocal old_agent_config, embedding_changed
+            nonlocal memory_manager_backend_changed
             old_agent_config = agent_config.model_copy(deep=True)
             old_running_config = agent_config.running or AgentsRunningConfig()
+            memory_manager_backend_changed = (
+                old_running_config.memory_manager_backend
+                != new_memory_manager_backend
+            )
             old_memory_config = old_running_config.reme_light_memory_config
             old_embedding_config = old_memory_config.embedding_model_config
             vector_space_changed = embedding_vector_space_fingerprint(
@@ -1711,6 +1718,8 @@ async def put_agents_running_config(
             embedding_changed = old_embedding_config != new_embedding_config
             if (
                 embedding_changed
+                and not memory_manager_backend_changed
+                and new_memory_manager_backend == "remelight"
                 and memory_manager is not None
                 and getattr(memory_manager, "is_reindexing", False) is True
             ):
@@ -1731,7 +1740,12 @@ async def put_agents_running_config(
             persist_running_config,
         )
 
-        if embedding_changed and memory_manager is not None:
+        if (
+            embedding_changed
+            and not memory_manager_backend_changed
+            and new_memory_manager_backend == "remelight"
+            and memory_manager is not None
+        ):
             embedding_updated = await _apply_embedding_runtime(
                 memory_manager,
                 new_embedding_config,
