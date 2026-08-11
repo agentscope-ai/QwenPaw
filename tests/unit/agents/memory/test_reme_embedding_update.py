@@ -14,6 +14,7 @@ from qwenpaw.agents.memory.embedding_model import (
 )
 from qwenpaw.agents.memory.reme_light_memory_manager import (
     ReMeLightMemoryManager,
+    _to_reme_session_id,
 )
 from qwenpaw.config.config import AgentProfileConfig, EmbeddingModelConfig
 
@@ -52,8 +53,11 @@ def _config(**overrides) -> EmbeddingModelConfig:
 
 def _manager(tmp_path: Path, config: EmbeddingModelConfig):
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    manager._embedding_update_lock = asyncio.Lock()
     manager._reindex_lock = asyncio.Lock()
+    manager._lifecycle_writer_lock = asyncio.Lock()
+    manager._lifecycle_condition = asyncio.Condition()
+    manager._active_reme_jobs = 0
+    manager._lifecycle_operation = None
     manager.agent_id = "bot"
     manager._active_embedding_config = config.model_copy(deep=True)
     wrapper = SimpleNamespace(model=object())
@@ -122,22 +126,22 @@ async def test_manual_reindex_clears_persisted_requirement(tmp_path) -> None:
     manager, _wrapper, _store = _manager(tmp_path, config)
     profile = AgentProfileConfig(id="bot", name="Bot")
     profile.running.reme_light_memory_config.needs_reindex = True
-    manager_module = "qwenpaw.agents.memory.reme_light_memory_manager"
 
-    with (
-        patch(
-            f"{manager_module}.load_agent_config",
-            return_value=profile,
-        ),
-        patch(
-            f"{manager_module}.save_agent_config",
-        ) as save_config,
-    ):
+    async def update_config(_agent_id, updater):
+        assert manager.is_reindexing is True
+        updater(profile)
+        return profile
+
+    with patch(
+        "qwenpaw.agents.memory.reme_light_memory_manager."
+        "update_agent_config_async",
+        side_effect=update_config,
+    ) as update_config_mock:
         response = await manager.rebuild_index()
 
     assert response.success is True
     assert profile.running.reme_light_memory_config.needs_reindex is False
-    save_config.assert_called_once_with("bot", profile)
+    update_config_mock.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -147,3 +151,99 @@ async def test_untested_config_falls_back_to_reload(tmp_path) -> None:
     manager._tested_embedding = None
 
     assert await manager.apply_tested_embedding(config) is False
+
+
+@pytest.mark.asyncio
+async def test_embedding_update_waits_for_inflight_reme_job(tmp_path) -> None:
+    config = _config(model_name="old-model")
+    new_config = _config(model_name="new-model")
+    manager, wrapper, _store = _manager(tmp_path, config)
+    del manager._run_reme_job
+    job_started = asyncio.Event()
+    finish_job = asyncio.Event()
+
+    async def run_job(_name, **_kwargs):
+        job_started.set()
+        await finish_job.wait()
+        return SimpleNamespace(success=True, answer="ok")
+
+    manager._reme.run_job = run_job
+    manager._append_reme_job_result_to_inbox = AsyncMock()
+    manager._tested_embedding = (
+        embedding_config_fingerprint(new_config),
+        object(),
+    )
+
+    job = asyncio.create_task(manager._run_reme_job("search"))
+    await job_started.wait()
+    update = asyncio.create_task(manager.apply_tested_embedding(new_config))
+    await asyncio.sleep(0)
+
+    assert not update.done()
+    assert wrapper.model is not manager._tested_embedding[1]
+
+    finish_job.set()
+    await job
+    assert await update is True
+
+
+@pytest.mark.asyncio
+async def test_reindex_and_embedding_update_share_lifecycle_boundary(
+    tmp_path,
+) -> None:
+    config = _config(model_name="old-model")
+    new_config = _config(model_name="new-model")
+    manager, _wrapper, _store = _manager(tmp_path, config)
+    del manager._run_reme_job
+    reindex_started = asyncio.Event()
+    finish_reindex = asyncio.Event()
+
+    async def run_job(name, **_kwargs):
+        assert name == "reindex"
+        reindex_started.set()
+        await finish_reindex.wait()
+        return SimpleNamespace(success=True, answer="ok")
+
+    async def update_config(_agent_id, _updater):
+        return AgentProfileConfig(id="bot", name="Bot")
+
+    manager._reme.run_job = run_job
+    manager._append_reme_job_result_to_inbox = AsyncMock()
+    manager._tested_embedding = (
+        embedding_config_fingerprint(new_config),
+        object(),
+    )
+
+    with patch(
+        "qwenpaw.agents.memory.reme_light_memory_manager."
+        "update_agent_config_async",
+        side_effect=update_config,
+    ):
+        reindex = asyncio.create_task(manager.rebuild_index())
+        await reindex_started.wait()
+        update = asyncio.create_task(
+            manager.apply_tested_embedding(new_config),
+        )
+        await asyncio.sleep(0)
+
+        assert not update.done()
+        finish_reindex.set()
+        await reindex
+        assert await update is True
+
+
+def test_reme_session_ids_are_fixed_length_and_collision_resistant() -> None:
+    identifiers = [
+        "Foo",
+        "foo",
+        "é",
+        "e\N{COMBINING ACUTE ACCENT}",
+        "CON",
+        "telegram:123",
+        "x" * 10_000,
+    ]
+    mapped = [_to_reme_session_id(value) for value in identifiers]
+
+    assert len(set(mapped)) == len(identifiers)
+    assert all(value.startswith("qpsid_sha256_") for value in mapped)
+    assert all(len(value) == len("qpsid_sha256_") + 64 for value in mapped)

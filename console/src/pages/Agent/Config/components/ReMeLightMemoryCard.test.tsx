@@ -1,7 +1,7 @@
 import { Form } from "@agentscope-ai/design";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { agentsApi, api } from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
@@ -12,6 +12,7 @@ import {
 } from "./ReMeLightMemoryCard";
 import { EmbeddingModelCard } from "./EmbeddingModelCard";
 import { MemoryMaintenanceContext } from "../memoryMaintenanceContext";
+import { useReMeRuntimeStatus } from "../useReMeRuntimeStatus";
 import {
   getEmbeddingServiceFingerprint,
   isEmbeddingEnabled,
@@ -54,22 +55,50 @@ const memoryStatus = {
   },
 };
 
+const unknownRuntime = { type: "unknown" as const };
+const noopStatusCheck = async () => {};
+
+function RuntimeProvider({ children }: { children: ReactNode }) {
+  const [localReindexing, setLocalReindexing] = useState(false);
+  const { runtimeStatus, checkMemoryStatus } = useReMeRuntimeStatus(true);
+  const remoteReindexing =
+    runtimeStatus.type === "healthy" && runtimeStatus.data.runtime.reindexing;
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: localReindexing || remoteReindexing,
+        setReindexing: setLocalReindexing,
+        openMemorySettings: vi.fn(),
+        runtimeStatus,
+        checkMemoryStatus,
+        configRevision: 0,
+      }}
+    >
+      {children}
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
 function MemoryForm() {
   const [form] = Form.useForm();
   return (
-    <Form
-      form={form}
-      initialValues={{
-        reme_light_memory_config: {
-          auto_memory_interval: 0,
-          dream_cron_enabled: false,
-          auto_memory_search_config: { enabled: false, max_results: 5 },
-          embedding_model_config: {},
-        },
-      }}
-    >
-      <ReMeLightMemoryCard />
-    </Form>
+    <RuntimeProvider>
+      <Form
+        form={form}
+        initialValues={{
+          reme_light_memory_config: {
+            auto_memory_interval: 0,
+            dream_cron_enabled: false,
+            auto_memory_search_config: { enabled: false, max_results: 5 },
+            embedding_model_config: {},
+          },
+        }}
+      >
+        <ReMeLightMemoryCard />
+      </Form>
+    </RuntimeProvider>
   );
 }
 
@@ -118,6 +147,9 @@ function ReindexingEmbeddingForm() {
         reindexing: true,
         setReindexing: vi.fn(),
         openMemorySettings: vi.fn(),
+        runtimeStatus: unknownRuntime,
+        checkMemoryStatus: noopStatusCheck,
+        configRevision: 0,
       }}
     >
       <ConfiguredEmbeddingForm />
@@ -135,6 +167,9 @@ function NeedsReindexEmbeddingForm({ onOpen = vi.fn() }) {
         reindexing: false,
         setReindexing: vi.fn(),
         openMemorySettings: onOpen,
+        runtimeStatus: unknownRuntime,
+        checkMemoryStatus: noopStatusCheck,
+        configRevision: 0,
       }}
     >
       <ConfiguredEmbeddingForm />
@@ -145,15 +180,21 @@ function NeedsReindexEmbeddingForm({ onOpen = vi.fn() }) {
 function MemoryAndEmbeddingForm() {
   const [form] = Form.useForm();
   const [needsReindex, setNeedsReindex] = useState(false);
-  const [reindexing, setReindexing] = useState(false);
+  const [localReindexing, setReindexing] = useState(false);
+  const { runtimeStatus, checkMemoryStatus } = useReMeRuntimeStatus(true);
+  const remoteReindexing =
+    runtimeStatus.type === "healthy" && runtimeStatus.data.runtime.reindexing;
   return (
     <MemoryMaintenanceContext.Provider
       value={{
         needsReindex,
         setNeedsReindex,
-        reindexing,
+        reindexing: localReindexing || remoteReindexing,
         setReindexing,
         openMemorySettings: vi.fn(),
+        runtimeStatus,
+        checkMemoryStatus,
+        configRevision: 0,
       }}
     >
       <Form
@@ -448,6 +489,31 @@ describe("embedding card separation", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText("agentConfig.embeddingVerificationMetrics"),
+    ).toBeInTheDocument();
+  });
+
+  it("clears verification when the selected agent changes", async () => {
+    vi.spyOn(api, "testEmbedding").mockResolvedValue({
+      success: true,
+      configured_dimensions: 1024,
+      actual_dimensions: 1024,
+      latency_ms: 86,
+      message: "ok",
+    });
+    renderWithProviders(<ConfiguredEmbeddingForm />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
+    );
+    expect(
+      await screen.findByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+
+    act(() => useAgentStore.setState({ selectedAgent: "another-agent" }));
+
+    expect(
+      await screen.findByText("agentConfig.embeddingNotVerified"),
     ).toBeInTheDocument();
   });
 

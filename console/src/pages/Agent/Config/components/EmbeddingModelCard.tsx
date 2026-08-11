@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Alert,
   Button,
@@ -14,12 +13,10 @@ import { useTranslation } from "react-i18next";
 import { api } from "@/api";
 import type { EmbeddingModelConfig } from "@/api/types/agent";
 import { useAppMessage } from "@/hooks/useAppMessage";
-import {
-  getEmbeddingServiceFingerprint,
-  isEmbeddingEnabled,
-} from "./embeddingUtils";
+import { isEmbeddingEnabled } from "./embeddingUtils";
 import styles from "../index.module.less";
 import { useMemoryMaintenance } from "../memoryMaintenanceContext";
+import { useEmbeddingVerification } from "./useEmbeddingVerification";
 
 const EMBEDDING_BACKEND_OPTIONS = [
   { value: "openai", label: "OpenAI" },
@@ -33,14 +30,8 @@ export function EmbeddingModelCard() {
   const { t } = useTranslation();
   const { modal } = useAppMessage();
   const form = Form.useFormInstance();
-  const { needsReindex, reindexing, openMemorySettings } =
+  const { needsReindex, reindexing, openMemorySettings, configRevision } =
     useMemoryMaintenance();
-  const [testingEmbedding, setTestingEmbedding] = useState(false);
-  const [testedEmbedding, setTestedEmbedding] = useState<{
-    fingerprint: string;
-    dimensions: number;
-    latency: number;
-  } | null>(null);
 
   const embeddingConfig = Form.useWatch(
     ["reme_light_memory_config", "embedding_model_config"],
@@ -58,10 +49,19 @@ export function EmbeddingModelCard() {
     model_name: modelName,
     api_key: apiKey,
   });
+  const {
+    testingEmbedding,
+    setTestingEmbedding,
+    testedEmbedding,
+    testedEmbeddingIsCurrent,
+    markVerified,
+    clearVerification,
+  } = useEmbeddingVerification(
+    embeddingConfig,
+    embeddingEnabled,
+    configRevision,
+  );
   const embeddingCacheEnabled = embeddingConfig?.enable_cache ?? true;
-  const testedEmbeddingIsCurrent =
-    testedEmbedding?.fingerprint ===
-    getEmbeddingServiceFingerprint(embeddingConfig);
 
   const testEmbedding = async () => {
     const config = form.getFieldValue([
@@ -85,11 +85,10 @@ export function EmbeddingModelCard() {
     try {
       const result = await api.testEmbedding(config);
       if (result.success) {
-        setTestedEmbedding({
-          fingerprint: getEmbeddingServiceFingerprint(config),
-          dimensions: result.actual_dimensions ?? config.dimensions,
-          latency: result.latency_ms,
-        });
+        markVerified(
+          result.actual_dimensions ?? config.dimensions,
+          result.latency_ms,
+        );
         modal.success({
           title: t("agentConfig.embeddingTestSuccess"),
           content: t("agentConfig.embeddingTestSuccessDetail", {
@@ -98,14 +97,14 @@ export function EmbeddingModelCard() {
           }),
         });
       } else {
-        setTestedEmbedding(null);
+        clearVerification();
         modal.error({
           title: t("agentConfig.embeddingTestFailed"),
           content: result.message,
         });
       }
     } catch (error) {
-      setTestedEmbedding(null);
+      clearVerification();
       modal.error({
         title: t("agentConfig.embeddingTestFailed"),
         content: error instanceof Error ? error.message : String(error),

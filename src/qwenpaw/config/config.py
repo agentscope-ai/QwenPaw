@@ -7,7 +7,17 @@ import logging
 import re
 import threading
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal, Any, Set, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import (
@@ -3002,6 +3012,30 @@ def save_agent_config(
             agent_config.model_dump(exclude_none=True),
         )
         _agent_config_cache.pop(agent_id, None)
+
+
+async def update_agent_config_async(
+    agent_id: str,
+    updater: Callable[[AgentProfileConfig], Any],
+) -> AgentProfileConfig:
+    """Atomically read, mutate, and durably save one agent configuration.
+
+    The complete legacy transaction runs in a worker thread while holding the
+    same re-entrant lock used by synchronous readers and writers. This avoids
+    blocking the event loop without introducing an await boundary between the
+    read and write phases.
+    """
+    from ..utils.io_utils import run_sync_io
+    from .utils import _agent_config_lock
+
+    def update_sync() -> AgentProfileConfig:
+        with _agent_config_lock:
+            agent_config = load_agent_config(agent_id).model_copy(deep=True)
+            updater(agent_config)
+            save_agent_config(agent_id, agent_config)
+            return agent_config
+
+    return await run_sync_io(update_sync)
 
 
 def migrate_legacy_config_to_multi_agent() -> bool:

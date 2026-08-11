@@ -25,6 +25,7 @@ from ...config.config import (
     ModelSlotConfig,
     load_agent_config,
     save_agent_config,
+    update_agent_config_async,
     generate_short_agent_id,
     sanitize_agent_id,
     validate_agent_id,
@@ -825,15 +826,33 @@ async def update_agent(
             detail=f"Agent '{agentId}' not found",
         )
 
-    existing_config = load_agent_config(agentId)
-
     update_data = agent_config.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        if key != "id":
-            setattr(existing_config, key, value)
 
-    existing_config.id = agentId
-    save_agent_config(agentId, existing_config)
+    def apply_update(existing_config: AgentProfileConfig) -> None:
+        requested = AgentProfileConfig.model_validate(
+            {**existing_config.model_dump(), **update_data},
+        )
+        old_memory = existing_config.running.reme_light_memory_config
+        old_embedding = old_memory.embedding_model_config
+        requested_running = update_data.get("running")
+        if requested_running is not None:
+            new_memory = requested.running.reme_light_memory_config
+            new_embedding = new_memory.embedding_model_config
+            if old_embedding != new_embedding:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Embedding configuration must be updated through "
+                        "/workspace/running-config so the live ReMe runtime "
+                        "can be changed transactionally"
+                    ),
+                )
+        for key in update_data:
+            if key != "id":
+                setattr(existing_config, key, getattr(requested, key))
+        existing_config.id = agentId
+
+    await update_agent_config_async(agentId, apply_update)
     schedule_agent_reload(request, agentId)
 
     return agent_config

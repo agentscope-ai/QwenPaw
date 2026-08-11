@@ -1,31 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   Form,
   Card,
   Switch,
   InputNumber,
   Input,
-  Alert,
   Button,
-  Modal,
 } from "@agentscope-ai/design";
-import { Spin } from "antd";
+import { AlertTriangle, ChevronRight, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "@/api";
-import type { ReMeMemoryStatusResponse } from "@/api/modules/agents";
 import type { ReMeLightMemoryConfig } from "@/api/types/agent";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { useAgentStore } from "@/stores/agentStore";
 import styles from "../index.module.less";
 import { useMemoryMaintenance } from "../memoryMaintenanceContext";
-
-type RuntimeStatus =
-  | { type: "unknown" }
-  | { type: "checking" }
-  | { type: "healthy"; data: ReMeMemoryStatusResponse }
-  | { type: "error"; message: string };
-
-const REINDEX_STATUS_POLL_INTERVAL_MS = 2_000;
+import { ReMeStatusModal } from "./ReMeStatusModal";
 
 export function isValidDreamCronShape(value?: string) {
   if (!value?.trim()) {
@@ -63,14 +53,15 @@ export function ReMeLightMemoryCard() {
   const { message, modal } = useAppMessage();
   const form = Form.useFormInstance();
   const { selectedAgent } = useAgentStore();
-  const { setNeedsReindex, reindexing, setReindexing } = useMemoryMaintenance();
+  const {
+    setNeedsReindex,
+    reindexing,
+    setReindexing,
+    runtimeStatus,
+    checkMemoryStatus,
+  } = useMemoryMaintenance();
   const [statusOpen, setStatusOpen] = useState(false);
   const [dailyPaperExpanded, setDailyPaperExpanded] = useState(false);
-  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({
-    type: "unknown",
-  });
-  const statusRequestRef = useRef<AbortController | null>(null);
-  const rebuildRequestRef = useRef(false);
 
   const rebuildMemoryIndex = () => {
     modal.confirm({
@@ -79,7 +70,6 @@ export function ReMeLightMemoryCard() {
       okText: t("agentConfig.rebuildMemoryIndex"),
       cancelText: t("common.cancel"),
       onOk: async () => {
-        rebuildRequestRef.current = true;
         setReindexing(true);
         try {
           await agentsApi.rebuildMemoryIndex(selectedAgent || "default");
@@ -92,63 +82,17 @@ export function ReMeLightMemoryCard() {
           );
           throw error;
         } finally {
-          rebuildRequestRef.current = false;
           setReindexing(false);
+          void checkMemoryStatus();
         }
       },
     });
   };
 
-  const checkMemoryStatus = useCallback(
-    async (openModal = false) => {
-      if (openModal) setStatusOpen(true);
-
-      statusRequestRef.current?.abort();
-      const controller = new AbortController();
-      statusRequestRef.current = controller;
-      setRuntimeStatus({ type: "checking" });
-
-      try {
-        const status = await agentsApi.getMemoryStatus(
-          selectedAgent || "default",
-          controller.signal,
-        );
-        if (!controller.signal.aborted) {
-          setRuntimeStatus({ type: "healthy", data: status });
-          if (!rebuildRequestRef.current) {
-            setReindexing(status.runtime.reindexing);
-          }
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          setRuntimeStatus({
-            type: "error",
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      } finally {
-        if (statusRequestRef.current === controller) {
-          statusRequestRef.current = null;
-        }
-      }
-    },
-    [selectedAgent, setReindexing],
-  );
-
-  useEffect(() => {
+  const inspectMemoryStatus = () => {
+    setStatusOpen(true);
     void checkMemoryStatus();
-    return () => statusRequestRef.current?.abort();
-  }, [checkMemoryStatus]);
-
-  useEffect(() => {
-    if (!reindexing) return undefined;
-    const timer = window.setInterval(() => {
-      void checkMemoryStatus();
-    }, REINDEX_STATUS_POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [checkMemoryStatus, reindexing]);
-
-  const inspectMemoryStatus = () => void checkMemoryStatus(true);
+  };
   const statusLoading = runtimeStatus.type === "checking";
   const memoryStatus =
     runtimeStatus.type === "healthy" ? runtimeStatus.data : null;
@@ -200,9 +144,6 @@ export function ReMeLightMemoryCard() {
       })
     : "—";
   const autoMemoryStatus = memoryStatus?.runtime.auto_memory;
-  const formatRuntimeTime = (value: string | null) =>
-    value ? new Date(value).toLocaleString() : t("agentConfig.memoryNeverRun");
-
   const remeConfig = Form.useWatch(["reme_light_memory_config"], form) as
     | ReMeLightMemoryConfig
     | undefined;
@@ -300,7 +241,10 @@ export function ReMeLightMemoryCard() {
             className={`${styles.memoryOverviewItem} ${styles.memoryOverviewMaintenance}`}
           >
             <div>
-              <span>⚠️ {t("agentConfig.memoryMaintenanceEyebrow")}</span>
+              <span>
+                <AlertTriangle size={16} aria-hidden="true" />
+                {t("agentConfig.memoryMaintenanceEyebrow")}
+              </span>
               <strong>{t("agentConfig.memoryMaintenanceTitle")}</strong>
               <small>{t("agentConfig.memoryMaintenanceDescription")}</small>
             </div>
@@ -404,7 +348,7 @@ export function ReMeLightMemoryCard() {
                   }`}
                   aria-hidden="true"
                 >
-                  ›
+                  <ChevronRight size={18} />
                 </span>
                 <span>
                   <strong>{t("agentConfig.memoryDailyPaperTitle")}</strong>
@@ -414,7 +358,7 @@ export function ReMeLightMemoryCard() {
               <div className={styles.memorySourceActions}>
                 <a href={dailyPaperDocsUrl} target="_blank" rel="noreferrer">
                   {t("agentConfig.dailyPaperDocumentation")}
-                  <span aria-hidden="true">↗</span>
+                  <ExternalLink size={14} aria-hidden="true" />
                 </a>
                 <code>daily-paper</code>
                 <Form.Item
@@ -695,161 +639,18 @@ export function ReMeLightMemoryCard() {
         </div>
       </div>
 
-      <Modal
+      <ReMeStatusModal
         open={statusOpen}
-        width={740}
-        title={
-          <div className={styles.memoryStatusModalTitle}>
-            <span className={styles.memoryStatusModalIcon}>R</span>
-            <div>
-              <strong>{t("agentConfig.remeStatusTitle")}</strong>
-              <span>{t("agentConfig.remeStatusDescription")}</span>
-            </div>
-          </div>
-        }
-        onCancel={() => setStatusOpen(false)}
-        footer={
-          <div className={styles.memoryStatusModalFooter}>
-            <Button onClick={inspectMemoryStatus} loading={statusLoading}>
-              {t("common.refresh")}
-            </Button>
-            <Button type="primary" onClick={() => setStatusOpen(false)}>
-              {t("common.close")}
-            </Button>
-          </div>
-        }
-      >
-        {statusLoading && !memoryStatus ? (
-          <div className={styles.memoryStatusLoading}>
-            <Spin />
-            <span>{t("agentConfig.remeStatusLoading")}</span>
-          </div>
-        ) : statusError ? (
-          <Alert
-            type="error"
-            showIcon
-            message={t("agentConfig.remeStatusFailed")}
-            description={statusError}
-          />
-        ) : memoryStatus ? (
-          <div className={styles.memoryStatusContent}>
-            <section className={styles.memoryRuntimeSection}>
-              <div className={styles.memoryRuntimeSectionHeader}>
-                <div>
-                  <h4>{t("agentConfig.memoryRuntimeActivity")}</h4>
-                  <p>{t("agentConfig.memoryRuntimeActivityDescription")}</p>
-                </div>
-                <strong
-                  className={`${styles.memoryStatusBadge} ${statusBadge.className}`}
-                >
-                  <i />
-                  {statusBadgeLabel}
-                </strong>
-              </div>
-              <div className={styles.memoryRuntimeGrid}>
-                <div>
-                  <span>{t("agentConfig.memoryWorker")}</span>
-                  <strong>{workerStatusLabel}</strong>
-                  <small>{queueHint}</small>
-                </div>
-                <div>
-                  <span>{t("agentConfig.memoryQueue")}</span>
-                  <strong>{memoryStatus.runtime.worker.queue_pending}</strong>
-                  <small>{t("agentConfig.memoryQueuePendingHint")}</small>
-                </div>
-                <div>
-                  <span>{t("agentConfig.memoryPendingTurns")}</span>
-                  <strong>
-                    {memoryStatus.runtime.auto_memory.enabled
-                      ? memoryStatus.runtime.auto_memory.pending_turns
-                      : "—"}
-                  </strong>
-                  <small>
-                    {memoryStatus.runtime.auto_memory.enabled
-                      ? t("agentConfig.memoryActiveSessionsHint", {
-                          sessions:
-                            memoryStatus.runtime.auto_memory.active_sessions,
-                        })
-                      : t("agentConfig.memoryAutoRecordDisabledHint")}
-                  </small>
-                </div>
-              </div>
-              <div className={styles.memoryRecentActivity}>
-                <div>
-                  <span>{t("agentConfig.memoryLastCompleted")}</span>
-                  <strong>
-                    {formatRuntimeTime(
-                      memoryStatus.runtime.recent.last_completed_at,
-                    )}
-                  </strong>
-                </div>
-                <div>
-                  <span>{t("agentConfig.memoryLastFailed")}</span>
-                  <strong>
-                    {formatRuntimeTime(
-                      memoryStatus.runtime.recent.last_failed_at,
-                    )}
-                  </strong>
-                </div>
-              </div>
-              {memoryStatus.runtime.recent.last_error ? (
-                <Alert
-                  type="error"
-                  showIcon
-                  message={t("agentConfig.memoryLastError")}
-                  description={memoryStatus.runtime.recent.last_error}
-                />
-              ) : null}
-            </section>
-
-            <div className={styles.memoryResourceHeading}>
-              <h4>{t("agentConfig.memoryResourceUsage")}</h4>
-              <p>{t("agentConfig.memoryResourceUsageDescription")}</p>
-            </div>
-            <div className={styles.memoryStatusMetrics}>
-              <div>
-                <span>{t("agentConfig.remeStatusComponentsTotal")}</span>
-                <strong>{memoryStatus.components_total}</strong>
-                <small>{t("agentConfig.remeStatusEstimated")}</small>
-              </div>
-              <div>
-                <span>{t("agentConfig.remeStatusProcessRss")}</span>
-                <strong>{memoryStatus.process_rss}</strong>
-                <small>{t("agentConfig.remeStatusProcessRssHint")}</small>
-              </div>
-            </div>
-
-            <div className={styles.memoryStatusComponentSection}>
-              <h4>{t("agentConfig.remeStatusComponents")}</h4>
-              <div className={styles.memoryStatusComponentList}>
-                {Object.entries(memoryStatus.components).flatMap(
-                  ([componentType, components]) =>
-                    Object.entries(components).map(([name, usage]) => (
-                      <div
-                        className={styles.memoryStatusComponentRow}
-                        key={`${componentType}:${name}`}
-                      >
-                        <span>
-                          {t(
-                            `agentConfig.remeStatusComponent.${componentType}`,
-                            { defaultValue: componentType },
-                          )}
-                        </span>
-                        <code>{name}</code>
-                        <strong>{usage.human}</strong>
-                      </div>
-                    )),
-                )}
-              </div>
-            </div>
-
-            <div className={styles.memoryStatusNote}>
-              <span>i</span>
-              <p>{t("agentConfig.remeStatusEstimateNote")}</p>
-            </div>
-          </div>
-        ) : null}
-      </Modal>
+        loading={statusLoading}
+        error={statusError}
+        memoryStatus={memoryStatus}
+        statusBadge={statusBadge}
+        statusBadgeLabel={statusBadgeLabel}
+        workerStatusLabel={workerStatusLabel}
+        queueHint={queueHint}
+        onRefresh={inspectMemoryStatus}
+        onClose={() => setStatusOpen(false)}
+      />
     </Card>
   );
 }

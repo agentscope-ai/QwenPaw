@@ -42,7 +42,11 @@ from ...config import (
     save_config,
     AgentsRunningConfig,
 )
-from ...config.config import load_agent_config, save_agent_config
+from ...config.config import (
+    load_agent_config,
+    save_agent_config,
+    update_agent_config_async,
+)
 from ...config.config import EmbeddingModelConfig
 from ...agents.memory.embedding_model import (
     embedding_vector_space_fingerprint,
@@ -66,6 +70,7 @@ from ...services.workspace_files import (
     resolve_workspace_path,
     save_text_file,
 )
+from ...utils.io_utils import get_path_lock, run_sync_io
 from ..agent_context import (
     get_agent_for_request,
     get_agent_project_dir,
@@ -1527,7 +1532,7 @@ async def get_agents_running_config(
 ) -> AgentsRunningConfig:
     """Get agent running configuration."""
     workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
+    agent_config = await run_sync_io(load_agent_config, workspace.agent_id)
     running = agent_config.running or AgentsRunningConfig()
     running.approval_level = getattr(agent_config, "approval_level", "AUTO")
     return running
@@ -1548,73 +1553,113 @@ async def put_agents_running_config(
 ) -> AgentsRunningConfig:
     """Update agent running configuration."""
     workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
-    old_running_config = agent_config.running or AgentsRunningConfig()
-
-    old_embedding_config = (
-        old_running_config.reme_light_memory_config.embedding_model_config
-    )
-    new_embedding_config = (
-        running_config.reme_light_memory_config.embedding_model_config
-    )
-    vector_space_changed = embedding_vector_space_fingerprint(
-        old_embedding_config,
-    ) != embedding_vector_space_fingerprint(new_embedding_config)
-    running_config.reme_light_memory_config.needs_reindex = (
-        old_running_config.reme_light_memory_config.needs_reindex
-        or vector_space_changed
-    )
-    embedding_changed = old_embedding_config != new_embedding_config
-
-    if running_config.approval_level is not None:
-        agent_config.approval_level = running_config.approval_level
-
-    running_config.approval_level = None
-    agent_config.running = running_config
-
-    # Persist before touching the live workspace. If persistence fails, the
-    # running model and index remain unchanged. A failed hot update rebuilds
-    # only embedded ReMe because workspace reloads reuse the memory manager.
-    save_agent_config(workspace.agent_id, agent_config)
-
     memory_manager = workspace.memory_manager
-    if embedding_changed and memory_manager is not None:
-        embedding_updated = False
-        if hasattr(memory_manager, "apply_tested_embedding"):
-            try:
-                embedding_updated = (
-                    await memory_manager.apply_tested_embedding(
-                        new_embedding_config,
-                    )
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Embedding hot update failed for agent '%s': %s",
-                    workspace.agent_id,
-                    exc,
-                    exc_info=True,
-                )
-        if not embedding_updated and hasattr(
-            memory_manager,
-            "reload_embedding_config",
-        ):
-            try:
-                embedding_updated = (
-                    await memory_manager.reload_embedding_config()
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Embedding runtime reload failed for agent '%s': %s",
-                    workspace.agent_id,
-                    exc,
-                    exc_info=True,
-                )
-        if not embedding_updated:
-            logger.warning(
-                "Saved embedding config for agent '%s' could not be applied "
-                "to the reused ReMe instance",
-                workspace.agent_id,
+    workspace_dir = getattr(workspace, "workspace_dir", ".")
+    config_path = Path(workspace_dir) / "agent.json"
+    async with get_path_lock(config_path):
+        old_agent_config = None
+        embedding_changed = False
+        new_embedding_config = (
+            running_config.reme_light_memory_config.embedding_model_config
+        )
+
+        def persist_running_config(agent_config):
+            nonlocal old_agent_config, embedding_changed
+            old_agent_config = agent_config.model_copy(deep=True)
+            old_running_config = agent_config.running or AgentsRunningConfig()
+            old_memory_config = old_running_config.reme_light_memory_config
+            old_embedding_config = old_memory_config.embedding_model_config
+            vector_space_changed = embedding_vector_space_fingerprint(
+                old_embedding_config,
+            ) != embedding_vector_space_fingerprint(new_embedding_config)
+            running_config.reme_light_memory_config.needs_reindex = (
+                old_memory_config.needs_reindex or vector_space_changed
             )
+            embedding_changed = old_embedding_config != new_embedding_config
+            if (
+                embedding_changed
+                and memory_manager is not None
+                and getattr(memory_manager, "is_reindexing", False) is True
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Embedding configuration cannot change while the "
+                        "memory index is rebuilding"
+                    ),
+                )
+            if running_config.approval_level is not None:
+                agent_config.approval_level = running_config.approval_level
+            running_config.approval_level = None
+            agent_config.running = running_config
+
+        agent_config = await update_agent_config_async(
+            workspace.agent_id,
+            persist_running_config,
+        )
+
+        if embedding_changed and memory_manager is not None:
+            embedding_updated = False
+            if hasattr(memory_manager, "apply_tested_embedding"):
+                try:
+                    embedding_updated = (
+                        await memory_manager.apply_tested_embedding(
+                            new_embedding_config,
+                        )
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Embedding hot update failed for agent '%s': %s",
+                        workspace.agent_id,
+                        exc,
+                        exc_info=True,
+                    )
+            if not embedding_updated and hasattr(
+                memory_manager,
+                "reload_embedding_config",
+            ):
+                try:
+                    embedding_updated = (
+                        await memory_manager.reload_embedding_config()
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Embedding runtime reload failed for agent '%s': %s",
+                        workspace.agent_id,
+                        exc,
+                        exc_info=True,
+                    )
+            if not embedding_updated:
+                assert old_agent_config is not None
+                await run_sync_io(
+                    save_agent_config,
+                    workspace.agent_id,
+                    old_agent_config,
+                )
+                runtime_restored = False
+                if hasattr(memory_manager, "reload_embedding_config"):
+                    try:
+                        runtime_restored = (
+                            await memory_manager.reload_embedding_config()
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Failed to restore the previous embedding runtime "
+                            "for agent '%s'",
+                            workspace.agent_id,
+                        )
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "message": (
+                            "Embedding configuration was not applied; the "
+                            "persisted configuration was rolled back"
+                        ),
+                        "persisted": False,
+                        "runtime_applied": False,
+                        "runtime_restored": runtime_restored,
+                    },
+                )
 
     schedule_agent_reload(request, workspace.agent_id)
 

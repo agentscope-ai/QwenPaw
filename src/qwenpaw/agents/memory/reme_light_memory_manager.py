@@ -12,6 +12,8 @@ import hashlib
 import logging
 import os
 import re
+from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
@@ -33,10 +35,11 @@ from ...app.crons.contracts import ServiceCronJob
 from ...config import load_config
 from ...config.config import (
     load_agent_config,
-    save_agent_config,
+    update_agent_config_async,
     AgentProfileConfig,
     EmbeddingModelConfig,
 )
+from ...utils.io_utils import path_exists_async, run_sync_io, unlink_async
 
 if TYPE_CHECKING:
     from reme import ReMe
@@ -55,11 +58,12 @@ INBOX_NOTIFICATION_FIELDS = {
 }
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 INBOX_EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
+LOGICAL_SESSION_ID_METADATA_KEY = "qwenpaw_session_id"
 MAX_INBOX_BODY_CHARS = 4000
 _REME_SESSION_ID_PREFIX = "qpsid_"
 _REME_SESSION_ID_B64_PREFIX = f"{_REME_SESSION_ID_PREFIX}b64_"
 _REME_SESSION_ID_HASH_PREFIX = f"{_REME_SESSION_ID_PREFIX}sha256_"
-_MAX_REME_SESSION_ID_CHARS = 240
+_LEGACY_MAX_REME_SESSION_ID_CHARS = 240
 _WINDOWS_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _WINDOWS_RESERVED_FILENAMES = {
     "CON",
@@ -72,15 +76,19 @@ _WINDOWS_RESERVED_FILENAMES = {
 
 
 def _to_reme_session_id(session_id: str) -> str:
-    """Return a stable Windows-safe session ID for ReMe file storage.
+    """Return a fixed-length, cross-platform ReMe storage identifier.
 
-    ReMe 0.4 uses ``session_id`` as a filename component. QwenPaw channel
-    IDs deliberately contain separators such as ``telegram:123``, which are
-    valid logical identifiers but invalid Windows filenames. Keep ordinary
-    IDs unchanged for compatibility and encode only unsafe IDs. IDs beginning
-    with our encoding namespace are encoded as well, making the mapping
-    unambiguous for existing user-provided IDs.
+    ReMe uses the value as a filename component. Hashing the exact UTF-8 bytes
+    avoids case-folding and Unicode-normalization collisions on Windows and
+    default macOS filesystems, while leaving a stable budget for directories
+    and ReMe's filename suffixes.
     """
+    digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+    return f"{_REME_SESSION_ID_HASH_PREFIX}{digest}"
+
+
+def _legacy_reme_session_id(session_id: str) -> str:
+    """Reproduce the pre-hash mapping solely for existing-file lookup."""
     filename_stem = session_id.split(".", 1)[0].upper()
     is_safe = (
         bool(session_id)
@@ -90,11 +98,10 @@ def _to_reme_session_id(session_id: str) -> str:
         and not _WINDOWS_INVALID_FILENAME_CHARS.search(session_id)
         and filename_stem not in _WINDOWS_RESERVED_FILENAMES
         and not session_id.startswith(_REME_SESSION_ID_PREFIX)
-        and len(session_id) <= _MAX_REME_SESSION_ID_CHARS
+        and len(session_id) <= _LEGACY_MAX_REME_SESSION_ID_CHARS
     )
     if is_safe:
         return session_id
-
     encoded = (
         base64.urlsafe_b64encode(session_id.encode("utf-8"))
         .decode(
@@ -102,12 +109,10 @@ def _to_reme_session_id(session_id: str) -> str:
         )
         .rstrip("=")
     )
-    encoded_session_id = f"{_REME_SESSION_ID_B64_PREFIX}{encoded}"
-    if len(encoded_session_id) <= _MAX_REME_SESSION_ID_CHARS:
-        return encoded_session_id
-
-    digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
-    return f"{_REME_SESSION_ID_HASH_PREFIX}{digest}"
+    encoded_id = f"{_REME_SESSION_ID_B64_PREFIX}{encoded}"
+    if len(encoded_id) <= _LEGACY_MAX_REME_SESSION_ID_CHARS:
+        return encoded_id
+    return _to_reme_session_id(session_id)
 
 
 def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
@@ -131,7 +136,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         super().__init__(working_dir=working_dir, agent_id=agent_id)
         self._reme: "ReMe | None" = None
         self._reindex_lock = asyncio.Lock()
-        self._embedding_update_lock = asyncio.Lock()
+        self._lifecycle_writer_lock = asyncio.Lock()
+        self._lifecycle_condition = asyncio.Condition()
+        self._active_reme_jobs = 0
+        self._lifecycle_operation: str | None = None
         self._tested_embedding: tuple[tuple[Any, ...], Any] | None = None
         self._active_embedding_config: EmbeddingModelConfig | None = None
         logger.info(
@@ -187,6 +195,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
     async def close(self) -> bool:
         """Close ReMe and clean up background summary worker state."""
+        async with self._exclusive_reme_lifecycle("close"):
+            return await self._close_reme_unlocked()
+
+    async def _close_reme_unlocked(self) -> bool:
+        """Close ReMe after the caller has quiesced all ReMe jobs."""
         logger.info(
             "ReMeLightMemoryManager closing: agent_id=%s",
             self.agent_id,
@@ -203,6 +216,39 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         self._reme = None
         return worker_stopped
+
+    @asynccontextmanager
+    async def _reme_job_lease(self):
+        """Keep the current ReMe generation alive for one complete job."""
+        async with self._lifecycle_condition:
+            await self._lifecycle_condition.wait_for(
+                lambda: self._lifecycle_operation is None,
+            )
+            self._active_reme_jobs += 1
+        try:
+            yield
+        finally:
+            async with self._lifecycle_condition:
+                self._active_reme_jobs -= 1
+                if self._active_reme_jobs == 0:
+                    self._lifecycle_condition.notify_all()
+
+    @asynccontextmanager
+    async def _exclusive_reme_lifecycle(self, operation: str):
+        """Quiesce jobs and exclusively mutate the shared ReMe generation."""
+        async with self._lifecycle_writer_lock:
+            async with self._lifecycle_condition:
+                self._lifecycle_operation = operation
+            try:
+                async with self._lifecycle_condition:
+                    await self._lifecycle_condition.wait_for(
+                        lambda: self._active_reme_jobs == 0,
+                    )
+                yield
+            finally:
+                async with self._lifecycle_condition:
+                    self._lifecycle_operation = None
+                    self._lifecycle_condition.notify_all()
 
     def get_memory_prompt(self) -> str:
         """Return memory guidance for system prompt injection."""
@@ -306,7 +352,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if staged is None or staged[0] != embedding_config_fingerprint(config):
             return False
 
-        async with self._embedding_update_lock:
+        async with self._exclusive_reme_lifecycle("embedding-update"):
             tested_model = staged[1]
             if hasattr(tested_model, "context_size"):
                 tested_model.context_size = config.max_input_length
@@ -347,7 +393,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     )
                 cache_path = getattr(store, "cache_path", None)
                 if cache_path is not None:
-                    cache_path.unlink(missing_ok=True)
+                    await unlink_async(cache_path, missing_ok=True)
 
             self._active_embedding_config = config.model_copy(deep=True)
             self._tested_embedding = None
@@ -360,10 +406,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         disabling must rebuild only the embedded ReMe application instead of
         replacing the whole memory service on every workspace reload.
         """
-        async with self._embedding_update_lock:
-            await self.close()
+        async with self._exclusive_reme_lifecycle("embedding-reload"):
+            await self._close_reme_unlocked()
             self._worker_stopping = False
-            self._initialize_reme()
+            await run_sync_io(self._initialize_reme)
             await self.start()
             self._tested_embedding = None
             return self._reme is not None and bool(
@@ -376,6 +422,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         *,
         needs_llm: bool = False,
         raise_on_error: bool = False,
+        lifecycle_locked: bool = False,
         **kwargs: Any,
     ) -> "Response | None":
         """Run one embedded ReMe job.
@@ -392,6 +439,30 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             The job response, or ``None`` when ReMe is not started -- and,
             unless ``raise_on_error`` is set, also when the job raised.
         """
+        if lifecycle_locked:
+            return await self._run_reme_job_unlocked(
+                name,
+                needs_llm=needs_llm,
+                raise_on_error=raise_on_error,
+                **kwargs,
+            )
+        async with self._reme_job_lease():
+            return await self._run_reme_job_unlocked(
+                name,
+                needs_llm=needs_llm,
+                raise_on_error=raise_on_error,
+                **kwargs,
+            )
+
+    async def _run_reme_job_unlocked(
+        self,
+        name: str,
+        *,
+        needs_llm: bool = False,
+        raise_on_error: bool = False,
+        **kwargs: Any,
+    ) -> "Response | None":
+        """Run a job while the caller holds a lifecycle lease."""
         if self._reme is None or not getattr(self._reme, "is_started", False):
             logger.debug("ReMe job skipped; app not started: %s", name)
             return None
@@ -619,16 +690,43 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             )
             return ""
 
+        reme_session_id = await self._resolve_reme_session_id(session_id)
+        serialized_messages = []
+        for message in messages:
+            serialized = message.model_dump(mode="json")
+            metadata = dict(serialized.get("metadata") or {})
+            metadata[LOGICAL_SESSION_ID_METADATA_KEY] = session_id
+            serialized["metadata"] = metadata
+            serialized_messages.append(serialized)
+
         response = await self._run_reme_job(
             "auto_memory",
             needs_llm=True,
-            messages=[msg.model_dump(mode="json") for msg in messages],
-            session_id=_to_reme_session_id(session_id),
+            messages=serialized_messages,
+            session_id=reme_session_id,
             memory_hint=str(kwargs.get("memory_hint") or ""),
         )
         if response is None:
             return ""
         return str(response.answer or "")
+
+    async def _resolve_reme_session_id(self, session_id: str) -> str:
+        """Keep an existing legacy session file addressable after migration."""
+        hashed_id = _to_reme_session_id(session_id)
+        legacy_id = _legacy_reme_session_id(session_id)
+        if legacy_id == hashed_id:
+            return hashed_id
+        agent_config = await run_sync_io(load_agent_config, self.agent_id)
+        session_dir = agent_config.running.reme_light_memory_config.session_dir
+        legacy_path = (
+            Path(self.working_dir)
+            / session_dir
+            / "dialog"
+            / f"{legacy_id}.jsonl"
+        )
+        if await path_exists_async(legacy_path):
+            return legacy_id
+        return hashed_id
 
     async def auto_memory_search(
         self,
@@ -748,11 +846,25 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if self.is_reindexing:
             raise RuntimeError("Memory index rebuild is already running")
         async with self._reindex_lock:
-            response = await self._run_reme_job("reindex")
-        if response is not None and response.success:
-            agent_config = load_agent_config(self.agent_id)
-            agent_config.running.reme_light_memory_config.needs_reindex = False
-            save_agent_config(self.agent_id, agent_config)
+            async with self._exclusive_reme_lifecycle("reindex"):
+                response = await self._run_reme_job(
+                    "reindex",
+                    lifecycle_locked=True,
+                )
+            if response is not None and response.success:
+
+                def clear_requirement(
+                    agent_config: AgentProfileConfig,
+                ) -> None:
+                    memory_config = (
+                        agent_config.running.reme_light_memory_config
+                    )
+                    memory_config.needs_reindex = False
+
+                await update_agent_config_async(
+                    self.agent_id,
+                    clear_requirement,
+                )
         return response
 
     @property

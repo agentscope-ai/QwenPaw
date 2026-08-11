@@ -48,7 +48,7 @@ _config_lock = threading.RLock()
 # Agent config cache: {agent_id: (config, mtime)}
 # Using Any for forward reference to AgentProfileConfig
 _agent_config_cache: dict[str, tuple[Any, float]] = {}
-_agent_config_lock = threading.Lock()
+_agent_config_lock = threading.RLock()
 
 
 def _normalize_working_dir_bound_paths(data: object) -> object:

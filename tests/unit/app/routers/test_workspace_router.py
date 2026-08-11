@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from qwenpaw.app.routers.workspace import put_agents_running_config
 from qwenpaw.config import AgentsRunningConfig
@@ -21,6 +22,23 @@ def _embedding_update_configs():
     new_embedding.api_key = "new-key"
     new_embedding.model_name = "new-model"
     return old_running, new_running
+
+
+def _config_transaction(
+    agent_config: AgentProfileConfig,
+    *,
+    events: list[str] | None = None,
+    error: Exception | None = None,
+) -> AsyncMock:
+    async def update(_agent_id, updater):
+        updater(agent_config)
+        if error is not None:
+            raise error
+        if events is not None:
+            events.append("save")
+        return agent_config
+
+    return AsyncMock(side_effect=update)
 
 
 @pytest.mark.asyncio
@@ -47,21 +65,14 @@ async def test_running_config_persists_before_embedding_hot_update() -> None:
         running=old_running,
     )
 
-    def save_config(_agent_id, _agent_config):
-        events.append("save")
-
     with (
         patch(
             "qwenpaw.app.routers.workspace.get_agent_for_request",
             AsyncMock(return_value=workspace),
         ),
         patch(
-            "qwenpaw.app.routers.workspace.load_agent_config",
-            return_value=agent_config,
-        ),
-        patch(
-            "qwenpaw.app.routers.workspace.save_agent_config",
-            side_effect=save_config,
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config, events=events),
         ),
         patch(
             "qwenpaw.app.routers.workspace.schedule_agent_reload",
@@ -99,10 +110,9 @@ async def test_api_key_change_does_not_require_reindex() -> None:
             AsyncMock(return_value=workspace),
         ),
         patch(
-            "qwenpaw.app.routers.workspace.load_agent_config",
-            return_value=agent_config,
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config),
         ),
-        patch("qwenpaw.app.routers.workspace.save_agent_config"),
         patch("qwenpaw.app.routers.workspace.schedule_agent_reload"),
     ):
         response = await put_agents_running_config(new_running, MagicMock())
@@ -131,12 +141,11 @@ async def test_running_config_save_failure_does_not_touch_runtime() -> None:
             AsyncMock(return_value=workspace),
         ),
         patch(
-            "qwenpaw.app.routers.workspace.load_agent_config",
-            return_value=agent_config,
-        ),
-        patch(
-            "qwenpaw.app.routers.workspace.save_agent_config",
-            side_effect=OSError("disk full"),
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(
+                agent_config,
+                error=OSError("disk full"),
+            ),
         ),
         patch(
             "qwenpaw.app.routers.workspace.schedule_agent_reload",
@@ -179,9 +188,6 @@ async def test_embedding_hot_update_failure_restarts_reme() -> None:
         running=old_running,
     )
 
-    def save_config(_agent_id, _agent_config):
-        events.append("save")
-
     def schedule_reload(_request, _agent_id):
         events.append("reload")
 
@@ -191,12 +197,8 @@ async def test_embedding_hot_update_failure_restarts_reme() -> None:
             AsyncMock(return_value=workspace),
         ),
         patch(
-            "qwenpaw.app.routers.workspace.load_agent_config",
-            return_value=agent_config,
-        ),
-        patch(
-            "qwenpaw.app.routers.workspace.save_agent_config",
-            side_effect=save_config,
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config, events=events),
         ),
         patch(
             "qwenpaw.app.routers.workspace.schedule_agent_reload",
@@ -210,3 +212,98 @@ async def test_embedding_hot_update_failure_restarts_reme() -> None:
 
     assert events == ["save", "apply", "reme-reload", "reload"]
     assert response is new_running
+
+
+@pytest.mark.asyncio
+async def test_embedding_update_is_rejected_while_reindexing() -> None:
+    old_running, new_running = _embedding_update_configs()
+    memory_manager = MagicMock()
+    memory_manager.is_reindexing = True
+    memory_manager.apply_tested_embedding = AsyncMock()
+    workspace = SimpleNamespace(agent_id="bot", memory_manager=memory_manager)
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    transaction = _config_transaction(agent_config)
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            transaction,
+        ),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await put_agents_running_config(new_running, MagicMock())
+
+    assert exc_info.value.status_code == 409
+    memory_manager.apply_tested_embedding.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_failed_runtime_update_rolls_back_and_returns_503() -> None:
+    old_running, new_running = _embedding_update_configs()
+    events: list[str] = []
+
+    async def apply_embedding(_config):
+        events.append("apply")
+        return False
+
+    reload_results = iter([False, True])
+
+    async def reload_embedding() -> bool:
+        events.append("reme-reload")
+        return next(reload_results)
+
+    def rollback(_agent_id, _agent_config):
+        events.append("rollback")
+
+    memory_manager = MagicMock()
+    memory_manager.apply_tested_embedding = AsyncMock(
+        side_effect=apply_embedding,
+    )
+    memory_manager.reload_embedding_config = AsyncMock(
+        side_effect=reload_embedding,
+    )
+    workspace = SimpleNamespace(agent_id="bot", memory_manager=memory_manager)
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config, events=events),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.save_agent_config",
+            side_effect=rollback,
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.schedule_agent_reload",
+        ) as schedule_reload,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await put_agents_running_config(new_running, MagicMock())
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail["runtime_restored"] is True
+    assert events == [
+        "save",
+        "apply",
+        "reme-reload",
+        "rollback",
+        "reme-reload",
+    ]
+    schedule_reload.assert_not_called()
