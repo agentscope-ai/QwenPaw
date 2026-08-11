@@ -94,6 +94,7 @@ def test_binding_to_response_shows_env_ref_template() -> None:
         _ENV_REF_BINDING,
         None,
         credential_alias="static",
+        env_aliases={"env_anysearch_api_key": "ANYSEARCH_API_KEY"},
     ) == {"Authorization": "Bearer ${ANYSEARCH_API_KEY}"}
 
 
@@ -104,7 +105,30 @@ def test_binding_plain_keys_preserves_env_ref_template() -> None:
     assert binding_plain_keys(
         _ENV_REF_BINDING,
         credential_alias="static",
+        env_aliases={"env_anysearch_api_key": "ANYSEARCH_API_KEY"},
     ) == {"Authorization": "Bearer ${ANYSEARCH_API_KEY}"}
+
+
+def test_static_alias_starting_with_env_is_not_misclassified() -> None:
+    """A static credential alias like ``env_custom`` must not be treated
+    as env-backed (regression from rayrayraykk: identification must come
+    from the env: credential refs, not the alias naming convention)."""
+    static_binding = {
+        "X-K": {
+            "source": "credential",
+            "credential": "env_custom",
+            "field": "value",
+        },
+    }
+    assert (
+        binding_to_response(
+            static_binding,
+            None,
+            credential_alias="static",
+            env_aliases={"env_anysearch_api_key": "ANYSEARCH_API_KEY"},
+        )
+        == {}
+    )
 
 
 def test_resolve_binding_keeps_falsey_nonempty_values() -> None:

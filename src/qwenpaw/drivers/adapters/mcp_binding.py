@@ -201,12 +201,18 @@ def _env_ref_template(
     return fmt.replace("{value}", "${" + var_name + "}")
 
 
-def _is_env_ref_spec(spec: Any) -> bool:
-    return (
-        isinstance(spec, dict)
-        and spec.get("source") == "credential"
-        and str(spec.get("credential") or "").startswith("env_")
-    )
+def _is_env_ref_spec(
+    spec: Any,
+    env_aliases: dict[str, str] | None = None,
+) -> bool:
+    """Whether a binding is env-backed, decided by the env: credential
+    refs (via env_aliases) rather than the alias naming convention — a
+    static alias like ``env_custom`` must not be misclassified."""
+    if not (isinstance(spec, dict) and spec.get("source") == "credential"):
+        return False
+    if not env_aliases:
+        return False
+    return str(spec.get("credential") or "") in env_aliases
 
 
 def binding_to_response(
@@ -225,7 +231,7 @@ def binding_to_response(
         for key, spec in binding.items():
             if isinstance(spec, dict) and spec.get("source") == "literal":
                 result[str(key)] = str(spec.get("value") or "")
-            elif _is_env_ref_spec(spec):
+            elif _is_env_ref_spec(spec, env_aliases):
                 template = _env_ref_template(spec, env_aliases)
                 if template:
                     result[str(key)] = template
@@ -266,7 +272,7 @@ def binding_plain_keys(
         for key, spec in binding.items():
             if isinstance(spec, dict) and spec.get("source") == "literal":
                 result[str(key)] = str(spec.get("value") or "")
-            elif _is_env_ref_spec(spec):
+            elif _is_env_ref_spec(spec, env_aliases):
                 template = _env_ref_template(spec, env_aliases)
                 if template:
                     result[str(key)] = template
