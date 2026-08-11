@@ -259,7 +259,7 @@ pub(super) fn dispatch_request(
         .and_then(|id| state.observations.get(id))
         .and_then(|observation| observation.accessibility_revision);
     #[cfg(target_os = "macos")]
-    let transient_text_candidate = matches!(method, "click" | "invoke_element")
+    let transient_text_candidate = requests_transient_text(method, &params)
         && element_is_transient_menu_item(observation(state, observation_id)?, &params)?;
     let mut pending_action: Option<PendingAction> = None;
     let mut completed_pending_action = false;
@@ -395,6 +395,12 @@ fn mark_transient_text_ready(state: &mut ServerState, refreshed: Option<&Value>)
     };
     observation.transient_text_ready = true;
     true
+}
+
+#[cfg(target_os = "macos")]
+fn requests_transient_text(method: &str, params: &serde_json::Map<String, Value>) -> bool {
+    method == "invoke_element"
+        && params.get("expects_text_input").and_then(Value::as_bool) == Some(true)
 }
 
 /// Observe the action's target without turning an already-dispatched action
@@ -725,6 +731,29 @@ mod tests {
         assert!(!take_transient_text_ready(&mut state, Some("other")).unwrap());
         assert!(take_transient_text_ready(&mut state, Some("observed")).unwrap());
         assert!(!take_transient_text_ready(&mut state, Some("observed")).unwrap());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn only_explicit_text_edit_invocation_requests_transient_input() {
+        let ordinary = json!({"element_id": "ax-1"});
+        let text_edit = json!({
+            "element_id": "ax-1",
+            "expects_text_input": true,
+        });
+
+        assert!(!requests_transient_text(
+            "invoke_element",
+            ordinary.as_object().unwrap(),
+        ));
+        assert!(!requests_transient_text(
+            "click",
+            text_edit.as_object().unwrap(),
+        ));
+        assert!(requests_transient_text(
+            "invoke_element",
+            text_edit.as_object().unwrap(),
+        ));
     }
 
     #[test]

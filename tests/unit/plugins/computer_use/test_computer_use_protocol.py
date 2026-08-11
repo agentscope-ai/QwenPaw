@@ -355,7 +355,7 @@ async def test_function_tool_preserves_intervention_error_state(
     assert '"requires_observe":true' in response.content[-1].text
 
 
-def test_uia_input_leaves_observation_to_client() -> None:
+def test_semantic_actions_leave_observation_to_client() -> None:
     method, params, _ = _native_request(
         "invoke",
         element_id="uia-7",
@@ -363,6 +363,17 @@ def test_uia_input_leaves_observation_to_client() -> None:
 
     assert method == "invoke_element"
     assert params == {"element_id": "uia-7"}
+
+    method, params, _ = _native_request(
+        "begin_text_edit",
+        element_id="uia-8",
+    )
+
+    assert method == "invoke_element"
+    assert params == {
+        "element_id": "uia-8",
+        "expects_text_input": True,
+    }
 
 
 class _FakeTransport(ComputerUseTransport):

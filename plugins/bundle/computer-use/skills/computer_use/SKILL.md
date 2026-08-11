@@ -165,7 +165,10 @@ including buttons and menu items, and use `set_value` for an `Edit` or
 `ComboBox` that holds text. This is preferred over keystrokes when a matching
 element exists. Use `invoke` only when a normal click is unavailable and the
 element explicitly lists a suitable accessibility action, or when completing
-the pending semantic edit described below.
+the pending semantic edit described below. Use `begin_text_edit` only on an
+observed command whose label explicitly describes entering text-edit mode.
+Unlike an ordinary click or invoke, it may authorize one following `type`
+action when a native transient editor cannot be represented through AX.
 
 For an application menu, click the observed top-level `MenuItem` by
 `element_id`, inspect its replacement observation, and then click the desired
@@ -206,8 +209,10 @@ claim success or start another operation while confirmation remains pending.
 On macOS, only use `set_value` when `[settable]` is present. A
 `[resource-backed]` label must first be selected and put into edit mode through
 an observed application command, such as an accessible context-menu edit or
-rename command. Do not treat `AXConfirm` or `ENTER` as that command unless the
-application explicitly identifies it with the requested edit semantics.
+rename command. Invoke that observed command with `begin_text_edit`; do not use
+it for an ordinary menu command. Do not treat `AXConfirm` or `ENTER` as an edit
+command unless the application explicitly identifies it with the requested
+edit semantics.
 Some native editors are transient and appear only as the current focused AX
 element. Type when the replacement observation identifies that editable focus.
 If the command response instead contains `transient_text_ready: true`, the

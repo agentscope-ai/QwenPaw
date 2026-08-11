@@ -44,6 +44,7 @@ ComputerUseAction = Literal[
     "press_key",
     "sequence",
     "invoke",
+    "begin_text_edit",
     "set_value",
     "wait",
     "stop",
@@ -466,17 +467,21 @@ def _native_request(
             {"text": text},
             False,
         )
-    if action in {"invoke", "set_value"}:
+    if action in {"invoke", "begin_text_edit", "set_value"}:
         element_id = str(values["element_id"] or "").strip()
         if not element_id:
             raise ValueError(
                 f"{action} requires element_id from observe_window.",
             )
         params = {"element_id": element_id}
+        if action == "begin_text_edit":
+            params["expects_text_input"] = True
         if action == "set_value":
             params["value"] = str(values["value"] or "")
         return (
-            f"{action}_element" if action == "invoke" else action,
+            "invoke_element"
+            if action in {"invoke", "begin_text_edit"}
+            else action,
             params,
             False,
         )
@@ -491,5 +496,5 @@ def _native_request(
         "Unknown action. Valid actions: list_apps, list_windows, "
         "observe_window, launch_app, close_window, click, "
         "double_click, right_click, scroll, drag, type, press_key, invoke, "
-        "set_value, sequence, wait, stop.",
+        "begin_text_edit, set_value, sequence, wait, stop.",
     )
