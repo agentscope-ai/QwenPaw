@@ -2,6 +2,7 @@
 # pylint: disable=protected-access
 from __future__ import annotations
 
+from copy import deepcopy
 import time
 from types import SimpleNamespace
 
@@ -15,6 +16,7 @@ from qwenpaw.providers.openai_response_provider import (
     _extract_reasoning_text,
     _extract_response_text,
 )
+from qwenpaw.providers.provider import ModelInfo
 
 
 def _make_provider() -> OpenAIResponseProvider:
@@ -387,3 +389,60 @@ async def test_summary_limit_is_adapted_for_responses_api(
     assert result == "ok"
     assert captured["max_output_tokens"] == 256
     assert "max_tokens" not in captured
+
+
+async def test_prompt_cache_generate_kwargs_are_adapted(
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+
+    async def fake_call_api(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(
+        OpenAIResponseModel,
+        "_call_api",
+        fake_call_api,
+    )
+    provider = _make_provider()
+    provider.generate_kwargs = {
+        "prompt_cache_key": "provider-key",
+        "prompt_cache_options": {"mode": "implicit"},
+        "extra_body": {"metadata": {"source": "provider"}},
+    }
+    provider.models = [
+        ModelInfo(
+            id="gpt-5.6",
+            name="GPT-5.6",
+            generate_kwargs={
+                "prompt_cache_key": "model-key",
+                "prompt_cache_options": {
+                    "mode": "explicit",
+                    "ttl": "30m",
+                },
+                "enable_prompt_cache_breakpoint": True,
+            },
+        ),
+    ]
+    original_provider_kwargs = deepcopy(provider.generate_kwargs)
+    original_model_kwargs = deepcopy(provider.models[0].generate_kwargs)
+
+    model = provider.get_chat_model_instance("gpt-5.6")
+    result = await model._call_api("gpt-5.6", [])
+
+    assert result == "ok"
+    assert model.formatter.enable_prompt_cache_breakpoint is True
+    assert captured["prompt_cache_key"] == "model-key"
+    assert captured["extra_body"] == {
+        "metadata": {"source": "provider"},
+        "prompt_cache_options": {
+            "mode": "explicit",
+            "ttl": "30m",
+        },
+    }
+    assert "prompt_cache_options" not in captured
+    assert "enable_prompt_cache_breakpoint" not in captured
+    assert provider.generate_kwargs == original_provider_kwargs
+    assert provider.models[0].generate_kwargs == original_model_kwargs
