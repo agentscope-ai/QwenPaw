@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 """Tests for BaseMemoryManager abstract base class."""
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -259,6 +260,46 @@ class TestBaseMemoryManagerAddSummarizeTask:
         keep_running.set()
         worker.cancel()
         await asyncio.wait({worker}, timeout=0.5)
+
+    def test_runtime_status_excludes_session_owned_turn_state(self, manager):
+        manager.get_auto_memory_interval = MagicMock(return_value=5)
+        manager._summary_task_info = {
+            "task_1": {
+                "status": "completed",
+                "finished_at": base_memory_manager.datetime(
+                    2026,
+                    8,
+                    10,
+                    tzinfo=base_memory_manager.timezone.utc,
+                ),
+            },
+            "task_2": {
+                "status": "failed",
+                "finished_at": base_memory_manager.datetime(
+                    2026,
+                    8,
+                    10,
+                    1,
+                    tzinfo=base_memory_manager.timezone.utc,
+                ),
+                "error": "summary failed\nretry later",
+            },
+        }
+
+        status = manager.get_runtime_status()
+
+        assert status["worker"]["status"] == "idle"
+        assert status["auto_memory"] == {
+            "enabled": True,
+            "interval": 5,
+            "active_sessions": 0,
+            "sessions_with_pending": 0,
+            "pending_turns": 0,
+        }
+        assert status["recent"]["last_completed_at"] == (
+            "2026-08-10T00:00:00+00:00"
+        )
+        assert status["recent"]["last_error"] == ("summary failed retry later")
 
 
 class TestAutoMemorySearchSanitization:

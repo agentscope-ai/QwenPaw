@@ -199,12 +199,8 @@ class MemoryMiddleware(MiddlewareBase):
         source_context: list[Msg] = []
         compression_state: tuple[Any, tuple[str, ...]] | None = None
         try:
-            cfg = self._memory_config()
             pending_markers = self._auto_memory_turn_state(agent)["pending"]
-            if (
-                getattr(cfg, "summarize_when_compact", False)
-                and pending_markers
-            ):
+            if pending_markers:
                 source_context = deepcopy(
                     self._messages_for_user_turns(
                         list(agent.state.context),
@@ -401,9 +397,6 @@ class MemoryMiddleware(MiddlewareBase):
 
     def _auto_memory_interval(self) -> int:
         return int(self._memory_manager.get_auto_memory_interval())
-
-    def _memory_config(self) -> Any:
-        return self._memory_manager.get_memory_config()
 
     def _auto_memory_turn_state(self, agent: "Agent") -> dict[str, Any]:
         return auto_memory_turn_state(agent.state)

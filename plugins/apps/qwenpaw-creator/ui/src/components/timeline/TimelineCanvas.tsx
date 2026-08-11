@@ -826,12 +826,14 @@ export default function TimelineCanvas({
       )}
 
       {/* Transport bar mirrors the reference design: playback controls and
-          the shared progress in the center, snapping/zoom on the right. */}
+          the shared progress in the center, snapping/zoom on the right. The
+          flex bases let the snap/zoom cluster wrap to its own row on narrow
+          workspaces instead of overlapping the timecode. */}
       <div
         data-timeline-transport
-        className="flex min-h-[38px] flex-wrap items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/45 px-2.5 py-1 text-[11px]"
+        className="flex min-h-[38px] flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/45 px-2.5 py-1 text-[11px]"
       >
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <div className="flex min-w-0 flex-[1_1_280px] items-center gap-1.5">
           <button
             type="button"
             onClick={() => {
@@ -921,58 +923,60 @@ export default function TimelineCanvas({
           </div>
           <span
             data-timeline-timecode
-            className="shrink-0 font-mono text-[11px] tabular-nums text-[var(--color-text-secondary)]"
+            className="shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums text-[var(--color-text-secondary)]"
           >
             {timecode(playheadTick, timeline.ticks_per_second)} /{" "}
             {timecode(timelineDuration, timeline.ticks_per_second)}
           </span>
         </div>
-        <label
-          className="flex cursor-pointer items-center gap-1.5 text-[var(--color-text-secondary)]"
-          title={t("timeline.snapTooltip")}
-        >
-          <button
-            type="button"
-            data-timeline-snap-toggle
-            aria-pressed={snapEnabled}
-            onClick={() => setSnapEnabled((value) => !value)}
-            className={`inline-flex h-7 items-center gap-1 rounded-[7px] px-2 font-semibold ${
-              snapEnabled
-                ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
-                : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
-            }`}
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          <label
+            className="flex cursor-pointer items-center gap-1.5 text-[var(--color-text-secondary)]"
+            title={t("timeline.snapTooltip")}
           >
-            <Magnet className="h-3.5 w-3.5" />
-            {t("timeline.snap")}
-          </button>
-        </label>
-        <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            data-timeline-zoom-out
-            disabled={zoom <= ZOOM_MIN}
-            onClick={() => adjustZoom(-ZOOM_STEP)}
-            className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-30"
-            aria-label={t("timeline.zoomOut")}
-          >
-            <ZoomOut className="h-3.5 w-3.5" />
-          </button>
-          <span
-            data-timeline-zoom-value
-            className="min-w-[34px] text-center text-[10px] font-semibold text-[var(--color-text-secondary)]"
-          >
-            {Math.round(zoom * 100)}%
-          </span>
-          <button
-            type="button"
-            data-timeline-zoom-in
-            disabled={zoom >= ZOOM_MAX}
-            onClick={() => adjustZoom(ZOOM_STEP)}
-            className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-30"
-            aria-label={t("timeline.zoomIn")}
-          >
-            <ZoomIn className="h-3.5 w-3.5" />
-          </button>
+            <button
+              type="button"
+              data-timeline-snap-toggle
+              aria-pressed={snapEnabled}
+              onClick={() => setSnapEnabled((value) => !value)}
+              className={`inline-flex h-7 items-center gap-1 rounded-[7px] px-2 font-semibold ${
+                snapEnabled
+                  ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
+              }`}
+            >
+              <Magnet className="h-3.5 w-3.5" />
+              {t("timeline.snap")}
+            </button>
+          </label>
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              data-timeline-zoom-out
+              disabled={zoom <= ZOOM_MIN}
+              onClick={() => adjustZoom(-ZOOM_STEP)}
+              className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-30"
+              aria-label={t("timeline.zoomOut")}
+            >
+              <ZoomOut className="h-3.5 w-3.5" />
+            </button>
+            <span
+              data-timeline-zoom-value
+              className="min-w-[34px] text-center text-[10px] font-semibold text-[var(--color-text-secondary)]"
+            >
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              type="button"
+              data-timeline-zoom-in
+              disabled={zoom >= ZOOM_MAX}
+              onClick={() => adjustZoom(ZOOM_STEP)}
+              className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-30"
+              aria-label={t("timeline.zoomIn")}
+            >
+              <ZoomIn className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 

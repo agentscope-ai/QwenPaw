@@ -113,6 +113,7 @@ import RichFileReferenceInput, {
   RichFileReferenceInputProvider,
 } from "./RichFileReferenceInput";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
+import { scrollReverseMessageList } from "./messageScroll";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -1996,13 +1997,8 @@ export default function ChatPage() {
       if (!hasCtrl && e.altKey) return;
       if (isComposingRef.current || (e as any).isComposing) return;
       const textarea = hasCtrl
-        ? (document
-            .querySelector('[class*="sender"]')
-            ?.querySelector("textarea") as HTMLTextAreaElement | null)
-        : e.target instanceof HTMLTextAreaElement &&
-          e.target.closest('[class*="sender"]')
-        ? e.target
-        : null;
+        ? getActiveSenderTextarea()
+        : getSenderTextareaFromTarget(e.target);
       if (!textarea) return;
       const val = textarea.value.trim();
       if (!val) return;
@@ -2774,6 +2770,30 @@ export default function ChatPage() {
   );
 
   const compactSender = filesDrawerState.kind === "workspace";
+  const chatMessagesAreaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const root = chatMessagesAreaRef.current;
+    if (!root) return;
+
+    const handleMessagesWheel = (event: WheelEvent) => {
+      const handled = scrollReverseMessageList(
+        root,
+        event.target,
+        event.deltaY,
+        event.deltaMode,
+      );
+      if (handled) event.preventDefault();
+    };
+
+    root.addEventListener("wheel", handleMessagesWheel, {
+      capture: true,
+      passive: false,
+    });
+    return () => {
+      root.removeEventListener("wheel", handleMessagesWheel, true);
+    };
+  }, []);
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
@@ -3545,6 +3565,7 @@ export default function ChatPage() {
         }
       >
         <div
+          ref={chatMessagesAreaRef}
           className={
             isWideMode
               ? `${styles.chatMessagesArea} ${styles.wideMode}`

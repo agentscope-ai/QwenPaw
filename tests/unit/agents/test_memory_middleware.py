@@ -456,7 +456,6 @@ class TestOnCompressContextAutomationSkip:
     @pytest.mark.parametrize(
         "failing_step",
         [
-            "memory_config",
             "turn_state",
             "compression_result",
             "flush",
@@ -472,13 +471,8 @@ class TestOnCompressContextAutomationSkip:
         agent = _make_agent(source="user")
         next_handler = AsyncMock()
 
-        if failing_step == "memory_config":
-            mm.get_memory_config.side_effect = RuntimeError(
-                "memory config unavailable",
-            )
-        else:
-            _turn_state(agent)["pending"] = ["turn-1"]
-            agent.state.context = [_user_msg()]
+        _turn_state(agent)["pending"] = ["turn-1"]
+        agent.state.context = [_user_msg()]
 
         if failing_step == "turn_state":
             turn_state = MagicMock(side_effect=RuntimeError("bad state"))

@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
-"""Six-dimension self-review protocol: prompt template and report parsing.
+"""Eight-row self-review protocol: prompt template and report parsing.
 
-Adapted from the Qwen-MM-Plugins video-edit skill review protocol
-(``review/final-review.md``, evidence-based and adversarial): every verdict
-must cite frame evidence, and findings without a timestamp cannot fail a
-dimension. The verdict is derived deterministically from the findings so the
-iteration loop never depends on a free-form model verdict.
+The seven Appeal rubric rows come verbatim from the vendored
+``review_rubrics.APPEAL_RUBRIC_ROWS`` (Qwen-MM-Plugins video-edit skill,
+``review/final-review.md`` §D) so self-review and the bypass run_review
+share one fact source; a Creator ``engineering`` row keeps the objective
+defect checks of the original six-dimension protocol. Every verdict must
+cite frame evidence, findings without a timestamp cannot fail a row, and
+the verdict is derived deterministically — a concept score at or below the
+upstream veto threshold forces ``revise``.
 """
 
 from __future__ import annotations
@@ -24,28 +27,54 @@ from schemas.render_review import (
     ReviewFrame,
 )
 from utils.logger import setup_logger
+from vendor.media_toolkit.review_rubrics import (
+    APPEAL_RUBRIC_ROWS,
+    CONCEPT_VETO_QUOTE,
+    CONCEPT_WEAK_THRESHOLD,
+)
 
 logger = setup_logger("creator.render_review.protocol")
 
 MAX_REVIEW_ROUNDS = 3
 
+_RUBRIC_BY_KEY = {row.key: row for row in APPEAL_RUBRIC_ROWS}
+
+# Creator-side evidence discipline appended to the verbatim rubric rows:
+# the anchor questions stay upstream-verbatim, the guides tell the VLM how
+# to ground each row in the extracted frames/audio profile (folding in the
+# objective checks of the retired six-dimension protocol).
 _DIMENSION_GUIDES: dict[ReviewDimension, str] = {
-    ReviewDimension.VISUAL_QUALITY: (
-        "画面质量：逐帧检查是否存在花屏/噪点/伪影、乱码或豆腐块文字、明显残影、"
-        "转场闪白或卡死、局部黑块、画面主体被裁切等缺陷。"
-        "纯黑帧与黑边归 engineering 维度，不在此重复计。"
+    ReviewDimension.CONCEPT: (
+        f"{_RUBRIC_BY_KEY['concept'].anchor_questions} "
+        "给出 score（0-10）；素材流水账不是概念。score ≤ "
+        f"{CONCEPT_WEAK_THRESHOLD} 时必须 passed=false、severity=major。"
     ),
-    ReviewDimension.DURATION_MATCH: (
-        "时长匹配：对比【工程事实】中的实际时长与计划目标时长，偏差超过 20% 视为不通过；"
-        "同时检查末帧是否像被硬切截断（画面/字幕停在半句、动作进行到一半骤停）。"
+    ReviewDimension.CONTRACT: (
+        f"{_RUBRIC_BY_KEY['contract'].anchor_questions} "
+        "对照物是【剪辑契约】（edit_plan）；契约为 null 或未声明时本行判 "
+        "passed=true 并在 suggestion 注明无契约可对照。证据帧是稀疏抽样且"
+        "设计元素带入场动画：判定 opening/ending 等短时窗设计缺失前，必须有"
+        "落在该时窗中段的证据帧支撑；若该时窗内只有起点帧（t=0 或时窗边界），"
+        "不得据此判缺失，应视为证据不足按通过处理并在 suggestion 注明。"
     ),
-    ReviewDimension.PACING: (
-        "节奏：相邻多帧几乎完全相同说明镜头拖沓——连续相同帧超过约 5 秒判不"
-        "通过（severity=major）；片尾 2-3 秒的定格收尾属正常收束，不判拖沓；"
-        "开场 1-2 帧内是否建立主体。以帧序列的变化率为证据，不要凭感觉。"
+    ReviewDimension.RHYTHM: (
+        f"{_RUBRIC_BY_KEY['rhythm'].anchor_questions} "
+        "以帧序列的变化率为证据：相邻多帧几乎完全相同说明镜头拖沓——连续相同"
+        "帧超过约 5 秒判不通过（severity=major）；片尾 2-3 秒定格收尾属正常收束，"
+        "不判拖沓；开场 1-2 帧内是否建立主体。"
     ),
-    ReviewDimension.VOICEOVER: (
-        "配音：先看【计划上下文】的 expects_voiceover：为 false 时，若 project_brief "
+    ReviewDimension.RESTRAINT: (
+        f"{_RUBRIC_BY_KEY['restraint'].anchor_questions} "
+        "以证据帧中的装饰/特效出现次数为准；同一装饰手法泛滥或逐卡重复判不通过。"
+    ),
+    ReviewDimension.CRAFT: (
+        f"{_RUBRIC_BY_KEY['craft'].anchor_questions} "
+        "逐帧检查花屏/噪点/伪影、乱码或豆腐块文字、明显残影、转场闪白或卡死、"
+        "局部黑块、画面主体被裁切等缺陷；纯黑帧与黑边归 engineering 行，不在此重复计。"
+    ),
+    ReviewDimension.SOUND: (
+        f"{_RUBRIC_BY_KEY['sound'].anchor_questions} "
+        "先看【计划上下文】的 expects_voiceover：为 false 时，若 project_brief "
         "明确要求旁白/配音而成片自始至终无人声（仅环境音/音乐），判不通过"
         "（severity=major，suggestion 注明需补旁白轨）；否则（例如纯环境音剪辑）"
         "静音段与低响度均属正常，除非出现爆音等硬缺陷否则一律判通过。"
@@ -58,16 +87,18 @@ _DIMENSION_GUIDES: dict[ReviewDimension, str] = {
         "内容段整体错位，判音画错位不通过；配音期间背景音乐是否恰当避让"
         "（ducking——若语音段整体响度反而低于纯音乐段，判为混音失衡）。"
     ),
-    ReviewDimension.SUBTITLES: (
-        "字幕同步与溢出：帧上字幕是否超出画面安全区或被裁切；同一帧是否出现"
-        "重叠/双行叠打字幕；字幕出现的时间段与音频概要中的人声段是否明显错位；"
-        "字幕文字是否乱码。【计划上下文】expects_subtitles=false 且帧上确无字幕时"
-        "判通过。"
+    ReviewDimension.TYPOGRAPHY_MOTION: (
+        f"{_RUBRIC_BY_KEY['typography_motion'].anchor_questions} "
+        "帧上字幕是否超出画面安全区或被裁切；同一帧是否出现重叠/双行叠打字幕；"
+        "字幕出现的时间段与音频概要中的人声段是否明显错位；字幕文字是否乱码。"
+        "【计划上下文】expects_subtitles=false 且帧上确无字幕时本部分判通过。"
     ),
     ReviewDimension.ENGINEERING: (
         "工程正确性：内容中段出现纯黑帧（片头片尾短暂淡入淡出除外）；"
         "expects_voiceover=true 却整段静音；上下或左右黑边（分辨率/画幅不匹配）；"
-        "首帧或末帧为空白/黑帧。这些是客观工程缺陷，一律 severity=major。"
+        "首帧或末帧为空白/黑帧。对比【工程事实】中的实际时长与计划目标时长，"
+        "偏差超过 20% 视为不通过；同时检查末帧是否像被硬切截断（画面/字幕停在"
+        "半句、动作进行到一半骤停）。这些是客观工程缺陷，一律 severity=major。"
         "注意：expects_voiceover=false 时，低响度或静音段不构成工程缺陷。"
     ),
 }
@@ -86,12 +117,12 @@ _SYSTEM_PROMPT = """你是一名严苛的成片质量审阅专家，负责在成
 输出格式（只输出一个 JSON 对象，不要输出任何其他文字或代码块标记）：
 {
   "findings": [
-    {"dimension": "<six dimensions, one entry each>", "passed": true/false, "severity": "minor"/"major", "evidence_timestamp_ms": <int 或 null>, "suggestion": "<修订指令，通过时可为空字符串>"}
+    {"dimension": "<eight rows, one entry each>", "passed": true/false, "severity": "minor"/"major", "score": <0-10 整数，仅 concept 行必填，其他行可为 null>, "evidence_timestamp_ms": <int 或 null>, "suggestion": "<修订指令，通过时可为空字符串>"}
   ],
   "verdict": "pass" 或 "revise"
 }
-六个维度各输出恰好一条 finding，dimension 取值：visual_quality / duration_match / pacing / voiceover / subtitles / engineering。
-verdict 规则：任何一条 passed=false 且 severity=major 则为 revise，否则为 pass。"""
+八个检查行各输出恰好一条 finding，dimension 取值：concept / contract / rhythm / restraint / craft / sound / typography_motion / engineering。
+verdict 规则：任何一条 passed=false 且 severity=major，或 concept 的 score ≤ 5，则为 revise，否则为 pass。"""
 
 
 def review_system_prompt() -> str:
@@ -111,8 +142,9 @@ def build_review_user_text(
         for index, frame in enumerate(frames)
     ]
     audio_payload = audio_profile.model_dump(mode="json")
+    edit_plan = plan_context.get("edit_plan") if plan_context else None
     sections = [
-        "请按六维协议审阅这条成片。",
+        "请按八行协议审阅这条成片。",
         "【工程事实】\n"
         + json.dumps(
             {
@@ -121,11 +153,21 @@ def build_review_user_text(
             },
             ensure_ascii=False,
         ),
-        "【计划上下文】\n" + json.dumps(dict(plan_context), ensure_ascii=False),
+        "【计划上下文】\n"
+        + json.dumps(
+            {
+                key: value
+                for key, value in dict(plan_context).items()
+                if key != "edit_plan"
+            },
+            ensure_ascii=False,
+        ),
+        "【剪辑契约（edit_plan，contract 行的对照物）】\n"
+        + json.dumps(edit_plan, ensure_ascii=False),
         "【音频概要（ffmpeg ebur128）】\n"
         + json.dumps(audio_payload, ensure_ascii=False),
         "【证据帧时间戳（与随后附上的图片顺序一一对应）】\n" + "\n".join(frame_lines),
-        "【六维检查要点】\n"
+        "【八行检查要点】\n"
         + "\n".join(
             f"- {dimension.value}: {_DIMENSION_GUIDES[dimension]}"
             for dimension in ReviewDimension
@@ -175,6 +217,9 @@ def parse_review_report(
         timestamp = entry.get("evidence_timestamp_ms")
         if not isinstance(timestamp, int) or timestamp < 0:
             entry["evidence_timestamp_ms"] = None
+        score = entry.get("score")
+        if not isinstance(score, int) or not 0 <= score <= 10:
+            entry["score"] = None
         entry.setdefault("suggestion", "")
         if entry.get("suggestion") is None:
             entry["suggestion"] = ""
@@ -183,8 +228,13 @@ def parse_review_report(
             continue
         seen.add(finding.dimension)
         # Evidence discipline: a failure without a citable timestamp cannot
-        # stand (upstream review invalidation rule).
-        if not finding.passed and finding.evidence_timestamp_ms is None:
+        # stand (upstream review invalidation rule). The concept row is
+        # score-driven and exempt: its evidence is the whole piece.
+        if (
+            not finding.passed
+            and finding.evidence_timestamp_ms is None
+            and finding.dimension is not ReviewDimension.CONCEPT
+        ):
             finding = finding.model_copy(
                 update={"passed": True, "suggestion": ""},
             )
@@ -195,10 +245,34 @@ def parse_review_report(
             "review response missing dimensions: "
             + ", ".join(item.value for item in missing),
         )
+    concept = next(
+        item for item in findings if item.dimension is ReviewDimension.CONCEPT
+    )
+    concept_veto = (
+        concept.score is not None and concept.score <= CONCEPT_WEAK_THRESHOLD
+    )
+    if concept_veto and concept.passed:
+        # Upstream veto rule: "execution polish cannot rescue an empty
+        # concept" — normalize the row so the feedback loop sees it.
+        suggestion = concept.suggestion or (
+            f"concept score {concept.score} ≤ {CONCEPT_WEAK_THRESHOLD}："
+            f"{CONCEPT_VETO_QUOTE}；重写 edit_plan.concept 并按新概念重剪。"
+        )
+        concept = concept.model_copy(
+            update={
+                "passed": False,
+                "severity": "major",
+                "suggestion": suggestion,
+            },
+        )
+        findings = [
+            concept if item.dimension is ReviewDimension.CONCEPT else item
+            for item in findings
+        ]
     has_major_failure = any(
         not item.passed and item.severity == "major" for item in findings
     )
-    verdict = "revise" if has_major_failure else "pass"
+    verdict = "revise" if has_major_failure or concept_veto else "pass"
     reported_verdict = payload.get("verdict")
     if reported_verdict in ("pass", "revise") and reported_verdict != verdict:
         logger.info(

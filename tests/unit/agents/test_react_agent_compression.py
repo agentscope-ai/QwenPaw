@@ -39,9 +39,6 @@ class _MemoryManager:
     def get_memory_prompt(self) -> str:
         return ""
 
-    def get_memory_config(self) -> Any:
-        return SimpleNamespace(summarize_when_compact=True)
-
     async def auto_memory(self, _messages: list[Msg], **_kwargs: Any) -> None:
         self._events.append("auto_memory")
 
@@ -153,9 +150,6 @@ async def test_manual_compact_submits_auto_memory_once() -> None:
             light_context_config=SimpleNamespace(
                 strategy="scroll",
                 context_compact_config=SimpleNamespace(enabled=True),
-            ),
-            reme_light_memory_config=SimpleNamespace(
-                summarize_when_compact=True,
             ),
         ),
     )

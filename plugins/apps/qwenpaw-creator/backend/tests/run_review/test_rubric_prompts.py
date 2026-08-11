@@ -13,7 +13,7 @@ from services.run_review.rubric_prompts import (
     build_scene_check_system_prompt,
     render_taste_principles,
 )
-from vendor.mm_plugins.review_rubrics import (
+from vendor.media_toolkit.review_rubrics import (
     APPEAL_RUBRIC_ROWS,
     SCENE_REVIEW_CHECKS,
 )

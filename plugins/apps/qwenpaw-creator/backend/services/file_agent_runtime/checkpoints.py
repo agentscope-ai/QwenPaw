@@ -26,6 +26,7 @@ from domain.enums import SpecialistRole
 
 CHECKPOINT_PLAN = "plan"
 CHECKPOINT_DESIGN = "design"
+CHECKPOINT_DIRECTION = "direction"
 
 CHECKPOINT_OPERATION_PREFIX = "creation_checkpoint"
 CHECKPOINT_PROVIDER = "creator-checkpoint"
@@ -37,11 +38,13 @@ _CHECKPOINT_SUMMARIES = {
     CHECKPOINT_DESIGN: (
         "设计检查点：确认角色/场景设计图之后再生成分镜图与视频，" "避免用错误的形象继续往下做。通过后本项目不再重复询问。"
     ),
+    CHECKPOINT_DIRECTION: ("方向检查点：共创模式下剪辑开始前先确认创作方向（三选一）。" "选定后本项目不再重复询问。"),
 }
 
 _CHECKPOINT_LABELS = {
     CHECKPOINT_PLAN: "计划确认",
     CHECKPOINT_DESIGN: "设计确认",
+    CHECKPOINT_DIRECTION: "方向确认",
 }
 
 
@@ -54,16 +57,35 @@ def required_checkpoint_phases(
     Character/scene design images only need the plan checkpoint — they
     are the very artifacts the design checkpoint later reviews, so
     requiring it here would deadlock the workflow.
+
+    The execution mode scales the set (upstream three governance modes):
+    ``delegated`` drops the pit stops entirely (billing authorizations
+    are a separate gate and stay); ``fine_tuning`` keeps one plan-phase
+    scope confirmation; ``co_creation`` keeps the full ladder. The
+    creative direction gate itself is conversational (the editing
+    director proposes three cards and blocks for the user's pick), not a
+    tool-admission phase — see the editing-director prompt.
     """
 
+    from models.config import (
+        EXECUTION_MODE_DELEGATED,
+        EXECUTION_MODE_FINE_TUNING,
+        get_execution_mode,
+    )
+
+    execution_mode = get_execution_mode()
+    if execution_mode == EXECUTION_MODE_DELEGATED:
+        return ()
     if tool_name == "image_generation":
         if role is SpecialistRole.VISUAL_DEVELOPMENT:
             return (CHECKPOINT_PLAN,)
-        # Storyboard images consume the approved designs.
-        return (CHECKPOINT_PLAN, CHECKPOINT_DESIGN)
-    if tool_name == "r2v_generation":
-        return (CHECKPOINT_PLAN, CHECKPOINT_DESIGN)
-    return ()
+    elif tool_name != "r2v_generation":
+        return ()
+    if execution_mode == EXECUTION_MODE_FINE_TUNING:
+        # One scope confirmation for iterations on a delivered cut.
+        return (CHECKPOINT_PLAN,)
+    # Storyboard images consume the approved designs.
+    return (CHECKPOINT_PLAN, CHECKPOINT_DESIGN)
 
 
 def checkpoint_operation(phase: str) -> str:

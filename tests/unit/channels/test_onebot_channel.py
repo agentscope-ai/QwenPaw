@@ -17,6 +17,7 @@ from qwenpaw.schemas import (
     TextContent,
 )
 
+from qwenpaw.app.channels.onebot import channel as onebot_channel_module
 from qwenpaw.app.channels.onebot.channel import (
     OneBotChannel,
     _normalize_media_ref_sync,
@@ -229,6 +230,69 @@ class TestParseMessageSegments:
         )
         assert len(parts) == 0
 
+    def test_normalize_cq_code_message(self):
+        segments = OneBotChannel._normalize_onebot_segments(
+            "hello [CQ:image,file=pic.jpg,"
+            "url=https://img.example.com/pic.jpg]",
+        )
+
+        assert segments == [
+            {"type": "text", "data": {"text": "hello"}},
+            {
+                "type": "image",
+                "data": {
+                    "file": "pic.jpg",
+                    "url": "https://img.example.com/pic.jpg",
+                },
+            },
+        ]
+
+    def test_normalize_cq_code_decodes_escaped_parameters(self):
+        segments = OneBotChannel._normalize_onebot_segments(
+            "[CQ:image,file=a&#44;b&#91;c&#93;.jpg,"
+            "title=&lt;literal&gt;,"
+            "url=https://cdn.example/a?x=1&#38;y=2]",
+        )
+
+        assert segments == [
+            {
+                "type": "image",
+                "data": {
+                    "file": "a,b[c].jpg",
+                    "title": "&lt;literal&gt;",
+                    "url": "https://cdn.example/a?x=1&y=2",
+                },
+            },
+        ]
+
+    def test_message_preview_bounds_fields_before_serializing(
+        self,
+        monkeypatch,
+    ):
+        captured: list = []
+        real_dumps = onebot_channel_module.json.dumps
+
+        def capture_dumps(value, *args, **kwargs):
+            captured.append(value)
+            return real_dumps(value, *args, **kwargs)
+
+        monkeypatch.setattr(onebot_channel_module.json, "dumps", capture_dumps)
+        preview = OneBotChannel._message_preview(
+            [
+                {
+                    "type": "image",
+                    "data": {
+                        "url": "x" * 1_000_000,
+                        "nested": {"payload": "y" * 1_000_000},
+                    },
+                },
+            ],
+        )
+
+        assert len(preview) <= 200
+        assert len(captured[0][0]["data"]["url"]) == 80
+        assert captured[0][0]["data"]["nested"] == "<dict>"
+
 
 # ===================================================================
 # Message event handling
@@ -339,6 +403,297 @@ class TestHandleMessageEvent:
         )
         await ch._handle_message_event(event)
         assert len(enqueued) == 1
+
+    async def test_require_mention_allows_with_event_self_id(self):
+        ch = _make_channel(require_mention=True)
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "at", "data": {"qq": "99999"}},
+                {"type": "text", "data": {"text": "hello"}},
+            ],
+        )
+        event["self_id"] = 99999
+        await ch._handle_message_event(event)
+
+        assert len(enqueued) == 1
+        assert ch._self_id == 99999
+
+    async def test_quoted_text_is_fetched_after_mention(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock(
+            return_value={
+                "data": {
+                    "message": [
+                        {"type": "text", "data": {"text": "quoted text"}},
+                    ],
+                },
+            },
+        )
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "reply", "data": {"id": "321"}},
+                {"type": "at", "data": {"qq": "99999"}},
+                {"type": "text", "data": {"text": "please answer"}},
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        ch._call_api.assert_awaited_once_with("get_msg", {"message_id": 321})
+        assert len(enqueued) == 1
+        content = enqueued[0].input[0].content
+        assert len(content) == 1
+        assert content[0].text == (
+            "[Quoted message]\nquoted text\n\n"
+            "[Current message]\nplease answer"
+        )
+
+    async def test_quoted_cq_image_is_marked_as_quoted_content(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock(
+            return_value={
+                "data": {
+                    "message": (
+                        "[CQ:image,file=pic.jpg,"
+                        "url=https://img.example.com/pic.jpg]"
+                    ),
+                },
+            },
+        )
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "reply", "data": {"id": "321"}},
+                {"type": "at", "data": {"qq": "99999"}},
+                {"type": "text", "data": {"text": "describe it"}},
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        content = enqueued[0].input[0].content
+        assert content[0].text == "[Quoted message]"
+        assert content[1].text == "[Quoted image message]"
+        assert content[2].type == ContentType.IMAGE
+        assert content[2].image_url == "https://img.example.com/pic.jpg"
+        assert content[3].text == "[Current message]"
+        assert content[4].text == "describe it"
+
+    async def test_quoted_raw_message_is_used_when_message_is_text(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock(
+            return_value={
+                "data": {
+                    "message": "[图片]",
+                    "raw_message": (
+                        "[CQ:image,file=pic.jpg,"
+                        "url=https://img.example.com/pic.jpg]"
+                    ),
+                },
+            },
+        )
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "reply", "data": {"id": "321"}},
+                {"type": "at", "data": {"qq": "99999"}},
+                {"type": "text", "data": {"text": "describe it"}},
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        content = enqueued[0].input[0].content
+        assert content[0].text == "[Quoted message]"
+        assert content[1].text == "[Quoted image message]"
+        assert content[2].type == ContentType.IMAGE
+        assert content[2].image_url == "https://img.example.com/pic.jpg"
+        assert content[3].text == "[Current message]"
+        assert content[4].text == "describe it"
+
+    async def test_quoted_record_is_marked_as_voice_content(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock(
+            return_value={
+                "data": {
+                    "message": [
+                        {
+                            "type": "record",
+                            "data": {
+                                "file": "voice.amr",
+                                "url": (
+                                    "https://qq.example/" "download?file=voice"
+                                ),
+                            },
+                        },
+                    ],
+                },
+            },
+        )
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "reply", "data": {"id": "321"}},
+                {"type": "at", "data": {"qq": "99999"}},
+                {"type": "text", "data": {"text": "what is it"}},
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        content = enqueued[0].input[0].content
+        assert content[1].text == "[Quoted voice message]"
+        assert content[2].type == ContentType.AUDIO
+        assert content[2].data == ("https://qq.example/download?file=voice")
+        assert content[3].text == "[Current message]"
+        assert content[4].text == "what is it"
+
+    async def test_quoted_file_uses_existing_file_url_resolution(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock(
+            side_effect=[
+                {
+                    "data": {
+                        "message": [
+                            {
+                                "type": "file",
+                                "data": {
+                                    "file": "doc.pdf",
+                                    "file_id": "quoted-file-id",
+                                    "name": "doc.pdf",
+                                },
+                            },
+                        ],
+                    },
+                },
+                {"data": {"url": "https://files.example.com/doc.pdf"}},
+            ],
+        )
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "reply", "data": {"id": "321"}},
+                {"type": "at", "data": {"qq": "99999"}},
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        assert ch._call_api.await_args_list[0].args == (
+            "get_msg",
+            {"message_id": 321},
+        )
+        assert ch._call_api.await_args_list[1].args == (
+            "get_group_file_url",
+            {"group_id": 67890, "file_id": "quoted-file-id"},
+        )
+        assert len(enqueued) == 1
+        assert (
+            enqueued[0].input[0].content[2].file_url
+            == "https://files.example.com/doc.pdf"
+        )
+        assert enqueued[0].input[0].content[1].text == (
+            "[Quoted file message: doc.pdf]"
+        )
+
+    async def test_quoted_and_current_files_keep_their_own_file_ids(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock(
+            side_effect=[
+                {
+                    "data": {
+                        "message": [
+                            {
+                                "type": "file",
+                                "data": {
+                                    "file": "quoted.pdf",
+                                    "file_id": "quoted-file-id",
+                                    "name": "quoted.pdf",
+                                },
+                            },
+                        ],
+                    },
+                },
+                {"data": {"url": "https://files.example/quoted.pdf"}},
+                {"data": {"url": "https://files.example/current.pdf"}},
+            ],
+        )
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "reply", "data": {"id": "321"}},
+                {"type": "at", "data": {"qq": "99999"}},
+                {
+                    "type": "file",
+                    "data": {
+                        "file": "current.pdf",
+                        "file_id": "current-file-id",
+                        "name": "current.pdf",
+                    },
+                },
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        assert ch._call_api.await_args_list[1].args == (
+            "get_group_file_url",
+            {"group_id": 67890, "file_id": "quoted-file-id"},
+        )
+        assert ch._call_api.await_args_list[2].args == (
+            "get_group_file_url",
+            {"group_id": 67890, "file_id": "current-file-id"},
+        )
+        content = enqueued[0].input[0].content
+        assert content[2].file_url == "https://files.example/quoted.pdf"
+        assert content[4].file_url == "https://files.example/current.pdf"
+
+    async def test_unmentioned_reply_does_not_call_get_msg(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock()
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[{"type": "reply", "data": {"id": "321"}}],
+        )
+        await ch._handle_message_event(event)
+
+        ch._call_api.assert_not_awaited()
+        assert not enqueued
 
 
 # ===================================================================

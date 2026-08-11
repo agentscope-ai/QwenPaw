@@ -60,6 +60,8 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 ## Tin Tức
 
+- [2026-08-12] **v2.1.0** | QwenPaw OS Shell, không gian làm việc Files hợp nhất, QwenPaw Creator, tích hợp agent Codex/Qoder, Browser-use, Computer-use, điểm khôi phục workspace và tiếp tục tác vụ hội thoại dài. [Ghi chú phát hành v2.1.0 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
+
 - [2026-07-24] **v2.0.1** | Nền tảng mini-app PawApp, Agent Mode do người dùng chỉnh sửa, Oh-My-Paw plugins, nâng cấp bộ nhớ [ReMe](https://github.com/agentscope-ai/ReMe), cải thiện UX desktop v.v. [Ghi chú phát hành v2.0.1 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
 - [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, cơ sở tri thức cá nhân tự tiến hóa [ReMe](https://github.com/agentscope-ai/ReMe) v0.4 và TUI tích hợp.
@@ -438,20 +440,27 @@ Tài liệu đầy đủ: [qwenpaw.agentscope.io/docs](https://qwenpaw.agentscop
 
 ## Lộ Trình Phát Triển
 
-| Lĩnh vực                   | Mục                                                                                        | Trạng thái          |
-| -------------------------- | ------------------------------------------------------------------------------------------ | ------------------- |
-| **Mở rộng ngang**          | Thêm kênh, mô hình, Skills, MCP — **hoan nghênh đóng góp từ cộng đồng**                   | Đang kêu gọi đóng góp |
-| **Mở rộng tính năng hiện có** | Tối ưu hiển thị, gợi ý tải xuống, tương thích đường dẫn Windows — **hoan nghênh đóng góp** | Đang kêu gọi đóng góp |
-| **Mô hình**                | Chuyển đổi đa mô hình                                                                       | Đang thực hiện      |
-| **Browser-use**            | Hỗ trợ tiện ích mở rộng Chrome                                                              | Đang thực hiện      |
-| **Bộ nhớ dài hạn**        | Cơ sở tri thức cá nhân                                                                      | Đang thực hiện      |
-| **Ứng dụng QwenPaw**      | QwenPaw Creator                                                                             | Đang thực hiện      |
-|                            | QwenPaw Insight                                                                             | Đang thực hiện      |
-| **Đa tác nhân**            | Tương thích với các tác nhân hiện có (ví dụ: Claude Code)                                  | Đã lên kế hoạch     |
-|                            | Chat nhóm                                                                                   | Đã lên kế hoạch     |
-|                            | Trực quan hóa tác nhân con                                                                  | Đã lên kế hoạch     |
+| Lĩnh vực                       | Mục                                           | Trạng thái            |
+| ------------------------------ | --------------------------------------------- | --------------------- |
+| **Mở rộng ngang**              | Thêm kênh, mô hình, Skills và MCP             | Đang kêu gọi đóng góp |
+| **Mở rộng tính năng hiện có**  | Cải thiện hiển thị, tải xuống và Windows      | Đang kêu gọi đóng góp |
+| **Mô hình**                    | Chuyển đổi đa mô hình                         | Đang thực hiện        |
+| **An toàn và phê duyệt**       | Xem trước và phê duyệt hàng loạt              | Đang thực hiện        |
+| **Tự động hóa**                | Tác vụ tự động                                | Đang thực hiện        |
+| **Tương tác agent**            | Bàn giao tác vụ giữa các agent                | Đang thực hiện        |
+|                                | Điều chỉnh tác vụ đang chạy                   | Đang thực hiện        |
+| **Không gian làm việc**        | Nhiều workspace                               | Đang thực hiện        |
+| **Ngữ cảnh**                   | Nén lời nhắc hệ thống                         | Đang thực hiện        |
+| **Hệ thống công cụ**           | Thay đổi tệp ở nhiều vị trí                   | Đang thực hiện        |
+|                                | Terminal liên tục và tác vụ nền               | Đang thực hiện        |
+| **Computer-use**               | Xác định và thao tác mục tiêu trên màn hình   | Đang thực hiện        |
+| **Tương tác giọng nói**        | Tác vụ giọng nói thời gian thực               | Đang thực hiện        |
+| **Quản lý ngữ cảnh và bộ nhớ** | Chuyển nóng mô hình vector và backend lưu trữ | Đang thực hiện        |
+|                                | Cơ sở tri thức cá nhân                        | Đang thực hiện        |
+| **Ứng dụng QwenPaw**           | QwenPaw Insight                               | Đang thực hiện        |
+|                                | QwenPaw Mail                                  | Đang thực hiện        |
 
-_Trạng thái:_ **Đang thực hiện** — đang tích cực phát triển; **Đã lên kế hoạch** — đã xếp hàng hoặc đang thiết kế, cũng hoan nghênh đóng góp; **Đang kêu gọi đóng góp** — chúng tôi khuyến khích đóng góp từ cộng đồng.
+_Trạng thái:_ **Đang thực hiện** — đang tích cực phát triển; **Đang kêu gọi đóng góp** — chúng tôi khuyến khích đóng góp từ cộng đồng.
 
 ---
 

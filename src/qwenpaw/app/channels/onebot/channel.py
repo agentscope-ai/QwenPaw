@@ -67,6 +67,22 @@ _WRAPPED_URL_RE = re.compile(
 )
 
 
+_CQ_UNESCAPE_REPLACEMENTS = (
+    ("&#44;", ","),
+    ("&#91;", "["),
+    ("&#93;", "]"),
+    ("&#38;", "&"),
+    ("&amp;", "&"),
+)
+
+
+def _unescape_cq_value(value: str) -> str:
+    """Decode OneBot CQ-code escaping without applying generic HTML rules."""
+    for escaped, decoded in _CQ_UNESCAPE_REPLACEMENTS:
+        value = value.replace(escaped, decoded)
+    return value
+
+
 def _clean_links(text: str) -> str:
     """Convert supported Markdown links to readable plain text."""
     text = _MARKDOWN_LINK_RE.sub(
@@ -762,26 +778,16 @@ class OneBotChannel(BaseChannel):
         user_id = str(data.get("user_id", ""))
         group_id = str(data.get("group_id", ""))
         message_id = str(data.get("message_id", ""))
-        segments = data.get("message", [])
+        event_self_id = data.get("self_id")
+        if event_self_id is not None:
+            self._self_id = event_self_id
+        segments = self._normalize_onebot_segments(data.get("message", []))
 
-        # If message is a list of dicts, parse segments; if string, wrap
-        if isinstance(segments, str):
-            segments = [{"type": "text", "data": {"text": segments}}]
-
-        # Track bot mention for require_mention
-        bot_mentioned = False
+        # Track bot mention and quoted message before any remote I/O.
         content_parts, bot_mentioned = self._parse_message_segments(segments)
-        if not content_parts:
+        reply_message_id = self._reply_message_id(segments)
+        if not content_parts and not reply_message_id:
             return
-
-        # Resolve file URLs: NapCat file segments only contain the
-        # filename, not a download URL.  We must call the OneBot API
-        # to obtain the real URL.
-        content_parts = await self._resolve_file_urls(
-            content_parts,
-            message_type,
-            data,
-        )
 
         sender = data.get("sender", {})
         sender_name = sender.get("card") or sender.get("nickname") or user_id
@@ -797,8 +803,44 @@ class OneBotChannel(BaseChannel):
             "bot_mentioned": bot_mentioned,
         }
 
-        # Mention check (group messages may require @bot)
+        # Mention check (group messages may require @bot). Keep all
+        # OneBot API calls after this gate to avoid I/O for ignored messages.
         if not self._check_group_mention(is_group, meta):
+            return
+
+        if reply_message_id:
+            quoted_segments = await self._get_quoted_message_segments(
+                reply_message_id,
+            )
+            quoted_parts, _ = self._parse_message_segments(quoted_segments)
+            quoted_parts = await self._resolve_file_urls(
+                quoted_parts,
+                message_type,
+                self._event_with_segments(data, quoted_segments),
+            )
+            content_parts = await self._resolve_file_urls(
+                content_parts,
+                message_type,
+                self._event_with_segments(data, segments),
+            )
+            content_parts = self._with_quoted_context(
+                quoted_parts,
+                content_parts,
+            )
+            logger.info(
+                "onebot: quoted message id=%s segments=%s parts=%s preview=%r",
+                reply_message_id,
+                [segment.get("type") for segment in quoted_segments],
+                [getattr(part, "type", None) for part in quoted_parts],
+                self._content_part_preview(quoted_parts),
+            )
+        else:
+            content_parts = await self._resolve_file_urls(
+                content_parts,
+                message_type,
+                self._event_with_segments(data, segments),
+            )
+        if not content_parts:
             return
 
         native = {
@@ -898,6 +940,227 @@ class OneBotChannel(BaseChannel):
 
         return parts, bot_mentioned
 
+    @staticmethod
+    def _normalize_onebot_segments(raw_message: Any) -> list[dict]:
+        """Normalize OneBot array or CQ-code message into segment dicts."""
+        if isinstance(raw_message, list):
+            return [seg for seg in raw_message if isinstance(seg, dict)]
+        if not isinstance(raw_message, str):
+            return []
+
+        segments: list[dict] = []
+        pos = 0
+        for match in re.finditer(
+            r"\[CQ:(?P<type>\w+),(?P<data>[^\]]*)\]",
+            raw_message,
+        ):
+            if match.start() > pos:
+                text = raw_message[pos : match.start()].strip()
+                if text:
+                    segments.append({"type": "text", "data": {"text": text}})
+            seg_data: dict[str, str] = {}
+            for item in match.group("data").split(","):
+                key, sep, value = item.partition("=")
+                if sep and key:
+                    seg_data[key] = _unescape_cq_value(value)
+            segments.append({"type": match.group("type"), "data": seg_data})
+            pos = match.end()
+        if pos < len(raw_message):
+            text = raw_message[pos:].strip()
+            if text:
+                segments.append({"type": "text", "data": {"text": text}})
+        if not segments and raw_message.strip():
+            segments.append(
+                {"type": "text", "data": {"text": raw_message.strip()}},
+            )
+        return segments
+
+    @staticmethod
+    def _segment_types(segments: list[dict]) -> list[str]:
+        return [str(seg.get("type", "")) for seg in segments]
+
+    @staticmethod
+    def _message_preview(value: Any) -> str:
+        if isinstance(value, str):
+            return value[:200]
+        if not isinstance(value, list):
+            return ""
+
+        bounded: list[dict[str, Any]] = []
+        for segment in value[:3]:
+            if not isinstance(segment, dict):
+                bounded.append({"value_type": type(segment).__name__})
+                continue
+            preview_segment: dict[str, Any] = {
+                "type": str(segment.get("type", ""))[:40],
+            }
+            data = segment.get("data")
+            if isinstance(data, dict):
+                preview_segment["data"] = {
+                    str(key)[:40]: (
+                        item[:80]
+                        if isinstance(item, str)
+                        else item
+                        if isinstance(item, (bool, int, float, type(None)))
+                        else f"<{type(item).__name__}>"
+                    )
+                    for key, item in list(data.items())[:6]
+                }
+            bounded.append(preview_segment)
+        return json.dumps(bounded, ensure_ascii=False)[:200]
+
+    @staticmethod
+    def _text_content_parts(parts: list) -> list[str] | None:
+        texts: list[str] = []
+        for part in parts:
+            if getattr(part, "type", None) != ContentType.TEXT:
+                return None
+            text = str(getattr(part, "text", "") or "").strip()
+            if text:
+                texts.append(text)
+        return texts
+
+    @staticmethod
+    def _content_part_preview(parts: list) -> str:
+        previews: list[str] = []
+        for part in parts:
+            part_type = getattr(part, "type", None)
+            if part_type == ContentType.TEXT:
+                previews.append(str(getattr(part, "text", "") or "")[:120])
+            else:
+                previews.append(str(part_type))
+        return " | ".join(previews)[:240]
+
+    @staticmethod
+    def _quoted_part_annotation(part: Any) -> str | None:
+        part_type = getattr(part, "type", None)
+        if part_type == ContentType.IMAGE:
+            return "[Quoted image message]"
+        if part_type == ContentType.AUDIO:
+            return "[Quoted voice message]"
+        if part_type == ContentType.VIDEO:
+            return "[Quoted video message]"
+        if part_type == ContentType.FILE:
+            filename = getattr(part, "filename", "") or "file"
+            return f"[Quoted file message: {filename}]"
+        return None
+
+    @staticmethod
+    def _annotated_quoted_parts(quoted_parts: list) -> list:
+        annotated: list = []
+        for part in quoted_parts:
+            annotation = OneBotChannel._quoted_part_annotation(part)
+            if annotation:
+                annotated.append(
+                    TextContent(type=ContentType.TEXT, text=annotation),
+                )
+            annotated.append(part)
+        return annotated
+
+    @staticmethod
+    def _with_quoted_context(
+        quoted_parts: list,
+        current_parts: list,
+    ) -> list:
+        """Expose quoted content with the shared simple marker format."""
+        if not quoted_parts:
+            return current_parts
+
+        quoted_texts = OneBotChannel._text_content_parts(quoted_parts)
+        current_texts = OneBotChannel._text_content_parts(current_parts)
+        if quoted_texts is not None and current_texts is not None:
+            text = "[Quoted message]\n" + "\n".join(quoted_texts)
+            if current_texts:
+                text += "\n\n[Current message]\n" + "\n".join(current_texts)
+            return [TextContent(type=ContentType.TEXT, text=text)]
+
+        merged: list = [
+            TextContent(type=ContentType.TEXT, text="[Quoted message]"),
+            *OneBotChannel._annotated_quoted_parts(quoted_parts),
+        ]
+        if current_parts:
+            merged.append(
+                TextContent(type=ContentType.TEXT, text="[Current message]"),
+            )
+            merged.extend(current_parts)
+        return merged
+
+    @staticmethod
+    def _event_with_segments(
+        event_data: Dict[str, Any],
+        segments: list[dict],
+    ) -> Dict[str, Any]:
+        scoped_data = dict(event_data)
+        scoped_data["message"] = segments
+        return scoped_data
+
+    @staticmethod
+    def _reply_message_id(segments: list) -> str | None:
+        """Return the directly quoted OneBot message ID, if present."""
+        for segment in segments:
+            if not isinstance(segment, dict) or segment.get("type") != "reply":
+                continue
+            data = segment.get("data", {})
+            message_id = data.get("id") if isinstance(data, dict) else None
+            if message_id is not None and str(message_id):
+                return str(message_id)
+        return None
+
+    async def _get_quoted_message_segments(
+        self,
+        message_id: str,
+    ) -> list[dict]:
+        """Fetch one quoted message after the current message passes gates."""
+        api_message_id: str | int = message_id
+        try:
+            api_message_id = int(message_id)
+        except ValueError:
+            pass
+
+        try:
+            result = await self._call_api(
+                "get_msg",
+                {"message_id": api_message_id},
+            )
+        except Exception:
+            logger.warning(
+                "onebot: failed to fetch quoted message %s",
+                message_id,
+                exc_info=True,
+            )
+            return []
+
+        data = result.get("data") if isinstance(result, dict) else None
+        message = data.get("message") if isinstance(data, dict) else None
+        raw_message = (
+            data.get("raw_message") if isinstance(data, dict) else None
+        )
+        segments = self._normalize_onebot_segments(message)
+        raw_segments = self._normalize_onebot_segments(raw_message)
+        if (
+            raw_segments
+            and self._segment_types(segments) == ["text"]
+            and self._segment_types(raw_segments) != ["text"]
+        ):
+            segments = raw_segments
+        logger.info(
+            "onebot: get_msg id=%s keys=%s message_type=%s "
+            "raw_type=%s message_preview=%r raw_preview=%r",
+            message_id,
+            sorted(data.keys()) if isinstance(data, dict) else [],
+            type(message).__name__,
+            type(raw_message).__name__,
+            self._message_preview(message),
+            self._message_preview(raw_message),
+        )
+        if not segments:
+            logger.warning(
+                "onebot: quoted message %s has no segment list",
+                message_id,
+            )
+            return []
+        return segments
+
     async def _resolve_file_urls(
         self,
         content_parts: list,
@@ -911,23 +1174,34 @@ class OneBotChannel(BaseChannel):
         ``get_private_file_url`` to obtain the real URL.
         """
         resolved = []
+        file_segments = [
+            segment
+            for segment in event_data.get("message", [])
+            if isinstance(segment, dict) and segment.get("type") == "file"
+        ]
+        file_segment_index = 0
         for part in content_parts:
             if getattr(part, "type", None) != ContentType.FILE:
                 resolved.append(part)
                 continue
 
+            source_segment = (
+                file_segments[file_segment_index]
+                if file_segment_index < len(file_segments)
+                else {}
+            )
+            file_segment_index += 1
+            source_data = source_segment.get("data", {})
+            file_id = (
+                source_data.get("file_id", "")
+                if isinstance(source_data, dict)
+                else ""
+            )
             file_url = getattr(part, "file_url", "") or ""
             # Already a valid URL — keep as-is
             if file_url.startswith(("http://", "https://", "file://")):
                 resolved.append(part)
                 continue
-
-            # Try to get the file_id from the original event
-            file_id = ""
-            for seg in event_data.get("message", []):
-                if seg.get("type") == "file":
-                    file_id = seg.get("data", {}).get("file_id", "")
-                    break
 
             if not file_id:
                 # No file_id available — keep original (will likely fail

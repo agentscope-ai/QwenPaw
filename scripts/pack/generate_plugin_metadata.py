@@ -23,6 +23,11 @@ plugin version in ``plugin.json`` when you need a distinct release artifact.
 A plugin can opt out of publishing by setting ``"publish": false`` in its
 ``plugin.json``.
 
+A plugin can trim dev-only files from its zip by declaring ``"pack_exclude"``
+in ``plugin.json``: a list of plugin-root-relative paths (exact file or
+directory pruned recursively). ``plugin.json`` and the declared ``entry``
+files are always packed.
+
 Pass ``--only <plugin_id>`` (repeatable) to pack a subset of plugins, e.g.
 for a standalone release of a single plugin driven by its own version bump.
 Conversely, ``--exclude <plugin_id>`` (repeatable) skips plugins that are
@@ -66,6 +71,65 @@ def _is_excluded(name: str) -> bool:
     return any(fnmatch.fnmatch(name, pat) for pat in EXCLUDE_PATTERNS)
 
 
+def _normalize_pack_exclude(manifest: dict[str, Any]) -> list[str]:
+    """Return sanitized plugin-root-relative ``pack_exclude`` entries.
+
+    Unsafe entries (traversal, absolute, empty) are dropped with a warning.
+    """
+    raw = manifest.get("pack_exclude")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        print(
+            "WARNING: ignoring pack_exclude - expected a list of "
+            f"relative paths, got {type(raw).__name__}",
+            file=sys.stderr,
+        )
+        return []
+    cleaned: list[str] = []
+    for item in raw:
+        text = str(item).strip().replace("\\", "/").strip("/")
+        parts = [p for p in text.split("/") if p]
+        if (
+            not parts
+            or "." in parts
+            or ".." in parts
+            or ":" in parts[0]
+        ):
+            print(
+                f"WARNING: ignoring unsafe pack_exclude entry: {item!r}",
+                file=sys.stderr,
+            )
+            continue
+        cleaned.append("/".join(parts))
+    return cleaned
+
+
+def _protected_relpaths(manifest: dict[str, Any]) -> set[str]:
+    """Files that must always ship even when listed in ``pack_exclude``."""
+    protected = {"plugin.json"}
+    entry = manifest.get("entry")
+    if isinstance(entry, dict):
+        for value in entry.values():
+            if isinstance(value, str) and value.strip():
+                protected.add(value.strip().replace("\\", "/").strip("/"))
+    return protected
+
+
+def _is_pack_excluded(
+    rel_posix: str,
+    pack_exclude: list[str],
+    protected: set[str],
+) -> bool:
+    """True when *rel_posix* is covered by a ``pack_exclude`` entry."""
+    if not pack_exclude or rel_posix in protected:
+        return False
+    return any(
+        rel_posix == pat or rel_posix.startswith(pat + "/")
+        for pat in pack_exclude
+    )
+
+
 def _format_size(size_bytes: int) -> str:
     size = float(size_bytes)
     for unit in ("B", "KB", "MB", "GB"):
@@ -83,22 +147,39 @@ def _sha256_of_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _iter_tree_relpaths(plugin_dir: Path) -> list[str]:
+def _iter_tree_relpaths(
+    plugin_dir: Path,
+    manifest: dict[str, Any] | None = None,
+) -> list[str]:
+    """Return packable plugin-root-relative paths, always POSIX-separated.
+
+    Paths stay POSIX on every platform so zip entry names and ``pack_exclude``
+    matching behave identically on Windows and on Unix.
+    """
+    pack_exclude = _normalize_pack_exclude(manifest or {})
+    protected = _protected_relpaths(manifest or {})
     rels: list[str] = []
     for root, dirs, files in os.walk(plugin_dir):
         dirs[:] = [d for d in dirs if not _is_excluded(d)]
         for fname in files:
             if _is_excluded(fname):
                 continue
-            rels.append(str((Path(root) / fname).relative_to(plugin_dir)))
+            rel = (Path(root) / fname).relative_to(plugin_dir).as_posix()
+            if _is_pack_excluded(rel, pack_exclude, protected):
+                continue
+            rels.append(rel)
     rels.sort()
     return rels
 
 
-def _zip_plugin(plugin_dir: Path, out_zip: Path) -> None:
+def _zip_plugin(
+    plugin_dir: Path,
+    out_zip: Path,
+    manifest: dict[str, Any] | None = None,
+) -> None:
     out_zip.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-        for rel in _iter_tree_relpaths(plugin_dir):
+        for rel in _iter_tree_relpaths(plugin_dir, manifest):
             zf.write(plugin_dir / rel, f"{plugin_dir.name}/{rel}")
 
 
@@ -296,7 +377,7 @@ def discover_and_pack(
                 f"  + pack {kind}/{plugin_dir.name} -> "
                 f"{plugin_id}/{zip_path.name}",
             )
-            _zip_plugin(plugin_dir, zip_path)
+            _zip_plugin(plugin_dir, zip_path, manifest)
 
             cdn_path = (
                 f"{cdn_prefix.rstrip('/')}/{kind}/{plugin_id}/{zip_name}"

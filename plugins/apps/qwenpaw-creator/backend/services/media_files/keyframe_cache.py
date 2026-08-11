@@ -17,6 +17,7 @@ from uuid import uuid4
 from domain.errors import StorageIntegrityError, ValidationError
 from services.project_files.assets import AssetFileStore
 from services.project_files.models import IndexedFile
+from services.runtime_files.atomic_store import fsync_directory
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,11 +238,7 @@ def materialize_keyframe(
         finally:
             os.close(descriptor)
         os.replace(temporary, target)
-        directory_descriptor = os.open(cache_root, os.O_RDONLY)
-        try:
-            os.fsync(directory_descriptor)
-        finally:
-            os.close(directory_descriptor)
+        fsync_directory(cache_root)
         cached = _cached_entry(
             target,
             timestamp_seconds=timestamp,

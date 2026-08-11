@@ -14,6 +14,34 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "macos")]
+use super::platform_macos::HostFocusLease;
+
+/// Platform resources retained while one agent turn interacts with the desktop.
+///
+/// The lifecycle is shared even though the native resource is not: macOS keeps
+/// the desktop host from reclaiming focus, while Windows already targets and
+/// verifies the foreground window for each action.
+struct InteractionSession {
+    #[cfg(target_os = "macos")]
+    _host_focus: HostFocusLease,
+}
+
+impl InteractionSession {
+    fn begin() -> Result<Self, (&'static str, String)> {
+        #[cfg(target_os = "macos")]
+        {
+            return Ok(Self {
+                _host_focus: HostFocusLease::begin()?,
+            });
+        }
+        #[cfg(windows)]
+        {
+            Ok(Self {})
+        }
+    }
+}
+
 /// Native accessibility element handle stored with an observation.
 /// Windows uses a UI Automation element; macOS uses an AXUIElement wrapper.
 #[cfg(windows)]
@@ -107,6 +135,10 @@ pub(super) struct Observation {
     /// Digest of the normalized accessibility surface the model observed.
     /// Kept native-side so callers cannot copy or forge a revision token.
     pub(super) accessibility_revision: Option<[u8; 32]>,
+    /// Whether this exact macOS surface can accept one text action through an
+    /// application-owned editor that is absent from its accessibility tree.
+    #[cfg(target_os = "macos")]
+    pub(super) transient_text_ready: bool,
     pub(super) elements: HashMap<String, NativeElement>,
 }
 
@@ -148,14 +180,15 @@ pub(super) struct ServerState {
     pending_action: Option<PendingAction>,
     last_action_at: HashMap<isize, Instant>,
     global_action_at: Option<Instant>,
+    interaction_session: Option<InteractionSession>,
 }
 
 impl ServerState {
-    /// A desktop mutation makes every snapshot of that window stale.
-    pub(super) fn note_action(&mut self, hwnd: isize) {
+    /// A desktop mutation makes every snapshot of that application stale.
+    pub(super) fn note_action(&mut self, window: &WindowInfo) {
         self.observations
-            .retain(|_, observation| observation.window.hwnd != hwnd);
-        self.last_action_at.insert(hwnd, Instant::now());
+            .retain(|_, observation| observation.window.app_id != window.app_id);
+        self.last_action_at.insert(window.hwnd, Instant::now());
     }
 
     pub(super) fn note_global_action(&mut self) {
@@ -192,6 +225,14 @@ impl ServerState {
         self.pending_action = None;
         self.last_action_at.clear();
         self.global_action_at = None;
+        self.interaction_session = None;
+    }
+
+    pub(super) fn ensure_interaction_session(&mut self) -> Result<(), (&'static str, String)> {
+        if self.interaction_session.is_none() {
+            self.interaction_session = Some(InteractionSession::begin()?);
+        }
+        Ok(())
     }
 
     /// Discard point-in-time state after input outside the current action.
@@ -202,6 +243,7 @@ impl ServerState {
     pub(super) fn invalidate_observations(&mut self) {
         self.observations.clear();
         self.pending_action = None;
+        self.interaction_session = None;
     }
 }
 
@@ -330,6 +372,8 @@ mod tests {
             display_width: display.0,
             display_height: display.1,
             accessibility_revision: None,
+            #[cfg(target_os = "macos")]
+            transient_text_ready: false,
             elements: HashMap::new(),
         }
     }
