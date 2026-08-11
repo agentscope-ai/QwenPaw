@@ -40,4 +40,24 @@ describe("MarketplaceHeader", () => {
     fireEvent.click(screen.getByText("Apps"));
     expect(screen.getByTestId("location")).toHaveTextContent("/market");
   });
+
+  it("preserves the skill install destination while switching tabs", () => {
+    renderWithProviders(
+      <>
+        <MarketplaceHeader activeSection="skills" />
+        <LocationProbe />
+      </>,
+      { initialEntries: ["/market?tab=skills&target=pool"] },
+    );
+
+    fireEvent.click(screen.getByText("Plugins"));
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/market?tab=plugins&target=pool",
+    );
+
+    fireEvent.click(screen.getByText("Skills"));
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/market?tab=skills&target=pool",
+    );
+  });
 });

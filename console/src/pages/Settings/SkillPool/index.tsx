@@ -42,7 +42,7 @@ function SkillPoolPage() {
   const navigate = useNavigate();
 
   const openMarket = useCallback(() => {
-    navigate("/market?tab=skills");
+    navigate("/market?tab=skills&target=pool");
   }, [navigate]);
 
   return (

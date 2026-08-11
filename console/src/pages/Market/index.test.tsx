@@ -12,7 +12,12 @@ vi.mock("../Settings/PluginManager", () => ({
 }));
 
 vi.mock("../Settings/Market/MarketPanel", () => ({
-  MarketPanel: () => <div>skills-content</div>,
+  MarketPanel: ({ installTarget }: { installTarget: string }) => (
+    <div>
+      skills-content
+      <span data-testid="skill-market-target">{installTarget}</span>
+    </div>
+  ),
 }));
 
 vi.mock("./components/MarketplaceHeader", () => ({
@@ -37,5 +42,15 @@ describe("MarketplacePage", () => {
       initialEntries: ["/market?tab=skills"],
     });
     expect(screen.getByText("skills-content")).toBeInTheDocument();
+    expect(screen.getByTestId("skill-market-target")).toHaveTextContent(
+      "workspace",
+    );
+  });
+
+  it("keeps pool installs when the market is opened from Skill Pool", () => {
+    renderWithProviders(<MarketplacePage />, {
+      initialEntries: ["/market?tab=skills&target=pool"],
+    });
+    expect(screen.getByTestId("skill-market-target")).toHaveTextContent("pool");
   });
 });

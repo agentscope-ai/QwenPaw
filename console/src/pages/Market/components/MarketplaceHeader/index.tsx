@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Tabs, type TabsProps } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
@@ -24,6 +24,7 @@ export function MarketplaceHeader({
 }: MarketplaceHeaderProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const items: TabsProps["items"] = [
     { key: "apps", label: t("nav.apps", "Apps") },
     { key: "plugins", label: t("nav.plugins", "Plugins") },
@@ -31,7 +32,13 @@ export function MarketplaceHeader({
   ];
 
   const handleChange = (section: string) => {
-    navigate(SECTION_PATHS[section as MarketplaceSection]);
+    const path = SECTION_PATHS[section as MarketplaceSection];
+    const target = searchParams.get("target");
+    const targetSuffix =
+      target === "pool" || target === "workspace"
+        ? `${path.includes("?") ? "&" : "?"}target=${target}`
+        : "";
+    navigate(`${path}${targetSuffix}`);
   };
 
   return (

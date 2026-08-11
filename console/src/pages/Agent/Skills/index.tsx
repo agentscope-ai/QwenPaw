@@ -87,7 +87,10 @@ function SkillsPage() {
     useState<HarnessDiscoveredSkill | null>(null);
 
   const openMarket = useCallback(() => {
-    navigate("/market?tab=skills");
+    // Keep the install destination when the shared market page is opened from
+    // the workspace skills view. The skill pool uses the same page but a
+    // different destination.
+    navigate("/market?tab=skills&target=workspace");
   }, [navigate]);
 
   // Split skills into enabled and disabled groups
