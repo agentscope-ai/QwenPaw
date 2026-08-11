@@ -12,6 +12,7 @@ import copy
 import io
 import json
 import logging
+import mimetypes
 import secrets
 import shutil
 import stat
@@ -23,6 +24,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -478,12 +480,20 @@ async def download_workspace_file(
                 yield chunk
 
     filename = target.name.replace('"', "")
+    quoted_filename = quote(filename)
+    if quoted_filename == filename:
+        content_disposition = f'attachment; filename="{filename}"'
+    else:
+        content_disposition = f"attachment; filename*=utf-8''{quoted_filename}"
+    media_type = (
+        mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    )
     return StreamingResponse(
         _stream_file(),
-        media_type="application/octet-stream",
+        media_type=media_type,
         headers={
             "Accept-Ranges": "bytes",
-            "Content-Disposition": (f'attachment; filename="{filename}"'),
+            "Content-Disposition": content_disposition,
             "Content-Length": str(info.st_size),
             "ETag": file_etag(info),
         },
