@@ -6,7 +6,11 @@
  */
 import { hostFetch } from "../hostSdk/fetch";
 import type {
+  PawChatHistory,
   PawChatOptions,
+  PawChatSession,
+  PawChatSessionScope,
+  PawChatSessionsApi,
   PawChatStreamEvent,
   PawStorageApi,
 } from "./types";
@@ -120,6 +124,100 @@ export function chatStream(
 ): AsyncGenerator<PawChatStreamEvent> {
   return streamChatWithApi(createApiNamespace(getAppId), message, options);
 }
+
+async function readChatHistory(
+  api: ReturnType<typeof createApiNamespace>,
+  options: PawChatOptions = {},
+): Promise<PawChatHistory> {
+  const { agentId, sessionId } = chatRouteOptions(options);
+  const data = await api.get<{
+    session_id?: string;
+    messages?: PawChatHistory["messages"];
+  }>("/chat/history", {
+    query: {
+      agent_id: agentId,
+      session_id: sessionId,
+    },
+  });
+  return {
+    sessionId: data.session_id || sessionId || "",
+    messages: Array.isArray(data.messages) ? data.messages : [],
+  };
+}
+
+/** Read the transcript persisted by the same host session used for chat. */
+export function getChatHistory(
+  options: PawChatOptions = {},
+): Promise<PawChatHistory> {
+  return readChatHistory(createApiNamespace(getAppId), options);
+}
+
+function chatSessionAgentId(options: PawChatSessionScope = {}): string {
+  return (
+    options.agentId ?? window.QwenPaw.host?.getSelectedAgentId?.() ?? "default"
+  );
+}
+
+function normalizeChatSession(data: {
+  id?: string;
+  session_id?: string;
+  name?: string;
+  created_at?: string;
+  updated_at?: string;
+  archived?: boolean;
+}): PawChatSession {
+  return {
+    id: data.id || "",
+    sessionId: data.session_id || "",
+    name: data.name || "New analysis",
+    createdAt: data.created_at || "",
+    updatedAt: data.updated_at || "",
+    archived: data.archived === true,
+  };
+}
+
+function createChatSessionsApi(
+  api: ReturnType<typeof createApiNamespace>,
+): PawChatSessionsApi {
+  const query = (options: PawChatSessionScope = {}) => ({
+    agent_id: chatSessionAgentId(options),
+  });
+  return {
+    async list(options = {}) {
+      const data = await api.get<{
+        sessions?: Parameters<typeof normalizeChatSession>[0][];
+      }>("/chat/sessions", { query: query(options) });
+      return (data.sessions || []).map(normalizeChatSession);
+    },
+    async create(options = {}) {
+      const data = await api.post<Parameters<typeof normalizeChatSession>[0]>(
+        "/chat/sessions",
+        { name: options.name || "New analysis" },
+        { query: query(options) },
+      );
+      return normalizeChatSession(data);
+    },
+    async rename(chatId, name, options = {}) {
+      const data = await api.patch<Parameters<typeof normalizeChatSession>[0]>(
+        `/chat/sessions/${encodeURIComponent(chatId)}`,
+        { name },
+        { query: query(options) },
+      );
+      return normalizeChatSession(data);
+    },
+    async archive(chatId, options = {}) {
+      const data = await api.post<Parameters<typeof normalizeChatSession>[0]>(
+        `/chat/sessions/${encodeURIComponent(chatId)}/archive`,
+        undefined,
+        { query: query(options) },
+      );
+      return normalizeChatSession(data);
+    },
+  };
+}
+
+/** Manage durable dialogues scoped to the current PawApp and agent. */
+export const chatSessions = createChatSessionsApi(createApiNamespace(getAppId));
 
 /**
  * App-namespaced key-value storage.
@@ -242,6 +340,10 @@ export function createHostNamespace(
     chatStream(message, options = {}) {
       return streamChatWithApi(api, message, options);
     },
+    getChatHistory(options = {}) {
+      return readChatHistory(api, options);
+    },
+    chatSessions: createChatSessionsApi(api),
     storage: scopedStorage,
     getSelectedAgentId: () =>
       window.QwenPaw.host?.getSelectedAgentId?.() ?? "default",
@@ -267,6 +369,8 @@ export function createHostNamespace(
 export const hostNamespace = {
   chat,
   chatStream,
+  getChatHistory,
+  chatSessions,
   storage,
   getSelectedAgentId: () =>
     window.QwenPaw.host?.getSelectedAgentId?.() ?? "default",

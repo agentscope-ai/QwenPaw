@@ -244,6 +244,10 @@ def test_pawapp_delegates_extensions_through_plugin_api(tmp_path: Path) -> None:
     assert api.register_http_router.call_args_list[0].kwargs["prefix"] == "/fixture"
     assert _route_paths(router) >= {
         "/chat",
+        "/chat/history",
+        "/chat/sessions",
+        "/chat/sessions/{chat_id}",
+        "/chat/sessions/{chat_id}/archive",
         "/chat/stream",
         "/storage",
         "/storage/{key}",
@@ -334,6 +338,8 @@ def test_dependency_agent_tools_are_explicit_and_app_scoped() -> None:
 
 def test_chat_reports_missing_model_as_actionable_unavailable() -> None:
     class MissingModelContext:
+        app_id = "fixture"
+
         async def chat(self, *_args, **_kwargs):
             raise ConfigurationException(
                 "No active model configured; pick one in the UI",
@@ -362,6 +368,141 @@ def test_chat_reports_missing_model_as_actionable_unavailable() -> None:
             },
         }
     }
+
+
+def test_chat_history_reads_the_same_app_session() -> None:
+    class HistoryContext:
+        app_id = "fixture"
+
+        def __init__(self):
+            self.requested_session_id = None
+
+        async def get_session_history(self, session_id):
+            self.requested_session_id = session_id
+            return [
+                {
+                    "id": "message-1",
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "text", "text": "hello"}],
+                },
+                {
+                    "id": "reasoning-1",
+                    "type": "reasoning",
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "hidden"}],
+                },
+            ]
+
+    context = HistoryContext()
+    fixture = FastAPI()
+    fixture.include_router(_build_capability_router())
+    fixture.dependency_overrides[get_ctx] = lambda: context
+
+    response = TestClient(fixture).get(
+        "/chat/history",
+        params={"session_id": "pawapp:fixture:analysis-7"},
+    )
+
+    assert response.status_code == 200
+    assert context.requested_session_id == "pawapp:fixture:analysis-7"
+    assert response.json() == {
+        "session_id": "pawapp:fixture:analysis-7",
+        "messages": [
+            {
+                "id": "message-1",
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "text", "text": "hello"}],
+            }
+        ],
+    }
+
+
+def test_chat_history_defaults_to_the_app_session() -> None:
+    class HistoryContext:
+        app_id = "fixture"
+
+        async def get_session_history(self, session_id):
+            assert session_id == "pawapp:fixture"
+            return []
+
+    fixture = FastAPI()
+    fixture.include_router(_build_capability_router())
+    fixture.dependency_overrides[get_ctx] = HistoryContext
+
+    response = TestClient(fixture).get("/chat/history")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "session_id": "pawapp:fixture",
+        "messages": [],
+    }
+
+
+def test_chat_session_routes_delegate_to_the_app_scoped_catalog() -> None:
+    class SessionContext:
+        app_id = "fixture"
+
+        async def list_chat_sessions(self):
+            return [
+                {
+                    "id": "chat-1",
+                    "session_id": "pawapp:fixture",
+                    "name": "Previous analysis",
+                    "created_at": "2026-08-11T00:00:00Z",
+                    "updated_at": "2026-08-11T00:00:00Z",
+                    "archived": False,
+                },
+            ]
+
+        async def create_chat_session(self, *, name):
+            return {
+                "id": "chat-2",
+                "session_id": "pawapp:fixture:dialogue:2",
+                "name": name,
+                "created_at": "2026-08-11T00:00:00Z",
+                "updated_at": "2026-08-11T00:00:00Z",
+                "archived": False,
+            }
+
+        async def rename_chat_session(self, chat_id, *, name):
+            return {
+                "id": chat_id,
+                "session_id": "pawapp:fixture:dialogue:2",
+                "name": name,
+                "created_at": "2026-08-11T00:00:00Z",
+                "updated_at": "2026-08-11T00:01:00Z",
+                "archived": False,
+            }
+
+        async def archive_chat_session(self, chat_id):
+            return {
+                "id": chat_id,
+                "session_id": "pawapp:fixture:dialogue:2",
+                "name": "Quarterly GAAP",
+                "created_at": "2026-08-11T00:00:00Z",
+                "updated_at": "2026-08-11T00:01:00Z",
+                "archived": True,
+            }
+
+    fixture = FastAPI()
+    fixture.include_router(_build_capability_router())
+    fixture.dependency_overrides[get_ctx] = SessionContext
+    client = TestClient(fixture)
+
+    listed = client.get("/chat/sessions")
+    created = client.post("/chat/sessions", json={"name": "New analysis"})
+    renamed = client.patch(
+        "/chat/sessions/chat-2",
+        json={"name": "Quarterly GAAP"},
+    )
+    archived = client.post("/chat/sessions/chat-2/archive")
+
+    assert listed.json()["sessions"][0]["session_id"] == "pawapp:fixture"
+    assert created.json()["session_id"] == "pawapp:fixture:dialogue:2"
+    assert renamed.json()["name"] == "Quarterly GAAP"
+    assert archived.json()["archived"] is True
 
 
 def test_chat_reply_returns_only_the_last_assistant_message() -> None:

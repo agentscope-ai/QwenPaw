@@ -1,6 +1,6 @@
 # PawApp SDK 通用改动实施报告
 
-日期：2026-08-07
+日期：2026-08-11
 分支：`dev/datapaw-app`
 
 ## 结论
@@ -17,7 +17,15 @@ QwenPaw-Data 只是验证 App，其本地容器 adapter 位于 App 自身目录�
 ### Python PawApp SDK
 
 - `PawApp.enable_standard_capabilities()`：显式启用 app-scoped chat、storage、toast、
-  notify 路由。
+  notify 以及 durable chat history 路由。
+- `GET /chat/history`：复用 QwenPaw 的标准 session loader 和 message converter，按与
+  `chat/chat_stream` 相同的 agent、session、channel、user context 恢复消息；不创建第二份
+  transcript store，也不返回 model-internal reasoning block 或 AgentScope runtime hint
+  block（例如 current-time / environment reminder）。
+- `/chat/sessions`：使用现有 `ChatManager` 提供 list/create/rename/archive；新会话由
+  Host 生成 `pawapp:{appId}:dialogue:{uuid}`，并通过 `ChatSpec.meta.pawapp`、agent、user、
+  channel 共同确认归属。旧 `pawapp:{appId}` transcript 原地注册为 legacy dialogue，不复制
+  session 数据。
 - `PawApp.managed_service()`：提供动态 loopback port、readiness、受控 shutdown 和
   external endpoint 模式，并可映射为 dependency。
 - `PawApp.agent_profile()`：声明 App-owned agent identity，由标准 workspace manager
@@ -37,6 +45,10 @@ QwenPaw-Data 只是验证 App，其本地容器 adapter 位于 App 自身目录�
 - `paw.ui.registerPage()`：注册无 iframe 的原生 App page，并提供 deterministic dispose。
 - `paw.chat(..., { agentId, sessionId, skill })`：显式路由到 App-owned agent；
   `paw.api.events()` 提供 authenticated GET/POST SSE 与完整 event frame。
+- `paw.getChatHistory({ agentId, sessionId })`：读取同一 Host session 的持久化
+  user/assistant transcript、tool call 和 tool output，供 App 重建自己的 trace UI。
+- `paw.chatSessions`：提供 list/create/rename/archive；创建结果的 `sessionId` 可直接传给
+  `paw.chat()` / `paw.chatStream()`，从而获得独立 context window。
 - `paw.dependencies`：提供 `list/get/check/action/subscribe`，复用 Host 的鉴权和 typed
   error。
 
@@ -47,6 +59,16 @@ QwenPaw-Data 只是验证 App，其本地容器 adapter 位于 App 自身目录�
   check；本地基础设施 lifecycle 由 `datapaw-cli` 包负责，App 不直接调用 Docker。
 - Data sources 页面展示 summary、health、lifecycle、latency、remediation 和可用 action。
 - Agent 使用与 UI 相同的 dependency control plane，不猜测命令，也不负责长期 polling。
+- Analysis page 在 App 内切换导航时保持 mounted；浏览器 reload 后通过
+  `paw.getChatHistory()` 恢复同一 session，并从保存的 tool call/output 重建查询 trace。
+- Analysis page 可创建和切换 dialogue；当前 dialogue 存在 app storage，session catalog
+  存在 Host `ChatManager`，而消息和模型 context 仍以 Host session store 为 source of
+  truth。
+- Analysis header 固定在 chat scroll viewport 顶部，滚动后压缩为 conversation/source
+  control bar；状态栏按 Core、Business data、Graph、Skills 分类，required 与 optional
+  failure 不再混为一个模糊的 Healthy。
+- DataPaw 注入给模型的 datasource routing directive 在历史 UI 中被隐藏，用户只看到原始
+  问题。QwenPaw session 仍然是 transcript source of truth。
 
 ## 为什么需要这些改动
 
@@ -76,6 +98,10 @@ plane，把解释、重试和用户沟通留给 Agent。
   projection 是 additive route，不要求旧前端使用。
 - `paw.dependencies` 是新增 namespace；现有 `paw.api`、`paw.chat`、`paw.storage`、
   `paw.toast`、`paw.notify` 不变。
+- `paw.getChatHistory` 和 `/chat/history` 为 additive API；旧 App 不调用时行为不变，已有
+  session JSON 无需迁移。
+- `paw.chatSessions` 为 additive namespace；旧 App 显式传入的 custom session ID 不会被
+  改写，但只有 Host 生成或 legacy-adopted 的 app session 会出现在 dialogue list。
 - 外部依赖默认无 mutation action，不会被 SDK 或 Agent 自动启动/停止。
 - 状态响应包含 `schema_version`，后续字段按 additive evolution 扩展。
 
@@ -86,5 +112,7 @@ plane，把解释、重试和用户沟通留给 Agent。
 - 动态 dependency provider 的正式接口；
 - Host-wide 标准 status component 是否进入 SDK；
 - action audit 是否从结构化日志升级到统一 audit store。
+- Permanent delete、archive browsing、auto-title 和 history pagination/cursor contract；
+- Cloud 多用户环境下从 authenticated identity 强制派生 app/session/user scope 的规则；
 
 这些评审项不影响 QwenPaw-Data 当前通过 app-owned adapter 运行，但应在 SDK 合并前明确。

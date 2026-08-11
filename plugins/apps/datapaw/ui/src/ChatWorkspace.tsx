@@ -1,7 +1,12 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DataSourceMetadata } from "./api";
-import type { PawAppSdk, PawChatStreamEvent } from "./sdk";
+import type {
+  PawAppSdk,
+  PawChatHistoryMessage,
+  PawChatSession,
+  PawChatStreamEvent,
+} from "./sdk";
 
 type TraceStatus = "running" | "completed" | "error";
 
@@ -20,7 +25,7 @@ interface ChatTraceItem {
   result?: QueryResult;
 }
 
-interface ChatMessage {
+export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
@@ -28,6 +33,12 @@ interface ChatMessage {
   trace?: ChatTraceItem[];
   streaming?: boolean;
 }
+
+const LEGACY_CHAT_SESSION_ID = "pawapp:datapaw";
+const SOURCE_CONTEXT_OPEN = "<datapaw-source-context>";
+const SOURCE_CONTEXT_CLOSE = "</datapaw-source-context>";
+const LEGACY_SOURCE_CONTEXT_RE =
+  /^Use QwenPaw-Data source .*? for this request unless the user explicitly asks for another source\.\s*/;
 
 export interface ChatStreamState {
   textByMessage: Record<string, string>;
@@ -79,6 +90,28 @@ function contentText(content: unknown): string {
       return typeof block.text === "string" ? block.text : "";
     })
     .join("");
+}
+
+function dataContent(content: unknown): Record<string, unknown> | undefined {
+  if (!Array.isArray(content)) return undefined;
+  for (const item of content) {
+    const block = recordValue(item);
+    if (!block || block.type !== "data") continue;
+    const data = recordValue(block.data);
+    if (data) return data;
+  }
+  return undefined;
+}
+
+function visibleUserText(text: string): string {
+  const taggedStart = text.indexOf(SOURCE_CONTEXT_OPEN);
+  if (taggedStart === 0) {
+    const taggedEnd = text.indexOf(SOURCE_CONTEXT_CLOSE);
+    if (taggedEnd >= 0) {
+      return text.slice(taggedEnd + SOURCE_CONTEXT_CLOSE.length).trim();
+    }
+  }
+  return text.replace(LEGACY_SOURCE_CONTEXT_RE, "").trim();
 }
 
 function finalAssistantMessage(event: PawChatStreamEvent) {
@@ -163,6 +196,96 @@ function upsertTrace(
   const next = [...trace];
   next[index] = { ...next[index], ...item };
   return next;
+}
+
+/** Rebuild DataPaw's transcript and trace cards from QwenPaw session events. */
+export function historyToChatMessages(
+  history: PawChatHistoryMessage[],
+): ChatMessage[] {
+  const transcript: ChatMessage[] = [];
+  const grouped = new Map<string, ChatMessage>();
+
+  history.forEach((event, index) => {
+    const role = event.role === "user" ? "user" : "assistant";
+    if (role !== "user" && event.role !== "assistant") return;
+    const metadata = recordValue(event.metadata);
+    const originalId =
+      typeof metadata?.original_id === "string"
+        ? metadata.original_id
+        : event.id || `history-${index}`;
+    const key = `${role}:${originalId}`;
+    let message = grouped.get(key);
+    if (!message) {
+      message = {
+        id: key,
+        role,
+        text: "",
+        trace: role === "assistant" ? [] : undefined,
+        streaming: false,
+      };
+      grouped.set(key, message);
+      transcript.push(message);
+    }
+
+    if (event.type === "message") {
+      const segment = contentText(event.content).trim();
+      if (!segment) return;
+      if (role === "user") {
+        const visible = visibleUserText(segment);
+        message.text = [message.text, visible].filter(Boolean).join("\n\n");
+        return;
+      }
+      if (message.text) {
+        message.activity = [message.activity, message.text]
+          .filter(Boolean)
+          .join("\n\n");
+      }
+      message.text = segment;
+      return;
+    }
+
+    if (role !== "assistant") return;
+    const data = dataContent(event.content);
+    if (!data) return;
+    const callId = typeof data.call_id === "string" ? data.call_id : "";
+    if (!callId) return;
+    const existing = message.trace?.find((item) => item.id === callId);
+    const name =
+      typeof data.name === "string" ? data.name : existing?.name || "tool";
+    if (event.type === "plugin_call") {
+      message.trace = upsertTrace(message.trace || [], {
+        id: callId,
+        name,
+        label: toolLabel(name),
+        status: "running",
+      });
+      return;
+    }
+    if (event.type === "plugin_call_output") {
+      message.trace = upsertTrace(message.trace || [], {
+        id: callId,
+        name,
+        label: toolLabel(name),
+        ...parseToolOutput(data.output),
+      });
+    }
+  });
+
+  return transcript
+    .map((message) => ({
+      ...message,
+      trace: message.trace?.map((item) =>
+        item.status === "running"
+          ? { ...item, status: "completed" as const }
+          : item,
+      ),
+    }))
+    .filter(
+      (message) =>
+        Boolean(message.text) ||
+        Boolean(message.activity) ||
+        Boolean(message.trace?.length),
+    );
 }
 
 export function reduceChatStreamEvent(
@@ -350,23 +473,161 @@ export function ChatWorkspace({
   selectedSource?: DataSourceMetadata;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [sessions, setSessions] = useState<PawChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState("");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [restoring, setRestoring] = useState(true);
+  const [creatingSession, setCreatingSession] = useState(false);
+  const [compactHeader, setCompactHeader] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const sourceLabel = useMemo(
     () => selectedSource?.datasource_name || selectedSource?.datasource_id,
     [selectedSource],
   );
+  const activeSession = sessions.find(
+    (session) => session.sessionId === activeSessionId,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      paw.chatSessions.list({ agentId: "datapaw" }),
+      paw.storage.get<string>("active-chat-session", ""),
+    ])
+      .then(async ([available, storedSessionId]) => {
+        if (cancelled) return;
+        let next = available;
+        if (next.length === 0) {
+          next = [
+            await paw.chatSessions.create({
+              agentId: "datapaw",
+              name: "New analysis",
+            }),
+          ];
+        }
+        if (cancelled) return;
+        setSessions(next);
+        const selected = next.some(
+          (session) => session.sessionId === storedSessionId,
+        )
+          ? storedSessionId
+          : next[0].sessionId;
+        setActiveSessionId(selected);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        const fallback: PawChatSession = {
+          id: "legacy",
+          sessionId: LEGACY_CHAT_SESSION_ID,
+          name: "Previous analysis",
+          createdAt: "",
+          updatedAt: "",
+          archived: false,
+        };
+        setSessions([fallback]);
+        setActiveSessionId(fallback.sessionId);
+        void paw
+          .toast(
+            "Dialogue management is unavailable; using legacy history",
+            "warning",
+          )
+          .catch(() => undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [paw]);
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    let cancelled = false;
+    setRestoring(true);
+    setMessages([]);
+    void paw.storage
+      .set("active-chat-session", activeSessionId)
+      .catch(() => undefined);
+    void paw
+      .getChatHistory({
+        agentId: "datapaw",
+        sessionId: activeSessionId,
+      })
+      .then((history) => {
+        if (cancelled) return;
+        setMessages(historyToChatMessages(history.messages));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          void paw
+            .toast("Could not restore the analysis history", "warning")
+            .catch(() => undefined);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRestoring(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId, paw]);
 
   useEffect(() => {
     if (!sending || !conversationRef.current) return;
     conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
   }, [messages, sending]);
 
+  useEffect(() => {
+    if (restoring || !conversationRef.current) return;
+    conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
+  }, [restoring]);
+
+  async function createDialogue() {
+    if (sending || creatingSession) return;
+    setCreatingSession(true);
+    try {
+      const created = await paw.chatSessions.create({
+        agentId: "datapaw",
+        name: "New analysis",
+      });
+      setSessions((current) => [created, ...current]);
+      setActiveSessionId(created.sessionId);
+      setCompactHeader(false);
+    } catch (error) {
+      await paw.toast(
+        `Could not create a new dialogue. ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        "error",
+      );
+    } finally {
+      setCreatingSession(false);
+    }
+  }
+
+  function switchDialogue(sessionId: string) {
+    if (!sessionId || sessionId === activeSessionId || sending) return;
+    setActiveSessionId(sessionId);
+    setCompactHeader(false);
+  }
+
+  function updateSession(updated: PawChatSession) {
+    setSessions((current) =>
+      current.map((session) => (session.id === updated.id ? updated : session)),
+    );
+  }
+
   async function submit(question: string) {
     const clean = question.trim();
-    if (!clean || sending) return;
+    if (!clean || sending || restoring || !activeSessionId) return;
+    const sessionForTurn = activeSessionId;
+    const shouldNameSession =
+      messages.length === 0 &&
+      activeSession &&
+      ["New analysis", "Previous analysis", "New Chat"].includes(
+        activeSession.name,
+      ) &&
+      activeSession.id !== "legacy";
     const now = Date.now();
     const assistantId = `assistant-${now}`;
     const userMessage: ChatMessage = {
@@ -384,14 +645,22 @@ export function ChatWorkspace({
     setMessages((current) => [...current, userMessage, assistantMessage]);
     setDraft("");
     setSending(true);
+    if (shouldNameSession && activeSession) {
+      void paw.chatSessions
+        .rename(activeSession.id, clean.slice(0, 64), {
+          agentId: "datapaw",
+        })
+        .then(updateSession)
+        .catch(() => undefined);
+    }
     let streamState = createChatStreamState();
     try {
       const sourceContext = selectedSource
-        ? `Use QwenPaw-Data source ${selectedSource.datasource_id} (${sourceLabel}) for this request unless the user explicitly asks for another source.\n\n`
+        ? `${SOURCE_CONTEXT_OPEN}Use QwenPaw-Data source ${selectedSource.datasource_id} (${sourceLabel}) for this request unless the user explicitly asks for another source.${SOURCE_CONTEXT_CLOSE}\n\n`
         : "";
       for await (const event of paw.chatStream(`${sourceContext}${clean}`, {
         agentId: "datapaw",
-        sessionId: "pawapp:datapaw",
+        sessionId: sessionForTurn,
       })) {
         streamState = reduceChatStreamEvent(streamState, event);
         const patch = streamMessagePatch(streamState);
@@ -445,14 +714,45 @@ export function ChatWorkspace({
 
   return (
     <section className="datapaw-chat" aria-label="Data analysis chat">
-      <div className="datapaw-chat__topline">
-        <div>
+      <div
+        className={`datapaw-chat__topline ${compactHeader ? "is-compact" : ""}`}
+      >
+        <div className="datapaw-chat__heading">
           <span className="datapaw-eyebrow">Analysis workspace</span>
-          <h1>Ask your data, with context.</h1>
+          <h1>
+            {compactHeader
+              ? activeSession?.name || "Analysis"
+              : "Ask your data, with context."}
+          </h1>
         </div>
-        <div className="datapaw-source-pill">
-          <span className="datapaw-source-pill__dot" />
-          {sourceLabel || "All available context"}
+        <div className="datapaw-chat__controls">
+          <label className="datapaw-dialogue-picker">
+            <span>Dialogue</span>
+            <select
+              aria-label="Active dialogue"
+              value={activeSessionId}
+              disabled={sending || restoring}
+              onChange={(event) => switchDialogue(event.target.value)}
+            >
+              {sessions.map((session) => (
+                <option key={session.id} value={session.sessionId}>
+                  {session.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="datapaw-new-chat"
+            disabled={sending || restoring || creatingSession}
+            onClick={() => void createDialogue()}
+          >
+            {creatingSession ? "Creating…" : "+ New chat"}
+          </button>
+          <div className="datapaw-source-pill">
+            <span className="datapaw-source-pill__dot" />
+            {sourceLabel || "All available context"}
+          </div>
         </div>
       </div>
 
@@ -460,8 +760,15 @@ export function ChatWorkspace({
         className="datapaw-conversation"
         aria-live="polite"
         ref={conversationRef}
+        onScroll={(event) =>
+          setCompactHeader(event.currentTarget.scrollTop > 24)
+        }
       >
-        {messages.length === 0 ? (
+        {restoring ? (
+          <div className="datapaw-welcome">
+            <h2>Restoring your analysis…</h2>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="datapaw-welcome">
             <div className="datapaw-welcome__mark">
               <img
@@ -480,6 +787,7 @@ export function ChatWorkspace({
                 <button
                   key={starter}
                   type="button"
+                  disabled={restoring}
                   onClick={() => void submit(starter)}
                 >
                   <span>{starter}</span>
@@ -525,6 +833,7 @@ export function ChatWorkspace({
           ref={inputRef}
           value={draft}
           rows={2}
+          disabled={restoring || !activeSessionId}
           placeholder="Ask about a metric, trend, dataset, or business question…"
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
@@ -536,7 +845,7 @@ export function ChatWorkspace({
         />
         <button
           type="submit"
-          disabled={!draft.trim() || sending}
+          disabled={!draft.trim() || sending || restoring}
           aria-label="Send"
         >
           ↑

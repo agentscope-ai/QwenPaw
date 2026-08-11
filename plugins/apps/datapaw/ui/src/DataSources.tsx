@@ -1,6 +1,7 @@
 import type { DataSourceMetadata } from "./api";
 import type { PawDependencyAction, PawDependencyStatus } from "./sdk";
 import { useState } from "react";
+import { groupDependencies } from "./status";
 
 function sourceInitial(source: DataSourceMetadata): string {
   return (source.datasource_name || source.datasource_id || "D")
@@ -71,47 +72,71 @@ export function DataSources({
       </header>
 
       {error ? <div className="datapaw-error-banner">{error}</div> : null}
-      <div className="datapaw-dependency-grid">
-        {dependencies.map((dependency) => {
-          const primaryAction =
-            dependency.actions.includes("start") &&
-            dependency.health === "unavailable"
-              ? "start"
-              : "check";
-          const actionKey = `${dependency.id}:${primaryAction}`;
-          return (
-            <article
-              className={`datapaw-dependency-card is-${dependency.health}`}
-              key={dependency.id}
-            >
+      <div className="datapaw-dependency-sections">
+        {groupDependencies(dependencies).map((group) => (
+          <section key={group.id}>
+            <header>
               <div>
-                <i aria-hidden="true" />
-                <span>
-                  <b>{dependency.display_name}</b>
-                  <small>
-                    {dependency.health} · {dependency.lifecycle}
-                    {dependency.latency_ms !== null
-                      ? ` · ${dependency.latency_ms}ms`
-                      : ""}
-                  </small>
-                </span>
+                <h2>{group.label}</h2>
+                <p>{group.description}</p>
               </div>
-              <p>{dependency.remediation || dependency.message}</p>
-              <button
-                type="button"
-                className="datapaw-inline-action"
-                disabled={activeAction === actionKey}
-                onClick={() => void runAction(dependency.id, primaryAction)}
-              >
-                {activeAction === actionKey
-                  ? "Working…"
-                  : primaryAction === "start"
-                  ? "Start"
-                  : "Recheck"}
-              </button>
-            </article>
-          );
-        })}
+              <span>{group.dependencies.length}</span>
+            </header>
+            <div className="datapaw-dependency-grid">
+              {group.dependencies.map((dependency) => {
+                const primaryAction =
+                  dependency.actions.includes("start") &&
+                  dependency.health === "unavailable"
+                    ? "start"
+                    : "check";
+                const actionKey = `${dependency.id}:${primaryAction}`;
+                const selectedDependency =
+                  dependency.id === `source:${selectedId}`;
+                return (
+                  <article
+                    className={`datapaw-dependency-card is-${dependency.health}`}
+                    key={dependency.id}
+                  >
+                    <div>
+                      <i aria-hidden="true" />
+                      <span>
+                        <b>{dependency.display_name}</b>
+                        <small>
+                          {dependency.health} · {dependency.lifecycle}
+                          {dependency.latency_ms !== null
+                            ? ` · ${dependency.latency_ms}ms`
+                            : ""}
+                        </small>
+                      </span>
+                      <em>
+                        {dependency.required
+                          ? "Required"
+                          : selectedDependency
+                          ? "Active scope"
+                          : "Optional"}
+                      </em>
+                    </div>
+                    <p>{dependency.remediation || dependency.message}</p>
+                    <button
+                      type="button"
+                      className="datapaw-inline-action"
+                      disabled={activeAction === actionKey}
+                      onClick={() =>
+                        void runAction(dependency.id, primaryAction)
+                      }
+                    >
+                      {activeAction === actionKey
+                        ? "Working…"
+                        : primaryAction === "start"
+                        ? "Start"
+                        : "Recheck"}
+                    </button>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </div>
       <div className="datapaw-source-grid" aria-busy={loading}>
         <button

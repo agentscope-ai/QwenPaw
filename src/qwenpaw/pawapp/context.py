@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +293,6 @@ class PawAppContext:
         workspace = await self._get_workspace()
         if workspace is None:
             return []
-
         sid = session_id or f"pawapp:{self.app_id}"
         try:
             # Access session via workspace.session (standard way)
@@ -361,6 +361,172 @@ class PawAppContext:
                 sid,
             )
             return []
+
+    def _session_namespace(self) -> str:
+        return f"pawapp:{self.app_id}"
+
+    def is_app_session_id(self, session_id: str) -> bool:
+        """Return whether a session key is namespaced to this PawApp."""
+        namespace = self._session_namespace()
+        return session_id == namespace or session_id.startswith(f"{namespace}:")
+
+    def _owns_chat_spec(self, chat: Any) -> bool:
+        """Return whether a ChatSpec belongs to this app/agent/user scope."""
+        meta = getattr(chat, "meta", None)
+        owner = meta.get("pawapp") if isinstance(meta, dict) else None
+        return (
+            isinstance(owner, dict)
+            and owner.get("app_id") == self.app_id
+            and owner.get("agent_id") == self.agent_id
+            and getattr(chat, "user_id", None) == self.user_id
+            and getattr(chat, "channel", None) == self.channel
+            and self.is_app_session_id(getattr(chat, "session_id", ""))
+        )
+
+    def _chat_owner_metadata(self) -> Dict[str, Any]:
+        return {
+            "pawapp": {
+                "app_id": self.app_id,
+                "agent_id": self.agent_id,
+            },
+        }
+
+    @staticmethod
+    def _chat_session_payload(chat: Any) -> Dict[str, Any]:
+        return {
+            "id": chat.id,
+            "session_id": chat.session_id,
+            "name": chat.name,
+            "created_at": chat.created_at,
+            "updated_at": chat.updated_at,
+            "archived": chat.archived,
+        }
+
+    async def ensure_chat_session(
+        self,
+        session_id: Optional[str] = None,
+        *,
+        name: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Register or adopt one app-owned dialogue in the host chat catalog.
+
+        The session namespace prevents cross-app collisions; ChatSpec metadata
+        records the owning app and agent, while the normal ChatSpec identity
+        keeps user and channel scoping in the host catalog.
+        """
+        from ..app.chats.models import ChatSpec
+
+        workspace = await self._get_workspace()
+        if workspace is None:
+            return None
+        sid = session_id or self._session_namespace()
+        if not self.is_app_session_id(sid):
+            return None
+
+        manager = getattr(workspace, "chat_manager", None)
+        if manager is None:
+            return None
+        chats = await manager.list_chats(
+            user_id=self.user_id,
+            channel=self.channel,
+            archived=None,
+        )
+        existing = next(
+            (chat for chat in chats if chat.session_id == sid),
+            None,
+        )
+        default_name = (
+            "Previous analysis"
+            if sid == self._session_namespace()
+            else "New analysis"
+        )
+        resolved_name = (name or default_name).strip()[:80] or default_name
+        if existing is None:
+            existing = ChatSpec(
+                session_id=sid,
+                user_id=self.user_id,
+                channel=self.channel,
+                name=resolved_name,
+                meta=self._chat_owner_metadata(),
+            )
+            await manager.create_chat(existing)
+        elif not self._owns_chat_spec(existing):
+            # Adopt only records already constrained to this app namespace.
+            # This is what makes the pre-catalog ``pawapp:{app_id}`` transcript
+            # show up as the app's legacy dialogue without copying its state.
+            metadata = dict(existing.meta)
+            metadata.update(self._chat_owner_metadata())
+            existing = existing.model_copy(update={"meta": metadata})
+            await manager.create_chat(existing)
+        return self._chat_session_payload(existing)
+
+    async def list_chat_sessions(self) -> List[Dict[str, Any]]:
+        """List active dialogues owned by this PawApp scope."""
+        await self.ensure_chat_session()
+        workspace = await self._get_workspace()
+        if workspace is None:
+            return []
+        chats = await workspace.chat_manager.list_chats(
+            user_id=self.user_id,
+            channel=self.channel,
+            archived=False,
+        )
+        owned = [chat for chat in chats if self._owns_chat_spec(chat)]
+        owned.sort(
+            key=lambda chat: (chat.pinned, chat.updated_at),
+            reverse=True,
+        )
+        return [self._chat_session_payload(chat) for chat in owned]
+
+    async def create_chat_session(
+        self,
+        *,
+        name: str = "New analysis",
+    ) -> Dict[str, Any]:
+        """Create a fresh app-owned dialogue and context window."""
+        session_id = f"{self._session_namespace()}:dialogue:{uuid4()}"
+        created = await self.ensure_chat_session(session_id, name=name)
+        if created is None:
+            raise RuntimeError("No workspace available for chat sessions")
+        return created
+
+    async def rename_chat_session(
+        self,
+        chat_id: str,
+        *,
+        name: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Rename one dialogue after validating app ownership."""
+        from ..app.chats.models import ChatUpdate
+
+        workspace = await self._get_workspace()
+        if workspace is None:
+            return None
+        chat = await workspace.chat_manager.get_chat(chat_id)
+        if chat is None or not self._owns_chat_spec(chat):
+            return None
+        resolved_name = name.strip()[:80]
+        if not resolved_name:
+            raise ValueError("name is required")
+        updated = await workspace.chat_manager.patch_chat(
+            chat_id,
+            ChatUpdate(name=resolved_name),
+        )
+        return self._chat_session_payload(updated) if updated else None
+
+    async def archive_chat_session(
+        self,
+        chat_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Archive one dialogue after validating app ownership."""
+        workspace = await self._get_workspace()
+        if workspace is None:
+            return None
+        chat = await workspace.chat_manager.get_chat(chat_id)
+        if chat is None or not self._owns_chat_spec(chat):
+            return None
+        archived = await workspace.chat_manager.archive_chat(chat_id)
+        return self._chat_session_payload(archived) if archived else None
 
     async def _get_workspace(self) -> Any:
         """Get the workspace for the current agent."""

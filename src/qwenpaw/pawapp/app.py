@@ -44,6 +44,7 @@ from typing import Any, Callable, List, Mapping, Optional, Sequence
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from qwenpaw.exceptions import ConfigurationException
 
@@ -60,6 +61,24 @@ from .service import ManagedService, ManagedServiceSpec
 
 logger = logging.getLogger(__name__)
 _APP_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+class _ChatSessionCreate(BaseModel):
+    name: str = Field(default="New analysis", max_length=80)
+
+
+class _ChatSessionUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+def _resolve_app_session_id(ctx: Any, session_id: Optional[str]) -> str:
+    """Resolve the default app session without rewriting legacy explicit IDs.
+
+    Server-minted dialogue IDs are always app namespaced. Older PawApps may
+    still pass custom IDs to chat/history; those remain readable for additive
+    compatibility but are not adopted into the app dialogue catalog.
+    """
+    return session_id or f"pawapp:{ctx.app_id}"
 
 
 def _configuration_error_detail(exc: ConfigurationException) -> dict:
@@ -89,11 +108,14 @@ def _build_capability_router() -> APIRouter:
         message = str(payload.get("message") or "").strip()
         if not message:
             raise HTTPException(status_code=400, detail="message is required")
+        session_id = _resolve_app_session_id(ctx, payload.get("session_id"))
+        if hasattr(ctx, "ensure_chat_session"):
+            await ctx.ensure_chat_session(session_id)
         try:
             reply = await ctx.chat(
                 message,
                 skill=payload.get("skill"),
-                session_id=payload.get("session_id"),
+                session_id=session_id,
             )
         except ConfigurationException as exc:
             raise HTTPException(
@@ -108,13 +130,16 @@ def _build_capability_router() -> APIRouter:
         message = str(payload.get("message") or "").strip()
         if not message:
             raise HTTPException(status_code=400, detail="message is required")
+        session_id = _resolve_app_session_id(ctx, payload.get("session_id"))
+        if hasattr(ctx, "ensure_chat_session"):
+            await ctx.ensure_chat_session(session_id)
 
         async def events():
             try:
                 async for event in ctx.chat_stream(
                     message,
                     skill=payload.get("skill"),
-                    session_id=payload.get("session_id"),
+                    session_id=session_id,
                 ):
                     encoded = json.dumps(
                         jsonable_encoder(event),
@@ -132,6 +157,66 @@ def _build_capability_router() -> APIRouter:
                 yield f"data: {encoded}\n\n"
 
         return StreamingResponse(events(), media_type="text/event-stream")
+
+    @router.get("/chat/history")
+    async def chat_history(
+        session_id: Optional[str] = None,
+        ctx=Depends(get_ctx),
+    ):
+        """Return the host-persisted transcript for one PawApp chat session.
+
+        The route deliberately reads the same session state used by
+        ``chat``/``chat_stream`` instead of introducing app-owned transcript
+        storage. The selected ``agent_id`` is already resolved by ``get_ctx``
+        from the standard query parameter.
+        """
+        effective_session_id = _resolve_app_session_id(ctx, session_id)
+        if hasattr(ctx, "ensure_chat_session"):
+            await ctx.ensure_chat_session(effective_session_id)
+        history = await ctx.get_session_history(effective_session_id)
+        # PawApps receive the user-visible transcript and structured tool
+        # activity, never model-internal reasoning blocks.
+        messages = [
+            message
+            for message in history
+            if message.get("type") != "reasoning"
+        ]
+        return {
+            "session_id": effective_session_id,
+            "messages": messages,
+        }
+
+    @router.get("/chat/sessions")
+    async def chat_sessions(ctx=Depends(get_ctx)):
+        return {"sessions": await ctx.list_chat_sessions()}
+
+    @router.post("/chat/sessions")
+    async def create_chat_session(
+        request: _ChatSessionCreate,
+        ctx=Depends(get_ctx),
+    ):
+        return await ctx.create_chat_session(name=request.name)
+
+    @router.patch("/chat/sessions/{chat_id}")
+    async def rename_chat_session(
+        chat_id: str,
+        request: _ChatSessionUpdate,
+        ctx=Depends(get_ctx),
+    ):
+        try:
+            result = await ctx.rename_chat_session(chat_id, name=request.name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if result is None:
+            raise HTTPException(status_code=404, detail="Chat session not found")
+        return result
+
+    @router.post("/chat/sessions/{chat_id}/archive")
+    async def archive_chat_session(chat_id: str, ctx=Depends(get_ctx)):
+        result = await ctx.archive_chat_session(chat_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Chat session not found")
+        return result
 
     @router.get("/storage")
     async def storage_keys(ctx=Depends(get_ctx)):

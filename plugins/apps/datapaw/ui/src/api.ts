@@ -164,6 +164,11 @@ export interface AppStatus {
   service: { name: string; ready: boolean; mode: "managed" | "external" };
   health: Record<string, unknown> | null;
   skills_available: boolean;
+  skills?: {
+    available: boolean;
+    count: number;
+    providers: number;
+  };
   dependencies: PawDependencySnapshot;
 }
 

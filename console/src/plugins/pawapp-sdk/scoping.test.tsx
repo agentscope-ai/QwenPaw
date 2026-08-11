@@ -167,6 +167,110 @@ describe("app-scoped PawApp SDK", () => {
     expect(events.map((event) => event.text)).toEqual(["Hel", "lo"]);
   });
 
+  it("restores history from the same managed agent and session", async () => {
+    mockedFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          session_id: "pawapp:datapaw",
+          messages: [
+            {
+              id: "message-1",
+              type: "message",
+              role: "user",
+              content: [{ type: "text", text: "compare revenue" }],
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      forApp("datapaw").getChatHistory({
+        agentId: "datapaw",
+        sessionId: "pawapp:datapaw",
+      }),
+    ).resolves.toEqual({
+      sessionId: "pawapp:datapaw",
+      messages: [
+        {
+          id: "message-1",
+          type: "message",
+          role: "user",
+          content: [{ type: "text", text: "compare revenue" }],
+        },
+      ],
+    });
+
+    expect(mockedFetch).toHaveBeenCalledWith(
+      "/datapaw/chat/history?agent_id=datapaw&session_id=pawapp%3Adatapaw",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("manages app-scoped dialogue sessions through the host catalog", async () => {
+    const session = {
+      id: "chat-1",
+      session_id: "pawapp:datapaw:dialogue:1",
+      name: "March GAAP",
+      created_at: "2026-08-11T00:00:00Z",
+      updated_at: "2026-08-11T00:01:00Z",
+      archived: false,
+    };
+    mockedFetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sessions: [session] }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(session), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...session, name: "Renamed" }), {
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+    const sessions = forApp("datapaw").chatSessions;
+    await expect(sessions.list({ agentId: "datapaw" })).resolves.toEqual([
+      {
+        id: "chat-1",
+        sessionId: "pawapp:datapaw:dialogue:1",
+        name: "March GAAP",
+        createdAt: "2026-08-11T00:00:00Z",
+        updatedAt: "2026-08-11T00:01:00Z",
+        archived: false,
+      },
+    ]);
+    await sessions.create({ agentId: "datapaw", name: "March GAAP" });
+    await sessions.rename("chat-1", "Renamed", { agentId: "datapaw" });
+
+    expect(mockedFetch).toHaveBeenNthCalledWith(
+      1,
+      "/datapaw/chat/sessions?agent_id=datapaw",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(mockedFetch).toHaveBeenNthCalledWith(
+      2,
+      "/datapaw/chat/sessions?agent_id=datapaw",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ name: "March GAAP" }),
+      }),
+    );
+    expect(mockedFetch).toHaveBeenNthCalledWith(
+      3,
+      "/datapaw/chat/sessions/chat-1?agent_id=datapaw",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ name: "Renamed" }),
+      }),
+    );
+  });
+
   it("reads authenticated GET SSE with event names and multiline data", async () => {
     const encoder = new TextEncoder();
     mockedFetch.mockResolvedValue(

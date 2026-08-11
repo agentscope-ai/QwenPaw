@@ -11,6 +11,7 @@ import { GraphExplorer } from "./GraphExplorer";
 import { SemanticCatalog } from "./SemanticCatalog";
 import type { PawAppSdk } from "./sdk";
 import type { PawDependencyAction, PawDependencySnapshot } from "./sdk";
+import { buildAppStatusModel } from "./status";
 
 type Page = "analysis" | "semantic" | "graph" | "sources";
 
@@ -21,28 +22,49 @@ const NAVIGATION: Array<{ id: Page; icon: string; label: string }> = [
   { id: "sources", icon: "◉", label: "Data sources" },
 ];
 
-function StatusBadge({
+function StatusPanel({
   status,
   dependencies,
+  selectedSourceId,
+  onOpenDetails,
 }: {
   status?: AppStatus;
   dependencies?: PawDependencySnapshot;
+  selectedSourceId: string;
+  onOpenDetails(): void;
 }) {
-  const summary = dependencies?.summary;
-  const ready = summary === "healthy";
-  const label = summary
-    ? summary.charAt(0).toUpperCase() + summary.slice(1)
-    : status?.service.ready
-    ? "Checking dependencies"
-    : "Context unavailable";
+  const model = buildAppStatusModel(status, dependencies, selectedSourceId);
   return (
-    <div
-      className={`datapaw-status ${ready ? "is-ready" : ""} ${
-        summary === "degraded" ? "is-degraded" : ""
-      }`}
-    >
-      <i />
-      <span>{label}</span>
+    <div className={`datapaw-status-panel is-${model.tone}`}>
+      <div className="datapaw-status-panel__summary">
+        <i aria-hidden="true" />
+        <span>
+          <b>{model.label}</b>
+          <small>{model.detail}</small>
+        </span>
+      </div>
+      <ul>
+        {model.categories.map((category) => (
+          <li className={`is-${category.tone}`} key={category.id}>
+            <i aria-hidden="true" />
+            <span>{category.label}</span>
+            <small>{category.detail}</small>
+          </li>
+        ))}
+      </ul>
+      <div className="datapaw-status-panel__footer">
+        <span>
+          {model.checkedAt
+            ? `Checked ${new Date(model.checkedAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}`
+            : "Waiting for first check"}
+        </span>
+        <button type="button" onClick={onOpenDetails}>
+          Details →
+        </button>
+      </div>
     </div>
   );
 }
@@ -162,17 +184,18 @@ export function App({ paw }: { paw: PawAppSdk }) {
           ))}
         </nav>
         <div className="datapaw-nav__bottom">
-          <StatusBadge status={status} dependencies={dependencies} />
-          <div className="datapaw-package-note">
-            <span>Skills</span>
-            <b>{status?.skills_available ? "Available" : "Not configured"}</b>
-          </div>
+          <StatusPanel
+            status={status}
+            dependencies={dependencies}
+            selectedSourceId={selectedId}
+            onOpenDetails={() => setPage("sources")}
+          />
         </div>
       </aside>
       <main className="datapaw-main">
-        {page === "analysis" ? (
+        <div hidden={page !== "analysis"}>
           <ChatWorkspace paw={paw} selectedSource={selectedSource} />
-        ) : null}
+        </div>
         {page === "semantic" ? (
           <SemanticCatalog api={api} selectedSource={selectedSource} />
         ) : null}

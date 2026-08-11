@@ -106,8 +106,15 @@ app.dependency(
 
 
 _skills = skills_root()
+_skill_layers = skill_layers(_skills) if _skills is not None else []
+_skill_count = sum(
+    1
+    for layer in _skill_layers
+    for child in layer.iterdir()
+    if child.is_dir() and (child / "SKILL.md").is_file()
+)
 if _skills is not None:
-    for _layer in skill_layers(_skills):
+    for _layer in _skill_layers:
         app.skill_provider(_layer, enabled_by_default=True, channels=["all"])
 
 
@@ -219,6 +226,11 @@ async def status() -> dict[str, Any]:
         "service": _context_service.status(),
         "health": health,
         "skills_available": _skills is not None,
+        "skills": {
+            "available": _skills is not None,
+            "count": _skill_count,
+            "providers": len(_skill_layers),
+        },
         "dependencies": await app.dependencies.snapshot(),
     }
 

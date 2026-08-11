@@ -71,6 +71,54 @@ export interface PawChatStreamEvent {
   [key: string]: unknown;
 }
 
+/** One host-normalized message or tool event restored from session history. */
+export interface PawChatHistoryMessage {
+  id: string;
+  type: string;
+  role?: string | null;
+  content: unknown[];
+  status?: string;
+  metadata?: Record<string, unknown> | null;
+  [key: string]: unknown;
+}
+
+/** Persisted transcript for the effective PawApp chat session. */
+export interface PawChatHistory {
+  sessionId: string;
+  messages: PawChatHistoryMessage[];
+}
+
+/** One host-catalogued dialogue owned by a PawApp and agent. */
+export interface PawChatSession {
+  id: string;
+  sessionId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  archived: boolean;
+}
+
+export interface PawChatSessionScope {
+  /** Defaults to the agent selected in the host UI. */
+  agentId?: string;
+}
+
+export interface PawChatSessionsApi {
+  list(options?: PawChatSessionScope): Promise<PawChatSession[]>;
+  create(
+    options?: PawChatSessionScope & { name?: string },
+  ): Promise<PawChatSession>;
+  rename(
+    chatId: string,
+    name: string,
+    options?: PawChatSessionScope,
+  ): Promise<PawChatSession>;
+  archive(
+    chatId: string,
+    options?: PawChatSessionScope,
+  ): Promise<PawChatSession>;
+}
+
 /** PawTask event handler. */
 export type PawTaskEventHandler<T = unknown> = (data: T) => void;
 
@@ -128,6 +176,8 @@ export interface PawHostNamespace {
     message: string,
     options?: PawChatOptions,
   ): AsyncGenerator<PawChatStreamEvent>;
+  getChatHistory(options?: PawChatOptions): Promise<PawChatHistory>;
+  chatSessions: PawChatSessionsApi;
   storage: PawStorageApi;
   getSelectedAgentId(): string;
   getCurrentSessionId(): string | null;
@@ -384,6 +434,8 @@ export interface PawSdk {
     message: string,
     options?: PawChatOptions,
   ): AsyncGenerator<PawChatStreamEvent>;
+  getChatHistory(options?: PawChatOptions): Promise<PawChatHistory>;
+  chatSessions: PawChatSessionsApi;
   storage: PawStorageApi;
   toast(
     message: string,

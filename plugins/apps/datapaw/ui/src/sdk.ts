@@ -31,6 +31,30 @@ export interface PawChatStreamEvent {
   [key: string]: unknown;
 }
 
+export interface PawChatHistoryMessage {
+  id: string;
+  type: string;
+  role?: string | null;
+  content: unknown[];
+  status?: string;
+  metadata?: Record<string, unknown> | null;
+  [key: string]: unknown;
+}
+
+export interface PawChatHistory {
+  sessionId: string;
+  messages: PawChatHistoryMessage[];
+}
+
+export interface PawChatSession {
+  id: string;
+  sessionId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  archived: boolean;
+}
+
 export interface PawApi {
   get<T>(path: string, options?: PawRequestOptions): Promise<T>;
   post<T>(
@@ -63,6 +87,13 @@ export type PawDependencyAction =
   | "restart"
   | "provision";
 
+export type PawDependencyHealthState =
+  | "unknown"
+  | "checking"
+  | "healthy"
+  | "degraded"
+  | "unavailable";
+
 export interface PawDependencyStatus {
   id: string;
   display_name: string;
@@ -77,7 +108,7 @@ export interface PawDependencyStatus {
     | "stopping"
     | "failed"
     | "unmanaged";
-  health: "unknown" | "checking" | "healthy" | "degraded" | "unavailable";
+  health: PawDependencyHealthState;
   error_code: string | null;
   message: string;
   remediation: string | null;
@@ -132,6 +163,27 @@ export interface PawAppSdk {
       skill?: string;
     },
   ): AsyncGenerator<PawChatStreamEvent>;
+  getChatHistory(options?: {
+    agentId?: string;
+    sessionId?: string | null;
+    skill?: string;
+  }): Promise<PawChatHistory>;
+  chatSessions: {
+    list(options?: { agentId?: string }): Promise<PawChatSession[]>;
+    create(options?: {
+      agentId?: string;
+      name?: string;
+    }): Promise<PawChatSession>;
+    rename(
+      chatId: string,
+      name: string,
+      options?: { agentId?: string },
+    ): Promise<PawChatSession>;
+    archive(
+      chatId: string,
+      options?: { agentId?: string },
+    ): Promise<PawChatSession>;
+  };
   storage: {
     get<T>(key: string, fallback?: T): Promise<T>;
     set(key: string, value: unknown): Promise<void>;
