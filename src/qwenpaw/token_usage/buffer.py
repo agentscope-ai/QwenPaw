@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import NamedTuple, Optional
 
-from .storage import load_data, save_data_sync
+from .storage import _file_write_lock, load_data, save_data_sync
 
 logger = logging.getLogger(__name__)
 
@@ -158,12 +158,17 @@ class TokenUsageBuffer:
         self._dirty = False
 
         snapshot = copy.deepcopy(self._disk_cache)
-        ok = await asyncio.to_thread(save_data_sync, self._path, snapshot)
+        ok = await asyncio.to_thread(self._flush_with_lock, snapshot)
         if not ok:
             # Keep dirty so a later periodic flush retries the write.
             self._dirty = True
             return
         logger.debug("token_usage: flushed cache to disk")
+
+    def _flush_with_lock(self, snapshot: dict) -> bool:
+        """Persist snapshot under the shared file write lock."""
+        with _file_write_lock(self._path):
+            return save_data_sync(self._path, snapshot)
 
     async def _flush_loop(self) -> None:
         """Periodically flush the cache to disk."""
@@ -186,6 +191,12 @@ class TokenUsageBuffer:
         self._disk_cache = await load_data(self._path)
         self._cache_loaded = True
         logger.debug("token_usage: cache seeded from disk")
+
+    async def reload_from_disk(self) -> None:
+        """Force-refresh ``_disk_cache`` from disk (e.g. after migration)."""
+        self._disk_cache = await load_data(self._path)
+        self._cache_loaded = True
+        logger.debug("token_usage: cache reloaded from disk")
 
 
 def _apply_event(cache: dict, ev: _UsageEvent) -> None:

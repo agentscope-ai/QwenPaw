@@ -8,9 +8,8 @@ import asyncio
 import json
 import logging
 import threading
+import time
 from collections import defaultdict
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -19,17 +18,7 @@ from pydantic import BaseModel, Field
 
 from ..constant import WORKING_DIR, TOKEN_USAGE_FILE
 from .buffer import TokenUsageBuffer, _UsageEvent
-from .storage import save_data_sync
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None
-
-try:
-    import msvcrt
-except ImportError:  # pragma: no cover
-    msvcrt = None
+from .storage import _file_write_lock, save_data_sync
 
 logger = logging.getLogger(__name__)
 
@@ -155,36 +144,6 @@ def _local_date_from_iso(iso_str: str) -> str:
         return iso_str[:10]
 
 
-def _should_skip_by_mtime(session_file: Path, start_date: date) -> bool:
-    """Return True when the session file was last touched before start_date."""
-    try:
-        mtime_date = date.fromtimestamp(session_file.stat().st_mtime)
-        return mtime_date < start_date
-    except OSError:
-        return False
-
-
-@contextmanager
-def _file_write_lock(path: Path) -> Iterator[None]:
-    """Serialize migration writes across processes (fcntl / msvcrt)."""
-    lock_path = path.with_name(f".{path.name}.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+", encoding="utf-8") as lock_file:
-        if fcntl is not None:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        elif msvcrt is not None:  # pragma: no cover
-            lock_file.seek(0)
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
-        try:
-            yield
-        finally:
-            if fcntl is not None:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            elif msvcrt is not None:  # pragma: no cover
-                lock_file.seek(0)
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-
-
 def _iter_agent_profiles() -> list[tuple[str, Path]]:
     """Return (agent_id, workspace_dir) pairs from config profiles."""
     from ..config.utils import load_config
@@ -240,9 +199,7 @@ def _collect_session_attribution(
     return evidence
 
 
-def _scan_agent_attribution(
-    min_date: date | None = None,
-) -> dict[tuple[str, str, str], list[int]]:
+def _scan_agent_attribution() -> dict[tuple[str, str, str], list[int]]:
     """Aggregate strict session evidence by (date, model_key, agent_id)."""
     # values: [prompt_tokens, completion_tokens, call_count]
     attributed: dict[tuple[str, str, str], list[int]] = defaultdict(
@@ -253,11 +210,6 @@ def _scan_agent_attribution(
         if not sessions_dir.exists():
             continue
         for session_file in sessions_dir.glob("**/*.json"):
-            if min_date is not None and _should_skip_by_mtime(
-                session_file,
-                min_date,
-            ):
-                continue
             try:
                 with open(session_file, mode="r", encoding="utf-8") as f:
                     session_data = json.load(f)
@@ -413,7 +365,7 @@ def _migrate_legacy_bucket(
 def _count_tool_calls_in_message(msg_data: dict) -> int:
     """Count tool_use / tool_call blocks in one message."""
     count = 0
-    content = msg_data.get("content", [])
+    content = msg_data.get("content")
     if isinstance(content, list):
         for block in content:
             btype = (
@@ -423,31 +375,13 @@ def _count_tool_calls_in_message(msg_data: dict) -> int:
             )
             if btype in ("tool_use", "tool_call"):
                 count += 1
-    # Top-level tool_calls list (OpenAI-style messages).
+        if count:
+            return count
+    # Fallback: top-level tool_calls (OpenAI-style) when content has none.
     tool_calls = msg_data.get("tool_calls")
     if isinstance(tool_calls, list):
-        count += len(tool_calls)
+        return len(tool_calls)
     return count
-
-
-def _accumulate_session_tool_calls(
-    session_data: dict,
-    start_s: str,
-    end_s: str,
-    by_date: dict[str, int],
-) -> None:
-    """Add in-range tool-call counts from one session into by_date."""
-    for msg_item in _extract_session_messages(session_data):
-        msg_data = _resolve_msg_dict(msg_item)
-        if msg_data is None:
-            continue
-        timestamp = msg_data.get("created_at") or msg_data.get("timestamp")
-        if not timestamp:
-            continue
-        date_str = _local_date_from_iso(str(timestamp))
-        if date_str < start_s or date_str > end_s:
-            continue
-        by_date[date_str] += _count_tool_calls_in_message(msg_data)
 
 
 def collect_daily_tool_calls_sync(
@@ -468,8 +402,6 @@ def collect_daily_tool_calls_sync(
         if not sessions_dir.exists():
             continue
         for session_file in sessions_dir.glob("**/*.json"):
-            if _should_skip_by_mtime(session_file, start_date):
-                continue
             try:
                 with open(session_file, mode="r", encoding="utf-8") as f:
                     session_data = json.load(f)
@@ -477,12 +409,19 @@ def collect_daily_tool_calls_sync(
                 continue
             if not isinstance(session_data, dict):
                 continue
-            _accumulate_session_tool_calls(
-                session_data,
-                start_s,
-                end_s,
-                by_date,
-            )
+            for msg_item in _extract_session_messages(session_data):
+                msg_data = _resolve_msg_dict(msg_item)
+                if msg_data is None:
+                    continue
+                timestamp = msg_data.get("created_at") or msg_data.get(
+                    "timestamp",
+                )
+                if not timestamp:
+                    continue
+                date_str = _local_date_from_iso(str(timestamp))
+                if date_str < start_s or date_str > end_s:
+                    continue
+                by_date[date_str] += _count_tool_calls_in_message(msg_data)
 
     return dict(by_date)
 
@@ -510,32 +449,36 @@ def _migrate_day_bucket(
     return day_out
 
 
+def _has_legacy_keys(data: dict) -> bool:
+    """Return True when any day bucket still uses pre-agent keys."""
+    return any(
+        isinstance(day_bucket, dict)
+        and any("|" not in key for key in day_bucket)
+        for day_bucket in data.values()
+    )
+
+
 def migrate_historical_agent_ids_sync(path: Path) -> bool:
     """Idempotently backfill agent_id into legacy token usage rows.
 
     Only keys without ``|`` are migrated. Returns True when a write occurred.
+
+    Session scanning happens before acquiring the file write lock. The lock
+    only serializes the final disk write against concurrent flushes.
     """
+    preview = _load_usage_file_sync(path)
+    if not preview or not _has_legacy_keys(preview):
+        return False
+
+    # Scan sessions before taking the file write lock.
+    attributed = _scan_agent_attribution()
+
     with _file_write_lock(path):
-        # Re-read under lock for a consistent multi-worker snapshot.
         data = _load_usage_file_sync(path)
-        has_legacy = any(
-            isinstance(day_bucket, dict)
-            and any("|" not in key for key in day_bucket)
-            for day_bucket in data.values()
-        )
-        if not data or not has_legacy:
+        if not data or not _has_legacy_keys(data):
             return False
 
         before = _usage_totals(data)
-        min_date: date | None = None
-        for date_str in data:
-            try:
-                parsed = date.fromisoformat(str(date_str)[:10])
-            except ValueError:
-                continue
-            if min_date is None or parsed < min_date:
-                min_date = parsed
-        attributed = _scan_agent_attribution(min_date=min_date)
         migrated: dict = {}
         for date_str, day_bucket in data.items():
             if not isinstance(day_bucket, dict):
@@ -571,20 +514,63 @@ class TokenUsageManager:
 
     _instance: "TokenUsageManager | None" = None
     _lock = threading.Lock()
+    _TOOL_CALLS_TTL = 15  # seconds
 
     def __init__(self) -> None:
         path: Path = (WORKING_DIR / TOKEN_USAGE_FILE).expanduser()
         self._buffer = TokenUsageBuffer(path)
         self._flush_interval = 10  # default
+        self._tool_calls_cache: dict[
+            tuple[date, date],
+            tuple[float, dict[str, int]],
+        ] = {}
+        self._tool_calls_inflight: dict[
+            tuple[date, date],
+            asyncio.Task[dict[str, int]],
+        ] = {}
 
     async def migrate_historical_agent_ids(self) -> bool:
-        """Run historical agent attribution migration off the event loop."""
+        """Run historical agent attribution migration off the event loop.
+
+        Must be called before ``start()`` (startup path). Running after the
+        buffer consumer has started is unsupported and rejected.
+        """
         # pylint: disable=protected-access
-        path = self._buffer._path
-        return await asyncio.to_thread(
+        buffer = self._buffer
+        if buffer._consumer_task is not None:
+            raise RuntimeError(
+                "token_usage: migrate_historical_agent_ids must run before "
+                "start()",
+            )
+        path = buffer._path
+        # Persist any in-memory usage so reload cannot drop it. No-op when
+        # the buffer has not been seeded (normal startup path).
+        await buffer._flush_once(force=True)
+        wrote = await asyncio.to_thread(
             migrate_historical_agent_ids_sync,
             path,
         )
+        if wrote and buffer._cache_loaded:
+            await buffer.reload_from_disk()
+        return wrote
+
+    async def _fetch_daily_tool_calls(
+        self,
+        cache_key: tuple[date, date],
+        start_date: date,
+        end_date: date,
+    ) -> dict[str, int]:
+        """Scan sessions, cache the result, then clear the in-flight marker."""
+        try:
+            result = await asyncio.to_thread(
+                collect_daily_tool_calls_sync,
+                start_date,
+                end_date,
+            )
+            self._tool_calls_cache[cache_key] = (time.monotonic(), result)
+            return result
+        finally:
+            self._tool_calls_inflight.pop(cache_key, None)
 
     async def get_daily_tool_calls(
         self,
@@ -596,11 +582,33 @@ class TokenUsageManager:
             end_date = date.today()
         if start_date is None:
             start_date = end_date - timedelta(days=30)
-        return await asyncio.to_thread(
-            collect_daily_tool_calls_sync,
-            start_date,
-            end_date,
-        )
+        cache_key = (start_date, end_date)
+        now = time.monotonic()
+        # Drop expired ranges so the cache cannot grow without bound.
+        expired = [
+            key
+            for key, (ts, _value) in self._tool_calls_cache.items()
+            if now - ts >= self._TOOL_CALLS_TTL
+        ]
+        for key in expired:
+            self._tool_calls_cache.pop(key, None)
+
+        cached = self._tool_calls_cache.get(cache_key)
+        if cached is not None:
+            return cached[1]
+
+        in_flight = self._tool_calls_inflight.get(cache_key)
+        if in_flight is None:
+            in_flight = asyncio.create_task(
+                self._fetch_daily_tool_calls(
+                    cache_key,
+                    start_date,
+                    end_date,
+                ),
+            )
+            self._tool_calls_inflight[cache_key] = in_flight
+        # Shield so cancelling one waiter does not cancel the shared scan.
+        return await asyncio.shield(in_flight)
 
     def start(self, flush_interval: int = 10) -> None:
         """Start background flush task.

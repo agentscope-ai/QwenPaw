@@ -34,6 +34,7 @@ function TokenUsagePage() {
   const [dailyToolCalls, setDailyToolCalls] = useState<Record<string, number>>(
     {},
   );
+  const [toolCallsLoadFailed, setToolCallsLoadFailed] = useState(false);
   const [startDate, setStartDate] = useState<Dayjs>(
     dayjs().subtract(30, "day"),
   );
@@ -42,25 +43,34 @@ function TokenUsagePage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(false);
+    setToolCallsLoadFailed(false);
     const params = {
       start_date: startDate.format("YYYY-MM-DD"),
       end_date: endDate.format("YYYY-MM-DD"),
     };
     try {
-      const [detailsData, toolCalls] = await Promise.all([
+      const [detailsData, toolCallsResult] = await Promise.all([
         api.getTokenUsageDetails(params),
-        api.getDailyToolCalls(params).catch((err) => {
-          console.error("Failed to load daily tool calls:", err);
-          return {} as Record<string, number>;
-        }),
+        api.getDailyToolCalls(params).then(
+          (data) => ({ ok: true as const, data }),
+          (err) => {
+            console.error("Failed to load daily tool calls:", err);
+            return { ok: false as const, data: {} as Record<string, number> };
+          },
+        ),
       ]);
       setRecords(detailsData);
-      setDailyToolCalls(toolCalls);
+      setDailyToolCalls(toolCallsResult.data);
+      if (!toolCallsResult.ok) {
+        setToolCallsLoadFailed(true);
+        message.warning(t("tokenUsage.toolCallsLoadFailed"));
+      }
     } catch (err) {
       console.error("Failed to load token usage:", err);
       message.error(t("tokenUsage.loadFailed"));
       setRecords([]);
       setDailyToolCalls({});
+      setToolCallsLoadFailed(false);
       setError(true);
     } finally {
       setLoading(false);
@@ -99,6 +109,7 @@ function TokenUsagePage() {
     startDate,
     endDate,
     isDark,
+    toolCallsUnavailable: toolCallsLoadFailed,
   });
 
   const byModelData = useMemo(() => {

@@ -1,6 +1,9 @@
 import { useMemo } from "react";
 import type { TokenUsageRecord } from "../../../../api/types/tokenUsage";
 
+/** Nonempty bucket key for records with missing/empty agent_id. */
+export const UNKNOWN_AGENT_KEY = "__unknown__";
+
 interface AggregatedData {
   total_prompt_tokens: number;
   total_completion_tokens: number;
@@ -94,10 +97,10 @@ export function useDataAggregation(records: TokenUsageRecord[]) {
       byDate[r.date].completion_tokens += ct;
       byDate[r.date].call_count += calls;
 
-      const agentKey = r.agent_id || "";
+      const agentKey = r.agent_id || UNKNOWN_AGENT_KEY;
       if (!byAgent[agentKey]) {
         byAgent[agentKey] = {
-          agent_id: agentKey,
+          agent_id: r.agent_id || "",
           prompt_tokens: 0,
           completion_tokens: 0,
           call_count: 0,

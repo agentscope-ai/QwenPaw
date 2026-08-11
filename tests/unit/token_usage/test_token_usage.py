@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -1218,6 +1220,177 @@ class TestHistoricalAgentAttributionMigration:
         manager.start(flush_interval=10)
         await manager.stop()
 
+    def test_attributes_despite_old_session_mtime(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Restored/copied sessions with old mtime must still attribute."""
+        import os
+        from datetime import datetime
+
+        usage_path = tmp_path / "token_usage.json"
+        legacy = {
+            "2026-04-24": {
+                "openai:gpt-4": {
+                    "provider_id": "openai",
+                    "model_name": "gpt-4",
+                    "prompt_tokens": 100,
+                    "completion_tokens": 40,
+                    "call_count": 1,
+                },
+            },
+        }
+        usage_path.write_text(json.dumps(legacy), encoding="utf-8")
+
+        agent_a = tmp_path / "agent-a"
+        session = agent_a / "sessions" / "console" / "s1.json"
+        _write_session_with_usage(
+            session,
+            created_at="2026-04-24T10:00:00Z",
+            provider_id="openai",
+            model_name="gpt-4",
+            prompt_tokens=100,
+            completion_tokens=40,
+        )
+        old = datetime(2020, 1, 1).timestamp()
+        os.utime(session, (old, old))
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager._iter_agent_profiles",
+            lambda: [("agent-a", agent_a)],
+        )
+
+        assert migrate_historical_agent_ids_sync(usage_path) is True
+        migrated = json.loads(usage_path.read_text(encoding="utf-8"))
+        day = migrated["2026-04-24"]
+        assert day["agent-a|openai:gpt-4"]["prompt_tokens"] == 100
+        assert "|openai:gpt-4" not in day
+
+    @pytest.mark.asyncio
+    async def test_manager_reload_after_successful_migration(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.WORKING_DIR",
+            tmp_path,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
+            "token_usage.json",
+        )
+        usage_path = tmp_path / "token_usage.json"
+        legacy = {
+            "2026-04-24": {
+                "openai:gpt-4": {
+                    "provider_id": "openai",
+                    "model_name": "gpt-4",
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "call_count": 1,
+                },
+            },
+        }
+        usage_path.write_text(json.dumps(legacy), encoding="utf-8")
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager._iter_agent_profiles",
+            lambda: [],
+        )
+
+        manager = TokenUsageManager()
+        # Seed buffer with legacy data before migration.
+        # pylint: disable=protected-access
+        await manager._buffer._seed_cache()
+        assert "openai:gpt-4" in manager._buffer._disk_cache["2026-04-24"]
+
+        wrote = await manager.migrate_historical_agent_ids()
+        assert wrote is True
+        day = manager._buffer._disk_cache["2026-04-24"]
+        assert "openai:gpt-4" not in day
+        assert day["|openai:gpt-4"]["prompt_tokens"] == 10
+
+    @pytest.mark.asyncio
+    async def test_prestart_migration_preserves_dirty_buffer_events(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Flush-before-migrate must not drop unflushed in-memory events."""
+        from datetime import date
+
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.WORKING_DIR",
+            tmp_path,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
+            "token_usage.json",
+        )
+        usage_path = tmp_path / "token_usage.json"
+        legacy = {
+            "2026-04-24": {
+                "openai:gpt-4": {
+                    "provider_id": "openai",
+                    "model_name": "gpt-4",
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "call_count": 1,
+                },
+            },
+        }
+        usage_path.write_text(json.dumps(legacy), encoding="utf-8")
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager._iter_agent_profiles",
+            lambda: [],
+        )
+
+        manager = TokenUsageManager()
+        # pylint: disable=protected-access
+        await manager._buffer._seed_cache()
+        _apply_event(
+            manager._buffer._disk_cache,
+            _UsageEvent(
+                provider_id="openai",
+                model_name="gpt-4",
+                prompt_tokens=7,
+                completion_tokens=3,
+                date_str=date(2026, 4, 24).isoformat(),
+                now_iso="2026-04-24T12:00:00+00:00",
+                agent_id="live-agent",
+            ),
+        )
+        manager._buffer._dirty = True
+
+        wrote = await manager.migrate_historical_agent_ids()
+        assert wrote is True
+        day = manager._buffer._disk_cache["2026-04-24"]
+        # Pre-start dirty event must survive flush-then-migrate-then-reload.
+        assert day["live-agent|openai:gpt-4"]["prompt_tokens"] == 7
+        assert day["|openai:gpt-4"]["prompt_tokens"] == 10
+
+    @pytest.mark.asyncio
+    async def test_migration_rejected_after_start(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.WORKING_DIR",
+            tmp_path,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
+            "token_usage.json",
+        )
+        manager = TokenUsageManager()
+        manager.start(flush_interval=10)
+        try:
+            with pytest.raises(RuntimeError, match="before start"):
+                await manager.migrate_historical_agent_ids()
+        finally:
+            await manager.stop()
+
 
 # =============================================================================
 # Daily tool-call aggregation (LLM & Tool Call Trend)
@@ -1266,14 +1439,30 @@ class TestCountToolCallsInMessage:
         }
         assert _count_tool_calls_in_message(msg) == 2
 
-    def test_counts_content_blocks_and_top_level_together(self):
+    def test_falls_back_when_content_list_has_no_tool_blocks(self):
+        msg = {
+            "content": [],
+            "tool_calls": [
+                {"id": "1", "type": "function", "function": {"name": "a"}},
+            ],
+        }
+        assert _count_tool_calls_in_message(msg) == 1
+        msg_missing = {
+            "tool_calls": [
+                {"id": "1", "type": "function", "function": {"name": "a"}},
+                {"id": "2", "type": "function", "function": {"name": "b"}},
+            ],
+        }
+        assert _count_tool_calls_in_message(msg_missing) == 2
+
+    def test_prefers_content_blocks_over_top_level(self):
         msg = {
             "content": [{"type": "tool_use", "id": "1", "name": "search"}],
             "tool_calls": [
                 {"id": "2", "type": "function", "function": {"name": "shell"}},
             ],
         }
-        assert _count_tool_calls_in_message(msg) == 2
+        assert _count_tool_calls_in_message(msg) == 1
 
 
 class TestCollectDailyToolCalls:
@@ -1346,6 +1535,42 @@ class TestCollectDailyToolCalls:
             "2026-04-25": 1,
         }
 
+    def test_counts_tool_calls_despite_old_session_mtime(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Restored sessions with old mtime must still count in-range calls."""
+        import os
+        from datetime import date, datetime
+
+        agent_a = tmp_path / "agent-a"
+        session = agent_a / "sessions" / "console" / "s1.json"
+        _write_session_with_tool_calls(
+            session,
+            [
+                {
+                    "role": "assistant",
+                    "created_at": "2026-04-24T10:00:00Z",
+                    "content": [
+                        {"type": "tool_use", "id": "a1", "name": "search"},
+                    ],
+                },
+            ],
+        )
+        old = datetime(2020, 1, 1).timestamp()
+        os.utime(session, (old, old))
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager._iter_agent_profiles",
+            lambda: [("agent-a", agent_a)],
+        )
+
+        result = collect_daily_tool_calls_sync(
+            date(2026, 4, 24),
+            date(2026, 4, 25),
+        )
+        assert result == {"2026-04-24": 1}
+
     def test_skips_corrupt_session_files(self, tmp_path, monkeypatch):
         from datetime import date
 
@@ -1376,6 +1601,7 @@ class TestCollectDailyToolCalls:
         def _fake(start_date, end_date):
             called["start"] = start_date
             called["end"] = end_date
+            called["n"] = called.get("n", 0) + 1
             return {"2026-04-24": 2}
 
         monkeypatch.setattr(
@@ -1389,3 +1615,149 @@ class TestCollectDailyToolCalls:
         assert result == {"2026-04-24": 2}
         assert called["start"] == date(2026, 4, 24)
         assert called["end"] == date(2026, 4, 25)
+
+        # Same range within TTL should hit cache.
+        cached = await manager.get_daily_tool_calls(
+            start_date=date(2026, 4, 24),
+            end_date=date(2026, 4, 25),
+        )
+        assert cached == {"2026-04-24": 2}
+        assert called["n"] == 1
+
+    @pytest.mark.asyncio
+    async def test_manager_get_daily_tool_calls_ttl_expires(
+        self,
+        monkeypatch,
+    ):
+        from datetime import date
+
+        manager = TokenUsageManager()
+        # pylint: disable=protected-access
+        manager._TOOL_CALLS_TTL = 0  # expire immediately
+        calls = {"n": 0}
+
+        def _fake(_start_date, _end_date):
+            calls["n"] += 1
+            return {"2026-04-24": calls["n"]}
+
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.collect_daily_tool_calls_sync",
+            _fake,
+        )
+        first = await manager.get_daily_tool_calls(
+            start_date=date(2026, 4, 24),
+            end_date=date(2026, 4, 25),
+        )
+        second = await manager.get_daily_tool_calls(
+            start_date=date(2026, 4, 24),
+            end_date=date(2026, 4, 25),
+        )
+        assert first == {"2026-04-24": 1}
+        assert second == {"2026-04-24": 2}
+        assert calls["n"] == 2
+
+    @pytest.mark.asyncio
+    async def test_manager_get_daily_tool_calls_single_flight(
+        self,
+        monkeypatch,
+    ):
+        from datetime import date
+
+        manager = TokenUsageManager()
+        calls = {"n": 0}
+
+        def _fake(_start_date, _end_date):
+            calls["n"] += 1
+            return {"2026-04-24": calls["n"]}
+
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.collect_daily_tool_calls_sync",
+            _fake,
+        )
+        results = await asyncio.gather(
+            manager.get_daily_tool_calls(
+                start_date=date(2026, 4, 24),
+                end_date=date(2026, 4, 25),
+            ),
+            manager.get_daily_tool_calls(
+                start_date=date(2026, 4, 24),
+                end_date=date(2026, 4, 25),
+            ),
+        )
+        assert results[0] == results[1] == {"2026-04-24": 1}
+        assert calls["n"] == 1
+
+    @pytest.mark.asyncio
+    async def test_manager_get_daily_tool_calls_cancel_safe(
+        self,
+        monkeypatch,
+    ):
+        from datetime import date
+
+        manager = TokenUsageManager()
+        started = threading.Event()
+        release = threading.Event()
+        calls = {"n": 0}
+
+        def _fake(_start_date, _end_date):
+            calls["n"] += 1
+            started.set()
+            # Block the worker thread until the first waiter is cancelled.
+            assert release.wait(timeout=5)
+            return {"2026-04-24": 1}
+
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.collect_daily_tool_calls_sync",
+            _fake,
+        )
+
+        first = asyncio.create_task(
+            manager.get_daily_tool_calls(
+                start_date=date(2026, 4, 24),
+                end_date=date(2026, 4, 25),
+            ),
+        )
+        await asyncio.to_thread(started.wait, 5)
+        second = asyncio.create_task(
+            manager.get_daily_tool_calls(
+                start_date=date(2026, 4, 24),
+                end_date=date(2026, 4, 25),
+            ),
+        )
+        # Let the second waiter attach to the shared in-flight task.
+        await asyncio.sleep(0)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        release.set()
+        assert await second == {"2026-04-24": 1}
+        assert calls["n"] == 1
+
+    @pytest.mark.asyncio
+    async def test_manager_get_daily_tool_calls_prunes_expired_cache(
+        self,
+        monkeypatch,
+    ):
+        from datetime import date
+
+        manager = TokenUsageManager()
+        # pylint: disable=protected-access
+        old_key = (date(2026, 4, 1), date(2026, 4, 2))
+        manager._tool_calls_cache[old_key] = (
+            time.monotonic() - manager._TOOL_CALLS_TTL - 1,
+            {"2026-04-01": 9},
+        )
+
+        def _fake(_start_date, _end_date):
+            return {"2026-04-24": 1}
+
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.collect_daily_tool_calls_sync",
+            _fake,
+        )
+        result = await manager.get_daily_tool_calls(
+            start_date=date(2026, 4, 24),
+            end_date=date(2026, 4, 25),
+        )
+        assert result == {"2026-04-24": 1}
+        assert old_key not in manager._tool_calls_cache

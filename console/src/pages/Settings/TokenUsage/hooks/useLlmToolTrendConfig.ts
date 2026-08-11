@@ -15,6 +15,8 @@ interface UseLlmToolTrendConfigProps {
   startDate: Dayjs;
   endDate: Dayjs;
   isDark: boolean;
+  /** When true, omit the tool series (API load failed). */
+  toolCallsUnavailable?: boolean;
 }
 
 export function useLlmToolTrendConfig({
@@ -23,13 +25,16 @@ export function useLlmToolTrendConfig({
   startDate,
   endDate,
   isDark,
+  toolCallsUnavailable = false,
 }: UseLlmToolTrendConfigProps) {
   const { t } = useTranslation();
 
   return useMemo(() => {
     const hasLlm =
       !!byDate && Object.values(byDate).some((d) => (d.call_count ?? 0) > 0);
-    const hasTool = Object.values(dailyToolCalls).some((v) => v > 0);
+    const hasTool =
+      !toolCallsUnavailable &&
+      Object.values(dailyToolCalls).some((v) => v > 0);
     if (!hasLlm && !hasTool) return null;
 
     const allDates: string[] = [];
@@ -43,18 +48,24 @@ export function useLlmToolTrendConfig({
     const toolLabel = t("tokenUsage.toolCalls");
     const crossesYear = startDate.year() !== endDate.year();
 
-    const chartData = allDates.flatMap((date) => [
-      {
-        date,
-        value: byDate?.[date]?.call_count ?? 0,
-        category: llmLabel,
-      },
-      {
-        date,
-        value: dailyToolCalls[date] ?? 0,
-        category: toolLabel,
-      },
-    ]);
+    const chartData = allDates.flatMap((date) => {
+      const rows: { date: string; value: number; category: string }[] = [];
+      if (hasLlm) {
+        rows.push({
+          date,
+          value: byDate?.[date]?.call_count ?? 0,
+          category: llmLabel,
+        });
+      }
+      if (hasTool) {
+        rows.push({
+          date,
+          value: dailyToolCalls[date] ?? 0,
+          category: toolLabel,
+        });
+      }
+      return rows;
+    });
 
     return {
       data: chartData,
@@ -90,5 +101,13 @@ export function useLlmToolTrendConfig({
         ],
       },
     };
-  }, [byDate, dailyToolCalls, startDate, endDate, isDark, t]);
+  }, [
+    byDate,
+    dailyToolCalls,
+    startDate,
+    endDate,
+    isDark,
+    toolCallsUnavailable,
+    t,
+  ]);
 }
