@@ -1156,29 +1156,48 @@ def load_governance_policy(
     policy_dir: str,
     workspace_dir: str,
     coding_project_dir: str = "",
+    extra_project_dirs: Optional[List[str]] = None,
 ) -> GovernancePolicy:
     """Load from policy_dir/policy.yaml; return default policy if missing.
 
     Args:
         policy_dir: directory containing policy.yaml
         workspace_dir: used to replace WORKSPACE_DIR placeholders in rules
-        coding_project_dir: used to replace CODING_PROJECT_DIR placeholders
-            in rules; defaults to ``workspace_dir`` when empty
+        coding_project_dir: effective PRIMARY project dir; used to replace
+            CODING_PROJECT_DIR placeholders in rules; defaults to
+            ``workspace_dir`` when empty
+        extra_project_dirs: remaining bound project directories. Each
+            gets a system-managed ALLOW rule (``*(<path>/**)``, reason
+            "Extra project dir") synced to this list on every load —
+            revoking access means unbinding the directory, not deleting
+            the rule.
 
     Supports both v1.0 and v2.0 YAML formats.
     """
     path = Path(policy_dir) / "policy.yaml"
     if not path.exists():
-        return _create_default_policy(workspace_dir, coding_project_dir)
+        return _create_default_policy(
+            workspace_dir,
+            coding_project_dir,
+            extra_project_dirs=extra_project_dirs,
+        )
 
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
     except Exception:
-        return _create_default_policy(workspace_dir, coding_project_dir)
+        return _create_default_policy(
+            workspace_dir,
+            coding_project_dir,
+            extra_project_dirs=extra_project_dirs,
+        )
 
     if not isinstance(data, dict):
-        return _create_default_policy(workspace_dir, coding_project_dir)
+        return _create_default_policy(
+            workspace_dir,
+            coding_project_dir,
+            extra_project_dirs=extra_project_dirs,
+        )
 
     version = data.get("version", "1.0")
     audit_level = data.get("audit_level", "all")
@@ -1257,6 +1276,14 @@ def load_governance_policy(
     if workspace_dir:
         _resolve_placeholders(builtin_rules, workspace_dir, cpd)
         _resolve_placeholders(user_rules, workspace_dir, cpd)
+
+    # ── Sync system-managed ALLOW rules for extra project dirs ──
+    user_rules = _sync_extra_project_dir_rules(
+        user_rules,
+        workspace_dir,
+        cpd,
+        extra_project_dirs or [],
+    )
 
     return GovernancePolicy(
         version=version,
@@ -1374,6 +1401,7 @@ _DEFAULT_SENSITIVE_PATHS: List[str] = [
 def _create_default_policy(
     workspace_dir: str = "",
     coding_project_dir: str = "",
+    extra_project_dirs: Optional[List[str]] = None,
 ) -> GovernancePolicy:
     """Create a policy with full default rules (cold start, v2.0)."""
     builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
@@ -1382,6 +1410,12 @@ def _create_default_policy(
         cpd = coding_project_dir or workspace_dir
         _resolve_placeholders(builtin_rules, workspace_dir, cpd)
         _resolve_placeholders(user_rules, workspace_dir, cpd)
+        user_rules = _sync_extra_project_dir_rules(
+            user_rules,
+            workspace_dir,
+            cpd,
+            extra_project_dirs or [],
+        )
     return GovernancePolicy(
         version="2.0",
         builtin_rules=builtin_rules,
@@ -1673,3 +1707,70 @@ def _parse_detection_rules(
                 exc,
             )
     return rules
+
+
+# Reason marker identifying system-managed ALLOW rules for non-primary
+# project directories. Synced against the bound list on every load: the
+# way to revoke one is to unbind the directory, not to delete the rule.
+EXTRA_PROJECT_DIR_RULE_REASON = "Extra project dir"
+
+
+def _sync_extra_project_dir_rules(
+    user_rules: List[GovernanceRule],
+    workspace_dir: str,
+    coding_project_dir: str,
+    extra_project_dirs: List[str],
+) -> List[GovernanceRule]:
+    """Reconcile system-managed ALLOW rules with the bound dir list.
+
+    Adds ``*(<path>/**)`` ALLOW rules for directories that lack one and
+    drops rules whose directory is no longer bound (or has been promoted
+    to primary / overlaps the workspace, both already covered).
+    """
+
+    def _dedupe_key(raw: str) -> str:
+        try:
+            return str(Path(raw).expanduser()).casefold()
+        except (OSError, TypeError):
+            return str(raw).casefold()
+
+    covered = {
+        key
+        for key in (
+            _dedupe_key(coding_project_dir),
+            _dedupe_key(workspace_dir),
+        )
+        if key
+    }
+    desired: List[str] = []
+    for raw in extra_project_dirs:
+        key = _dedupe_key(raw)
+        if not key or key in covered:
+            continue
+        covered.add(key)
+        desired.append(str(Path(raw).expanduser()))
+
+    existing_matches = {
+        rule.match
+        for rule in user_rules
+        if rule.reason == EXTRA_PROJECT_DIR_RULE_REASON
+    }
+
+    kept = [
+        rule
+        for rule in user_rules
+        if rule.reason != EXTRA_PROJECT_DIR_RULE_REASON
+        or rule.match in {f"*({path}/**)" for path in desired}
+    ]
+    for path in desired:
+        match = f"*({path}/**)"
+        if match in existing_matches:
+            continue
+        kept.append(
+            GovernanceRule(
+                match=match,
+                action=GovernanceAction.ALLOW,
+                reason=EXTRA_PROJECT_DIR_RULE_REASON,
+            ),
+        )
+    return kept

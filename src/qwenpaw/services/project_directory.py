@@ -531,16 +531,14 @@ def resolve_project_name(
 def session_project_dir(meta: dict[str, Any] | None) -> str | None:
     """Read the controlled Session project override from Chat metadata.
 
-    Legacy single-value reader kept for existing call sites; only the
-    ``runtime_context`` namespace is trusted.
+    Single-value view kept for existing call sites: the primary entry
+    of the persisted list (a legacy scalar ``project_dir`` is read as a
+    one-entry list). Only the ``runtime_context`` namespace is trusted.
     """
-    if not isinstance(meta, dict):
+    dirs = session_project_dirs_from_meta(meta)
+    if not dirs:
         return None
-    runtime_context = meta.get("runtime_context")
-    if not isinstance(runtime_context, dict):
-        return None
-    value = runtime_context.get("project_dir")
-    return value if isinstance(value, str) and value.strip() else None
+    return dirs[0]["path"]
 
 
 def session_project_dirs_from_meta(meta: Optional[dict]) -> Optional[list]:

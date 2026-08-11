@@ -136,7 +136,12 @@ def _is_outside_workspace(
     *,
     path_is_resolved: bool = False,
 ) -> bool:
-    """Check if the given absolute path is outside the workspace.
+    """Check if the given absolute path is outside every granted root.
+
+    A path counts as "inside" when it lives under the workspace root OR
+    under any effective project directory (primary and extras alike) —
+    the extra roots are user-bound and fully granted, so operations
+    inside them must not be flagged as out-of-bounds.
 
     Delegates to :func:`is_path_outside_boundary` so ACP hard-block and
     ToolGuard share the same path-boundary primitive.
@@ -146,7 +151,6 @@ def _is_outside_workspace(
     filesystem walk on the synchronous ToolGuard hot path.
     """
     try:
-        workspace = _get_workspace_root().resolve()
         if path_is_resolved:
             resolved_path = abs_path
         else:
@@ -154,12 +158,31 @@ def _is_outside_workspace(
                 resolved_path = abs_path.resolve()
             except OSError:
                 return True
-        return is_path_outside_boundary(
-            resolved_path,
-            workspace,
-            cwd_is_resolved=True,
-            path_is_resolved=True,
-        )
+        roots: list[Path] = [_get_workspace_root()]
+        try:
+            from ....config.context import get_all_project_dir_paths
+
+            roots.extend(
+                Path(path) for path in get_all_project_dir_paths()
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.debug(
+                "Could not read project roots; checking workspace only",
+                exc_info=True,
+            )
+        for root in roots:
+            try:
+                boundary = root.resolve()
+            except OSError:
+                continue
+            if not is_path_outside_boundary(
+                resolved_path,
+                boundary,
+                cwd_is_resolved=True,
+                path_is_resolved=True,
+            ):
+                return False
+        return True
     except (OSError, RuntimeError) as e:
         logger.debug(
             "Error checking workspace boundary for '%s': %s",
