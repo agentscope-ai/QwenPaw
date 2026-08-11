@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "../../contexts/ThemeContext";
 import { RenderableCodeBlock } from "./RenderableCodeBlock";
 
@@ -28,6 +28,12 @@ describe("RenderableCodeBlock", () => {
     document.documentElement.classList.remove("dark-mode");
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   it("renders LaTeX preview by default and exposes the raw source", () => {
     const source = String.raw`\int_0^1 x^2 dx`;
     const { container } = render(
@@ -51,6 +57,35 @@ describe("RenderableCodeBlock", () => {
       "aria-selected",
       "true",
     );
+  });
+
+  it("links the tabs to their panel and supports keyboard navigation", () => {
+    render(
+      <RenderableCodeBlock block lang="latex">
+        {String.raw`x^2`}
+      </RenderableCodeBlock>,
+    );
+
+    const previewTab = screen.getByRole("tab", { name: "Preview" });
+    const rawTab = screen.getByRole("tab", { name: "Raw" });
+    const panel = screen.getByRole("tabpanel");
+
+    expect(previewTab).toHaveAttribute("aria-controls", panel.id);
+    expect(panel).toHaveAttribute("aria-labelledby", previewTab.id);
+    expect(previewTab).toHaveAttribute("tabindex", "0");
+    expect(rawTab).toHaveAttribute("tabindex", "-1");
+
+    previewTab.focus();
+    fireEvent.keyDown(previewTab, { key: "ArrowRight" });
+
+    expect(rawTab).toHaveFocus();
+    expect(rawTab).toHaveAttribute("aria-selected", "true");
+    expect(rawTab).toHaveAttribute("tabindex", "0");
+    expect(panel).toHaveAttribute("aria-labelledby", rawTab.id);
+
+    fireEvent.keyDown(rawTab, { key: "Home" });
+    expect(previewTab).toHaveFocus();
+    expect(previewTab).toHaveAttribute("aria-selected", "true");
   });
 
   it.each(["tex", "math"])("treats %s as a LaTeX alias", (lang) => {
@@ -106,6 +141,56 @@ describe("RenderableCodeBlock", () => {
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Download" })).toBeEnabled();
+  });
+
+  it("keeps inline code HTML attributes and omits renderer-only props", () => {
+    const handleClick = vi.fn();
+
+    render(
+      <RenderableCodeBlock
+        data-source="markdown"
+        domNode={{} as never}
+        onClick={handleClick}
+        streamStatus="done"
+        title="Inline source"
+      >
+        inline
+      </RenderableCodeBlock>,
+    );
+
+    const code = screen.getByTitle("Inline source");
+    expect(code).toHaveAttribute("data-source", "markdown");
+    expect(code).not.toHaveAttribute("domNode");
+    expect(code).not.toHaveAttribute("streamStatus");
+
+    fireEvent.click(code);
+    expect(handleClick).toHaveBeenCalledOnce();
+  });
+
+  it("releases download URLs after the browser can start the download", () => {
+    vi.useFakeTimers();
+    const createObjectURL = vi.fn(() => "blob:qwenpaw-code");
+    const revokeObjectURL = vi.fn();
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+
+    render(
+      <RenderableCodeBlock block lang="python">
+        {"answer = 42"}
+      </RenderableCodeBlock>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(anchorClick).toHaveBeenCalledOnce();
+    expect(document.querySelector("a[download='block.py']")).toBeNull();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+
+    vi.runOnlyPendingTimers();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:qwenpaw-code");
   });
 
   it.each([

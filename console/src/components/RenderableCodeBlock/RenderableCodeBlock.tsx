@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ComponentProps } from "@ant-design/x-markdown";
 import katex from "katex";
 import "katex/dist/katex.min.css";
@@ -68,8 +68,10 @@ function downloadSource(source: string, language: string) {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = `block.${extension}`;
+  document.body.appendChild(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function BlockActions({
@@ -229,6 +231,39 @@ function RenderableBlock({
 }) {
   const { t } = useTranslation();
   const [view, setView] = useState<ViewMode>("preview");
+  const tabGroupId = useId();
+  const tabRefs = useRef<Record<ViewMode, HTMLButtonElement | null>>({
+    preview: null,
+    raw: null,
+  });
+  const previewTabId = `${tabGroupId}-preview-tab`;
+  const rawTabId = `${tabGroupId}-raw-tab`;
+  const panelId = `${tabGroupId}-panel`;
+
+  const selectTab = (nextView: ViewMode) => {
+    setView(nextView);
+    tabRefs.current[nextView]?.focus();
+  };
+
+  const handleTabKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    currentView: ViewMode,
+  ) => {
+    let nextView: ViewMode | undefined;
+
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      nextView = currentView === "preview" ? "raw" : "preview";
+    } else if (event.key === "Home") {
+      nextView = "preview";
+    } else if (event.key === "End") {
+      nextView = "raw";
+    }
+
+    if (nextView) {
+      event.preventDefault();
+      selectTab(nextView);
+    }
+  };
 
   return (
     <section
@@ -239,20 +274,34 @@ function RenderableBlock({
         <span className={styles.language}>{language}</span>
         <div className={styles.tabs} role="tablist" aria-label="Block view">
           <button
+            aria-controls={panelId}
             aria-selected={view === "preview"}
             className={view === "preview" ? styles.activeTab : styles.tab}
+            id={previewTabId}
+            onKeyDown={(event) => handleTabKeyDown(event, "preview")}
             onClick={() => setView("preview")}
+            ref={(node) => {
+              tabRefs.current.preview = node;
+            }}
             role="tab"
+            tabIndex={view === "preview" ? 0 : -1}
             type="button"
           >
             <Eye aria-hidden="true" size={14} />
             {t("common.preview")}
           </button>
           <button
+            aria-controls={panelId}
             aria-selected={view === "raw"}
             className={view === "raw" ? styles.activeTab : styles.tab}
+            id={rawTabId}
+            onKeyDown={(event) => handleTabKeyDown(event, "raw")}
             onClick={() => setView("raw")}
+            ref={(node) => {
+              tabRefs.current.raw = node;
+            }}
             role="tab"
+            tabIndex={view === "raw" ? 0 : -1}
             type="button"
           >
             <Code2 aria-hidden="true" size={14} />
@@ -261,7 +310,12 @@ function RenderableBlock({
         </div>
         <BlockActions language={language} source={source} />
       </header>
-      <div className={styles.panel} role="tabpanel">
+      <div
+        aria-labelledby={view === "preview" ? previewTabId : rawTabId}
+        className={styles.panel}
+        id={panelId}
+        role="tabpanel"
+      >
         {view === "preview" ? (
           language === "mermaid" ? (
             <MermaidCodeBlock chart={source} />
@@ -277,12 +331,27 @@ function RenderableBlock({
 }
 
 export function RenderableCodeBlock(props: RenderableCodeBlockProps) {
-  const { children, lang, block, className } = props;
+  const {
+    children,
+    lang,
+    block,
+    className,
+    domNode,
+    streamStatus,
+    ...htmlProps
+  } = props;
   const language = resolveLanguage(lang, className);
   const renderableLanguage = LANGUAGE_ALIASES[language];
 
+  void domNode;
+  void streamStatus;
+
   if (!block && !className?.includes("language-")) {
-    return <code className={className}>{children}</code>;
+    return (
+      <code {...htmlProps} className={className}>
+        {children}
+      </code>
+    );
   }
 
   if (!renderableLanguage) {
