@@ -19,7 +19,6 @@ import logging
 import re
 import shlex
 from pathlib import Path
-import signal
 import socket
 import subprocess
 import sys
@@ -50,8 +49,15 @@ logger = logging.getLogger(__name__)
 
 _MAX_DIRECT_URL_DOWNLOAD_BYTES = 10 * 1024 * 1024
 _CDP_CONNECT_TIMEOUT_SECONDS = 30.0
-_BROWSER_CLEANUP_TIMEOUT_SECONDS = 5.0
+# Owned Chrome trees can take longer than a few seconds to exit on Windows.
+_BROWSER_CLEANUP_TIMEOUT_SECONDS = EnvVarLoader.get_float(
+    "QWENPAW_BROWSER_CLEANUP_TIMEOUT_SECONDS",
+    15.0,
+    min_value=0.1,
+    max_value=120.0,
+)
 _MAX_WAITTIME = 60.0
+_MANAGED_BROWSER_META_NAME = "managed_cdp.json"
 _HEADLESS_VERIFICATION_WARNING = (
     "Headless browser launches are more likely to trigger verification. "
     "If verification appears, call browser with action='stop' to stop "
@@ -394,12 +400,22 @@ async def _idle_watchdog(
 def _atexit_cleanup() -> None:
     """Best-effort browser cleanup registered with :func:`atexit`.
 
-    Playwright child processes are cleaned up by the OS when the parent
-    exits, but this gives Playwright a chance to flush any pending I/O and
-    close Chrome gracefully before the process disappears.
+    Always attempt a synchronous process-tree reap for owned browsers first.
+    Async Playwright shutdown is best-effort and often unavailable when an
+    event loop is already running (typical for Uvicorn).
     """
     if not _workspace_states:
         return
+
+    for ws_state in list(_workspace_states.values()):
+        try:
+            _reap_owned_browser_leftovers_sync(ws_state)
+        except Exception:
+            logger.debug(
+                "atexit owned-browser reap failed for workspace %s",
+                ws_state.get("workspace_id"),
+                exc_info=True,
+            )
 
     try:
         loop = asyncio.get_event_loop()
@@ -1223,6 +1239,9 @@ async def _start_managed_cdp_browser(  # pylint: disable=too-many-statements
     user_data_dir = _resolve_user_data_dir(ws_dir, exe or "", explicit_exe)
     state["user_data_dir"] = user_data_dir
 
+    # Reap leftovers from failed stops / crashed tasks before launching again.
+    await _reap_owned_browser_leftovers(state)
+
     chosen_cdp_port = cdp_port or _find_free_local_port()
     if await asyncio.to_thread(_probe_local_port_in_use, chosen_cdp_port):
         raise RuntimeError(
@@ -1264,6 +1283,15 @@ async def _start_managed_cdp_browser(  # pylint: disable=too-many-statements
         state["owned_browser_process"] = True
         state["browser_pid"] = proc.pid
         state["browser_process"] = proc
+        state.pop("_orphan_browser_pid", None)
+        state.pop("_orphan_cdp_url", None)
+        try:
+            _persist_managed_browser_meta(state)
+        except Exception:
+            logger.debug(
+                "Failed to persist managed browser meta after start",
+                exc_info=True,
+            )
         if ensure_pages:
             for page in context.pages:
                 page_id = _next_page_id(state)
@@ -1329,30 +1357,524 @@ def _start_managed_chromium_process(
     return subprocess.Popen(args, **popen_kwargs)
 
 
-async def _stop_owned_browser_process(state: dict) -> bool:
-    proc = state.get("browser_process")
-    if proc is None:
-        return False
+def _normalize_path_for_match(path: str) -> str:
+    """Normalize filesystem paths for cmdline ownership checks."""
+    if not path:
+        return ""
+    try:
+        resolved = str(Path(path).expanduser().resolve())
+    except Exception:
+        resolved = str(Path(path).expanduser())
+    normalized = resolved.replace("\\", "/").rstrip("/")
+    if sys.platform == "win32":
+        return normalized.casefold()
+    return normalized
 
-    if proc.poll() is not None:
+
+def _cdp_port_from_url(cdp_url: Any) -> Optional[int]:
+    if not cdp_url:
+        return None
+    try:
+        port_text = str(cdp_url).rstrip("/").rsplit(":", 1)[-1]
+        port = int(port_text)
+    except (TypeError, ValueError):
+        return None
+    if 1 <= port <= 65535:
+        return port
+    return None
+
+
+def _cdp_port_from_state(state: dict) -> Optional[int]:
+    port = _cdp_port_from_url(state.get("cdp_url"))
+    if port is not None:
+        return port
+    return _cdp_port_from_url(state.get("_orphan_cdp_url"))
+
+
+def _managed_browser_meta_path(state: dict) -> Path:
+    workspace_dir = _workspace_dir_for_browser_state(state)
+    return Path(workspace_dir) / "browser" / _MANAGED_BROWSER_META_NAME
+
+
+def _persist_managed_browser_meta(state: dict) -> None:
+    """Persist owned-browser identity so later reaps survive state resets."""
+    pid = state.get("browser_pid") or _process_pid(state.get("browser_process"))
+    user_data_dir = state.get("user_data_dir") or ""
+    if not pid or not user_data_dir:
+        return
+    meta_path = _managed_browser_meta_path(state)
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "pid": int(pid),
+        "user_data_dir": user_data_dir,
+        "cdp_url": state.get("cdp_url") or state.get("_orphan_cdp_url"),
+        "cdp_port": _cdp_port_from_state(state),
+        "workspace_id": state.get("workspace_id"),
+        "updated_at": time.time(),
+    }
+    meta_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _read_managed_browser_meta(state: dict) -> Optional[dict[str, Any]]:
+    meta_path = _managed_browser_meta_path(state)
+    if not meta_path.is_file():
+        return None
+    try:
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.debug(
+            "Failed to read managed browser meta %s",
+            meta_path,
+            exc_info=True,
+        )
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _clear_managed_browser_meta(state: dict) -> None:
+    meta_path = _managed_browser_meta_path(state)
+    try:
+        if meta_path.is_file():
+            meta_path.unlink()
+    except Exception:
+        logger.debug(
+            "Failed to clear managed browser meta %s",
+            meta_path,
+            exc_info=True,
+        )
+
+
+def _process_cmdline_list(proc: psutil.Process) -> list[str]:
+    try:
+        cmdline = proc.cmdline()
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        return []
+    except Exception:
+        return []
+    return [str(part) for part in cmdline or []]
+
+
+def _is_browser_process_name(name: str) -> bool:
+    lowered = (name or "").lower()
+    return any(
+        keyword in lowered
+        for keyword in (
+            "chrome",
+            "chromium",
+            "msedge",
+            "edge",
+            "brave",
+            "vivaldi",
+            "opera",
+        )
+    )
+
+
+def _cmdline_has_flag_value(
+    cmdline: list[str],
+    flag: str,
+    expected: str,
+    *,
+    path_value: bool = False,
+) -> bool:
+    if not expected:
+        return False
+    expected_norm = (
+        _normalize_path_for_match(expected) if path_value else str(expected)
+    )
+    prefix = f"{flag}="
+    for index, raw in enumerate(cmdline):
+        arg = str(raw).strip().strip('"')
+        if arg.startswith(prefix):
+            value = arg[len(prefix) :].strip().strip('"')
+            if path_value:
+                if _normalize_path_for_match(value) == expected_norm:
+                    return True
+            elif value == expected_norm:
+                return True
+            continue
+        if arg == flag and index + 1 < len(cmdline):
+            value = str(cmdline[index + 1]).strip().strip('"')
+            if path_value:
+                if _normalize_path_for_match(value) == expected_norm:
+                    return True
+            elif value == expected_norm:
+                return True
+    return False
+
+
+def _cmdline_matches_owned_browser(
+    cmdline: list[str],
+    user_data_dir: str,
+    cdp_port: Optional[int] = None,
+) -> bool:
+    if not cmdline or not user_data_dir:
+        return False
+    exe_name = Path(cmdline[0]).name
+    if not _is_browser_process_name(exe_name):
+        # Some Chromium helper processes still carry the profile flag.
+        joined = " ".join(cmdline).lower()
+        if not any(
+            token in joined
+            for token in ("chrome", "chromium", "msedge", "edge")
+        ):
+            return False
+    if not _cmdline_has_flag_value(
+        cmdline,
+        "--user-data-dir",
+        user_data_dir,
+        path_value=True,
+    ):
+        return False
+    if cdp_port is None:
         return True
+    return _cmdline_has_flag_value(
+        cmdline,
+        "--remote-debugging-port",
+        str(cdp_port),
+    )
+
+
+def _pid_matches_owned_browser(
+    pid: int,
+    user_data_dir: str,
+    cdp_port: Optional[int] = None,
+) -> bool:
+    if not pid or not user_data_dir:
+        return False
+    try:
+        proc = psutil.Process(pid)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
+    except psutil.Error:
+        return False
+    return _cmdline_matches_owned_browser(
+        _process_cmdline_list(proc),
+        user_data_dir,
+        cdp_port,
+    )
+
+
+def _find_owned_browser_pids(
+    user_data_dir: str,
+    cdp_port: Optional[int] = None,
+) -> list[int]:
+    """Return PIDs whose cmdline matches our managed profile.
+
+    Matching is keyed by ``--user-data-dir``. Child processes that omit
+    ``--remote-debugging-port`` are included. When ``cdp_port`` is set, a
+    process that advertises a *different* debugging port is skipped.
+    """
+    if not user_data_dir:
+        return []
+    matches: list[int] = []
+    try:
+        iterator = psutil.process_iter(attrs=["pid", "name"])
+    except Exception:
+        return []
+    for entry in iterator:
+        try:
+            name = entry.info.get("name") or ""
+            if name and not _is_browser_process_name(name):
+                continue
+            pid = int(entry.info.get("pid") or entry.pid)
+            cmdline = _process_cmdline_list(psutil.Process(pid))
+            if not _cmdline_matches_owned_browser(cmdline, user_data_dir, None):
+                continue
+            if cdp_port is not None:
+                has_port_flag = any(
+                    str(part).startswith("--remote-debugging-port")
+                    or str(part) == "--remote-debugging-port"
+                    for part in cmdline
+                )
+                if has_port_flag and not _cmdline_has_flag_value(
+                    cmdline,
+                    "--remote-debugging-port",
+                    str(cdp_port),
+                ):
+                    continue
+            matches.append(pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+        except Exception:
+            continue
+    return sorted(set(matches))
+
+
+def _collect_owned_browser_candidate_pids(state: dict) -> list[int]:
+    user_data_dir = state.get("user_data_dir") or ""
+    cdp_port = _cdp_port_from_state(state)
+    candidates: list[int] = []
+
+    for pid in (
+        state.get("browser_pid"),
+        state.get("_orphan_browser_pid"),
+        _process_pid(state.get("browser_process")),
+    ):
+        if isinstance(pid, int) and pid > 0:
+            candidates.append(pid)
+
+    meta = _read_managed_browser_meta(state)
+    if meta:
+        meta_pid = meta.get("pid")
+        if isinstance(meta_pid, int) and meta_pid > 0:
+            candidates.append(meta_pid)
+        meta_ud = meta.get("user_data_dir") or ""
+        if meta_ud and not user_data_dir:
+            user_data_dir = str(meta_ud)
+            state["user_data_dir"] = user_data_dir
+        meta_port = meta.get("cdp_port")
+        if cdp_port is None and isinstance(meta_port, int):
+            cdp_port = meta_port
+        meta_url = meta.get("cdp_url")
+        if meta_url and not state.get("cdp_url"):
+            state["_orphan_cdp_url"] = meta_url
+
+    if user_data_dir:
+        candidates.extend(_find_owned_browser_pids(user_data_dir, cdp_port))
+
+    validated: list[int] = []
+    for pid in sorted(set(candidates)):
+        if not _pid_is_active(pid):
+            continue
+        if user_data_dir and not _pid_matches_owned_browser(
+            pid,
+            user_data_dir,
+            None,
+        ):
+            # Ignore stale PID-file entries that no longer point at our browser.
+            continue
+        validated.append(pid)
+    return validated
+
+
+def _terminate_process_tree_sync(
+    pid: int,
+    timeout: Optional[float] = None,
+) -> bool:
+    """Terminate a process and all descendants. Sync for atexit / threads."""
+    wait_timeout = _cleanup_timeout() if timeout is None else max(0.1, timeout)
+    try:
+        parent = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return True
+    except psutil.Error:
+        return False
 
     try:
-        if sys.platform == "win32":
+        processes = parent.children(recursive=True)
+        processes.append(parent)
+    except psutil.Error:
+        processes = [parent]
+
+    for proc in processes:
+        try:
             proc.terminate()
-        else:
-            proc.send_signal(signal.SIGTERM)
-        await asyncio.to_thread(proc.wait, _cleanup_timeout())
-        return True
-    except subprocess.TimeoutExpired:
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+        except psutil.Error:
+            continue
+
+    _gone, alive = psutil.wait_procs(processes, timeout=wait_timeout)
+    if not alive:
+        return not _pid_is_active(pid)
+
+    for proc in alive:
         try:
             proc.kill()
-            await asyncio.to_thread(proc.wait, _cleanup_timeout())
-            return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+        except psutil.Error:
+            continue
+
+    _gone, alive = psutil.wait_procs(alive, timeout=wait_timeout)
+    if not alive and not _pid_is_active(pid):
+        return True
+
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                check=False,
+                timeout=wait_timeout + 5.0,
+            )
         except Exception:
-            return False
-    except Exception:
-        return False
+            logger.debug(
+                "taskkill /T fallback failed for pid=%s",
+                pid,
+                exc_info=True,
+            )
+        return not _pid_is_active(pid)
+
+    return not _pid_is_active(pid)
+
+
+async def _terminate_process_tree(
+    pid: int,
+    label: str,
+    cleanup_errors: Optional[list[str]] = None,
+) -> bool:
+    stopped = await asyncio.to_thread(_terminate_process_tree_sync, pid)
+    if stopped:
+        return True
+    _record_cleanup_error(
+        cleanup_errors,
+        f"{label} process tree still alive (pid={pid})",
+    )
+    return False
+
+
+async def _wait_for_cdp_port_closed(
+    port: int,
+    timeout: Optional[float] = None,
+) -> bool:
+    wait_timeout = _cleanup_timeout() if timeout is None else max(0.1, timeout)
+    deadline = time.monotonic() + wait_timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(0.2)
+                if sock.connect_ex(("127.0.0.1", port)) != 0:
+                    return True
+        except OSError:
+            return True
+        await asyncio.sleep(0.1)
+    return False
+
+
+def _reap_owned_browser_leftovers_sync(state: dict) -> bool:
+    """Best-effort sync reap used by atexit and start/stop pre-sweeps."""
+    user_data_dir = state.get("user_data_dir") or ""
+    meta = _read_managed_browser_meta(state)
+    if meta and not user_data_dir:
+        user_data_dir = str(meta.get("user_data_dir") or "")
+        if user_data_dir:
+            state["user_data_dir"] = user_data_dir
+
+    pids = _collect_owned_browser_candidate_pids(state)
+    if not pids and not meta:
+        return True
+
+    all_stopped = True
+    # Kill higher PIDs first so children tend to go before parents when mixed.
+    for pid in sorted(pids, reverse=True):
+        if not _terminate_process_tree_sync(pid):
+            all_stopped = False
+
+    # Second pass: profile scan after tree kills (reparented leftovers).
+    if user_data_dir:
+        for pid in sorted(
+            _find_owned_browser_pids(user_data_dir, None),
+            reverse=True,
+        ):
+            if not _terminate_process_tree_sync(pid):
+                all_stopped = False
+
+    cdp_port = _cdp_port_from_state(state)
+    if cdp_port is None and meta:
+        meta_port = meta.get("cdp_port")
+        if isinstance(meta_port, int):
+            cdp_port = meta_port
+
+    if all_stopped:
+        _clear_managed_browser_meta(state)
+        state.pop("_orphan_browser_pid", None)
+        state.pop("_orphan_cdp_url", None)
+    else:
+        # Keep identity for a later retry.
+        if state.get("browser_pid") or state.get("_orphan_browser_pid"):
+            try:
+                _persist_managed_browser_meta(
+                    {
+                        **state,
+                        "browser_pid": state.get("browser_pid")
+                        or state.get("_orphan_browser_pid"),
+                        "cdp_url": state.get("cdp_url")
+                        or state.get("_orphan_cdp_url"),
+                    },
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to persist leftover managed browser meta",
+                    exc_info=True,
+                )
+    return all_stopped
+
+
+async def _reap_owned_browser_leftovers(
+    state: dict,
+    cleanup_errors: Optional[list[str]] = None,
+) -> bool:
+    stopped = await asyncio.to_thread(_reap_owned_browser_leftovers_sync, state)
+    cdp_port = _cdp_port_from_state(state)
+    if cdp_port is not None:
+        port_closed = await _wait_for_cdp_port_closed(cdp_port)
+        if not port_closed:
+            stopped = False
+            _record_cleanup_error(
+                cleanup_errors,
+                f"CDP port {cdp_port} still open after browser reap",
+            )
+    if not stopped:
+        _record_cleanup_error(
+            cleanup_errors,
+            "owned browser leftover reap incomplete",
+        )
+    return stopped
+
+
+async def _stop_owned_browser_process(state: dict) -> bool:
+    """Stop the managed Chromium process tree for an owned browser."""
+    proc = state.get("browser_process")
+    pid = state.get("browser_pid") or _process_pid(proc)
+    user_data_dir = state.get("user_data_dir") or ""
+
+    if proc is not None:
+        try:
+            if proc.poll() is not None and not (
+                user_data_dir and _find_owned_browser_pids(user_data_dir, None)
+            ):
+                _clear_managed_browser_meta(state)
+                return True
+        except Exception:
+            pass
+
+    if pid and user_data_dir and not _pid_matches_owned_browser(
+        pid,
+        user_data_dir,
+        None,
+    ):
+        # Root pid is stale/reused; fall back to profile-based reap only.
+        pid = None
+
+    cleanup_errors: list[str] = []
+    stopped = True
+    if pid:
+        stopped = await _terminate_process_tree(
+            pid,
+            "owned browser",
+            cleanup_errors,
+        )
+
+    # Always sweep by profile so reparented children cannot linger.
+    reaped = await _reap_owned_browser_leftovers(state, cleanup_errors)
+    stopped = bool(stopped and reaped)
+
+    cdp_port = _cdp_port_from_state(state)
+    if cdp_port is not None:
+        if not await _wait_for_cdp_port_closed(cdp_port):
+            stopped = False
+
+    if stopped:
+        _clear_managed_browser_meta(state)
+    elif cleanup_errors:
+        for message in cleanup_errors:
+            logger.warning(message)
+    return stopped
 
 
 async def _close_async_resource(
@@ -1455,7 +1977,31 @@ async def _dispose_browser_state(
                 cleanup_errors,
             )
     finally:
-        _reset_browser_state(state)
+        if owned and not owned_browser_stopped:
+            # Keep a durable identity for later start/atexit reaps even after
+            # Playwright handles are dropped.
+            try:
+                _persist_managed_browser_meta(state)
+            except Exception:
+                logger.debug(
+                    "Failed to persist managed browser meta during dispose",
+                    exc_info=True,
+                )
+            orphan_pid = state.get("browser_pid") or _process_pid(
+                state.get("browser_process"),
+            )
+            orphan_cdp = state.get("cdp_url")
+            _reset_browser_state(state)
+            if orphan_pid:
+                state["_orphan_browser_pid"] = orphan_pid
+            if orphan_cdp:
+                state["_orphan_cdp_url"] = orphan_cdp
+        else:
+            if owned:
+                _clear_managed_browser_meta(state)
+            state.pop("_orphan_browser_pid", None)
+            state.pop("_orphan_cdp_url", None)
+            _reset_browser_state(state)
 
     fully_cleaned = (
         context_closed
@@ -1908,6 +2454,9 @@ async def _action_start(
     started_playwright = None
     cleanup_errors: list[str] = []
     try:
+        # Drop orphaned managed Chrome trees left by failed stops / crashes.
+        await _reap_owned_browser_leftovers(state, cleanup_errors)
+
         if not _USE_SYNC_PLAYWRIGHT and _should_use_managed_cdp(
             private_mode,
             cdp_port,
