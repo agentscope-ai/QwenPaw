@@ -69,8 +69,8 @@ _SAVED_TOOL_FILE_RE = re.compile(
 
 _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 # ``unicode61`` does not perform word segmentation for CJK scripts. A
-# punctuation-delimited run such as ``紫水晶河马在周二跳舞`` is indexed as one
-# token, so a natural keyword query like ``紫水晶河马`` cannot MATCH it. Route
+# continuous run such as ``项目的截止日期是周二`` is indexed as one token, so a
+# natural keyword query like ``截止日期`` cannot MATCH it. Route
 # queries containing these scripts through bounded LIKE search instead. That
 # path matches each whitespace-delimited term as a literal substring, with
 # implicit AND and bare-uppercase OR groups. This keeps Porter stemming/BM25
