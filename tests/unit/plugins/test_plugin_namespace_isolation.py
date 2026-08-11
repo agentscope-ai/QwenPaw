@@ -70,6 +70,18 @@ def _cleanup_test_modules(tmp_path):
         mod_file = getattr(mod, "__file__", None)
         if mod_file is not None and mod_file.startswith(tmp_str):
             sys.modules.pop(key, None)
+        elif mod_file is None:
+            # Namespace packages have no __file__; match by __path__.
+            # Accessing __path__ recomputes _NamespacePath, which looks
+            # up the parent in sys.modules — if we already popped the
+            # parent above, the child is an orphan: pop it too.
+            try:
+                paths = list(getattr(mod, "__path__", None) or [])
+            except KeyError:
+                sys.modules.pop(key, None)
+                continue
+            if any(str(p).startswith(tmp_str) for p in paths):
+                sys.modules.pop(key, None)
     sys.path[:] = [p for p in sys.path if not str(p).startswith(tmp_str)]
 
 
@@ -692,3 +704,132 @@ class TestBareImportNamespaceIsolation:
             await _load(loader, plugin_dir)
 
         assert not get_namespace_finder().is_registered("plugin_fail_ns")
+
+
+class TestFallthroughIsolation:
+    """Non-local fallthrough imports must not resolve into other loaded
+    plugins' source trees left on sys.path (PR #6688 review)."""
+
+    @pytest.mark.asyncio
+    async def test_data_dir_fallthrough_skips_other_plugin(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """Blocking-1: a data-directory fallthrough must not resolve into
+        an earlier plugin's source tree left on sys.path."""
+        dir_a = tmp_path / "res-a"
+        (dir_a / "helpers_qq").mkdir(parents=True)
+        (dir_a / "helpers_qq" / "__init__.py").write_text(
+            "WHO = 'A'\n",
+            encoding="utf-8",
+        )
+        _write_manifest(dir_a)
+        (dir_a / "plugin.py").write_text(
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "import helpers_qq\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        dir_b = tmp_path / "res-b"
+        (dir_b / "helpers_qq").mkdir(parents=True)
+        (dir_b / "helpers_qq" / "readme.bin").write_bytes(b"\x00")
+        _write_manifest(dir_b)
+        (dir_b / "plugin.py").write_text(
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "import helpers_qq\n"
+            "H = helpers_qq\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        await _load(loader, dir_a)
+        await _load(loader, dir_b)
+
+        # B must not receive A's module; at most its own (empty)
+        # namespace portion — never a path from A's tree.
+        imported = sys.modules["plugin_res_b"].H
+        assert not hasattr(imported, "WHO")
+        assert list(imported.__path__) == [str(dir_b / "helpers_qq")]
+
+    @pytest.mark.asyncio
+    async def test_uncached_stdlib_name_not_polluted_by_plugin(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """Blocking-2: with the stdlib name not pre-cached, a later
+        data-dir fallthrough must load the real stdlib module — not an
+        earlier plugin's same-named file — and must not leave a wrong
+        binding in sys.modules for the host."""
+        dir_a = tmp_path / "fake-a"
+        dir_a.mkdir()
+        (dir_a / "wave.py").write_text("FAKE = True\n", encoding="utf-8")
+        _write_manifest(dir_a)
+        (dir_a / "plugin.py").write_text(
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "import wave\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        dir_b = tmp_path / "data-b"
+        (dir_b / "wave").mkdir(parents=True)
+        (dir_b / "wave" / "sample.bin").write_bytes(b"\x00")
+        _write_manifest(dir_b)
+        (dir_b / "plugin.py").write_text(
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "import wave\n"
+            "WAVE = wave\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        await _load(loader, dir_a)
+        # A's own import was namespaced, so the global name is normally
+        # absent already; pop defensively in case an earlier test (or
+        # the host) imported the real module and cached it.
+        sys.modules.pop("wave", None)
+
+        await _load(loader, dir_b)
+
+        assert not hasattr(sys.modules["plugin_data_b"].WAVE, "FAKE")
+        assert hasattr(sys.modules["plugin_data_b"].WAVE, "open")
+        host_wave = sys.modules["wave"]
+        assert not str(host_wave.__file__).startswith(str(tmp_path))
+
+    @pytest.mark.asyncio
+    async def test_no_local_name_fallthrough_skips_other_plugin(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """Blocking-3: a bare import with no plugin-local candidate at
+        all must not resolve into another plugin's source tree."""
+        dir_a = tmp_path / "owner-a"
+        dir_a.mkdir()
+        (dir_a / "only_a_owns_this.py").write_text(
+            "WHO = 'A'\n",
+            encoding="utf-8",
+        )
+        _write_manifest(dir_a)
+        (dir_a / "plugin.py").write_text(
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "import only_a_owns_this\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        dir_b = tmp_path / "bare-b"
+        dir_b.mkdir()
+        _write_manifest(dir_b)
+        (dir_b / "plugin.py").write_text(
+            "import only_a_owns_this\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        await _load(loader, dir_a)
+        with pytest.raises(ModuleNotFoundError):
+            await _load(loader, dir_b)
+        assert "only_a_owns_this" not in sys.modules

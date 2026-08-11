@@ -602,6 +602,18 @@ class PluginLoader:
                 source_path,
             )
             raise
+        finally:
+            # A loaded plugin no longer needs the sys.path entries it
+            # inserted: its bare imports resolve through the private
+            # namespace (search_paths), not sys.path.  Sweeping here —
+            # on success, failure, AND BaseException (a cancelled
+            # startup) — keeps other plugins' non-local fallthrough
+            # imports from ever resolving into this plugin's source
+            # tree (data-dir fallthrough, uncached stdlib names, or
+            # plain bare imports would otherwise pick up the residue).
+            # Shared dependency locations (plugin site dir) are
+            # untouched — only paths under the plugin's own tree go.
+            strip_plugin_sys_path(source_path)
 
         return plugin_def
 

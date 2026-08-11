@@ -28,11 +28,14 @@ exactly as before.
 Known limitations (documented, not silently broken):
 
 - Only the ``import`` statement is redirected.  Dynamic imports via
-  ``importlib.import_module("utils")`` bypass ``__import__`` and still
-  resolve in the global top-level namespace.
+  ``importlib.import_module("utils")`` bypass ``__import__``; since a
+  plugin's inserted ``sys.path`` entries are swept once its load
+  finishes, such calls raise ``ModuleNotFoundError`` after load
+  instead of resolving globally.
 - Directories a plugin adds to ``sys.path`` itself (e.g. a vendored
-  ``lib/``) are not part of the plugin's search paths; bare imports
-  from them remain global.
+  ``lib/``) are not part of the plugin's search paths.  Module-level
+  bare imports from them work during load; lazy (function-level) ones
+  fail after load, because the inserted entries are swept.
 - The plugin's ``__builtins__`` is a snapshot dict: later monkeypatches
   of the ``builtins`` module (e.g. ``mock.patch("builtins.open")``) are
   not visible inside plugin modules.
