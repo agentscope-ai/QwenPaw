@@ -144,6 +144,7 @@ def plan_env_ref_bindings(secrets: dict[str, str]) -> EnvRefPlan:
     migration can warn about them.
     """
     plan = EnvRefPlan()
+    used_aliases: set[str] = set()
     for raw_key, raw_value in dict(secrets or {}).items():
         key = str(raw_key)
         value = str(raw_value)
@@ -151,6 +152,12 @@ def plan_env_ref_bindings(secrets: dict[str, str]) -> EnvRefPlan:
         if template is not None and template.is_single:
             var = template.var_names[0]
             alias = env_alias(var)
+            if alias in used_aliases:
+                index = 2
+                while f"{alias}_{index}" in used_aliases:
+                    index += 1
+                alias = f"{alias}_{index}"
+            used_aliases.add(alias)
             plan.env_aliases[alias] = var
             spec: dict[str, str] = {
                 "source": "credential",
@@ -167,11 +174,47 @@ def plan_env_ref_bindings(secrets: dict[str, str]) -> EnvRefPlan:
     return plan
 
 
+def _env_ref_template(
+    spec: dict[str, Any],
+    env_aliases: dict[str, str] | None = None,
+) -> str | None:
+    """Render an env-backed credential binding as its ${VAR} template.
+
+    Returns e.g. ``Bearer ${ANYSEARCH_API_KEY}`` for a binding whose
+    ``credential`` alias is ``env_<var>`` with a ``format`` of
+    ``Bearer {value}``.  ``None`` when the binding is not env-backed.
+
+    The original variable name (preserving case) is taken from
+    ``env_aliases`` (alias -> var name, derived from the card's
+    ``env:`` credential refs); when absent the alias is uppercased as a
+    fallback.
+    """
+    credential = str(spec.get("credential") or "")
+    if not credential.startswith("env_"):
+        return None
+    var_name = ""
+    if env_aliases:
+        var_name = env_aliases.get(credential, "")
+    if not var_name:
+        var_name = credential[len("env_") :].upper()
+    fmt = str(spec.get("format") or "{value}")
+    return fmt.replace("{value}", "${" + var_name + "}")
+
+
+def _is_env_ref_spec(spec: Any) -> bool:
+    return (
+        isinstance(spec, dict)
+        and spec.get("source") == "credential"
+        and str(spec.get("credential") or "").startswith("env_")
+    )
+
+
 def binding_to_response(
     binding: Any,
     credential: CredentialRecord | None,
     *,
     credential_alias: str,
+    env_aliases: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Return masked Console response values from a Driver endpoint binding."""
     if not isinstance(binding, dict):
@@ -182,6 +225,10 @@ def binding_to_response(
         for key, spec in binding.items():
             if isinstance(spec, dict) and spec.get("source") == "literal":
                 result[str(key)] = str(spec.get("value") or "")
+            elif _is_env_ref_spec(spec):
+                template = _env_ref_template(spec, env_aliases)
+                if template:
+                    result[str(key)] = template
             elif (
                 isinstance(spec, dict)
                 and spec.get("source") == "credential"
@@ -209,6 +256,7 @@ def binding_plain_keys(
     binding: Any,
     *,
     credential_alias: str,
+    env_aliases: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Return unmasked public values and blank placeholders for secret keys."""
     if not isinstance(binding, dict):
@@ -218,6 +266,10 @@ def binding_plain_keys(
         for key, spec in binding.items():
             if isinstance(spec, dict) and spec.get("source") == "literal":
                 result[str(key)] = str(spec.get("value") or "")
+            elif _is_env_ref_spec(spec):
+                template = _env_ref_template(spec, env_aliases)
+                if template:
+                    result[str(key)] = template
             elif (
                 isinstance(spec, dict)
                 and spec.get("source") == "credential"
