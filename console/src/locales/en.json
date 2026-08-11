@@ -18,6 +18,7 @@
     "enabled": "Enabled",
     "disabled": "Disabled",
     "preview": "Preview",
+    "raw": "Raw",
     "view": "View",
     "content": "Content",
     "loading": "Loading...",

@@ -17,6 +17,7 @@
     "enabled": "Ativado",
     "disabled": "Desativado",
     "preview": "Visualizar",
+    "raw": "Código-fonte",
     "view": "Visualizar",
     "content": "Conteudo",
     "loading": "Carregando...",
