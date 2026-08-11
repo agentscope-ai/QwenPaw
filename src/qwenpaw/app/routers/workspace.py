@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Workspace API – download / upload the entire WORKING_DIR as a zip.
 
 Also includes agent file management, language settings, audio/transcription

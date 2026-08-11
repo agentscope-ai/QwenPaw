@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Persistence and migration operations for ProviderManager."""
 
 import asyncio

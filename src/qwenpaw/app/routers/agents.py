@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Multi-agent management API.
 
 Provides RESTful API for managing multiple agent instances.

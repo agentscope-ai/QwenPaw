@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Tests for the shared capping-formatter module.
 
 The request formatter prepares local media outside the event loop and hands

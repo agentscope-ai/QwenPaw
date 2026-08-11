@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Factory for creating chat models and formatters.
 
 This module provides a unified factory for creating chat model instances

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # pylint: disable=too-many-nested-blocks,too-many-branches
 """API routes for built-in tools management."""
 

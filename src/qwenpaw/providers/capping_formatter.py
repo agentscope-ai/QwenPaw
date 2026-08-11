@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Capping formatters that refuse to inline oversized local media.
 
 agentscope's chat formatters (OpenAI, Anthropic, Gemini, DashScope, …) all

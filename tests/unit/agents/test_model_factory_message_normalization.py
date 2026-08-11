@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Tests for model_factory message normalization integration."""
 
 # pylint: disable=protected-access,redefined-outer-name,mixed-line-endings

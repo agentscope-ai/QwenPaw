@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Unit tests for ``qwenpaw.app.routers.config``.
 
 Scope: representative subset of the config router as called out in the

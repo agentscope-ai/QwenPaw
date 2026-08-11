@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Tests for atomic root and per-agent configuration transactions."""
 
 # Pytest fixtures intentionally provide setup-only arguments to tests.
