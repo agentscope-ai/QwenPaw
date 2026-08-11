@@ -302,6 +302,9 @@ async def computer_use(
     observation after every successful action; native rejects stale state.
     ``launch_app`` accepts an App ID returned by ``list_apps`` or an absolute
     platform-native application path.
+    Use ``begin_text_edit`` -- never ``click`` or ``invoke`` -- on an observed
+    menu command that opens a native text editor, including rename and
+    create-and-name commands. Then use the returned observation for ``type``.
     """
     # Each early return maps to one refusal reason the model must be able to
     # tell apart, so they are reported individually rather than merged.

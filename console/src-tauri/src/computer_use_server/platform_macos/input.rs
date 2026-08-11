@@ -31,9 +31,9 @@ use super::super::state::{
 };
 use super::super::InputStep;
 use super::accessibility_tree::{
-    activate_accessibility_element, element_point, element_point_by_id, element_requires_frontmost,
-    find_ax_window, insert_focused_text, invoke_accessibility_element, is_descendant_of,
-    show_accessibility_menu, validate_element_hit, FocusedTextInput,
+    activate_accessibility_element, element_hit_point_by_id, element_point_by_id,
+    element_requires_frontmost, find_ax_window, insert_focused_text, invoke_accessibility_element,
+    is_descendant_of, show_accessibility_menu, FocusedTextInput,
 };
 use super::{
     bounds_from_dict, dict_i64, integer_param, window_bounds,
@@ -779,19 +779,16 @@ fn resolve_element_point(
         .get("element_id")
         .and_then(Value::as_str)
         .ok_or(("invalid_request", "element_id is required.".to_string()))?;
-    let (x, y) = element_point(observation, params)?;
-    let point = CGPoint { x, y };
-    validate_element_hit(observation, element_id, point)?;
-    Ok(point)
+    let (x, y) = element_hit_point_by_id(observation, element_id)?;
+    Ok(CGPoint { x, y })
 }
 
 fn resolve_element_point_by_id(
     observation: &Observation,
     element_id: &str,
 ) -> Result<CGPoint, (&'static str, String)> {
-    let point = element_point_unchecked(observation, element_id)?;
-    validate_element_hit(observation, element_id, point)?;
-    Ok(point)
+    let (x, y) = element_hit_point_by_id(observation, element_id)?;
+    Ok(CGPoint { x, y })
 }
 
 fn element_point_unchecked(

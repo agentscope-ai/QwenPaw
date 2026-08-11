@@ -166,13 +166,19 @@ including buttons and menu items, and use `set_value` for an `Edit` or
 element exists. Use `invoke` only when a normal click is unavailable and the
 element explicitly lists a suitable accessibility action, or when completing
 the pending semantic edit described below. Use `begin_text_edit` only on an
-observed command whose label explicitly describes entering text-edit mode.
-Unlike an ordinary click or invoke, it may authorize one following `type`
-action when a native transient editor cannot be represented through AX.
+observed `MenuItem` whose command semantics open a native text editor. This
+includes rename or edit-name commands and create-and-name commands that
+immediately open an editor for the new item's name. It is a menu-command
+action, not an editable-control action: never target the resource or text
+element being edited with it. Unlike an ordinary click or invoke, it may
+authorize one following `type` action when a native transient editor cannot be
+represented through AX.
 
 For an application menu, click the observed top-level `MenuItem` by
-`element_id`, inspect its replacement observation, and then click the desired
-command from that open menu. Never act on a closed menu's unobserved children.
+`element_id` and inspect its replacement observation. Click an ordinary
+command from that open menu. If the observed command opens a text editor, use
+`begin_text_edit` on that command instead of `click` or `invoke`. Never act on
+a closed menu's unobserved children.
 
 ```json
 {
@@ -209,10 +215,14 @@ claim success or start another operation while confirmation remains pending.
 On macOS, only use `set_value` when `[settable]` is present. A
 `[resource-backed]` label must first be selected and put into edit mode through
 an observed application command, such as an accessible context-menu edit or
-rename command. Invoke that observed command with `begin_text_edit`; do not use
-it for an ordinary menu command. Do not treat `AXConfirm` or `ENTER` as an edit
-command unless the application explicitly identifies it with the requested
-edit semantics.
+rename command. Open the resource's menu, inspect the replacement observation,
+then invoke its observed edit `MenuItem` with `begin_text_edit`. Never call
+`begin_text_edit` on the resource itself, and do not use it for an ordinary
+menu command. An ordinary `click` or `invoke` deliberately cannot authorize
+transient text input; if one was used on the edit command, reopen the menu and
+use `begin_text_edit` rather than typing. Do not treat `AXConfirm` or `ENTER` as
+an edit command unless the application explicitly identifies it with the
+requested edit semantics.
 Some native editors are transient and appear only as the current focused AX
 element. Type when the replacement observation identifies that editable focus.
 If the command response instead contains `transient_text_ready: true`, the
