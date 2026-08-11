@@ -249,7 +249,7 @@ async def test_request_approval_passes_channel_routing_fields_to_pending(
 
         # Verify the channel routing fields were propagated unconditionally
         assert pending.extra.get("channel_meta") == {
-            "conversation_id": "conv-1"
+            "conversation_id": "conv-1",
         }
         assert pending.extra.get("_channel_instance") == "mock_channel"
         assert "_spawn_subagent" not in pending.extra
