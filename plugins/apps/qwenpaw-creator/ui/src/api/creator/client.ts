@@ -1,4 +1,5 @@
 import type { CreatorApiError } from "@/contracts/creator";
+import i18n from "@/i18n";
 
 export const CREATOR_API_BASE = "/api/qwenpaw-creator";
 
@@ -13,7 +14,7 @@ export class CreatorHttpError extends Error {
   readonly details: Record<string, unknown>;
 
   constructor(status: number, error: Partial<CreatorApiError> = {}) {
-    super(error.message || `Creator 请求失败（${status}）`);
+    super(error.message || i18n.t("api.requestFailed", { status }));
     this.name = "CreatorHttpError";
     this.status = status;
     this.code = error.code || `HTTP_${status}`;
@@ -80,6 +81,27 @@ async function errorFrom(response: Response): Promise<CreatorHttpError> {
     body = (await response.json()) as Partial<CreatorApiError>;
   } catch {
     body = { message: response.statusText };
+  }
+  if (!body.message) {
+    // FastAPI request-body validation failures bypass the Creator error
+    // envelope and answer with a raw `detail` payload; surface the field
+    // errors instead of the opaque "request failed (422)" fallback.
+    const detail = (body as { detail?: unknown }).detail;
+    if (typeof detail === "string") {
+      body = { ...body, message: detail };
+    } else if (Array.isArray(detail)) {
+      const message = detail
+        .map((item) => {
+          const entry = item as { loc?: unknown[]; msg?: string };
+          const loc = Array.isArray(entry.loc)
+            ? entry.loc.filter((part) => part !== "body").join(".")
+            : "";
+          return loc ? `${loc}: ${entry.msg ?? ""}` : entry.msg ?? "";
+        })
+        .filter(Boolean)
+        .join("; ");
+      if (message) body = { ...body, message };
+    }
   }
   return new CreatorHttpError(response.status, body);
 }

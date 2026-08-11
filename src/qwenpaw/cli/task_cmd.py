@@ -258,6 +258,7 @@ def task_cmd(
     """Run a single task instruction headlessly (no web server)."""
     from ..config.config import load_agent_config
     from ..config.config import ModelSlotConfig
+    from ..exceptions import ConfigurationException
     from ..utils.logging import setup_logger
 
     setup_logger("info")
@@ -269,7 +270,7 @@ def task_cmd(
 
     try:
         agent_config = load_agent_config(agent_id)
-    except ValueError as exc:
+    except (ConfigurationException, ValueError) as exc:
         click.echo(f"Error loading agent config: {exc}", err=True)
         sys.exit(1)
 

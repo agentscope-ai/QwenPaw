@@ -1369,9 +1369,8 @@ class XiaoYiChannel(BaseChannel):
         - kind="reasoningText": For thinking/reasoning content
         - kind="text": For regular text content
         """
-        from ....schemas import (
-            MessageType,
-        )
+        from ....agents.context.scroll.serialize import strip_headline
+        from ....schemas import MessageType
 
         msg_type = getattr(message, "type", None)
         content = getattr(message, "content", None) or []
@@ -1383,7 +1382,7 @@ class XiaoYiChannel(BaseChannel):
             if not self._display_config.show_thinking:
                 return [], []
             for c in content:
-                text = getattr(c, "text", None)
+                text = strip_headline(getattr(c, "text", None))
                 if text:
                     # Add newline separator for each thinking content
                     parts.append(
@@ -1439,7 +1438,9 @@ class XiaoYiChannel(BaseChannel):
                                 isinstance(block, dict)
                                 and block.get("type") == "thinking"
                             ):
-                                thinking_text = block.get("thinking", "")
+                                thinking_text = strip_headline(
+                                    block.get("thinking", ""),
+                                )
                                 if thinking_text:
                                     # Add newline separator
                                     parts.append(
@@ -1453,7 +1454,13 @@ class XiaoYiChannel(BaseChannel):
             # Handle TEXT type (regular message content)
             # Add leading newline to separate from previous content
             if ctype == ContentType.TEXT and getattr(c, "text", None):
-                text = c.text
+                # XiaoYi formats normal text itself instead of going through
+                # MessageRenderer, so clean Scroll's display-only retrieval
+                # headline here as well. The original event remains intact for
+                # durable history and indexing.
+                text = strip_headline(c.text)
+                if not text:
+                    continue
                 # Add leading newlines if not already present
                 if not text.startswith("\n"):
                     text = "\n\n" + text

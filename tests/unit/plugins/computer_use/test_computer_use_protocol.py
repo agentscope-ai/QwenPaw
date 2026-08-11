@@ -17,17 +17,20 @@ from typing import Any
 import pytest
 
 from agentscope.message import ToolResultState
-import computer_use_tool.client as client_module
-from computer_use_tool.client import ComputerUseClient
-from computer_use_tool.dispatch import (
+from agentscope.tool import FunctionTool, ToolChunk
+import computer_use.client as client_module
+import computer_use.dispatch as dispatch_module
+from computer_use.client import ComputerUseClient
+from computer_use.dispatch import (
     _element_line,
     _error,
     _native_request,
     _response,
     _with_compact_elements,
+    computer_use,
 )
-from computer_use_tool.protocol import ComputerUseProtocolError
-from computer_use_tool.transport.base import (
+from computer_use.protocol import ComputerUseProtocolError
+from computer_use.transport.base import (
     ComputerUseTransport,
     ReverseRequestHandler,
 )
@@ -98,10 +101,9 @@ def test_host_runtime_requests_a_capability_only_when_needed(
     }
 
 
-def test_coordinate_input_uses_one_observation_context() -> None:
+def test_coordinate_input_leaves_observation_context_to_client() -> None:
     method, params, include_images = _native_request(
         "click",
-        observation_id="observation-1",
         x=40,
         y=60,
         button="left",
@@ -111,7 +113,6 @@ def test_coordinate_input_uses_one_observation_context() -> None:
     assert method == "click"
     assert include_images is False
     assert params == {
-        "observation_id": "observation-1",
         "x": 40,
         "y": 60,
         "button": "left",
@@ -121,31 +122,29 @@ def test_coordinate_input_uses_one_observation_context() -> None:
 
 def test_close_window_maps_to_the_native_method() -> None:
     """Closing acts through the observation and returns no screenshot."""
-    method, params, include_images = _native_request(
-        "close_window",
-        observation_id="observation-1",
-    )
+    method, params, include_images = _native_request("close_window")
 
     assert method == "close_window"
-    assert params == {"observation_id": "observation-1"}
+    assert params == {}
     assert include_images is False
 
 
-def test_close_window_requires_an_observation() -> None:
-    with pytest.raises(ValueError, match="observation_id"):
-        _native_request("close_window", observation_id="")
+def test_client_injects_its_private_observation() -> None:
+    client = ComputerUseClient("session-1")
+    client._observation_id = "observation-1"
+
+    params = client._native_params("close_window", {})
+
+    assert params == {"observation_id": "observation-1"}
 
 
-def test_coordinate_input_rejects_missing_observation() -> None:
-    with pytest.raises(ValueError, match="observation_id"):
-        _native_request(
-            "click",
-            observation_id="",
-            x=40,
-            y=60,
-            button="left",
-            count=1,
-        )
+def test_client_rejects_action_before_observe() -> None:
+    client = ComputerUseClient("session-1")
+
+    with pytest.raises(ComputerUseProtocolError) as refusal:
+        client._native_params("click", {"x": 40, "y": 60})
+
+    assert refusal.value.code == "observation_required"
 
 
 def test_screenshot_data_stays_out_of_the_text_block() -> None:
@@ -179,22 +178,58 @@ def test_screenshot_data_stays_out_of_the_text_block() -> None:
 def test_native_error_marks_the_tool_call_as_failed() -> None:
     response = _error("stale_observation", "Observe the window again.")
 
+    assert isinstance(response, ToolChunk)
     assert response.state == ToolResultState.ERROR
     assert '"ok":false' in response.content[-1].text
 
 
-def test_uia_input_uses_observation_and_element() -> None:
+@pytest.mark.asyncio
+async def test_function_tool_preserves_intervention_error_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The AgentScope boundary must not turn protocol errors into success."""
+
+    class _Enabled:
+        @staticmethod
+        def is_enabled() -> bool:
+            return True
+
+    class _IntervenedClient:
+        @staticmethod
+        async def execute(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            raise ComputerUseProtocolError(
+                "user_intervention",
+                "Recent user input was detected; observe again.",
+            )
+
+    monkeypatch.setattr(dispatch_module, "_check_rate_limit", lambda: None)
+    monkeypatch.setattr(
+        dispatch_module,
+        "get_computer_use_feature_state",
+        lambda: _Enabled(),
+    )
+    monkeypatch.setattr(
+        dispatch_module,
+        "get_computer_use_client",
+        lambda: _IntervenedClient(),
+    )
+
+    response = await FunctionTool(computer_use)(action="list_apps")
+
+    assert isinstance(response, ToolChunk)
+    assert response.is_last is True
+    assert response.state == ToolResultState.ERROR
+    assert '"code":"user_intervention"' in response.content[-1].text
+
+
+def test_uia_input_leaves_observation_to_client() -> None:
     method, params, _ = _native_request(
         "invoke",
-        observation_id="observation-1",
         element_id="uia-7",
     )
 
     assert method == "invoke_element"
-    assert params == {
-        "observation_id": "observation-1",
-        "element_id": "uia-7",
-    }
+    assert params == {"element_id": "uia-7"}
 
 
 class _FakeTransport(ComputerUseTransport):
@@ -215,7 +250,14 @@ class _FakeTransport(ComputerUseTransport):
                 "ok": True,
                 "result": {"protocol_version": 1},
             }
-        return {"request_id": payload["request_id"], "ok": True, "result": {}}
+        result = {}
+        if payload["method"] in client_module._OBSERVED_METHODS:
+            result["observation_id"] = "observation-next"
+        return {
+            "request_id": payload["request_id"],
+            "ok": True,
+            "result": result,
+        }
 
     async def close(self) -> None:
         self.closed = True
@@ -322,15 +364,16 @@ async def test_no_action_ever_carries_a_post_approval_exemption() -> None:
     """
     transport = _FakeTransport()
     client = ComputerUseClient("session-a", lambda: transport)
+    client._observation_id = "observation-1"
     set_current_computer_use_turn_id("turn-1")
     try:
         await client.execute(
             "type_text",
-            {"observation_id": "observation-1", "text": "x"},
+            {"text": "x"},
         )
         assert "after_approval" not in transport.messages[-1]["params"]
 
-        await client.execute("click", {"observation_id": "observation-1"})
+        await client.execute("click", {})
         assert "after_approval" not in transport.messages[-1]["params"]
     finally:
         set_current_computer_use_turn_id(None)

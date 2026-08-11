@@ -79,6 +79,7 @@ repos:
           | \.html$
           | .*/skills/.*
           | ^e2e/
+          | ^plugins/apps/qwenpaw-creator/e2e/
           )
         args: [
           --disable=W0511,

@@ -3,6 +3,8 @@ import type {
   AssetImportView,
   AssetIngestAccepted,
   PostIngestAction,
+  SourceCacheDownloadAccepted,
+  SourceCacheResponse,
 } from "@/contracts/creator";
 import {
   creatorAuthenticatedUrl,
@@ -117,7 +119,7 @@ export function getAssetUnderstanding(
   versionId?: string,
 ) {
   const suffix = versionId ? `/${encodeURIComponent(versionId)}` : "";
-  return creatorRequest<Record<string, unknown>>(
+  return creatorRequest<import("@/contracts/creator").AssetUnderstandingView>(
     `${assetsPath(projectId)}/${encodeURIComponent(
       assetId,
     )}/understanding${suffix}`,
@@ -133,5 +135,30 @@ export function querySourceIndex(
     `${assetsPath(projectId)}/${encodeURIComponent(
       assetId,
     )}/source-index/query?query=${encodeURIComponent(query)}`,
+  );
+}
+
+const sourceCachePath = (projectId: string) =>
+  `/projects/${encodeURIComponent(projectId)}/source-cache`;
+
+/** Local cache state of every URL-backed original-footage version. */
+export function getSourceCache(
+  projectId: string,
+): Promise<SourceCacheResponse> {
+  return creatorRequest(sourceCachePath(projectId));
+}
+
+/** Start downloading one remote original-footage version into the local cache. */
+export function downloadSourceCache(
+  projectId: string,
+  assetVersionId: string,
+): Promise<SourceCacheDownloadAccepted> {
+  return creatorRequest(
+    `${sourceCachePath(projectId)}/${encodeURIComponent(
+      assetVersionId,
+    )}/download`,
+    { method: "POST" },
+    // Original footage can be gigabytes; give the trigger call a long budget.
+    { timeoutMs: 300_000 },
   );
 }

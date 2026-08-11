@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
 import { Modal, message } from "antd";
 import type {
   CreatorContentPart,
@@ -9,13 +11,14 @@ import {
   createAssetImport,
   createProject,
   getAssetImport,
-  getModelConfig,
   getTask,
   ingestAssetFile,
   ingestAssetValue,
   newClientId,
   sendCreatorMessage,
 } from "@/api/creator";
+import { useModelConfigStore } from "@/store/modelConfigStore";
+import { useLaunchUploadStore } from "@/store/launchUploadStore";
 import { taskErrorMessage } from "@/lib/taskPresentation";
 import { creatorStatusLabel } from "@/lib/creatorPresentation";
 import { useRouter } from "@/routing/navigation";
@@ -37,35 +40,34 @@ export const MODES = [
 
 export const AUTO_PROJECT_NAME_LENGTH = 20;
 
-export const SCENARIO_OPTIONS: { key: CreatorScenario; label: string }[] = [
-  { key: "short_drama", label: "短剧" },
-  { key: "video_edit", label: "剪辑" },
-  { key: "general", label: "通用" },
+export const SCENARIO_OPTIONS: { key: CreatorScenario; labelKey: string }[] = [
+  { key: "short_drama", labelKey: "scenario.shortDrama" },
+  { key: "video_edit", labelKey: "scenario.editing" },
+  { key: "general", labelKey: "scenario.general" },
 ];
 
-export const SCENARIO_TERMS: Record<CreatorScenario, { description: string }> =
-  {
-    general: {
-      description:
-        '例：以"我在马路边，捡到一分钱"的儿歌歌词为故事内容，做一个1分钟视频。',
-    },
-    short_drama: {
-      description:
-        "例：霸道总裁短剧。要突出快节奏，强化戏剧冲突，故事要有高频反转，最后要有个美好结局。",
-    },
-    video_edit: {
-      description:
-        "例：把我上传的这段黑白默片老电影，剪辑成一段新视频。新视频长度为30秒。新视频要用彩色图像替换到原有的黑白图像。新视频要给人物加上合适的中文配音。",
-    },
-  };
+export const SCENARIO_TERMS: Record<
+  CreatorScenario,
+  { descriptionKey: string }
+> = {
+  general: {
+    descriptionKey: "scenario.exampleGeneral",
+  },
+  short_drama: {
+    descriptionKey: "scenario.exampleShortDrama",
+  },
+  video_edit: {
+    descriptionKey: "scenario.exampleEditing",
+  },
+};
 
-export const CONTENT_TYPE_OPTIONS: { key: string; label: string }[] = [
-  { key: "pet_video", label: "宠物" },
-  { key: "gaming", label: "游戏" },
-  { key: "sports", label: "体育" },
-  { key: "travel_vlog", label: "旅行" },
-  { key: "interview", label: "采访" },
-  { key: "general", label: "通用" },
+export const CONTENT_TYPE_OPTIONS: { key: string; labelKey: string }[] = [
+  { key: "pet_video", labelKey: "scenario.pet" },
+  { key: "gaming", labelKey: "scenario.game" },
+  { key: "sports", labelKey: "scenario.sports" },
+  { key: "travel_vlog", labelKey: "scenario.travel" },
+  { key: "interview", labelKey: "scenario.interview" },
+  { key: "general", labelKey: "scenario.generalType" },
 ];
 
 const terminal = new Set(["SUCCEEDED", "FAILED", "CANCELLED", "QUARANTINED"]);
@@ -88,13 +90,210 @@ async function waitForTask(
         throw new Error(
           taskErrorMessage(
             task.error,
-            `素材处理失败（${creatorStatusLabel(task.status)}）`,
+            i18n.t("lib.sourceProcessingFailed", {
+              status: creatorStatusLabel(task.status),
+            }),
           ),
         );
       }
       return task.resultRefs;
     }
     await wait(800);
+  }
+}
+
+// Batch launches upload every attachment before the first message can be
+// sent; doing that one file at a time kept users staring at the composer
+// for minutes (field run 2026-08-10: 18 clips ≈ uploads × RTT serialized).
+// A small worker pool preserves per-file error isolation while letting
+// uploads and ingest polling overlap.
+const INGEST_CONCURRENCY = 4;
+
+async function mapWithConcurrency<T>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      for (;;) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= items.length) return;
+        await run(items[index]);
+      }
+    },
+  );
+  await Promise.all(workers);
+}
+
+interface LaunchContinuation {
+  project: Awaited<ReturnType<typeof createProject>>;
+  goal: string;
+  folderFiles: Extract<AttachmentDraft, { kind: "file" }>[];
+  looseFiles: Extract<AttachmentDraft, { kind: "file" }>[];
+  urlAttachments: Extract<AttachmentDraft, { kind: "url" }>[];
+}
+
+/**
+ * Ingest launch attachments and send the durable first message after the
+ * composer already navigated away. Module-level on purpose: it must not
+ * depend on any component lifecycle, and it reports every step to the
+ * launch-upload store so the project workspace can render live progress.
+ */
+async function continueLaunchInBackground({
+  project,
+  goal,
+  folderFiles,
+  looseFiles,
+  urlAttachments,
+}: LaunchContinuation): Promise<void> {
+  const projectId = project.projectId;
+  const progress = useLaunchUploadStore.getState();
+  progress.begin(
+    projectId,
+    folderFiles.length + looseFiles.length + urlAttachments.length,
+  );
+  const refs: string[] = [];
+  const remoteContentParts: CreatorContentPart[] = [];
+  try {
+    if (folderFiles.length > 0) {
+      const files = folderFiles.map((att) => att.file);
+      try {
+        const accepted = await createAssetImport(
+          project.projectId,
+          files,
+          "NONE",
+          newClientId("asset"),
+        );
+        for (;;) {
+          const view = await getAssetImport(
+            project.projectId,
+            accepted.importId,
+          );
+          if (terminal.has(view.status)) {
+            if (view.status !== "SUCCEEDED")
+              throw new Error(
+                i18n.t("lib.folderImportFailed", {
+                  status: creatorStatusLabel(view.status),
+                }),
+              );
+            refs.push(
+              ...view.items.map(
+                (item) => `asset-version:${item.assetVersionId}`,
+              ),
+            );
+            if (view.failures.length > 0) {
+              message.warning(
+                i18n.t("lib.folderImportSkipped", {
+                  count: view.failures.length,
+                }),
+              );
+            }
+            break;
+          }
+          await wait(800);
+        }
+        for (const att of folderFiles) {
+          useLaunchUploadStore
+            .getState()
+            .fileFinished(projectId, att.file.name, true);
+        }
+      } catch (error) {
+        message.warning(
+          i18n.t("lib.folderImportError", {
+            detail: (error as Error).message,
+          }),
+        );
+        for (const att of folderFiles) {
+          useLaunchUploadStore
+            .getState()
+            .fileFinished(projectId, att.file.name, false);
+        }
+      }
+    }
+
+    await mapWithConcurrency(looseFiles, INGEST_CONCURRENCY, async (att) => {
+      const store = useLaunchUploadStore.getState();
+      store.fileStarted(projectId, att.file.name);
+      try {
+        const accepted = await ingestAssetFile(
+          project.projectId,
+          att.file,
+          "NONE",
+          newClientId("asset"),
+        );
+        const taskRefs = accepted.assetVersionId
+          ? [`asset-version:${accepted.assetVersionId}`]
+          : await waitForTask(project.projectId, accepted.taskId);
+        refs.push(...taskRefs);
+        useLaunchUploadStore
+          .getState()
+          .fileFinished(projectId, att.file.name, true);
+      } catch (error) {
+        useLaunchUploadStore
+          .getState()
+          .fileFinished(projectId, att.file.name, false);
+        message.warning(
+          i18n.t("lib.attachmentIngestFailed", {
+            name: att.file.name,
+            detail: (error as Error).message,
+          }),
+        );
+      }
+    });
+
+    for (const att of urlAttachments) {
+      // The Agent can consume the public URL immediately. Local caching is
+      // a parallel Runtime task whose progress is rendered in the Project.
+      remoteContentParts.push(remoteUrlContentPart(att.url));
+      try {
+        const accepted = await ingestAssetValue(
+          project.projectId,
+          {
+            kind: "url",
+            name: att.url,
+            value: att.url,
+            postIngestAction: "NONE",
+          },
+          newClientId("asset"),
+        );
+        if (accepted.assetVersionId) {
+          refs.push(`asset-version:${accepted.assetVersionId}`);
+        }
+        useLaunchUploadStore.getState().fileFinished(projectId, att.url, true);
+      } catch (error) {
+        useLaunchUploadStore.getState().fileFinished(projectId, att.url, false);
+        message.warning(
+          i18n.t("lib.attachmentIngestFailed", {
+            name: att.url,
+            detail: (error as Error).message,
+          }),
+        );
+      }
+    }
+
+    useLaunchUploadStore.getState().messaging(projectId);
+    const uniqueRefs = [...new Set(refs)].filter((ref) =>
+      ref.startsWith("asset-version:"),
+    );
+    // Deliberate: the first message is sent even when every ingest failed —
+    // the text goal alone is a valid brief, and each failure was already
+    // surfaced to the user as a warning above.
+    await sendCreatorMessage(project.projectId, {
+      clientMessageId: newClientId("initial-message"),
+      creatorSessionId: project.creatorSessionId,
+      conversationId: project.conversationId,
+      content: [{ type: "text", text: goal }, ...remoteContentParts],
+      assetVersionRefs: uniqueRefs,
+      context: { panel: "composer" },
+    });
+    useLaunchUploadStore.getState().finish(projectId, true);
+  } catch (error) {
+    useLaunchUploadStore.getState().finish(projectId, false);
+    message.error((error as Error).message || i18n.t("home.launchFailed"));
   }
 }
 
@@ -118,7 +317,7 @@ function remoteUrlContentPart(url: string): CreatorContentPart {
   try {
     pathname = new URL(url).pathname.toLowerCase();
   } catch {
-    return { type: "text", text: `远程素材 URL：${url}` };
+    return { type: "text", text: i18n.t("lib.remoteSourceUrl", { url }) };
   }
   if (/\.(png|jpe?g|webp|gif|bmp|avif)$/.test(pathname)) {
     return { type: "image_url", image_url: { url } };
@@ -126,7 +325,7 @@ function remoteUrlContentPart(url: string): CreatorContentPart {
   if (/\.(mp4|mov|m4v|webm|mkv|avi|mpeg|mpg)$/.test(pathname)) {
     return { type: "video_url", video_url: { url } };
   }
-  return { type: "text", text: `远程素材 URL：${url}` };
+  return { type: "text", text: i18n.t("lib.remoteSourceUrl", { url }) };
 }
 
 /**
@@ -135,6 +334,7 @@ function remoteUrlContentPart(url: string): CreatorContentPart {
  * folder / URL), required-model validation and the idempotent launch flow.
  */
 export function useProjectLaunch(options?: { onLaunched?: () => void }) {
+  const { t } = useTranslation();
   const onLaunched = options?.onLaunched;
   const router = useRouter();
   const [projectName, setProjectName] = useState("");
@@ -152,7 +352,10 @@ export function useProjectLaunch(options?: { onLaunched?: () => void }) {
   const projectRequest = useRef({ signature: "", id: "" });
   const initialMessageRequests = useRef(new Map<string, string>());
   const sourceRequestIds = useRef(new Map<string, string>());
-  const [modelConfig, setModelConfig] = useState<ModelConfigData | null>(null);
+  // Shared snapshot: saving the config in the home banner or header badges
+  // modal must clear this composer's required-model hint without a reload.
+  const modelConfig = useModelConfigStore((state) => state.config);
+  const refreshModelConfig = useModelConfigStore((state) => state.refresh);
   const [modelConfigModalOpen, setModelConfigModalOpen] = useState(false);
   const hasUrl =
     urlDraft.trim().length > 0 || attachments.some((att) => att.kind === "url");
@@ -177,14 +380,9 @@ export function useProjectLaunch(options?: { onLaunched?: () => void }) {
     }
     return missing;
   }, [modelConfig, scenario, hasAttachments]);
-  const refreshModelConfig = useCallback(() => {
-    getModelConfig()
-      .then(setModelConfig)
-      .catch(() => setModelConfig(null));
-  }, []);
   useEffect(() => {
-    refreshModelConfig();
-  }, [refreshModelConfig, scenario, hasAttachments]);
+    void refreshModelConfig();
+  }, [refreshModelConfig]);
 
   const requestIdFor = (key: string) => {
     const existing = sourceRequestIds.current.get(key);
@@ -207,7 +405,7 @@ export function useProjectLaunch(options?: { onLaunched?: () => void }) {
     if (oversized.length > 0) {
       const errorMessage = `${oversized.map((f) => f.name).join("\n")}`;
       Modal.error({
-        title: "文件尺寸超过 100MB 限制",
+        title: t("home.fileSizeLimit"),
         content: <div style={{ whiteSpace: "pre-wrap" }}>{errorMessage}</div>,
       });
       return true;
@@ -240,7 +438,7 @@ export function useProjectLaunch(options?: { onLaunched?: () => void }) {
     const url = urlDraft.trim();
     if (!url) return;
     if (!/^https?:\/\//i.test(url)) {
-      message.warning("请输入以 http(s):// 开头的链接");
+      message.warning(t("home.urlFormatError"));
       return;
     }
     setAttachments((prev) => [
@@ -269,28 +467,28 @@ export function useProjectLaunch(options?: { onLaunched?: () => void }) {
   };
 
   const launchHint = () => {
-    if (!projectDescription.trim()) return "请用文字描述你的目标";
-    if (isVideoEdit && contentType === null) return "请选择视频剪辑的内容类型";
-    if (hasMissingModels) return "请先配置当前场景必选的模型";
+    if (!projectDescription.trim()) return t("home.inputPlaceholder");
+    if (isVideoEdit && contentType === null) return t("home.selectContentType");
+    if (hasMissingModels) return t("home.configureRequiredModel");
     return undefined;
   };
 
   const handleLaunch = async () => {
     if (!projectDescription.trim()) {
-      message.warning("请先用文字描述你的目标，附件会作为项目资产入库");
+      message.warning(t("home.describeTargetFirst"));
       return;
     }
     if (isVideoEdit && contentType === null) {
-      message.warning("请选择视频剪辑的内容类型");
+      message.warning(t("home.selectContentType"));
       return;
     }
     if (hasMissingModels) {
-      message.warning("请先配置当前场景必选的模型");
+      message.warning(t("home.configureRequiredModel"));
       return;
     }
     const pendingUrl = urlDraft.trim();
     if (pendingUrl && !/^https?:\/\//i.test(pendingUrl)) {
-      message.warning("URL 格式不正确，请以 http:// 或 https:// 开头");
+      message.warning(t("home.urlFormatError"));
       return;
     }
     setLaunching(true);
@@ -348,141 +546,26 @@ export function useProjectLaunch(options?: { onLaunched?: () => void }) {
         return;
       }
 
-      const refs: string[] = [];
-      const remoteContentParts: CreatorContentPart[] = [];
-      if (folderFiles.length > 0) {
-        try {
-          const files = folderFiles.map((att) => att.file);
-          if (stopOnOversizedFiles(files)) {
-            return;
-          }
-          const folderKey = files
-            .map((file) => {
-              const relative =
-                (file as File & { webkitRelativePath?: string })
-                  .webkitRelativePath || file.name;
-              return `${relative}:${file.size}:${file.lastModified}`;
-            })
-            .join("|");
-          const accepted = await createAssetImport(
-            project.projectId,
-            files,
-            "NONE",
-            requestIdFor(`folder:${folderKey}`),
-          );
-          for (;;) {
-            const view = await getAssetImport(
-              project.projectId,
-              accepted.importId,
-            );
-            if (terminal.has(view.status)) {
-              if (view.status !== "SUCCEEDED")
-                throw new Error(
-                  `文件夹导入失败（${creatorStatusLabel(view.status)}）`,
-                );
-              refs.push(
-                ...view.items.map(
-                  (item) => `asset-version:${item.assetVersionId}`,
-                ),
-              );
-              if (view.failures.length > 0) {
-                message.warning(
-                  `文件夹导入完成，跳过 ${view.failures.length} 个文件`,
-                );
-              }
-              break;
-            }
-            await wait(800);
-          }
-        } catch (error) {
-          message.warning(`文件夹导入失败：${(error as Error).message}`);
-        }
-      }
-
-      for (const att of looseFiles) {
-        try {
-          const accepted = await ingestAssetFile(
-            project.projectId,
-            att.file,
-            "NONE",
-            requestIdFor(
-              `file:${att.file.name}:${att.file.size}:${att.file.lastModified}`,
-            ),
-          );
-          const taskRefs = accepted.assetVersionId
-            ? [`asset-version:${accepted.assetVersionId}`]
-            : await waitForTask(project.projectId, accepted.taskId);
-          refs.push(...taskRefs);
-        } catch (error) {
-          message.warning(
-            `附件「${att.file.name}」入库失败：${(error as Error).message}`,
-          );
-        }
-      }
-
-      for (const att of urlAttachments) {
-        // The Agent can consume the public URL immediately. Local caching is a
-        // parallel Runtime task whose progress is rendered in the Project.
-        remoteContentParts.push(remoteUrlContentPart(att.url));
-        try {
-          const accepted = await ingestAssetValue(
-            project.projectId,
-            {
-              kind: "url",
-              name: att.url,
-              value: att.url,
-              postIngestAction: "NONE",
-            },
-            requestIdFor(`url:${att.url}`),
-          );
-          const taskRefs = accepted.assetVersionId
-            ? [`asset-version:${accepted.assetVersionId}`]
-            : [];
-          refs.push(...taskRefs);
-        } catch (error) {
-          message.warning(
-            `附件「${att.url}」入库失败：${(error as Error).message}`,
-          );
-        }
-      }
-
-      const uniqueRefs = [...new Set(refs)].filter((ref) =>
-        ref.startsWith("asset-version:"),
-      );
-      const messageSignature = JSON.stringify({
-        projectId: project.projectId,
-        conversationId: project.conversationId,
-        goal: projectDescription.trim(),
-        assetVersionRefs: uniqueRefs,
-        remoteUrls: urlAttachments.map((item) => item.url),
-      });
-      const clientMessageId =
-        initialMessageRequests.current.get(messageSignature) ??
-        newClientId("initial-message");
-      initialMessageRequests.current.set(messageSignature, clientMessageId);
-      await sendCreatorMessage(project.projectId, {
-        clientMessageId,
-        creatorSessionId: project.creatorSessionId,
-        conversationId: project.conversationId,
-        content: [
-          { type: "text", text: projectDescription.trim() },
-          ...remoteContentParts,
-        ],
-        assetVersionRefs: uniqueRefs,
-        context: { panel: "composer" },
-      });
-      // Keep the Composer context alive until the durable first message has
-      // been accepted.  Navigating before a slow remote ingest completes can
-      // tear down this async continuation and leave a valid Project with no
-      // Goal, no message, and an AgentDock permanently showing IDLE.
+      // Navigate immediately: the user lands on the project page while
+      // attachments upload in the background. The continuation lives at
+      // module level (not in this component's closure), reports to the
+      // launch-upload store for the workspace progress card, and sends
+      // the durable first message once every ingest settled — so a
+      // torn-down composer can no longer strand a Goal-less Project.
       router.push(`/project/${project.projectId}/plan`);
       onLaunched?.();
-      initialMessageRequests.current.delete(messageSignature);
       projectRequest.current = { signature: "", id: "" };
       initialMessageRequests.current.clear();
       sourceRequestIds.current.clear();
+      void continueLaunchInBackground({
+        project,
+        goal: projectDescription.trim(),
+        folderFiles,
+        looseFiles,
+        urlAttachments,
+      });
     } catch (error) {
-      message.error((error as Error).message || "启动失败");
+      message.error((error as Error).message || t("home.launchFailed"));
     } finally {
       setLaunching(false);
     }

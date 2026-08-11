@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
-# pylint: disable=redefined-builtin
+# pylint: disable=redefined-builtin,protected-access
 from __future__ import annotations
 
 import asyncio
@@ -148,6 +148,33 @@ async def test_local_streaming_detects_video_magic_and_returns_integrity(
     assert result.media_type == actual_type
     assert result.source_kind == "local"
     assert result.path.read_bytes() == content
+
+
+@_run_async
+async def test_local_streaming_path_fallback_without_descriptor_rooted_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        secure_video_stream,
+        "_supports_descriptor_rooted_io",
+        lambda: False,
+    )
+    project_root, scratch = _scope(tmp_path)
+    source = scratch / "provider-output.bin"
+    source.write_bytes(_MP4)
+
+    result = await SecureR2VVideoMaterializer().materialize(
+        {"path": str(source), "media_type": "video/mp4"},
+        project_root=project_root,
+        project_id="project-1",
+        task_id="task-1",
+    )
+
+    assert result.path.parent == scratch
+    assert result.path.suffix == ".mp4"
+    assert result.sha256 == hashlib.sha256(_MP4).hexdigest()
+    assert result.path.read_bytes() == _MP4
 
 
 @pytest.mark.parametrize(
@@ -526,3 +553,77 @@ def test_implementation_has_no_buffer_join_or_bytes_staging() -> None:
     assert "stage_bytes" not in source
     assert "chunks.append" not in source
     assert 'b"".join' not in source
+
+
+# ── Windows path semantics for provider-local results ─────────────────────
+
+
+def _windows_semantics(monkeypatch) -> None:
+    """Emulate Windows path/URL parsing on any host.
+
+    The production code uses the platform ``Path`` and ``url2pathname``;
+    swapping in their Windows counterparts reproduces exactly what a
+    Windows interpreter would do.
+    """
+
+    import nturl2path
+    from pathlib import PureWindowsPath
+
+    monkeypatch.setattr(secure_video_stream, "Path", PureWindowsPath)
+    monkeypatch.setattr(
+        secure_video_stream,
+        "url2pathname",
+        nturl2path.url2pathname,
+    )
+
+
+def test_windows_native_and_file_uri_paths_resolve_to_scratch(
+    monkeypatch,
+) -> None:
+    """Drive-letter paths and Path.as_uri() file URLs must materialize.
+
+    The review's reproduction: ``file:///C:/...`` was parsed with POSIX
+    semantics into a drive-less path and rejected, and ``C:\\...`` was
+    read as URL scheme "c".
+    """
+
+    from pathlib import PureWindowsPath
+
+    _windows_semantics(monkeypatch)
+    project_root = PureWindowsPath(r"C:\data\project-1")
+
+    for source in (
+        r"C:\data\project-1\runtime\task-work\task-1\out.mp4",
+        "C:/data/project-1/runtime/task-work/task-1/out.mp4",
+        "file:///C:/data/project-1/runtime/task-work/task-1/out.mp4",
+    ):
+        parts = secure_video_stream._local_relative_parts(  # noqa: SLF001
+            source,
+            project_root=project_root,
+            project_id="project-1",
+            task_id="task-1",
+        )
+        assert parts == ("out.mp4",), source
+
+
+def test_windows_paths_outside_the_scratch_stay_rejected(monkeypatch) -> None:
+    """The Windows forms gain no way around the Task scratch containment."""
+
+    from pathlib import PureWindowsPath
+
+    _windows_semantics(monkeypatch)
+    project_root = PureWindowsPath(r"C:\data\project-1")
+
+    for source in (
+        r"C:\data\project-1\runtime\task-work\task-2\out.mp4",
+        r"D:\elsewhere\out.mp4",
+        r"\\server\share\out.mp4",
+        "file:///C:/data/other/out.mp4",
+    ):
+        with pytest.raises(ValidationError, match="跨越|scope"):
+            secure_video_stream._local_relative_parts(  # noqa: SLF001
+                source,
+                project_root=project_root,
+                project_id="project-1",
+                task_id="task-1",
+            )

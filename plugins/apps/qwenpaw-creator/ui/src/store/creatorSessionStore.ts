@@ -22,6 +22,7 @@ import {
   isTechnicalControlText,
   isUserAuthorityMessage,
 } from "@/lib/creatorMessagePresentation";
+import i18n from "@/i18n";
 
 const conversationRetryIds = new Map<string, string>();
 
@@ -51,8 +52,10 @@ export interface StreamingAssistantMessage {
   toolCall?: {
     id: string;
     name: string;
-    argumentDeltas: Record<number, string>;
     arguments?: Record<string, unknown>;
+    receivedBytes?: number;
+    providerChunkCount?: number;
+    argumentStreamComplete?: boolean;
   };
   createdAt: string;
 }
@@ -76,8 +79,10 @@ export interface SubagentStreamTool {
   tool: string;
   firstEventSeq: number;
   status: "started" | "succeeded" | "failed";
-  argumentDeltas?: Record<number, string>;
   arguments?: Record<string, unknown>;
+  receivedBytes?: number;
+  providerChunkCount?: number;
+  argumentStreamComplete?: boolean;
   result?: unknown;
   state?: string;
   taskId?: string;
@@ -105,6 +110,12 @@ export interface SubagentActivity {
   tools: Record<string, SubagentStreamTool>;
 }
 
+export interface RateLimitRetryState {
+  attempt: number;
+  maxAttempts: number;
+  runId: string;
+}
+
 interface CreatorSessionState {
   projectId: string | null;
   session: CreatorSessionView | null;
@@ -125,6 +136,7 @@ interface CreatorSessionState {
   isReplaying: boolean;
   error: string | null;
   stream: CreatorEventStream | null;
+  rateLimitRetry: RateLimitRetryState | null;
   bootstrap: (projectId: string) => Promise<void>;
   setConversation: (conversationId: string) => Promise<void>;
   newConversation: () => Promise<string>;
@@ -226,6 +238,7 @@ function subagentActivityBase(
       ? event.seq
       : existing?.firstEventSeq ?? event.seq,
     completed: runChanged ? false : existing?.completed ?? false,
+    waitingReview: runChanged ? undefined : existing?.waitingReview,
     terminalKind: runChanged ? undefined : existing?.terminalKind,
     summaryText: runChanged ? undefined : existing?.summaryText,
     terminalEventSeq: runChanged ? undefined : existing?.terminalEventSeq,
@@ -349,6 +362,7 @@ function defaultState() {
     isReplaying: false,
     error: null,
     stream: null as CreatorEventStream | null,
+    rateLimitRetry: null as RateLimitRetryState | null,
   };
 }
 
@@ -759,7 +773,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
 
       newConversation: async () => {
         const { projectId, activeConversationId } = get();
-        if (!projectId) throw new Error("Creator Session 尚未初始化");
+        if (!projectId) throw new Error(i18n.t("store.sessionNotInit"));
         const created = await createStableConversation(projectId);
         if (
           get().projectId !== projectId ||
@@ -847,7 +861,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
       sendMessage: async (input) => {
         const { projectId, session, activeConversationId } = get();
         if (!projectId || !session || !activeConversationId)
-          throw new Error("Creator Session 尚未初始化");
+          throw new Error(i18n.t("store.sessionNotInit"));
         const text =
           input.message ??
           input.content?.find((part) => part.type === "text")?.text ??
@@ -1003,12 +1017,13 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           let subagentActivities = current.subagentActivities;
           let queuedUi = current.queuedUi;
           let session = current.session;
+          let rateLimitRetry = current.rateLimitRetry;
           accepted.forEach((event) => {
             const actionId = eventString(event.data, "actionId");
             const subagentDetail =
               event.type === "subagent.message_delta" ||
               event.type === "subagent.message_completed" ||
-              event.type === "subagent.tool_delta" ||
+              event.type === "subagent.tool_progress" ||
               event.type === "subagent.tool_started" ||
               event.type === "subagent.tool_completed";
             const subagentLifecycle = SUBAGENT_LIFECYCLE_EVENTS.has(event.type);
@@ -1180,7 +1195,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
               }
 
               if (
-                event.type === "subagent.tool_delta" ||
+                event.type === "subagent.tool_progress" ||
                 event.type === "subagent.tool_started" ||
                 event.type === "subagent.tool_completed"
               ) {
@@ -1190,40 +1205,9 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                 if (toolCallId && runId) {
                   const toolKey = `${runId}:${toolCallId}`;
                   const existingTool = activity.tools[toolKey];
-                  let argumentDeltas = existingTool?.argumentDeltas ?? {};
-                  if (event.type === "subagent.tool_delta") {
-                    const deltaIndex = Number(event.data.deltaIndex);
-                    const argumentsDelta = event.data.argumentsDelta;
-                    if (
-                      Number.isInteger(deltaIndex) &&
-                      deltaIndex >= 0 &&
-                      typeof argumentsDelta === "string" &&
-                      !(deltaIndex in argumentDeltas)
-                    ) {
-                      argumentDeltas = {
-                        ...argumentDeltas,
-                        [deltaIndex]: argumentsDelta,
-                      };
-                    }
-                  }
-                  let parsedArguments = isRecord(event.data.arguments)
+                  const parsedArguments = isRecord(event.data.arguments)
                     ? event.data.arguments
                     : existingTool?.arguments;
-                  if (
-                    !parsedArguments &&
-                    Object.keys(argumentDeltas).length > 0
-                  ) {
-                    const rawArguments = Object.entries(argumentDeltas)
-                      .sort(([left], [right]) => Number(left) - Number(right))
-                      .map(([, value]) => value)
-                      .join("");
-                    try {
-                      const candidate = JSON.parse(rawArguments) as unknown;
-                      if (isRecord(candidate)) parsedArguments = candidate;
-                    } catch {
-                      // Partial JSON stays visible until deltas complete it.
-                    }
-                  }
                   const nextTool: SubagentStreamTool = {
                     toolCallId,
                     runId,
@@ -1236,8 +1220,19 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                       event.type !== "subagent.tool_completed"
                         ? "started"
                         : subagentToolStatus(event.data.state),
-                    argumentDeltas,
                     arguments: parsedArguments,
+                    receivedBytes:
+                      typeof event.data.receivedBytes === "number"
+                        ? event.data.receivedBytes
+                        : existingTool?.receivedBytes,
+                    providerChunkCount:
+                      typeof event.data.providerChunkCount === "number"
+                        ? event.data.providerChunkCount
+                        : existingTool?.providerChunkCount,
+                    argumentStreamComplete:
+                      typeof event.data.complete === "boolean"
+                        ? event.data.complete
+                        : existingTool?.argumentStreamComplete,
                     result:
                       event.type === "subagent.tool_completed"
                         ? event.data.result
@@ -1282,8 +1277,10 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             }
             if (
               event.type === "agent.run.failed" ||
-              event.type === "agent.run.cancelled"
+              event.type === "agent.run.cancelled" ||
+              event.type === "agent.run.completed"
             ) {
+              rateLimitRetry = null;
               const terminalRunId = eventString(event.data, "runId");
               if (terminalRunId) {
                 const remaining = Object.fromEntries(
@@ -1298,8 +1295,42 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                   streamingAssistantMessages = remaining;
                 }
               }
+              if (event.type === "agent.run.failed" && session) {
+                const errorPayload = event.data.error as
+                  | {
+                      code?: string;
+                      message?: string;
+                      retryable?: boolean;
+                      details?: Record<string, unknown>;
+                    }
+                  | undefined;
+                if (errorPayload?.message) {
+                  session = {
+                    ...session,
+                    error: errorPayload as {
+                      code: string;
+                      message: string;
+                      retryable: boolean;
+                      details?: Record<string, unknown>;
+                    },
+                  };
+                }
+              }
+            }
+            if (event.type === "agent.model.rate_limit_retry") {
+              const attempt = Number(event.data.attempt);
+              const maxAttempts = Number(event.data.maxAttempts);
+              if (Number.isFinite(attempt) && Number.isFinite(maxAttempts)) {
+                rateLimitRetry = {
+                  attempt,
+                  maxAttempts,
+                  runId: eventString(event.data, "runId") ?? "",
+                };
+              }
             }
             if (event.type === "agent.message_delta") {
+              // The model answered again, so any throttling notice is stale.
+              rateLimitRetry = null;
               const messageId =
                 typeof event.data.messageId === "string"
                   ? event.data.messageId
@@ -1352,43 +1383,16 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                 }
               }
             }
-            if (event.type === "agent.tool_delta") {
+            if (event.type === "agent.tool_progress") {
               const messageId = eventString(event.data, "messageId");
               const toolCallId = eventString(event.data, "toolCallId");
               const toolName = eventString(event.data, "tool");
-              const deltaIndex = Number(event.data.deltaIndex);
-              const argumentsDelta = event.data.argumentsDelta;
               const alreadyDurable = messageId
                 ? messages.some((message) => message.messageId === messageId)
                 : false;
-              if (
-                messageId &&
-                toolCallId &&
-                toolName &&
-                Number.isInteger(deltaIndex) &&
-                deltaIndex >= 0 &&
-                typeof argumentsDelta === "string" &&
-                !alreadyDurable
-              ) {
+              if (messageId && toolCallId && toolName && !alreadyDurable) {
                 const existing = streamingAssistantMessages[messageId];
                 const currentTool = existing?.toolCall;
-                const argumentDeltas = {
-                  ...(currentTool?.id === toolCallId
-                    ? currentTool.argumentDeltas
-                    : {}),
-                  [deltaIndex]: argumentsDelta,
-                };
-                const rawArguments = Object.entries(argumentDeltas)
-                  .sort(([left], [right]) => Number(left) - Number(right))
-                  .map(([, value]) => value)
-                  .join("");
-                let parsedArguments: Record<string, unknown> | undefined;
-                try {
-                  const candidate = JSON.parse(rawArguments) as unknown;
-                  if (isRecord(candidate)) parsedArguments = candidate;
-                } catch {
-                  // Partial provider JSON is retained in argumentDeltas.
-                }
                 streamingAssistantMessages = {
                   ...streamingAssistantMessages,
                   [messageId]: {
@@ -1400,8 +1404,22 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                     toolCall: {
                       id: toolCallId,
                       name: toolName,
-                      argumentDeltas,
-                      arguments: parsedArguments,
+                      arguments:
+                        currentTool?.id === toolCallId
+                          ? currentTool.arguments
+                          : undefined,
+                      receivedBytes:
+                        typeof event.data.receivedBytes === "number"
+                          ? event.data.receivedBytes
+                          : currentTool?.receivedBytes,
+                      providerChunkCount:
+                        typeof event.data.providerChunkCount === "number"
+                          ? event.data.providerChunkCount
+                          : currentTool?.providerChunkCount,
+                      argumentStreamComplete:
+                        typeof event.data.complete === "boolean"
+                          ? event.data.complete
+                          : currentTool?.argumentStreamComplete,
                     },
                     createdAt: existing?.createdAt ?? event.at,
                   },
@@ -1505,6 +1523,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                   status === "CANCELLED" ||
                   status === "ERROR"
                 ) {
+                  rateLimitRetry = null;
                   Object.entries(subagentActivities).forEach(
                     ([key, activity]) => {
                       if (activity.completed) return;
@@ -1514,7 +1533,8 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                           ...activity,
                           completed: true,
                           terminalKind: "CANCELLED" as const,
-                          summaryText: activity.summaryText ?? "用户中止",
+                          summaryText:
+                            activity.summaryText ?? i18n.t("store.userAbort"),
                           terminalEventSeq: event.seq,
                         },
                       };
@@ -1545,6 +1565,9 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           }
           if (queuedUi !== current.queuedUi) patch.queuedUi = queuedUi;
           if (session !== current.session) patch.session = session;
+          if (rateLimitRetry !== current.rateLimitRetry) {
+            patch.rateLimitRetry = rateLimitRetry;
+          }
           return patch;
         });
         if (messageRefreshAfter != null)

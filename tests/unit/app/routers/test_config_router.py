@@ -8,6 +8,8 @@ errors.  Covers:
 - ``GET /config/channels/types`` — pure list
 - ``GET /config/channels`` — happy path through ``get_agent_for_request``
 - ``PUT /config/channels`` — round-trip + agent reload trigger
+- ``GET/PUT /config/channels/{name}`` — per-channel shape is preserved
+  and built-in payloads are validated before they reach the disk
 - ``GET /config/security/tool-guard`` — happy path
 - ``PUT /config/security/tool-guard`` — happy path + engine reload
 - 422 on a malformed PUT body
@@ -26,10 +28,12 @@ from fastapi.testclient import TestClient
 
 from qwenpaw.app.crons import heartbeat
 from qwenpaw.app.routers.config import router as config_router
+from qwenpaw.config import get_available_channels
 from qwenpaw.config.config import (
     ChannelConfig,
     ConsoleConfig,
     HeartbeatConfig,
+    OneBotConfig,
     ToolGuardConfig,
 )
 from qwenpaw.constant import (
@@ -165,6 +169,121 @@ def test_put_channels_422_on_invalid_payload(client, patch_get_agent):
     )
 
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# /config/channels/{name} — per-channel shape must not be coerced
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("channel_name", sorted(ChannelConfig.model_fields))
+def test_get_single_channel_returns_its_own_shape(
+    client,
+    patch_get_agent,
+    channel_name,
+):
+    """Each built-in channel answers with exactly its own fields.
+
+    Regression guard: a config model missing from ``ChannelConfigUnion``
+    could not be matched by FastAPI, which then coerced the response
+    into another member and served a foreign channel's fields.
+    """
+    if channel_name not in get_available_channels():
+        pytest.skip(f"channel {channel_name} unavailable in this env")
+
+    response = client.get(f"/api/config/channels/{channel_name}")
+
+    assert response.status_code == 200, response.text
+    own_fields = set(
+        ChannelConfig.model_fields[channel_name].annotation.model_fields,
+    )
+    assert set(response.json()) == own_fields
+
+
+def test_get_onebot_channel_keeps_reverse_ws_fields(
+    client,
+    fake_agent_workspace,
+    patch_get_agent,
+):
+    """OneBot reverse WebSocket fields survive serialization."""
+    fake_agent_workspace.config.channels = ChannelConfig(
+        onebot=OneBotConfig(
+            enabled=True,
+            ws_host="10.88.0.10",
+            ws_port=6199,
+            access_token="secret-token",
+        ),
+    )
+
+    response = client.get("/api/config/channels/onebot")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["ws_host"] == "10.88.0.10"
+    assert body["ws_port"] == 6199
+    assert body["access_token"] == "secret-token"
+    # Fields belonging to an unrelated channel must not leak in.
+    assert "app_id" not in body
+    assert "domain" not in body
+
+
+def test_put_onebot_channel_stores_a_validated_model(
+    client,
+    fake_agent_workspace,
+    patch_get_agent,
+):
+    """A built-in channel payload is parsed into its config model."""
+    payload = OneBotConfig(
+        enabled=True,
+        ws_host="10.88.0.10",
+        access_token="secret-token",
+    ).model_dump()
+
+    with (
+        patch("qwenpaw.config.config.save_agent_config") as save_mock,
+        patch(
+            "qwenpaw.app.routers.config.schedule_agent_reload",
+        ) as reload_mock,
+    ):
+        response = client.put("/api/config/channels/onebot", json=payload)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["ws_host"] == "10.88.0.10"
+    # A raw dict here would bypass validation and reach agent.json.
+    stored = fake_agent_workspace.config.channels.onebot
+    assert isinstance(stored, OneBotConfig)
+    assert stored.access_token == "secret-token"
+
+    save_mock.assert_called_once()
+    reload_mock.assert_called_once()
+
+
+def test_put_onebot_channel_rejects_invalid_value(
+    app,
+    fake_agent_workspace,
+    patch_get_agent,
+):
+    """An invalid value is refused instead of reaching the disk.
+
+    The rejection currently surfaces as a 500 because the model error
+    propagates; 422 is accepted too so that turning it into a proper
+    validation response stays a green change.  A 404 would mean the
+    route never ran, which must not pass for this guard.
+    """
+    lenient_client = TestClient(app, raise_server_exceptions=False)
+
+    with patch("qwenpaw.config.config.save_agent_config") as save_mock:
+        response = lenient_client.put(
+            "/api/config/channels/onebot",
+            json={"enabled": True, "ws_port": "not-a-port"},
+        )
+
+    assert response.status_code in (422, 500)
+    save_mock.assert_not_called()
+    assert isinstance(
+        fake_agent_workspace.config.channels.onebot,
+        OneBotConfig,
+    )
 
 
 # ---------------------------------------------------------------------------

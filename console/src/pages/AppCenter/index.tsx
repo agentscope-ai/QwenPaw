@@ -3,8 +3,8 @@
  *
  * Lists all plugins with `meta.pawapp` from the backend. Clicking an
  * app renders its registered route component INLINE within this page
- * (no full-page navigation). The URL bar mirrors the app path while keeping
- * OS-owned pages under `/os`, so refresh never falls back to the classic UI.
+ * (no full-page navigation). The classic console mirrors the app path in the
+ * URL; the Desktop OS keeps its single `/os` browser entry point.
  */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -36,13 +36,14 @@ import { useAppMessage } from "@/hooks/useAppMessage";
 import { pawappApi } from "../../api/modules/pawapp";
 import { useRoutes } from "../../plugins/registry/hooks";
 import { setActivePawAppId } from "../../plugins/pawapp-sdk/context";
-import { AppCard, type AppCardData } from "./AppCard";
+import { AppCard, pickAppDescription, type AppCardData } from "./AppCard";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import {
   addRouterBasename,
-  getOsAppHref,
+  getOsPawAppIdFromHistoryState,
   getOsRootHref,
   isOsPath,
+  withOsPawAppHistoryState,
 } from "../../utils/navigationMode";
 import styles from "./index.module.less";
 
@@ -57,8 +58,17 @@ const { Option } = Select;
 /** URL-persisted App Center views; unknown values fall back to installed. */
 type AppCenterView = "installed" | "official" | "market";
 
+// Featured installed apps (e.g. Creator) are pinned to the top of the grid.
+// Lower index = higher placement.
+const FEATURED_APP_IDS = ["qwenpaw-creator"];
+
+function featuredRank(id: string): number {
+  const index = FEATURED_APP_IDS.indexOf(id);
+  return index === -1 ? FEATURED_APP_IDS.length : index;
+}
+
 export default function AppCenterPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { appId } = useParams();
   const { message } = useAppMessage();
   const routes = useRoutes();
@@ -96,6 +106,7 @@ export default function AppCenterPage() {
           name: app.name,
           version: app.version,
           description: app.description,
+          description_i18n: app.description_i18n ?? {},
           category: app.category ?? "",
           icon: app.icon ?? "",
           icon_url: app.icon_url ?? "",
@@ -139,18 +150,21 @@ export default function AppCenterPage() {
     return Array.from(cats).sort();
   }, [apps]);
 
-  // Filter apps
+  // Filter apps (featured apps stay pinned to the top, stable otherwise)
   const filteredApps = useMemo(() => {
-    return apps.filter((app) => {
-      const matchesSearch =
-        !searchQuery ||
-        app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        app.description.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCategory =
-        categoryFilter === "all" || app.category === categoryFilter;
-      return matchesSearch && matchesCategory;
-    });
-  }, [apps, searchQuery, categoryFilter]);
+    return apps
+      .filter((app) => {
+        const description = pickAppDescription(app, i18n.language);
+        const matchesSearch =
+          !searchQuery ||
+          app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          description.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesCategory =
+          categoryFilter === "all" || app.category === categoryFilter;
+        return matchesSearch && matchesCategory;
+      })
+      .sort((a, b) => featuredRank(a.id) - featuredRank(b.id));
+  }, [apps, searchQuery, categoryFilter, i18n.language]);
 
   const appTarget = (app: AppCardData) => app.entry_page || `/apps/${app.id}`;
 
@@ -164,18 +178,41 @@ export default function AppCenterPage() {
 
   const handleAppClick = (app: AppCardData) => {
     const target = appTarget(app);
-    const browserPath = isOsPath(window.location.pathname)
-      ? getOsAppHref(window.location.pathname, target)
-      : addRouterBasename(window.location.pathname, target);
-    window.history.pushState({ pawappInline: true }, "", browserPath);
+    if (isOsPath(window.location.pathname)) {
+      window.history.pushState(
+        withOsPawAppHistoryState(window.history.state, app.id),
+        "",
+        getOsRootHref(window.location.pathname),
+      );
+    } else {
+      window.history.pushState(
+        { pawappInline: true },
+        "",
+        addRouterBasename(window.location.pathname, target),
+      );
+    }
     setActiveApp(app);
   };
 
   const handleBack = () => {
-    const browserPath = isOsPath(window.location.pathname)
-      ? getOsRootHref(window.location.pathname)
-      : addRouterBasename(window.location.pathname, "/apps");
-    window.history.pushState({}, "", browserPath);
+    if (isOsPath(window.location.pathname)) {
+      if (getOsPawAppIdFromHistoryState(window.history.state)) {
+        window.history.back();
+        return;
+      }
+      window.history.replaceState(
+        withOsPawAppHistoryState(window.history.state, null),
+        "",
+        getOsRootHref(window.location.pathname),
+      );
+      setActiveApp(null);
+      return;
+    }
+    window.history.pushState(
+      {},
+      "",
+      addRouterBasename(window.location.pathname, "/apps"),
+    );
     setActiveApp(null);
   };
 
@@ -210,17 +247,15 @@ export default function AppCenterPage() {
 
   // Keep the inline view in sync with browser back/forward.
   useEffect(() => {
-    const onPop = () => {
-      const pathAppId =
-        window.location.pathname.match(/\/apps\/([^/?#]+)/)?.[1];
-      if (!pathAppId) {
+    const onPop = (event: PopStateEvent) => {
+      const appId = isOsPath(window.location.pathname)
+        ? getOsPawAppIdFromHistoryState(event.state)
+        : window.location.pathname.match(/\/apps\/([^/?#]+)/)?.[1];
+      if (!appId) {
         setActiveApp(null);
         return;
       }
-      const found = apps.find((app) => app.id === pathAppId);
-      if (found) {
-        setActiveApp(found);
-      }
+      setActiveApp(apps.find((app) => app.id === appId) ?? null);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -281,7 +316,7 @@ export default function AppCenterPage() {
                 {activeApp.description && (
                   <p>
                     <strong>{t("appCenter.description", "描述")}:</strong>{" "}
-                    {activeApp.description}
+                    {pickAppDescription(activeApp, i18n.language)}
                   </p>
                 )}
               </div>
@@ -459,7 +494,7 @@ export default function AppCenterPage() {
           )}
         </Empty>
       ) : (
-        <div className={styles.grid}>
+        <div className={styles.gridLarge}>
           {filteredApps.map((app) => (
             <AppCard
               key={app.id}

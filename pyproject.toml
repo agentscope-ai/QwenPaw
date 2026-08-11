@@ -9,6 +9,7 @@ dependencies = [
     "httpx>=0.27.0",
     "websockets>=15.0.1,<16",
     "packaging>=24.0",
+    "click>=8.1,<9",
     "discord-py>=2.3",
     "dingtalk-stream>=0.24.3",
     "alibabacloud-dingtalk>=2.2.42",
@@ -127,6 +128,7 @@ test = [
     "pytest-timeout>=2.3.0",
     "pytest-xdist>=3.5.0",
     "hypothesis>=6.0.0",
+    "respx>=0.22.0",
     "qoder-agent-sdk==1.0.9",
 ]
 dev = [
@@ -171,6 +173,7 @@ markers = [
     "contract: marks tests as contract tests",
     "integration: marks tests as integration tests",
     "e2e: marks tests as end-to-end tests",
+    "manual_real: opt-in acceptance against real paid provider APIs",
 ]
 testpaths = [
     "tests",

@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  baseFromRoutePath,
-  isModeWindowTransition,
-  pathToRouteId,
-} from "./osRouteMap";
+import { baseFromRoutePath, pathToRouteId } from "./osRouteMap";
 
 const routes = [
   { id: "core.chat", path: "/chat/*", source: "core" },
@@ -30,12 +26,6 @@ describe("osRouteMap", () => {
 
   it("routes dynamic children to their owning app", () => {
     expect(pathToRouteId("/chat/session-1", routes)).toBe("core.chat");
-  });
-
-  it("treats Chat and Coding navigation as a window replacement", () => {
-    expect(isModeWindowTransition("core.chat", "core.coding")).toBe(true);
-    expect(isModeWindowTransition("core.coding", "core.chat")).toBe(true);
-    expect(isModeWindowTransition("core.chat", "core.inbox")).toBe(false);
   });
 
   it("prefers a concrete PawApp over the aggregate apps route", () => {

@@ -20,6 +20,7 @@ from pydantic import (
 )
 
 from .atomic_store import (
+    chmod_descriptor_if_supported,
     canonical_json_bytes,
     fsync_directory,
     strict_json_loads,
@@ -284,7 +285,7 @@ class DurableJsonlStore(Generic[T]):
                 flags |= os.O_CLOEXEC
             descriptor = os.open(self.path, flags, self.mode)
             try:
-                os.fchmod(descriptor, self.mode)
+                chmod_descriptor_if_supported(descriptor, self.mode)
                 view = memoryview(line)
                 while view:
                     written = os.write(descriptor, view)
