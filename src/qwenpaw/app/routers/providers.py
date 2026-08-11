@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """API routes for LLM providers and models."""
 
 from __future__ import annotations
@@ -728,18 +728,13 @@ async def configure_model(
     """Update per-model generate_kwargs that override provider-level
     settings."""
     try:
+        config = {
+            field: getattr(body, field) for field in body.model_fields_set
+        }
         provider_info = await manager.update_model_config(
             provider_id=provider_id,
             model_id=model_id,
-            config={
-                "generate_kwargs": body.generate_kwargs,
-                "max_tokens": body.max_tokens,
-                "max_input_length": body.max_input_length,
-                "relay_reasoning": body.relay_reasoning,
-                "thinking_enabled": body.thinking_enabled,
-                "thinking_budget": body.thinking_budget,
-                "reasoning_effort": body.reasoning_effort,
-            },
+            config=config,
         )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

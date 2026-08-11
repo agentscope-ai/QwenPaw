@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """A Manager class to handle all providers, including built-in and custom ones.
 It provides a unified interface to manage providers, such as listing available
 providers, adding/removing custom providers, and fetching provider details."""
@@ -27,6 +27,7 @@ from .provider import (
     ModelInfo,
     Provider,
     ProviderInfo,
+    provider_identity_key,
     validate_custom_provider_id,
 )
 from . import provider_catalog as _provider_catalog
@@ -128,12 +129,14 @@ class ProviderManager(
         self._provider_save_locks: dict[str, asyncio.Lock] = {}
         self._discovery_generations: dict[str, int] = {}
         self._provider_revisions: dict[str, int] = {}
+        self._provider_storage_paths: dict[tuple[str, str], Path] = {}
         self.root_path = SECRET_DIR / "providers"
         self.builtin_path = self.root_path / "builtin"
         self.custom_path = self.root_path / "custom"
         self.plugin_path = self.root_path / "plugin"  # Plugin provider configs
         self._plugin_registry = PluginProviderRegistry(self)
         self._prepare_disk_storage()
+        self._index_provider_storage_paths()
         self._init_builtins()
         try:
             self._migrate_legacy_providers()
@@ -177,7 +180,8 @@ class ProviderManager(
         # Built-in definitions may reuse model lists across regional variants.
         # Each manager instance needs independent model objects for persisted
         # overrides and discovery metadata.
-        self.builtin_providers[provider.id] = provider.model_copy(deep=True)
+        provider_key = self._normalize_provider_id(provider.id)
+        self.builtin_providers[provider_key] = provider.model_copy(deep=True)
 
     async def list_provider_info(self) -> List[ProviderInfo]:
         tasks = [
@@ -207,9 +211,10 @@ class ProviderManager(
 
         Maps legacy 'copaw-local' to 'qwenpaw-local'.
         """
-        if provider_id == "copaw-local":
+        provider_key = provider_identity_key(provider_id)
+        if provider_key == "copaw-local":
             return "qwenpaw-local"
-        return provider_id
+        return provider_key
 
     def get_provider(self, provider_id: str) -> Provider | None:
         # Return a provider instance by its ID. This will be used to create
@@ -371,12 +376,14 @@ class ProviderManager(
 
     def _bump_provider_revision(self, provider_id: str) -> int:
         """Advance the revision used to reject stale async operations."""
+        provider_id = self._normalize_provider_id(provider_id)
         revision = self._provider_revisions.get(provider_id, 0) + 1
         self._provider_revisions[provider_id] = revision
         return revision
 
     def _provider_revision(self, provider_id: str) -> int:
         """Return the current runtime revision for a provider."""
+        provider_id = self._normalize_provider_id(provider_id)
         return self._provider_revisions.get(provider_id, 0)
 
     def _is_current_provider(
@@ -386,6 +393,7 @@ class ProviderManager(
         revision: int,
     ) -> bool:
         """Check that an async operation still targets the live provider."""
+        provider_id = self._normalize_provider_id(provider_id)
         if revision != self._provider_revision(provider_id):
             return False
         if provider_id in self.plugin_providers:
@@ -436,18 +444,39 @@ class ProviderManager(
     def _resolve_custom_provider_id(self, provider_id: str) -> str:
         """Resolve provider ID conflicts for a custom provider."""
         base_id = provider_id
-        if base_id in self.builtin_providers:
+        if self._normalize_provider_id(base_id) in self.builtin_providers:
             base_id = f"{base_id}-custom"
 
         resolved_id = base_id
         while (
-            resolved_id in self.builtin_providers
-            or resolved_id in self.custom_providers
-            or resolved_id in self.plugin_providers
+            self._normalize_provider_id(resolved_id) in self.builtin_providers
+            or self._normalize_provider_id(resolved_id)
+            in self.custom_providers
+            or self._normalize_provider_id(resolved_id)
+            in self.plugin_providers
         ):
             resolved_id = f"{resolved_id}-new"
 
         return resolved_id
+
+    def _ensure_plugin_provider_id_available(
+        self,
+        provider_id: str,
+    ) -> str:
+        """Reject plugin IDs that collide with any registered provider."""
+        provider_key = self._normalize_provider_id(provider_id)
+        if (
+            provider_key in self.builtin_providers
+            or provider_key in self.custom_providers
+            or provider_key in self.plugin_providers
+        ):
+            raise ProviderError(
+                message=(
+                    f"Plugin provider ID '{provider_id}' conflicts with "
+                    "an existing provider."
+                ),
+            )
+        return provider_key
 
     async def add_custom_provider(self, provider_data: ProviderInfo):
         # Add a new custom provider with the given data. This will update the
@@ -488,13 +517,15 @@ class ProviderManager(
         # without model config, to avoid false negatives in the UI.
         provider.support_connection_check = False
         await self.save_provider_config_async(provider.id, provider)
-        self.custom_providers[provider.id] = provider
+        provider_key = self._normalize_provider_id(provider.id)
+        self.custom_providers[provider_key] = provider
         self._bump_provider_revision(provider.id)
         return await provider.get_info()
 
     def remove_custom_provider(self, provider_id: str) -> bool:
         # Remove a custom provider by its ID. This will update the
         # providers.json file and remove the provider from the UI.
+        provider_id = self._normalize_provider_id(provider_id)
         if provider_id in self.custom_providers:
             self._bump_provider_revision(provider_id)
             del self.custom_providers[provider_id]
@@ -555,6 +586,7 @@ class ProviderManager(
                     f"Model '{model_id}' cannot be activated: " f"{reason}"
                 ),
             )
+        provider_id = provider.id
         active_model = ModelSlotConfig(
             provider_id=provider_id,
             model=model_id,
@@ -926,6 +958,7 @@ class ProviderManager(
             },
         )
 
+    # pylint: disable-next=too-many-positional-arguments
     def register_plugin_provider(
         self,
         provider_id: str,

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Persistence and migration operations for ProviderManager."""
 
 import asyncio
@@ -53,6 +53,7 @@ PluginUpdateKind = Literal[
     "configured_update",
     "capability",
 ]
+ProviderStorageKind = Literal["builtin", "custom", "plugin"]
 _AVAILABILITY_MODEL_FIELDS = (
     "availability_status",
     "availability_message",
@@ -122,8 +123,13 @@ class ProviderManagerPersistenceMixin:
 
         Sensitive fields (``api_key``) are encrypted before writing.
         """
-        provider_dir = self.builtin_path if is_builtin else self.custom_path
-        provider_path = self._safe_provider_path(provider_dir, provider.id)
+        storage_kind: ProviderStorageKind = (
+            "builtin" if is_builtin else "custom"
+        )
+        provider_path = self._provider_path_for_kind(
+            storage_kind,
+            provider.id,
+        )
         with get_sync_path_lock(provider_path):
             if skip_if_exists and provider_path.exists():
                 return
@@ -138,7 +144,10 @@ class ProviderManagerPersistenceMixin:
 
         Sensitive fields (``api_key``) are encrypted before writing.
         """
-        provider_path = self.plugin_path / f"{provider.id}.json"
+        provider_path = self._provider_path_for_kind(
+            "plugin",
+            provider.id,
+        )
         with get_sync_path_lock(provider_path):
             self._save_provider_snapshot(
                 provider.id,
@@ -156,10 +165,11 @@ class ProviderManagerPersistenceMixin:
         Args:
             provider_id: The provider to save.
             provider: Optional pre-resolved provider instance. When
-                supplied, this instance is saved directly — important
+                supplied, this instance is saved directly 鈥?important
                 for plugin providers where ``get_provider`` returns a
                 fresh copy each time.
         """
+        provider_id = self._normalize_provider_id(provider_id)
         if provider is None:
             provider = self.get_provider(provider_id)
         if provider is None:
@@ -401,6 +411,7 @@ class ProviderManagerPersistenceMixin:
         if current is not None:
             self._copy_provider_state(current, snapshot)
 
+    # pylint: disable-next=too-many-positional-arguments
     def _merge_and_save_provider_snapshot(
         self,
         provider_id: str,
@@ -528,6 +539,7 @@ class ProviderManagerPersistenceMixin:
             fields=fields,
         )
 
+    # pylint: disable-next=too-many-positional-arguments
     async def register_plugin_provider_async(
         self,
         provider_id: str,
@@ -537,7 +549,12 @@ class ProviderManagerPersistenceMixin:
         metadata: Dict,
     ) -> None:
         """Register a plugin provider without blocking the event loop."""
-        revision = self._bump_provider_revision(provider_id)
+        provider_key = self._ensure_plugin_provider_id_available(provider_id)
+        provider_path = self._provider_path_for_kind(
+            "plugin",
+            provider_id,
+        )
+        revision = self._bump_provider_revision(provider_key)
         registration = await asyncio.to_thread(
             self._prepare_plugin_registration,
             provider_id,
@@ -545,16 +562,18 @@ class ProviderManagerPersistenceMixin:
             label,
             base_url,
             metadata,
+            saved_config_path=provider_path,
         )
         lock = self._provider_save_locks.setdefault(
-            provider_id,
+            provider_key,
             asyncio.Lock(),
         )
         async with lock:
-            if revision != self._provider_revision(provider_id):
+            if revision != self._provider_revision(provider_key):
                 return
-            self.plugin_providers[provider_id] = registration
+            self.plugin_providers[provider_key] = registration
 
+    # pylint: disable-next=too-many-positional-arguments
     def _prepare_plugin_registration(
         self,
         provider_id: str,
@@ -562,6 +581,8 @@ class ProviderManagerPersistenceMixin:
         label: str,
         base_url: str,
         metadata: Dict,
+        *,
+        saved_config_path: Path,
     ) -> dict:
         """Build plugin registration data without touching shared state."""
         default_models = []
@@ -583,7 +604,6 @@ class ProviderManagerPersistenceMixin:
             require_api_key=metadata.get("require_api_key", True),
             meta=metadata.get("meta", {}),
         )
-        saved_config_path = self.plugin_path / f"{provider_id}.json"
         if saved_config_path.exists():
             try:
                 with open(saved_config_path, "r", encoding="utf-8") as handle:
@@ -660,16 +680,84 @@ class ProviderManagerPersistenceMixin:
         file_provider_id: str | None = None,
     ) -> Path:
         """Return the canonical persisted path for one provider."""
+        provider_id = self._normalize_provider_id(provider_id)
         if provider_id in self.plugin_providers:
-            provider_dir = self.plugin_path
+            storage_kind: ProviderStorageKind = "plugin"
         elif provider_id in self.builtin_providers:
-            provider_dir = self.builtin_path
+            storage_kind = "builtin"
         else:
-            provider_dir = self.custom_path
-        return self._safe_provider_path(
-            provider_dir,
+            storage_kind = "custom"
+        return self._provider_path_for_kind(
+            storage_kind,
             file_provider_id or provider_id,
         )
+
+    def _provider_path_for_kind(
+        self,
+        storage_kind: ProviderStorageKind,
+        provider_id: str,
+    ) -> Path:
+        """Resolve one provider identity to a stable persisted path."""
+        provider_key = self._normalize_provider_id(provider_id)
+        storage_key = (storage_kind, provider_key)
+        tracked_path = self._provider_storage_paths.get(storage_key)
+        if tracked_path is not None:
+            return tracked_path
+
+        provider_dir = {
+            "builtin": self.builtin_path,
+            "custom": self.custom_path,
+            "plugin": self.plugin_path,
+        }[storage_kind]
+        provider_path = self._safe_provider_path(
+            provider_dir,
+            provider_key,
+        )
+        self._provider_storage_paths[storage_key] = provider_path
+        return provider_path
+
+    def _index_provider_storage_paths(self) -> None:
+        """Index legacy provider filenames before async operations begin."""
+        provider_dirs: tuple[tuple[ProviderStorageKind, Path], ...] = (
+            ("builtin", self.builtin_path),
+            ("custom", self.custom_path),
+            ("plugin", self.plugin_path),
+        )
+        for storage_kind, provider_dir in provider_dirs:
+            provider_files = sorted(
+                provider_dir.glob("*.json"),
+                key=lambda path: (
+                    self._normalize_provider_id(path.stem),
+                    path.name,
+                ),
+            )
+            for provider_path in provider_files:
+                self._remember_provider_path(
+                    storage_kind,
+                    provider_path.stem,
+                    provider_path,
+                )
+
+    def _remember_provider_path(
+        self,
+        storage_kind: ProviderStorageKind,
+        provider_id: str,
+        provider_path: Path,
+    ) -> bool:
+        """Track a loaded legacy path without replacing an earlier choice."""
+        provider_key = self._normalize_provider_id(provider_id)
+        storage_key = (storage_kind, provider_key)
+        tracked_path = self._provider_storage_paths.get(storage_key)
+        if tracked_path is None:
+            self._provider_storage_paths[storage_key] = provider_path
+            return True
+        if tracked_path == provider_path:
+            return True
+        logger.warning(
+            f"Ignoring provider file {provider_path} because identity "
+            f"'{provider_key}' already uses {tracked_path}.",
+        )
+        return False
 
     @staticmethod
     def _safe_provider_path(provider_dir: Path, provider_id: str) -> Path:
@@ -685,14 +773,22 @@ class ProviderManagerPersistenceMixin:
         self,
         provider_id: str,
         is_builtin: bool = False,
+        *,
+        provider_path: Path | None = None,
     ) -> Provider | None:
         """Load a provider configuration from disk.
 
         Encrypted fields are transparently decrypted.  If a legacy
         plaintext ``api_key`` is detected it is re-encrypted in place.
         """
-        provider_dir = self.builtin_path if is_builtin else self.custom_path
-        provider_path = self._safe_provider_path(provider_dir, provider_id)
+        storage_kind: ProviderStorageKind = (
+            "builtin" if is_builtin else "custom"
+        )
+        if provider_path is None:
+            provider_path = self._provider_path_for_kind(
+                storage_kind,
+                provider_id,
+            )
         if not provider_path.exists():
             return None
         try:
@@ -706,6 +802,12 @@ class ProviderManagerPersistenceMixin:
             data = decrypt_dict_fields(data, PROVIDER_SECRET_FIELDS)
             provider = self._provider_from_data(data)
             provider.models_syncing = False
+            if not self._remember_provider_path(
+                storage_kind,
+                provider.id,
+                provider_path,
+            ):
+                return None
 
             if needs_rewrite:
                 try:
@@ -716,7 +818,7 @@ class ProviderManagerPersistenceMixin:
                     )
                 except Exception as enc_err:
                     logger.debug(
-                        "Deferred plaintext→encrypted migration"
+                        "Deferred plaintext鈫抏ncrypted migration"
                         " for provider '%s': %s",
                         provider_id,
                         enc_err,
@@ -823,7 +925,10 @@ class ProviderManagerPersistenceMixin:
             provider_id = self._normalize_provider_id(provider_id)
         if (
             provider_id is not None
-            and self.active_model.provider_id != provider_id
+            and self._normalize_provider_id(
+                self.active_model.provider_id,
+            )
+            != provider_id
         ):
             return False
 
@@ -853,7 +958,10 @@ class ProviderManagerPersistenceMixin:
                     return False
                 if (
                     provider_id is not None
-                    and self.active_model.provider_id != provider_id
+                    and self._normalize_provider_id(
+                        self.active_model.provider_id,
+                    )
+                    != provider_id
                 ):
                     return False
                 active_path = self.root_path / "active_model.json"
@@ -1011,10 +1119,28 @@ class ProviderManagerPersistenceMixin:
             if provider:
                 self._restore_builtin_provider(builtin, provider)
         # Load custom providers
-        for provider_file in self.custom_path.glob("*.json"):
-            provider = self.load_provider(provider_file.stem, is_builtin=False)
+        provider_files = sorted(
+            self.custom_path.glob("*.json"),
+            key=lambda path: (
+                self._normalize_provider_id(path.stem),
+                path.name,
+            ),
+        )
+        for provider_file in provider_files:
+            provider = self.load_provider(
+                provider_file.stem,
+                is_builtin=False,
+                provider_path=provider_file,
+            )
             if provider:
-                self.custom_providers[provider.id] = provider
+                provider_key = self._normalize_provider_id(provider.id)
+                if provider_key in self.custom_providers:
+                    logger.warning(
+                        f"Ignoring provider file {provider_file} because "
+                        f"identity '{provider_key}' is already loaded.",
+                    )
+                    continue
+                self.custom_providers[provider_key] = provider
         # Load active model config
         active_model = self.load_active_model()
         if active_model:

@@ -668,6 +668,29 @@ describe("ModelSelector", () => {
     expect(screen.queryByText("Added Model")).not.toBeInTheDocument();
   });
 
+  it("keeps recent models visible without showing all models", async () => {
+    localStorage.setItem(
+      "qwenpaw_model_selector_recent",
+      JSON.stringify(["openai:gpt-3.5-turbo"]),
+    );
+    vi.mocked(providerApi.listProviders).mockResolvedValue([
+      {
+        ...mockProvider,
+        models: mockProvider.models.map((model) => ({
+          ...model,
+          is_recommended: false,
+        })),
+      },
+    ]);
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+
+    await user.click(screen.getAllByText("GPT-4")[0]);
+
+    expect(await screen.findByText("GPT-3.5 Turbo")).toBeInTheDocument();
+  });
+
   it("searches all configured models beyond the recommendation limit", async () => {
     vi.mocked(providerApi.listProviders).mockResolvedValue([
       {

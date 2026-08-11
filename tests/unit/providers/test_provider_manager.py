@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument,protected-access
 from __future__ import annotations
 
@@ -178,6 +178,126 @@ async def test_add_custom_provider_and_reload_from_storage(
     assert isinstance(loaded_builtin_conflict, OpenAIProvider)
     assert loaded_duplicate is not None
     assert isinstance(loaded_duplicate, OpenAIProvider)
+
+
+async def test_custom_provider_identity_is_case_insensitive(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    created = await manager.add_custom_provider(
+        OpenAIProvider(
+            id="MixedCase",
+            name="Mixed Case",
+            base_url="https://first.example/v1",
+        ),
+    )
+    duplicate = await manager.add_custom_provider(
+        OpenAIProvider(
+            id="mixedcase",
+            name="Mixed Case Duplicate",
+        ),
+    )
+
+    assert created.id == "MixedCase"
+    assert duplicate.id == "mixedcase-new"
+    assert manager.get_provider("MIXEDCASE").id == "MixedCase"
+    assert (manager.custom_path / "mixedcase.json").exists()
+
+    reloaded = ProviderManager()
+    loaded = reloaded.get_provider("mIxEdCaSe")
+    assert loaded is not None
+    assert loaded.id == "MixedCase"
+    assert await reloaded.update_provider_async(
+        "MIXEDCASE",
+        {"base_url": "https://updated.example/v1"},
+    )
+    assert list(reloaded._provider_save_locks) == ["mixedcase"]
+
+    updated = ProviderManager().get_provider("mixedcase")
+    assert updated is not None
+    assert updated.base_url == "https://updated.example/v1"
+    assert await reloaded.remove_custom_provider_async("MiXeDcAsE")
+    assert not (reloaded.custom_path / "mixedcase.json").exists()
+
+
+async def test_plugin_provider_rejects_casefold_collisions(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    await manager.add_custom_provider(
+        OpenAIProvider(id="PluginMixed", name="Plugin Mixed"),
+    )
+
+    with pytest.raises(ProviderError, match="conflicts"):
+        manager.register_plugin_provider(
+            "OPENAI",
+            OpenAIProvider,
+            "Builtin Collision",
+            "https://plugin.example/v1",
+            {},
+        )
+    with pytest.raises(ProviderError, match="conflicts"):
+        await manager.register_plugin_provider_async(
+            "pluginmixed",
+            OpenAIProvider,
+            "Custom Collision",
+            "https://plugin.example/v1",
+            {},
+        )
+
+
+async def test_case_colliding_legacy_files_keep_one_stable_snapshot(
+    isolated_secret_dir,
+) -> None:
+    seed = ProviderManager()
+    upper_path = seed.custom_path / "LegacyCase.json"
+    lower_path = seed.custom_path / "legacycase.json"
+    upper = OpenAIProvider(
+        id="LegacyCase",
+        name="Upper Legacy",
+        base_url="https://upper.example/v1",
+        is_custom=True,
+    )
+    lower = OpenAIProvider(
+        id="legacycase",
+        name="Lower Legacy",
+        base_url="https://lower.example/v1",
+        is_custom=True,
+    )
+    upper_path.write_text(
+        json.dumps(upper.model_dump(mode="json")),
+        encoding="utf-8",
+    )
+    lower_path.write_text(
+        json.dumps(lower.model_dump(mode="json")),
+        encoding="utf-8",
+    )
+    matching_files = [
+        path
+        for path in seed.custom_path.glob("*.json")
+        if path.stem.casefold() == "legacycase"
+    ]
+    if len(matching_files) < 2:
+        pytest.skip("Filesystem does not support case-distinct files.")
+
+    manager = ProviderManager()
+    loaded = manager.get_provider("LEGACYCASE")
+    assert loaded is not None
+    assert loaded.id == "LegacyCase"
+    assert await manager.update_provider_async(
+        "legacycase",
+        {"base_url": "https://updated.example/v1"},
+    )
+    assert upper_path.exists()
+    assert lower_path.exists()
+    assert (
+        json.loads(upper_path.read_text(encoding="utf-8"))["base_url"]
+        == "https://updated.example/v1"
+    )
+    assert (
+        json.loads(lower_path.read_text(encoding="utf-8"))["base_url"]
+        == "https://lower.example/v1"
+    )
 
 
 @pytest.mark.parametrize(
@@ -2122,6 +2242,29 @@ async def test_discovery_applies_metadata_to_configured_model(
     assert provider.get_context_size(configured.id) == 256_000
 
 
+def test_unchanged_model_config_does_not_create_overrides(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    model = provider.models[0]
+
+    assert provider.update_model_config(
+        model.id,
+        {
+            "generate_kwargs": dict(model.generate_kwargs),
+            "max_tokens": model.max_tokens,
+            "relay_reasoning": model.relay_reasoning,
+            "thinking_enabled": model.thinking_enabled,
+            "thinking_budget": model.thinking_budget,
+            "reasoning_effort": model.reasoning_effort,
+        },
+    )
+
+    assert model.config_overrides == []
+
+
 def test_builtin_variants_do_not_share_model_instances(
     isolated_secret_dir,
 ) -> None:
@@ -3345,7 +3488,7 @@ def test_dashscope_max_inline_media_bytes_loaded_from_json(
 
     Writes a builtin dashscope.json with a custom threshold, boots a fresh
     ``ProviderManager`` (which runs ``_init_from_storage``), and asserts
-    the runtime builtin instance — not just the freshly deserialized one —
+    the runtime builtin instance, not just the freshly deserialized one,
     carries the value through to the formatter.
     """
     builtin_path = isolated_secret_dir / "providers" / "builtin"
@@ -3382,7 +3525,7 @@ def test_dashscope_max_inline_media_bytes_defaults_when_absent(
     isolated_secret_dir,
 ) -> None:
     """An existing dashscope.json without the new key must fall back to the
-    built-in default (2 MB) — i.e. upgrading must not silently cap at 0."""
+    built-in default (2 MB) 鈥?i.e. upgrading must not silently cap at 0."""
     builtin_path = isolated_secret_dir / "providers" / "builtin"
     builtin_path.mkdir(parents=True, exist_ok=True)
 

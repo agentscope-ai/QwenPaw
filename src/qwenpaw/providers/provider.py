@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Definition of Provider."""
 
 from __future__ import annotations
@@ -43,6 +43,11 @@ _WINDOWS_RESERVED_PROVIDER_IDS = (
     | {f"COM{index}" for index in range(1, 10)}
     | {f"LPT{index}" for index in range(1, 10)}
 )
+
+
+def provider_identity_key(provider_id: str) -> str:
+    """Return the portable, case-insensitive identity for a provider ID."""
+    return provider_id.casefold()
 
 
 def validate_custom_provider_id(provider_id: str) -> str:
@@ -875,7 +880,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         else:
             effective["reasoning_effort"] = level
 
-    def update_model_config(
+    def update_model_config(  # pylint: disable=too-many-branches
         self,
         model_id: str,
         config: Dict,
@@ -889,46 +894,64 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                     and config["generate_kwargs"] is not None
                     and isinstance(config["generate_kwargs"], dict)
                 ):
-                    model.generate_kwargs = config["generate_kwargs"]
-                    changed_fields.append("generate_kwargs")
+                    generate_kwargs = config["generate_kwargs"]
+                    if model.generate_kwargs != generate_kwargs:
+                        model.generate_kwargs = generate_kwargs
+                        changed_fields.append("generate_kwargs")
                 if "max_tokens" in config and config["max_tokens"] is not None:
-                    model.max_tokens = int(config["max_tokens"])
-                    changed_fields.append("max_tokens")
+                    max_tokens = int(config["max_tokens"])
+                    if model.max_tokens != max_tokens:
+                        model.max_tokens = max_tokens
+                        changed_fields.append("max_tokens")
                 if (
                     "max_input_length" in config
                     and config["max_input_length"] is not None
                 ):
-                    model.max_input_length = int(config["max_input_length"])
-                    model.max_input_length_configured = True
-                    changed_fields.extend(
-                        ["max_input_length", "max_input_length_configured"],
-                    )
+                    max_input_length = int(config["max_input_length"])
+                    if (
+                        model.max_input_length != max_input_length
+                        or not model.max_input_length_configured
+                    ):
+                        model.max_input_length = max_input_length
+                        model.max_input_length_configured = True
+                        changed_fields.extend(
+                            [
+                                "max_input_length",
+                                "max_input_length_configured",
+                            ],
+                        )
                 if (
                     "relay_reasoning" in config
                     and config["relay_reasoning"] is not None
                 ):
-                    model.relay_reasoning = bool(config["relay_reasoning"])
-                    changed_fields.append("relay_reasoning")
+                    relay_reasoning = bool(config["relay_reasoning"])
+                    if model.relay_reasoning != relay_reasoning:
+                        model.relay_reasoning = relay_reasoning
+                        changed_fields.append("relay_reasoning")
                 if "thinking_enabled" in config:
-                    model.thinking_enabled = (
+                    thinking_enabled = (
                         bool(config["thinking_enabled"])
                         if config["thinking_enabled"] is not None
                         else None
                     )
-                    changed_fields.append("thinking_enabled")
+                    if model.thinking_enabled != thinking_enabled:
+                        model.thinking_enabled = thinking_enabled
+                        changed_fields.append("thinking_enabled")
                 if "thinking_budget" in config:
-                    model.thinking_budget = (
+                    thinking_budget = (
                         int(config["thinking_budget"])
                         if config["thinking_budget"] is not None
                         else None
                     )
-                    changed_fields.append("thinking_budget")
+                    if model.thinking_budget != thinking_budget:
+                        model.thinking_budget = thinking_budget
+                        changed_fields.append("thinking_budget")
                 if "reasoning_effort" in config:
                     val = config["reasoning_effort"]
-                    model.reasoning_effort = (
-                        str(val) if val is not None else None
-                    )
-                    changed_fields.append("reasoning_effort")
+                    reasoning_effort = str(val) if val is not None else None
+                    if model.reasoning_effort != reasoning_effort:
+                        model.reasoning_effort = reasoning_effort
+                        changed_fields.append("reasoning_effort")
                 model.config_overrides = list(
                     dict.fromkeys(model.config_overrides + changed_fields),
                 )
@@ -1000,7 +1023,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
         Local-serving providers (Ollama) override this to ``False``: a model
         family's cloud window says nothing about a local serve that
-        truncates at ``num_ctx`` — assuming 262k for a local
+        truncates at ``num_ctx`` 鈥?assuming 262k for a local
         ``qwen3-coder:30b`` would disable compression while the server
         silently drops the prompt head.
         """
@@ -1011,7 +1034,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
         Feeds ``model.context_size`` (which drives automatic context
         compression) AND the display/usage path
-        (``config.get_model_max_input_length``) — both MUST go through this
+        (``config.get_model_max_input_length``) 鈥?both MUST go through this
         method so the reported usage%% and the compaction trigger never
         diverge. Resolution lives in
         :func:`.context_windows.resolve_context_window`:

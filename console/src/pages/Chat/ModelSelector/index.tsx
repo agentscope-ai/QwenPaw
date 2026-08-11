@@ -333,6 +333,7 @@ export default function ModelSelector() {
           const key = modelKey(provider.id, model.id);
           return (
             pinnedModelKeys.includes(key) ||
+            recentModelKeys.includes(key) ||
             (provider.id === activeProviderId && model.id === activeModelId)
           );
         });
