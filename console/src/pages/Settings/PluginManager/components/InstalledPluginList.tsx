@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Empty, Input, Spin, Table, Tag, Typography } from "antd";
 import { CheckCircle, Package, RefreshCw, Trash2, XCircle } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { PluginInfo } from "@/api/modules/plugin";
 import { usePluginColumns } from "../hooks/usePluginColumns";
 import { PluginTypeTag } from "./PluginTypeTag";
@@ -31,6 +32,7 @@ export function InstalledPluginList({
   const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<PluginViewMode>("card");
+  const isMobile = useIsMobile();
 
   const columns = usePluginColumns({ uninstallingId, onUninstall });
 
@@ -90,7 +92,9 @@ export function InstalledPluginList({
             aria-label={t("pluginManager.catalogRefresh")}
             title={t("pluginManager.catalogRefresh")}
           />
-          <PluginViewToggle value={viewMode} onChange={setViewMode} />
+          {!isMobile && (
+            <PluginViewToggle value={viewMode} onChange={setViewMode} />
+          )}
         </div>
       </div>
 
@@ -105,7 +109,7 @@ export function InstalledPluginList({
             }
             style={{ marginTop: 24 }}
           />
-        ) : viewMode === "card" ? (
+        ) : isMobile || viewMode === "card" ? (
           <div className={cardStyles.cardGrid}>
             {filteredPlugins.map((plugin) => (
               <article

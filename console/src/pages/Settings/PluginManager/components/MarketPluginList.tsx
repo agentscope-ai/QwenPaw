@@ -16,6 +16,7 @@ import type {
   MarketPluginEntry,
   MarketPluginSortBy,
 } from "@/api/modules/pluginMarket";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { openExternalLink } from "@/utils/openExternalLink";
 import { useMarketPlugins } from "../hooks/useMarketPlugins";
 import { PluginViewToggle } from "./PluginViewToggle";
@@ -104,6 +105,7 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
   const [searchInput, setSearchInput] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
+  const isMobile = useIsMobile();
 
   const {
     loading,
@@ -277,7 +279,9 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
             aria-label={t("pluginManager.catalogRefresh")}
             title={t("pluginManager.catalogRefresh")}
           />
-          <PluginViewToggle value={viewMode} onChange={setViewMode} />
+          {!isMobile && (
+            <PluginViewToggle value={viewMode} onChange={setViewMode} />
+          )}
         </div>
       </div>
       {activeSearch && !loading && !error && (
@@ -302,7 +306,7 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
         {!loading && plugins.length === 0 && !error && (
           <Text type="secondary">{t("pluginManager.marketEmpty")}</Text>
         )}
-        {viewMode === "card" ? (
+        {isMobile || viewMode === "card" ? (
           <div className={marketStyles.cardGrid}>
             {plugins.map((entry) => {
               const description = pickLocalizedDescription(

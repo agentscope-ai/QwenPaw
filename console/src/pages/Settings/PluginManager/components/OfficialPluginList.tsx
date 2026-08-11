@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Button, Input, Spin, Tag, Typography } from "antd";
 import { Download, Package, RefreshCw } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { OfficialPluginCatalogEntry } from "@/api/modules/plugin";
 import { useOfficialPlugins } from "../hooks/useOfficialPlugins";
 import { PluginViewToggle, type PluginViewMode } from "./PluginViewToggle";
@@ -45,6 +46,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
   const [nameFilter, setNameFilter] = useState("");
   const [kindFilter, setKindFilter] = useState<string | undefined>();
   const [viewMode, setViewMode] = useState<PluginViewMode>("card");
+  const isMobile = useIsMobile();
 
   const {
     loading,
@@ -164,7 +166,9 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
             aria-label={t("pluginManager.catalogRefresh")}
             title={t("pluginManager.catalogRefresh")}
           />
-          <PluginViewToggle value={viewMode} onChange={setViewMode} />
+          {!isMobile && (
+            <PluginViewToggle value={viewMode} onChange={setViewMode} />
+          )}
         </div>
       </div>
 
@@ -181,7 +185,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
         {!loading && filteredPlugins.length === 0 && !catalogError && (
           <Text type="secondary">{t("pluginManager.catalogEmpty")}</Text>
         )}
-        {viewMode === "card" ? (
+        {isMobile || viewMode === "card" ? (
           <div className={cardStyles.cardGrid}>
             {filteredPlugins.map((entry) => (
               <article

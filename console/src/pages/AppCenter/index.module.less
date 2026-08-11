@@ -212,12 +212,8 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 16px;
-
-  @media (max-width: 1023px) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 
   @media (max-width: 639px) {
     grid-template-columns: 1fr;
