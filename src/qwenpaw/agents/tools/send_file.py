@@ -44,8 +44,15 @@ async def send_file_to_user(
     file_path = unquote(file_path)
     file_path = os.path.expanduser(unicodedata.normalize("NFC", file_path))
 
-    # Resolve relative paths to absolute paths based on workspace directory
-    file_path = _resolve_file_path(file_path)
+    # Resolve against the project roots (containment check included)
+    try:
+        file_path = _resolve_file_path(file_path)
+    except ValueError as e:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[TextBlock(text=f"Error: {e}")],
+        )
 
     if not os.path.exists(file_path):
         return ToolChunk(

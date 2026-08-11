@@ -187,6 +187,10 @@ class ToolRegistry:
                 path = workspace_dir
             elif not os.path.isabs(path):
                 path = os.path.join(workspace_dir, path)
+            # Collapse ``.``/``..`` segments lexically so relative paths
+            # that climb back into the project still match ALLOW rules
+            # (wcmatch's ``**`` refuses to match paths with dot segments).
+            path = os.path.normpath(path)
 
         # 3) Append pattern for file-search tools (e.g. Glob)
         pattern_param = self._pattern_params.get(tool_name)

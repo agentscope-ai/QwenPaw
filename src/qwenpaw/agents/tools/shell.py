@@ -21,13 +21,13 @@ from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
 from ...config.context import (
-    get_current_project_dir,
+    get_all_project_dir_paths,
     get_current_shell_command_executable,
     get_current_shell_command_timeout,
-    get_current_workspace_dir,
+    get_tool_base_dir,
 )
-from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
+from ...services.project_directory import is_within_roots
 from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
 from ...utils.io_utils import run_sync_io
@@ -1037,13 +1037,29 @@ async def execute_shell_command(
             timeout = configured
 
     if cwd is not None:
-        working_dir = cwd
+        # An explicit cwd may point at any granted root (primary or
+        # extra), but never outside them.
+        roots = get_all_project_dir_paths() or [get_tool_base_dir()]
+        candidate = Path(str(cwd)).expanduser()
+        if not candidate.is_absolute():
+            candidate = roots[0] / candidate
+        if not is_within_roots(candidate, roots):
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Blocked: cwd {cwd} is outside the "
+                            "authorized project directories."
+                        ),
+                    ),
+                ],
+            )
+        working_dir = candidate.resolve()
     else:
-        working_dir = (
-            get_current_project_dir()
-            or get_current_workspace_dir()
-            or WORKING_DIR
-        )
+        working_dir = get_tool_base_dir()
 
     # Ensure the venv Python is on PATH for subprocesses
     env = os.environ.copy()

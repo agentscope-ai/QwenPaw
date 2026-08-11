@@ -17,11 +17,7 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
-from ...config.context import (
-    get_current_project_dir,
-    get_current_workspace_dir,
-)
-from ...constant import WORKING_DIR
+from ...config.context import get_tool_base_dir
 from . import _lsp_client as lsp_client
 from . import _lsp_servers as lsp_servers
 from .file_io import _resolve_file_path
@@ -59,33 +55,25 @@ def _make_response(text: str) -> ToolChunk:
 
 
 def _resolve_root() -> Path:
-    workspace = get_current_project_dir() or get_current_workspace_dir()
-    if workspace is not None:
-        return workspace
-    return WORKING_DIR
+    return get_tool_base_dir()
 
 
 def _resolve_file(
     file_path: str,
     root: Path,
 ) -> "Path | ToolChunk":
-    """Resolve ``file_path`` and ensure it lives inside ``root``."""
+    """Resolve ``file_path`` and ensure it lives inside a granted root.
+
+    Resolution (relative paths join onto the primary dir) and the
+    containment check both come from the shared tool-layer policy; the
+    ``root`` argument stays the LSP server root.
+    """
     if not file_path:
         return _make_response("Error: missing `file_path`.")
-    candidate = Path(_resolve_file_path(file_path)).expanduser()
     try:
-        resolved = candidate.resolve()
-    except OSError as exc:
-        return _make_response(
-            f"Error: cannot resolve path {candidate} — {exc}",
-        )
-    try:
-        resolved.relative_to(root.resolve())
-    except ValueError:
-        return _make_response(
-            f"Error: path {file_path} is outside the project root "
-            f"{root.resolve()}.",
-        )
+        resolved = Path(_resolve_file_path(file_path))
+    except ValueError as e:
+        return _make_response(f"Error: {e}")
     if not resolved.exists():
         return _make_response(
             f"Error: path {resolved} does not exist.",
