@@ -958,23 +958,25 @@ QwenPaw supports optional web login authentication to protect the Console from u
 
 ### Auth-bypass host whitelist
 
-In `config.json`, the `security.allow_no_auth_hosts` field specifies client IP addresses that can access API endpoints without authentication, even when authentication is enabled:
+In `config.json`, the `security.allow_no_auth_hosts` field specifies client IP addresses or CIDR networks that can access API endpoints without authentication, even when authentication is enabled:
 
 ```json
 {
   "security": {
-    "allow_no_auth_hosts": ["127.0.0.1", "::1"]
+    "allow_no_auth_hosts": ["127.0.0.1", "::1", "192.168.1.0/24", "fd00::/64"]
   }
 }
 ```
 
-| Field                 | Type          | Default                | Description                                                                          |
-| --------------------- | ------------- | ---------------------- | ------------------------------------------------------------------------------------ |
-| `allow_no_auth_hosts` | array[string] | `["127.0.0.1", "::1"]` | Client IP addresses allowed to access `/api/*` routes without authentication tokens. |
+| Field                 | Type          | Default                | Description                                                                                           |
+| --------------------- | ------------- | ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| `allow_no_auth_hosts` | array[string] | `["127.0.0.1", "::1"]` | Client IP addresses or CIDR networks allowed to access `/api/*` routes without authentication tokens. |
 
 This can also be managed from the Console under **Settings → Security**.
 
-> **Security warning**: Adding non-localhost addresses to this list means those IPs can access the full API without credentials. Use with caution and only for trusted hosts on private networks.
+When managed through the Console or API, CIDR entries must start at the network address implied by their prefix. For example, `192.168.1.0/24` is valid, while `192.168.1.42/24` is rejected instead of being silently changed. Invalid entries added by directly editing `config.json` are retained for backward compatibility but ignored during authentication matching. Both IPv4 and IPv6 CIDRs are supported.
+
+> **Security warning**: Adding non-localhost addresses or networks to this list means all matching clients can access the full API without credentials. Use the narrowest practical prefix and only trusted private networks. Loopback entries still require the direct TCP peer to be loopback; forwarded client headers are only honored from `security.trusted_proxies`.
 
 **Configuration notes**:
 

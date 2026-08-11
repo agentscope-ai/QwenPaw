@@ -277,7 +277,7 @@ Each agent has an independent `agent.json` in its workspace directory (`~/.qwenp
     "skill_scanner": {
       "mode": "warn"
     },
-    "allow_no_auth_hosts": ["127.0.0.1", "::1"]
+    "allow_no_auth_hosts": ["127.0.0.1", "::1", "192.168.1.0/24"]
   },
   "last_dispatch": null
 }
@@ -551,9 +551,11 @@ Contains three protection modules:
 
 Top-level field:
 
-| Field                 | Type     | Default                | Description                                                                    |
-| --------------------- | -------- | ---------------------- | ------------------------------------------------------------------------------ |
-| `allow_no_auth_hosts` | string[] | `["127.0.0.1", "::1"]` | IP whitelist that bypasses web authentication. Localhost is allowed by default |
+| Field                 | Type     | Default                | Description                                                                         |
+| --------------------- | -------- | ---------------------- | ----------------------------------------------------------------------------------- |
+| `allow_no_auth_hosts` | string[] | `["127.0.0.1", "::1"]` | IP/CIDR allowlist that bypasses web authentication. Localhost is allowed by default |
+
+When managed through the Console or API, CIDR entries must use an address aligned with their prefix; for example, use `192.168.1.0/24`, not `192.168.1.42/24`. Invalid entries added by directly editing the configuration file are retained for backward compatibility but ignored during authentication matching.
 
 > **Complete configuration:** Detailed field descriptions, security rules, custom rule configuration, etc. for each module are documented in [Security](./security).
 

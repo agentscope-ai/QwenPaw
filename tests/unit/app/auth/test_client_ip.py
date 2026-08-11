@@ -88,6 +88,10 @@ class TestIpInNetworks:
     def test_empty_networks(self):
         assert _ip_in_networks("10.0.0.1", []) is False
 
+    def test_invalid_config_entry_is_ignored(self):
+        nets = _parse_networks(["bad-ip-value", "10.0.0.0/8"])
+        assert _ip_in_networks("10.0.0.1", nets) is True
+
 
 # ---------------------------------------------------------------------------
 # _resolve_client_ip
@@ -114,15 +118,16 @@ def _make_request(
 
 
 def _make_config_return(trusted_proxies=None, allow_no_auth_hosts=None):
-    """Build the (config, networks) tuple that _get_config_cached returns."""
+    """Build the tuple that _get_config_cached returns."""
     config = MagicMock()
     config.security.trusted_proxies = trusted_proxies or []
     config.security.allow_no_auth_hosts = allow_no_auth_hosts or [
         "127.0.0.1",
         "::1",
     ]
-    networks = _parse_networks(config.security.trusted_proxies)
-    return (config, networks)
+    trusted_networks = _parse_networks(config.security.trusted_proxies)
+    allowed_networks = _parse_networks(config.security.allow_no_auth_hosts)
+    return (config, trusted_networks, allowed_networks)
 
 
 class TestResolveClientIp:
@@ -230,6 +235,8 @@ class TestResolveClientIp:
 class TestShouldSkipAuthDefenseInDepth:
     """Verify loopback whitelist requires direct peer also be loopback."""
 
+    # pylint: disable=protected-access
+
     @patch("qwenpaw.app.auth._get_config_cached")
     @patch("qwenpaw.app.auth.is_auth_enabled", return_value=True)
     @patch("qwenpaw.app.auth.has_registered_users", return_value=True)
@@ -263,4 +270,36 @@ class TestShouldSkipAuthDefenseInDepth:
         req.url.path = "/api/protected"
         req.method = "GET"
         # pylint: disable=protected-access
+        assert AuthMiddleware._should_skip_auth(req) is False
+
+    @patch("qwenpaw.app.auth._get_config_cached")
+    @patch("qwenpaw.app.auth.is_auth_enabled", return_value=True)
+    @patch("qwenpaw.app.auth.has_registered_users", return_value=True)
+    def test_ipv4_cidr_match_passes(self, _a, _b, mock_cfg):
+        from qwenpaw.app.auth import AuthMiddleware
+
+        mock_cfg.return_value = _make_config_return(
+            allow_no_auth_hosts=["192.168.1.0/24"],
+        )
+        req = _make_request("192.168.1.42")
+        req.url = MagicMock()
+        req.url.path = "/api/protected"
+        req.method = "GET"
+        assert AuthMiddleware._should_skip_auth(req) is True
+
+    @patch("qwenpaw.app.auth._get_config_cached")
+    @patch("qwenpaw.app.auth.is_auth_enabled", return_value=True)
+    @patch("qwenpaw.app.auth.has_registered_users", return_value=True)
+    def test_loopback_cidr_via_proxy_blocked(self, _a, _b, mock_cfg):
+        """A loopback CIDR must not bypass the direct-peer protection."""
+        from qwenpaw.app.auth import AuthMiddleware
+
+        mock_cfg.return_value = _make_config_return(
+            trusted_proxies=["10.0.0.1"],
+            allow_no_auth_hosts=["127.0.0.0/8"],
+        )
+        req = _make_request("10.0.0.1", xff="127.0.0.42")
+        req.url = MagicMock()
+        req.url.path = "/api/protected"
+        req.method = "GET"
         assert AuthMiddleware._should_skip_auth(req) is False
