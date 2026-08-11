@@ -661,6 +661,47 @@ class EmbeddingModelConfig(BaseModel):
     )
 
 
+class RerankerConfig(BaseModel):
+    """Reranker model configuration for post-search reordering."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Whether to enable reranker for memory search reordering"
+        ),
+    )
+    api_key: str = Field(
+        default="",
+        description="API key for reranker provider",
+    )
+    base_url: str = Field(
+        default="",
+        description=(
+            "Base URL for reranker API (SiliconFlow: "
+            "https://api.siliconflow.cn/v1)"
+        ),
+    )
+    model_name: str = Field(
+        default="",
+        description="Reranker model name (e.g. BAAI/bge-reranker-v2-m3)",
+    )
+    candidate_multiplier: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Over-fetch multiplier: search N x multiplier candidates, "
+            "rerank, then return top-N"
+        ),
+    )
+    timeout: float = Field(
+        default=10.0,
+        ge=1.0,
+        description="Reranker API timeout in seconds",
+    )
+
+
 class ADBPGMemoryConfig(BaseModel):
     """ADBPG (AnalyticDB for PostgreSQL) REST memory configuration."""
 
@@ -759,6 +800,10 @@ class ReMeLightMemoryConfig(BaseModel):
 
     embedding_model_config: EmbeddingModelConfig = Field(
         default_factory=EmbeddingModelConfig,
+    )
+
+    reranker_config: RerankerConfig = Field(
+        default_factory=RerankerConfig,
     )
 
 
@@ -2790,7 +2835,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         AgentProfileConfig: Complete agent configuration
 
     Raises:
-        ValueError: If agent ID not found in root config
+        ConfigurationException: If agent ID not found in root config
     """
     from .utils import (
         load_config,
@@ -2832,8 +2877,26 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                 return cached_config.model_copy(deep=True)
 
         # Need to reload config from disk
-        with open(agent_config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(agent_config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except UnicodeDecodeError as e:
+            raise ConfigurationException(
+                config_key="agent",
+                message=(
+                    f"Agent '{agent_id}' configuration file is corrupted "
+                    f"(invalid UTF-8 encoding). Path: {agent_config_path}. "
+                    f"Please repair or delete it. Error: {e}"
+                ),
+            ) from e
+        except json.JSONDecodeError as e:
+            raise ConfigurationException(
+                config_key="agent",
+                message=(
+                    f"Agent '{agent_id}' configuration file contains "
+                    f"invalid JSON. Path: {agent_config_path}. Error: {e}"
+                ),
+            ) from e
 
         project_dir_migrated = migrate_project_directory_config(data)
 

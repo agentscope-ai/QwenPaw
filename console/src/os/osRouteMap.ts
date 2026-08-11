@@ -11,8 +11,6 @@
 /** Route id of the aggregate System Settings window. */
 export const SETTINGS_APP_ID = "os.settings";
 
-const MODE_ROUTE_IDS = new Set(["core.chat", "core.coding"]);
-
 /** Minimal route shape needed here (matches ResolvedRoute from the registry). */
 export interface RouteLike {
   id: string;
@@ -52,18 +50,6 @@ export function baseFromRoutePath(path: string | undefined): string {
 export function topSegment(pathname: string): string {
   const noQuery = pathname.split("?")[0];
   return noQuery.replace(/^\/+/, "").split("/")[0] || "";
-}
-
-/** Chat and Coding are two modes of the same workspace, not parallel apps. */
-export function isModeWindowTransition(
-  sourceRouteId: string,
-  targetRouteId: string,
-): boolean {
-  return (
-    sourceRouteId !== targetRouteId &&
-    MODE_ROUTE_IDS.has(sourceRouteId) &&
-    MODE_ROUTE_IDS.has(targetRouteId)
-  );
 }
 
 function normalizePath(path: string): string {

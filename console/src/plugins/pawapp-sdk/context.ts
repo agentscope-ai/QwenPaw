@@ -1,7 +1,7 @@
 let activePawAppId = "";
 
 export function getPawAppIdFromPath(pathname: string): string {
-  const match = pathname.match(/\/apps\/([^/?#]+)/);
+  const match = pathname.match(/^\/(?:console\/)?apps\/([^/?#]+)/);
   return match?.[1] ?? "";
 }
 
