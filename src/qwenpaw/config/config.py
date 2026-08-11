@@ -2002,17 +2002,20 @@ class MCPConfig(BaseModel):
     """MCP clients configuration.
 
     Uses a dict to allow dynamic client definitions.
-    Default tavily_search client is created and auto-enabled if API key exists.
+    Default anysearch client is provided but disabled by default; enable it
+    in the Console to use AnySearch through MCP. Access follows the default
+    ask policy (no blanket allow).
     """
 
     clients: Dict[str, MCPClientConfig] = Field(
         default_factory=lambda: {
-            "tavily_search": MCPClientConfig(
-                name="tavily_mcp",
+            "anysearch": MCPClientConfig(
+                name="anysearch_mcp",
                 enabled=False,
-                command="npx",
-                args=["-y", "tavily-mcp@latest"],
-                env={"TAVILY_API_KEY": ""},
+                transport="streamable_http",
+                url="https://api.anysearch.com/mcp",
+                headers={"Authorization": "Bearer ${ANYSEARCH_API_KEY}"},
+                description="AnySearch web search via MCP",
             ),
         },
     )
