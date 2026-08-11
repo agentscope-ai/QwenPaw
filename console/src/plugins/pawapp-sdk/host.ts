@@ -200,6 +200,7 @@ function normalizeChatSession(data: {
   created_at?: string;
   updated_at?: string;
   archived?: boolean;
+  pinned?: boolean;
 }): PawChatSession {
   return {
     id: data.id || "",
@@ -208,6 +209,7 @@ function normalizeChatSession(data: {
     createdAt: data.created_at || "",
     updatedAt: data.updated_at || "",
     archived: data.archived === true,
+    pinned: data.pinned === true,
   };
 }
 
@@ -247,6 +249,19 @@ function createChatSessionsApi(
         { query: query(options) },
       );
       return normalizeChatSession(data);
+    },
+    async pin(chatId, pinned, options = {}) {
+      const data = await api.post<Parameters<typeof normalizeChatSession>[0]>(
+        `/chat/sessions/${encodeURIComponent(chatId)}/pin`,
+        { pinned },
+        { query: query(options) },
+      );
+      return normalizeChatSession(data);
+    },
+    async delete(chatId, options = {}) {
+      await api.delete(`/chat/sessions/${encodeURIComponent(chatId)}`, {
+        query: query(options),
+      });
     },
   };
 }

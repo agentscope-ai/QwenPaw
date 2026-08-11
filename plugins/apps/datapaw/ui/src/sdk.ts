@@ -53,6 +53,7 @@ export interface PawChatSession {
   createdAt: string;
   updatedAt: string;
   archived: boolean;
+  pinned: boolean;
 }
 
 export interface PawApi {
@@ -183,6 +184,12 @@ export interface PawAppSdk {
       chatId: string,
       options?: { agentId?: string },
     ): Promise<PawChatSession>;
+    pin(
+      chatId: string,
+      pinned: boolean,
+      options?: { agentId?: string },
+    ): Promise<PawChatSession>;
+    delete(chatId: string, options?: { agentId?: string }): Promise<void>;
   };
   storage: {
     get<T>(key: string, fallback?: T): Promise<T>;

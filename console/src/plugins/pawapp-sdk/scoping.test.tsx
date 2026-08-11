@@ -293,6 +293,16 @@ describe("app-scoped PawApp SDK", () => {
         new Response(JSON.stringify({ ...session, name: "Renamed" }), {
           headers: { "content-type": "application/json" },
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...session, pinned: true }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          headers: { "content-type": "application/json" },
+        }),
       );
 
     const sessions = forApp("datapaw").chatSessions;
@@ -304,10 +314,15 @@ describe("app-scoped PawApp SDK", () => {
         createdAt: "2026-08-11T00:00:00Z",
         updatedAt: "2026-08-11T00:01:00Z",
         archived: false,
+        pinned: false,
       },
     ]);
     await sessions.create({ agentId: "datapaw", name: "March GAAP" });
     await sessions.rename("chat-1", "Renamed", { agentId: "datapaw" });
+    await expect(
+      sessions.pin("chat-1", true, { agentId: "datapaw" }),
+    ).resolves.toMatchObject({ pinned: true });
+    await sessions.delete("chat-1", { agentId: "datapaw" });
 
     expect(mockedFetch).toHaveBeenNthCalledWith(
       1,
@@ -329,6 +344,19 @@ describe("app-scoped PawApp SDK", () => {
         method: "PATCH",
         body: JSON.stringify({ name: "Renamed" }),
       }),
+    );
+    expect(mockedFetch).toHaveBeenNthCalledWith(
+      4,
+      "/datapaw/chat/sessions/chat-1/pin?agent_id=datapaw",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ pinned: true }),
+      }),
+    );
+    expect(mockedFetch).toHaveBeenNthCalledWith(
+      5,
+      "/datapaw/chat/sessions/chat-1?agent_id=datapaw",
+      expect.objectContaining({ method: "DELETE" }),
     );
   });
 

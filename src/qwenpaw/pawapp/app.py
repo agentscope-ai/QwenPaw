@@ -71,6 +71,10 @@ class _ChatSessionUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
 
 
+class _ChatSessionPin(BaseModel):
+    pinned: bool = True
+
+
 def _resolve_app_session_id(ctx: Any, session_id: Optional[str]) -> str:
     """Resolve the default app session without rewriting legacy explicit IDs.
 
@@ -217,6 +221,24 @@ def _build_capability_router() -> APIRouter:
         if result is None:
             raise HTTPException(status_code=404, detail="Chat session not found")
         return result
+
+    @router.post("/chat/sessions/{chat_id}/pin")
+    async def pin_chat_session(
+        chat_id: str,
+        request: _ChatSessionPin,
+        ctx=Depends(get_ctx),
+    ):
+        result = await ctx.pin_chat_session(chat_id, pinned=request.pinned)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Chat session not found")
+        return result
+
+    @router.delete("/chat/sessions/{chat_id}")
+    async def delete_chat_session(chat_id: str, ctx=Depends(get_ctx)):
+        deleted = await ctx.delete_chat_session(chat_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Chat session not found")
+        return {"ok": True}
 
     @router.get("/storage")
     async def storage_keys(ctx=Depends(get_ctx)):

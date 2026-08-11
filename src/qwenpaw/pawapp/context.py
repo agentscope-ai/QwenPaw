@@ -400,6 +400,7 @@ class PawAppContext:
             "created_at": chat.created_at,
             "updated_at": chat.updated_at,
             "archived": chat.archived,
+            "pinned": chat.pinned,
         }
 
     async def ensure_chat_session(
@@ -527,6 +528,37 @@ class PawAppContext:
             return None
         archived = await workspace.chat_manager.archive_chat(chat_id)
         return self._chat_session_payload(archived) if archived else None
+
+    async def pin_chat_session(
+        self,
+        chat_id: str,
+        *,
+        pinned: bool,
+    ) -> Optional[Dict[str, Any]]:
+        """Pin or unpin one dialogue after validating app ownership."""
+        from ..app.chats.models import ChatUpdate
+
+        workspace = await self._get_workspace()
+        if workspace is None:
+            return None
+        chat = await workspace.chat_manager.get_chat(chat_id)
+        if chat is None or not self._owns_chat_spec(chat):
+            return None
+        updated = await workspace.chat_manager.patch_chat(
+            chat_id,
+            ChatUpdate(pinned=pinned),
+        )
+        return self._chat_session_payload(updated) if updated else None
+
+    async def delete_chat_session(self, chat_id: str) -> bool:
+        """Delete one dialogue after validating app ownership."""
+        workspace = await self._get_workspace()
+        if workspace is None:
+            return False
+        chat = await workspace.chat_manager.get_chat(chat_id)
+        if chat is None or not self._owns_chat_spec(chat):
+            return False
+        return await workspace.chat_manager.delete_chats([chat_id])
 
     async def _get_workspace(self) -> Any:
         """Get the workspace for the current agent."""

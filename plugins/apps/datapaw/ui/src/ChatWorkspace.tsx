@@ -472,6 +472,212 @@ function AnalysisTrace({ message }: { message: ChatMessage }) {
   );
 }
 
+/** Pinned dialogues first, then most recently updated. */
+export function sortChatSessions(sessions: PawChatSession[]): PawChatSession[] {
+  return [...sessions].sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    return (b.updatedAt || "").localeCompare(a.updatedAt || "");
+  });
+}
+
+/** Which dialogue becomes active after one is archived or deleted. */
+export function nextActiveSessionId(
+  sessions: PawChatSession[],
+  removedSessionId: string,
+  activeSessionId: string,
+): string {
+  if (removedSessionId !== activeSessionId) return activeSessionId;
+  const remaining = sortChatSessions(sessions).filter(
+    (session) => session.sessionId !== removedSessionId,
+  );
+  return remaining[0]?.sessionId || "";
+}
+
+function sessionTimestamp(value: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function DialogueHistory({
+  sessions,
+  activeSessionId,
+  busy,
+  onSelect,
+  onTogglePin,
+  onRename,
+  onArchive,
+  onDelete,
+}: {
+  sessions: PawChatSession[];
+  activeSessionId: string;
+  busy: boolean;
+  onSelect(sessionId: string): void;
+  onTogglePin(session: PawChatSession): void;
+  onRename(session: PawChatSession, name: string): void;
+  onArchive(session: PawChatSession): void;
+  onDelete(session: PawChatSession): void;
+}) {
+  const [menuFor, setMenuFor] = useState("");
+  const [renamingId, setRenamingId] = useState("");
+  const [renameDraft, setRenameDraft] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState("");
+  const ordered = sortChatSessions(sessions);
+
+  function closeMenu() {
+    setMenuFor("");
+    setConfirmDeleteId("");
+  }
+
+  function submitRename(session: PawChatSession) {
+    const clean = renameDraft.trim();
+    setRenamingId("");
+    if (clean && clean !== session.name) onRename(session, clean);
+  }
+
+  return (
+    <aside className="datapaw-history" aria-label="Dialogue history">
+      <header className="datapaw-history__header">
+        <b>Dialogues</b>
+      </header>
+      <ul className="datapaw-history__list">
+        {ordered.map((session) => {
+          const isActive = session.sessionId === activeSessionId;
+          const isLegacy = session.id === "legacy";
+          return (
+            <li
+              key={session.id}
+              className={[
+                "datapaw-history__item",
+                isActive ? "is-active" : "",
+                session.pinned ? "is-pinned" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            >
+              {renamingId === session.id ? (
+                <form
+                  className="datapaw-history__rename"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    submitRename(session);
+                  }}
+                >
+                  <input
+                    autoFocus
+                    aria-label="Dialogue name"
+                    value={renameDraft}
+                    maxLength={80}
+                    onChange={(event) => setRenameDraft(event.target.value)}
+                    onBlur={() => submitRename(session)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") setRenamingId("");
+                    }}
+                  />
+                </form>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="datapaw-history__open"
+                    disabled={busy}
+                    onClick={() => onSelect(session.sessionId)}
+                  >
+                    <b>
+                      {session.pinned ? <i aria-label="Pinned">📌</i> : null}
+                      {session.name}
+                    </b>
+                    <small>{sessionTimestamp(session.updatedAt)}</small>
+                  </button>
+                  {isLegacy ? null : (
+                    <button
+                      type="button"
+                      className="datapaw-history__more"
+                      aria-label={`Actions for ${session.name}`}
+                      aria-expanded={menuFor === session.id}
+                      onClick={() =>
+                        menuFor === session.id
+                          ? closeMenu()
+                          : setMenuFor(session.id)
+                      }
+                    >
+                      ⋯
+                    </button>
+                  )}
+                  {menuFor === session.id ? (
+                    <>
+                      <div
+                        className="datapaw-history__backdrop"
+                        onClick={closeMenu}
+                      />
+                      <div className="datapaw-history__menu" role="menu">
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            closeMenu();
+                            onTogglePin(session);
+                          }}
+                        >
+                          {session.pinned ? "Unpin" : "Pin"}
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            closeMenu();
+                            setRenameDraft(session.name);
+                            setRenamingId(session.id);
+                          }}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            closeMenu();
+                            onArchive(session);
+                          }}
+                        >
+                          Archive
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="is-danger"
+                          onClick={() => {
+                            if (confirmDeleteId !== session.id) {
+                              setConfirmDeleteId(session.id);
+                              return;
+                            }
+                            closeMenu();
+                            onDelete(session);
+                          }}
+                        >
+                          {confirmDeleteId === session.id
+                            ? "Confirm delete"
+                            : "Delete"}
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </aside>
+  );
+}
+
 export function ChatWorkspace({
   paw,
   selectedSource,
@@ -486,6 +692,7 @@ export function ChatWorkspace({
   const [sending, setSending] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [creatingSession, setCreatingSession] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const sourceLabel = useMemo(
@@ -498,6 +705,12 @@ export function ChatWorkspace({
 
   useEffect(() => {
     let cancelled = false;
+    void paw.storage
+      .get<boolean>("chat-history-open", true)
+      .then((open) => {
+        if (!cancelled) setHistoryOpen(open !== false);
+      })
+      .catch(() => undefined);
     void Promise.all([
       paw.chatSessions.list({ agentId: "datapaw" }),
       paw.storage.get<string>("active-chat-session", ""),
@@ -531,6 +744,7 @@ export function ChatWorkspace({
           createdAt: "",
           updatedAt: "",
           archived: false,
+          pinned: false,
         };
         setSessions([fallback]);
         setActiveSessionId(fallback.sessionId);
@@ -619,6 +833,77 @@ export function ChatWorkspace({
     setSessions((current) =>
       current.map((session) => (session.id === updated.id ? updated : session)),
     );
+  }
+
+  function toggleHistory() {
+    setHistoryOpen((open) => {
+      void paw.storage.set("chat-history-open", !open).catch(() => undefined);
+      return !open;
+    });
+  }
+
+  async function sessionActionFailed(action: string, error: unknown) {
+    await paw.toast(
+      `Could not ${action} the dialogue. ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      "error",
+    );
+  }
+
+  function togglePin(session: PawChatSession) {
+    void paw.chatSessions
+      .pin(session.id, !session.pinned, { agentId: "datapaw" })
+      .then(updateSession)
+      .catch((error) => void sessionActionFailed("pin", error));
+  }
+
+  function renameDialogue(session: PawChatSession, name: string) {
+    void paw.chatSessions
+      .rename(session.id, name, { agentId: "datapaw" })
+      .then(updateSession)
+      .catch((error) => void sessionActionFailed("rename", error));
+  }
+
+  async function dropDialogue(session: PawChatSession) {
+    const nextActive = nextActiveSessionId(
+      sessions,
+      session.sessionId,
+      activeSessionId,
+    );
+    setSessions((current) =>
+      current.filter((candidate) => candidate.id !== session.id),
+    );
+    if (nextActive === activeSessionId) return;
+    if (nextActive) {
+      setActiveSessionId(nextActive);
+      return;
+    }
+    // The last dialogue is gone; keep the workspace usable with a fresh one.
+    try {
+      const created = await paw.chatSessions.create({
+        agentId: "datapaw",
+        name: "New analysis",
+      });
+      setSessions([created]);
+      setActiveSessionId(created.sessionId);
+    } catch (error) {
+      await sessionActionFailed("replace", error);
+    }
+  }
+
+  function archiveDialogue(session: PawChatSession) {
+    void paw.chatSessions
+      .archive(session.id, { agentId: "datapaw" })
+      .then(() => dropDialogue(session))
+      .catch((error) => void sessionActionFailed("archive", error));
+  }
+
+  function deleteDialogue(session: PawChatSession) {
+    void paw.chatSessions
+      .delete(session.id, { agentId: "datapaw" })
+      .then(() => dropDialogue(session))
+      .catch((error) => void sessionActionFailed("delete", error));
   }
 
   async function submit(question: string) {
@@ -717,138 +1002,158 @@ export function ChatWorkspace({
   }
 
   return (
-    <section className="datapaw-chat" aria-label="Data analysis chat">
-      <PageHeader
-        className="datapaw-chat__topline"
-        eyebrow="Analysis workspace"
-        title="Ask your data, with context."
-        description="Explore governed data with semantic and graph-grounded context."
-        actions={
-          <div className="datapaw-chat__controls">
-            <label className="datapaw-dialogue-picker">
-              <span>Dialogue</span>
-              <select
-                aria-label="Active dialogue"
-                value={activeSessionId}
-                disabled={sending || restoring}
-                onChange={(event) => switchDialogue(event.target.value)}
+    <section
+      className={`datapaw-chat ${historyOpen ? "has-history" : ""}`.trim()}
+      aria-label="Data analysis chat"
+    >
+      <div className="datapaw-chat__main">
+        <PageHeader
+          className="datapaw-chat__topline"
+          eyebrow="Analysis workspace"
+          title="Ask your data, with context."
+          description="Explore governed data with semantic and graph-grounded context."
+          actions={
+            <div className="datapaw-chat__controls">
+              <button
+                type="button"
+                className="datapaw-new-chat"
+                disabled={sending || restoring || creatingSession}
+                onClick={() => void createDialogue()}
               >
-                {sessions.map((session) => (
-                  <option key={session.id} value={session.sessionId}>
-                    {session.name}
-                  </option>
+                {creatingSession ? "Creating…" : "+ New chat"}
+              </button>
+              <div className="datapaw-source-pill">
+                <span className="datapaw-source-pill__dot" />
+                {sourceLabel || "All available context"}
+              </div>
+            </div>
+          }
+        />
+        <div
+          className="datapaw-conversation"
+          aria-live="polite"
+          ref={conversationRef}
+        >
+          {restoring ? (
+            <div className="datapaw-welcome">
+              <h2>Restoring your analysis…</h2>
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="datapaw-welcome">
+              <div className="datapaw-welcome__mark">
+                <LogoMark />
+              </div>
+              <h2>What would you like to understand?</h2>
+              <p>
+                QwenPaw-Data can retrieve semantic definitions, inspect
+                relationships, and run governed queries through the selected
+                data source.
+              </p>
+              <div className="datapaw-starters">
+                {STARTERS.map((starter) => (
+                  <button
+                    key={starter}
+                    type="button"
+                    disabled={restoring}
+                    onClick={() => void submit(starter)}
+                  >
+                    <span>{starter}</span>
+                    <b aria-hidden="true">↗</b>
+                  </button>
                 ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              className="datapaw-new-chat"
-              disabled={sending || restoring || creatingSession}
-              onClick={() => void createDialogue()}
-            >
-              {creatingSession ? "Creating…" : "+ New chat"}
-            </button>
-            <div className="datapaw-source-pill">
-              <span className="datapaw-source-pill__dot" />
-              {sourceLabel || "All available context"}
+              </div>
             </div>
-          </div>
-        }
-      />
-
-      <div
-        className="datapaw-conversation"
-        aria-live="polite"
-        ref={conversationRef}
-      >
-        {restoring ? (
-          <div className="datapaw-welcome">
-            <h2>Restoring your analysis…</h2>
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="datapaw-welcome">
-            <div className="datapaw-welcome__mark">
-              <LogoMark />
-            </div>
-            <h2>What would you like to understand?</h2>
-            <p>
-              QwenPaw-Data can retrieve semantic definitions, inspect
-              relationships, and run governed queries through the selected data
-              source.
-            </p>
-            <div className="datapaw-starters">
-              {STARTERS.map((starter) => (
-                <button
-                  key={starter}
-                  type="button"
-                  disabled={restoring}
-                  onClick={() => void submit(starter)}
+          ) : (
+            <div className="datapaw-messages">
+              {messages.map((message) => (
+                <article
+                  className={`datapaw-message datapaw-message--${message.role}`}
+                  key={message.id}
                 >
-                  <span>{starter}</span>
-                  <b aria-hidden="true">↗</b>
-                </button>
+                  <div className="datapaw-message__role">
+                    {message.role === "user" ? "You" : "QwenPaw-Data"}
+                  </div>
+                  {message.role === "assistant" ? (
+                    <>
+                      <AnalysisTrace message={message} />
+                      {message.text ? (
+                        <div className="datapaw-message__body">
+                          {message.text}
+                        </div>
+                      ) : message.streaming && !message.activity ? (
+                        <div
+                          className="datapaw-thinking"
+                          aria-label="Analyzing"
+                        >
+                          <i /> <i /> <i />
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="datapaw-message__body">{message.text}</div>
+                  )}
+                </article>
               ))}
             </div>
-          </div>
-        ) : (
-          <div className="datapaw-messages">
-            {messages.map((message) => (
-              <article
-                className={`datapaw-message datapaw-message--${message.role}`}
-                key={message.id}
-              >
-                <div className="datapaw-message__role">
-                  {message.role === "user" ? "You" : "QwenPaw-Data"}
-                </div>
-                {message.role === "assistant" ? (
-                  <>
-                    <AnalysisTrace message={message} />
-                    {message.text ? (
-                      <div className="datapaw-message__body">
-                        {message.text}
-                      </div>
-                    ) : message.streaming && !message.activity ? (
-                      <div className="datapaw-thinking" aria-label="Analyzing">
-                        <i /> <i /> <i />
-                      </div>
-                    ) : null}
-                  </>
-                ) : (
-                  <div className="datapaw-message__body">{message.text}</div>
-                )}
-              </article>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <form className="datapaw-composer" onSubmit={handleSubmit}>
-        <textarea
-          ref={inputRef}
-          value={draft}
-          rows={2}
-          disabled={restoring || !activeSessionId}
-          placeholder="Ask about a metric, trend, dataset, or business question…"
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              void submit(draft);
-            }
-          }}
-        />
-        <button
-          type="submit"
-          disabled={!draft.trim() || sending || restoring}
-          aria-label="Send"
-        >
-          ↑
-        </button>
-        <div className="datapaw-composer__hint">
-          QwenPaw-Data may execute read-only queries. Verify important
-          decisions.
+          )}
         </div>
-      </form>
+
+        <form className="datapaw-composer" onSubmit={handleSubmit}>
+          <textarea
+            ref={inputRef}
+            value={draft}
+            rows={2}
+            disabled={restoring || !activeSessionId}
+            placeholder="Ask about a metric, trend, dataset, or business question…"
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void submit(draft);
+              }
+            }}
+          />
+          <button
+            type="submit"
+            disabled={!draft.trim() || sending || restoring}
+            aria-label="Send"
+          >
+            ↑
+          </button>
+          <div className="datapaw-composer__hint">
+            QwenPaw-Data may execute read-only queries. Verify important
+            decisions.
+          </div>
+        </form>
+      </div>
+      <div className="datapaw-history-rail">
+        <button
+          type="button"
+          className="datapaw-history-tab"
+          aria-expanded={historyOpen}
+          aria-label={
+            historyOpen
+              ? "Collapse dialogue history"
+              : "Expand dialogue history"
+          }
+          onClick={toggleHistory}
+        >
+          <i aria-hidden="true">{historyOpen ? "›" : "‹"}</i>
+          <span>History</span>
+        </button>
+        {historyOpen ? (
+          <DialogueHistory
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            busy={sending || restoring}
+            onSelect={switchDialogue}
+            onTogglePin={togglePin}
+            onRename={renameDialogue}
+            onArchive={archiveDialogue}
+            onDelete={deleteDialogue}
+          />
+        ) : null}
+      </div>
     </section>
   );
 }

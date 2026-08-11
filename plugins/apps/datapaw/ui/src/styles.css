@@ -286,12 +286,20 @@
 
 .datapaw-chat {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px;
   height: calc(100vh - 56px);
   min-height: 560px;
   padding-top: var(--datapaw-page-top);
   padding-bottom: 24px;
   overflow: hidden;
+}
+
+.datapaw-chat__main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
 }
 
 .datapaw-page-header {
@@ -339,37 +347,208 @@
   min-width: 0;
 }
 
-.datapaw-dialogue-picker {
-  display: grid;
-  gap: 2px;
-  min-width: 150px;
+.datapaw-history-rail {
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+  padding-bottom: 4px;
 }
 
-.datapaw-dialogue-picker > span {
+.datapaw-history-tab {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  align-self: center;
+  padding: 11px 5px;
+  border: 1px solid var(--datapaw-line);
+  border-right: 0;
+  border-radius: 10px 0 0 10px;
+  color: #626c7f;
+  background: #fafafd;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.datapaw-history-tab:hover {
+  color: #333a4c;
+  background: #f2f1fb;
+}
+
+.datapaw-history-tab i {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.datapaw-history-tab span {
   color: #959cab;
+  writing-mode: vertical-rl;
   font-size: 8px;
   font-weight: 720;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
-.datapaw-dialogue-picker select {
-  width: 100%;
-  min-width: 0;
-  height: 30px;
-  padding: 0 25px 0 9px;
+.datapaw-history {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 262px;
+  min-height: 0;
   border: 1px solid var(--datapaw-line);
-  border-radius: 9px;
-  outline: 0;
-  color: #566074;
-  background: #fafafd;
-  font-size: 10px;
-  text-overflow: ellipsis;
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
 }
 
-.datapaw-dialogue-picker select:focus {
-  border-color: #9e96eb;
-  box-shadow: 0 0 0 3px rgba(101, 88, 232, 0.08);
+.datapaw-history__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--datapaw-line);
+}
+
+.datapaw-history__header > b {
+  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+
+.datapaw-history__list {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  min-height: 0;
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+  overflow: auto;
+}
+
+.datapaw-history__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 10px;
+}
+
+.datapaw-history__item:hover {
+  background: #f7f7fa;
+}
+
+.datapaw-history__item.is-active {
+  background: #f5f3ff;
+}
+
+.datapaw-history__open {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 4px 8px 10px;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.datapaw-history__open b {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #232a3c;
+  font-size: 11.5px;
+  font-weight: 640;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.datapaw-history__open b i {
+  flex: 0 0 auto;
+  font-style: normal;
+  font-size: 9px;
+}
+
+.datapaw-history__open small {
+  color: var(--datapaw-muted);
+  font-size: 9.5px;
+}
+
+.datapaw-history__more {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  margin-right: 6px;
+  border: 0;
+  border-radius: 7px;
+  color: #959cab;
+  background: none;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.datapaw-history__more:hover {
+  color: #40485a;
+  background: #ececf2;
+}
+
+.datapaw-history__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.datapaw-history__menu {
+  position: absolute;
+  top: calc(100% - 4px);
+  right: 6px;
+  z-index: 31;
+  display: grid;
+  min-width: 132px;
+  padding: 5px;
+  border: 1px solid var(--datapaw-line);
+  border-radius: 11px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(21, 27, 44, 0.12);
+}
+
+.datapaw-history__menu button {
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  color: #333a4c;
+  background: none;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.datapaw-history__menu button:hover {
+  background: #f4f4f8;
+}
+
+.datapaw-history__menu button.is-danger {
+  color: #cf3d4f;
+}
+
+.datapaw-history__rename {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 6px;
+}
+
+.datapaw-history__rename input {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #9e96eb;
+  border-radius: 8px;
+  outline: 0;
+  font-size: 11px;
 }
 
 .datapaw-new-chat {

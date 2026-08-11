@@ -486,6 +486,20 @@ def test_chat_session_routes_delegate_to_the_app_scoped_catalog() -> None:
                 "archived": True,
             }
 
+        async def pin_chat_session(self, chat_id, *, pinned):
+            return {
+                "id": chat_id,
+                "session_id": "pawapp:fixture:dialogue:2",
+                "name": "Quarterly GAAP",
+                "created_at": "2026-08-11T00:00:00Z",
+                "updated_at": "2026-08-11T00:01:00Z",
+                "archived": False,
+                "pinned": pinned,
+            }
+
+        async def delete_chat_session(self, chat_id):
+            return chat_id == "chat-2"
+
     fixture = FastAPI()
     fixture.include_router(_build_capability_router())
     fixture.dependency_overrides[get_ctx] = SessionContext
@@ -498,11 +512,17 @@ def test_chat_session_routes_delegate_to_the_app_scoped_catalog() -> None:
         json={"name": "Quarterly GAAP"},
     )
     archived = client.post("/chat/sessions/chat-2/archive")
+    pinned = client.post("/chat/sessions/chat-2/pin", json={"pinned": True})
+    deleted = client.delete("/chat/sessions/chat-2")
+    delete_missing = client.delete("/chat/sessions/chat-404")
 
     assert listed.json()["sessions"][0]["session_id"] == "pawapp:fixture"
     assert created.json()["session_id"] == "pawapp:fixture:dialogue:2"
     assert renamed.json()["name"] == "Quarterly GAAP"
     assert archived.json()["archived"] is True
+    assert pinned.json()["pinned"] is True
+    assert deleted.json() == {"ok": True}
+    assert delete_missing.status_code == 404
 
 
 def test_chat_reply_returns_only_the_last_assistant_message() -> None:

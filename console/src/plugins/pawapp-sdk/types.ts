@@ -96,6 +96,7 @@ export interface PawChatSession {
   createdAt: string;
   updatedAt: string;
   archived: boolean;
+  pinned: boolean;
 }
 
 export interface PawChatSessionScope {
@@ -117,6 +118,12 @@ export interface PawChatSessionsApi {
     chatId: string,
     options?: PawChatSessionScope,
   ): Promise<PawChatSession>;
+  pin(
+    chatId: string,
+    pinned: boolean,
+    options?: PawChatSessionScope,
+  ): Promise<PawChatSession>;
+  delete(chatId: string, options?: PawChatSessionScope): Promise<void>;
 }
 
 /** PawTask event handler. */
