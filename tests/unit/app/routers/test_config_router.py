@@ -263,13 +263,7 @@ def test_put_onebot_channel_rejects_invalid_value(
     fake_agent_workspace,
     patch_get_agent,
 ):
-    """An invalid value is refused instead of reaching the disk.
-
-    The rejection currently surfaces as a 500 because the model error
-    propagates; 422 is accepted too so that turning it into a proper
-    validation response stays a green change.  A 404 would mean the
-    route never ran, which must not pass for this guard.
-    """
+    """An invalid value returns validation details without reaching disk."""
     lenient_client = TestClient(app, raise_server_exceptions=False)
 
     with patch("qwenpaw.config.config.save_agent_config") as save_mock:
@@ -278,7 +272,10 @@ def test_put_onebot_channel_rejects_invalid_value(
             json={"enabled": True, "ws_port": "not-a-port"},
         )
 
-    assert response.status_code in (422, 500)
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["type"] == "int_parsing"
+    assert error["loc"] == ["ws_port"]
     save_mock.assert_not_called()
     assert isinstance(
         fake_agent_workspace.config.channels.onebot,
