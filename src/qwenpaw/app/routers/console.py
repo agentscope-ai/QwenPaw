@@ -638,6 +638,67 @@ def _parse_sse_payload(line: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+async def _finalize_background_fork(
+    project_dir: str,
+    branch: str,
+    *,
+    scope_id: str,
+) -> bool:
+    """Finish an in-flight fork commit before publishing task state.
+
+    Cancelling an ``asyncio.to_thread`` await cannot stop its worker thread.
+    Once finalization starts, keep waiting for its authoritative result so the
+    task API, fork registry, and branch HEAD cannot report conflicting states.
+    """
+    from qwenpaw.agents.fork_project import finalize_fork_worktree_or_fail
+
+    finalizer = asyncio.create_task(
+        asyncio.to_thread(
+            finalize_fork_worktree_or_fail,
+            project_dir,
+            branch,
+            message=f"fork worker {branch}",
+            expected_scope=scope_id or None,
+        ),
+    )
+    while True:
+        try:
+            return await asyncio.shield(finalizer)
+        except asyncio.CancelledError:
+            if finalizer.done():
+                return finalizer.result()
+
+
+async def _mark_background_fork_failed(
+    project_dir: str,
+    branch: str,
+    *,
+    scope_id: str,
+    reason: str,
+    context: str,
+) -> None:
+    """Best-effort fork failure bookkeeping for background tasks."""
+    if not project_dir or not branch:
+        return
+    try:
+        from qwenpaw.agents.fork_project import mark_fork_failed
+
+        await asyncio.to_thread(
+            mark_fork_failed,
+            project_dir,
+            branch,
+            reason=reason,
+            expected_scope=scope_id or None,
+        )
+    except Exception:
+        logger.warning(
+            "mark_fork_failed after %s failed for %s",
+            context,
+            sanitize_log_value(branch),
+            exc_info=True,
+        )
+
+
 @router.post(
     "/chat/task",
     status_code=200,
@@ -742,6 +803,41 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
                 parsed = _parse_sse_payload(sse_line)
                 if parsed and parsed.get("type") != "turn_usage":
                     last_response = parsed
+
+            # Fork subagents: commit dirty worktree so branch tips are
+            # mergeable before exposing a completed task result.
+            if fork_project_dir and fork_worktree_branch:
+                try:
+                    finalized = await _finalize_background_fork(
+                        fork_project_dir,
+                        fork_worktree_branch,
+                        scope_id=fork_scope_id,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Background fork finalize failed for %s (%s)",
+                        sanitize_log_value(fork_worktree_branch),
+                        sanitize_log_value(fork_project_dir),
+                        exc_info=True,
+                    )
+                    await _mark_background_fork_failed(
+                        fork_project_dir,
+                        fork_worktree_branch,
+                        scope_id=fork_scope_id,
+                        reason="Fork finalization raised an exception",
+                        context="finalize error",
+                    )
+                    finalized = False
+                if not finalized:
+                    bg.status = "finished"
+                    bg.finished_at = time.time()
+                    bg.result = {
+                        "status": "failed",
+                        "error": {
+                            "message": "Failed to finalize fork worktree",
+                        },
+                    }
+                    return
         except asyncio.CancelledError:
             bg.status = "finished"
             bg.finished_at = time.time()
@@ -749,23 +845,13 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
                 "status": "failed",
                 "error": {"message": "Task cancelled"},
             }
-            if fork_project_dir and fork_worktree_branch:
-                try:
-                    from qwenpaw.agents.fork_project import mark_fork_failed
-
-                    await asyncio.to_thread(
-                        mark_fork_failed,
-                        fork_project_dir,
-                        fork_worktree_branch,
-                        reason="Task cancelled",
-                        expected_scope=fork_scope_id or None,
-                    )
-                except Exception:
-                    logger.warning(
-                        "mark_fork_failed on cancel failed for %s",
-                        sanitize_log_value(fork_worktree_branch),
-                        exc_info=True,
-                    )
+            await _mark_background_fork_failed(
+                fork_project_dir,
+                fork_worktree_branch,
+                scope_id=fork_scope_id,
+                reason="Task cancelled",
+                context="cancel",
+            )
             return
         except Exception as exc:
             bg.status = "finished"
@@ -774,23 +860,13 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
                 "status": "failed",
                 "error": {"message": str(exc)},
             }
-            if fork_project_dir and fork_worktree_branch:
-                try:
-                    from qwenpaw.agents.fork_project import mark_fork_failed
-
-                    await asyncio.to_thread(
-                        mark_fork_failed,
-                        fork_project_dir,
-                        fork_worktree_branch,
-                        reason=str(exc),
-                        expected_scope=fork_scope_id or None,
-                    )
-                except Exception:
-                    logger.warning(
-                        "mark_fork_failed on error failed for %s",
-                        sanitize_log_value(fork_worktree_branch),
-                        exc_info=True,
-                    )
+            await _mark_background_fork_failed(
+                fork_project_dir,
+                fork_worktree_branch,
+                scope_id=fork_scope_id,
+                reason=str(exc),
+                context="task error",
+            )
             return
 
         bg.status = "finished"
@@ -807,27 +883,6 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
                 "session_id": session_id,
                 "output": [],
             }
-        # Fork subagents: commit dirty worktree so branch tips are mergeable.
-        if fork_project_dir and fork_worktree_branch:
-            try:
-                from qwenpaw.agents.fork_project import (
-                    finalize_fork_worktree_or_fail,
-                )
-
-                await asyncio.to_thread(
-                    finalize_fork_worktree_or_fail,
-                    fork_project_dir,
-                    fork_worktree_branch,
-                    message=f"fork worker {fork_worktree_branch}",
-                    expected_scope=fork_scope_id or None,
-                )
-            except Exception:
-                logger.warning(
-                    "Background fork finalize failed for %s (%s)",
-                    sanitize_log_value(fork_worktree_branch),
-                    sanitize_log_value(fork_project_dir),
-                    exc_info=True,
-                )
 
     atask = asyncio.create_task(_run())
     bg.asyncio_task = atask

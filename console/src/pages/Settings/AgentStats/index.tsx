@@ -13,23 +13,20 @@ import { useAppMessage } from "../../../hooks/useAppMessage";
 import { formatCompact } from "../../../utils/formatNumber";
 import { useTheme } from "../../../contexts/ThemeContext";
 import { useAgentStore } from "../../../stores/agentStore";
+import { getAgentDisplayName } from "../../../utils/agentDisplayName";
 import { SummaryCard } from "./SummaryCard";
 import styles from "./index.module.less";
 
 type ChartDataItem = {
   date: string;
-  displayDate: string;
   chats: number;
   activeSessions: number;
   userMessages: number;
   assistantMessages: number;
-  totalMessages: number;
-  promptTokens: number;
-  completionTokens: number;
-  llmCalls: number;
   toolCalls: number;
   agentPromptTokens: number;
   agentCompletionTokens: number;
+  agentLlmCalls: number;
 };
 
 interface ColumnSeries {
@@ -101,7 +98,11 @@ function AgentStatsPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark: isDarkMode } = useTheme();
-  const { selectedAgent } = useAgentStore();
+  const { selectedAgent, agents } = useAgentStore();
+  const selectedAgentInfo = agents.find((a) => a.id === selectedAgent);
+  const agentName = selectedAgentInfo
+    ? getAgentDisplayName(selectedAgentInfo, t)
+    : selectedAgent;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AgentStatsSummary | null>(null);
@@ -151,18 +152,14 @@ function AgentStatsPage() {
     if (!data?.by_date) return [];
     return data.by_date.map((d) => ({
       date: d.date,
-      displayDate: dayjs(d.date).format("MM-DD"),
       chats: d.chats,
       activeSessions: d.active_sessions,
       userMessages: d.user_messages,
       assistantMessages: d.assistant_messages,
-      totalMessages: d.total_messages,
-      promptTokens: d.prompt_tokens,
-      completionTokens: d.completion_tokens,
-      llmCalls: d.llm_calls,
       toolCalls: d.tool_calls,
       agentPromptTokens: d.agent_prompt_tokens ?? 0,
       agentCompletionTokens: d.agent_completion_tokens ?? 0,
+      agentLlmCalls: d.agent_llm_calls ?? 0,
     }));
   }, [data?.by_date]);
 
@@ -170,7 +167,6 @@ function AgentStatsPage() {
     data &&
     ((data.total_active_sessions ?? 0) > 0 ||
       (data.total_messages ?? 0) > 0 ||
-      (data.total_llm_calls ?? 0) > 0 ||
       (data.total_tool_calls ?? 0) > 0 ||
       (data.agent_llm_calls ?? 0) > 0);
 
@@ -207,25 +203,6 @@ function AgentStatsPage() {
     [chartData, t, isDarkMode, crossesYear],
   );
 
-  const tokenColumnConfig = useMemo(
-    () =>
-      getColumnConfig(
-        chartData,
-        [
-          { key: "promptTokens", label: t("agentStats.promptTokens") },
-          { key: "completionTokens", label: t("agentStats.completionTokens") },
-        ],
-        ["#8b5cf6", "#10b981"],
-        isDarkMode,
-        crossesYear,
-        {
-          yAxisFormatter: formatCompact,
-          tooltipFormatter: formatCompact,
-        },
-      ),
-    [chartData, t, isDarkMode, crossesYear],
-  );
-
   const agentTokenColumnConfig = useMemo(
     () =>
       getColumnConfig(
@@ -253,7 +230,10 @@ function AgentStatsPage() {
       getColumnConfig(
         chartData,
         [
-          { key: "llmCalls", label: t("agentStats.llmCalls") },
+          {
+            key: "agentLlmCalls",
+            label: t("agentStats.currentAgentLlmCalls"),
+          },
           { key: "toolCalls", label: t("agentStats.toolCalls") },
         ],
         ["#ec4899", "#14b8a6"],
@@ -342,67 +322,8 @@ function AgentStatsPage() {
 
             {hasData ? (
               <>
-                <div className={styles.sectionTitle}>
-                  {t("agentStats.allAgents")}
-                </div>
-                <div className={styles.summaryCards}>
-                  <SummaryCard
-                    value={data.total_prompt_tokens}
-                    label={t("agentStats.promptTokens")}
-                    tooltip={t("agentStats.promptTokensTooltip")}
-                  />
-                  <SummaryCard
-                    value={data.total_completion_tokens}
-                    label={t("agentStats.completionTokens")}
-                    tooltip={t("agentStats.completionTokensTooltip")}
-                  />
-                  <SummaryCard
-                    value={data.total_llm_calls}
-                    label={t("agentStats.llmCalls")}
-                    tooltip={t("agentStats.llmCallsTooltip")}
-                  />
-                </div>
-
-                <div className={styles.trendRow}>
-                  <Card
-                    className={styles.chartCard}
-                    title={
-                      <Tooltip
-                        title={t("agentStats.tokenTrendTooltip")}
-                        placement="bottom"
-                      >
-                        <span className={styles.chartTitle}>
-                          {t("agentStats.tokenTrend")}
-                        </span>
-                      </Tooltip>
-                    }
-                  >
-                    <div className={styles.chartContainerShort}>
-                      <Column {...tokenColumnConfig} />
-                    </div>
-                  </Card>
-
-                  <Card
-                    className={styles.chartCard}
-                    title={
-                      <Tooltip
-                        title={t("agentStats.llmAndToolTrendTooltip")}
-                        placement="bottom"
-                      >
-                        <span className={styles.chartTitle}>
-                          {t("agentStats.llmAndToolTrend")}
-                        </span>
-                      </Tooltip>
-                    }
-                  >
-                    <div className={styles.chartContainerShort}>
-                      <Column {...llmToolColumnConfig} />
-                    </div>
-                  </Card>
-                </div>
-
                 <div className={styles.currentAgentSectionTitle}>
-                  {t("agentStats.currentAgent")}
+                  {agentName}
                 </div>
                 <div className={styles.summaryCards}>
                   <SummaryCard
@@ -484,13 +405,31 @@ function AgentStatsPage() {
                         placement="bottom"
                       >
                         <span className={styles.chartTitle}>
-                          {t("agentStats.currentAgentTokenTrend")}
+                          {t("agentStats.tokenTrend")}
                         </span>
                       </Tooltip>
                     }
                   >
                     <div className={styles.chartContainerShort}>
                       <Column {...agentTokenColumnConfig} />
+                    </div>
+                  </Card>
+
+                  <Card
+                    className={styles.chartCard}
+                    title={
+                      <Tooltip
+                        title={t("agentStats.llmAndToolTrendTooltip")}
+                        placement="bottom"
+                      >
+                        <span className={styles.chartTitle}>
+                          {t("agentStats.llmAndToolTrend")}
+                        </span>
+                      </Tooltip>
+                    }
+                  >
+                    <div className={styles.chartContainerShort}>
+                      <Column {...llmToolColumnConfig} />
                     </div>
                   </Card>
                 </div>

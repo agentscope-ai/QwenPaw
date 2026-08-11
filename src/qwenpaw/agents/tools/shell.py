@@ -1058,6 +1058,15 @@ async def execute_shell_command(
         sandbox_config,
         SandboxConfig,
     ):
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning(
+            "[sandbox] Received sandbox_config of type %s instead of "
+            "SandboxConfig dataclass; discarding and falling back to "
+            "direct execution (no sandbox). If this was intended to "
+            "enforce sandboxing, pass a SandboxConfig instance.",
+            type(sandbox_config).__qualname__,
+        )
         sandbox_config = None
 
     if sandbox_config is not None:
@@ -1088,8 +1097,7 @@ async def execute_shell_command(
                     TextBlock(
                         type="text",
                         text=(
-                            "Command failed with exit code -1.\n"
-                            f"[stderr]\n{stderr_msg}"
+                            f"Command failed with exit code -1.\n[stderr]\n{stderr_msg}"
                         ),
                     ),
                 ],

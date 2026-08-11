@@ -64,6 +64,42 @@ def test_task_rejects_empty_instruction(monkeypatch) -> None:
     )
 
 
+def test_task_reports_missing_agent_without_traceback(monkeypatch) -> None:
+    from qwenpaw.exceptions import ConfigurationException
+
+    missing_agent = "missing-agent"
+
+    def _raise_missing_agent(agent_id: str) -> None:
+        raise ConfigurationException(
+            config_key="agent",
+            message=f"Agent '{agent_id}' not found in config",
+        )
+
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        _raise_missing_agent,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "task",
+            "-i",
+            "hello",
+            "--agent-id",
+            missing_agent,
+        ],
+    )
+    output = result.output
+    if result.stderr_bytes:
+        output = f"{output}\n{result.stderr_bytes.decode()}"
+
+    assert result.exit_code == 1
+    assert "Error loading agent config" in output
+    assert f"Agent '{missing_agent}' not found in config" in output
+    assert "Traceback" not in output
+
+
 # ── --model flag ─────────────────────────────────────────────────────
 
 

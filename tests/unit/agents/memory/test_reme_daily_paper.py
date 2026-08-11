@@ -2,6 +2,7 @@
 # pylint: disable=protected-access
 """Focused tests for the embedded ReMe Daily Paper entry point."""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -81,6 +82,9 @@ async def test_daily_paper_reports_the_real_execution_failure() -> None:
         is_started=True,
         run_job=AsyncMock(side_effect=ConnectionError("mirror unreachable")),
     )
+    manager._lifecycle_condition = asyncio.Condition()
+    manager._lifecycle_operation = None
+    manager._active_reme_jobs = 0
     manager._update_qwenpaw_model = AsyncMock()
     manager.get_memory_config = lambda: SimpleNamespace(
         daily_paper_use_hf_mirror=True,

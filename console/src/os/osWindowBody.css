@@ -29,3 +29,10 @@
 .os-window-overlay-root > .ant-drawer {
   position: absolute;
 }
+
+/* Restore text selection inside OS window content (desktop shell sets
+ * user-select: none on the root to prevent drag interference). */
+.os-window-body {
+  user-select: text;
+  -webkit-user-select: text;
+}

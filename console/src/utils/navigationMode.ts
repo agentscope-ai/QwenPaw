@@ -5,6 +5,12 @@ interface LocationLike {
 }
 
 const CONSOLE_BASENAME = "/console";
+const OS_PAW_APP_STATE_KEY = "osPawAppId";
+
+function historyStateRecord(state: unknown): Record<string, unknown> {
+  if (!state || typeof state !== "object" || Array.isArray(state)) return {};
+  return state as Record<string, unknown>;
+}
 
 function pathnameOnly(path: string): string {
   return path.split(/[?#]/, 1)[0] || "/";
@@ -22,6 +28,7 @@ export function stripRouterBasename(pathname: string): string {
 
 export function isOsPath(path: string): boolean {
   const pathname = stripRouterBasename(pathnameOnly(path));
+  // Descendants still enter the shell so it can canonicalize them to /os.
   return pathname === "/os" || pathname.startsWith("/os/");
 }
 
@@ -57,19 +64,34 @@ export function getPostLoginHref(
   redirect: string,
 ): string | null {
   if (!isOsPath(redirect)) return null;
-  return addRouterBasename(currentPathname, redirect);
+  return getOsRootHref(currentPathname);
 }
 
 export function getOsRootHref(currentPathname: string): string {
   return addRouterBasename(currentPathname, "/os");
 }
 
+export function getOsPawAppIdFromHistoryState(
+  state: unknown,
+): string | undefined {
+  const appId = historyStateRecord(state)[OS_PAW_APP_STATE_KEY];
+  return typeof appId === "string" && appId ? appId : undefined;
+}
+
+export function withOsPawAppHistoryState(
+  state: unknown,
+  appId: string | null,
+): Record<string, unknown> {
+  const nextState = { ...historyStateRecord(state) };
+  if (appId) {
+    nextState[OS_PAW_APP_STATE_KEY] = appId;
+  } else {
+    delete nextState[OS_PAW_APP_STATE_KEY];
+  }
+  return nextState;
+}
+
 /** Build the classic console entry URL while preserving an optional basename. */
 export function getConsoleRootHref(currentPathname: string): string {
   return addRouterBasename(currentPathname, "/chat");
-}
-
-export function getOsAppHref(currentPathname: string, appPath: string): string {
-  const normalized = appPath.startsWith("/") ? appPath : `/${appPath}`;
-  return addRouterBasename(currentPathname, `/os${normalized}`);
 }
