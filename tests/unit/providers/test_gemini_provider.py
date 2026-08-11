@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 from types import SimpleNamespace
 
 import pytest
 from google.genai import errors as genai_errors
+from google.genai import types as genai_types
 
 import qwenpaw.providers.gemini_provider as gemini_provider_module
 from qwenpaw.providers.gemini_provider import GeminiProvider
@@ -489,6 +491,55 @@ def test_sanitize_all_null_anyOf_becomes_object() -> None:
     }
     result = _sanitize_schema_for_gemini(schema)
     assert "anyOf" not in result
+
+
+def test_format_tools_strips_schema_metadata_before_sdk_validation() -> None:
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "search",
+                "description": "Search for a query.",
+                "parameters": {
+                    "$schema": "http://json-schema.org/draft-07/schema#",
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "$schema": (
+                                "http://json-schema.org/draft-07/schema#"
+                            ),
+                            "type": "string",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+    ]
+    original_tools = copy.deepcopy(tools)
+
+    model = _make_provider().get_chat_model_instance("gemini-2.5-flash")
+    formatted_tools, tool_config = model._format_tools(tools, None)
+
+    config = genai_types.GenerateContentConfig(tools=formatted_tools)
+    assert tool_config is None
+    assert config.tools is not None
+    assert formatted_tools == [
+        {
+            "function_declarations": [
+                {
+                    "name": "search",
+                    "description": "Search for a query.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"query": {"type": "string"}},
+                        "required": ["query"],
+                    },
+                },
+            ],
+        },
+    ]
+    assert tools == original_tools
 
 
 # -- update_config ------------------------------------------------------------

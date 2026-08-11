@@ -144,6 +144,34 @@ async def test_expand_rejects_non_positive_or_non_decimal_seqs(
     assert argument in _text(chunk)
 
 
+@pytest.mark.parametrize(
+    ("lo", "hi"),
+    [
+        (3, 1),
+        ("3", "1"),
+        (3, "1"),
+        ("3", 1),
+    ],
+)
+async def test_expand_rejects_descending_seq_span(tool, lo, hi):
+    chunk = await tool(op="expand", lo=lo, hi=hi)
+
+    assert chunk.state == ToolResultState.ERROR
+    text = _text(chunk)
+    assert text.startswith('RECALL FAILED — invalid op="expand" seq span')
+    assert "lo (3) must be less than or equal to hi (1)" in text
+    assert "swap lo and hi and retry" in text
+
+
+async def test_expand_accepts_single_seq_span(tool):
+    chunk = await tool(op="expand", lo=1, hi=1)
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "expand [1, 1]" in text
+    assert "hello there" in text
+
+
 def test_expand_schema_accepts_integer_or_string_seqs(tool):
     properties = FunctionTool(tool).input_schema["properties"]
 
@@ -176,6 +204,159 @@ async def test_search_user_hit_returns_same_complete_turn(tool):
     assert "hello there" in text
     assert "the flight is AA231" in text
     assert "RESULT-FULL" in text
+
+
+async def test_search_cjk_substring_returns_same_complete_turn(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "cjk-history.db"
+    history = HistoryStore(db_path)
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="u1",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="紫水晶河马在周二跳舞",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="a1",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="我记住了这个暗号",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="t1",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            name="lookup",
+            content="工具结果",
+            tool_call_id="call-cjk",
+        ),
+    )
+    history.close()
+    recall = make_recall_history(
+        history_db_path=str(db_path),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    chunk = await recall(
+        op="search",
+        query="紫水晶河马",
+        session_id="archive",
+        k=10,
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "matched_seq=1" in text
+    assert "turn_seq=1–3" in text
+    assert "紫水晶河马在周二跳舞" in text
+    assert "我记住了这个暗号" in text
+    assert "工具结果" in text
+
+
+async def test_search_cjk_multiple_terms_returns_complete_turn(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "cjk-multiple-terms.db"
+    history = HistoryStore(db_path)
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="u1",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="项目的截止日期是周二",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="a1",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="好的，我记住了",
+        ),
+    )
+    history.close()
+    recall = make_recall_history(
+        history_db_path=str(db_path),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    chunk = await recall(
+        op="search",
+        query="项目 截止日期",
+        session_id="archive",
+        k=10,
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "matched_seq=1" in text
+    assert "turn_seq=1–2" in text
+    assert "项目的截止日期是周二" in text
+    assert "好的，我记住了" in text
+
+
+async def test_search_cjk_uppercase_or_does_not_report_false_empty(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "cjk-or.db"
+    history = HistoryStore(db_path)
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="project",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="项目状态",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="deadline",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="截止日期",
+        ),
+    )
+    history.close()
+    recall = make_recall_history(
+        history_db_path=str(db_path),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    chunk = await recall(
+        op="search",
+        query="项目 OR 截止日期",
+        session_id="archive",
+        k=10,
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "项目状态" in text
+    assert "截止日期" in text
+    assert "0 rows" not in text
 
 
 async def test_search_filters_and_displays_created_at(tool):
@@ -347,6 +528,49 @@ async def test_search_saved_tool_output_keeps_match_excerpt(tmp_path: Path):
     assert "[matched content excerpt]" in text
     assert "deepneedle" in text
     assert "inspect the saved output" in text
+    assert str(artifact) in text
+
+
+async def test_search_saved_tool_output_preserves_uppercase_or(
+    tmp_path: Path,
+):
+    artifact = tmp_path / "saved-tool-output-or.txt"
+    artifact.write_text("项目状态\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="t1",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            name="shell",
+            tool_call_id="call-saved-or",
+            content=(
+                "[tool output truncated]\n"
+                "If more content is needed, call `read_file` with "
+                f"file_path={artifact} start_line=1 to read more."
+            ),
+        ),
+    )
+    history.close()
+    recall = make_recall_history(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    chunk = await recall(
+        op="search",
+        query="项目 OR 截止日期",
+        k=10,
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "0 rows" not in text
+    assert "[matched content excerpt]" in text
+    assert "项目状态" in text
     assert str(artifact) in text
 
 

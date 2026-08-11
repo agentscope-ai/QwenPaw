@@ -311,12 +311,14 @@ class ProjectCommitRecoveryCoordinator:
                     "journal.json must be a regular non-symlink file",
                 )
 
-            # Pre-migration terminal transactions: their snapshots were
-            # written by an older Project schema and can no longer be
-            # re-validated verbatim. They publish nothing anymore, so skip
-            # them instead of fail-closing the whole Project after an
-            # upgrade; live (PREPARED) transactions still go through the
-            # full audit below.
+            # Terminal transactions publish nothing anymore: their frozen
+            # snapshots were written by whatever model revision was live at
+            # the time (an older schema_version, or the same version before
+            # a field was added), so re-deriving their ETags with today's
+            # field set can only produce false integrity alarms that
+            # fail-close the whole Project. Skip the byte-level audit for
+            # them; live (PREPARED) transactions still go through the full
+            # audit below.
             probe_store = AtomicJsonRecordStore(
                 transaction_root / "journal.json",
                 ProjectCommitJournal,
@@ -331,11 +333,29 @@ class ProjectCommitRecoveryCoordinator:
                 probe_base = AtomicJsonRecordStore(
                     transaction_root / "base.json",
                 ).read_or_none()
-                if (
-                    isinstance(probe_base, Mapping)
-                    and probe_base.get("schema_version")
+                skip_terminal = isinstance(probe_base, Mapping) and (
+                    probe_base.get("schema_version")
                     != CURRENT_PROJECT_SCHEMA_VERSION
-                ):
+                )
+                if isinstance(probe_base, Mapping) and not skip_terminal:
+                    # Same schema version, but the model may have gained
+                    # fields since this snapshot froze (mid-version field
+                    # evolution): re-deriving the ETag then drifts. The
+                    # transaction publishes nothing anymore, so an ETag
+                    # drift alone must not fail-close the whole Project.
+                    try:
+                        probe_data = copy.deepcopy(dict(probe_base))
+                        probe_project = load_project_document(probe_data)
+                        skip_terminal = (
+                            project_document_etag(
+                                probe_data,
+                                project=probe_project,
+                            )
+                            != probe_journal.base_etag
+                        )
+                    except Exception:  # noqa: BLE001 - unreadable snapshot
+                        skip_terminal = True
+                if skip_terminal:
                     state_after = probe_journal.state
                     if (
                         probe_journal.state
@@ -368,7 +388,7 @@ class ProjectCommitRecoveryCoordinator:
                         ),
                         state_before=probe_journal.state,
                         state_after=state_after,
-                        detail="legacy-schema terminal transaction",
+                        detail="terminal transaction (frozen-model snapshots)",
                     )
 
             inputs = self._load_inputs(

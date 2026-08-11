@@ -57,6 +57,7 @@ _OBSERVED_METHODS = frozenset(
         "invoke_element",
         "press_key",
         "scroll",
+        "sequence",
         "set_value",
         "type_text",
     },

@@ -41,9 +41,6 @@ class _MemoryManager:
     def get_memory_prompt(self) -> str:
         return ""
 
-    def get_memory_config(self) -> Any:
-        return SimpleNamespace(summarize_when_compact=True)
-
     def get_auto_memory_turn_state(self, _session_id: str) -> dict[str, Any]:
         return self._turn_state
 
@@ -157,9 +154,6 @@ async def test_manual_compact_submits_auto_memory_once() -> None:
             light_context_config=SimpleNamespace(
                 strategy="scroll",
                 context_compact_config=SimpleNamespace(enabled=True),
-            ),
-            reme_light_memory_config=SimpleNamespace(
-                summarize_when_compact=True,
             ),
         ),
     )

@@ -146,6 +146,8 @@ async def delete_job(
 async def pause_job(job_id: str, mgr: CronManager = Depends(get_cron_manager)):
     try:
         await mgr.pause_job(job_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail="job not found") from e
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"paused": True}
@@ -158,6 +160,8 @@ async def resume_job(
 ):
     try:
         await mgr.resume_job(job_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail="job not found") from e
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"resumed": True}

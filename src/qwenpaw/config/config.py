@@ -7,8 +7,19 @@ import logging
 import re
 import threading
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal, Any, Set, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
+from apscheduler.triggers.cron import CronTrigger
 from pydantic import (
     BaseModel,
     Field,
@@ -280,7 +291,18 @@ class FeishuConfig(BaseChannelConfig):
     encrypt_key: str = ""
     verification_token: str = ""
     media_dir: Optional[str] = None
-    domain: Literal["feishu", "lark"] = "feishu"
+    # "feishu" / "lark", or a full http(s) base URL for custom gateways.
+    domain: str = "feishu"
+
+    @field_validator("domain")
+    @classmethod
+    def _check_domain(cls, v: str) -> str:
+        if v in ("feishu", "lark") or v.startswith(("http://", "https://")):
+            return v
+        raise ValueError(
+            "domain must be 'feishu', 'lark', or an http(s) base URL",
+        )
+
     streaming_enabled: bool = False
     share_session_in_group: bool = False
 
@@ -356,6 +378,7 @@ class WecomConfig(BaseChannelConfig):
 
     bot_id: str = ""
     secret: str = ""
+    ws_url: str = ""
     media_dir: Optional[str] = None
     welcome_text: str = ""
     # If True (default), all group members share one chat; set to
@@ -445,6 +468,8 @@ class XiaoYiConfig(BaseChannelConfig):
     ak: str = ""  # Access Key
     sk: str = ""  # Secret Key
     agent_id: str = ""  # Agent ID from XiaoYi platform
+    # Custom WS gateway (empty = official endpoints); disables backup.
+    ws_url: str = ""
     task_timeout_ms: int = 3600000  # 1 hour task timeout
 
 
@@ -458,6 +483,8 @@ class YuanbaoConfig(BaseChannelConfig):
     app_id: str = ""
     app_secret: str = ""
     api_domain: str = "bot.yuanbao.tencent.com"
+    # Custom WebSocket gateway (empty = official wss endpoint).
+    ws_url: str = ""
     media_dir: Optional[str] = None
     accept_bot_messages: bool = False
 
@@ -614,12 +641,21 @@ class AutoMemorySearchConfig(BaseModel):
     )
 
 
+EmbeddingBackend = Literal[
+    "openai",
+    "dashscope",
+    "dashscope_multimodal",
+    "gemini",
+    "ollama",
+]
+
+
 class EmbeddingModelConfig(BaseModel):
     """Embedding model configuration."""
 
     model_config = ConfigDict(extra="ignore")
 
-    backend: str = Field(
+    backend: EmbeddingBackend = Field(
         default="openai",
         description="Embedding backend (openai, etc.)",
     )
@@ -629,7 +665,11 @@ class EmbeddingModelConfig(BaseModel):
     )
     base_url: str = Field(default="", description="Base URL for embedding API")
     model_name: str = Field(default="", description="Embedding model name")
-    dimensions: int = Field(default=1024, description="Embedding dimensions")
+    dimensions: int = Field(
+        default=1024,
+        ge=1,
+        description="Embedding dimensions",
+    )
     enable_cache: bool = Field(
         default=True,
         description="Whether to enable embedding cache",
@@ -640,15 +680,59 @@ class EmbeddingModelConfig(BaseModel):
     )
     max_cache_size: int = Field(
         default=10000,
+        ge=1,
         description="Maximum cache size",
     )
     max_input_length: int = Field(
         default=8192,
+        ge=1,
         description="Maximum input length for embedding",
     )
     max_batch_size: int = Field(
         default=10,
+        ge=1,
         description="Maximum batch size for embedding",
+    )
+
+
+class RerankerConfig(BaseModel):
+    """Reranker model configuration for post-search reordering."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Whether to enable reranker for memory search reordering"
+        ),
+    )
+    api_key: str = Field(
+        default="",
+        description="API key for reranker provider",
+    )
+    base_url: str = Field(
+        default="",
+        description=(
+            "Base URL for reranker API (SiliconFlow: "
+            "https://api.siliconflow.cn/v1)"
+        ),
+    )
+    model_name: str = Field(
+        default="",
+        description="Reranker model name (e.g. BAAI/bge-reranker-v2-m3)",
+    )
+    candidate_multiplier: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Over-fetch multiplier: search N x multiplier candidates, "
+            "rerank, then return top-N"
+        ),
+    )
+    timeout: float = Field(
+        default=10.0,
+        ge=1.0,
+        description="Reranker API timeout in seconds",
     )
 
 
@@ -706,17 +790,22 @@ class ReMeLightMemoryConfig(BaseModel):
         default="digest",
         description="Subdirectory for digest memory",
     )
-    summarize_when_compact: bool = Field(
-        default=True,
-        description="Whether to enable memory summarization during compaction",
+    inbox_push_enabled: bool | None = Field(
+        default=None,
+        exclude=True,
+        description="Deprecated shared inbox notification switch",
     )
-
-    inbox_push_enabled: bool = Field(
+    auto_memory_inbox_push_enabled: bool = Field(
         default=True,
-        description=(
-            "Whether to push ReMe auto-memory, auto-dream, and "
-            "auto-resource job results to the inbox"
-        ),
+        description="Whether to push auto-memory results to the inbox",
+    )
+    auto_dream_inbox_push_enabled: bool = Field(
+        default=True,
+        description="Whether to push auto-dream results to the inbox",
+    )
+    daily_paper_inbox_push_enabled: bool = Field(
+        default=True,
+        description="Whether to push Daily Paper results to the inbox",
     )
 
     auto_memory_interval: int | None = Field(
@@ -744,6 +833,29 @@ class ReMeLightMemoryConfig(BaseModel):
         ),
     )
 
+    daily_paper_cron_enabled: bool = Field(
+        default=False,
+        description="Whether to enable the scheduled Daily Paper job",
+    )
+
+    daily_paper_cron: str = Field(
+        default="0 9 * * *",
+        description=(
+            "Cron expression for Daily Paper generation "
+            "(use daily_paper_cron_enabled to enable/disable)"
+        ),
+    )
+
+    daily_paper_use_hf_mirror: bool = Field(
+        default=False,
+        description="Whether Daily Paper uses the Hugging Face mirror",
+    )
+
+    daily_paper_topics: str = Field(
+        default="",
+        description="Topics to prioritize when selecting Daily Paper papers",
+    )
+
     auto_memory_search_config: AutoMemorySearchConfig = Field(
         default_factory=AutoMemorySearchConfig,
     )
@@ -751,6 +863,53 @@ class ReMeLightMemoryConfig(BaseModel):
     embedding_model_config: EmbeddingModelConfig = Field(
         default_factory=EmbeddingModelConfig,
     )
+
+    reranker_config: RerankerConfig = Field(
+        default_factory=RerankerConfig,
+    )
+
+    needs_reindex: bool = Field(
+        default=False,
+        description=(
+            "Whether the memory index must be rebuilt after an embedding "
+            "vector-space change"
+        ),
+    )
+
+    memory_search_enabled: bool = Field(
+        default=True,
+        description="Whether to expose the memory_search tool to the agent",
+    )
+
+    @field_validator("dream_cron", "daily_paper_cron")
+    @classmethod
+    def validate_service_cron(cls, value: str) -> str:
+        """Reject expressions that the runtime scheduler cannot install."""
+        if not value.strip():
+            # Preserve compatibility with legacy configs that used an empty
+            # dream cron to disable scheduling before the explicit switches.
+            return value
+        try:
+            CronTrigger.from_crontab(value)
+        except ValueError as exc:
+            raise ValueError(f"Invalid cron expression: {value!r}") from exc
+        return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_shared_inbox_switch(cls, values: Any) -> Any:
+        """Use the legacy shared switch for notification fields not yet set."""
+        if not isinstance(values, dict) or "inbox_push_enabled" not in values:
+            return values
+        migrated = dict(values)
+        legacy_value = bool(values["inbox_push_enabled"])
+        for field_name in (
+            "auto_memory_inbox_push_enabled",
+            "auto_dream_inbox_push_enabled",
+            "daily_paper_inbox_push_enabled",
+        ):
+            migrated.setdefault(field_name, legacy_value)
+        return migrated
 
 
 class ContextCompactConfig(BaseModel):
@@ -2580,7 +2739,9 @@ ChannelConfigUnion = Union[
     SlackConfig,
     WecomConfig,
     XiaoYiConfig,
+    YuanbaoConfig,
     WeChatConfig,
+    OneBotConfig,
 ]
 
 
@@ -2765,7 +2926,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         AgentProfileConfig: Complete agent configuration
 
     Raises:
-        ValueError: If agent ID not found in root config
+        ConfigurationException: If agent ID not found in root config
     """
     from .utils import (
         load_config,
@@ -2807,8 +2968,26 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                 return cached_config
 
         # Need to reload config from disk
-        with open(agent_config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(agent_config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except UnicodeDecodeError as e:
+            raise ConfigurationException(
+                config_key="agent",
+                message=(
+                    f"Agent '{agent_id}' configuration file is corrupted "
+                    f"(invalid UTF-8 encoding). Path: {agent_config_path}. "
+                    f"Please repair or delete it. Error: {e}"
+                ),
+            ) from e
+        except json.JSONDecodeError as e:
+            raise ConfigurationException(
+                config_key="agent",
+                message=(
+                    f"Agent '{agent_id}' configuration file contains "
+                    f"invalid JSON. Path: {agent_config_path}. Error: {e}"
+                ),
+            ) from e
 
         project_dir_migrated = migrate_project_directory_config(data)
 
@@ -2932,115 +3111,35 @@ def save_agent_config(
         _agent_config_cache.pop(agent_id, None)
 
 
-EffectiveModelSource = Literal["session", "agent", "global", "none"]
+async def load_agent_config_async(agent_id: str) -> AgentProfileConfig:
+    """Load an agent configuration without blocking the event loop."""
+    from ..utils.io_utils import run_sync_io
+
+    return await run_sync_io(load_agent_config, agent_id)
 
 
-def _model_slot_is_set(slot: ModelSlotConfig | None) -> bool:
-    """Return True when a model slot points to a concrete provider/model."""
-    return bool(slot and slot.provider_id and slot.model)
-
-
-def session_model_overrides_enabled() -> bool:
-    """Return whether per-session model selection is globally enabled."""
-    try:
-        from .utils import load_config
-
-        return load_config().agents.session_model_overrides_enabled
-    except Exception:
-        return False
-
-
-def resolve_effective_model_slot(
-    *,
-    agent_config: AgentProfileConfig | None = None,
-    agent_id: str | None = None,
-    session_id: str | None = None,
-) -> tuple[ModelSlotConfig | None, EffectiveModelSource]:
-    """Resolve the model slot for a request.
-
-    Resolution order is:
-    1. current session override stored on the agent profile, when enabled
-    2. agent-level ``active_model``
-    3. global provider manager active model
-
-    ``session_id`` must be the normalized runtime session id (for example
-    ``console:<uuid>`` or a channel-specific id), not the chat UUID.
-    """
-    if agent_config is None and agent_id:
-        try:
-            agent_config = load_agent_config(agent_id)
-        except Exception:
-            agent_config = None
-
-    if agent_config is not None:
-        if session_id and session_model_overrides_enabled():
-            overrides = (
-                getattr(
-                    agent_config,
-                    "session_model_overrides",
-                    {},
-                )
-                or {}
-            )
-            override = overrides.get(session_id)
-            if _model_slot_is_set(override):
-                return override, "session"
-
-        if _model_slot_is_set(agent_config.active_model):
-            return agent_config.active_model, "agent"
-
-    try:
-        from ..providers import ProviderManager
-
-        global_model = ProviderManager.get_instance().get_active_model()
-        if _model_slot_is_set(global_model):
-            return global_model, "global"
-    except Exception:
-        pass
-
-    return None, "none"
-
-
-def set_session_model_override(
+async def update_agent_config_async(
     agent_id: str,
-    session_id: str,
-    model_slot: ModelSlotConfig,
+    updater: Callable[[AgentProfileConfig], Any],
 ) -> AgentProfileConfig:
-    """Persist a model override for one session and return updated config."""
-    if not session_id:
-        raise ConfigurationException(
-            config_key="session_model_overrides",
-            message="session_id is required",
-        )
-    if not _model_slot_is_set(model_slot):
-        raise ConfigurationException(
-            config_key="session_model_overrides",
-            message="provider_id and model are required",
-        )
+    """Atomically read, mutate, and durably save one agent configuration.
 
-    agent_config = load_agent_config(agent_id)
-    agent_config.session_model_overrides[session_id] = model_slot
-    save_agent_config(agent_id, agent_config)
-    return agent_config
+    The complete legacy transaction runs in a worker thread while holding the
+    same re-entrant lock used by synchronous readers and writers. This avoids
+    blocking the event loop without introducing an await boundary between the
+    read and write phases.
+    """
+    from ..utils.io_utils import run_sync_io
+    from .utils import _agent_config_lock
 
+    def update_sync() -> AgentProfileConfig:
+        with _agent_config_lock:
+            agent_config = load_agent_config(agent_id).model_copy(deep=True)
+            updater(agent_config)
+            save_agent_config(agent_id, agent_config)
+            return agent_config
 
-def clear_session_model_override(
-    agent_id: str,
-    session_id: str,
-) -> tuple[AgentProfileConfig, bool]:
-    """Remove one session override and return deletion status."""
-    if not session_id:
-        raise ConfigurationException(
-            config_key="session_model_overrides",
-            message="session_id is required",
-        )
-
-    agent_config = load_agent_config(agent_id)
-    removed = session_id in agent_config.session_model_overrides
-    if removed:
-        del agent_config.session_model_overrides[session_id]
-        save_agent_config(agent_id, agent_config)
-    return agent_config, removed
+    return await run_sync_io(update_sync)
 
 
 def migrate_legacy_config_to_multi_agent() -> bool:

@@ -65,12 +65,14 @@ def _stage_manifest(examples_dir, entries) -> None:
 def _fake_downloader(payload_by_url: dict[str, bytes]):
     """Serve archive bytes from memory instead of the network."""
 
-    def download(url: str, local_path: str) -> None:
+    def download(url: str, local_path: str, on_progress=None) -> None:
         payload = payload_by_url.get(url)
         if payload is None:
             raise RuntimeError(f"Remote file download failed: {url}")
         with open(local_path, "wb") as handle:
             handle.write(payload)
+        if on_progress is not None:
+            on_progress(len(payload), len(payload))
 
     return download
 
@@ -164,9 +166,9 @@ def test_open_is_idempotent_and_downloads_once(
     calls: list[str] = []
     real_download = example_routes.download_remote_file
 
-    def counting_download(url: str, local_path: str) -> None:
+    def counting_download(url: str, local_path: str, on_progress=None) -> None:
         calls.append(url)
-        real_download(url, local_path)
+        real_download(url, local_path, on_progress=on_progress)
 
     monkeypatch.setattr(
         example_routes,

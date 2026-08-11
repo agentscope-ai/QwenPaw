@@ -1,6 +1,6 @@
 # 智能体记忆进化与主动交互（Beta）
 
-> **Beta 功能**：QwenPaw 的 ReMeLight memory manager 会把 [ReMe](https://github.com/agentscope-ai/ReMe) 作为进程内应用嵌入。Auto Memory、Auto Resource、Auto Dream、搜索，以及 ReMe 底层的 proactive topic 读取能力都是 ReMe job。QwenPaw 的 `/proactive` 命令是另一条运行时逻辑，它读取近期 chat session 和可选屏幕上下文。
+> **Beta 功能**：QwenPaw 的 ReMeLight memory manager 会把 [ReMe](https://github.com/agentscope-ai/ReMe) 作为进程内应用嵌入。Auto Memory、Daily Paper、Auto Dream、搜索，以及 ReMe 底层的 proactive topic 读取能力都是 ReMe job。QwenPaw 的 `/proactive` 命令是另一条运行时逻辑，它读取近期 chat session 和可选屏幕上下文。
 
 QwenPaw 将记忆保存为 agent workspace 下的文件。对话先保存为 JSONL 来源日志，有价值的对话事实写入 daily Markdown note，资源可以转换成 daily note，Auto Dream 再定期把可复用抽象整合进 digest 记忆。
 
@@ -37,7 +37,7 @@ QwenPaw 的目录名与 ReMe 上游默认值不同，但每层的职责一致：
 
 知识库通过持续的 **capture → index → consolidate → recall** 闭环生长：
 
-1. **Capture（捕获）** — Auto Memory 把对话蒸馏成 daily note，Auto Resource 把 `resource/` 下的文件转成 daily note，同时保留原始对话作为证据。
+1. **Capture（捕获）** — Auto Memory 把对话蒸馏成 daily note，Daily Paper 把论文精读和简报写成 daily note，同时保留原始对话与论文 PDF 作为证据。
 2. **Index（索引）** — 后台 job 通过 BM25 关键词索引、可选向量、以及 wikilink 图，让 `memory/` 和 `digest/` 始终可检索。
 3. **Consolidate（整合）** — Auto Dream 读取近期 daily note，整合进长期 `digest/` 节点。这一步才是记忆真正**进化**的地方：它不是复制文本，而是把每个抽取出的 unit 合并进已有节点或创建新节点，并织入来源与关系 wikilink。
 4. **Recall（召回）** — `memory_search` 召回最相关的片段并沿 wikilink 图展开；interest topics 和 QwenPaw 的 `/proactive` 主动浮现值得关注的内容。
@@ -54,9 +54,9 @@ graph LR
     B --> C[ReMe auto_memory job]
     C --> D[mem_session/dialog/*.jsonl]
     C --> E[memory/<date>/<note>.md]
-    R[resource/<date>/*] --> S[resource_watch_loop]
-    S --> T[ReMe auto_resource job]
-    T --> E
+    R[Hugging Face paper rankings] --> S[ReMe daily_paper job]
+    S --> T[resource/papers/*.pdf]
+    S --> E
     E --> U[ReMe auto_dream job]
     U --> V["digest/personal | procedure | wiki/*.md"]
     U --> W[memory/<date>/interests.yaml]
@@ -65,7 +65,7 @@ graph LR
 | 能力                 | 代码路径                                                     | 触发方式                                                                | 主要产物                                                                               |
 | -------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------ |
 | Auto Memory          | `ReMeLightMemoryManager.auto_memory()` -> ReMe `auto_memory` | `MemoryMiddleware` 按配置的用户轮次数触发；启用时也会在上下文压缩前触发 | `mem_session/dialog/<session_id>.jsonl`、`memory/<date>/<note>.md`、`memory/<date>.md` |
-| Auto Resource        | ReMe `resource_watch_loop` -> `auto_resource`                | 嵌入式 ReMe 后台 watcher 监听 `resource_dir`                            | `memory/<date>/<resource_note>.md`                                                     |
+| Daily Paper          | `ReMeLightMemoryManager.daily_paper()` -> ReMe `daily_paper` | `daily_paper_cron_enabled` 启用后由 `daily_paper_cron` 调度             | `resource/papers/*.pdf`、论文精读和每日简报                                            |
 | Auto Dream           | `ReMeLightMemoryManager.dream()` -> ReMe `auto_dream`        | `/dream` 命令或 `dream_cron` 调度                                       | `digest/*/*.md`、`memory/<date>/interests.yaml`                                        |
 | ReMe proactive job   | ReMe `proactive`                                             | 仅在直接调用 ReMe job 时运行                                            | `memory/<date>/interests.yaml` 的 metadata/content                                     |
 | QwenPaw `/proactive` | `src/qwenpaw/agents/memory/proactive`                        | `/proactive [minutes                                                    | on                                                                                     | off]` 空闲循环 | 通过 `/api/console/chat` 发送的主动 chat request |
@@ -85,9 +85,9 @@ graph LR
 │   └── dialog/
 │       └── <session_id>.jsonl
 ├── mem_agent/      # ReMe 内部 memory-agent session
-├── resource/       # Auto Resource 监听的外部资料
-│   └── YYYY-MM-DD/
-│       └── <resource>.<ext>
+├── resource/       # 主动知识能力保存的原始资源
+│   └── papers/
+│       └── <arxiv_id>.pdf
 ├── memory/         # Daily memory notes 和 day index
 │   ├── YYYY-MM-DD.md
 │   └── YYYY-MM-DD/
@@ -111,7 +111,7 @@ Auto Memory 由 `MemoryMiddleware` 调用，不是每次 model call 都直接运
 - 当 `auto_memory_search_config.enabled` 为 true 时，在模型调用前注入自动记忆搜索上下文；
 - 在回复后收集 user-turn marker；
 - 累计到 `auto_memory_interval` 个用户轮次后 flush；
-- 当 `summarize_when_compact` 为 true 且即将压缩上下文时，也会先 flush pending turns。
+- 即将压缩上下文时，也会先 flush pending turns。
 
 `auto_memory_interval` 默认是 `5`。`None`、`0` 或负数会禁用周期性 Auto Memory。
 
@@ -140,23 +140,15 @@ ReMe 的 `AutoMemoryStep` 随后会：
 
 ---
 
-## Auto Resource
+## Daily Paper
 
-QwenPaw 配置了名为 `resource_watch_loop` 的 ReMe 后台 job。它监听 `resource_dir`，并把变更批次派发给 `auto_resource`。
+QwenPaw 通过 `ReMeLightMemoryManager.daily_paper()` 调用 ReMe `daily_paper` job。它从 Hugging Face 周榜和月榜
+收集候选论文，排除近期已经推荐的 arXiv ID，选择三篇论文，下载 PDF 并生成三篇精读和一份每日简报。
 
-监听的后缀是：
+PDF 保存在 `resource_dir/papers/`，Markdown 保存在 `daily_dir/<date>/` 并进入现有记忆索引。执行结果通过
+QwenPaw inbox 推送，不包含 DingTalk step。
 
-```text
-md, txt, json, jsonl, csv, yaml, html
-```
-
-文件可以直接放在 `resource_dir` 根目录，此时使用 QwenPaw 配置的时区确定当天；也可放在
-`resource_dir/YYYY-MM-DD/` 下，此时使用路径中的日期。日期目录之后可以继续嵌套子目录。新增或修改资源时，
-ReMe 按 UTF-8 文本读取内容，由 memory agent 生成或更新 daily note；删除资源时也会删除对应的来源链接 note。
-
-PDF、Word、Excel、图片等二进制文件不会被自动解析。`yml` 后缀也不在默认白名单中；需要先转换为受支持的文本格式。
-
-每个 change item 可以包含 `path` 或 `file_path`，以及类似 `added`、`modified`、`deleted` 的 `change` 值。ReMe step 会将变化的资源文件解读成 daily note。只有当 job 报告确实发生修改时，QwenPaw 才会推送 `Auto-resource result` inbox event。
+`daily_paper_cron_enabled` 默认是 `false`；启用后按 `daily_paper_cron` 调度，默认表达式为 `0 9 * * *`。
 
 ---
 
@@ -314,6 +306,6 @@ QwenPaw 的 `memory_search` tool 会运行 ReMe 的 `search` job，参数是 `qu
 - Auto Dream 通过 `/dream` 或 `dream_cron` 运行；
 - ReMe 会写入 `interests.yaml`，也有读取它的底层 job；
 - QwenPaw `/proactive` 当前使用近期 chat/session/screen context，而不是 ReMe interest topics；
-- Auto Memory、Auto Resource、Auto Dream 产生可报告输出时，可能投递到 inbox。
+- Auto Memory、Daily Paper、Auto Dream 产生可报告输出时，可能投递到 inbox。
 
 该能力仍处于 Beta 阶段，但以上行为与当前代码实现一致。

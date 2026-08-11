@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from datetime import datetime
+from types import SimpleNamespace
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
+
 from agentscope.message import Msg
 
 from qwenpaw.app.chats.utils import (
     _abspath_from_url,
     _is_local_file_url,
+    _normalize_msg_timestamp,
     _resolve_content_url,
     agentscope_msg_to_message,
     clean_display_text,
@@ -329,6 +335,78 @@ def test_history_batch_hides_scroll_internals_but_keeps_transcript():
     assert "system-info" not in rendered_text
     assert "private continuation state" not in rendered_text
     assert "private retrieval headline" not in rendered_text
+
+
+# ---------------------------------------------------------------------------
+# message timestamp normalization
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_msg_timestamp_naive_process_utc_to_shanghai():
+    """Docker/UTC process: naive wall clock is UTC (#6301)."""
+    shanghai = ZoneInfo("Asia/Shanghai")
+    with patch(
+        "qwenpaw.app.chats.utils._process_local_tz",
+        return_value=ZoneInfo("UTC"),
+    ):
+        assert (
+            _normalize_msg_timestamp("2026-08-10 12:52:57.000000", shanghai)
+            == "2026-08-10T20:52:57+08:00"
+        )
+
+
+def test_normalize_msg_timestamp_naive_process_shanghai_no_drift():
+    """Desktop Asia/Shanghai: naive wall clock stays on the same face."""
+    shanghai = ZoneInfo("Asia/Shanghai")
+    with patch(
+        "qwenpaw.app.chats.utils._process_local_tz",
+        return_value=shanghai,
+    ):
+        assert (
+            _normalize_msg_timestamp("2026-08-10 12:52:57.000000", shanghai)
+            == "2026-08-10T12:52:57+08:00"
+        )
+
+
+def test_normalize_msg_timestamp_aware_keeps_instant():
+    shanghai = ZoneInfo("Asia/Shanghai")
+    assert (
+        _normalize_msg_timestamp("2026-08-10T04:52:57+00:00", shanghai)
+        == "2026-08-10T12:52:57+08:00"
+    )
+
+
+def test_normalize_msg_timestamp_invalid_passthrough():
+    shanghai = ZoneInfo("Asia/Shanghai")
+    assert _normalize_msg_timestamp("not-a-date", shanghai) == "not-a-date"
+
+
+def test_agentscope_msg_to_message_timestamp_uses_process_local_tz():
+    """End-to-end through agentscope_msg_to_message (Shanghai process)."""
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[{"type": "text", "text": "hi"}],
+        created_at="2026-08-10T12:52:57.000000",
+    )
+    shanghai = ZoneInfo("Asia/Shanghai")
+    with (
+        patch(
+            "qwenpaw.app.chats.utils.load_config",
+            return_value=SimpleNamespace(user_timezone="Asia/Shanghai"),
+        ),
+        patch(
+            "qwenpaw.app.chats.utils._process_local_tz",
+            return_value=shanghai,
+        ),
+    ):
+        [message] = agentscope_msg_to_message(msg)
+
+    assert message.metadata["timestamp"] == "2026-08-10T12:52:57+08:00"
+    # Wall-clock must not drift into the future relative to the source.
+    converted = datetime.fromisoformat(message.metadata["timestamp"])
+    assert converted.hour == 12
+    assert converted.tzinfo is not None
 
 
 # ---------------------------------------------------------------------------

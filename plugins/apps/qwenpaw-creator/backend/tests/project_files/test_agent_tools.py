@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -513,3 +514,215 @@ def test_read_project_file_rejects_unknown_and_binary_files(tmp_path):
             "read_project_file",
             {"projectId": "project-1", "fileId": "file-image"},
         )
+
+
+# ── edit_plan advisory (upstream plan_gate, softened) ───────────────────────
+
+
+def _project_with_edit_element(*, edit_plan=None) -> Project:
+    from services.project_files.models import EditCreation
+
+    project = Project.new(project_id="project-1", name="Plan")
+    timeline = project.timelines.items["timeline:main"]
+    element = TimelineElement(
+        element_id="el-edit-1",
+        span=TimelineSpan(start_tick=0, duration_tick=1000),
+        location=ElementLocation(),
+        creation=EditCreation(intent="pick"),
+    )
+    updated = timeline.model_copy(
+        update={
+            "elements_by_id": {"el-edit-1": element},
+            "edit_plan": edit_plan,
+        },
+    )
+    patched = project.model_copy(deep=True)
+    patched.timelines.items["timeline:main"] = updated
+    return patched
+
+
+def _advisory_tools(store):
+    from services.project_files.agent_tools import (
+        _CUT_ADVISORY_SEEN,
+        _PLAN_ADVISORY_SEEN,
+    )
+
+    _PLAN_ADVISORY_SEEN.clear()
+    _CUT_ADVISORY_SEEN.clear()
+    return _tools(
+        store,
+        context=AgentProjectToolContext(
+            origin="runtime_task",
+            caused_by_request_id="request-1",
+            caused_by_message_seq=1,
+            round_id="agent-round-1",
+        ),
+    )
+
+
+def _fake_commit_result(project: Project):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(project=project)
+
+
+def test_plan_advisory_fires_for_new_edit_without_plan(tmp_path):
+    store, base = _store(tmp_path)
+    tools = _advisory_tools(store)
+    before = base.project
+    after = _project_with_edit_element(edit_plan=None)
+
+    advisory = tools._edit_plan_advisory(before, _fake_commit_result(after))
+
+    assert advisory is not None
+    assert advisory["kind"] == "edit_plan"
+    hint = advisory["hints"][0]
+    assert hint["timelineId"] == "timeline:main"
+    assert hint["addedElementIds"] == ["el-edit-1"]
+    assert "concept" in hint["missing"]
+    assert "design_floor.opening" in hint["missing"]
+
+
+def test_plan_advisory_silent_when_plan_is_complete(tmp_path):
+    from services.project_files.models import (
+        EditPlan,
+        EditPlanDesignFloor,
+    )
+
+    store, base = _store(tmp_path)
+    tools = _advisory_tools(store)
+    plan = EditPlan(
+        concept="猫的越狱日记",
+        pacing="hook 1.2s，动静交替",
+        signature_device="爪印转场",
+        design_floor=EditPlanDesignFloor(
+            opening="1.5s 标题卡",
+            transitions="硬切 + 爪印族",
+            body="每场景一个设计节拍",
+            ending="定格硬停",
+        ),
+    )
+    after = _project_with_edit_element(edit_plan=plan)
+
+    advisory = tools._edit_plan_advisory(
+        base.project,
+        _fake_commit_result(after),
+    )
+
+    assert advisory is None
+
+
+# ── cut-boundary advisory (WT-B5 audio-first, softened) ───────────────────
+
+
+def _project_with_spoken_edit(*, in_tick: int, out_tick: int) -> Project:
+    from services.project_files.models import (
+        EditCreation,
+        SourceVersionRenderSource,
+    )
+
+    project = Project.new(project_id="project-1", name="Cut")
+    timeline = project.timelines.items["timeline:main"]
+    element = TimelineElement(
+        element_id="el-edit-1",
+        span=TimelineSpan(start_tick=0, duration_tick=out_tick - in_tick),
+        location=ElementLocation(),
+        creation=EditCreation(
+            intent="pick",
+            source_intelligence_version_id="intel-1",
+        ),
+        render_source=SourceVersionRenderSource(
+            version_id="version-1",
+            source_in_tick=in_tick,
+            source_out_tick=out_tick,
+        ),
+    )
+    updated = timeline.model_copy(
+        update={"elements_by_id": {"el-edit-1": element}},
+    )
+    patched = project.model_copy(deep=True)
+    patched.timelines.items["timeline:main"] = updated
+    return patched
+
+
+def test_cut_advisory_hints_endpoints_off_sentence_boundaries(
+    tmp_path,
+    monkeypatch,
+):
+    from services.project_files import agent_tools as agent_tools_module
+
+    store, base = _store(tmp_path)
+    tools = _advisory_tools(store)
+    monkeypatch.setattr(
+        agent_tools_module,
+        "_transcript_boundaries_ms",
+        lambda project, root, intelligence_id: (0, 5_000, 9_000),
+    )
+    # in=600ms is 600ms past the 0ms boundary (hint); out=5_100ms is
+    # only 100ms from 5_000ms (inside tolerance, no hint).
+    after = _project_with_spoken_edit(in_tick=600, out_tick=5_100)
+
+    advisory = tools._cut_boundary_advisory(
+        base.project,
+        _fake_commit_result(after),
+    )
+
+    assert advisory is not None
+    assert advisory["kind"] == "cut_boundary"
+    assert advisory["toleranceMs"] == 300
+    assert len(advisory["hints"]) == 1
+    hint = advisory["hints"][0]
+    assert hint["endpoint"] == "in"
+    assert hint["cutMs"] == 600
+    assert hint["nearestSentenceBoundaryMs"] == 0
+    assert "不阻断" in advisory["message"]
+
+    # Identical findings are deduplicated on the next commit.
+    again = tools._cut_boundary_advisory(
+        base.project,
+        _fake_commit_result(after),
+    )
+    assert again is None
+
+
+def test_cut_advisory_silent_without_speech_or_provenance(
+    tmp_path,
+    monkeypatch,
+):
+    from services.project_files import agent_tools as agent_tools_module
+
+    store, base = _store(tmp_path)
+    tools = _advisory_tools(store)
+    # Pure-BGM source: no transcript boundaries → no hint at all.
+    monkeypatch.setattr(
+        agent_tools_module,
+        "_transcript_boundaries_ms",
+        lambda project, root, intelligence_id: (),
+    )
+    after = _project_with_spoken_edit(in_tick=600, out_tick=5_100)
+    assert (
+        tools._cut_boundary_advisory(base.project, _fake_commit_result(after))
+        is None
+    )
+
+    # Snapped endpoints stay silent even with a transcript.
+    monkeypatch.setattr(
+        agent_tools_module,
+        "_transcript_boundaries_ms",
+        lambda project, root, intelligence_id: (0, 5_000),
+    )
+    snapped = _project_with_spoken_edit(in_tick=100, out_tick=4_900)
+    assert (
+        tools._cut_boundary_advisory(
+            base.project,
+            _fake_commit_result(snapped),
+        )
+        is None
+    )
+
+    # Human/front-end commits (no round_id) never receive the nudge.
+    human = _tools(store)
+    assert (
+        human._cut_boundary_advisory(base.project, _fake_commit_result(after))
+        is None
+    )

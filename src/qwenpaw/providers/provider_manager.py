@@ -64,6 +64,15 @@ MODELSCOPE_MODELS: List[ModelInfo] = [
 
 DASHSCOPE_MODELS: List[ModelInfo] = [
     ModelInfo(
+        id="qwen3.8-max",
+        name="Qwen3.8 Max",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        thinking_enabled=True,
+        relay_reasoning=False,
+    ),
+    ModelInfo(
         id="qwen3.7-max",
         name="Qwen3.7 Max",
         supports_image=False,
