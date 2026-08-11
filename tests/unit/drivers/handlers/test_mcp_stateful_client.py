@@ -98,6 +98,13 @@ def test_is_transport_error_rejects_other_mcp_errors():
     assert not _is_transport_error(exc)
 
 
+def test_is_transport_error_rejects_generic_server_error():
+    exc = McpError(
+        ErrorData(code=CONNECTION_CLOSED, message="Rate limit exceeded"),
+    )
+    assert not _is_transport_error(exc)
+
+
 def test_is_401_error_detects_plain_http_401():
     req = httpx.Request("GET", "http://x")
     resp = httpx.Response(401, request=req)
@@ -487,6 +494,26 @@ async def test_call_tool_handles_transport_error_and_marks_disconnected():
     # _handle_transport_error marked it for reconnect.
     assert c.is_connected is False
     assert c._reload_event.is_set()
+
+
+async def test_call_tool_does_not_reconnect_for_generic_server_error():
+    c = _client()
+    c.is_connected = True
+    error = McpError(
+        ErrorData(code=CONNECTION_CLOSED, message="Rate limit exceeded"),
+    )
+
+    class FakeSession:
+        async def call_tool(self, name: str, args: dict) -> None:
+            raise error
+
+    c.session = FakeSession()  # type: ignore[assignment]
+    with pytest.raises(McpError) as exc_info:
+        await c.call_tool("foo", {})
+
+    assert exc_info.value is error
+    assert c.is_connected is True
+    assert not c._reload_event.is_set()
 
 
 # ---------------------------------------------------------------------------
