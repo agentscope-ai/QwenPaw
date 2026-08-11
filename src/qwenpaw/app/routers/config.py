@@ -37,6 +37,10 @@ from ...config.config import (
     SkillScannerWhitelistEntry,
 )
 from ...config.timezone import normalize_tz
+from ..channels.conflict import (
+    get_channel_bot_identity,
+    get_channel_config,
+)
 from ..channels.qrcode_auth_handler import (
     QRCODE_AUTH_HANDLERS,
     generate_qrcode_image,
@@ -44,6 +48,8 @@ from ..channels.qrcode_auth_handler import (
 from ..channels.registry import BUILTIN_CHANNEL_KEYS
 from ..utils import schedule_agent_reload
 from .schemas_config import (
+    ChannelConflictAgent,
+    ChannelConflictResponse,
     ChannelHealthResponse,
     ChannelRestartResponse,
     HeartbeatBody,
@@ -366,6 +372,90 @@ async def get_channel(
             detail=f"Channel '{channel_name}' not found",
         )
     return single_channel_config
+
+
+@router.post(
+    "/channels/{channel_name}/conflict-check",
+    response_model=ChannelConflictResponse,
+    summary="Check channel Bot conflicts",
+    description="Check whether another running agent uses the same Bot",
+)
+async def check_channel_conflict(
+    request: Request,
+    channel_name: str = Path(
+        ...,
+        description="Name of the channel to check",
+        min_length=1,
+    ),
+    single_channel_config: dict = Body(
+        ...,
+        description="Proposed channel configuration",
+    ),
+) -> ChannelConflictResponse:
+    """Check a proposed config against channels in running agents."""
+    from ..agent_context import get_agent_for_request
+
+    available = get_available_channels()
+    if channel_name not in available:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Channel '{channel_name}' not found",
+        )
+
+    if not single_channel_config.get("enabled", False):
+        return ChannelConflictResponse(conflict=False)
+
+    proposed_identity = get_channel_bot_identity(
+        channel_name,
+        single_channel_config,
+    )
+    if proposed_identity is None:
+        return ChannelConflictResponse(conflict=False)
+
+    current_agent = await get_agent_for_request(request)
+    current_agent_id = current_agent.agent_id
+    manager = request.app.state.multi_agent_manager
+    conflicts = []
+
+    for agent_id, workspace in list(manager.agents.items()):
+        workspace_agent_id = getattr(workspace, "agent_id", agent_id)
+        if current_agent_id in (agent_id, workspace_agent_id):
+            continue
+
+        channel_manager = getattr(workspace, "channel_manager", None)
+        running_channels = getattr(channel_manager, "channels", ())
+        if not any(
+            getattr(channel, "channel", None) == channel_name
+            for channel in running_channels
+        ):
+            continue
+
+        other_config = get_channel_config(
+            getattr(workspace.config, "channels", None),
+            channel_name,
+        )
+        if (
+            get_channel_bot_identity(
+                channel_name,
+                other_config,
+            )
+            != proposed_identity
+        ):
+            continue
+
+        agent_name = getattr(workspace.config, "name", "") or agent_id
+        conflicts.append(
+            ChannelConflictAgent(
+                agent_id=agent_id,
+                agent_name=str(agent_name),
+            ),
+        )
+
+    conflicts.sort(key=lambda item: item.agent_id)
+    return ChannelConflictResponse(
+        conflict=bool(conflicts),
+        agents=conflicts,
+    )
 
 
 @router.put(
