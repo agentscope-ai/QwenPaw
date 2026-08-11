@@ -28,6 +28,7 @@ from mcp.client.stdio import StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
+from mcp.types import CONNECTION_CLOSED
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,9 @@ _TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     ConnectionResetError,
     BrokenPipeError,
 )
+_TRANSPORT_MCP_MESSAGES = frozenset(
+    {"session terminated", "connection closed"},
+)
 
 
 # How long ``list_tools`` waits for an in-flight reconnect before raising.
@@ -77,10 +81,13 @@ def _is_transport_error(exc: BaseException) -> bool:
     if isinstance(exc, _TRANSPORT_ERRORS):
         return True
 
-    # A terminated MCP session requires a new transport.
     if isinstance(exc, McpError):
-        message = str(getattr(exc.error, "message", exc)).strip().casefold()
-        return message == "session terminated"
+        error = getattr(exc, "error", None)
+        message = str(getattr(error, "message", exc)).strip().casefold()
+        return (
+            message in _TRANSPORT_MCP_MESSAGES
+            or getattr(error, "code", None) == CONNECTION_CLOSED
+        )
 
     sub_excs = getattr(exc, "exceptions", None)
     if sub_excs:
