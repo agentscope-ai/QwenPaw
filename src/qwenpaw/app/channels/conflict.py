@@ -18,6 +18,7 @@ _CHANNEL_IDENTITY_FIELDS: dict[str, tuple[str, ...]] = {
     "qq": ("app_id",),
     "wecom": ("bot_id",),
     "matrix": ("homeserver", "user_id"),
+    "voice": ("phone_number_sid",),
     "xiaoyi": ("agent_id",),
     "yuanbao": ("app_id",),
 }

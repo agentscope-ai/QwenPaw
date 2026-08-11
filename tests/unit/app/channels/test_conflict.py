@@ -35,6 +35,11 @@ from qwenpaw.app.channels.conflict import get_channel_bot_identity
                 ("user_id", "@bot:example.com"),
             ),
         ),
+        (
+            "voice",
+            {"phone_number_sid": " PN123456789 "},
+            (("phone_number_sid", "PN123456789"),),
+        ),
     ],
 )
 def test_get_channel_bot_identity(channel_name, config, expected):
@@ -47,6 +52,7 @@ def test_get_channel_bot_identity(channel_name, config, expected):
         ("console", {"bot_id": "ignored"}),
         ("telegram", {"bot_token": ""}),
         ("mattermost", {"url": "", "bot_token": "token"}),
+        ("voice", {"phone_number_sid": ""}),
     ],
 )
 def test_get_channel_bot_identity_skips_unsupported_or_empty_configs(
