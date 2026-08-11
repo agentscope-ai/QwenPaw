@@ -9,6 +9,7 @@ ReMe's application/job framework.
 import asyncio
 import base64
 import hashlib
+import json
 import logging
 import os
 import re
@@ -36,12 +37,18 @@ from ...app.crons.contracts import ServiceCronJob
 from ...config import load_config
 from ...config.config import (
     load_agent_config,
+    load_agent_config_async,
     update_agent_config_async,
     AgentProfileConfig,
     EmbeddingModelConfig,
     RerankerConfig,
 )
-from ...utils.io_utils import path_exists_async, run_sync_io, unlink_async
+from ...utils.io_utils import (
+    get_sync_path_lock,
+    path_exists_async,
+    run_sync_io,
+    unlink_async,
+)
 
 if TYPE_CHECKING:
     from reme import ReMe
@@ -115,6 +122,51 @@ def _legacy_reme_session_id(session_id: str) -> str:
     if len(encoded_id) <= _LEGACY_MAX_REME_SESSION_ID_CHARS:
         return encoded_id
     return _to_reme_session_id(session_id)
+
+
+def _legacy_session_file_owned_by(path: Path, session_id: str) -> bool:
+    """Return whether persisted metadata proves a legacy file's ownership."""
+    owners: set[str] = set()
+
+    def collect(value: Any) -> None:
+        if isinstance(value, dict):
+            owner = value.get(LOGICAL_SESSION_ID_METADATA_KEY)
+            if isinstance(owner, str):
+                owners.add(owner)
+            for nested in value.values():
+                collect(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                collect(nested)
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    collect(json.loads(line))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    return owners == {session_id}
+
+
+def _migrate_owned_legacy_session(
+    legacy_path: Path,
+    hashed_path: Path,
+    session_id: str,
+) -> bool:
+    """Atomically migrate a legacy file only when its owner is provable."""
+    paths = sorted((legacy_path, hashed_path), key=lambda path: str(path))
+    with get_sync_path_lock(paths[0]), get_sync_path_lock(paths[1]):
+        if hashed_path.exists():
+            return True
+        if not legacy_path.exists() or not _legacy_session_file_owned_by(
+            legacy_path,
+            session_id,
+        ):
+            return False
+        hashed_path.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(legacy_path, hashed_path)
+        return True
 
 
 def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
@@ -307,9 +359,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     def get_auto_memory_interval(self) -> int:
         """Return ReMe light auto-memory cadence from agent config."""
         agent_config = load_agent_config(self.agent_id)
-        interval = (
-            agent_config.running.reme_light_memory_config.auto_memory_interval
-        )
+        interval = agent_config.running.reme_light_memory_config.auto_memory_interval
         if interval is None:
             return 0
         return int(interval)
@@ -522,11 +572,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     ) -> bool:
         if name not in INBOX_RESULT_JOB_NAMES:
             return False
-        memory_config = self.get_memory_config()
+        memory_config = await run_sync_io(self.get_memory_config)
         if not getattr(memory_config, INBOX_NOTIFICATION_FIELDS[name]):
             logger.info(
-                "ReMe job result inbox push disabled: "
-                "agent_id=%s job_name=%s",
+                "ReMe job result inbox push disabled: agent_id=%s job_name=%s",
                 self.agent_id,
                 name,
             )
@@ -667,15 +716,13 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not query:
             return _tool_chunk("Error: query cannot be empty", ok=False)
 
-        reranker_config = self._get_reranker_config()
+        reranker_config = await self._get_reranker_config()
         cap = max(1, max_results)
 
         # Over-fetch when reranker is enabled: take N * multiplier
         # candidates, rerank, then return top-N.
         effective_limit = (
-            cap * reranker_config.candidate_multiplier
-            if reranker_config
-            else cap
+            cap * reranker_config.candidate_multiplier if reranker_config else cap
         )
 
         response = await self._run_reme_job(
@@ -716,9 +763,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         results are empty or already short enough (no truncation).
         """
         metadata = getattr(response, "metadata", None)
-        results = (
-            metadata.get("results") if response.success and metadata else None
-        )
+        results = metadata.get("results") if response.success and metadata else None
         if not results:
             return
 
@@ -731,9 +776,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         # link expansions and hybrid score details.
         original_answer = str(response.answer or "")
         answer_sections = (
-            self._parse_answer_into_sections(original_answer)
-            if original_answer
-            else {}
+            self._parse_answer_into_sections(original_answer) if original_answer else {}
         )
 
         # Rerank (only reorders results, answer sections are reordered
@@ -886,8 +929,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 scores,
             )
             header = (
-                f"========== {path}:{start_line}-{end_line} "
-                f"[{score_str}] =========="
+                f"========== {path}:{start_line}-{end_line} [{score_str}] =========="
             )
             answer_lines.append(f"{header}\n{text}")
 
@@ -952,10 +994,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """
         lines: list[str] = []
         for r in results:
-            key = (
-                f"{r.get('path', '')}:"
-                f"{r.get('start_line', 0)}-{r.get('end_line', 0)}"
-            )
+            key = f"{r.get('path', '')}:{r.get('start_line', 0)}-{r.get('end_line', 0)}"
             section = sections.get(key)
             if section is not None:
                 lines.append(section)
@@ -970,11 +1009,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     score,
                     scores,
                 )
-                header = f"========== {key} " f"[{score_str}] =========="
+                header = f"========== {key} [{score_str}] =========="
                 lines.append(f"{header}\n{text}")
         return "\n".join(lines)
 
-    def _get_reranker_config(self) -> RerankerConfig | None:
+    async def _get_reranker_config(self) -> RerankerConfig | None:
         """Return the reranker config, or None if not enabled.
 
         Config is read fresh on every call — ``load_agent_config()``
@@ -984,7 +1023,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         the agent process).
         """
         try:
-            agent_cfg = load_agent_config(self.agent_id)
+            agent_cfg = await load_agent_config_async(self.agent_id)
             cfg = getattr(
                 agent_cfg.running.reme_light_memory_config,
                 "reranker_config",
@@ -1055,8 +1094,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
             # Sort by score descending, return indices
             scored = [
-                (r["index"], r.get("relevance_score", 0.0))
-                for r in data["results"]
+                (r["index"], r.get("relevance_score", 0.0)) for r in data["results"]
             ]
             scored.sort(key=lambda x: x[1], reverse=True)
             ordered = [idx for idx, _ in scored]
@@ -1093,8 +1131,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         session_id = str(kwargs.get("session_id") or "")
         if not session_id:
             logger.warning(
-                "ReMe summarize skipped; session_id is empty: "
-                "agent_id=%s messages=%s",
+                "ReMe summarize skipped; session_id is empty: agent_id=%s messages=%s",
                 self.agent_id,
                 len(messages),
             )
@@ -1121,21 +1158,24 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return str(response.answer or "")
 
     async def _resolve_reme_session_id(self, session_id: str) -> str:
-        """Keep an existing legacy session file addressable after migration."""
+        """Use hash IDs, migrating only legacy files with proven ownership."""
         hashed_id = _to_reme_session_id(session_id)
         legacy_id = _legacy_reme_session_id(session_id)
         if legacy_id == hashed_id:
             return hashed_id
-        agent_config = await run_sync_io(load_agent_config, self.agent_id)
+        agent_config = await load_agent_config_async(self.agent_id)
         session_dir = agent_config.running.reme_light_memory_config.session_dir
         legacy_path = (
-            Path(self.working_dir)
-            / session_dir
-            / "dialog"
-            / f"{legacy_id}.jsonl"
+            Path(self.working_dir) / session_dir / "dialog" / f"{legacy_id}.jsonl"
         )
+        hashed_path = legacy_path.with_name(f"{hashed_id}.jsonl")
         if await path_exists_async(legacy_path):
-            return legacy_id
+            await run_sync_io(
+                _migrate_owned_legacy_session,
+                legacy_path,
+                hashed_path,
+                session_id,
+            )
         return hashed_id
 
     async def auto_memory_search(
@@ -1147,7 +1187,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """Auto-search memory and expose it as a completed tool interaction."""
         del agent_name
         del kwargs
-        agent_config = load_agent_config(self.agent_id)
+        agent_config = await load_agent_config_async(self.agent_id)
         memory_cfg = agent_config.running.reme_light_memory_config
         if not memory_cfg.auto_memory_search_config.enabled:
             return None
@@ -1160,13 +1200,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         search_cfg = memory_cfg.auto_memory_search_config
 
         cap = max(1, search_cfg.max_results)
-        reranker_config = self._get_reranker_config()
+        reranker_config = await self._get_reranker_config()
         # Over-fetch when reranker is enabled: take N * multiplier
         # candidates, rerank, then return top-N.
         effective_limit = (
-            cap * reranker_config.candidate_multiplier
-            if reranker_config
-            else cap
+            cap * reranker_config.candidate_multiplier if reranker_config else cap
         )
         response = await self._run_reme_job(
             "search",
@@ -1238,7 +1276,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
     async def daily_paper(self, **kwargs: Any) -> None:
         """Build one Daily Paper brief and publish its result to inbox."""
-        cfg = self.get_memory_config()
+        cfg = await run_sync_io(self.get_memory_config)
         response = await self._run_reme_job(
             "daily_paper",
             needs_llm=True,
@@ -1272,6 +1310,13 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             raise RuntimeError("Memory index rebuild is already running")
         async with self._reindex_lock:
             async with self._exclusive_reme_lifecycle("reindex"):
+                reindex_fingerprint = (
+                    embedding_vector_space_fingerprint(
+                        self._active_embedding_config,
+                    )
+                    if self._active_embedding_config is not None
+                    else None
+                )
                 response = await self._run_reme_job(
                     "reindex",
                     lifecycle_locked=True,
@@ -1281,10 +1326,22 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 def clear_requirement(
                     agent_config: AgentProfileConfig,
                 ) -> None:
-                    memory_config = (
-                        agent_config.running.reme_light_memory_config
+                    memory_config = agent_config.running.reme_light_memory_config
+                    persisted_fingerprint = embedding_vector_space_fingerprint(
+                        memory_config.embedding_model_config,
                     )
-                    memory_config.needs_reindex = False
+                    active_fingerprint = (
+                        embedding_vector_space_fingerprint(
+                            self._active_embedding_config,
+                        )
+                        if self._active_embedding_config is not None
+                        else None
+                    )
+                    if (
+                        persisted_fingerprint == reindex_fingerprint
+                        and active_fingerprint == reindex_fingerprint
+                    ):
+                        memory_config.needs_reindex = False
 
                 await update_agent_config_async(
                     self.agent_id,

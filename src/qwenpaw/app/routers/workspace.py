@@ -8,6 +8,7 @@ configuration, running config, and system prompt files.
 from __future__ import annotations
 
 import asyncio
+import copy
 import io
 import json
 import logging
@@ -76,7 +77,6 @@ from ..agent_context import (
     get_agent_project_dir,
     get_project_dir_for_request,
 )
-
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 logger = logging.getLogger(__name__)
@@ -261,9 +261,7 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
     try:
         for dirpath, dirnames, filenames in os.walk(root, topdown=True):
             # Prune in place — must mutate, not rebind, for os.walk to honor.
-            dirnames[:] = sorted(
-                d for d in dirnames if not _is_skipped_name(d)
-            )
+            dirnames[:] = sorted(d for d in dirnames if not _is_skipped_name(d))
             rel_dir = os.path.relpath(dirpath, root)
             for name in sorted(filenames):
                 if _is_skipped_name(name):
@@ -274,9 +272,7 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
                 except OSError:
                     continue
                 rel = (
-                    name
-                    if rel_dir == "."
-                    else f"{rel_dir}/{name}".replace(os.sep, "/")
+                    name if rel_dir == "." else f"{rel_dir}/{name}".replace(os.sep, "/")
                 )
                 files.append(
                     {
@@ -644,9 +640,7 @@ def _upload_name_key(
 ) -> str:
     """Build a filename comparison key matching the target filesystem."""
     comparable = (
-        filename
-        if normalization_sensitive
-        else unicodedata.normalize("NFC", filename)
+        filename if normalization_sensitive else unicodedata.normalize("NFC", filename)
     )
     return comparable if case_sensitive else comparable.casefold()
 
@@ -1052,9 +1046,7 @@ async def workspace_watch_events(
                 change_name = (
                     "added"
                     if change_type is Change.added
-                    else "deleted"
-                    if change_type is Change.deleted
-                    else "modified"
+                    else "deleted" if change_type is Change.deleted else "modified"
                 )
                 events.append(
                     {"change": change_name, "path": rel.as_posix()},
@@ -1298,9 +1290,7 @@ async def get_transcription_provider_type() -> dict:
     """Get transcription provider type setting."""
     config = load_config()
     return {
-        "transcription_provider_type": (
-            config.agents.transcription_provider_type
-        ),
+        "transcription_provider_type": (config.agents.transcription_provider_type),
     }
 
 
@@ -1318,8 +1308,7 @@ async def put_transcription_provider_type(
     body: dict = Body(
         ...,
         description=(
-            "Provider type, e.g. "
-            '{"transcription_provider_type": "whisper_api"}'
+            'Provider type, e.g. {"transcription_provider_type": "whisper_api"}'
         ),
     ),
 ) -> dict:
@@ -1383,8 +1372,7 @@ async def get_transcription_providers() -> dict:
     "/transcription-provider",
     summary="Set transcription provider",
     description=(
-        "Set the provider to use for audio transcription. "
-        'Use empty string "" to unset.'
+        'Set the provider to use for audio transcription. Use empty string "" to unset.'
     ),
 )
 async def put_transcription_provider(
@@ -1444,9 +1432,7 @@ async def post_transcribe_audio(
         ".ogg",
         ".flac",
     }
-    suffix = (
-        os.path.splitext(file.filename or "audio.webm")[1].lower() or ".webm"
-    )
+    suffix = os.path.splitext(file.filename or "audio.webm")[1].lower() or ".webm"
     if suffix not in allowed_extensions:
         raise HTTPException(
             status_code=400,
@@ -1538,6 +1524,55 @@ async def get_agents_running_config(
     return running
 
 
+class _ConfigRollbackConflict(RuntimeError):
+    """Raised when a field changed again after this request persisted it."""
+
+    def __init__(self, paths: list[str]):
+        super().__init__("configuration changed concurrently")
+        self.paths = paths
+
+
+def _conditionally_restore_config_changes(
+    current: BaseModel,
+    before: BaseModel,
+    submitted: BaseModel,
+) -> None:
+    """Three-way rollback without overwriting unrelated concurrent edits."""
+    candidate = current.model_copy(deep=True)
+    conflicts: list[str] = []
+
+    def restore(
+        target: BaseModel,
+        old: BaseModel,
+        saved: BaseModel,
+        prefix: str,
+    ) -> None:
+        for name in type(saved).model_fields:
+            old_value = getattr(old, name)
+            saved_value = getattr(saved, name)
+            if old_value == saved_value:
+                continue
+            current_value = getattr(target, name)
+            path = f"{prefix}.{name}" if prefix else name
+            if (
+                isinstance(current_value, BaseModel)
+                and isinstance(old_value, BaseModel)
+                and isinstance(saved_value, BaseModel)
+                and type(current_value) is type(old_value) is type(saved_value)
+            ):
+                restore(current_value, old_value, saved_value, path)
+            elif current_value == saved_value:
+                setattr(target, name, copy.deepcopy(old_value))
+            else:
+                conflicts.append(path)
+
+    restore(candidate, before, submitted, "")
+    if conflicts:
+        raise _ConfigRollbackConflict(conflicts)
+    for field_name in type(current).model_fields:
+        setattr(current, field_name, getattr(candidate, field_name))
+
+
 @router.put(
     "/running-config",
     response_model=AgentsRunningConfig,
@@ -1602,10 +1637,8 @@ async def put_agents_running_config(
             embedding_updated = False
             if hasattr(memory_manager, "apply_tested_embedding"):
                 try:
-                    embedding_updated = (
-                        await memory_manager.apply_tested_embedding(
-                            new_embedding_config,
-                        )
+                    embedding_updated = await memory_manager.apply_tested_embedding(
+                        new_embedding_config,
                     )
                 except Exception as exc:
                     logger.warning(
@@ -1619,9 +1652,7 @@ async def put_agents_running_config(
                 "reload_embedding_config",
             ):
                 try:
-                    embedding_updated = (
-                        await memory_manager.reload_embedding_config()
-                    )
+                    embedding_updated = await memory_manager.reload_embedding_config()
                 except Exception as exc:
                     logger.warning(
                         "Embedding runtime reload failed for agent '%s': %s",
@@ -1631,11 +1662,22 @@ async def put_agents_running_config(
                     )
             if not embedding_updated:
                 assert old_agent_config is not None
-                await run_sync_io(
-                    save_agent_config,
-                    workspace.agent_id,
-                    old_agent_config,
-                )
+                rollback_conflict: _ConfigRollbackConflict | None = None
+
+                def rollback_config(current_config: BaseModel) -> None:
+                    _conditionally_restore_config_changes(
+                        current_config,
+                        old_agent_config,
+                        agent_config,
+                    )
+
+                try:
+                    await update_agent_config_async(
+                        workspace.agent_id,
+                        rollback_config,
+                    )
+                except _ConfigRollbackConflict as exc:
+                    rollback_conflict = exc
                 runtime_restored = False
                 if hasattr(memory_manager, "reload_embedding_config"):
                     try:
@@ -1649,15 +1691,23 @@ async def put_agents_running_config(
                             workspace.agent_id,
                         )
                 raise HTTPException(
-                    status_code=503,
+                    status_code=409 if rollback_conflict else 503,
                     detail={
                         "message": (
-                            "Embedding configuration was not applied; the "
-                            "persisted configuration was rolled back"
+                            "Embedding configuration was not applied; "
+                            + (
+                                "rollback was skipped because the "
+                                "configuration changed concurrently"
+                                if rollback_conflict
+                                else "the persisted changes were rolled back"
+                            )
                         ),
-                        "persisted": False,
+                        "persisted": rollback_conflict is not None,
                         "runtime_applied": False,
                         "runtime_restored": runtime_restored,
+                        "conflicts": (
+                            rollback_conflict.paths if rollback_conflict else []
+                        ),
                     },
                 )
 
@@ -1837,9 +1887,7 @@ async def upload_workspace(
     ):
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Expected a zip file, got content-type: {file.content_type}"
-            ),
+            detail=(f"Expected a zip file, got content-type: {file.content_type}"),
         )
 
     agent = await get_agent_for_request(request)

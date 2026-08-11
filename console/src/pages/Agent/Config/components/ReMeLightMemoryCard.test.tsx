@@ -249,9 +249,9 @@ afterEach(() => {
 
 describe("ReMe runtime status", () => {
   it("checks the selected agent automatically and only then shows healthy", async () => {
-    const getMemoryStatus = vi
-      .spyOn(agentsApi, "getMemoryStatus")
-      .mockResolvedValue(memoryStatus);
+    const getMemoryRuntimeStatus = vi
+      .spyOn(agentsApi, "getMemoryRuntimeStatus")
+      .mockResolvedValue(memoryStatus.runtime);
     useAgentStore.setState({ selectedAgent: "bot" });
 
     renderWithProviders(<MemoryForm withRuntimeStatus />);
@@ -262,14 +262,14 @@ describe("ReMe runtime status", () => {
     expect(
       await screen.findByText("agentConfig.memoryStatusRunning"),
     ).toBeInTheDocument();
-    expect(getMemoryStatus).toHaveBeenCalledWith(
+    expect(getMemoryRuntimeStatus).toHaveBeenCalledWith(
       "bot",
       expect.any(AbortSignal),
     );
   });
 
   it("shows a failed check instead of a healthy badge", async () => {
-    vi.spyOn(agentsApi, "getMemoryStatus").mockRejectedValue(
+    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockRejectedValue(
       new Error("Agent is not running"),
     );
 
@@ -285,19 +285,23 @@ describe("ReMe runtime status", () => {
 
   it("cancels the stale check when the selected agent changes", async () => {
     const pendingStatus = new Promise<typeof memoryStatus>(() => undefined);
-    const getMemoryStatus = vi
-      .spyOn(agentsApi, "getMemoryStatus")
+    const getMemoryRuntimeStatus = vi
+      .spyOn(agentsApi, "getMemoryRuntimeStatus")
       .mockImplementation((agentId) =>
-        agentId === "default" ? pendingStatus : Promise.resolve(memoryStatus),
+        agentId === "default"
+          ? pendingStatus.then((status) => status.runtime)
+          : Promise.resolve(memoryStatus.runtime),
       );
     renderWithProviders(<MemoryForm withRuntimeStatus />);
-    await waitFor(() => expect(getMemoryStatus).toHaveBeenCalledTimes(1));
-    const firstSignal = getMemoryStatus.mock.calls[0][1];
+    await waitFor(() =>
+      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(1),
+    );
+    const firstSignal = getMemoryRuntimeStatus.mock.calls[0][1];
 
     act(() => useAgentStore.setState({ selectedAgent: "bot" }));
 
     await waitFor(() => {
-      expect(getMemoryStatus).toHaveBeenLastCalledWith(
+      expect(getMemoryRuntimeStatus).toHaveBeenLastCalledWith(
         "bot",
         expect.any(AbortSignal),
       );
@@ -315,17 +319,17 @@ describe("ReMe runtime status", () => {
         ...memoryStatus,
         runtime: { ...memoryStatus.runtime, reindexing: true },
       };
-      const getMemoryStatus = vi
-        .spyOn(agentsApi, "getMemoryStatus")
-        .mockResolvedValueOnce(rebuildingStatus)
-        .mockResolvedValue(memoryStatus);
+      const getMemoryRuntimeStatus = vi
+        .spyOn(agentsApi, "getMemoryRuntimeStatus")
+        .mockResolvedValueOnce(rebuildingStatus.runtime)
+        .mockResolvedValue(memoryStatus.runtime);
       const { container } = renderWithProviders(<MemoryAndEmbeddingForm />);
 
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
       });
-      expect(getMemoryStatus).toHaveBeenCalledTimes(1);
+      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(1);
       const modelInput = container.querySelector(
         'input[placeholder="agentConfig.embeddingModelNamePlaceholder"]',
       );
@@ -335,24 +339,56 @@ describe("ReMe runtime status", () => {
         await vi.advanceTimersByTimeAsync(2_000);
       });
 
-      expect(getMemoryStatus).toHaveBeenCalledTimes(2);
+      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(2);
       expect(modelInput).toBeEnabled();
     } finally {
       vi.useRealTimers();
     }
   });
 
+  it("waits for the current runtime poll before scheduling the next one", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveFirstPoll: (value: typeof memoryStatus.runtime) => void = () =>
+        undefined;
+      const firstPoll = new Promise<typeof memoryStatus.runtime>((resolve) => {
+        resolveFirstPoll = resolve;
+      });
+      const getMemoryRuntimeStatus = vi
+        .spyOn(agentsApi, "getMemoryRuntimeStatus")
+        .mockReturnValueOnce(firstPoll)
+        .mockResolvedValue(memoryStatus.runtime);
+
+      renderWithProviders(<MemoryForm withRuntimeStatus />);
+      await act(async () => Promise.resolve());
+      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveFirstPoll(memoryStatus.runtime);
+        await firstPoll;
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows aggregated worker and pending-turn status", async () => {
-    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue({
-      ...memoryStatus,
-      runtime: {
-        ...memoryStatus.runtime,
-        worker: {
-          ...memoryStatus.runtime.worker,
-          status: "busy",
-          queue_pending: 2,
-          tasks_running: 1,
-        },
+    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockResolvedValue({
+      ...memoryStatus.runtime,
+      worker: {
+        ...memoryStatus.runtime.worker,
+        status: "busy",
+        queue_pending: 2,
+        tasks_running: 1,
       },
     });
 

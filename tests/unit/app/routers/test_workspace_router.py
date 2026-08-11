@@ -7,7 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from qwenpaw.app.routers.workspace import put_agents_running_config
+from qwenpaw.app.routers.workspace import (
+    _ConfigRollbackConflict,
+    _conditionally_restore_config_changes,
+    put_agents_running_config,
+)
 from qwenpaw.config import AgentsRunningConfig
 from qwenpaw.config.config import AgentProfileConfig
 
@@ -39,6 +43,38 @@ def _config_transaction(
         return agent_config
 
     return AsyncMock(side_effect=update)
+
+
+def test_embedding_rollback_preserves_unrelated_concurrent_changes() -> None:
+    old_running, new_running = _embedding_update_configs()
+    before = AgentProfileConfig(id="bot", name="Bot", running=old_running)
+    submitted = before.model_copy(deep=True)
+    submitted.running = new_running
+    current = submitted.model_copy(deep=True)
+    current.language = "zh"
+
+    _conditionally_restore_config_changes(current, before, submitted)
+
+    assert current.language == "zh"
+    assert current.running.reme_light_memory_config.embedding_model_config == (
+        old_running.reme_light_memory_config.embedding_model_config
+    )
+
+
+def test_embedding_rollback_detects_a_concurrent_same_field_change() -> None:
+    old_running, new_running = _embedding_update_configs()
+    before = AgentProfileConfig(id="bot", name="Bot", running=old_running)
+    submitted = before.model_copy(deep=True)
+    submitted.running = new_running
+    current = submitted.model_copy(deep=True)
+    current.running.reme_light_memory_config.embedding_model_config.model_name = (
+        "third-model"
+    )
+
+    with pytest.raises(_ConfigRollbackConflict) as exc_info:
+        _conditionally_restore_config_changes(current, before, submitted)
+
+    assert any("model_name" in path for path in exc_info.value.paths)
 
 
 @pytest.mark.asyncio
@@ -260,9 +296,6 @@ async def test_failed_runtime_update_rolls_back_and_returns_503() -> None:
         events.append("reme-reload")
         return next(reload_results)
 
-    def rollback(_agent_id, _agent_config):
-        events.append("rollback")
-
     memory_manager = MagicMock()
     memory_manager.apply_tested_embedding = AsyncMock(
         side_effect=apply_embedding,
@@ -287,10 +320,6 @@ async def test_failed_runtime_update_rolls_back_and_returns_503() -> None:
             _config_transaction(agent_config, events=events),
         ),
         patch(
-            "qwenpaw.app.routers.workspace.save_agent_config",
-            side_effect=rollback,
-        ),
-        patch(
             "qwenpaw.app.routers.workspace.schedule_agent_reload",
         ) as schedule_reload,
     ):
@@ -303,7 +332,105 @@ async def test_failed_runtime_update_rolls_back_and_returns_503() -> None:
         "save",
         "apply",
         "reme-reload",
-        "rollback",
+        "save",
         "reme-reload",
     ]
     schedule_reload.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_failed_runtime_update_preserves_concurrent_unrelated_change() -> None:
+    old_running, new_running = _embedding_update_configs()
+    persisted = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    update_count = 0
+
+    async def update_config(_agent_id, updater):
+        nonlocal persisted, update_count
+        current = persisted.model_copy(deep=True)
+        updater(current)
+        persisted = current.model_copy(deep=True)
+        update_count += 1
+        if update_count == 1:
+            persisted.language = "zh"
+        return current
+
+    memory_manager = MagicMock()
+    memory_manager.apply_tested_embedding = AsyncMock(return_value=False)
+    memory_manager.reload_embedding_config = AsyncMock(
+        side_effect=[False, True],
+    )
+    workspace = SimpleNamespace(agent_id="bot", memory_manager=memory_manager)
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            side_effect=update_config,
+        ),
+        patch("qwenpaw.app.routers.workspace.schedule_agent_reload"),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await put_agents_running_config(new_running, MagicMock())
+
+    assert exc_info.value.status_code == 503
+    assert persisted.language == "zh"
+    assert persisted.running == old_running
+
+
+@pytest.mark.asyncio
+async def test_failed_runtime_update_reports_same_field_rollback_conflict() -> None:
+    old_running, new_running = _embedding_update_configs()
+    persisted = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    update_count = 0
+
+    async def update_config(_agent_id, updater):
+        nonlocal persisted, update_count
+        current = persisted.model_copy(deep=True)
+        updater(current)
+        persisted = current.model_copy(deep=True)
+        update_count += 1
+        if update_count == 1:
+            persisted.running.reme_light_memory_config.embedding_model_config.model_name = (
+                "third-model"
+            )
+        return current
+
+    memory_manager = MagicMock()
+    memory_manager.apply_tested_embedding = AsyncMock(return_value=False)
+    memory_manager.reload_embedding_config = AsyncMock(
+        side_effect=[False, True],
+    )
+    workspace = SimpleNamespace(agent_id="bot", memory_manager=memory_manager)
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            side_effect=update_config,
+        ),
+        patch("qwenpaw.app.routers.workspace.schedule_agent_reload"),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await put_agents_running_config(new_running, MagicMock())
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["persisted"] is True
+    assert any("model_name" in path for path in exc_info.value.detail["conflicts"])
+    assert (
+        persisted.running.reme_light_memory_config.embedding_model_config.model_name
+        == "third-model"
+    )

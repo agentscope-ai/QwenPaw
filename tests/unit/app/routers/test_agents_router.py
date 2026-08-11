@@ -10,6 +10,7 @@ Covers the highest-value flows:
 - ``DELETE /agents/{id}`` — happy path with manager.stop_agent
 - ``POST /agents/{id}/copy`` — selective config copy without assets
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -183,9 +184,7 @@ def test_list_agents_preserves_unknown_backend(client, fake_config):
         response = client.get("/api/agents")
 
     assert response.status_code == 200
-    bot = next(
-        item for item in response.json()["agents"] if item["id"] == "bot"
-    )
+    bot = next(item for item in response.json()["agents"] if item["id"] == "bot")
     assert bot["name"] == "Configured Bot"
     assert bot["backend"] == "missing"
     assert bot["backend_capabilities"] == {}
@@ -364,6 +363,56 @@ def test_rebuild_memory_index_rejects_concurrent_run(
 # ---------------------------------------------------------------------------
 
 
+def test_get_memory_runtime_status_does_not_run_a_reme_job(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    runtime_status = {
+        "worker": {
+            "status": "busy",
+            "queue_pending": 0,
+            "tasks_running": 0,
+        },
+        "auto_memory": {
+            "enabled": False,
+            "interval": 0,
+            "active_sessions": 0,
+            "sessions_with_pending": 0,
+            "pending_turns": 0,
+        },
+        "recent": {
+            "last_completed_at": None,
+            "last_failed_at": None,
+            "last_error": None,
+        },
+        "reindexing": True,
+    }
+    memory_manager = MagicMock()
+    memory_manager.get_runtime_status.return_value = runtime_status
+    memory_manager.reme_status = AsyncMock()
+    manager_mock.get_loaded_agent.return_value = MagicMock(
+        memory_manager=memory_manager,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.get("/api/agents/bot/memory/runtime-status")
+
+    assert response.status_code == 200
+    assert response.json() == runtime_status
+    memory_manager.reme_status.assert_not_awaited()
+
+
 def test_get_memory_status_returns_structured_reme_metrics(
     client,
     fake_config,
@@ -431,7 +480,9 @@ def test_get_memory_status_returns_structured_reme_metrics(
         "runtime": runtime_status,
     }
     memory_manager.reme_status.assert_awaited_once_with()
-    memory_manager.get_runtime_status.assert_called_once_with()
+    memory_manager.get_runtime_status.assert_called_once_with(
+        auto_memory_interval=5,
+    )
 
 
 def test_get_memory_status_rejects_invalid_payload(
@@ -941,10 +992,7 @@ def test_copy_agent_defaults_reset_channels_and_schedules_startup(
     assert saved["config"].heartbeat.enabled is True
     assert saved["config"].heartbeat.every == "10m"
     assert saved["config"].tools.builtin_tools["read_file"].enabled is False
-    assert (
-        saved["config"].tools.builtin_tools["read_file"].description
-        == "copied-tool"
-    )
+    assert saved["config"].tools.builtin_tools["read_file"].description == "copied-tool"
     assert saved["config"].active_model is not None
     assert saved["config"].active_model.provider_id == "openai"
     assert saved["config"].active_model.model == "gpt-test"

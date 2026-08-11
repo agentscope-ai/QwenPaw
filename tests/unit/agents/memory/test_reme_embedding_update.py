@@ -3,6 +3,7 @@
 """Tests for ReMe embedding object hot updates."""
 
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -14,6 +15,8 @@ from qwenpaw.agents.memory.embedding_model import (
 )
 from qwenpaw.agents.memory.reme_light_memory_manager import (
     ReMeLightMemoryManager,
+    _legacy_session_file_owned_by,
+    _migrate_owned_legacy_session,
     _to_reme_session_id,
 )
 from qwenpaw.config.config import AgentProfileConfig, EmbeddingModelConfig
@@ -125,7 +128,9 @@ async def test_manual_reindex_clears_persisted_requirement(tmp_path) -> None:
     config = _config()
     manager, _wrapper, _store = _manager(tmp_path, config)
     profile = AgentProfileConfig(id="bot", name="Bot")
-    profile.running.reme_light_memory_config.needs_reindex = True
+    memory_config = profile.running.reme_light_memory_config
+    memory_config.embedding_model_config = config.model_copy(deep=True)
+    memory_config.needs_reindex = True
 
     async def update_config(_agent_id, updater):
         assert manager.is_reindexing is True
@@ -133,8 +138,7 @@ async def test_manual_reindex_clears_persisted_requirement(tmp_path) -> None:
         return profile
 
     with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager."
-        "update_agent_config_async",
+        "qwenpaw.agents.memory.reme_light_memory_manager.update_agent_config_async",
         side_effect=update_config,
     ) as update_config_mock:
         response = await manager.rebuild_index()
@@ -142,6 +146,32 @@ async def test_manual_reindex_clears_persisted_requirement(tmp_path) -> None:
     assert response.success is True
     assert profile.running.reme_light_memory_config.needs_reindex is False
     update_config_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_reindex_does_not_clear_a_new_vector_space_requirement(
+    tmp_path,
+) -> None:
+    old_config = _config(model_name="old-model")
+    new_config = _config(model_name="new-model")
+    manager, _wrapper, _store = _manager(tmp_path, old_config)
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = profile.running.reme_light_memory_config
+    memory_config.embedding_model_config = new_config
+    memory_config.needs_reindex = True
+
+    async def update_config(_agent_id, updater):
+        updater(profile)
+        return profile
+
+    with patch(
+        "qwenpaw.agents.memory.reme_light_memory_manager.update_agent_config_async",
+        side_effect=update_config,
+    ):
+        response = await manager.rebuild_index()
+
+    assert response.success is True
+    assert memory_config.needs_reindex is True
 
 
 @pytest.mark.asyncio
@@ -197,6 +227,10 @@ async def test_reindex_and_embedding_update_share_lifecycle_boundary(
     del manager._run_reme_job
     reindex_started = asyncio.Event()
     finish_reindex = asyncio.Event()
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = profile.running.reme_light_memory_config
+    memory_config.embedding_model_config = new_config.model_copy(deep=True)
+    memory_config.needs_reindex = True
 
     async def run_job(name, **_kwargs):
         assert name == "reindex"
@@ -204,8 +238,9 @@ async def test_reindex_and_embedding_update_share_lifecycle_boundary(
         await finish_reindex.wait()
         return SimpleNamespace(success=True, answer="ok")
 
-    async def update_config(_agent_id, _updater):
-        return AgentProfileConfig(id="bot", name="Bot")
+    async def update_config(_agent_id, updater):
+        updater(profile)
+        return profile
 
     manager._reme.run_job = run_job
     manager._append_reme_job_result_to_inbox = AsyncMock()
@@ -215,8 +250,7 @@ async def test_reindex_and_embedding_update_share_lifecycle_boundary(
     )
 
     with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager."
-        "update_agent_config_async",
+        "qwenpaw.agents.memory.reme_light_memory_manager.update_agent_config_async",
         side_effect=update_config,
     ):
         reindex = asyncio.create_task(manager.rebuild_index())
@@ -230,6 +264,9 @@ async def test_reindex_and_embedding_update_share_lifecycle_boundary(
         finish_reindex.set()
         await reindex
         assert await update is True
+
+    assert manager._active_embedding_config == new_config
+    assert memory_config.needs_reindex is True
 
 
 def test_reme_session_ids_are_fixed_length_and_collision_resistant() -> None:
@@ -247,3 +284,72 @@ def test_reme_session_ids_are_fixed_length_and_collision_resistant() -> None:
     assert len(set(mapped)) == len(identifiers)
     assert all(value.startswith("qpsid_sha256_") for value in mapped)
     assert all(len(value) == len("qpsid_sha256_") + 64 for value in mapped)
+
+
+def test_legacy_session_migration_requires_matching_logical_owner(
+    tmp_path,
+) -> None:
+    legacy = tmp_path / "Foo.jsonl"
+    hashed = tmp_path / f"{_to_reme_session_id('foo')}.jsonl"
+    legacy.write_text(
+        json.dumps({"metadata": {"qwenpaw_session_id": "Foo"}}) + "\n",
+        encoding="utf-8",
+    )
+
+    assert _legacy_session_file_owned_by(legacy, "foo") is False
+    assert _migrate_owned_legacy_session(legacy, hashed, "foo") is False
+    assert legacy.exists()
+    assert not hashed.exists()
+
+
+def test_owned_legacy_session_is_migrated_once_to_hash_id(tmp_path) -> None:
+    legacy = tmp_path / "é.jsonl"
+    hashed = tmp_path / f"{_to_reme_session_id('é')}.jsonl"
+    legacy.write_text(
+        json.dumps({"metadata": {"qwenpaw_session_id": "é"}}) + "\n",
+        encoding="utf-8",
+    )
+
+    assert _migrate_owned_legacy_session(legacy, hashed, "é") is True
+    assert not legacy.exists()
+    assert hashed.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("session_id", "persisted_owner"),
+    [
+        ("foo", "Foo"),
+        ("e\N{COMBINING ACUTE ACCENT}", "é"),
+    ],
+)
+async def test_resolver_never_writes_through_a_colliding_legacy_path(
+    tmp_path,
+    session_id,
+    persisted_owner,
+) -> None:
+    config = _config()
+    manager, _wrapper, _store = _manager(tmp_path, config)
+    manager.working_dir = str(tmp_path)
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    session_dir = profile.running.reme_light_memory_config.session_dir
+    legacy_path = tmp_path / session_dir / "dialog" / f"{session_id}.jsonl"
+    legacy_path.parent.mkdir(parents=True)
+    legacy_path.write_text(
+        json.dumps(
+            {"metadata": {"qwenpaw_session_id": persisted_owner}},
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with patch(
+        "qwenpaw.agents.memory.reme_light_memory_manager.load_agent_config_async",
+        AsyncMock(return_value=profile),
+    ):
+        resolved = await manager._resolve_reme_session_id(session_id)
+
+    assert resolved == _to_reme_session_id(session_id)
+    assert legacy_path.exists()
+    assert not legacy_path.with_name(f"{resolved}.jsonl").exists()

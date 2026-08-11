@@ -12,6 +12,15 @@ export type ReMeRuntimeStatus =
 
 const STATUS_POLL_INTERVAL_MS = 2_000;
 
+const emptyMemoryStatus = (
+  runtime: ReMeMemoryStatusResponse["runtime"],
+): ReMeMemoryStatusResponse => ({
+  components: {},
+  components_total: "—",
+  process_rss: "—",
+  runtime,
+});
+
 export function useReMeRuntimeStatus(enabled: boolean) {
   const { selectedAgent } = useAgentStore();
   const agentId = selectedAgent || "default";
@@ -54,17 +63,60 @@ export function useReMeRuntimeStatus(enabled: boolean) {
   }, [agentId, enabled]);
 
   useEffect(() => {
-    void checkMemoryStatus();
-    if (!enabled) return undefined;
-    const timer = window.setInterval(
-      () => void checkMemoryStatus(),
-      STATUS_POLL_INTERVAL_MS,
-    );
+    if (!enabled) {
+      setRuntimeStatus({ type: "unknown" });
+      requestRef.current?.abort();
+      return undefined;
+    }
+    let active = true;
+    let timer: number | undefined;
+    let controller: AbortController | null = null;
+
+    const poll = async () => {
+      controller = new AbortController();
+      try {
+        const runtime = await agentsApi.getMemoryRuntimeStatus(
+          agentId,
+          controller.signal,
+        );
+        if (active) {
+          setRuntimeStatus((current) => ({
+            type: "healthy",
+            agentId,
+            data:
+              current.type === "healthy" && current.agentId === agentId
+                ? { ...current.data, runtime }
+                : emptyMemoryStatus(runtime),
+          }));
+        }
+      } catch (error) {
+        if (active && !controller.signal.aborted) {
+          setRuntimeStatus((current) =>
+            current.type === "healthy" && current.agentId === agentId
+              ? current
+              : {
+                  type: "error",
+                  message:
+                    error instanceof Error ? error.message : String(error),
+                },
+          );
+        }
+      } finally {
+        if (active) {
+          timer = window.setTimeout(poll, STATUS_POLL_INTERVAL_MS);
+        }
+      }
+    };
+
+    setRuntimeStatus({ type: "checking" });
+    void poll();
     return () => {
-      window.clearInterval(timer);
+      active = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+      controller?.abort();
       requestRef.current?.abort();
     };
-  }, [checkMemoryStatus, enabled]);
+  }, [agentId, enabled]);
 
   return { runtimeStatus, checkMemoryStatus };
 }

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Abstract base class for memory managers."""
+
 import asyncio
 import json
 import logging
@@ -56,9 +57,7 @@ class BaseMemoryManager(ABC):
         self._summary_task_info: dict[str, dict[str, Any]] = {}
         self._auto_memory_turn_states: dict[str, dict[str, Any]] = {}
         self._task_counter: int = 0
-        self._task_queue: asyncio.Queue[
-            tuple[str, list[Msg], dict]
-        ] = asyncio.Queue()
+        self._task_queue: asyncio.Queue[tuple[str, list[Msg], dict]] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
         self._worker_stopping = False
 
@@ -544,7 +543,11 @@ class BaseMemoryManager(ABC):
             )
         return result
 
-    def get_runtime_status(self) -> dict[str, Any]:
+    def get_runtime_status(
+        self,
+        *,
+        auto_memory_interval: int | None = None,
+    ) -> dict[str, Any]:
         """Return a sanitized operational snapshot for status UIs.
 
         This deliberately exposes aggregate counters rather than task results,
@@ -553,12 +556,8 @@ class BaseMemoryManager(ABC):
         self._update_task_statuses()
 
         task_infos = list(self._summary_task_info.values())
-        pending_tasks = sum(
-            info.get("status") == "pending" for info in task_infos
-        )
-        running_tasks = sum(
-            info.get("status") == "running" for info in task_infos
-        )
+        pending_tasks = sum(info.get("status") == "pending" for info in task_infos)
+        running_tasks = sum(info.get("status") == "running" for info in task_infos)
 
         worker = self._worker_task
         if self._worker_stopping:
@@ -573,9 +572,7 @@ class BaseMemoryManager(ABC):
             worker_status = "error" if pending_tasks else "idle"
         else:
             worker_status = (
-                "error"
-                if worker.exception() is not None or pending_tasks
-                else "idle"
+                "error" if worker.exception() is not None or pending_tasks else "idle"
             )
 
         last_completed = next(
@@ -587,11 +584,7 @@ class BaseMemoryManager(ABC):
             None,
         )
         last_failed = next(
-            (
-                info
-                for info in reversed(task_infos)
-                if info.get("status") == "failed"
-            ),
+            (info for info in reversed(task_infos) if info.get("status") == "failed"),
             None,
         )
 
@@ -605,7 +598,14 @@ class BaseMemoryManager(ABC):
         pending_turn_counts = [
             len(state.get("pending") or []) for state in active_turn_states
         ]
-        interval = max(0, int(self.get_auto_memory_interval()))
+        interval = max(
+            0,
+            int(
+                self.get_auto_memory_interval()
+                if auto_memory_interval is None
+                else auto_memory_interval
+            ),
+        )
 
         def _iso_time(info: dict[str, Any] | None, key: str) -> str | None:
             if info is None:
@@ -670,8 +670,7 @@ def get_memory_manager_backend(backend: str) -> type[BaseMemoryManager]:
         registered = memory_registry.list_registered()
         if not registered:
             raise ValueError(
-                f"No memory manager backends registered. "
-                f"Requested: '{backend}'",
+                f"No memory manager backends registered. " f"Requested: '{backend}'",
             )
         fallback = registered[0]
         logger.warning(

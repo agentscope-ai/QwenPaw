@@ -40,6 +40,8 @@ export interface ReMeMemoryStatusResponse {
   };
 }
 
+export type ReMeMemoryRuntimeStatus = ReMeMemoryStatusResponse["runtime"];
+
 // Multi-agent management API
 export const agentsApi = {
   // List all agents
@@ -90,6 +92,13 @@ export const agentsApi = {
     return signal
       ? request<ReMeMemoryStatusResponse>(path, { signal })
       : request<ReMeMemoryStatusResponse>(path);
+  },
+
+  getMemoryRuntimeStatus: (agentId: string, signal?: AbortSignal) => {
+    const path = `/agents/${agentId}/memory/runtime-status`;
+    return signal
+      ? request<ReMeMemoryRuntimeStatus>(path, { signal })
+      : request<ReMeMemoryRuntimeStatus>(path);
   },
 
   getMemoryGraph: (agentId: string) =>

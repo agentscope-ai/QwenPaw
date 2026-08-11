@@ -37,6 +37,7 @@ from ...harnesses.registry import ProviderCatalogItem, get_provider
 from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -325,9 +326,7 @@ def _read_profile_description(workspace_dir: str) -> str:
 async def list_agents(request: Request = None) -> AgentListResponse:
     """List all configured agents."""
     config = load_config()
-    manager = (
-        _get_multi_agent_manager(request) if request is not None else None
-    )
+    manager = _get_multi_agent_manager(request) if request is not None else None
     ordered_agent_ids = _display_agent_order(config)
 
     agents = []
@@ -343,9 +342,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
             manager.get_agent_startup_status(agent_id, enabled=enabled)
             if manager is not None
             else (
-                AgentStartupStatus.PENDING
-                if enabled
-                else AgentStartupStatus.DISABLED
+                AgentStartupStatus.PENDING if enabled else AgentStartupStatus.DISABLED
             )
         )
         try:
@@ -604,9 +601,7 @@ async def create_agent(
         request.language or config.agents.language or "en",
     )
 
-    active_model = (
-        request.active_model if request.backend == "qwenpaw" else None
-    )
+    active_model = request.active_model if request.backend == "qwenpaw" else None
     if request.backend == "qwenpaw" and (
         not active_model or not active_model.provider_id
     ):
@@ -636,9 +631,7 @@ async def create_agent(
 
     _initialize_agent_workspace(
         workspace_dir,
-        skill_names=(
-            request.skill_names if request.skill_names is not None else []
-        ),
+        skill_names=(request.skill_names if request.skill_names is not None else []),
         language=language,
     )
 
@@ -788,8 +781,7 @@ async def copy_agent(
     save_agent_config(new_id, agent_config)
 
     logger.info(
-        "Copied agent %s -> %s "
-        "(name=%s, agent_json=%s, md=%s, skills=%s, jobs=%s)",
+        "Copied agent %s -> %s (name=%s, agent_json=%s, md=%s, skills=%s, jobs=%s)",
         agentId,
         new_id,
         new_name,
@@ -868,14 +860,14 @@ async def rebuild_agent_memory_index(
     request: Request = None,
 ) -> dict[str, str]:
     """Run the expensive ReMe reindex job as an explicit maintenance task."""
-    config = load_config()
+    config = await run_sync_io(load_config)
     if agentId not in config.agents.profiles:
         raise HTTPException(
             status_code=404,
             detail=f"Agent '{agentId}' not found",
         )
 
-    agent_config = load_agent_config(agentId)
+    agent_config = await run_sync_io(load_agent_config, agentId)
     if agent_config.running.memory_manager_backend != "remelight":
         raise HTTPException(
             status_code=400,
@@ -910,6 +902,40 @@ async def rebuild_agent_memory_index(
 
 
 @router.get(
+    "/{agentId}/memory/runtime-status",
+    response_model=MemoryRuntimeStatus,
+    summary="Get agent memory runtime state",
+    description="Return in-memory ReMe lifecycle state without a ReMe lease",
+)
+async def get_agent_memory_runtime_status(
+    agentId: str = PathParam(...),
+    request: Request = None,
+) -> MemoryRuntimeStatus:
+    """Return immediately even while an exclusive lifecycle job is active."""
+    config = await run_sync_io(load_config)
+    if agentId not in config.agents.profiles:
+        raise HTTPException(status_code=404, detail=f"Agent '{agentId}' not found")
+
+    agent_config = await run_sync_io(load_agent_config, agentId)
+    if agent_config.running.memory_manager_backend != "remelight":
+        raise HTTPException(
+            status_code=400,
+            detail="Memory status is only supported by ReMe Light",
+        )
+
+    manager = _get_multi_agent_manager(request)
+    workspace = manager.get_loaded_agent(agentId)
+    if workspace is None or workspace.memory_manager is None:
+        raise HTTPException(status_code=503, detail="Agent is not running")
+    memory_config = agent_config.running.reme_light_memory_config
+    return MemoryRuntimeStatus.model_validate(
+        workspace.memory_manager.get_runtime_status(
+            auto_memory_interval=memory_config.auto_memory_interval,
+        ),
+    )
+
+
+@router.get(
     "/{agentId}/memory/status",
     response_model=ReMeMemoryStatusResponse,
     summary="Get agent ReMe memory status",
@@ -920,14 +946,14 @@ async def get_agent_memory_status(
     request: Request = None,
 ) -> ReMeMemoryStatusResponse:
     """Inspect the currently running ReMe instance without reloading it."""
-    config = load_config()
+    config = await run_sync_io(load_config)
     if agentId not in config.agents.profiles:
         raise HTTPException(
             status_code=404,
             detail=f"Agent '{agentId}' not found",
         )
 
-    agent_config = load_agent_config(agentId)
+    agent_config = await run_sync_io(load_agent_config, agentId)
     if agent_config.running.memory_manager_backend != "remelight":
         raise HTTPException(
             status_code=400,
@@ -966,7 +992,14 @@ async def get_agent_memory_status(
         )
     try:
         return ReMeMemoryStatusResponse.model_validate(
-            {**memory, "runtime": memory_manager.get_runtime_status()},
+            {
+                **memory,
+                "runtime": memory_manager.get_runtime_status(
+                    auto_memory_interval=(
+                        agent_config.running.reme_light_memory_config.auto_memory_interval
+                    ),
+                ),
+            },
         )
     except ValueError as exc:
         raise HTTPException(
@@ -986,14 +1019,14 @@ async def get_agent_memory_graph(
     request: Request = None,
 ) -> MemoryGraphSnapshot:
     """Return a frontend-ready graph snapshot from embedded ReMe."""
-    config = load_config()
+    config = await run_sync_io(load_config)
     if agentId not in config.agents.profiles:
         raise HTTPException(
             status_code=404,
             detail=f"Agent '{agentId}' not found",
         )
 
-    agent_config = load_agent_config(agentId)
+    agent_config = await run_sync_io(load_agent_config, agentId)
     if agent_config.running.memory_manager_backend != "remelight":
         raise HTTPException(
             status_code=400,
@@ -1113,10 +1146,7 @@ async def toggle_agent_enabled(
     if not enabled and manager.is_agent_startup_in_progress(agentId):
         raise HTTPException(
             status_code=409,
-            detail=(
-                f"Agent '{agentId}' is still starting and cannot be "
-                f"disabled yet"
-            ),
+            detail=(f"Agent '{agentId}' is still starting and cannot be disabled yet"),
         )
 
     if not enabled and getattr(agent_ref, "enabled", True):
