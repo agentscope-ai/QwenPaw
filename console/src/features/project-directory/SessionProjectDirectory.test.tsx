@@ -72,39 +72,37 @@ describe("SessionProjectDirectory", () => {
     });
   });
 
-  it(
-    "shows a removable path chip for a selected recent project",
-    async () => {
-      const user = userEvent.setup();
-      renderWithProviders(<SessionProjectDirectory scope={scope} />);
+  it("shows a removable path chip for a selected recent project", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={scope} />);
 
-      await user.click(
-        await screen.findByRole("button", {
-          name: "projectDirectory.sessionTitle",
-        }),
-      );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.sessionTitle",
+      }),
+    );
 
-      const clearButton = await screen.findByRole("button", {
-        name: "projectDirectory.clearSelection",
-      });
-      expect(
-        document.querySelector(".ant-popover-placement-topRight"),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByRole("button", { name: /agentscope/ }),
-      ).toHaveAttribute("aria-pressed", "true");
+    const clearButton = await screen.findByRole("button", {
+      name: "projectDirectory.clearSelection",
+    });
+    expect(
+      document.querySelector(".ant-popover-placement-topRight"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /agentscope/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
 
-      await user.click(clearButton);
+    await user.click(clearButton);
 
-      expect(
-        screen.getByPlaceholderText("projectDirectory.pathPlaceholder"),
-      ).toHaveValue("");
-      expect(
-        screen.getByRole("button", { name: /agentscope/ }),
-      ).toHaveAttribute("aria-pressed", "false");
-    },
-    15_000,
-  );
+    expect(
+      screen.getByPlaceholderText("projectDirectory.pathPlaceholder"),
+    ).toHaveValue("");
+    expect(screen.getByRole("button", { name: /agentscope/ })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  }, 15_000);
 
   it("clears the recent selection when a browsed directory is chosen", async () => {
     const user = userEvent.setup();
