@@ -2,7 +2,7 @@
 # flake8: noqa: E501
 # Vendored from Qwen-MM-Plugins (Apache-2.0), release commit 077aea6.
 # Upstream path:
-#   src/capabilities/core/qwen_mm_plugins_core/renderers/subtitle.py
+#   src/capabilities/core/qwen_media_toolkit_core/renderers/subtitle.py
 # Modified for QwenPaw Creator. See backend/vendor/NOTICE.md.
 """Parse subtitle files (SRT, VTT, ASS) into text blocks.
 
@@ -22,7 +22,7 @@ def render(path: str, **opts: Any) -> list[dict[str, Any]]:
     del opts
     ext = os.path.splitext(path)[1].lower()
 
-    from vendor.mm_plugins.renderers import meta_block
+    from vendor.media_toolkit.renderers import meta_block
 
     with open(path, "r", errors="replace", encoding="utf-8") as f:
         text = f.read()

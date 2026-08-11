@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # Vendored from Qwen-MM-Plugins (Apache-2.0), release commit 077aea6.
-# Upstream path: src/capabilities/core/qwen_mm_plugins_core/renderers/code.py
+# Upstream path: src/capabilities/core/qwen_media_toolkit_core/renderers/code.py
 # Modified for QwenPaw Creator. See backend/vendor/NOTICE.md.
 """Render source code files as markdown-fenced text blocks.
 
@@ -59,7 +59,7 @@ def render(path: str, **opts: Any) -> list[dict[str, Any]]:
     ext = os.path.splitext(path)[1].lower()
     lang = _EXT_TO_LANG.get(ext, "")
 
-    from vendor.mm_plugins.renderers import meta_block
+    from vendor.media_toolkit.renderers import meta_block
 
     with open(path, "r", errors="replace", encoding="utf-8") as f:
         lines = f.readlines()

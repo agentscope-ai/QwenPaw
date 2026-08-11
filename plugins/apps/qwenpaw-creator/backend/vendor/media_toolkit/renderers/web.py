@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # Vendored from Qwen-MM-Plugins (Apache-2.0), release commit 077aea6.
-# Upstream path: src/capabilities/core/qwen_mm_plugins_core/renderers/web.py
+# Upstream path: src/capabilities/core/qwen_media_toolkit_core/renderers/web.py
 # Modified for QwenPaw Creator. See backend/vendor/NOTICE.md.
 """Render local HTML/MHTML files via Playwright headless browser screenshot.
 
@@ -35,7 +35,7 @@ def render(path: str, **opts: Any) -> list[dict[str, Any]]:
 
     from PIL import Image
 
-    from vendor.mm_plugins.renderers import DEFAULT_MAX_PAGES, meta_block
+    from vendor.media_toolkit.renderers import DEFAULT_MAX_PAGES, meta_block
 
     budget = opts.get("budget", "large")
     max_pages = opts.get("max_pages", DEFAULT_MAX_PAGES)
@@ -93,7 +93,7 @@ def render(path: str, **opts: Any) -> list[dict[str, Any]]:
     selected = list(range(total))
     pages_str = opts.get("pages")
     if pages_str:
-        from vendor.mm_plugins.renderers import parse_pages
+        from vendor.media_toolkit.renderers import parse_pages
 
         selected = [i for i in parse_pages(pages_str, total) if i < total]
         pages = [pages[i] for i in selected]

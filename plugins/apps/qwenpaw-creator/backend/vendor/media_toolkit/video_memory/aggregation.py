@@ -4,7 +4,8 @@
 
 Vendored from Qwen-MM-Plugins commit 077aea6
 (src/capabilities/video-memory/skill/script/build_memory/build_graph.py,
-Phase 3: ``step3_hierarchical_aggregation`` and helpers). License:
+Phase 3: ``step3_hierarchical_aggregation`` and helpers); default window
+size re-synced against upstream commit f9d5741 (20 → 50). License:
 Apache-2.0; see backend/vendor/NOTICE.md.
 Modifications: orchestration rewritten as ``async`` around an injected
 ``call_llm(prompt) -> str`` coroutine (the Creator text/VLM backend);
@@ -145,7 +146,7 @@ def _parse_window_result(
 async def aggregate_hierarchy(
     macros: list[MacroEvent],
     call_llm: LlmCall,
-    window_size: int = 20,
+    window_size: int = 50,
 ) -> AggregationResult:
     """Aggregate macros into supers and root using a sliding window.
 

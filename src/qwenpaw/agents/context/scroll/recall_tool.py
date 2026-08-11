@@ -103,7 +103,18 @@ def _normalize_expand_args(
         # type regardless of the model-facing compatibility schema.
         return None, None
     try:
-        return _normalize_seq_arg(lo, "lo"), _normalize_seq_arg(hi, "hi")
+        normalized_lo = _normalize_seq_arg(lo, "lo")
+        normalized_hi = _normalize_seq_arg(hi, "hi")
+        if (
+            normalized_lo is not None
+            and normalized_hi is not None
+            and normalized_lo > normalized_hi
+        ):
+            raise ValueError(
+                f"lo ({normalized_lo}) must be less than or equal to "
+                f"hi ({normalized_hi}); swap lo and hi and retry",
+            )
+        return normalized_lo, normalized_hi
     except ValueError as exc:
         text = _bound_observation(
             f'RECALL FAILED — invalid op="expand" seq span '

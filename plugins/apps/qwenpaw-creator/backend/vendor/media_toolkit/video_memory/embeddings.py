@@ -2,7 +2,9 @@
 """Hybrid text retrieval index over graph-memory nodes.
 
 Vendored from Qwen-MM-Plugins commit 077aea6
-(src/capabilities/video-memory/skill/script/build_memory/embeddings.py).
+(src/capabilities/video-memory/skill/script/build_memory/embeddings.py);
+RRF fusion and ``.npz`` persistence re-synced against upstream commit
+f9d5741 (rank-presence RRF scoring, atomic save, pickle-free load).
 License: Apache-2.0; see backend/vendor/NOTICE.md.
 Modifications: the DashScope multimodal-embedding HTTP client is removed
 and rewritten as the Creator-native ``backend/models/embedding_model.py``;
@@ -16,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import re
 
 import numpy as np
@@ -218,7 +221,7 @@ class EmbeddingIndex:
             self._normed = self.embeddings / norms
         return self._normed
 
-    def search(
+    def search(  # pylint: disable=too-many-branches
         self,
         query: str,
         top_k: int = 10,
@@ -258,7 +261,6 @@ class EmbeddingIndex:
             else:
                 q_emb = cand
 
-        n_candidates = len(indices)
         if q_emb is not None:
             normed = self._normalized()
             q_norm = q_emb / (np.linalg.norm(q_emb) or 1)
@@ -289,14 +291,22 @@ class EmbeddingIndex:
             idx: rank for rank, (idx, _) in enumerate(sparse_ranked)
         }
 
+        if not dense_rank and not sparse_rank:
+            return []
+
         rrf_k = 60
         fused = []
         for i in indices:
-            sr = sparse_rank.get(i, n_candidates)
-            rrf_score = 1.0 / (rrf_k + sr)
-            if dense_rank:
-                dr = dense_rank.get(i, n_candidates)
-                rrf_score += 1.0 / (rrf_k + dr)
+            # Upstream f9d5741: only ranks a node actually appears in
+            # contribute RRF credit; a node absent from both lists is
+            # dropped instead of scored by a default rank.
+            rrf_score = 0.0
+            if i in sparse_rank:
+                rrf_score += 1.0 / (rrf_k + sparse_rank[i])
+            if i in dense_rank:
+                rrf_score += 1.0 / (rrf_k + dense_rank[i])
+            if rrf_score == 0:
+                continue
             fused.append(
                 (
                     i,
@@ -317,21 +327,28 @@ class EmbeddingIndex:
         return results
 
     def save(self, path: str):
-        np.savez(
-            path,
-            embeddings=(
-                self.embeddings
-                if self.embeddings is not None
-                else np.zeros((0, 0), dtype=np.float32)
-            ),
-            nodes=json.dumps(self.nodes, ensure_ascii=False),
-        )
+        # Upstream f9d5741: write to a sibling temp file and atomically
+        # replace so a crashed save never leaves a truncated index.
+        tmp = f"{path}.tmp"
+        with open(tmp, "wb") as handle:
+            np.savez(
+                handle,
+                embeddings=(
+                    self.embeddings
+                    if self.embeddings is not None
+                    else np.zeros((0, 0), dtype=np.float32)
+                ),
+                nodes=json.dumps(self.nodes, ensure_ascii=False),
+            )
+        os.replace(tmp, path)
 
     def load(self, path: str):
-        data = np.load(path, allow_pickle=True)
-        embeddings = data["embeddings"]
-        self._set_embeddings(
-            embeddings if embeddings.size else None,
-        )
-        self.nodes = json.loads(str(data["nodes"]))
+        # Upstream f9d5741: the archive holds only arrays and a JSON
+        # string, so pickle deserialization stays disabled.
+        with np.load(path, allow_pickle=False) as data:
+            embeddings = data["embeddings"]
+            self._set_embeddings(
+                embeddings if embeddings.size else None,
+            )
+            self.nodes = json.loads(str(data["nodes"]))
         self._build_sparse_index()

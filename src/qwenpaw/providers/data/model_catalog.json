@@ -41,6 +41,24 @@
     ],
     "DASHSCOPE_MODELS": [
       {
+        "id": "qwen3.8-max",
+        "name": "Qwen3.8 Max",
+        "supports_image": true,
+        "supports_video": false,
+        "probe_source": "documentation",
+        "is_free": false,
+        "source": "builtin",
+        "availability_status": "unverified",
+        "availability_retryable": true,
+        "config_overrides": [],
+        "max_tokens": 8192,
+        "max_input_length": 131072,
+        "max_input_length_configured": false,
+        "generate_kwargs": {},
+        "relay_reasoning": false,
+        "thinking_enabled": true
+      },
+      {
         "id": "qwen3.7-max",
         "name": "Qwen3.7 Max",
         "supports_image": false,

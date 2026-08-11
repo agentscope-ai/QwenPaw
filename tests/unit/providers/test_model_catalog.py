@@ -35,7 +35,10 @@ def test_packaged_catalog_snapshot() -> None:
     catalog = model_catalog.load_model_catalog()
 
     assert len(catalog) == 19
-    assert sum(len(models) for models in catalog.values()) == 116
+    assert sum(len(models) for models in catalog.values()) == 117
+    assert catalog["DASHSCOPE_MODELS"][0].id == "qwen3.8-max"
+    assert catalog["DASHSCOPE_MODELS"][0].supports_image is True
+    assert catalog["DASHSCOPE_MODELS"][0].thinking_enabled is True
     assert [model.id for model in catalog["DEEPSEEK_MODELS"]] == [
         "deepseek-chat",
         "deepseek-reasoner",
@@ -73,6 +76,7 @@ def test_packaged_catalog_snapshot() -> None:
         model.id: model.max_input_length
         for model in catalog["DASHSCOPE_MODELS"]
     } == {
+        "qwen3.8-max": 131_072,
         "qwen3.7-max": 1_000_000,
         "qwen3.7-plus": 1_000_000,
         "qwen3.6-plus": 1_000_000,

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # Vendored from Qwen-MM-Plugins (Apache-2.0), release commit 077aea6.
-# Upstream path: src/capabilities/core/qwen_mm_plugins_core/renderers/data.py
+# Upstream path: src/capabilities/core/qwen_media_toolkit_core/renderers/data.py
 # Modified for QwenPaw Creator. See backend/vendor/NOTICE.md.
 """Render tabular data (CSV, XLSX) as markdown table text + a table image.
 
@@ -74,7 +74,7 @@ def _render_csv(path: str, **opts: Any) -> list[dict[str, Any]]:
     except ImportError as error:
         raise RuntimeError(_PANDAS_HINT) from error
 
-    from vendor.mm_plugins.renderers import meta_block
+    from vendor.media_toolkit.renderers import meta_block
 
     df_full = pd.read_csv(path, nrows=FULL_TEXT_ROW_CAP + 1)
     blocks = [meta_block("csv", 1, [1])]
@@ -97,7 +97,7 @@ def _render_xlsx(path: str, **opts: Any) -> list[dict[str, Any]]:
     except ImportError as error:
         raise RuntimeError(_PANDAS_HINT) from error
 
-    from vendor.mm_plugins.renderers import (
+    from vendor.media_toolkit.renderers import (
         DEFAULT_MAX_PAGES,
         meta_block,
         parse_pages,
@@ -206,7 +206,7 @@ def _dataframe_to_image(df, title: str):
     except ImportError:
         return None
 
-    from vendor.mm_plugins.renderers import configure_matplotlib_cjk
+    from vendor.media_toolkit.renderers import configure_matplotlib_cjk
 
     configure_matplotlib_cjk()
 
@@ -243,6 +243,6 @@ def _dataframe_to_image(df, title: str):
             cell.set_facecolor("#FFFFFF")
         cell.set_edgecolor("#B4C7E7")
 
-    from vendor.mm_plugins.renderers import fig_to_image
+    from vendor.media_toolkit.renderers import fig_to_image
 
     return fig_to_image(fig, pad_inches=0.1)

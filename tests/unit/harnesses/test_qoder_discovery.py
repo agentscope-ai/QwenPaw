@@ -7,6 +7,16 @@ from pathlib import Path
 
 import pytest
 
+# pylint: disable=wrong-import-position
+# flake8: noqa: E402,E501
+pytest.importorskip(
+    "qoder_agent_sdk",
+    reason=(
+        "importing qwenpaw.harnesses.qoder eagerly imports the optional "
+        "qoder_agent_sdk (qoder extra)"
+    ),
+)
+
 from qwenpaw.harnesses.qoder.discovery import (
     default_install_candidates,
     resolve_qoder_binary_info,

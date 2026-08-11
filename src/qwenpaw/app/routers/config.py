@@ -32,22 +32,9 @@ from ...config import (
 from ...config.utils import mutate_config
 from ...config.config import (
     AgentsLLMRoutingConfig,
-    ConsoleConfig,
-    DingTalkConfig,
-    DiscordConfig,
-    FeishuConfig,
     HeartbeatConfig,
-    IMessageChannelConfig,
-    MatrixConfig,
-    MattermostConfig,
-    MQTTConfig,
-    QQConfig,
-    SIPChannelConfig,
     SkillScannerConfig,
     SkillScannerWhitelistEntry,
-    TelegramConfig,
-    VoiceChannelConfig,
-    WecomConfig,
 )
 from ...utils.io_utils import run_sync_io
 from ...config.timezone import normalize_tz
@@ -66,21 +53,20 @@ from .schemas_config import (
 router = APIRouter(prefix="/config", tags=["config"])
 
 
-_CHANNEL_CONFIG_CLASS_MAP = {
-    "telegram": TelegramConfig,
-    "dingtalk": DingTalkConfig,
-    "discord": DiscordConfig,
-    "feishu": FeishuConfig,
-    "qq": QQConfig,
-    "imessage": IMessageChannelConfig,
-    "console": ConsoleConfig,
-    "voice": VoiceChannelConfig,
-    "sip": SIPChannelConfig,
-    "mattermost": MattermostConfig,
-    "mqtt": MQTTConfig,
-    "matrix": MatrixConfig,
-    "wecom": WecomConfig,
-}
+def _channel_config_class(name: str) -> Optional[type[BaseModel]]:
+    """Config model for a built-in channel, None for plugin channels.
+
+    Built-in channel shapes are declared once as ``ChannelConfig``
+    fields, so deriving them here cannot drift when a channel is added
+    later. This is the same source of truth doctor already walks.
+    """
+    field = ChannelConfig.model_fields.get(name)
+    annotation = field.annotation if field is not None else None
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    return None
+
+
 _ALLOWED_ACP_TOOL_PARSE_MODES = {
     "call_title",
     "update_detail",
@@ -418,7 +404,7 @@ async def put_channel(
     if agent.config.channels is None:
         agent.config.channels = ChannelConfig()
 
-    config_class = _CHANNEL_CONFIG_CLASS_MAP.get(channel_name)
+    config_class = _channel_config_class(channel_name)
     if config_class is not None:
         channel_config = config_class(**single_channel_config)
     else:

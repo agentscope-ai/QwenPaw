@@ -292,6 +292,7 @@ function EventCard({
 function WorkGraphSummaryChip() {
   // One-line production summary sourced from the derived work graph; the
   // full lane view lives in the workspace dropdown (WorkGraphPanel).
+  const { t } = useTranslation();
   const graph = useWorkGraphStore((state) => state.graph);
   if (!graph || !graph.counts.total) return null;
   const done = graph.counts.done ?? 0;
@@ -302,11 +303,11 @@ function WorkGraphSummaryChip() {
       data-testid="work-graph-summary"
       className="text-[10px] font-normal text-[var(--color-text-tertiary)]"
     >
-      进度 {done}/{graph.counts.total}
-      {running > 0 && ` · 并行 ${running}`}
+      {t("workGraph.progress", { done, total: graph.counts.total })}
+      {running > 0 && ` · ${t("workGraph.parallel", { count: running })}`}
       {failed > 0 && (
         <span className="text-[var(--color-danger,#ef4444)]">
-          {` · 失败 ${failed}`}
+          {` · ${t("workGraph.failed", { count: failed })}`}
         </span>
       )}
     </span>
@@ -463,7 +464,8 @@ export default function AgentEventFeed() {
                   {run.displayName} ·{" "}
                   {run.targetRefs
                     .map((ref) => creatorTargetLabel(ref, project))
-                    .join("、") || t("agentEventFeed.currentProject")}{" "}
+                    .join(t("agentEventFeed.listSeparator")) ||
+                    t("agentEventFeed.currentProject")}{" "}
                   ·{" "}
                   {isReviewWaitingRun(run)
                     ? t("agentEventFeed.waitingReview")
@@ -484,8 +486,9 @@ export default function AgentEventFeed() {
                 <li key={run.id} className="truncate">
                   {targetRefs
                     .map((ref) => creatorTargetLabel(ref, project))
-                    .join("、")}
-                  ：{run.finalSummaryText || creatorStatusLabel(run.status)}
+                    .join(t("agentEventFeed.listSeparator"))}
+                  {t("agentEventFeed.summarySeparator")}
+                  {run.finalSummaryText || creatorStatusLabel(run.status)}
                 </li>
               ))}
             </ul>

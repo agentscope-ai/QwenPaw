@@ -3,7 +3,7 @@
 # pylint: disable=too-many-branches
 # Vendored from Qwen-MM-Plugins (Apache-2.0), release commit 077aea6.
 # Upstream path:
-#   src/capabilities/core/qwen_mm_plugins_core/renderers/notebook.py
+#   src/capabilities/core/qwen_media_toolkit_core/renderers/notebook.py
 # Modified for QwenPaw Creator. See backend/vendor/NOTICE.md.
 """Render Jupyter notebooks (.ipynb) as interleaved text + image blocks.
 
@@ -27,7 +27,7 @@ def render(path: str, **opts: Any) -> list[dict[str, Any]]:
             "Missing dependency nbformat — install with: pip install nbformat",
         ) from error
 
-    from vendor.mm_plugins.renderers import DEFAULT_MAX_PAGES, meta_block
+    from vendor.media_toolkit.renderers import DEFAULT_MAX_PAGES, meta_block
 
     nb = nbformat.read(path, as_version=4)
 

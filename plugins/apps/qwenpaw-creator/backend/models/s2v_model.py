@@ -7,7 +7,9 @@ Protocol-aligned thin client (手法 A), transcribed from the upstream
 
 - ``detect_face``: POST ``{base}/services/aigc/image2video/face-detect``
   with ``{"model": <detect model>, "input": {"image_url"}}`` — synchronous
-  and free; always run before the billed submission.
+  and billed per successful request regardless of the detection verdict
+  (upstream f9d5741 corrected the earlier "free" description); always run
+  before the far costlier generation submission.
 - ``submit_s2v_task``: async POST
   ``{base}/services/aigc/image2video/video-synthesis/`` with
   ``input={"image_url","audio_url"}`` and
@@ -123,7 +125,7 @@ async def resolve_s2v_media_url(
     media is uploaded to DashScope model-bound temporary storage (48h TTL).
     ``model_name`` must be the model that will *consume* the URL: a
     temporary upload only resolves for the model its policy was issued for
-    (see :mod:`models.media_transport`), so the free detect call uploads
+    (see :mod:`models.media_transport`), so the detect call uploads
     against the detect model and generation against ``wan2.2-s2v``.
     """
 
@@ -166,10 +168,11 @@ async def _post_json(
 ) -> dict:
     """POST one S2V request, retrying only the given statuses.
 
-    ``retry_statuses`` is deliberately caller-supplied: a free, idempotent
-    detect may retry server errors, while a billed submission must not —
-    the provider can create (and bill) the task before answering 5xx, so a
-    retry would buy the same clip twice under one durable submit claim.
+    ``retry_statuses`` is deliberately caller-supplied: detect is billed
+    only on success, so retrying its server errors is safe and idempotent,
+    while a billed submission must not retry — the provider can create
+    (and bill) the task before answering 5xx, so a retry would buy the
+    same clip twice under one durable submit claim.
 
     ``verdict_statuses`` are statuses whose body is a meaningful answer
     rather than a failure (the detect model reports an unusable portrait as

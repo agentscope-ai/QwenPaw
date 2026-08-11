@@ -8,7 +8,11 @@ from services.file_agent_runtime.subagents import (
     DelegateToAgentInput,
     delegate_tool_manifest,
 )
-from services.project_files.models import Project, VisualEntity
+from services.project_files.models import (
+    Project,
+    VisualCastLineup,
+    VisualEntity,
+)
 
 
 pytestmark = pytest.mark.unit
@@ -183,3 +187,63 @@ def test_project_assets_visual_target_does_not_require_one_entity() -> None:
     delegated.validate_project_targets(
         project=Project.new(project_id="project-1", name="Test"),
     )
+
+
+def test_lineup_targets_delegate_to_visual_development() -> None:
+    """lineup:<id> mirrors the image_generation tool surface.
+
+    Observed live (project-bb49): the mainline delegated the cast lineup
+    it had just planned and the contract rejected the ref even though the
+    specialist's own image_generation tool accepts lineup targets.
+    """
+
+    project = Project.new(project_id="project-1", name="Test")
+    project.visual.cast_lineups.items["argentina-trio"] = VisualCastLineup(
+        lineup_id="argentina-trio",
+        name="Argentina trio",
+        character_refs=["char:messi", "char:depaul"],
+    )
+    project.visual.cast_lineups.order.append("argentina-trio")
+
+    delegated = DelegateToAgentInput.model_validate(
+        {
+            "role": "visual_development_agent",
+            "target_refs": ["lineup:argentina-trio"],
+            "task": "生成阵容图",
+        },
+    )
+    delegated.validate_contract(project_id="project-1")
+    delegated.validate_project_targets(project=project)
+
+
+def test_unknown_lineup_target_names_the_valid_lineups() -> None:
+    project = Project.new(project_id="project-1", name="Test")
+    project.visual.cast_lineups.items["argentina-trio"] = VisualCastLineup(
+        lineup_id="argentina-trio",
+        name="Argentina trio",
+        character_refs=["char:messi", "char:depaul"],
+    )
+    project.visual.cast_lineups.order.append("argentina-trio")
+
+    delegated = DelegateToAgentInput.model_validate(
+        {
+            "role": "visual_development_agent",
+            "target_refs": ["lineup:missing"],
+            "task": "生成阵容图",
+        },
+    )
+    delegated.validate_contract(project_id="project-1")
+    with pytest.raises(ValueError, match=r"lineup:argentina-trio"):
+        delegated.validate_project_targets(project=project)
+
+
+def test_lineup_targets_stay_rejected_for_other_roles() -> None:
+    delegated = DelegateToAgentInput.model_validate(
+        {
+            "role": "r2v_generation_director",
+            "target_refs": ["lineup:argentina-trio"],
+            "task": "生成分镜",
+        },
+    )
+    with pytest.raises(ValueError, match=r"does not allow targetRef"):
+        delegated.validate_contract(project_id="project-1")

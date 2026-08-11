@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # Vendored from Qwen-MM-Plugins (Apache-2.0), release commit 077aea6.
-# Upstream path: src/capabilities/core/qwen_mm_plugins_core/renderers/pdf.py
+# Upstream path: src/capabilities/core/qwen_media_toolkit_core/renderers/pdf.py
 # Modified for QwenPaw Creator. See backend/vendor/NOTICE.md.
 """Render PDF pages as image + text content blocks via pypdfium2 (raster + text).
 
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from vendor.mm_plugins.renderers import (
+from vendor.media_toolkit.renderers import (
     DEFAULT_MAX_PAGES,
     meta_block,
     parse_pages,

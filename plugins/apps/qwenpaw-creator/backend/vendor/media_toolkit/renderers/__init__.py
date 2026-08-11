@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
-# Vendored from Qwen-MM-Plugins (Apache-2.0), release commit 077aea6.
+# Vendored from Qwen-MM-Plugins (Apache-2.0), release commit 077aea6;
+# registry extended against github/main commit f9d5741 (geo/drawio/
+# model3d/latex renderers vendored, no blender backend).
 # Upstream path:
-#   src/capabilities/core/qwen_mm_plugins_core/renderers/__init__.py
+#   src/capabilities/core/qwen_media_toolkit_core/renderers/__init__.py
 # Modified for QwenPaw Creator. See backend/vendor/NOTICE.md.
 """Renderer registry: maps file extensions to render functions.
 
@@ -53,6 +55,20 @@ _REGISTRY: dict[str, tuple[str, str]] = {
     ".text": ("code", "render"),
     ".log": ("code", "render"),
     ".md": ("code", "render"),
+    # GIS (geopandas + matplotlib)
+    ".geojson": ("geo", "render"),
+    ".kml": ("geo", "render"),
+    ".shp": ("geo", "render"),
+    # DrawIO diagrams (stdlib XML -> SVG -> resvg)
+    ".drawio": ("drawio", "render"),
+    # 3D models (trimesh + matplotlib; no Blender/pyrender backends)
+    ".obj": ("model3d", "render"),
+    ".stl": ("model3d", "render"),
+    ".glb": ("model3d", "render"),
+    ".gltf": ("model3d", "render"),
+    ".ply": ("model3d", "render"),
+    # LaTeX (toolchain compile -> pdf renderer; source fallback)
+    ".tex": ("latex", "render"),
 }
 
 # The code renderer highlights ~30 languages; register every one not already

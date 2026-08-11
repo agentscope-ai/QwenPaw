@@ -33,6 +33,7 @@ def _empty_daily(date_str: str) -> dict:
         "tool_calls": 0,
         "agent_prompt_tokens": 0,
         "agent_completion_tokens": 0,
+        "agent_llm_calls": 0,
     }
 
 
@@ -127,8 +128,10 @@ class TestProcessSessionFileAgentTokens:
         # Agent daily token fields accumulate from turn metadata
         assert daily_stats["2026-07-23"]["agent_prompt_tokens"] == 300
         assert daily_stats["2026-07-23"]["agent_completion_tokens"] == 100
+        assert daily_stats["2026-07-23"]["agent_llm_calls"] == 2
         assert daily_stats["2026-07-24"]["agent_prompt_tokens"] == 0
         assert daily_stats["2026-07-24"]["agent_completion_tokens"] == 0
+        assert daily_stats["2026-07-24"]["agent_llm_calls"] == 0
 
     def test_ignores_missing_or_empty_usage(self):
         daily_stats = {"2026-07-23": _empty_daily("2026-07-23")}
@@ -281,8 +284,10 @@ class TestProcessSessionFileAgentTokens:
         assert agent_llm_calls == 2
         assert daily_stats["2026-07-23"]["agent_prompt_tokens"] == 100
         assert daily_stats["2026-07-23"]["agent_completion_tokens"] == 10
+        assert daily_stats["2026-07-23"]["agent_llm_calls"] == 1
         assert daily_stats["2026-07-24"]["agent_prompt_tokens"] == 50
         assert daily_stats["2026-07-24"]["agent_completion_tokens"] == 5
+        assert daily_stats["2026-07-24"]["agent_llm_calls"] == 1
         assert daily_stats["2026-07-23"]["prompt_tokens"] == 0
         assert daily_stats["2026-07-24"]["prompt_tokens"] == 0
 
@@ -403,8 +408,10 @@ class TestAgentStatsServiceAgentTokens:
         # Daily agent token fields are independent of global overlay
         assert summary.by_date[0].agent_prompt_tokens == 111
         assert summary.by_date[0].agent_completion_tokens == 22
+        assert summary.by_date[0].agent_llm_calls == 1
         assert summary.by_date[1].agent_prompt_tokens == 0
         assert summary.by_date[1].agent_completion_tokens == 0
+        assert summary.by_date[1].agent_llm_calls == 0
 
     async def test_agent_tokens_isolated_per_workspace(self, tmp_path: Path):
         def _write_workspace(name: str, prompt: int, completion: int) -> Path:
@@ -466,8 +473,5 @@ class TestAgentStatsServiceAgentTokens:
         assert summary_b.agent_completion_tokens == 50
         assert summary_b.agent_llm_calls == 1
         # Global fields stay identical (same mocked manager)
-        assert (
-            summary_a.total_prompt_tokens
-            == summary_b.total_prompt_tokens
-            == 999
-        )
+        assert summary_a.total_prompt_tokens == 999
+        assert summary_b.total_prompt_tokens == 999

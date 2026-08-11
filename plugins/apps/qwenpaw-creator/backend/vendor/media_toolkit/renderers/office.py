@@ -2,7 +2,7 @@
 # flake8: noqa: E501
 # Vendored from Qwen-MM-Plugins (Apache-2.0), release commit 077aea6.
 # Upstream path:
-#   src/capabilities/core/qwen_mm_plugins_core/renderers/office.py
+#   src/capabilities/core/qwen_media_toolkit_core/renderers/office.py
 # Modified for QwenPaw Creator. See backend/vendor/NOTICE.md.
 """Render Office documents (DOC/DOCX, PPT/PPTX, VSDX) via LibreOffice -> PDF -> pypdfium2.
 
@@ -66,7 +66,7 @@ def convert_to_pdf(path: str, soffice: str, dest_pdf: str) -> None:
 
 
 def render(path: str, **opts: Any) -> list[dict[str, Any]]:
-    from vendor.mm_plugins.renderers.pdf import render as pdf_render
+    from vendor.media_toolkit.renderers.pdf import render as pdf_render
 
     opts.setdefault(
         "doc_type",
@@ -76,7 +76,9 @@ def render(path: str, **opts: Any) -> list[dict[str, Any]]:
     soffice = opts.pop("soffice", None)
     if not soffice:
         if os.path.splitext(path)[1].lower() == ".xlsx":
-            from vendor.mm_plugins.renderers.data import render as data_render
+            from vendor.media_toolkit.renderers.data import (
+                render as data_render,
+            )
 
             return data_render(path, **opts)
         raise RuntimeError(LIBREOFFICE_INSTALL_HINT)

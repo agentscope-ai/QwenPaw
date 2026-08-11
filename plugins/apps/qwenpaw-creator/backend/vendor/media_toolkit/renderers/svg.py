@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # Vendored from Qwen-MM-Plugins (Apache-2.0), release commit 077aea6.
-# Upstream path: src/capabilities/core/qwen_mm_plugins_core/renderers/svg.py
+# Upstream path: src/capabilities/core/qwen_media_toolkit_core/renderers/svg.py
 #   with svg_to_image inlined from src/shared/image.py.
 # Modified for QwenPaw Creator. See backend/vendor/NOTICE.md.
 """Render SVG files to an image content block via resvg (resvg-py)."""
@@ -14,7 +14,7 @@ from typing import Any
 
 def render(path: str, **opts: Any) -> list[dict[str, Any]]:
     """Rasterize an SVG file to a single image content block."""
-    from vendor.mm_plugins.renderers import meta_block
+    from vendor.media_toolkit.renderers import meta_block
 
     dpi = opts.get("dpi", 150)
     doc_type = opts.get("doc_type") or "SVG"

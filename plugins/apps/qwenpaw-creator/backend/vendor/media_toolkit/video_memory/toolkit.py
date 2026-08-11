@@ -2,7 +2,7 @@
 """Retrieval toolkit over Hierarchical Graph Memory.
 
 Vendored from Qwen-MM-Plugins commit 077aea6
-(src/capabilities/video-memory/qwen_mm_plugins_video_memory/toolkit.py plus
+(src/capabilities/video-memory/qwen_media_toolkit_video_memory/toolkit.py plus
 the query logic of loader.py). License: Apache-2.0; see
 backend/vendor/NOTICE.md.
 Modifications: the EgoLife multi-day time system and the time-cutoff
