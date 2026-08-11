@@ -1760,6 +1760,39 @@ def test_saved_tool_search_checks_each_multiblock_artifact(tmp_path: Path):
     assert "deepneedle" in rows[0]["content"]
 
 
+def test_saved_tool_search_preserves_uppercase_or(tmp_path: Path):
+    artifact = tmp_path / "saved-tool-output.txt"
+    artifact.write_text("项目状态\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="saved-result",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content=_saved_tool_notice(artifact),
+            tool_call_id="saved-call",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        rows = space.search("项目 OR 截止日期", k=10)
+    finally:
+        space.close()
+
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "tool_result"
+    assert f"file_path={artifact}" in rows[0]["content"]
+    assert "项目状态" in rows[0]["content"]
+
+
 def test_recall_tool_annotates_each_multiblock_artifact(tmp_path: Path):
     first_file = tmp_path / "first-block.txt"
     first_file.write_text("first block\n", encoding="utf-8")
@@ -1908,7 +1941,7 @@ def test_saved_tool_file_search_streams_without_read_text(
 
     monkeypatch.setattr(Path, "read_text", fail_read_text)
 
-    matches = MemorySpace._file_line_matches(artifact, ["needle"])
+    matches = MemorySpace._file_line_matches(artifact, [["needle"]])
 
     assert matches == [
         {
@@ -1916,6 +1949,25 @@ def test_saved_tool_file_search_streams_without_read_text(
             "excerpt": "1: before\n2: needle match\n3: after",
         },
     ]
+
+
+def test_saved_tool_file_search_keeps_and_terms_on_same_line(
+    tmp_path: Path,
+):
+    artifact = tmp_path / "and-terms.txt"
+    artifact.write_text(
+        "foo\nbar\nfoo bar\n",
+        encoding="utf-8",
+    )
+    needle_groups = MemorySpace._query_needle_groups("foo bar")
+
+    matches = MemorySpace._file_line_matches(
+        artifact,
+        needle_groups,
+        context=0,
+    )
+
+    assert matches == [{"line": 3, "excerpt": "3: foo bar"}]
 
 
 def test_attach_saved_tool_preserves_preview_when_scan_budget_exhausts(

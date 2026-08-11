@@ -1574,8 +1574,8 @@ class MemorySpace:
         """Search full saved tool-result files referenced by history rows."""
         if limit <= 0:
             return []
-        needles = self._query_needles(query)
-        if not needles:
+        needle_groups = self._query_needle_groups(query)
+        if not needle_groups:
             return []
         rows: list[dict] = []
         seen: set[tuple[int, str, int]] = set()
@@ -1603,7 +1603,7 @@ class MemorySpace:
                         break
                     matches = self._file_line_matches(
                         path,
-                        needles,
+                        needle_groups,
                         budget=budget,
                     )
                     for match in matches:
@@ -1655,7 +1655,7 @@ class MemorySpace:
         query: str,
     ) -> list[dict]:
         """Annotate recall_tool rows with saved-file metadata when present."""
-        needles = self._query_needles(query)
+        needle_groups = self._query_needle_groups(query)
         out: list[dict] = []
         budget = self._new_saved_tool_scan_budget()
         for row in rows:
@@ -1699,10 +1699,10 @@ class MemorySpace:
                         f"file_path={str(path)!r} start_line={start_line}."
                     ),
                 }
-                if needles and not budget.is_exhausted():
+                if needle_groups and not budget.is_exhausted():
                     matches = self._file_line_matches(
                         path,
-                        needles,
+                        needle_groups,
                         limit=3,
                         budget=budget,
                     )
@@ -1813,25 +1813,38 @@ class MemorySpace:
         return path
 
     @staticmethod
-    def _query_needles(query: str) -> list[str]:
-        """Plain AND-style terms suitable for a saved-file line scan."""
-        return [
-            tok.casefold()
-            for tok in _FTS_TOKEN_RE.findall(query)
-            if tok not in _FTS_OPERATORS
-        ]
+    def _query_needle_groups(query: str) -> list[list[str]]:
+        """Saved-file terms grouped as AND arms joined by uppercase OR."""
+        groups: list[list[str]] = []
+        for raw_group in _or_query_groups(query):
+            needles = [
+                tok.casefold()
+                for tok in _FTS_TOKEN_RE.findall(raw_group)
+                if tok not in _FTS_OPERATORS
+            ]
+            # An empty arm must never become ``all([]) == True`` and match
+            # every artifact line. Keep punctuation-only/malformed searches
+            # restrictive, matching the old empty-needle behavior.
+            if not needles:
+                return []
+            groups.append(needles)
+        return groups
 
     @staticmethod
     def _file_line_matches(  # pylint: disable=too-many-branches
         path: Path,
-        needles: list[str],
+        needle_groups: list[list[str]],
         *,
         limit: int = 5,
         context: int = 1,
         budget: _ScanBudget | None = None,
     ) -> list[dict]:
         """Stream line matches with bounded memory and byte consumption."""
-        if not needles or limit <= 0:
+        if (
+            not needle_groups
+            or any(not group for group in needle_groups)
+            or limit <= 0
+        ):
             return []
         if budget is None:
             budget = _ScanBudget(
@@ -1866,7 +1879,10 @@ class MemorySpace:
                     break
 
                 folded = line.casefold()
-                if all(needle in folded for needle in needles):
+                if any(
+                    all(needle in folded for needle in group)
+                    for group in needle_groups
+                ):
                     item = {
                         "line": line_no,
                         "lines": [*previous, (line_no, line)],

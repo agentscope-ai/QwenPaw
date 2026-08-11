@@ -531,6 +531,49 @@ async def test_search_saved_tool_output_keeps_match_excerpt(tmp_path: Path):
     assert str(artifact) in text
 
 
+async def test_search_saved_tool_output_preserves_uppercase_or(
+    tmp_path: Path,
+):
+    artifact = tmp_path / "saved-tool-output-or.txt"
+    artifact.write_text("项目状态\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="t1",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            name="shell",
+            tool_call_id="call-saved-or",
+            content=(
+                "[tool output truncated]\n"
+                "If more content is needed, call `read_file` with "
+                f"file_path={artifact} start_line=1 to read more."
+            ),
+        ),
+    )
+    history.close()
+    recall = make_recall_history(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    chunk = await recall(
+        op="search",
+        query="项目 OR 截止日期",
+        k=10,
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "0 rows" not in text
+    assert "[matched content excerpt]" in text
+    assert "项目状态" in text
+    assert str(artifact) in text
+
+
 async def test_recall_tool_by_call_id(tool):
     chunk = await tool(op="recall_tool", tool_call_id="call_abc")
     assert chunk.state == ToolResultState.SUCCESS
