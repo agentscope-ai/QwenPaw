@@ -175,11 +175,15 @@ export function buildAppStatusModel(
     .sort()
     .at(-1);
 
+  // The fraction only earns its place when it disagrees with the headline;
+  // when every required service is up the category rows already cover it.
   return {
     label,
     tone,
     detail: core.length
-      ? `${coreReady}/${core.length} required services ready`
+      ? coreReady < core.length
+        ? `${coreReady}/${core.length} required services ready`
+        : ""
       : status?.service.ready
       ? "Discovering dependencies"
       : "Context service unavailable",

@@ -41,7 +41,7 @@ function StatusPanel({
         <i aria-hidden="true" />
         <span>
           <b>{model.label}</b>
-          <small>{model.detail}</small>
+          {model.detail ? <small>{model.detail}</small> : null}
         </span>
       </div>
       <ul>

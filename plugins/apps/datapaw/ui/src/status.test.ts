@@ -56,6 +56,7 @@ describe("DataPaw status model", () => {
     const model = buildAppStatusModel(status, dependencies, "warehouse");
 
     expect(model.label).toBe("Ready");
+    expect(model.detail).toBe("");
     expect(model.categories.find((item) => item.id === "graph")).toEqual(
       expect.objectContaining({
         detail: "Optional unavailable",
@@ -77,6 +78,30 @@ describe("DataPaw status model", () => {
     expect(model.categories.find((item) => item.id === "data")?.detail).toBe(
       "Selected source unavailable",
     );
+  });
+
+  it("surfaces the required-service fraction only when core services are down", () => {
+    const dependencies = snapshot([
+      dependency("context", "unavailable", true),
+      dependency("runtime", "healthy", true),
+    ]);
+
+    const model = buildAppStatusModel(status, dependencies, "");
+
+    expect(model.label).toBe("Unavailable");
+    expect(model.detail).toBe("1/2 required services ready");
+  });
+
+  it("omits the redundant fraction when degraded by non-core services", () => {
+    const dependencies = snapshot([
+      dependency("context", "healthy", true),
+      dependency("source:warehouse", "unavailable"),
+    ]);
+
+    const model = buildAppStatusModel(status, dependencies, "warehouse");
+
+    expect(model.label).toBe("Degraded");
+    expect(model.detail).toBe("");
   });
 
   it("categorizes required, business-data, and optional dependencies", () => {
