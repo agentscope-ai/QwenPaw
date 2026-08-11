@@ -268,15 +268,31 @@ fn drag_points(
 pub(crate) fn type_text(
     observation: &Observation,
     params: &Map<String, Value>,
+    transient_text_ready: bool,
 ) -> Result<Value, (&'static str, String)> {
     let text = params
         .get("text")
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or(("invalid_request", "text is required.".to_string()))?;
-    let target_pid = set_focus(&observation.window)?;
-    match insert_focused_text(observation, text)? {
-        FocusedTextInput::Inserted => {
+    let target_pid = if transient_text_ready {
+        if !super::target_is_frontmost(&observation.window) {
+            return Err((
+                "focus_failed",
+                "The target application lost focus before text input.".to_string(),
+            ));
+        }
+        (observation.window.owner_pid > 0)
+            .then_some(observation.window.owner_pid)
+            .ok_or((
+                "window_not_found",
+                "Could not resolve the window's process.".to_string(),
+            ))?
+    } else {
+        set_focus(&observation.window)?
+    };
+    let transient_editor = match insert_focused_text(observation, text) {
+        Ok(FocusedTextInput::Inserted) => {
             return Ok(json!({
                 "applied": true,
                 "effect": "observed",
@@ -284,23 +300,39 @@ pub(crate) fn type_text(
                 "text_length": text.chars().count(),
             }));
         }
-        FocusedTextInput::Keyboard => {}
-    }
+        Ok(FocusedTextInput::Keyboard) => false,
+        Err(error)
+            if transient_text_ready && matches!(error.0, "focus_failed" | "stale_observation") =>
+        {
+            true
+        }
+        Err(error) => return Err(error),
+    };
 
     let source = event_source()?;
-    // Accessibility does not publish every transient field editor. Send
-    // Unicode key pairs to the process that owns the observed window so a
-    // foreground change cannot redirect text to another application.
+    // Accessibility does not publish every transient field editor. Normal
+    // keyboard-capable controls remain process-targeted; a transient native
+    // field editor receives HID events without raising its window because a
+    // focus change can commit that editor before input reaches it. Recheck the
+    // frontmost application before each character so input cannot spill into
+    // another app.
     for character in text.chars() {
+        if transient_editor && !super::target_is_frontmost(&observation.window) {
+            return Err((
+                "focus_failed",
+                "The target application lost focus during text input.".to_string(),
+            ));
+        }
         let value = character.to_string();
-        post_text_event(&source, target_pid, &value, true)?;
-        post_text_event(&source, target_pid, "", false)?;
+        post_text_event(&source, target_pid, &value, true, transient_editor)?;
+        post_text_event(&source, target_pid, "", false, transient_editor)?;
         std::thread::sleep(std::time::Duration::from_millis(TEXT_INPUT_INTERVAL_MS));
     }
     Ok(json!({
         "applied": true,
         "effect": "unverified",
         "input_method": "unicode",
+        "transient_editor": transient_editor,
         "text_length": text.chars().count(),
     }))
 }
@@ -310,6 +342,7 @@ fn post_text_event(
     target_pid: i32,
     value: &str,
     key_down: bool,
+    post_to_hid: bool,
 ) -> Result<(), (&'static str, String)> {
     let event = CGEvent::new_keyboard_event(source.clone(), 0, key_down).map_err(|_| {
         (
@@ -320,16 +353,26 @@ fn post_text_event(
     if !value.is_empty() {
         event.set_string(value);
     }
-    event.post_to_pid(target_pid);
+    if post_to_hid {
+        event.post(CGEventTapLocation::HID);
+    } else {
+        event.post_to_pid(target_pid);
+    }
     Ok(())
 }
 
 fn post_key_chord(
     source: &CGEventSource,
-    target_pid: i32,
+    window: &WindowInfo,
     keycode: u16,
     flags: CGEventFlags,
 ) -> Result<(), (&'static str, String)> {
+    if !super::target_is_frontmost(window) {
+        return Err((
+            "focus_failed",
+            "The target application lost focus before keyboard input.".to_string(),
+        ));
+    }
     let down = CGEvent::new_keyboard_event(source.clone(), keycode, true).map_err(|_| {
         (
             "input_failed",
@@ -337,7 +380,10 @@ fn post_key_chord(
         )
     })?;
     down.set_flags(flags);
-    down.post_to_pid(target_pid);
+    // Shortcuts must enter the same event path as a physical keyboard. Direct
+    // process delivery can invoke an application command without establishing
+    // the native responder or field editor that command normally creates.
+    down.post(CGEventTapLocation::HID);
     let up = CGEvent::new_keyboard_event(source.clone(), keycode, false).map_err(|_| {
         (
             "input_failed",
@@ -345,7 +391,15 @@ fn post_key_chord(
         )
     })?;
     up.set_flags(flags);
-    up.post_to_pid(target_pid);
+    // Always release the key even if the command changed application state;
+    // omitting key-up would leave the input session in an inconsistent state.
+    up.post(CGEventTapLocation::HID);
+    if !super::target_is_frontmost(window) {
+        return Err((
+            "focus_failed",
+            "The target application lost focus during keyboard input.".to_string(),
+        ));
+    }
     Ok(())
 }
 
@@ -360,9 +414,9 @@ pub(crate) fn press_key(
         .ok_or(("invalid_request", "key is required.".to_string()))?;
     let (keycode, flags) =
         parse_key(key).ok_or(("invalid_request", format!("Unsupported key: {key}")))?;
-    let target_pid = set_focus(&observation.window)?;
+    set_focus(&observation.window)?;
     let source = event_source()?;
-    post_key_chord(&source, target_pid, keycode, flags)?;
+    post_key_chord(&source, &observation.window, keycode, flags)?;
     Ok(json!({"applied": true}))
 }
 
@@ -384,7 +438,7 @@ pub(crate) fn input_sequence(
         let result = match step {
             PreparedStep::Type(text) => post_sequence_text(observation, &source, target_pid, &text),
             PreparedStep::PressKey(keycode, flags) => {
-                post_key_chord(&source, target_pid, keycode, flags)
+                post_key_chord(&source, &observation.window, keycode, flags)
             }
         };
         if let Err(error) = result {
@@ -426,8 +480,8 @@ fn post_sequence_text(
     for character in text.chars() {
         ensure_sequence_idle()?;
         let value = character.to_string();
-        post_text_event(source, target_pid, &value, true)?;
-        post_text_event(source, target_pid, "", false)?;
+        post_text_event(source, target_pid, &value, true, false)?;
+        post_text_event(source, target_pid, "", false, false)?;
         std::thread::sleep(std::time::Duration::from_millis(TEXT_INPUT_INTERVAL_MS));
     }
     Ok(())

@@ -205,9 +205,15 @@ On macOS, only use `set_value` when `[settable]` is present. A
 `[resource-backed]` label must first be selected and put into edit mode through
 an explicit application command, such as an accessible edit or rename command.
 Some native editors are transient and appear only as the current focused AX
-element. Type only when the replacement observation identifies that editable
-focus; the runtime will reject keyboard fallback unless the focused element
-still belongs to the observed window and exposes text-editing capabilities.
+element. Type when the replacement observation identifies that editable focus.
+If the command response instead contains `transient_text_ready: true`, the
+returned observation can accept one text action for an editor that the
+application did not publish through AX and reports `next_action: type`; send
+exactly one `type` action next, without observing, clicking, or changing the
+window first. Its `effect` is unverified, so complete the edit with the
+application's documented command and observe the durable application state
+before continuing. Without editable focus or that explicit capability, stop
+rather than sending text to the surrounding view.
 Use the application's documented completion action when one is required, and
 verify the durable result. Do not guess completion commands or repeat an
 unverified write.
@@ -273,11 +279,13 @@ as `F5` opens a dialog or moves focus to another interface, send it as a
 standalone action and observe the result before typing into that interface.
 
 Use `type` only when `accessibility.focused_element` identifies the intended
-editable control. A missing focus summary, a focused list, or a selected row is
-not an editor. Wait for or select the correct control, or try `set_value` once
-on the matching editable element; an unsupported-operation response means that
-path is unavailable. If a fresh observation does not show the text where
-expected, do not claim that it succeeded.
+editable control or the immediately preceding command returned
+`transient_text_ready: true`. A missing focus summary, a focused list, or a
+selected row is otherwise not an editor. Wait for or select the correct
+control, or try `set_value` once on the matching editable element; an
+unsupported-operation response means that path is unavailable. If a fresh
+observation does not show the text where expected, do not claim that it
+succeeded.
 
 `press_key` takes a single key or a chord of up to four names joined with `+`.
 Recognized names include modifiers (`CTRL`, `ALT`, `SHIFT`, `WIN`), letters and

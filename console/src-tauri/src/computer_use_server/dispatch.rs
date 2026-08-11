@@ -13,6 +13,8 @@ use std::sync::Mutex;
 
 use super::app_identity::{launch_at, resolve_launch_target};
 use super::approval::request_approval;
+#[cfg(target_os = "macos")]
+use super::platform_macos::element_is_transient_menu_item;
 use super::state::{
     accessibility_revision, Observation, PendingAction, ServerState, WindowInfo,
     INPUT_GUARD_GRACE_MS,
@@ -256,6 +258,9 @@ pub(super) fn dispatch_request(
     let previous_revision = observation_id
         .and_then(|id| state.observations.get(id))
         .and_then(|observation| observation.accessibility_revision);
+    #[cfg(target_os = "macos")]
+    let transient_text_candidate = matches!(method, "click" | "invoke_element")
+        && element_is_transient_menu_item(observation(state, observation_id)?, &params)?;
     let mut pending_action: Option<PendingAction> = None;
     let mut completed_pending_action = false;
     let mut result = match method {
@@ -282,7 +287,21 @@ pub(super) fn dispatch_request(
             }
             result
         }
-        "type_text" => type_text(observation(state, observation_id)?, &params),
+        "type_text" => {
+            #[cfg(target_os = "macos")]
+            {
+                let transient_text_ready = take_transient_text_ready(state, observation_id)?;
+                type_text(
+                    observation(state, observation_id)?,
+                    &params,
+                    transient_text_ready,
+                )
+            }
+            #[cfg(windows)]
+            {
+                type_text(observation(state, observation_id)?, &params)
+            }
+        }
         "invoke_element" => {
             let pending = state.pending_action();
             let result = invoke_element(observation(state, observation_id)?, &params, pending);
@@ -334,13 +353,48 @@ pub(super) fn dispatch_request(
     };
     let has_refreshed_observation = refreshed.is_some();
     let changed = accessibility_changed(previous_revision, refreshed.as_ref());
+    #[cfg(target_os = "macos")]
+    let transient_text_ready = transient_text_candidate
+        && changed == Some(true)
+        && mark_transient_text_ready(state, refreshed.as_ref());
     let mut response = action_receipt(result, refreshed, changed);
+    #[cfg(target_os = "macos")]
+    if transient_text_ready {
+        if let Some(object) = response.as_object_mut() {
+            object.insert("transient_text_ready".to_string(), json!(true));
+            object.insert("next_action".to_string(), json!("type"));
+        }
+    }
     if let Some(pending) = state.pending_action().filter(|pending| {
         should_attach_pending_action(has_refreshed_observation, pending.hwnd, window.hwnd)
     }) {
         attach_pending_action(&mut response, pending);
     }
     Ok(response)
+}
+
+#[cfg(target_os = "macos")]
+fn take_transient_text_ready(
+    state: &mut ServerState,
+    observation_id: Option<&str>,
+) -> Result<bool, (&'static str, String)> {
+    let observation = observation_mut(state, observation_id)?;
+    Ok(std::mem::take(&mut observation.transient_text_ready))
+}
+
+#[cfg(target_os = "macos")]
+fn mark_transient_text_ready(state: &mut ServerState, refreshed: Option<&Value>) -> bool {
+    let Some(observation_id) = refreshed
+        .and_then(|value| value.get("observation_id"))
+        .and_then(Value::as_str)
+    else {
+        return false;
+    };
+    let Some(observation) = state.observations.get_mut(observation_id) else {
+        return false;
+    };
+    observation.transient_text_ready = true;
+    true
 }
 
 /// Observe the action's target without turning an already-dispatched action
@@ -517,6 +571,19 @@ fn observation<'a>(
     ))
 }
 
+#[cfg(target_os = "macos")]
+fn observation_mut<'a>(
+    state: &'a mut ServerState,
+    id: Option<&str>,
+) -> Result<&'a mut Observation, (&'static str, String)> {
+    let id = id.ok_or(("invalid_request", "observation_id is required.".to_string()))?;
+    state.observations.get_mut(id).ok_or((
+        "stale_observation",
+        "Observation is stale or already consumed; observe the window again and use its new observation_id."
+            .to_string(),
+    ))
+}
+
 /// Refuse an action that would disturb a machine a person is using.
 ///
 /// Two conditions, checked together because they answer the same question: the
@@ -638,8 +705,26 @@ mod tests {
             display_width: 100,
             display_height: 100,
             accessibility_revision: None,
+            #[cfg(target_os = "macos")]
+            transient_text_ready: false,
             elements: Default::default(),
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn transient_text_capability_is_observation_bound_and_one_shot() {
+        let mut state = ServerState::default();
+        let mut observed = observation(1);
+        observed.transient_text_ready = true;
+        state.observations.insert("observed".to_string(), observed);
+        state
+            .observations
+            .insert("other".to_string(), observation(1));
+
+        assert!(!take_transient_text_ready(&mut state, Some("other")).unwrap());
+        assert!(take_transient_text_ready(&mut state, Some("observed")).unwrap());
+        assert!(!take_transient_text_ready(&mut state, Some("observed")).unwrap());
     }
 
     #[test]

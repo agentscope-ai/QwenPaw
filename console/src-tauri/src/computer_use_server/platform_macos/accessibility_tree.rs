@@ -67,6 +67,39 @@ pub(crate) fn element_requires_frontmost(
     Ok(matches!(element.scope, ElementScope::AppSurface { .. }))
 }
 
+/// Whether an observed element is a command in the currently open transient
+/// menu rather than a control in the content window or the closed menu bar.
+///
+/// A successful command can create a native field editor that is visible but
+/// never appears under the window's AX tree. Dispatch uses this capability,
+/// not an application name or localized command title, to issue a tightly
+/// scoped text-input capability on the refreshed observation.
+pub(crate) fn element_is_transient_menu_item(
+    observation: &Observation,
+    params: &Map<String, Value>,
+) -> Result<bool, (&'static str, String)> {
+    let Some(element_id) = params.get("element_id").and_then(Value::as_str) else {
+        return Ok(false);
+    };
+    let element = observation.elements.get(element_id).ok_or((
+        "element_not_found",
+        "Element is not available in this observation.".to_string(),
+    ))?;
+    let role = element
+        .element
+        .attribute(&AXAttribute::role())
+        .map(|value| value.to_string())
+        .unwrap_or_default();
+    Ok(role == "AXMenuItem"
+        && matches!(
+            &element.scope,
+            ElementScope::AppSurface {
+                kind: AppSurfaceKind::Transient,
+                ..
+            }
+        ))
+}
+
 pub(crate) fn element_point(
     observation: &Observation,
     params: &Map<String, Value>,

@@ -135,6 +135,10 @@ pub(super) struct Observation {
     /// Digest of the normalized accessibility surface the model observed.
     /// Kept native-side so callers cannot copy or forge a revision token.
     pub(super) accessibility_revision: Option<[u8; 32]>,
+    /// Whether this exact macOS surface can accept one text action through an
+    /// application-owned editor that is absent from its accessibility tree.
+    #[cfg(target_os = "macos")]
+    pub(super) transient_text_ready: bool,
     pub(super) elements: HashMap<String, NativeElement>,
 }
 
@@ -368,6 +372,8 @@ mod tests {
             display_width: display.0,
             display_height: display.1,
             accessibility_revision: None,
+            #[cfg(target_os = "macos")]
+            transient_text_ready: false,
             elements: HashMap::new(),
         }
     }

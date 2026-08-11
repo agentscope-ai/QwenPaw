@@ -133,6 +133,7 @@ pub(crate) fn observe_window(
             display_width,
             display_height,
             accessibility_revision,
+            transient_text_ready: false,
             elements,
         },
     );

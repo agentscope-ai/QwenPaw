@@ -35,7 +35,8 @@ mod permissions;
 mod window;
 
 pub(super) use accessibility_tree::{
-    element_requires_frontmost, set_value, validate_observation, AxElement,
+    element_is_transient_menu_item, element_requires_frontmost, set_value, validate_observation,
+    AxElement,
 };
 pub(super) use capture::observe_window;
 pub(super) use input::{
