@@ -6,8 +6,8 @@
 ``SearchProvider`` is the abstraction that lets QwenPaw swap the search
 backend without touching the tool surface.  The active provider is chosen
 via the ``QWENPAW_WEBSEARCH_PROVIDER`` environment variable
-(``anysearch`` by default, ``tavily`` to fall back to the legacy
-keyless backend).
+(``tavily`` by default for backward compatibility, ``anysearch`` as an
+explicit opt-in).
 """
 
 from __future__ import annotations
