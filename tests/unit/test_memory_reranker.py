@@ -63,7 +63,9 @@ def _make_reme_answer(results, link_expansion=None):
         el = r.get("end_line", 0)
         score = ReMeLightMemoryManager._extract_score(r)
         text = r.get("text", "")
-        header = f"========== {path}:{sl}-{el} " f"[score={score:.4f}] =========="
+        header = (
+            f"========== {path}:{sl}-{el} " f"[score={score:.4f}] =========="
+        )
         lines.append(f"{header}\n{text}")
         if link_expansion:
             expansion = link_expansion.get(path, {})

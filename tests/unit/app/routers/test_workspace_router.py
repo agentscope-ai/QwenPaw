@@ -67,9 +67,10 @@ def test_embedding_rollback_detects_a_concurrent_same_field_change() -> None:
     submitted = before.model_copy(deep=True)
     submitted.running = new_running
     current = submitted.model_copy(deep=True)
-    current.running.reme_light_memory_config.embedding_model_config.model_name = (
-        "third-model"
+    embedding_config = (
+        current.running.reme_light_memory_config.embedding_model_config
     )
+    embedding_config.model_name = "third-model"
 
     with pytest.raises(_ConfigRollbackConflict) as exc_info:
         _conditionally_restore_config_changes(current, before, submitted)
@@ -339,7 +340,7 @@ async def test_failed_runtime_update_rolls_back_and_returns_503() -> None:
 
 
 @pytest.mark.asyncio
-async def test_failed_runtime_update_preserves_concurrent_unrelated_change() -> None:
+async def test_failed_runtime_update_preserves_concurrent_change() -> None:
     old_running, new_running = _embedding_update_configs()
     persisted = AgentProfileConfig(
         id="bot",
@@ -385,7 +386,7 @@ async def test_failed_runtime_update_preserves_concurrent_unrelated_change() -> 
 
 
 @pytest.mark.asyncio
-async def test_failed_runtime_update_reports_same_field_rollback_conflict() -> None:
+async def test_failed_runtime_update_reports_rollback_conflict() -> None:
     old_running, new_running = _embedding_update_configs()
     persisted = AgentProfileConfig(
         id="bot",
@@ -401,9 +402,9 @@ async def test_failed_runtime_update_reports_same_field_rollback_conflict() -> N
         persisted = current.model_copy(deep=True)
         update_count += 1
         if update_count == 1:
-            persisted.running.reme_light_memory_config.embedding_model_config.model_name = (
-                "third-model"
-            )
+            memory_config = persisted.running.reme_light_memory_config
+            embedding_config = memory_config.embedding_model_config
+            embedding_config.model_name = "third-model"
         return current
 
     memory_manager = MagicMock()
@@ -429,8 +430,10 @@ async def test_failed_runtime_update_reports_same_field_rollback_conflict() -> N
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["persisted"] is True
-    assert any("model_name" in path for path in exc_info.value.detail["conflicts"])
-    assert (
-        persisted.running.reme_light_memory_config.embedding_model_config.model_name
-        == "third-model"
+    assert any(
+        "model_name" in path for path in exc_info.value.detail["conflicts"]
     )
+    embedding_config = (
+        persisted.running.reme_light_memory_config.embedding_model_config
+    )
+    assert embedding_config.model_name == "third-model"

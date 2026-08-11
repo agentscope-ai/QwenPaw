@@ -112,7 +112,8 @@ async def test_daily_paper_result_is_delivered_to_inbox() -> None:
     )
 
     with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager." "append_inbox_event",
+        "qwenpaw.agents.memory.reme_light_memory_manager."
+        "append_inbox_event",
         new_callable=AsyncMock,
         return_value={"id": "event-1"},
     ) as append_event:
@@ -157,8 +158,11 @@ def test_memory_prompt_omits_disabled_search_tool() -> None:
         ),
     )
 
+    config_loader = (
+        "qwenpaw.agents.memory.reme_light_memory_manager.load_agent_config"
+    )
     with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager." "load_agent_config",
+        config_loader,
         return_value=agent_config,
     ):
         prompt = manager.get_memory_prompt()
@@ -232,7 +236,8 @@ async def test_automatic_search_works_when_agent_tool_is_hidden() -> None:
     manager.get_memory_config = lambda: memory_config
 
     with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager.load_agent_config_async",
+        "qwenpaw.agents.memory.reme_light_memory_manager."
+        "load_agent_config_async",
         AsyncMock(return_value=agent_config),
     ):
         result = await manager.auto_memory_search([object()])

@@ -261,7 +261,9 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
     try:
         for dirpath, dirnames, filenames in os.walk(root, topdown=True):
             # Prune in place — must mutate, not rebind, for os.walk to honor.
-            dirnames[:] = sorted(d for d in dirnames if not _is_skipped_name(d))
+            dirnames[:] = sorted(
+                d for d in dirnames if not _is_skipped_name(d)
+            )
             rel_dir = os.path.relpath(dirpath, root)
             for name in sorted(filenames):
                 if _is_skipped_name(name):
@@ -272,7 +274,9 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
                 except OSError:
                     continue
                 rel = (
-                    name if rel_dir == "." else f"{rel_dir}/{name}".replace(os.sep, "/")
+                    name
+                    if rel_dir == "."
+                    else f"{rel_dir}/{name}".replace(os.sep, "/")
                 )
                 files.append(
                     {
@@ -640,7 +644,9 @@ def _upload_name_key(
 ) -> str:
     """Build a filename comparison key matching the target filesystem."""
     comparable = (
-        filename if normalization_sensitive else unicodedata.normalize("NFC", filename)
+        filename
+        if normalization_sensitive
+        else unicodedata.normalize("NFC", filename)
     )
     return comparable if case_sensitive else comparable.casefold()
 
@@ -1046,7 +1052,9 @@ async def workspace_watch_events(
                 change_name = (
                     "added"
                     if change_type is Change.added
-                    else "deleted" if change_type is Change.deleted else "modified"
+                    else "deleted"
+                    if change_type is Change.deleted
+                    else "modified"
                 )
                 events.append(
                     {"change": change_name, "path": rel.as_posix()},
@@ -1290,7 +1298,9 @@ async def get_transcription_provider_type() -> dict:
     """Get transcription provider type setting."""
     config = load_config()
     return {
-        "transcription_provider_type": (config.agents.transcription_provider_type),
+        "transcription_provider_type": (
+            config.agents.transcription_provider_type
+        ),
     }
 
 
@@ -1308,7 +1318,8 @@ async def put_transcription_provider_type(
     body: dict = Body(
         ...,
         description=(
-            'Provider type, e.g. {"transcription_provider_type": "whisper_api"}'
+            "Provider type, e.g. "
+            '{"transcription_provider_type": "whisper_api"}'
         ),
     ),
 ) -> dict:
@@ -1372,7 +1383,8 @@ async def get_transcription_providers() -> dict:
     "/transcription-provider",
     summary="Set transcription provider",
     description=(
-        'Set the provider to use for audio transcription. Use empty string "" to unset.'
+        "Set the provider to use for audio transcription. "
+        'Use empty string "" to unset.'
     ),
 )
 async def put_transcription_provider(
@@ -1432,7 +1444,9 @@ async def post_transcribe_audio(
         ".ogg",
         ".flac",
     }
-    suffix = os.path.splitext(file.filename or "audio.webm")[1].lower() or ".webm"
+    suffix = (
+        os.path.splitext(file.filename or "audio.webm")[1].lower() or ".webm"
+    )
     if suffix not in allowed_extensions:
         raise HTTPException(
             status_code=400,
@@ -1573,6 +1587,90 @@ def _conditionally_restore_config_changes(
         setattr(current, field_name, getattr(candidate, field_name))
 
 
+async def _apply_embedding_runtime(
+    memory_manager: Any,
+    embedding_config: EmbeddingModelConfig,
+    agent_id: str,
+) -> bool:
+    """Apply an embedding config to a running memory manager."""
+    if hasattr(memory_manager, "apply_tested_embedding"):
+        try:
+            if await memory_manager.apply_tested_embedding(embedding_config):
+                return True
+        except Exception as exc:
+            logger.warning(
+                "Embedding hot update failed for agent '%s': %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+    if hasattr(memory_manager, "reload_embedding_config"):
+        try:
+            return bool(await memory_manager.reload_embedding_config())
+        except Exception as exc:
+            logger.warning(
+                "Embedding runtime reload failed for agent '%s': %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+    return False
+
+
+async def _rollback_embedding_update(
+    agent_id: str,
+    memory_manager: Any,
+    before: BaseModel,
+    submitted: BaseModel,
+) -> None:
+    """Roll back persistence and runtime after an embedding update fails."""
+    rollback_conflict: _ConfigRollbackConflict | None = None
+
+    def rollback_config(current_config: BaseModel) -> None:
+        _conditionally_restore_config_changes(
+            current_config,
+            before,
+            submitted,
+        )
+
+    try:
+        await update_agent_config_async(agent_id, rollback_config)
+    except _ConfigRollbackConflict as exc:
+        rollback_conflict = exc
+
+    runtime_restored = False
+    if hasattr(memory_manager, "reload_embedding_config"):
+        try:
+            runtime_restored = bool(
+                await memory_manager.reload_embedding_config(),
+            )
+        except Exception:
+            logger.exception(
+                "Failed to restore the previous embedding runtime "
+                "for agent '%s'",
+                agent_id,
+            )
+
+    raise HTTPException(
+        status_code=409 if rollback_conflict else 503,
+        detail={
+            "message": (
+                "Embedding configuration was not applied; "
+                + (
+                    "rollback was skipped because the configuration "
+                    "changed concurrently"
+                    if rollback_conflict
+                    else "the persisted changes were rolled back"
+                )
+            ),
+            "persisted": rollback_conflict is not None,
+            "runtime_applied": False,
+            "runtime_restored": runtime_restored,
+            "conflicts": rollback_conflict.paths if rollback_conflict else [],
+        },
+    )
+
+
 @router.put(
     "/running-config",
     response_model=AgentsRunningConfig,
@@ -1634,81 +1732,18 @@ async def put_agents_running_config(
         )
 
         if embedding_changed and memory_manager is not None:
-            embedding_updated = False
-            if hasattr(memory_manager, "apply_tested_embedding"):
-                try:
-                    embedding_updated = await memory_manager.apply_tested_embedding(
-                        new_embedding_config,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Embedding hot update failed for agent '%s': %s",
-                        workspace.agent_id,
-                        exc,
-                        exc_info=True,
-                    )
-            if not embedding_updated and hasattr(
+            embedding_updated = await _apply_embedding_runtime(
                 memory_manager,
-                "reload_embedding_config",
-            ):
-                try:
-                    embedding_updated = await memory_manager.reload_embedding_config()
-                except Exception as exc:
-                    logger.warning(
-                        "Embedding runtime reload failed for agent '%s': %s",
-                        workspace.agent_id,
-                        exc,
-                        exc_info=True,
-                    )
+                new_embedding_config,
+                workspace.agent_id,
+            )
             if not embedding_updated:
                 assert old_agent_config is not None
-                rollback_conflict: _ConfigRollbackConflict | None = None
-
-                def rollback_config(current_config: BaseModel) -> None:
-                    _conditionally_restore_config_changes(
-                        current_config,
-                        old_agent_config,
-                        agent_config,
-                    )
-
-                try:
-                    await update_agent_config_async(
-                        workspace.agent_id,
-                        rollback_config,
-                    )
-                except _ConfigRollbackConflict as exc:
-                    rollback_conflict = exc
-                runtime_restored = False
-                if hasattr(memory_manager, "reload_embedding_config"):
-                    try:
-                        runtime_restored = (
-                            await memory_manager.reload_embedding_config()
-                        )
-                    except Exception:
-                        logger.exception(
-                            "Failed to restore the previous embedding runtime "
-                            "for agent '%s'",
-                            workspace.agent_id,
-                        )
-                raise HTTPException(
-                    status_code=409 if rollback_conflict else 503,
-                    detail={
-                        "message": (
-                            "Embedding configuration was not applied; "
-                            + (
-                                "rollback was skipped because the "
-                                "configuration changed concurrently"
-                                if rollback_conflict
-                                else "the persisted changes were rolled back"
-                            )
-                        ),
-                        "persisted": rollback_conflict is not None,
-                        "runtime_applied": False,
-                        "runtime_restored": runtime_restored,
-                        "conflicts": (
-                            rollback_conflict.paths if rollback_conflict else []
-                        ),
-                    },
+                await _rollback_embedding_update(
+                    workspace.agent_id,
+                    memory_manager,
+                    old_agent_config,
+                    agent_config,
                 )
 
     schedule_agent_reload(request, workspace.agent_id)
@@ -1887,7 +1922,9 @@ async def upload_workspace(
     ):
         raise HTTPException(
             status_code=400,
-            detail=(f"Expected a zip file, got content-type: {file.content_type}"),
+            detail=(
+                f"Expected a zip file, got content-type: {file.content_type}"
+            ),
         )
 
     agent = await get_agent_for_request(request)

@@ -138,7 +138,8 @@ async def test_manual_reindex_clears_persisted_requirement(tmp_path) -> None:
         return profile
 
     with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager.update_agent_config_async",
+        "qwenpaw.agents.memory.reme_light_memory_manager."
+        "update_agent_config_async",
         side_effect=update_config,
     ) as update_config_mock:
         response = await manager.rebuild_index()
@@ -165,7 +166,8 @@ async def test_reindex_does_not_clear_a_new_vector_space_requirement(
         return profile
 
     with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager.update_agent_config_async",
+        "qwenpaw.agents.memory.reme_light_memory_manager."
+        "update_agent_config_async",
         side_effect=update_config,
     ):
         response = await manager.rebuild_index()
@@ -250,7 +252,8 @@ async def test_reindex_and_embedding_update_share_lifecycle_boundary(
     )
 
     with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager.update_agent_config_async",
+        "qwenpaw.agents.memory.reme_light_memory_manager."
+        "update_agent_config_async",
         side_effect=update_config,
     ):
         reindex = asyncio.create_task(manager.rebuild_index())
@@ -345,7 +348,8 @@ async def test_resolver_never_writes_through_a_colliding_legacy_path(
     )
 
     with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager.load_agent_config_async",
+        "qwenpaw.agents.memory.reme_light_memory_manager."
+        "load_agent_config_async",
         AsyncMock(return_value=profile),
     ):
         resolved = await manager._resolve_reme_session_id(session_id)

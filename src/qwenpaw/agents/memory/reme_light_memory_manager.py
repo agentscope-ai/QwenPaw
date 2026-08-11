@@ -155,7 +155,7 @@ def _migrate_owned_legacy_session(
     session_id: str,
 ) -> bool:
     """Atomically migrate a legacy file only when its owner is provable."""
-    paths = sorted((legacy_path, hashed_path), key=lambda path: str(path))
+    paths = sorted((legacy_path, hashed_path), key=str)
     with get_sync_path_lock(paths[0]), get_sync_path_lock(paths[1]):
         if hashed_path.exists():
             return True
@@ -359,7 +359,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     def get_auto_memory_interval(self) -> int:
         """Return ReMe light auto-memory cadence from agent config."""
         agent_config = load_agent_config(self.agent_id)
-        interval = agent_config.running.reme_light_memory_config.auto_memory_interval
+        interval = (
+            agent_config.running.reme_light_memory_config.auto_memory_interval
+        )
         if interval is None:
             return 0
         return int(interval)
@@ -722,7 +724,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         # Over-fetch when reranker is enabled: take N * multiplier
         # candidates, rerank, then return top-N.
         effective_limit = (
-            cap * reranker_config.candidate_multiplier if reranker_config else cap
+            cap * reranker_config.candidate_multiplier
+            if reranker_config
+            else cap
         )
 
         response = await self._run_reme_job(
@@ -763,7 +767,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         results are empty or already short enough (no truncation).
         """
         metadata = getattr(response, "metadata", None)
-        results = metadata.get("results") if response.success and metadata else None
+        results = (
+            metadata.get("results") if response.success and metadata else None
+        )
         if not results:
             return
 
@@ -776,7 +782,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         # link expansions and hybrid score details.
         original_answer = str(response.answer or "")
         answer_sections = (
-            self._parse_answer_into_sections(original_answer) if original_answer else {}
+            self._parse_answer_into_sections(original_answer)
+            if original_answer
+            else {}
         )
 
         # Rerank (only reorders results, answer sections are reordered
@@ -929,7 +937,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 scores,
             )
             header = (
-                f"========== {path}:{start_line}-{end_line} [{score_str}] =========="
+                f"========== {path}:{start_line}-{end_line} "
+                f"[{score_str}] =========="
             )
             answer_lines.append(f"{header}\n{text}")
 
@@ -994,7 +1003,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """
         lines: list[str] = []
         for r in results:
-            key = f"{r.get('path', '')}:{r.get('start_line', 0)}-{r.get('end_line', 0)}"
+            path = r.get("path", "")
+            start_line = r.get("start_line", 0)
+            end_line = r.get("end_line", 0)
+            key = f"{path}:{start_line}-{end_line}"
             section = sections.get(key)
             if section is not None:
                 lines.append(section)
@@ -1094,7 +1106,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
             # Sort by score descending, return indices
             scored = [
-                (r["index"], r.get("relevance_score", 0.0)) for r in data["results"]
+                (r["index"], r.get("relevance_score", 0.0))
+                for r in data["results"]
             ]
             scored.sort(key=lambda x: x[1], reverse=True)
             ordered = [idx for idx, _ in scored]
@@ -1131,7 +1144,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         session_id = str(kwargs.get("session_id") or "")
         if not session_id:
             logger.warning(
-                "ReMe summarize skipped; session_id is empty: agent_id=%s messages=%s",
+                "ReMe summarize skipped; session_id is empty: "
+                "agent_id=%s messages=%s",
                 self.agent_id,
                 len(messages),
             )
@@ -1166,7 +1180,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         agent_config = await load_agent_config_async(self.agent_id)
         session_dir = agent_config.running.reme_light_memory_config.session_dir
         legacy_path = (
-            Path(self.working_dir) / session_dir / "dialog" / f"{legacy_id}.jsonl"
+            Path(self.working_dir)
+            / session_dir
+            / "dialog"
+            / f"{legacy_id}.jsonl"
         )
         hashed_path = legacy_path.with_name(f"{hashed_id}.jsonl")
         if await path_exists_async(legacy_path):
@@ -1204,7 +1221,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         # Over-fetch when reranker is enabled: take N * multiplier
         # candidates, rerank, then return top-N.
         effective_limit = (
-            cap * reranker_config.candidate_multiplier if reranker_config else cap
+            cap * reranker_config.candidate_multiplier
+            if reranker_config
+            else cap
         )
         response = await self._run_reme_job(
             "search",
@@ -1326,7 +1345,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 def clear_requirement(
                     agent_config: AgentProfileConfig,
                 ) -> None:
-                    memory_config = agent_config.running.reme_light_memory_config
+                    memory_config = (
+                        agent_config.running.reme_light_memory_config
+                    )
                     persisted_fingerprint = embedding_vector_space_fingerprint(
                         memory_config.embedding_model_config,
                     )

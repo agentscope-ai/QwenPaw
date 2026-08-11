@@ -184,7 +184,9 @@ def test_list_agents_preserves_unknown_backend(client, fake_config):
         response = client.get("/api/agents")
 
     assert response.status_code == 200
-    bot = next(item for item in response.json()["agents"] if item["id"] == "bot")
+    bot = next(
+        item for item in response.json()["agents"] if item["id"] == "bot"
+    )
     assert bot["name"] == "Configured Bot"
     assert bot["backend"] == "missing"
     assert bot["backend_capabilities"] == {}
@@ -992,7 +994,10 @@ def test_copy_agent_defaults_reset_channels_and_schedules_startup(
     assert saved["config"].heartbeat.enabled is True
     assert saved["config"].heartbeat.every == "10m"
     assert saved["config"].tools.builtin_tools["read_file"].enabled is False
-    assert saved["config"].tools.builtin_tools["read_file"].description == "copied-tool"
+    assert (
+        saved["config"].tools.builtin_tools["read_file"].description
+        == "copied-tool"
+    )
     assert saved["config"].active_model is not None
     assert saved["config"].active_model.provider_id == "openai"
     assert saved["config"].active_model.model == "gpt-test"

@@ -326,7 +326,9 @@ def _read_profile_description(workspace_dir: str) -> str:
 async def list_agents(request: Request = None) -> AgentListResponse:
     """List all configured agents."""
     config = load_config()
-    manager = _get_multi_agent_manager(request) if request is not None else None
+    manager = (
+        _get_multi_agent_manager(request) if request is not None else None
+    )
     ordered_agent_ids = _display_agent_order(config)
 
     agents = []
@@ -342,7 +344,9 @@ async def list_agents(request: Request = None) -> AgentListResponse:
             manager.get_agent_startup_status(agent_id, enabled=enabled)
             if manager is not None
             else (
-                AgentStartupStatus.PENDING if enabled else AgentStartupStatus.DISABLED
+                AgentStartupStatus.PENDING
+                if enabled
+                else AgentStartupStatus.DISABLED
             )
         )
         try:
@@ -601,7 +605,9 @@ async def create_agent(
         request.language or config.agents.language or "en",
     )
 
-    active_model = request.active_model if request.backend == "qwenpaw" else None
+    active_model = (
+        request.active_model if request.backend == "qwenpaw" else None
+    )
     if request.backend == "qwenpaw" and (
         not active_model or not active_model.provider_id
     ):
@@ -631,7 +637,9 @@ async def create_agent(
 
     _initialize_agent_workspace(
         workspace_dir,
-        skill_names=(request.skill_names if request.skill_names is not None else []),
+        skill_names=(
+            request.skill_names if request.skill_names is not None else []
+        ),
         language=language,
     )
 
@@ -781,7 +789,8 @@ async def copy_agent(
     save_agent_config(new_id, agent_config)
 
     logger.info(
-        "Copied agent %s -> %s (name=%s, agent_json=%s, md=%s, skills=%s, jobs=%s)",
+        "Copied agent %s -> %s "
+        "(name=%s, agent_json=%s, md=%s, skills=%s, jobs=%s)",
         agentId,
         new_id,
         new_name,
@@ -914,7 +923,10 @@ async def get_agent_memory_runtime_status(
     """Return immediately even while an exclusive lifecycle job is active."""
     config = await run_sync_io(load_config)
     if agentId not in config.agents.profiles:
-        raise HTTPException(status_code=404, detail=f"Agent '{agentId}' not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
 
     agent_config = await run_sync_io(load_agent_config, agentId)
     if agent_config.running.memory_manager_backend != "remelight":
@@ -990,14 +1002,13 @@ async def get_agent_memory_status(
             status_code=500,
             detail="ReMe returned an invalid memory status payload",
         )
+    memory_config = agent_config.running.reme_light_memory_config
     try:
         return ReMeMemoryStatusResponse.model_validate(
             {
                 **memory,
                 "runtime": memory_manager.get_runtime_status(
-                    auto_memory_interval=(
-                        agent_config.running.reme_light_memory_config.auto_memory_interval
-                    ),
+                    auto_memory_interval=memory_config.auto_memory_interval,
                 ),
             },
         )
@@ -1146,7 +1157,10 @@ async def toggle_agent_enabled(
     if not enabled and manager.is_agent_startup_in_progress(agentId):
         raise HTTPException(
             status_code=409,
-            detail=(f"Agent '{agentId}' is still starting and cannot be disabled yet"),
+            detail=(
+                f"Agent '{agentId}' is still starting and cannot be "
+                "disabled yet"
+            ),
         )
 
     if not enabled and getattr(agent_ref, "enabled", True):
