@@ -16,6 +16,7 @@ from .module_isolation import (
     build_plugin_builtins,
     get_namespace_finder,
     strip_plugin_sys_path,
+    sweep_bare_tree_modules,
     unregister_namespace,
 )
 
@@ -107,5 +108,7 @@ def validate_plugin_module(
                 sys.modules.pop(key, None)
         unregister_namespace(module_name)
         # Drop any sys.path entries the plugin inserted at import
-        # time, so validation leaves no residue in the CLI process.
+        # time, and any bare sys.modules entries rooted in its tree,
+        # so validation leaves no residue in the CLI process.
         strip_plugin_sys_path(plugin_path)
+        sweep_bare_tree_modules(plugin_path)

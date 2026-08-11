@@ -833,3 +833,64 @@ class TestFallthroughIsolation:
         with pytest.raises(ModuleNotFoundError):
             await _load(loader, dir_b)
         assert "only_a_owns_this" not in sys.modules
+
+    @pytest.mark.asyncio
+    async def test_bare_namespace_residue_swept_at_load_end(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """A bare namespace package cached from a plugin's own data dir
+        during load must not outlive the load: sys.modules is the other
+        residue channel besides sys.path."""
+        dir_a = tmp_path / "nsres-a"
+        (dir_a / "resq_pkg").mkdir(parents=True)
+        (dir_a / "resq_pkg" / "x.bin").write_bytes(b"\x00")
+        _write_manifest(dir_a)
+        (dir_a / "plugin.py").write_text(
+            "import sys, os\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "import resq_pkg\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        dir_b = tmp_path / "nsres-b"
+        dir_b.mkdir()
+        _write_manifest(dir_b)
+        (dir_b / "plugin.py").write_text(
+            "import resq_pkg\n" + _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        await _load(loader, dir_a)
+        assert "resq_pkg" not in sys.modules
+        with pytest.raises(ModuleNotFoundError):
+            await _load(loader, dir_b)
+
+    @pytest.mark.asyncio
+    async def test_failed_load_sweeps_namespace_residue(
+        self,
+        loader,
+        tmp_path,
+    ):
+        """Bare namespace-package residue from a FAILED load is swept
+        too (by the load-end sweep, which runs on every exit path) —
+        such packages have no __file__, so a file-based sweep alone
+        would miss them."""
+        plugin_dir = tmp_path / "nsfail"
+        (plugin_dir / "nsp_dir").mkdir(parents=True)
+        (plugin_dir / "nsp_dir" / "d.bin").write_bytes(b"\x00")
+        _write_manifest(plugin_dir)
+        (plugin_dir / "plugin.py").write_text(
+            "import sys, os, importlib\n"
+            "sys.path.insert(0, os.path.dirname(__file__))\n"
+            "nsp_dir = importlib.import_module('nsp_dir')\n"
+            "assert 'nsp_dir' in sys.modules\n"
+            "raise RuntimeError('post-import boom')\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(RuntimeError, match="post-import boom"):
+            await _load(loader, plugin_dir)
+
+        assert "nsp_dir" not in sys.modules

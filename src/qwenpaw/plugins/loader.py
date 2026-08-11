@@ -27,6 +27,7 @@ from .module_isolation import (
     build_plugin_builtins,
     get_namespace_finder,
     strip_plugin_sys_path,
+    sweep_bare_tree_modules,
     unregister_namespace,
 )
 from .registry import PluginRegistry
@@ -614,6 +615,11 @@ class PluginLoader:
             # Shared dependency locations (plugin site dir) are
             # untouched — only paths under the plugin's own tree go.
             strip_plugin_sys_path(source_path)
+            # sys.modules is the other residue channel: a bypass import
+            # or a data-directory fallthrough during load can cache a
+            # bare name rooted in this plugin's tree, which would keep
+            # serving later plugins even with sys.path clean.
+            sweep_bare_tree_modules(source_path)
 
         return plugin_def
 
@@ -652,27 +658,17 @@ class PluginLoader:
         for k in stale:
             sys.modules.pop(k, None)
 
-        # 3. sys.modules — by __file__ path (catches bare imports that
-        #    bypassed the plugin_<id> namespace, e.g. ``import utils``
-        #    after the plugin inserted its dir into sys.path).
-        source_resolved = _norm_realpath(source_path)
-        if not source_resolved.endswith(os.sep):
-            source_resolved = source_resolved + os.sep
-        stale_by_file = [
-            k
-            for k, mod in list(sys.modules.items())
-            if (mod_file := getattr(mod, "__file__", None)) is not None
-            and _norm_realpath(mod_file).startswith(source_resolved)
-        ]
-        for k in stale_by_file:
-            sys.modules.pop(k, None)
-
-        # 4. Import redirection — after the sys.modules sweeps, so a
+        # 3. Import redirection — after the sys.modules sweep, so a
         #    concurrent lazy import cannot resolve a plugin submodule
         #    without the plugin builtins in the window between the two.
+        #    Bare (non-namespaced) residue is swept by the caller's
+        #    finally, AFTER strip_plugin_sys_path — sweeping while the
+        #    plugin's sys.path entries are still present could merge
+        #    plugin-tree portions into a shared namespace package's
+        #    __path__ recalculation and evict a host package.
         unregister_namespace(module_name)
 
-        # 5. sys.path — remove the plugin directory and its subdirs
+        # 4. sys.path — remove the plugin directory and its subdirs
         strip_plugin_sys_path(source_path)
 
     async def load_plugin(
@@ -1312,35 +1308,25 @@ class PluginLoader:
         for k in stale:
             sys.modules.pop(k, None)
 
-        # Plugins that manipulate ``sys.path`` (e.g. inserting their own
-        # directory) and use bare ``from sibling import …`` load sibling
-        # modules as top-level entries in ``sys.modules`` — the prefix
-        # cleanup above misses them.  Sweep any module whose ``__file__``
-        # lives inside the plugin directory so a reinstall always gets
-        # fresh code.  Use normcase so Windows drive/dir letter case
-        # differences do not leave stale modules behind.
-        source_resolved = _norm_realpath(record.source_path)
-        if not source_resolved.endswith(os.sep):
-            source_resolved = source_resolved + os.sep
-        stale_by_file = [
-            k
-            for k, mod in list(sys.modules.items())
-            if (mod_file := getattr(mod, "__file__", None)) is not None
-            and _norm_realpath(mod_file).startswith(source_resolved)
-        ]
-        for k in stale_by_file:
-            sys.modules.pop(k, None)
+        # Remove the plugin directory and its subdirectories from
+        # sys.path BEFORE the location-based sweep below: a namespace
+        # package's __path__ recalculation reads the live sys.path, and
+        # sweeping while the plugin's entries are still present could
+        # merge plugin-tree portions into a shared host package's
+        # portions and evict it.
+        strip_plugin_sys_path(record.source_path)
+
+        # Bypass imports (e.g. importlib.import_module after the plugin
+        # inserted its dir into sys.path) land as top-level entries in
+        # ``sys.modules`` — the prefix cleanup above misses them.
+        # Sweep by module location (including __file__-less namespace
+        # packages) so a reinstall always gets fresh code.
+        sweep_bare_tree_modules(record.source_path)
 
         # Drop the import redirection after the sys.modules sweeps, so
         # a concurrent lazy import cannot resolve a plugin submodule
         # without the plugin builtins in the window between the two.
         unregister_namespace(module_name)
-
-        # Remove the plugin directory and its subdirectories from
-        # sys.path (plugins add these at import time for sibling
-        # imports; leaving them leaks into later imports and prevents
-        # clean hot-reload).
-        strip_plugin_sys_path(record.source_path)
 
         # Remove tools from agents.tools + runtime registries while
         # ownership records still exist, then drop plugin registry state.

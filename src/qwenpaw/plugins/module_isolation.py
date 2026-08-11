@@ -46,6 +46,11 @@ Known limitations (documented, not silently broken):
   runtime after a name was first probed resolves globally.  Extension
   modules only count as plugin code when importable by the current
   interpreter (a vendored wrong-ABI ``.so`` reads as data).
+- Plugin modules that landed under bare names via a bypass import are
+  removed from ``sys.modules`` when the load finishes.  Held object
+  references keep working, but name-keyed lookups against them
+  (re-import, ``sys.modules[obj.__module__]`` introspection such as
+  string-annotation resolution or pickling) fail afterwards.
 """
 
 import builtins
@@ -181,6 +186,51 @@ def strip_plugin_sys_path(source_path: Any) -> None:
         return resolved != root and not resolved.startswith(prefix)
 
     sys.path[:] = [p for p in sys.path if _keep(p)]
+
+
+def sweep_bare_tree_modules(source_path: Any) -> None:
+    """Pop non-namespaced ``sys.modules`` entries rooted in *source_path*.
+
+    Redirected plugin imports live under ``plugin_<id>`` and are exempt
+    (their root is registered on the finder).  Anything else whose
+    ``__file__`` — or, for namespace packages, any ``__path__`` portion
+    — falls inside the plugin tree is residue from a bypass import or a
+    data-directory fallthrough; left in place, the ``sys.modules``
+    cache would keep serving it to later imports even after the
+    plugin's ``sys.path`` entries are swept.
+    """
+    root = _norm(source_path)
+    prefix = root + os.sep
+
+    def _under(path: Any) -> bool:
+        resolved = _norm(path)
+        return resolved == root or resolved.startswith(prefix)
+
+    for name, mod in list(sys.modules.items()):
+        top = name.partition(".")[0]
+        if _finder is not None and _finder.is_registered(top):
+            continue
+        try:
+            mod_file = getattr(mod, "__file__", None)
+            if mod_file is not None:
+                if _under(mod_file):
+                    sys.modules.pop(name, None)
+                continue
+            # Namespace packages have no __file__; match by __path__.
+            # Accessing __path__ recomputes _NamespacePath, which can
+            # raise KeyError if a parent was popped earlier in this
+            # loop — such an orphan is residue by definition.
+            try:
+                portions = list(getattr(mod, "__path__", None) or [])
+            except KeyError:
+                sys.modules.pop(name, None)
+                continue
+            if portions and any(_under(p) for p in portions):
+                sys.modules.pop(name, None)
+        except Exception:  # pylint: disable=broad-except
+            # Best-effort cleanup: lazy-module proxies or broken path
+            # hooks must not turn a sweep into a load failure.
+            continue
 
 
 # Source and extension modules only: stale bytecode (__pycache__/*.pyc
