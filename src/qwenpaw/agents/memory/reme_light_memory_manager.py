@@ -7,14 +7,10 @@ ReMe's application/job framework.
 """
 
 import asyncio
-import base64
 import hashlib
-import json
 import logging
 import os
-import re
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 import httpx
@@ -44,8 +40,6 @@ from ...config.config import (
     RerankerConfig,
 )
 from ...utils.io_utils import (
-    get_sync_path_lock,
-    path_exists_async,
     run_sync_io,
     unlink_async,
 )
@@ -67,21 +61,8 @@ INBOX_NOTIFICATION_FIELDS = {
 }
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 INBOX_EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
-LOGICAL_SESSION_ID_METADATA_KEY = "qwenpaw_session_id"
 MAX_INBOX_BODY_CHARS = 4000
-_REME_SESSION_ID_PREFIX = "qpsid_"
-_REME_SESSION_ID_B64_PREFIX = f"{_REME_SESSION_ID_PREFIX}b64_"
-_REME_SESSION_ID_HASH_PREFIX = f"{_REME_SESSION_ID_PREFIX}sha256_"
-_LEGACY_MAX_REME_SESSION_ID_CHARS = 240
-_WINDOWS_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-_WINDOWS_RESERVED_FILENAMES = {
-    "CON",
-    "PRN",
-    "AUX",
-    "NUL",
-    *(f"COM{i}" for i in range(1, 10)),
-    *(f"LPT{i}" for i in range(1, 10)),
-}
+_REME_SESSION_ID_HASH_PREFIX = "qpsid_sha256_"
 
 
 def _to_reme_session_id(session_id: str) -> str:
@@ -91,82 +72,14 @@ def _to_reme_session_id(session_id: str) -> str:
     avoids case-folding and Unicode-normalization collisions on Windows and
     default macOS filesystems, while leaving a stable budget for directories
     and ReMe's filename suffixes.
+
+    Legacy dialog files are intentionally not migrated: upgraded sessions
+    start a new hashed dialog, leaving old JSONL files untouched and orphaned.
+    Previously extracted long-term memories may remain available through the
+    existing memory store or index.
     """
     digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
     return f"{_REME_SESSION_ID_HASH_PREFIX}{digest}"
-
-
-def _legacy_reme_session_id(session_id: str) -> str:
-    """Reproduce the pre-hash mapping solely for existing-file lookup."""
-    filename_stem = session_id.split(".", 1)[0].upper()
-    is_safe = (
-        bool(session_id)
-        and session_id == session_id.strip()
-        and session_id not in {".", ".."}
-        and not session_id.endswith(".")
-        and not _WINDOWS_INVALID_FILENAME_CHARS.search(session_id)
-        and filename_stem not in _WINDOWS_RESERVED_FILENAMES
-        and not session_id.startswith(_REME_SESSION_ID_PREFIX)
-        and len(session_id) <= _LEGACY_MAX_REME_SESSION_ID_CHARS
-    )
-    if is_safe:
-        return session_id
-    encoded = (
-        base64.urlsafe_b64encode(session_id.encode("utf-8"))
-        .decode(
-            "ascii",
-        )
-        .rstrip("=")
-    )
-    encoded_id = f"{_REME_SESSION_ID_B64_PREFIX}{encoded}"
-    if len(encoded_id) <= _LEGACY_MAX_REME_SESSION_ID_CHARS:
-        return encoded_id
-    return _to_reme_session_id(session_id)
-
-
-def _legacy_session_file_owned_by(path: Path, session_id: str) -> bool:
-    """Return whether persisted metadata proves a legacy file's ownership."""
-    owners: set[str] = set()
-
-    def collect(value: Any) -> None:
-        if isinstance(value, dict):
-            owner = value.get(LOGICAL_SESSION_ID_METADATA_KEY)
-            if isinstance(owner, str):
-                owners.add(owner)
-            for nested in value.values():
-                collect(nested)
-        elif isinstance(value, list):
-            for nested in value:
-                collect(nested)
-
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if line.strip():
-                    collect(json.loads(line))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return False
-    return owners == {session_id}
-
-
-def _migrate_owned_legacy_session(
-    legacy_path: Path,
-    hashed_path: Path,
-    session_id: str,
-) -> bool:
-    """Atomically migrate a legacy file only when its owner is provable."""
-    paths = sorted((legacy_path, hashed_path), key=str)
-    with get_sync_path_lock(paths[0]), get_sync_path_lock(paths[1]):
-        if hashed_path.exists():
-            return True
-        if not legacy_path.exists() or not _legacy_session_file_owned_by(
-            legacy_path,
-            session_id,
-        ):
-            return False
-        hashed_path.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(legacy_path, hashed_path)
-        return True
 
 
 def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
@@ -1151,49 +1064,16 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             )
             return ""
 
-        reme_session_id = await self._resolve_reme_session_id(session_id)
-        serialized_messages = []
-        for message in messages:
-            serialized = message.model_dump(mode="json")
-            metadata = dict(serialized.get("metadata") or {})
-            metadata[LOGICAL_SESSION_ID_METADATA_KEY] = session_id
-            serialized["metadata"] = metadata
-            serialized_messages.append(serialized)
-
         response = await self._run_reme_job(
             "auto_memory",
             needs_llm=True,
-            messages=serialized_messages,
-            session_id=reme_session_id,
+            messages=[message.model_dump(mode="json") for message in messages],
+            session_id=_to_reme_session_id(session_id),
             memory_hint=str(kwargs.get("memory_hint") or ""),
         )
         if response is None:
             return ""
         return str(response.answer or "")
-
-    async def _resolve_reme_session_id(self, session_id: str) -> str:
-        """Use hash IDs, migrating only legacy files with proven ownership."""
-        hashed_id = _to_reme_session_id(session_id)
-        legacy_id = _legacy_reme_session_id(session_id)
-        if legacy_id == hashed_id:
-            return hashed_id
-        agent_config = await load_agent_config_async(self.agent_id)
-        session_dir = agent_config.running.reme_light_memory_config.session_dir
-        legacy_path = (
-            Path(self.working_dir)
-            / session_dir
-            / "dialog"
-            / f"{legacy_id}.jsonl"
-        )
-        hashed_path = legacy_path.with_name(f"{hashed_id}.jsonl")
-        if await path_exists_async(legacy_path):
-            await run_sync_io(
-                _migrate_owned_legacy_session,
-                legacy_path,
-                hashed_path,
-                session_id,
-            )
-        return hashed_id
 
     async def auto_memory_search(
         self,
