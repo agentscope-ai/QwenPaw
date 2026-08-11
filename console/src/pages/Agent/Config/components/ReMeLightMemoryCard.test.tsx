@@ -81,10 +81,34 @@ function RuntimeProvider({ children }: { children: ReactNode }) {
   );
 }
 
-function MemoryForm() {
-  const [form] = Form.useForm();
+function StaticMemoryProvider({ children }: { children: ReactNode }) {
   return (
-    <RuntimeProvider>
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: false,
+        setReindexing: vi.fn(),
+        openMemorySettings: vi.fn(),
+        runtimeStatus: unknownRuntime,
+        checkMemoryStatus: noopStatusCheck,
+        configRevision: 0,
+      }}
+    >
+      {children}
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+function MemoryForm({
+  withRuntimeStatus = false,
+}: {
+  withRuntimeStatus?: boolean;
+}) {
+  const [form] = Form.useForm();
+  const Provider = withRuntimeStatus ? RuntimeProvider : StaticMemoryProvider;
+  return (
+    <Provider>
       <Form
         form={form}
         initialValues={{
@@ -98,7 +122,7 @@ function MemoryForm() {
       >
         <ReMeLightMemoryCard />
       </Form>
-    </RuntimeProvider>
+    </Provider>
   );
 }
 
@@ -230,7 +254,7 @@ describe("ReMe runtime status", () => {
       .mockResolvedValue(memoryStatus);
     useAgentStore.setState({ selectedAgent: "bot" });
 
-    renderWithProviders(<MemoryForm />);
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
 
     expect(
       screen.getByText("agentConfig.memoryStatusChecking"),
@@ -249,7 +273,7 @@ describe("ReMe runtime status", () => {
       new Error("Agent is not running"),
     );
 
-    renderWithProviders(<MemoryForm />);
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
 
     expect(
       await screen.findByText("agentConfig.memoryStatusCheckFailed"),
@@ -266,7 +290,7 @@ describe("ReMe runtime status", () => {
       .mockImplementation((agentId) =>
         agentId === "default" ? pendingStatus : Promise.resolve(memoryStatus),
       );
-    renderWithProviders(<MemoryForm />);
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
     await waitFor(() => expect(getMemoryStatus).toHaveBeenCalledTimes(1));
     const firstSignal = getMemoryStatus.mock.calls[0][1];
 
@@ -332,7 +356,7 @@ describe("ReMe runtime status", () => {
       },
     });
 
-    renderWithProviders(<MemoryForm />);
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
 
     expect(
       await screen.findByText("agentConfig.memoryStatusBusy"),
@@ -345,73 +369,13 @@ describe("ReMe runtime status", () => {
 });
 
 describe("long-term memory defaults", () => {
-  it("enables notifications and the search tool but leaves auto recall off", async () => {
-    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
-
+  it("renders defaults, sections, and collapsed Daily Paper settings", () => {
     renderWithProviders(<MemoryForm />);
 
     const switchInRow = (element: HTMLElement) =>
       element.parentElement?.parentElement?.querySelector(
         '[role="switch"]',
       ) as HTMLElement;
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /agentConfig\.memoryDailyPaperTitle/,
-      }),
-    );
-    const notificationSwitches = screen
-      .getAllByText("agentConfig.memoryNotifyTitle")
-      .map(switchInRow);
-
-    expect(notificationSwitches).toHaveLength(3);
-    notificationSwitches.forEach((control) =>
-      expect(control).toHaveAttribute("aria-checked", "true"),
-    );
-    expect(
-      switchInRow(screen.getByText("agentConfig.memorySearchToolTitle")),
-    ).toHaveAttribute("aria-checked", "true");
-    expect(
-      switchInRow(screen.getByText("agentConfig.memoryAutoRecallTitle")),
-    ).toHaveAttribute("aria-checked", "false");
-  });
-
-  it("links Daily Paper to the guide matching the interface language", async () => {
-    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
-
-    renderWithProviders(<MemoryForm />);
-
-    expect(
-      screen.getByRole("link", {
-        name: "agentConfig.dailyPaperDocumentation",
-      }),
-    ).toHaveAttribute(
-      "href",
-      "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README_ZH.md",
-    );
-  });
-
-  it("shows Daily Paper topic and Hugging Face mirror settings", async () => {
-    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
-
-    renderWithProviders(<MemoryForm />);
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /agentConfig\.memoryDailyPaperTitle/,
-      }),
-    );
-    expect(
-      screen.getByText("agentConfig.dailyPaperTopics"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("agentConfig.dailyPaperUseHfMirror"),
-    ).toBeInTheDocument();
-  });
-
-  it("separates organization and search and collapses Daily Paper settings", async () => {
-    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
-
-    renderWithProviders(<MemoryForm />);
 
     expect(
       screen.getByText("agentConfig.memoryOrganizeSectionTitle"),
@@ -427,6 +391,14 @@ describe("long-term memory defaults", () => {
     expect(
       screen.queryByText("agentConfig.dailyPaperTopics"),
     ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", {
+        name: "agentConfig.dailyPaperDocumentation",
+      }),
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README_ZH.md",
+    );
 
     fireEvent.click(sourceToggle);
 
@@ -435,17 +407,27 @@ describe("long-term memory defaults", () => {
       screen.getByText("agentConfig.dailyPaperTopics"),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("link", {
-        name: "agentConfig.dailyPaperDocumentation",
-      }),
+      screen.getByText("agentConfig.dailyPaperUseHfMirror"),
     ).toBeInTheDocument();
+    const notificationSwitches = screen
+      .getAllByText("agentConfig.memoryNotifyTitle")
+      .map(switchInRow);
+
+    expect(notificationSwitches).toHaveLength(3);
+    notificationSwitches.forEach((control) =>
+      expect(control).toHaveAttribute("aria-checked", "true"),
+    );
+    expect(
+      switchInRow(screen.getByText("agentConfig.memorySearchToolTitle")),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(
+      switchInRow(screen.getByText("agentConfig.memoryAutoRecallTitle")),
+    ).toHaveAttribute("aria-checked", "false");
   });
 });
 
 describe("embedding card separation", () => {
   it("keeps embedding settings out of the long-term memory card", async () => {
-    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
-
     renderWithProviders(<MemoryForm />);
 
     expect(
