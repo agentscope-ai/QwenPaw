@@ -89,12 +89,17 @@ def _resolve_search_path(
     path: str,
     root: Path,
 ) -> "Path | ToolChunk":
-    """Resolve and validate the ``path`` argument.
+    """Resolve the ``path`` argument.
 
     Empty string  → return ``root`` (search whole project).
     Anything else → resolved by the shared tool-layer policy: relative
-    paths join onto the primary dir, and the result must land inside
-    one of the granted project roots (anti-escape).
+    paths join onto the primary project dir, absolute paths are used as
+    given.
+
+    Containment is deliberately NOT enforced here: with several granted
+    roots, a path outside the primary is legitimate, and access is gated
+    by the governance rules and the guard chain. The ``ValueError`` guard
+    only covers input ``Path`` itself rejects (e.g. an embedded NUL).
     """
     if not path:
         return root

@@ -284,6 +284,16 @@ class ChatManager:
         namespace, and the read-modify-write happens under the manager
         lock to avoid losing a concurrent update to a sibling key.
 
+        Migration is deliberately **one-way**. Writing the list drops the
+        pre-multi-root scalar ``project_dir``, so a build that only knows
+        the scalar (i.e. before this feature) reads no override at all and
+        falls back to the agent default — the user has to pick the
+        directory again. Reading in the other direction is safe: a chat
+        still holding the scalar is understood as a one-entry list (see
+        ``session_project_dirs_from_meta``). Keep it one-way: writing both
+        keys would leave two sources of truth with no way to tell which
+        one is newer, and the stale list would silently win.
+
         Returns the updated spec, or ``None`` if the chat does not exist.
         """
         async with self._lock:

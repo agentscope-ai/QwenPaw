@@ -31,6 +31,7 @@ resetting to another directory would scatter the user's files.
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Sequence, Union
@@ -38,6 +39,11 @@ from typing import Any, Optional, Sequence, Union
 logger = logging.getLogger(__name__)
 
 PathLike = Union[str, Path]
+
+# macOS and Windows fold case in path lookups; Linux does not. Path
+# comparisons must follow the platform, otherwise ``/repo`` and ``/Repo``
+# are wrongly reported as the same directory on Linux.
+_FS_IS_CASE_INSENSITIVE = sys.platform in ("darwin", "win32", "cygwin")
 
 # Hard cap on how many directories one chat may bind. Keeps the prompt
 # block and the governance rule set bounded no matter what a client
@@ -63,10 +69,6 @@ ProjectDirSource = str
 # One project directory entry as it appears in chat meta / API
 # payloads: a path plus an optional user-facing label.
 RawProjectDirEntry = Union[str, Path, dict, Sequence[Any], Any]
-
-
-class PathEscapeError(ValueError):
-    """Raised when a path resolves outside every authorized root."""
 
 
 def normalize_project_dir(value: str | Path) -> Path:
@@ -99,18 +101,45 @@ def normalize_project_dir_label(raw: Any) -> Optional[str]:
     return text[:MAX_PROJECT_DIR_LABEL_LENGTH]
 
 
+def dir_key(raw: Any) -> str:
+    """Return a stable, platform-aware comparison key for a directory.
+
+    Folds case only where the filesystem does, so consumers that need a
+    hashable key (governance dedupe, mount lists) agree with
+    :func:`same_dir` instead of each rolling their own ``casefold()`` —
+    on Linux an unconditional fold would silently treat ``/Repo`` and
+    ``/repo`` as one directory and grant only one of them.
+
+    Does not ``resolve()``: callers store the literal path they were
+    given (policy rule patterns, sandbox mounts) and the key must match
+    what they hold.
+    """
+    try:
+        text = str(Path(str(raw)).expanduser())
+    except (OSError, TypeError, ValueError):
+        text = str(raw)
+    return text.casefold() if _FS_IS_CASE_INSENSITIVE else text
+
+
 def same_dir(a: PathLike, b: PathLike) -> bool:
     """Compare two directories, ignoring case and trailing separators.
 
     On case-insensitive filesystems (macOS, Windows) ``/Repo`` and
     ``/repo`` are the same directory; naive string comparison would
-    treat them as distinct and let stale entries survive a re-save.
+    treat them as distinct and let stale entries survive a re-save. On a
+    case-sensitive filesystem they are genuinely different directories,
+    so the fold is only applied where the OS actually folds.
+
+    Two blank/unusable inputs are **not** "the same directory": neither
+    names one, so callers doing dedupe must not collapse them.
     """
     left = _normalize_optional(a)
     right = _normalize_optional(b)
     if left is None or right is None:
-        return left is right
-    return str(left).casefold() == str(right).casefold()
+        return False
+    if _FS_IS_CASE_INSENSITIVE:
+        return str(left).casefold() == str(right).casefold()
+    return str(left) == str(right)
 
 
 def is_within(path: PathLike, root: PathLike) -> bool:
@@ -119,6 +148,11 @@ def is_within(path: PathLike, root: PathLike) -> bool:
     Lexical comparison on normalized paths; both sides are already
     ``resolve()``-d by :func:`normalize_project_dir`, so symlinks are
     collapsed as a side effect without dedicated logic.
+
+    Case folding is applied only on case-insensitive filesystems. On
+    Linux, folding would report ``/Repo/x`` as living inside ``/repo``
+    when it does not — a false "contained" answer that would become a
+    containment bypass the moment a caller used this for authorization.
     """
     target = _normalize_optional(path)
     base = _normalize_optional(root)
@@ -129,6 +163,8 @@ def is_within(path: PathLike, root: PathLike) -> bool:
         return True
     except ValueError:
         pass
+    if not _FS_IS_CASE_INSENSITIVE:
+        return False
     # Case-insensitive filesystems: /Repo under /repo.
     try:
         Path(str(target).casefold()).relative_to(str(base).casefold())
@@ -197,8 +233,9 @@ def normalize_project_dir_list(
     if not isinstance(raw, (list, tuple)):
         raw = [raw]
 
+    items = list(raw)
     entries: list[tuple[Path, Optional[str]]] = []
-    for item in raw:
+    for index, item in enumerate(items):
         coerced = coerce_project_dir_entry(item)
         if coerced is None:
             continue
@@ -207,12 +244,15 @@ def normalize_project_dir_list(
             continue
         entries.append((path, label))
         if len(entries) >= MAX_PROJECT_DIRS:
-            logger.warning(
-                "project_dirs: more than %d entries supplied; "
-                "keeping the first %d",
-                MAX_PROJECT_DIRS,
-                MAX_PROJECT_DIRS,
-            )
+            # Only a genuine overflow is worth a warning: a list of exactly
+            # MAX_PROJECT_DIRS entries loses nothing.
+            if items[index + 1 :]:
+                logger.warning(
+                    "project_dirs: more than %d entries supplied; "
+                    "keeping the first %d",
+                    MAX_PROJECT_DIRS,
+                    MAX_PROJECT_DIRS,
+                )
             break
     return entries
 
@@ -222,9 +262,16 @@ def detect_nested_roots(entries: Any) -> list[tuple[int, int]]:
 
     Returns ``(child_index, ancestor_index)`` pairs — every case where
     the entry at ``child_index`` lives underneath the entry at
-    ``ancestor_index``. Nested roots are **reported, not rejected**:
-    the UI surfaces a "covered by X" hint and governance de-duplicates
-    (only the outermost ancestor is granted/mounted).
+    ``ancestor_index``. Nested roots are **reported, not rejected**: the
+    entry stays in the list and keeps working, and the UI surfaces a
+    "covered by X" hint. Governance grants the outer root, which already
+    covers the inner one, so the extra grant is redundant rather than
+    wrong.
+
+    Indices refer to this function's own **normalized** view of
+    *entries* (blank/duplicate entries dropped). Pass an already
+    normalized list — as :mod:`qwenpaw.app.chats.api` does — when the
+    indices need to line up with the caller's own list.
 
     Nesting is a physical relationship independent of order and of
     which entry is primary.
@@ -351,6 +398,21 @@ def resolve_effective_project_dirs(
             ]
             source = SOURCE_FORK
 
+    # Re-apply the cap after the prepending overrides above: a request or
+    # fork override pushed onto an already-full list would otherwise return
+    # MAX_PROJECT_DIRS + 1 entries, and every entry past the cap still
+    # earns its own governance ALLOW rule and writable sandbox mount.
+    # Truncating from the tail keeps the primary and drops the least
+    # significant roots.
+    if len(entries) > MAX_PROJECT_DIRS:
+        logger.warning(
+            "project_dirs: %d effective entries exceed the cap; "
+            "keeping the first %d",
+            len(entries),
+            MAX_PROJECT_DIRS,
+        )
+        entries = entries[:MAX_PROJECT_DIRS]
+
     dirs = tuple(
         ResolvedProjectDir(path=path, label=label, exists=path.is_dir())
         for path, label in entries
@@ -393,72 +455,6 @@ def resolve_effective_project_dir(
         fork_project_dir=fork_project_dir,
     )
     return resolved.primary_path, resolved.source
-
-
-def is_within_roots(path: PathLike, roots: Sequence[PathLike]) -> bool:
-    """Return True when *path* resolves inside any of the granted roots.
-
-    Reuses the ToolGuard boundary check (``relative_to``-based, so a
-    sibling like ``/foo/bar_evil`` is never mistaken for being inside
-    ``/foo/bar``; both sides are ``resolve()``-d). Roots that are
-    blank or normalize to nothing are skipped.
-    """
-    if not roots:
-        return False
-    from ..security.tool_guard.safety_checks import is_path_outside_boundary
-
-    candidate = _normalize_optional(path)
-    if candidate is None:
-        return False
-    for root in roots:
-        base = _normalize_optional(root)
-        if base is None:
-            continue
-        if not is_path_outside_boundary(
-            candidate,
-            base,
-            cwd_is_resolved=True,
-            path_is_resolved=True,
-        ):
-            return True
-    return False
-
-
-def resolve_under_roots(
-    path: PathLike,
-    *,
-    roots: Sequence[PathLike],
-    primary: PathLike,
-) -> Path:
-    """Resolve a tool-supplied path under the granted roots.
-
-    * Absolute input is checked against the roots as-is.
-    * Relative input is joined to the **primary** directory — extra
-      roots are never a resolution base — and the result may still land
-      inside any granted root (``../docs/x`` reaching an extra root is
-      legitimate).
-
-    Raises:
-        PathEscapeError: the resolved path is outside every root.
-        ValueError: the input is blank.
-    """
-    text = str(path).strip()
-    if not text:
-        raise ValueError("Empty path")
-    candidate = Path(text).expanduser()
-    if candidate.is_absolute():
-        resolved = candidate.resolve()
-    else:
-        base = _normalize_optional(primary)
-        if base is None:
-            raise ValueError("No primary directory available")
-        resolved = (base / candidate).resolve()
-    if not is_within_roots(resolved, roots):
-        raise PathEscapeError(
-            f"Path {text!r} resolves outside every authorized project "
-            f"directory",
-        )
-    return resolved
 
 
 # ---------------------------------------------------------------------------
@@ -570,32 +566,15 @@ def session_project_dirs_from_meta(meta: Optional[dict]) -> Optional[list]:
         entries = normalize_project_dir_list([legacy])
         if entries:
             return [
-                {"path": str(path), "label": label}
-                for path, label in entries
+                {"path": str(path), "label": label} for path, label in entries
             ]
     return None
-
-
-def describe_for_audit(
-    resolved: ResolvedProjectDirs,
-    workspace_dir: PathLike,
-) -> dict[str, Any]:
-    """Build the directory context recorded on audit events."""
-    primary = resolved.primary
-    return {
-        "workspace_dir": str(_normalize_optional(workspace_dir) or ""),
-        "project_dir": str(primary.path),
-        "project_dir_source": resolved.source,
-        "project_dir_exists": primary.exists,
-        "project_dirs": [str(entry.path) for entry in resolved.dirs],
-    }
 
 
 __all__ = [
     "MAX_PROJECT_DIRS",
     "MAX_PROJECT_DIR_LABEL_LENGTH",
     "MAX_PROJECT_NAME_LEN",
-    "PathEscapeError",
     "ResolvedProjectDir",
     "ResolvedProjectDirs",
     "SOURCE_AGENT",
@@ -605,20 +584,16 @@ __all__ = [
     "SOURCE_REQUEST",
     "SOURCE_SESSION",
     "SOURCE_WORKSPACE_FALLBACK",
-    "coerce_project_dir_entry",
     "default_project_name",
-    "describe_for_audit",
     "detect_nested_roots",
+    "dir_key",
     "is_within",
-    "is_within_roots",
     "normalize_project_dir",
-    "normalize_project_dir_label",
     "normalize_project_dir_list",
     "normalize_project_name",
     "resolve_effective_project_dir",
     "resolve_effective_project_dirs",
     "resolve_project_name",
-    "resolve_under_roots",
     "same_dir",
     "session_project_dir",
     "session_project_dirs_from_meta",

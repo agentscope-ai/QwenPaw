@@ -577,9 +577,7 @@ async def set_chat_project_dirs(
                 detail=f"Not a directory: {path}",
             )
 
-    stored = [
-        {"path": str(path), "label": label} for path, label in entries
-    ]
+    stored = [{"path": str(path), "label": label} for path, label in entries]
     updated = await mgr.set_session_project_dirs(
         chat_id,
         stored,

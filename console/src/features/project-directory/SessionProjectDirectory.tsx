@@ -1,15 +1,15 @@
 import { Button, Input, Popover, Tooltip } from "antd";
 import {
-  AlertTriangle,
   ArrowUp,
   Check,
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  Eye,
+  EyeOff,
   Folder,
   FolderOpen,
   LoaderCircle,
-  RotateCcw,
   RotateCw,
   X,
 } from "lucide-react";
@@ -19,6 +19,7 @@ import {
   chatProjectDirectoryApi,
   type ChatProjectDirs,
   type EffectiveProjectDirectory,
+  type ProjectDirEntry,
   type ProjectDirPayloadEntry,
 } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
@@ -34,30 +35,38 @@ import {
 } from "./pendingProjectDirectory";
 import type { FilesWorkspaceScope } from "../files-workspace/filesWorkspaceScope";
 import { notifyProjectDirectoryChanged } from "./projectDirectoryChangeEvent";
-import {
-  isNativeDirectoryPickerAvailable,
-  pickDirectory,
-  PICK_CANCELLED,
-} from "../../utils/pickDirectory";
-import { useDirectoryBrowser } from "../../components/DirectoryBrowser/useDirectoryBrowser";
 
-/** Last path segment, so labels stay short. Handles both separators. */
+/** Mirrors the server's MAX_PROJECT_DIRS: the whole list is capped at 10. */
+const MAX_PROJECT_DIRS = 10;
+
+/** Last path segment, for the short display name of a directory. */
 function basenameOf(path: string): string {
-  const parts = path.split(/[/\\]/).filter(Boolean);
-  return parts[parts.length - 1] || path;
+  const trimmed = path.replace(/[\\/]+$/, "");
+  // "/" collapses to an empty string, so keep the raw path as the label.
+  return trimmed.split(/[\\/]/).pop() || trimmed || path;
 }
 
-/** Case-insensitive path compare, matching the server's dedupe rule. */
+/** Case-insensitive path compare, matching the server's dedupe rule.
+ *  Trailing separators are stripped first: the server normalises them away,
+ *  so treating "/a/b" and "/a/b/" as distinct would let a duplicate into
+ *  the list and make the saved result differ from what the user built. */
 function samePath(a: string, b: string): boolean {
-  return a.trim().toLowerCase() === b.trim().toLowerCase();
+  const norm = (value: string) =>
+    value
+      .trim()
+      .replace(/[\\/]+$/, "")
+      .toLowerCase();
+  return norm(a) === norm(b);
 }
 
-/** A directory row while it is being edited locally, before Apply. */
-interface LocalDirEntry {
-  path: string;
-  label: string | null;
-  exists: boolean;
-  nested_with: string | null;
+/** Exact path compare — only trailing separators are normalised.
+ *
+ *  Deliberately NOT case-folding, unlike {@link samePath}: the server treats
+ *  paths case-sensitively on Linux, so `/srv/Repo` → `/srv/repo` is a real
+ *  re-bind there and must not be mistaken for "unchanged". */
+function exactSamePath(a: string, b: string): boolean {
+  const norm = (value: string) => value.trim().replace(/[\\/]+$/, "");
+  return norm(a) === norm(b);
 }
 
 interface SessionProjectDirectoryProps {
@@ -80,33 +89,44 @@ export default function SessionProjectDirectory({
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
   const sessionId = scope.kind === "session" ? scope.sessionId : "";
   const isAgentScope = scope.kind === "agent";
-
-  // ── Agent-scope state (single directory, unchanged) ──────────────────
   const [info, setInfo] = useState<EffectiveProjectDirectory | null>(null);
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [selectedRecentPath, setSelectedRecentPath] = useState<string | null>(
     null,
   );
   const [browser, setBrowser] = useState<BrowseDirsResponse | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
-
-  // ── Session-scope state (ordered list of directories) ────────────────
-  const [dirsInfo, setDirsInfo] = useState<ChatProjectDirs | null>(null);
-  const [draftList, setDraftList] = useState<LocalDirEntry[]>([]);
+  const [showHidden, setShowHidden] = useState(false);
+  // Mirrored in a ref so `browse` keeps a stable identity: it is a dependency
+  // of the panel-open effect, which would otherwise re-run on every toggle and
+  // navigate back to the project directory.
+  const showHiddenRef = useRef(false);
+  // Monotonically increasing sequence number for browse requests.
+  // Only the most recent request is allowed to update state, preventing stale
+  // responses from overwriting newer results when requests complete out of order.
+  const browseSeq = useRef(0);
+  // Session scope binds an ordered list of directories, index 0 = primary.
+  // It replaces the single-path field, so the list is the whole selection.
+  // Only used when !isAgentScope; agent scope stays single-valued via `draft`.
+  const [dirs, setDirs] = useState<ProjectDirEntry[]>([]);
+  // What the server holds. Restored when the panel closes, so an abandoned
+  // edit never leaves the trigger advertising directories that are not bound.
+  const [appliedDirs, setAppliedDirs] = useState<ProjectDirEntry[]>([]);
+  // A folder the user single-clicked and has not bound yet. Deliberately not
+  // `draft`: navigating (double click, home, parent) must not queue anything.
+  const [pendingPath, setPendingPath] = useState("");
+  // Set when the list shows the agent workspace purely because nothing is
+  // bound (source "workspace_fallback"). It is a display placeholder, not a
+  // real project directory, so binding the first real one replaces it
+  // instead of keeping the agent's internal storage in the list.
+  const [placeholderPath, setPlaceholderPath] = useState<string | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const [customName, setCustomName] = useState<string | null>(null);
-  const [projectNameDraft, setProjectNameDraft] = useState<
-    string | undefined
-  >();
-  const [sessionError, setSessionError] = useState<string | null>(null);
-  // Undefined until probed so the add button does not flash in and out.
-  const [nativePicker, setNativePicker] = useState<boolean | undefined>();
-  const [showBrowserPicker, setShowBrowserPicker] = useState(false);
-
-  const [open, setOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-
+  const [listError, setListError] = useState<string | null>(null);
   const announceChanged = () => {
     notifyProjectDirectoryChanged(scope);
     onChanged?.();
@@ -116,19 +136,38 @@ export default function SessionProjectDirectory({
     setDraft(path);
   }, []);
 
-  const applySnapshot = useCallback((next: ChatProjectDirs) => {
-    setDirsInfo(next);
-    setDraftList(
-      next.project_dirs.map((entry) => ({
-        path: entry.path,
-        label: entry.label,
-        exists: entry.exists,
-        nested_with: entry.nested_with,
-      })),
-    );
-    setCustomName(next.project_name_is_custom ? next.project_name : null);
-    setProjectNameDraft(undefined);
-  }, []);
+  /** Adopt a session directory list. Index 0 is the primary, which also
+   *  feeds `info` so the trigger keeps rendering as it does on agent scope. */
+  const applyList = useCallback(
+    (
+      next: ProjectDirEntry[],
+      snapshot: Omit<ChatProjectDirs, "project_dirs">,
+    ) => {
+      const primary = next[0];
+      setDirs(next);
+      setAppliedDirs(next);
+      // Nothing is bound: the single entry is the agent workspace, shown so
+      // the panel agrees with the Files tree. Remembering it as a placeholder
+      // keeps Apply from persisting the agent's internal storage as a project
+      // dir *by accident* — a user who deliberately browses to the workspace
+      // and adds it can still bind it, same as any other absolute path.
+      setPlaceholderPath(
+        snapshot.source === "workspace_fallback" ? primary?.path ?? null : null,
+      );
+      setCustomName(
+        snapshot.project_name_is_custom ? snapshot.project_name : null,
+      );
+      setInfo({
+        project_dir: primary?.path ?? "",
+        source: snapshot.source,
+        agent_project_dir: snapshot.agent_project_dir,
+        exists: primary ? primary.exists : true,
+      });
+      // `draft` is the pending-add preview on session scope, so it is left
+      // alone here: adopting a saved list must not repopulate it.
+    },
+    [],
+  );
 
   const refresh = useCallback(async () => {
     if (isAgentScope) {
@@ -144,96 +183,99 @@ export default function SessionProjectDirectory({
       return;
     }
     if (chatId) {
-      try {
-        const next = await chatProjectDirectoryApi.getProjectDirs(chatId);
-        applySnapshot(next);
-      } catch {
-        // Leave the previous snapshot in place; the panel will retry on
-        // the next open/refresh.
+      const next = await chatProjectDirectoryApi.getProjectDirs(chatId);
+      if (next.project_dirs.length > 0) {
+        applyList(next.project_dirs, next);
+        return;
       }
+      // Nothing bound (workspace fallback). The list is empty, but the rest
+      // of the console — Files tree, editors — resolves to the workspace
+      // directory, so show that instead of an empty panel they disagree with.
+      const single = await chatProjectDirectoryApi.get(chatId);
+      applyList(
+        [
+          {
+            path: single.project_dir,
+            label: null,
+            exists: single.exists,
+            nested_with: null,
+          },
+        ],
+        next,
+      );
       return;
     }
-    // Brand-new chat with no backend id yet: show the pending pick if one
-    // exists, otherwise the agent default so the card is informative.
+    // Brand-new chat: no backend id yet, so read the pending selection.
     const pending = getPendingProjectDirs(selectedAgent, sessionId);
     if (pending) {
-      const first = pending.dirs[0];
-      applySnapshot({
-        project_dirs: pending.dirs.map((entry) => ({
+      applyList(
+        pending.dirs.map((entry) => ({
           path: entry.path,
           label: entry.label,
           exists: true,
           nested_with: null,
         })),
-        source: "session",
-        agent_project_dir: null,
-        project_name:
-          pending.name ??
-          (first ? first.label || basenameOf(first.path) : null),
-        project_name_is_custom: Boolean(pending.name),
-      });
+        {
+          source: "session",
+          agent_project_dir: null,
+          project_name: pending.name,
+          project_name_is_custom: Boolean(pending.name),
+        },
+      );
       return;
     }
+    // Nothing pending: show the agent default as the starting point.
     const next = await projectDirectoryApi.get();
-    if (next.is_workspace_default) {
-      // The workspace fallback is deliberately not listed: an unbound chat
-      // renders the empty state rather than the workspace path.
-      applySnapshot({
-        project_dirs: [],
-        source: "workspace_fallback",
-        agent_project_dir: null,
+    applyList(
+      [
+        {
+          path: next.path,
+          label: null,
+          exists: next.exists ?? true,
+          nested_with: null,
+        },
+      ],
+      {
+        source: next.is_workspace_default ? "workspace_fallback" : "agent",
+        agent_project_dir: next.is_workspace_default ? null : next.path,
         project_name: null,
         project_name_is_custom: false,
-      });
-    } else {
-      applySnapshot({
-        project_dirs: [
-          {
-            path: next.path,
-            label: null,
-            exists: next.exists ?? true,
-            nested_with: null,
-          },
-        ],
-        source: "agent",
-        agent_project_dir: next.path,
-        project_name: next.name ?? null,
-        project_name_is_custom: false,
-      });
-    }
-  }, [
-    applySnapshot,
-    chatId,
-    isAgentScope,
-    selectedAgent,
-    sessionId,
-    updateDraft,
-  ]);
+      },
+    );
+  }, [applyList, chatId, isAgentScope, selectedAgent, sessionId, updateDraft]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  // ── Agent-scope directory browsing ───────────────────────────────────
   const browse = useCallback(
     async (path?: string, selectCurrent = false) => {
+      const seq = ++browseSeq.current;
       setBrowseLoading(true);
       try {
-        const next = await projectDirectoryApi.browseDirs(path);
+        const next = await projectDirectoryApi.browseDirs(
+          path,
+          showHiddenRef.current,
+        );
+        if (seq !== browseSeq.current) return;
         setBrowser(next);
         if (selectCurrent) {
           updateDraft(next.current);
           setSelectedRecentPath(null);
         }
+      } catch {
+        // Stale or failed requests are silently discarded; only the latest
+        // request is allowed to clear the loading indicator.
+        if (seq !== browseSeq.current) return;
       } finally {
-        setBrowseLoading(false);
+        if (seq === browseSeq.current) setBrowseLoading(false);
       }
     },
     [updateDraft],
   );
 
   useEffect(() => {
-    if (!open || !isAgentScope) return;
+    if (!open) return;
     const currentPath = info?.project_dir ?? "";
     void projectDirectoryApi
       .list()
@@ -251,26 +293,7 @@ export default function SessionProjectDirectory({
         setSelectedRecentPath(null);
       });
     void browse(currentPath || undefined);
-  }, [browse, info?.project_dir, isAgentScope, open]);
-
-  // ── Session-scope fallback in-app browser ────────────────────────────
-  const dirBrowser = useDirectoryBrowser({
-    enabled: showBrowserPicker && !isAgentScope,
-    initialPath: draftList[0]?.path || "~",
-  });
-
-  // Probe the native picker once, the first time the panel opens, so an
-  // unopened selector costs no requests.
-  useEffect(() => {
-    if (!open || isAgentScope || nativePicker !== undefined) return;
-    let alive = true;
-    void isNativeDirectoryPickerAvailable().then((ok) => {
-      if (alive) setNativePicker(ok);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [open, isAgentScope, nativePicker]);
+  }, [browse, info?.project_dir, open]);
 
   const basename = useMemo(() => {
     const path = info?.project_dir.replace(/[\\/]+$/, "") ?? "";
@@ -281,6 +304,55 @@ export default function SessionProjectDirectory({
     () =>
       projects.find((project) => project.path === selectedRecentPath) ?? null,
     [projects, selectedRecentPath],
+  );
+
+  /** How many directories the server holds. Drives the trigger badge.
+   *  The workspace placeholder is always a single entry, so it never trips
+   *  the badge's `> 1` threshold. */
+  const appliedCount = appliedDirs.length;
+
+  /** The entries that may actually be saved.
+   *
+   *  Excludes the workspace placeholder: it is only on screen because
+   *  *nothing* is bound, and persisting it would bind the agent's internal
+   *  storage as a project directory — granting it project-level access and
+   *  making the prompt announce it as the project. Binding an inherited
+   *  agent default, by contrast, is a legitimate explicit choice (and is
+   *  undoable via "Restore default"), so it stays saveable. */
+  const bindableDirs = useMemo(
+    () =>
+      dirs.filter(
+        (entry) =>
+          entry.path.trim() &&
+          !(placeholderPath && samePath(entry.path, placeholderPath)),
+      ),
+    [dirs, placeholderPath],
+  );
+
+  /** An Apply that would change nothing on an already-bound chat.
+   *
+   *  Worth detecting because Apply is not side-effect-free: `beforeChange`
+   *  warns about discarding unsaved editor changes and `onChanged` closes
+   *  every project editor tab (FilesNavigator). Both are wrong when the
+   *  directories did not move — opening the panel and pressing Apply should
+   *  not cost the user their open tabs.
+   *
+   *  Restricted to `source === "session"`: when the list is merely inherited,
+   *  an identical list still has to be PUT, because that is what pins it as
+   *  this chat's own override. */
+  const isNoopSave = useMemo(
+    () =>
+      info?.source === "session" &&
+      bindableDirs.length === appliedDirs.length &&
+      bindableDirs.every((entry, index) => {
+        const applied = appliedDirs[index];
+        return (
+          !!applied &&
+          exactSamePath(entry.path, applied.path) &&
+          (entry.label ?? "") === (applied.label ?? "")
+        );
+      }),
+    [appliedDirs, bindableDirs, info?.source],
   );
 
   const selectRecentProject = (project: ProjectListItem) => {
@@ -299,104 +371,60 @@ export default function SessionProjectDirectory({
     setSelectedRecentPath(null);
   };
 
-  // ── Session-scope derived values ─────────────────────────────────────
-  const isPending = !isAgentScope && !chatId && dirsInfo?.source === "session";
-  const primary = draftList[0];
-  // A pending path has not been server-checked yet, so do not claim it is
-  // missing; the router validates it when the first message arrives.
-  const primaryMissing = isPending ? false : primary ? !primary.exists : false;
-  const derivedName = primary
-    ? primary.label || basenameOf(primary.path)
-    : undefined;
-  const storedName = customName ?? derivedName;
-  const cardName = projectNameDraft ?? storedName ?? "";
-
-  const toPayload = (list: LocalDirEntry[]): ProjectDirPayloadEntry[] =>
-    list.map((entry) => {
-      const name = (entry.label ?? "").trim();
-      const label = name && name !== basenameOf(entry.path) ? name : null;
-      return { path: entry.path, label };
-    });
-
-  // ── Session-scope persistence ────────────────────────────────────────
-  const persistList = async (
-    list: ProjectDirPayloadEntry[],
-    name: string | null,
-  ) => {
-    if (!chatId) {
-      setPendingProjectDirectory(
-        selectedAgent,
-        sessionId,
-        list.map((entry) => ({ path: entry.path, label: entry.label ?? null })),
-        name,
-      );
-      setOpen(false);
-      await refresh();
-      announceChanged();
-      return;
-    }
-    setSaving(true);
-    setSessionError(null);
-    try {
-      const next = await chatProjectDirectoryApi.setProjectDirs(
-        chatId,
-        list,
-        name,
-      );
-      applySnapshot(next);
-      setOpen(false);
-      announceChanged();
-    } catch (err) {
-      setSessionError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
+  const toggleHidden = () => {
+    const next = !showHidden;
+    showHiddenRef.current = next;
+    setShowHidden(next);
+    void browse(browser?.current ?? draft);
   };
 
-  const persistClear = async () => {
-    if (!chatId) {
-      setPendingProjectDirectory(selectedAgent, sessionId, null);
-      setOpen(false);
-      await refresh();
-      announceChanged();
-      return;
-    }
-    setSaving(true);
-    setSessionError(null);
-    try {
-      const next = await chatProjectDirectoryApi.clearProjectDirs(chatId);
-      applySnapshot(next);
-      setOpen(false);
-      announceChanged();
-    } catch (err) {
-      setSessionError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
+  // ── Session scope: the bound directory list ──────────────────────────
+  /** Whether a path is already in the list. */
+  const isBound = (path: string) =>
+    dirs.some((entry) => samePath(entry.path, path));
+
+  /** Queue a single-clicked folder as the next one to bind. */
+  const selectPending = (path: string) => {
+    setListError(null);
+    setPendingPath(path);
   };
 
-  // ── Session-scope list transforms (local only, committed by Apply) ───
-  const addPath = (path: string) => {
-    const trimmed = path.trim();
-    if (!trimmed) return;
-    if (draftList.some((entry) => samePath(entry.path, trimmed))) {
-      setSessionError(t("projectDirectory.duplicate"));
-      return;
-    }
-    setSessionError(null);
-    setDraftList((current) => [
-      ...current,
-      { path: trimmed, label: null, exists: true, nested_with: null },
+  // The queued row is appended, so scroll to it: otherwise a full list hides
+  // the Add button below the fold.
+  useEffect(() => {
+    if (!pendingPath) return;
+    const list = listRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
+  }, [pendingPath]);
+
+  /** Bind the queued directory, at the end of the list.
+   *
+   *  When the list is only the workspace placeholder, the new directory
+   *  replaces it: the placeholder was never bound, and carrying the agent's
+   *  internal workspace into the saved list would grant it project-directory
+   *  access and make the prompt announce it as the project. */
+  const addPending = () => {
+    const path = pendingPath.trim();
+    if (!path || isBound(path) || dirs.length >= MAX_PROJECT_DIRS) return;
+    setDirs((current) => [
+      ...current.filter(
+        (entry) => !placeholderPath || !samePath(entry.path, placeholderPath),
+      ),
+      { path, label: null, exists: true, nested_with: null },
     ]);
-    setShowBrowserPicker(false);
+    setPlaceholderPath(null);
+    setPendingPath("");
   };
 
   const removeAt = (index: number) => {
-    setDraftList((current) => current.filter((_, i) => i !== index));
+    setListError(null);
+    setDirs((current) => current.filter((_, i) => i !== index));
   };
 
+  /** Move an entry to the front: relative paths then resolve from it. */
   const makePrimary = (index: number) => {
-    setDraftList((current) => {
+    setListError(null);
+    setDirs((current) => {
       if (index <= 0 || index >= current.length) return current;
       const next = [...current];
       const [moved] = next.splice(index, 1);
@@ -405,65 +433,61 @@ export default function SessionProjectDirectory({
     });
   };
 
-  const renameAt = (index: number, value: string) => {
-    setDraftList((current) =>
-      current.map((entry, i) =>
-        i === index ? { ...entry, label: value } : entry,
-      ),
-    );
-  };
-
-  const chooseFolder = async () => {
-    setSessionError(null);
-    if (nativePicker) {
-      try {
-        const picked = await pickDirectory({
-          title: t("projectDirectory.pickTitle"),
-          defaultPath: primary?.path,
-        });
-        if (picked === PICK_CANCELLED) return;
-        addPath(picked);
-      } catch (err) {
-        setSessionError(err instanceof Error ? err.message : String(err));
-        setNativePicker(false);
-      }
+  /** Commit the edited list. Index 0 becomes the server's primary. */
+  const saveSessionList = async () => {
+    if (isNoopSave) {
+      // Just dismiss: no request, no unsaved-changes warning, and no tab
+      // teardown for a directory set that is already bound.
+      setPendingPath("");
+      setListError(null);
+      setOpen(false);
       return;
     }
-    // No OS dialog here (remote/headless): fall back to the in-app browser.
-    const next = !showBrowserPicker;
-    setShowBrowserPicker(next);
-    if (next) dirBrowser.navigate(draftList[0]?.path || "~");
-  };
-
-  const commitProjectName = async (raw: string) => {
-    setProjectNameDraft(undefined);
-    const name = raw.trim();
-    const nextName = !name || name === derivedName ? null : name;
-    if (nextName === customName) return;
-    if (draftList.length === 0) return;
     if (beforeChange && !(await beforeChange())) return;
-    await persistList(toPayload(draftList), nextName);
-  };
-
-  const saveSession = async () => {
-    if (saving) return;
-    if (beforeChange && !(await beforeChange())) return;
-    if (draftList.length === 0) {
-      await persistClear();
-    } else {
-      await persistList(toPayload(draftList), customName);
+    const payload: ProjectDirPayloadEntry[] = bindableDirs.map((entry) => ({
+      path: entry.path,
+      label: entry.label,
+    }));
+    if (payload.length === 0) return;
+    if (!chatId) {
+      setPendingProjectDirectory(
+        selectedAgent,
+        sessionId,
+        payload.map((entry) => ({
+          path: entry.path,
+          label: entry.label ?? null,
+        })),
+        customName,
+      );
+      setListError(null);
+      setPendingPath("");
+      setOpen(false);
+      await refresh();
+      announceChanged();
+      return;
     }
-  };
-
-  const clearSession = async () => {
-    if (saving) return;
-    if (beforeChange && !(await beforeChange())) return;
-    await persistClear();
+    setSaving(true);
+    setListError(null);
+    try {
+      const saved = await chatProjectDirectoryApi.setProjectDirs(
+        chatId,
+        payload,
+        customName,
+      );
+      applyList(saved.project_dirs, saved);
+      setPendingPath("");
+      setOpen(false);
+      announceChanged();
+    } catch (err) {
+      setListError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const save = async () => {
     if (!isAgentScope) {
-      await saveSession();
+      await saveSessionList();
       return;
     }
     if (!draft.trim()) return;
@@ -489,95 +513,213 @@ export default function SessionProjectDirectory({
   };
 
   const clear = async () => {
-    if (!isAgentScope) {
-      await clearSession();
+    if (beforeChange && !(await beforeChange())) return;
+    if (isAgentScope) {
+      setSaving(true);
+      try {
+        await projectDirectoryApi.set(null);
+        useProjectDirectoryStore.getState().setProjectDir(selectedAgent, null);
+        await refresh();
+        setOpen(false);
+        announceChanged();
+      } finally {
+        setSaving(false);
+      }
       return;
     }
-    if (beforeChange && !(await beforeChange())) return;
-    setSaving(true);
-    try {
-      await projectDirectoryApi.set(null);
-      useProjectDirectoryStore.getState().setProjectDir(selectedAgent, null);
+    if (!chatId) {
+      setPendingProjectDirectory(selectedAgent, sessionId, null);
       await refresh();
       setOpen(false);
       announceChanged();
+      return;
+    }
+    setSaving(true);
+    setListError(null);
+    try {
+      await chatProjectDirectoryApi.clearProjectDirs(chatId);
+      // Re-read rather than applying the response: dropping the override
+      // usually leaves an empty list, and refresh() knows how to fall back
+      // to the effective directory instead of showing an empty panel.
+      await refresh();
+      setOpen(false);
+      announceChanged();
+    } catch (err) {
+      setListError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
   };
 
+  /** Dismissing discards session edits that were never applied, so the
+   *  trigger keeps describing what the server has. Agent scope keeps its
+   *  typed draft across a dismiss, as it always has. */
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
-    if (!next) {
-      setProjectNameDraft(undefined);
-      setShowBrowserPicker(false);
-      setSessionError(null);
+    if (next) return;
+    if (!isAgentScope) {
+      setDirs(appliedDirs);
+      setPendingPath("");
+      // `appliedDirs` is restored, so the placeholder flag has to be restored
+      // with it — otherwise a dismissed edit leaves the workspace entry
+      // looking like a real binding on the next Apply.
+      setPlaceholderPath(
+        info?.source === "workspace_fallback"
+          ? appliedDirs[0]?.path ?? null
+          : null,
+      );
     }
+    setListError(null);
   };
 
-  // ── Restore-default enablement by source (session scope) ─────────────
-  const effectiveSource = isPending ? "session" : dirsInfo?.source ?? "agent";
-  let restoreDisabled = false;
-  let restoreTooltip = "";
-  switch (effectiveSource) {
-    case "session":
-      restoreDisabled = false;
-      break;
-    case "inherited":
-      restoreDisabled = true;
-      restoreTooltip = t("projectDirectory.inheritLockedParent");
-      break;
-    case "fork":
-    case "active_mode":
-      restoreDisabled = true;
-      restoreTooltip = t("projectDirectory.inheritLockedFork");
-      break;
-    default:
-      // request / agent / workspace_fallback: nothing to clear.
-      restoreDisabled = true;
-      break;
-  }
-
-  // ── Agent-scope panel (single directory, unchanged) ──────────────────
-  const agentPanel = (
-    <div className={styles.panel}>
+  const panel = (
+    <div
+      className={`${styles.panel} ${
+        isAgentScope ? "" : styles.panelWithList
+      }`.trim()}
+    >
       <div className={styles.panelHeading}>
         <span className={styles.headingIcon}>
           <FolderOpen size={18} />
         </span>
         <div>
-          <strong>{t("projectDirectory.agentTitle")}</strong>
+          <strong>
+            {t(
+              isAgentScope
+                ? "projectDirectory.agentTitle"
+                : "projectDirectory.boundDirs",
+            )}
+          </strong>
+          {!isAgentScope && (
+            <small className={styles.boundHint}>
+              {t("projectDirectory.primaryHint")}
+            </small>
+          )}
         </div>
+        {!isAgentScope && (
+          <span className={styles.headingCount}>{dirs.length}</span>
+        )}
       </div>
 
-      {selectedRecentProject ? (
-        <div className={styles.pathChip}>
-          <span className={styles.pathChipIcon}>
-            <Folder size={16} />
-          </span>
-          <span className={styles.pathChipCopy}>
-            <strong>{selectedRecentProject.name}</strong>
-            <small>{selectedRecentProject.path}</small>
-          </span>
-          <button
-            type="button"
-            className={styles.pathChipClear}
-            aria-label={t("projectDirectory.clearSelection")}
-            onClick={clearDraft}
-          >
-            <X size={15} />
-          </button>
-        </div>
+      {/* Agent scope keeps the single-path field; session scope shows the
+          bound list here instead — it *is* the session's directory set. */}
+      {isAgentScope ? (
+        selectedRecentProject ? (
+          <div className={styles.pathChip}>
+            <span className={styles.pathChipIcon}>
+              <Folder size={16} />
+            </span>
+            <span className={styles.pathChipCopy}>
+              <strong>{selectedRecentProject.name}</strong>
+              <small>{selectedRecentProject.path}</small>
+            </span>
+            <button
+              type="button"
+              className={styles.pathChipClear}
+              aria-label={t("projectDirectory.clearSelection")}
+              onClick={clearDraft}
+            >
+              <X size={15} />
+            </button>
+          </div>
+        ) : (
+          <Input
+            className={styles.pathInput}
+            prefix={<Folder size={15} />}
+            value={draft}
+            onChange={(event) => selectCustomPath(event.target.value)}
+            placeholder={t("projectDirectory.pathPlaceholder")}
+            onPressEnter={() => void save()}
+            allowClear
+          />
+        )
       ) : (
-        <Input
-          className={styles.pathInput}
-          prefix={<Folder size={15} />}
-          value={draft}
-          onChange={(event) => selectCustomPath(event.target.value)}
-          placeholder={t("projectDirectory.pathPlaceholder")}
-          onPressEnter={() => void save()}
-          allowClear
-        />
+        <div className={styles.boundDirs}>
+          {dirs.length > 0 || pendingPath ? (
+            <ul className={styles.boundList} ref={listRef}>
+              {dirs.map((entry, index) => (
+                <li
+                  key={entry.path}
+                  data-missing={!entry.exists}
+                  data-primary={index === 0}
+                >
+                  <span className={styles.boundIcon}>
+                    <Folder size={15} />
+                  </span>
+                  <span className={styles.boundCopy}>
+                    <strong>{entry.label || basenameOf(entry.path)}</strong>
+                    <small title={entry.path}>{entry.path}</small>
+                  </span>
+                  {!entry.exists && (
+                    <em className={styles.boundTag}>
+                      {t("projectDirectory.unavailable")}
+                    </em>
+                  )}
+                  {index === 0 ? (
+                    <em className={styles.boundTag}>
+                      {t("projectDirectory.primaryTag")}
+                    </em>
+                  ) : (
+                    <button
+                      type="button"
+                      className={styles.boundAction}
+                      disabled={saving}
+                      onClick={() => makePrimary(index)}
+                    >
+                      {t("projectDirectory.makePrimary")}
+                    </button>
+                  )}
+                  <Button
+                    aria-label={t("projectDirectory.remove")}
+                    disabled={saving}
+                    icon={<X size={13} />}
+                    onClick={() => removeAt(index)}
+                    size="small"
+                    title={t("projectDirectory.remove")}
+                    type="text"
+                  />
+                </li>
+              ))}
+
+              {/* A folder that was clicked but not bound yet sits at the end,
+                  where it will land once it is added. */}
+              {pendingPath && (
+                <li className={styles.pendingRow} data-pending="true">
+                  <span className={styles.boundIcon}>
+                    <Folder size={15} />
+                  </span>
+                  <span className={styles.boundCopy}>
+                    <strong>{basenameOf(pendingPath)}</strong>
+                    <small title={pendingPath}>{pendingPath}</small>
+                  </span>
+                  {isBound(pendingPath) ? (
+                    <em className={styles.boundTag}>
+                      {t("projectDirectory.alreadyBound")}
+                    </em>
+                  ) : dirs.length >= MAX_PROJECT_DIRS ? (
+                    <em className={styles.boundTag}>
+                      {t("projectDirectory.tooMany", { max: MAX_PROJECT_DIRS })}
+                    </em>
+                  ) : (
+                    <Button
+                      disabled={saving}
+                      onClick={addPending}
+                      size="small"
+                      type="primary"
+                    >
+                      {t("projectDirectory.add")}
+                    </Button>
+                  )}
+                </li>
+              )}
+            </ul>
+          ) : (
+            <small className={styles.emptyState}>
+              {t("projectDirectory.unbound")}
+            </small>
+          )}
+          {listError && <small className={styles.listError}>{listError}</small>}
+        </div>
       )}
 
       <div className={styles.splitBody}>
@@ -588,14 +730,20 @@ export default function SessionProjectDirectory({
           </div>
           <div className={styles.recent}>
             {projects.slice(0, 6).map((project) => {
-              const selected = selectedRecentPath === project.path;
+              const selected = isAgentScope
+                ? selectedRecentPath === project.path
+                : samePath(pendingPath, project.path);
               return (
                 <button
                   type="button"
                   key={project.path}
                   className={selected ? styles.recentSelected : undefined}
                   aria-pressed={selected}
-                  onClick={() => selectRecentProject(project)}
+                  onClick={() =>
+                    isAgentScope
+                      ? selectRecentProject(project)
+                      : selectPending(project.path)
+                  }
                 >
                   <span className={styles.recentIcon}>
                     <Folder size={15} />
@@ -654,6 +802,14 @@ export default function SessionProjectDirectory({
                 }
                 onClick={() => void browse(browser?.current ?? draft)}
               />
+              <Button
+                type={showHidden ? "primary" : "text"}
+                size="small"
+                aria-label={t("codingMode.openDirHiddenFolders")}
+                aria-pressed={showHidden}
+                icon={showHidden ? <Eye size={14} /> : <EyeOff size={14} />}
+                onClick={toggleHidden}
+              />
             </div>
           </div>
 
@@ -664,14 +820,20 @@ export default function SessionProjectDirectory({
               </span>
             )}
             {browser?.dirs.map((directory) => {
-              const selected = !selectedRecentPath && draft === directory.path;
+              const selected = isAgentScope
+                ? !selectedRecentPath && draft === directory.path
+                : samePath(pendingPath, directory.path);
               return (
                 <button
                   type="button"
                   key={directory.path}
                   className={selected ? styles.directorySelected : undefined}
                   aria-pressed={selected}
-                  onClick={() => selectCustomPath(directory.path)}
+                  onClick={() =>
+                    isAgentScope
+                      ? selectCustomPath(directory.path)
+                      : selectPending(directory.path)
+                  }
                   onDoubleClick={() => void browse(directory.path, true)}
                 >
                   <Folder size={15} />
@@ -693,396 +855,91 @@ export default function SessionProjectDirectory({
         <Button
           type="text"
           onClick={() => void clear()}
-          disabled={info?.source === "workspace_fallback"}
+          disabled={
+            isAgentScope
+              ? info?.source === "workspace_fallback"
+              : info?.source !== "session"
+          }
         >
-          {t("projectDirectory.useWorkspace")}
-        </Button>
-        <Button
-          type="primary"
-          loading={saving}
-          onClick={() => void save()}
-          disabled={!draft.trim()}
-        >
-          {t("common.apply")}
-        </Button>
-      </div>
-    </div>
-  );
-
-  // ── Session-scope inline fallback browser ────────────────────────────
-  const browserPicker = (
-    <div className={styles.browserPicker}>
-      <div className={styles.browserHeading}>
-        <div>
-          <strong>{t("projectDirectory.browseDirectory")}</strong>
-          {dirBrowser.data && (
-            <code title={dirBrowser.data.current}>
-              {dirBrowser.data.current}
-            </code>
-          )}
-        </div>
-        <div className={styles.browserActions}>
-          <Button
-            type="text"
-            size="small"
-            aria-label={t("projectDirectory.homeDirectory")}
-            icon={<FolderOpen size={14} />}
-            onClick={() => dirBrowser.navigate("~")}
-          />
-          <Button
-            type="text"
-            size="small"
-            disabled={!dirBrowser.data?.parent}
-            aria-label={t("projectDirectory.parentDirectory")}
-            icon={<ArrowUp size={14} />}
-            onClick={() => dirBrowser.navigate(dirBrowser.data?.parent ?? "~")}
-          />
-          <Button
-            type="text"
-            size="small"
-            aria-label={t("projectDirectory.refreshDirectory")}
-            icon={
-              <RotateCw
-                className={dirBrowser.loading ? styles.spin : undefined}
-                size={14}
-              />
-            }
-            onClick={() => dirBrowser.navigate(dirBrowser.data?.current ?? "~")}
-          />
-        </div>
-      </div>
-
-      <div className={styles.directories}>
-        {dirBrowser.loading && !dirBrowser.data && (
-          <span className={styles.browserLoading}>
-            <LoaderCircle className={styles.spin} size={16} />
-          </span>
-        )}
-        {dirBrowser.data?.dirs.map((directory) => (
-          <button
-            type="button"
-            key={directory.path}
-            onClick={() => dirBrowser.navigate(directory.path)}
-          >
-            <Folder size={15} />
-            <span>{directory.name}</span>
-            <ChevronRight size={13} />
-          </button>
-        ))}
-        {dirBrowser.data && dirBrowser.data.dirs.length === 0 && (
-          <small className={styles.emptyState}>
-            {t("codingMode.openDirEmpty")}
-          </small>
-        )}
-      </div>
-
-      <Button
-        block
-        disabled={!dirBrowser.data?.current || saving}
-        onClick={() => dirBrowser.data && addPath(dirBrowser.data.current)}
-        size="small"
-        type="primary"
-      >
-        {t("projectDirectory.add")}
-      </Button>
-    </div>
-  );
-
-  const restoreButton = (
-    <Button
-      disabled={saving || restoreDisabled}
-      icon={<RotateCcw size={12} />}
-      onClick={() => void clearSession()}
-      size="small"
-    >
-      {t("projectDirectory.restoreDefault")}
-    </Button>
-  );
-
-  // ── Session-scope panel (ordered list) ───────────────────────────────
-  const sessionPanel = (
-    <div className={styles.sessionPanel}>
-      <div>
-        <div className={styles.panelTitle}>
-          {t("projectDirectory.sessionTitle")}
-        </div>
-        <div className={styles.panelHint}>{t("projectDirectory.listHint")}</div>
-      </div>
-
-      {draftList.length > 0 ? (
-        <ul className={styles.dirList}>
-          {draftList.map((entry, index) => {
-            const isPrimary = index === 0;
-            const displayName = entry.label || basenameOf(entry.path);
-            return (
-              <li
-                className={styles.dirRow}
-                data-missing={!isPending && !entry.exists}
-                data-primary={isPrimary}
-                key={entry.path}
-              >
-                <div className={styles.dirMain}>
-                  <span className={styles.dirName}>
-                    <Folder size={12} />
-                    <Input
-                      aria-label={t("projectDirectory.renameAria")}
-                      className={styles.nameInput}
-                      disabled={saving}
-                      maxLength={50}
-                      onChange={(event) => renameAt(index, event.target.value)}
-                      size="small"
-                      value={entry.label ?? displayName}
-                      variant="borderless"
-                    />
-                    {!isPending && !entry.exists ? (
-                      <span className={styles.missingTag}>
-                        <AlertTriangle size={10} />
-                        {t("projectDirectory.unavailable")}
-                      </span>
-                    ) : null}
-                  </span>
-                  {entry.nested_with ? (
-                    <span className={styles.hint}>
-                      {t("projectDirectory.nestedWarning", {
-                        parent: basenameOf(entry.nested_with),
-                      })}
-                    </span>
-                  ) : null}
-                  <span className={styles.dirPath} title={entry.path}>
-                    {entry.path}
-                  </span>
-                </div>
-                <div className={styles.dirActions}>
-                  {isPrimary ? (
-                    <span className={styles.primaryLabel}>
-                      {t("projectDirectory.primaryTag")}
-                    </span>
-                  ) : (
-                    <Button
-                      className={styles.makePrimaryBtn}
-                      disabled={saving}
-                      onClick={() => makePrimary(index)}
-                      size="small"
-                      type="text"
-                    >
-                      {t("projectDirectory.makePrimary")}
-                    </Button>
-                  )}
-                  <Button
-                    aria-label={t("projectDirectory.remove")}
-                    disabled={saving}
-                    icon={<X size={13} />}
-                    onClick={() => removeAt(index)}
-                    size="small"
-                    title={t("projectDirectory.remove")}
-                    type="text"
-                  />
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <div className={styles.emptyState}>{t("projectDirectory.unbound")}</div>
-      )}
-
-      {draftList.length > 1 ? (
-        <div className={styles.panelHint}>
-          {t("projectDirectory.filesShowsPrimaryOnly")}
-        </div>
-      ) : null}
-
-      <div className={styles.addSection}>
-        {nativePicker === false ? (
-          <div className={styles.panelHint}>
-            {t("projectDirectory.pickerUnavailable")}
-          </div>
-        ) : null}
-        <Button
-          block
-          disabled={saving || nativePicker === undefined}
-          icon={<FolderOpen size={14} />}
-          onClick={() => void chooseFolder()}
-          size="small"
-          type="primary"
-        >
-          {t("projectDirectory.chooseFolder")}
-        </Button>
-        {showBrowserPicker ? browserPicker : null}
-      </div>
-
-      {sessionError ? (
-        <div className={styles.errorNotice}>{sessionError}</div>
-      ) : null}
-
-      <div className={styles.sessionActions}>
-        {restoreTooltip ? (
-          <Tooltip title={restoreTooltip}>
-            <span className={styles.restoreWrap}>{restoreButton}</span>
-          </Tooltip>
-        ) : (
-          restoreButton
-        )}
-        <Button
-          disabled={saving}
-          loading={saving}
-          onClick={() => void save()}
-          type="primary"
-        >
-          {t("common.apply")}
-        </Button>
-      </div>
-    </div>
-  );
-
-  // ── Agent-scope render (unchanged) ───────────────────────────────────
-  if (isAgentScope) {
-    return (
-      <Popover
-        content={agentPanel}
-        trigger="click"
-        open={open}
-        onOpenChange={setOpen}
-        placement="rightTop"
-      >
-        <Tooltip title={info?.project_dir}>
-          <button
-            type="button"
-            className={`${styles.trigger} ${
-              info && !info.exists ? styles.triggerError : ""
-            } ${compact ? styles.triggerCompact : ""} ${
-              showFullPath ? styles.triggerFullPath : ""
-            }`}
-            aria-label={t("projectDirectory.agentTitle")}
-          >
-            {!info ? (
-              <LoaderCircle className={styles.spin} size={14} />
-            ) : info.exists ? (
-              <FolderOpen size={14} />
-            ) : (
-              <CircleAlert size={14} />
-            )}
-            {!compact && (
-              <>
-                {showFullPath ? (
-                  <span className={styles.triggerIdentity}>
-                    <strong>{basename}</strong>
-                    <small>{info?.project_dir}</small>
-                  </span>
-                ) : (
-                  <span>{basename}</span>
-                )}
-                {!showFullPath && (
-                  <em>
-                    {t(
-                      info?.source === "session"
-                        ? "projectDirectory.sessionSource"
-                        : "projectDirectory.agentSource",
-                    )}
-                  </em>
-                )}
-                <ChevronDown size={12} />
-              </>
-            )}
-          </button>
-        </Tooltip>
-      </Popover>
-    );
-  }
-
-  // ── Session-scope render: collapsed card + popover on the chevron ────
-  // The card uses native `title` attributes rather than an antd <Tooltip>:
-  // nesting Tooltip and Popover around the same child makes both attach
-  // handlers to it, and the hover-opened tooltip swallows the click that
-  // should open the panel.
-  return (
-    <div
-      className={`${styles.sessionCard} ${
-        compact ? styles.sessionCardCompact : ""
-      }`}
-      data-missing={primaryMissing ? "true" : "false"}
-      data-pending={isPending ? "true" : "false"}
-      data-source={isPending ? "pending" : dirsInfo?.source ?? ""}
-    >
-      {dirsInfo === null ? (
-        <LoaderCircle className={styles.spin} size={14} />
-      ) : primaryMissing ? (
-        <CircleAlert size={14} />
-      ) : (
-        <FolderOpen size={14} />
-      )}
-
-      {!compact &&
-        (draftList.length > 0 ? (
-          <Input
-            aria-label={t("projectDirectory.projectNameLabel")}
-            className={styles.cardNameInput}
-            disabled={saving}
-            maxLength={60}
-            onBlur={(event) => void commitProjectName(event.target.value)}
-            onChange={(event) => setProjectNameDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Escape") return;
-              event.stopPropagation();
-              setProjectNameDraft(undefined);
-            }}
-            onPressEnter={(event) => (event.target as HTMLInputElement).blur()}
-            placeholder={derivedName}
-            size="small"
-            title={primary?.path}
-            value={cardName}
-            variant="borderless"
-          />
-        ) : (
-          <span className={styles.cardUnbound}>
-            {t("projectDirectory.unboundShort")}
-          </span>
-        ))}
-
-      {!compact && draftList.length > 1 ? (
-        <span
-          className={styles.countTag}
-          title={t("projectDirectory.countTitle")}
-        >
-          ·{draftList.length}
-        </span>
-      ) : null}
-
-      {!compact && (
-        <span className={styles.sourceTag}>
           {t(
-            isPending
-              ? "projectDirectory.tagPending"
-              : dirsInfo?.source === "session"
-              ? "projectDirectory.tagSession"
-              : "projectDirectory.tagInherited",
+            isAgentScope
+              ? "projectDirectory.useWorkspace"
+              : "projectDirectory.restoreDefault",
           )}
-        </span>
-      )}
-
-      {/* The chevron is the popover trigger, not the whole card: the name
-          field lives in the card and must be typeable without opening the
-          panel. Popover also takes exactly one child. */}
-      <Popover
-        arrow={false}
-        content={sessionPanel}
-        onOpenChange={handleOpenChange}
-        open={open}
-        overlayClassName={styles.sessionPopover}
-        placement="topRight"
-        trigger="click"
-      >
-        <button
-          aria-expanded={open}
-          aria-haspopup="dialog"
-          aria-label={t("projectDirectory.manageAria")}
-          className={styles.cardToggle}
-          title={t("projectDirectory.manageAria")}
-          type="button"
+        </Button>
+        <Button
+          type="primary"
+          loading={saving}
+          onClick={() => void save()}
+          disabled={isAgentScope ? !draft.trim() : bindableDirs.length === 0}
         >
-          <ChevronDown size={13} />
-        </button>
-      </Popover>
+          {t("common.apply")}
+        </Button>
+      </div>
     </div>
+  );
+
+  return (
+    <Popover
+      content={panel}
+      trigger="click"
+      open={open}
+      onOpenChange={handleOpenChange}
+      placement={isAgentScope ? "rightTop" : "topRight"}
+    >
+      <Tooltip title={info?.project_dir}>
+        <button
+          type="button"
+          className={`${styles.trigger} ${
+            info && !info.exists ? styles.triggerError : ""
+          } ${compact ? styles.triggerCompact : ""} ${
+            showFullPath ? styles.triggerFullPath : ""
+          }`}
+          aria-label={t(
+            isAgentScope
+              ? "projectDirectory.agentTitle"
+              : "projectDirectory.sessionTitle",
+          )}
+        >
+          {!info ? (
+            <LoaderCircle className={styles.spin} size={14} />
+          ) : info.exists ? (
+            <FolderOpen size={14} />
+          ) : (
+            <CircleAlert size={14} />
+          )}
+          {!compact && (
+            <>
+              {showFullPath ? (
+                <span className={styles.triggerIdentity}>
+                  <strong>{basename}</strong>
+                  <small>{info?.project_dir}</small>
+                </span>
+              ) : (
+                <span>{basename}</span>
+              )}
+              {/* Extra roots are not listed here; the count signals that
+                  more than the primary is bound. Driven by the applied list
+                  so an abandoned edit never shows up as bound. */}
+              {!isAgentScope && appliedCount > 1 && (
+                <em title={t("projectDirectory.countTitle")}>
+                  ·{appliedCount}
+                </em>
+              )}
+              {!showFullPath && (
+                <em>
+                  {t(
+                    info?.source === "session"
+                      ? "projectDirectory.sessionSource"
+                      : "projectDirectory.agentSource",
+                  )}
+                </em>
+              )}
+              <ChevronDown size={12} />
+            </>
+          )}
+        </button>
+      </Tooltip>
+    </Popover>
   );
 }

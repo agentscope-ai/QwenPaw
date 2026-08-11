@@ -162,9 +162,7 @@ def _is_outside_workspace(
         try:
             from ....config.context import get_all_project_dir_paths
 
-            roots.extend(
-                Path(path) for path in get_all_project_dir_paths()
-            )
+            roots.extend(Path(path) for path in get_all_project_dir_paths())
         except Exception:  # pylint: disable=broad-except
             logger.debug(
                 "Could not read project roots; checking workspace only",

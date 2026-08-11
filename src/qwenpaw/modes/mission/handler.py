@@ -49,9 +49,7 @@ def _snapshot_project_dirs() -> list[dict[str, Any]]:
     dirs = get_current_project_dirs()
     if not dirs:
         return []
-    return [
-        {"path": str(entry.path), "label": entry.label} for entry in dirs
-    ]
+    return [{"path": str(entry.path), "label": entry.label} for entry in dirs]
 
 
 def parse_mission_args(

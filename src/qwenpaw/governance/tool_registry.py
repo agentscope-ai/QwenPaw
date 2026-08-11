@@ -168,7 +168,17 @@ class ToolRegistry:
         input_data: dict[str, Any],
         workspace_dir: str = "",
     ) -> str:
-        """Extract the target from tool call arguments."""
+        """Extract the target from tool call arguments.
+
+        Args:
+            tool_name: policy-layer tool name, e.g. ``"Read"``
+            input_data: the tool call's raw arguments
+            workspace_dir: base directory for resolving *relative* paths of
+                ``file``-type tools. This must be the same base the tool
+                itself uses (the PRIMARY project directory — see
+                ``qwenpaw.config.context.get_tool_base_dir``), otherwise the
+                policy is evaluated against a path the tool never touches.
+        """
         param = self.get_target_param(tool_name)
         if not param:
             return ""

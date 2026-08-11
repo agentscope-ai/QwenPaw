@@ -271,17 +271,15 @@ def _trusted_request_project_dir(request_context: dict) -> str | None:
     Recognised sources:
 
     * ACP session metadata (``qwenpaw.project_dir``)
-    * cron task config (``cron_project_dir``)
     * a pre-validated ``project_dir`` injected by server-side callers
 
     Per-run only: never written back to the agent's saved default.
     """
     from ...agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 
-    for key in (ACP_PROJECT_DIR_META_KEY, "cron_project_dir"):
-        value = request_context.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+    value = request_context.get(ACP_PROJECT_DIR_META_KEY)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
     value = request_context.get("project_dir")
     if isinstance(value, str) and value.strip():
         return value.strip()
@@ -307,9 +305,12 @@ def _pending_project_dirs(request_context: dict) -> list[dict] | None:
 
     A chat without a server id cannot persist a session override yet, so
     the console sends the chosen list with the first message. The console
-    router also persists it onto the chat as soon as the chat exists;
-    reading it here too is what makes the **first** turn already run in
-    the chosen directories if the persistence has not landed yet.
+    router normally consumes those keys — it persists the pick onto the
+    chat and removes them, and from then on ``_session_project_dirs``
+    reads the chat. They only survive to here when the router could not
+    persist them (or when a non-console client sends them directly), and
+    reading them then is what keeps the **first** turn running in the
+    directories the user picked instead of the agent default.
 
     Accepts ``session_project_dirs`` (the list) and the legacy singular
     ``session_project_dir``. Client-supplied, so every entry is

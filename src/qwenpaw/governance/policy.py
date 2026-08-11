@@ -1316,7 +1316,20 @@ def save_governance_policy(
                        paths back to CODING_PROJECT_DIR placeholders
     """
     builtin_rules = copy.deepcopy(policy.builtin_rules)
-    user_rules = copy.deepcopy(policy.user_rules)
+    # System-managed extra-project-dir rules are NOT persisted: they are
+    # regenerated from the chat's bound directory list on every load (see
+    # ``_sync_extra_project_dir_rules``). Writing them would make the
+    # per-workspace policy.yaml chat-dependent — two chats bound to
+    # different directories would take turns deleting each other's rules,
+    # and a user rule that happened to share the marker reason would be
+    # dropped along with them.
+    user_rules = copy.deepcopy(
+        [
+            rule
+            for rule in policy.user_rules
+            if rule.reason != EXTRA_PROJECT_DIR_RULE_REASON
+        ],
+    )
 
     # ── Restore actual paths to WORKSPACE_DIR / CODING_PROJECT_DIR ──
     if workspace_dir:
@@ -1406,16 +1419,20 @@ def _create_default_policy(
     """Create a policy with full default rules (cold start, v2.0)."""
     builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
     user_rules = copy.deepcopy(get_default_user_rules())
+    cpd = coding_project_dir or workspace_dir
     if workspace_dir:
-        cpd = coding_project_dir or workspace_dir
         _resolve_placeholders(builtin_rules, workspace_dir, cpd)
         _resolve_placeholders(user_rules, workspace_dir, cpd)
-        user_rules = _sync_extra_project_dir_rules(
-            user_rules,
-            workspace_dir,
-            cpd,
-            extra_project_dirs or [],
-        )
+    # Outside the ``workspace_dir`` gate, matching ``load_governance_policy``:
+    # extra dirs carry literal absolute paths and need no placeholder
+    # resolution, so they must be granted even on a cold start that has no
+    # workspace to substitute.
+    user_rules = _sync_extra_project_dir_rules(
+        user_rules,
+        workspace_dir,
+        cpd,
+        extra_project_dirs or [],
+    )
     return GovernancePolicy(
         version="2.0",
         builtin_rules=builtin_rules,
@@ -1510,6 +1527,13 @@ def _unresolve_placeholders(
     cannot be distinguished in an already-resolved pattern, so the shared
     path is restored as ``WORKSPACE_DIR`` (the coding dir is still covered
     by the workspace rules in that case).
+
+    System-managed extra-project-dir rules are left untouched. Belt and
+    braces: :func:`save_governance_policy` already drops them before
+    calling this, but were they ever persisted their paths would have to
+    stay literal — an extra root sharing a prefix with the primary (e.g.
+    primary ``/repos/app`` + extra ``/repos/app-docs``) would otherwise be
+    corrupted into ``CODING_PROJECT_DIR-docs``.
     """
     # Build (actual_path, placeholder) pairs, longest path first.
     # avoiding CODING_PROJECT_DIR is substring of WORKSPACE_DIR
@@ -1521,6 +1545,8 @@ def _unresolve_placeholders(
     pairs.sort(key=lambda pair: len(pair[0]), reverse=True)
 
     for rule in rules:
+        if rule.reason == EXTRA_PROJECT_DIR_RULE_REASON:
+            continue
         for actual, placeholder in pairs:
             if actual and actual in rule.match:
                 rule.match = rule.match.replace(actual, placeholder)
@@ -1728,11 +1754,7 @@ def _sync_extra_project_dir_rules(
     to primary / overlaps the workspace, both already covered).
     """
 
-    def _dedupe_key(raw: str) -> str:
-        try:
-            return str(Path(raw).expanduser()).casefold()
-        except (OSError, TypeError):
-            return str(raw).casefold()
+    from ..services.project_directory import dir_key as _dedupe_key
 
     covered = {
         key

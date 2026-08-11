@@ -16,7 +16,6 @@ import os
 import stat
 import threading
 import time
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -33,39 +32,6 @@ from qwenpaw.agents.tools.utils import (
     TRUNCATION_METADATA_KEY,
     read_file_safe,
 )
-from qwenpaw.config.context import (
-    set_current_project_dir,
-    set_current_project_dirs,
-    set_current_workspace_dir,
-)
-from qwenpaw.services.project_directory import (
-    PathEscapeError,
-    ResolvedProjectDir,
-)
-
-
-@pytest.fixture(autouse=True)
-def _grant_tmp_path(tmp_path):
-    """Authorize each test's tmp_path as the effective project root.
-
-    At runtime ContextVarsSetupHook always populates the project-root
-    contextvars; unit tests mirror that instead of relying on the
-    global WORKING_DIR fallback.
-    """
-    root = tmp_path.resolve()
-    set_current_workspace_dir(root)
-    set_current_project_dir(root)
-    set_current_project_dirs((ResolvedProjectDir(path=root, exists=True),))
-    yield
-    set_current_workspace_dir(None)
-    set_current_project_dir(None)
-    set_current_project_dirs(None)
-
-
-def _clear_project_context() -> None:
-    set_current_workspace_dir(None)
-    set_current_project_dir(None)
-    set_current_project_dirs(None)
 
 
 # ---------------------------------------------------------------------------
@@ -76,68 +42,39 @@ def _clear_project_context() -> None:
 class TestResolveFilePath:
     """Tests for _resolve_file_path."""
 
-    def test_absolute_path_inside_root_is_resolved(self, tmp_path):
-        target = tmp_path / "test.txt"
-        result = _resolve_file_path(str(target))
-        assert result == str(target.resolve())
+    @patch("qwenpaw.agents.tools.file_io.get_tool_base_dir")
+    def test_absolute_path_unchanged(self, mock_base):
+        import sys
 
-    def test_absolute_path_outside_roots_is_rejected(self, tmp_path):
-        with pytest.raises(PathEscapeError):
-            _resolve_file_path("/definitely/not/a/granted/root.txt")
+        mock_base.return_value = None
+        result = _resolve_file_path("/tmp/test.txt")
+        # On Unix, path stays as-is; on Windows, it may get a
+        # drive prefix (e.g. C:\tmp\test.txt)
+        if sys.platform == "win32":
+            assert result.endswith("test.txt")
+        else:
+            assert result == "/tmp/test.txt"
 
-    def test_relative_path_resolves_from_primary(self, tmp_path):
+    @patch("qwenpaw.agents.tools.file_io.get_tool_base_dir")
+    def test_relative_path_resolved(self, mock_base):
+        from pathlib import Path
+
+        mock_base.return_value = Path("/workspace")
         result = _resolve_file_path("subdir/file.txt")
-        assert result == str((tmp_path / "subdir" / "file.txt").resolve())
+        assert result == str(Path("/workspace/subdir/file.txt"))
 
-    def test_dotdot_escaping_is_rejected(self, tmp_path):
-        depth = len(tmp_path.resolve().parts)
-        escape = "/".join([".."] * (depth + 2)) + "/escaped.txt"
-        with pytest.raises(PathEscapeError):
-            _resolve_file_path(escape)
+    @patch("qwenpaw.agents.tools.file_io.get_tool_base_dir")
+    def test_tilde_expansion(self, mock_base):
+        mock_base.return_value = None
+        result = _resolve_file_path("~/test.txt")
+        assert "~" not in result
+        assert result.endswith("test.txt")
 
     def test_workspace_fallback_to_working_dir(self):
-        """With no context at all, resolution falls back to WORKING_DIR."""
-        _clear_project_context()
+        # Nothing configured: get_tool_base_dir() itself falls back to
+        # WORKING_DIR, so the resolver is left unpatched here.
         result = _resolve_file_path("file.txt")
         assert result.endswith("file.txt")
-
-
-class TestMultiRootResolution:
-    """Multi-root semantics at the tool layer."""
-
-    @pytest.fixture()
-    def two_roots(self, tmp_path):
-        primary = (tmp_path / "main").resolve()
-        extra = (tmp_path / "extra").resolve()
-        primary.mkdir()
-        extra.mkdir()
-        set_current_workspace_dir(tmp_path.resolve())
-        set_current_project_dir(primary)
-        set_current_project_dirs(
-            (
-                ResolvedProjectDir(path=primary, exists=True),
-                ResolvedProjectDir(path=extra, exists=True),
-            ),
-        )
-        return primary, extra
-
-    def test_absolute_path_in_extra_root_is_allowed(self, two_roots):
-        _, extra = two_roots
-        result = _resolve_file_path(str(extra / "file.txt"))
-        assert result == str(extra / "file.txt")
-
-    def test_relative_path_resolves_from_primary_only(self, two_roots):
-        primary, extra = two_roots
-        # Even when the same-named file exists in the extra root, a
-        # relative path lands in the primary.
-        (extra / "file.txt").write_text("extra")
-        result = _resolve_file_path("file.txt")
-        assert result == str(primary / "file.txt")
-
-    def test_dotdot_reaching_extra_root_is_legitimate(self, two_roots):
-        _, extra = two_roots
-        result = _resolve_file_path(f"../{extra.name}/file.txt")
-        assert result == str(extra / "file.txt")
 
 
 # ---------------------------------------------------------------------------

@@ -1281,11 +1281,6 @@ class TestExecuteShellCommand:
         tmp_path,
     ):
         from qwenpaw.agents.tools.shell import execute_shell_command
-        from qwenpaw.config.context import set_current_workspace_dir
-
-        # Authorize tmp_path as a working root so the explicit cwd
-        # passes the containment check.
-        set_current_workspace_dir(tmp_path)
 
         system_bin = tmp_path / "system-bin"
         system_bin.mkdir()
@@ -1316,36 +1311,6 @@ class TestExecuteShellCommand:
         assert Path(path_entries[0]) == Path(sys.executable).parent
         assert config.env_vars == {}
         assert config.timeout_seconds == 30
-
-    @pytest.mark.asyncio
-    async def test_cwd_inside_granted_root_is_allowed(self, tmp_path):
-        from qwenpaw.agents.tools.shell import execute_shell_command
-        from qwenpaw.config.context import set_current_workspace_dir
-
-        set_current_workspace_dir(tmp_path)
-        with (
-            patch("qwenpaw.agents.tools.shell.sys.platform", "linux"),
-            patch(
-                "qwenpaw.agents.tools.shell._execute_posix_host",
-                AsyncMock(return_value=(0, "ok", "")),
-            ) as mock_exec,
-        ):
-            result = await execute_shell_command("echo hi", cwd=tmp_path)
-        assert "ok" in result.content[0].text
-        # The resolved cwd is passed through to the executor.
-        assert str(tmp_path.resolve()) in str(mock_exec.call_args)
-
-    @pytest.mark.asyncio
-    async def test_cwd_outside_granted_roots_is_blocked(self, tmp_path):
-        from qwenpaw.agents.tools.shell import execute_shell_command
-        from qwenpaw.config.context import set_current_workspace_dir
-
-        set_current_workspace_dir(tmp_path)
-        outside = tmp_path / ".." / "somewhere-else"
-        result = await execute_shell_command("echo hi", cwd=outside)
-        assert "outside the authorized project directories" in (
-            result.content[0].text
-        )
 
     @pytest.mark.asyncio
     async def test_sandbox_uses_explicit_path_without_mutating_config(
@@ -2470,12 +2435,8 @@ async def test_non_dataclass_sandbox_config_ignored(
     import logging
 
     from qwenpaw.agents.tools.shell import execute_shell_command
-    from qwenpaw.config.context import set_current_workspace_dir
 
     monkeypatch.setenv("SHELL", "/bin/sh")
-    # Authorize tmp_path as a working root so the explicit cwd
-    # passes the containment check.
-    set_current_workspace_dir(tmp_path)
 
     with caplog.at_level(logging.WARNING, logger="qwenpaw.agents.tools.shell"):
         result = await execute_shell_command(

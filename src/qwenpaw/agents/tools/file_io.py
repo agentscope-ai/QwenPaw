@@ -21,7 +21,6 @@ from ...config.context import (
     get_tool_base_dir,
 )
 from ...runtime.tool_registry import tool_descriptor
-from ...services.project_directory import resolve_under_roots
 from ...utils.io_utils import (
     append_text_async,
     get_path_lock,
@@ -66,23 +65,25 @@ def _resolve_file_path(file_path: str) -> str:
     """Resolve a tool-supplied file path against the project roots.
 
     Relative paths resolve from the PRIMARY project directory (never an
-    extra root); absolute paths are accepted as-is. In both cases the
-    resolved target must land inside one of the granted roots — this is
-    the tool-layer half of the containment check, shared by every file
-    tool that imports this helper.
+    extra root). Absolute paths are used as given.
+
+    Deliberately NOT a permission boundary: the tool layer only decides
+    what a path *means*, and a path outside the bound directories is not
+    an error here. Access is gated by the governance rules and the guard
+    chain (and, when enabled, the OS sandbox), which is where the user's
+    approval prompts come from. Enforcing containment here as well made
+    ordinary absolute-path edits fail that had always worked.
 
     Args:
         file_path: The input file path (absolute or relative).
 
     Returns:
         The resolved absolute file path as string.
-
-    Raises:
-        PathEscapeError: the path resolves outside every granted root.
-        ValueError: the input is blank.
     """
-    roots = _effective_project_roots()
-    return str(resolve_under_roots(file_path, roots=roots, primary=roots[0]))
+    path = Path(file_path).expanduser()
+    if path.is_absolute():
+        return str(path)
+    return str(_effective_project_roots()[0] / file_path)
 
 
 def _get_encoding_for_file(file_path: str) -> str:
@@ -177,14 +178,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
                 ],
             )
 
-    try:
-        file_path = _resolve_file_path(file_path)
-    except ValueError as e:
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[TextBlock(type="text", text=f"Error: {e}")],
-        )
+    file_path = _resolve_file_path(file_path)
 
     try:
         content = await read_file_safe(file_path)
@@ -326,14 +320,7 @@ async def write_file(
             ],
         )
 
-    try:
-        file_path = _resolve_file_path(file_path)
-    except ValueError as e:
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[TextBlock(type="text", text=f"Error: {e}")],
-        )
+    file_path = _resolve_file_path(file_path)
     encoding = _get_encoding_for_file(file_path)
 
     try:
@@ -407,14 +394,7 @@ async def edit_file(
             ],
         )
 
-    try:
-        resolved_path = _resolve_file_path(file_path)
-    except ValueError as e:
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[TextBlock(type="text", text=f"Error: {e}")],
-        )
+    resolved_path = _resolve_file_path(file_path)
 
     encoding = _get_encoding_for_file(resolved_path)
     async with get_path_lock(resolved_path):
@@ -540,14 +520,7 @@ async def append_file(
             ],
         )
 
-    try:
-        file_path = _resolve_file_path(file_path)
-    except ValueError as e:
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[TextBlock(type="text", text=f"Error: {e}")],
-        )
+    file_path = _resolve_file_path(file_path)
     encoding = _get_encoding_for_file(file_path)
 
     try:

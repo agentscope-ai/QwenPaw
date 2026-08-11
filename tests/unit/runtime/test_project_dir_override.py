@@ -12,6 +12,7 @@ import pytest
 
 from qwenpaw.agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.modes.coding.mixin import CodingModeMixin
 from qwenpaw.runtime.builder import AgentBuilder
 
 
@@ -89,67 +90,26 @@ def test_request_project_warns_for_unsupported_config(
     assert "unsupported config type: dict" in caplog.text
 
 
-def test_directory_prompt_prefers_resolved_contextvar(tmp_path):
-    """The prompt shows the value resolved in PRE_DISPATCH, never a
-    re-derived one from the config."""
-    from qwenpaw.config.context import set_current_project_dir
-    from qwenpaw.runtime.prompt_contributors import (
-        DirectoryContextContributor,
-    )
-
+def test_coding_prompt_prefers_request_project(monkeypatch, tmp_path):
     config = AgentProfileConfig(id="default", name="Default")
-    config.project_dir = str(tmp_path / "from-config")
-    ctx = SimpleNamespace(
-        workspace_dir=tmp_path / "workspace",
-        extras={"agent_config": config},
+    config.coding_mode.enabled = True
+    config.project_dir = str(tmp_path)
+
+    def fail_load_agent_config(_agent_id):
+        raise AssertionError("request project should be used first")
+
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        fail_load_agent_config,
     )
-    set_current_project_dir(tmp_path / "resolved")
-    try:
-        block = DirectoryContextContributor().contribute_sync(ctx)
-        assert str(tmp_path / "resolved") in block
-        assert "from-config" not in block
-    finally:
-        set_current_project_dir(None)
+
+    # The request-scoped config is read straight off the holder; the disk
+    # reload is only a last resort and must not be reached here.
+    holder = SimpleNamespace(_agent_config=config, name="default")
+    assert CodingModeMixin._get_coding_project_dir(holder) == str(tmp_path)
 
 
-def test_directory_prompt_lists_all_roots_with_primary(tmp_path):
-    from qwenpaw.config.context import (
-        set_current_project_dir,
-        set_current_project_dirs,
-    )
-    from qwenpaw.runtime.prompt_contributors import (
-        DirectoryContextContributor,
-    )
-    from qwenpaw.services.project_directory import ResolvedProjectDir
-
-    primary = tmp_path / "backend"
-    extra = tmp_path / "docs"
-    config = AgentProfileConfig(id="default", name="Default")
-    ctx = SimpleNamespace(
-        workspace_dir=tmp_path / "workspace",
-        extras={"agent_config": config},
-    )
-    set_current_project_dir(primary)
-    set_current_project_dirs(
-        (
-            ResolvedProjectDir(path=primary, label="api", exists=True),
-            ResolvedProjectDir(path=extra, label=None, exists=True),
-        ),
-    )
-    try:
-        block = DirectoryContextContributor().contribute_sync(ctx)
-        assert f"1. {primary} (primary) — api" in block
-        assert f"2. {extra}" in block
-        # Extra-root guidance only appears with more than one root.
-        assert "ABSOLUTE path" in block
-    finally:
-        set_current_project_dir(None)
-        set_current_project_dirs(None)
-
-
-def test_normal_prompt_workspace_fallback_shows_working_directory(tmp_path):
-    """Nothing configured: the workspace appears once, as the working
-    directory — never re-labelled as a project."""
+def test_normal_prompt_includes_workspace_fallback_as_project(tmp_path):
     config = AgentProfileConfig(id="default", name="Default")
     ctx = SimpleNamespace(
         workspace_dir=tmp_path,
@@ -165,8 +125,13 @@ def test_normal_prompt_workspace_fallback_shows_working_directory(tmp_path):
 
     prompt = AgentBuilder().build_prompt(ctx, config)
 
-    assert f"Working directory: {tmp_path}" in prompt
+    assert "Project directory" in prompt
     assert str(tmp_path) in prompt
+    # Nothing is configured, so project and workspace are the same path.
+    # The directory block then names it once as the working directory
+    # rather than printing it twice under two labels, which would invite
+    # the model to treat internal QwenPaw state as project content.
+    assert "Working directory:" in prompt
 
 
 def test_normal_prompt_uses_session_project_snapshot(tmp_path):

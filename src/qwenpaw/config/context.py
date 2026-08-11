@@ -1,26 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Context variables for the agent workspace and project directories.
+"""Context variable for agent workspace directory.
 
-Two distinct concepts are tracked per request:
-
-``current_workspace_dir``
-    The agent's **internal** storage root (config, memory, sessions,
-    skills, media, cache).  Never repointed to a business repository.
-
-``current_project_dir`` / ``current_project_dirs``
-    The **effective project directories** for this turn. The first
-    entry (mirrored into ``current_project_dir``) is the PRIMARY
-    project directory: the base for relative paths in file tools, the
-    default ``cwd`` for shell commands, and the root for code/Git
-    tooling. Additional entries are extra project directories, granted
-    by governance and described in the prompt, but never used as a
-    resolution base. Resolved once per turn from fork override →
-    mode pin → request override → session override → agent config →
-    workspace fallback.
-
-Keeping them separate is deliberate: repointing ``current_workspace_dir``
-to simulate a project switch would make memory, skills, cache, approvals
-and audit records leak into the user's repository.
+This module provides a context variable to pass the agent's workspace
+directory to tool functions, allowing them to resolve relative paths
+correctly in a multi-agent environment.
 """
 from __future__ import annotations
 
@@ -97,11 +80,11 @@ def set_current_project_dir_source(source: str | None) -> None:
 # Index 0 mirrors ``current_project_dir``. Empty when nothing is
 # configured (tools then fall back to the workspace via
 # ``get_tool_base_dir``).
-current_project_dirs: ContextVar[tuple["ResolvedProjectDir", ...] | None] = (
-    ContextVar(
-        "current_project_dirs",
-        default=None,
-    )
+current_project_dirs: ContextVar[
+    tuple["ResolvedProjectDir", ...] | None
+] = ContextVar(
+    "current_project_dirs",
+    default=None,
 )
 
 

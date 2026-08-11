@@ -33,25 +33,6 @@ from qwenpaw.agents.tools.view_media import (
     view_video,
 )
 from qwenpaw.providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
-from qwenpaw.config.context import (
-    set_current_project_dir,
-    set_current_project_dirs,
-    set_current_workspace_dir,
-)
-from qwenpaw.services.project_directory import ResolvedProjectDir
-
-
-@pytest.fixture(autouse=True)
-def _grant_tmp_path(tmp_path):
-    """Authorize each test's tmp_path as the effective project root."""
-    root = tmp_path.resolve()
-    set_current_workspace_dir(root)
-    set_current_project_dir(root)
-    set_current_project_dirs((ResolvedProjectDir(path=root, exists=True),))
-    yield
-    set_current_workspace_dir(None)
-    set_current_project_dir(None)
-    set_current_project_dirs(None)
 
 
 # ---------------------------------------------------------------------------
@@ -144,9 +125,9 @@ class TestValidateMediaPath:
         )
         assert err is None
 
-    def test_nonexistent_file(self, tmp_path):
+    def test_nonexistent_file(self):
         _, err = _validate_media_path(
-            str(tmp_path / "img.png"),
+            "/nonexistent/img.png",
             _IMAGE_EXTENSIONS,
             "image",
         )
@@ -482,9 +463,9 @@ class TestViewImage:
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
-    async def test_nonexistent_local_file(self, mock_support, tmp_path):
+    async def test_nonexistent_local_file(self, mock_support):
         mock_support.return_value = True
-        result = await view_image(str(tmp_path / "image.png"))
+        result = await view_image("/nonexistent/image.png")
         assert "does not exist" in result.content[0].text
 
     @pytest.mark.asyncio
@@ -537,7 +518,7 @@ class TestViewVideo:
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
-    async def test_nonexistent_local_file(self, mock_support, tmp_path):
+    async def test_nonexistent_local_file(self, mock_support):
         mock_support.return_value = True
-        result = await view_video(str(tmp_path / "vid.mp4"))
+        result = await view_video("/nonexistent/vid.mp4")
         assert "does not exist" in result.content[0].text

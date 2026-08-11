@@ -44,7 +44,10 @@ async def send_file_to_user(
     file_path = unquote(file_path)
     file_path = os.path.expanduser(unicodedata.normalize("NFC", file_path))
 
-    # Resolve against the project roots (containment check included)
+    # Join a relative path onto the primary project dir. NOT a containment
+    # check — access is gated by the governance rules and the guard chain
+    # (see ``_resolve_file_path``). The guard is only for malformed input
+    # that ``Path`` itself rejects (e.g. an embedded NUL byte).
     try:
         file_path = _resolve_file_path(file_path)
     except ValueError as e:

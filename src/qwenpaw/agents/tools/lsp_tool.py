@@ -58,22 +58,17 @@ def _resolve_root() -> Path:
     return get_tool_base_dir()
 
 
-def _resolve_file(
-    file_path: str,
-    root: Path,
-) -> "Path | ToolChunk":
-    """Resolve ``file_path`` and ensure it lives inside a granted root.
+def _resolve_file(file_path: str) -> "Path | ToolChunk":
+    """Resolve ``file_path`` through the shared tool-layer policy.
 
-    Resolution (relative paths join onto the primary dir) and the
-    containment check both come from the shared tool-layer policy; the
-    ``root`` argument stays the LSP server root.
+    Relative paths join onto the primary project dir. Containment is
+    deliberately not checked here: with several granted roots the LSP
+    server root is only one of them, and a file in an extra root must
+    still be servable. Access itself is gated by the governance rules.
     """
     if not file_path:
         return _make_response("Error: missing `file_path`.")
-    try:
-        resolved = Path(_resolve_file_path(file_path))
-    except ValueError as e:
-        return _make_response(f"Error: {e}")
+    resolved = Path(_resolve_file_path(file_path))
     if not resolved.exists():
         return _make_response(
             f"Error: path {resolved} does not exist.",
@@ -201,7 +196,7 @@ def make_lsp_tool(  # noqa: C901  pylint: disable=too-many-statements
             )
             target_file: Optional[Path] = None
         else:
-            resolved_or_err = _resolve_file(file_path, root)
+            resolved_or_err = _resolve_file(file_path)
             if isinstance(resolved_or_err, ToolChunk):
                 return resolved_or_err
             target_file = resolved_or_err

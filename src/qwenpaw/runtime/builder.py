@@ -644,6 +644,35 @@ class AgentBuilder:
         return rc
 
     @staticmethod
+    def _stamp_resolved_project(agent_config: Any) -> Any:
+        """Stamp the already-resolved primary dir, or ``None`` if unset.
+
+        Returns ``None`` only when the resolver never ran, which tells
+        the caller to fall back to validating the request keys itself.
+        """
+        from ..config.context import (
+            get_current_project_dir,
+            get_current_project_dir_source,
+        )
+
+        resolved = get_current_project_dir()
+        if resolved is None:
+            return None
+        if get_current_project_dir_source() == "workspace_fallback":
+            # Nothing configured: keep project_dir unset instead of
+            # repointing it at the agent's internal workspace.
+            return agent_config
+        if not hasattr(agent_config, "model_copy"):
+            _logger.warning(
+                "Ignoring request project for unsupported config type: %s",
+                type(agent_config).__name__,
+            )
+            return agent_config
+        stamped = agent_config.model_copy(deep=True)
+        stamped.project_dir = str(resolved)
+        return stamped
+
+    @staticmethod
     def _apply_request_project(
         agent_config: Any,
         request_context: dict[str, Any],
@@ -658,26 +687,8 @@ class AgentBuilder:
         tests), the trusted request keys are validated directly as
         before.
         """
-        from ..config.context import (
-            get_current_project_dir,
-            get_current_project_dir_source,
-        )
-
-        resolved = get_current_project_dir()
-        if resolved is not None:
-            if get_current_project_dir_source() == "workspace_fallback":
-                # Nothing configured: keep project_dir unset instead of
-                # repointing it at the agent's internal workspace.
-                return agent_config
-            if not hasattr(agent_config, "model_copy"):
-                _logger.warning(
-                    "Ignoring request project for unsupported config "
-                    "type: %s",
-                    type(agent_config).__name__,
-                )
-                return agent_config
-            stamped = agent_config.model_copy(deep=True)
-            stamped.project_dir = str(resolved)
+        stamped = AgentBuilder._stamp_resolved_project(agent_config)
+        if stamped is not None:
             return stamped
 
         from ..agents.fork_project import resolve_allowed_fork_project_dir
@@ -763,9 +774,7 @@ class AgentBuilder:
             _project_dir = getattr(agent_config, "project_dir", None) or ws
             # Prefer validated fork worktree as the shell/file dir.
             _payload = (
-                getattr(request, "request_context", None)
-                if request
-                else None
+                getattr(request, "request_context", None) if request else None
             )
             if isinstance(_payload, dict):
                 from ..agents.fork_project import (

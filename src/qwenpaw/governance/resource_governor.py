@@ -70,23 +70,23 @@ class ResourceGovernor:
         )
         # Remaining bound project directories (the list minus the
         # primary). They get their own ALLOW rules and sandbox mounts;
-        # entries duplicating the primary/workspace are dropped.
-        ws_folded = str(self.workspace_dir).casefold()
-        cpd_folded = str(self.coding_project_dir).casefold()
+        # entries duplicating the primary/workspace are dropped. Keys come
+        # from the shared ``dir_key`` so the fold follows the platform:
+        # folding unconditionally would make ``/repo`` and ``/Repo`` look
+        # identical on Linux and leave one of two bound roots ungranted.
+        from ..services.project_directory import dir_key
+
+        seen = {dir_key(self.workspace_dir), dir_key(self.coding_project_dir)}
         self.extra_project_dirs: list[Path] = []
         for raw in extra_project_dirs or []:
             try:
                 path = Path(raw).expanduser()
-            except (OSError, TypeError):
+            except (OSError, TypeError, ValueError):
                 continue
-            folded = str(path).casefold()
-            if folded in (ws_folded, cpd_folded):
+            key = dir_key(path)
+            if key in seen:
                 continue
-            if any(
-                folded == str(existing).casefold()
-                for existing in self.extra_project_dirs
-            ):
-                continue
+            seen.add(key)
             self.extra_project_dirs.append(path)
         # Policy is stored outside the workspace to prevent agent tampering.
         # Use ``<basename>_<hash>`` so two workspaces with the same basename
@@ -385,9 +385,7 @@ class ResourceGovernor:
             mounts.append(MountSpec(path=cpd, writable=True))
         for extra in self.extra_project_dirs:
             extra_path = str(extra)
-            if extra_path and not any(
-                m.path == extra_path for m in mounts
-            ):
+            if extra_path and not any(m.path == extra_path for m in mounts):
                 mounts.append(MountSpec(path=extra_path, writable=True))
 
         return SandboxConfig(

@@ -86,22 +86,13 @@ export const chatProjectDirectoryApi = {
       { method: "DELETE" },
     ),
 
-  // ── Singular (deprecated, agent-scope-compatible) ────────────────────
+  /**
+   * Primary directory only. Still used where a single path is enough (the
+   * Files workspace and navigator), and as the fallback display value when
+   * the chat has no override and the plural list comes back empty.
+   */
   get: (chatId: string) =>
     request<EffectiveProjectDirectory>(
       `/chats/${encodeURIComponent(chatId)}/project-dir`,
-    ),
-  set: (chatId: string, projectDir: string) =>
-    request<EffectiveProjectDirectory>(
-      `/chats/${encodeURIComponent(chatId)}/project-dir`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ project_dir: projectDir }),
-      },
-    ),
-  clear: (chatId: string) =>
-    request<EffectiveProjectDirectory>(
-      `/chats/${encodeURIComponent(chatId)}/project-dir`,
-      { method: "DELETE" },
     ),
 };

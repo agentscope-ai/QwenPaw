@@ -338,10 +338,10 @@ class DirectoryContextContributor(SyncPromptContributor):
             fallback = getattr(agent_config, "project_dir", None)
             if fallback:
                 project_dir = fallback
-        if project_dir is None and workspace_dir is None:
-            return None
         if project_dir is None:
             project_dir = workspace_dir
+        if project_dir is None:
+            return None
 
         # When no project was ever configured the two paths are
         # identical; printing the same path twice under two labels
@@ -359,8 +359,7 @@ class DirectoryContextContributor(SyncPromptContributor):
             )
 
         entries = [
-            (str(entry.path), entry.label, not entry.exists)
-            for entry in dirs
+            (str(entry.path), entry.label, not entry.exists) for entry in dirs
         ]
         if not entries:
             entries = [(str(project_dir), None, False)]

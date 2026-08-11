@@ -27,7 +27,6 @@ from ...config.context import (
     get_tool_base_dir,
 )
 from ...runtime.tool_registry import tool_descriptor
-from ...services.project_directory import is_within_roots
 from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
 from ...utils.io_utils import run_sync_io
@@ -1037,26 +1036,14 @@ async def execute_shell_command(
             timeout = configured
 
     if cwd is not None:
-        # An explicit cwd may point at any granted root (primary or
-        # extra), but never outside them.
+        # A relative cwd is taken from the primary directory; an absolute one
+        # is used as given. Not a permission boundary — the governance rules
+        # and guard chain decide what a command may touch, and a shell can
+        # `cd` anywhere regardless, so blocking here only broke ordinary use.
         roots = get_all_project_dir_paths() or [get_tool_base_dir()]
         candidate = Path(str(cwd)).expanduser()
         if not candidate.is_absolute():
             candidate = roots[0] / candidate
-        if not is_within_roots(candidate, roots):
-            return ToolChunk(
-                is_last=True,
-                state=ToolResultState.ERROR,
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=(
-                            f"Blocked: cwd {cwd} is outside the "
-                            "authorized project directories."
-                        ),
-                    ),
-                ],
-            )
         working_dir = candidate.resolve()
     else:
         working_dir = get_tool_base_dir()

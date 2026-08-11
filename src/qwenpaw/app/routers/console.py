@@ -118,6 +118,12 @@ async def _persist_pending_project_dirs(
     Never overwrites an existing session override — a chat that already
     has one is not a new chat, and clobbering it would lose the user's
     setting.
+
+    The keys are popped once they have been **consumed** — persisted onto
+    the chat, where every later turn reads them from. If persistence does
+    not happen (the chat vanished), they are put back so that
+    ``ContextVarsSetupHook`` can still honour the user's pick for this
+    first turn instead of silently falling back to the agent default.
     """
     request_context = native_payload["meta"].get("request_context")
     if not isinstance(request_context, dict):
@@ -126,6 +132,15 @@ async def _persist_pending_project_dirs(
     raw_list = request_context.pop("session_project_dirs", None)
     raw_single = request_context.pop("session_project_dir", None)
     raw_name = request_context.pop("session_project_name", None)
+
+    def _leave_for_hook() -> None:
+        """Restore the unconsumed keys for ContextVarsSetupHook."""
+        if raw_list is not None:
+            request_context["session_project_dirs"] = raw_list
+        if raw_single is not None:
+            request_context["session_project_dir"] = raw_single
+        if raw_name is not None:
+            request_context["session_project_name"] = raw_name
 
     pending: list | None = None
     if isinstance(raw_list, list) and raw_list:
@@ -166,7 +181,14 @@ async def _persist_pending_project_dirs(
         entries,
         normalize_project_name(raw_name),
     )
-    return updated or chat
+    if updated is None:
+        # The chat could not be updated, so nothing persisted the pick.
+        # Hand it to the hook rather than dropping it: this turn would
+        # otherwise run in the agent default while the console shows the
+        # directory the user chose.
+        _leave_for_hook()
+        return chat
+    return updated
 
 
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):

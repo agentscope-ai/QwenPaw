@@ -158,6 +158,28 @@ def _policy_tool_init(
     self._qp_raw_params = {}  # Set per-call by check_permissions
 
 
+def _relative_path_base(governor: Any) -> str:
+    """Return the directory a tool's *relative* paths resolve against.
+
+    Must match the tool layer exactly. File/shell tools resolve relative
+    paths from the PRIMARY project directory (``get_tool_base_dir()``),
+    not from the agent workspace — evaluating the policy against a
+    different base would check one path and operate on another, so a
+    DENY/ASK rule scoped to the project would be missed while the
+    workspace ALLOW rules matched instead.
+
+    ``governor.coding_project_dir`` is the request-scoped primary project
+    dir and already falls back to the workspace when nothing is
+    configured, so this is the workspace whenever no project is bound.
+    """
+    if governor is None:
+        return ""
+    base = getattr(governor, "coding_project_dir", None)
+    if base:
+        return str(base)
+    return str(getattr(governor, "workspace_dir", "") or "")
+
+
 def _build_tc_spec(self: Any) -> ToolCallSpec:
     """Build ToolCallSpec from instance fields + dynamic target."""
     governor = self._qp_governor
@@ -171,7 +193,7 @@ def _build_tc_spec(self: Any) -> ToolCallSpec:
         target=DEFAULT_REGISTRY.extract_target(
             tool_name,
             params,
-            workspace_dir=str(governor.workspace_dir) if governor else "",
+            workspace_dir=_relative_path_base(governor),
         ),
         agent_id=request_ctx.get("agent_id", ""),
         session_id=request_ctx.get("session_id", ""),
