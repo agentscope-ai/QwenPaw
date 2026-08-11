@@ -419,9 +419,24 @@ class DriverManager:
         handlers = self._iter_handlers(protocol, scope_id=scope_id)
         capabilities: list[DriverCapability] = []
         for handler in handlers:
-            for capability in await handler.list_capabilities(
-                request_context=request_context,
-            ):
+            try:
+                handler_capabilities = await handler.list_capabilities(
+                    request_context=request_context,
+                )
+            except Exception as exc:
+                # Global capability discovery is best-effort: one unhealthy
+                # external service must not unregister every healthy Driver.
+                # The single-driver API intentionally keeps propagating the
+                # error so diagnostics and configuration endpoints can report
+                # the failing Driver to the caller.
+                logger.warning(
+                    "Failed to list capabilities for Driver '%s': %s",
+                    handler.name,
+                    exc,
+                    exc_info=True,
+                )
+                continue
+            for capability in handler_capabilities:
                 if kind is None or capability.kind == kind:
                     capabilities.append(capability)
         return sorted(capabilities, key=lambda item: item.capability_id)

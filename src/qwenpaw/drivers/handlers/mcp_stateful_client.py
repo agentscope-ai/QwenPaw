@@ -27,6 +27,7 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.exceptions import McpError
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,23 @@ def _is_transport_error(exc: BaseException) -> bool:
     reconnect rather than treat the failure as permanent.  See
     ``_TRANSPORT_ERRORS`` for the full list of recognised exception types.
     """
-    return isinstance(exc, _TRANSPORT_ERRORS)
+    if isinstance(exc, _TRANSPORT_ERRORS):
+        return True
+
+    # Some MCP servers report an expired/dead stateful session as a JSON-RPC
+    # error instead of closing the underlying HTTP stream.  The transport is
+    # still unusable in that state and must be recreated, even though the SDK
+    # surfaces it as ``McpError`` rather than ``httpx.TransportError``.
+    if isinstance(exc, McpError):
+        message = str(getattr(exc.error, "message", exc)).strip().casefold()
+        return message == "session terminated"
+
+    # Preserve transport classification when SDK/anyio errors are wrapped in
+    # an ExceptionGroup by a task group.
+    sub_excs = getattr(exc, "exceptions", None)
+    if sub_excs:
+        return any(_is_transport_error(item) for item in sub_excs)
+    return False
 
 
 def _is_401_error(exc: BaseException) -> bool:
@@ -350,8 +367,37 @@ class _MCPClientMixin:
             try:
                 res = await self.session.list_tools()
             except Exception as exc:
-                self._handle_transport_error(exc)
-                raise
+                if not self._handle_transport_error(exc):
+                    raise
+
+                # Tool schemas are connection-independent.  Keep previously
+                # discovered tools registered while the lifecycle task
+                # replaces the dead session in the background.
+                if self._cached_tools is not None:
+                    logger.warning(
+                        "MCP client '%s' session failed during list_tools; "
+                        "serving cached schemas while reconnecting.",
+                        self.name,
+                    )
+                    return self._cached_tools
+
+                # A cold client has no schemas to fall back to.  Wait briefly
+                # for the lifecycle task and retry discovery exactly once.
+                try:
+                    await asyncio.wait_for(
+                        self._ready_event.wait(),
+                        timeout=_LIST_TOOLS_RECONNECT_WAIT,
+                    )
+                except asyncio.TimeoutError:
+                    raise exc from None
+
+                if not self.is_connected or self.session is None:
+                    raise exc from None
+                try:
+                    res = await self.session.list_tools()
+                except Exception as retry_exc:
+                    self._handle_transport_error(retry_exc)
+                    raise
             self._cached_tools = res.tools
             return res.tools
 
@@ -500,7 +546,7 @@ class _MCPClientMixin:
         await asyncio.gather(task, return_exceptions=True)
         self._clear_lifecycle_state(task)
 
-    def _handle_transport_error(self, exc: BaseException) -> None:
+    def _handle_transport_error(self, exc: BaseException) -> bool:
         """Mark the client as disconnected and schedule a reconnect when *exc*
         indicates a transport/stream failure rather than an MCP-level error.
 
@@ -533,9 +579,13 @@ class _MCPClientMixin:
         ``session`` reference is never reached before the lifecycle task
         replaces it.  Clearing it here would require a lock (the lifecycle
         task also writes ``session``), adding unnecessary complexity.
+
+        Returns:
+            ``True`` when the exception represents a dead transport/session
+            and recovery state was applied; otherwise ``False``.
         """
         if not _is_transport_error(exc):
-            return
+            return False
         logger.warning(
             "Transport error on MCP client '%s' (%s: %s); "
             "marking as disconnected and scheduling reconnect.",
@@ -560,6 +610,7 @@ class _MCPClientMixin:
         # session is left as-is; see docstring above.
         if not self._stop_event.is_set():
             self._reload_event.set()
+        return True
 
     async def _wait_for_reload_or_stop(self) -> None:
         """Wait for lifecycle control events without polling."""

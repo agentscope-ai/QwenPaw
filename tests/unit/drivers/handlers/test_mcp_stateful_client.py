@@ -27,6 +27,8 @@ from __future__ import annotations
 import asyncio
 import httpx
 import pytest
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData
 
 import qwenpaw.drivers.handlers.mcp_stateful_client as mod
 from qwenpaw.drivers.handlers.mcp_stateful_client import (
@@ -60,6 +62,16 @@ def test_is_transport_error_distinguishes_transport_from_mcp_errors():
     assert _is_transport_error(EOFError())
     # An MCP-level error (not a transport failure) must NOT classify.
     assert not _is_transport_error(ValueError("not transport"))
+
+
+def test_is_transport_error_recognizes_terminated_mcp_session():
+    exc = McpError(ErrorData(code=-32603, message="Session terminated"))
+    assert _is_transport_error(exc)
+
+
+def test_is_transport_error_rejects_other_mcp_errors():
+    exc = McpError(ErrorData(code=-32602, message="Invalid tool arguments"))
+    assert not _is_transport_error(exc)
 
 
 def test_is_401_error_detects_plain_http_401():
@@ -368,6 +380,61 @@ async def test_list_tools_serves_cache_when_disconnected():
     # flaky MCP client doesn't kill the user's turn.
     result = await c.list_tools()
     assert result == ["cached-tool"]
+
+
+async def test_list_tools_serves_cache_and_reconnects_on_terminated_session():
+    c = _client()
+    c.is_connected = True
+    c._ready_event.set()
+    c._cached_tools = ["cached-tool"]  # type: ignore[list-item]
+
+    class TerminatedSession:
+        async def list_tools(self):
+            raise McpError(
+                ErrorData(code=-32603, message="Session terminated"),
+            )
+
+    c.session = TerminatedSession()  # type: ignore[assignment]
+
+    result = await c.list_tools()
+
+    assert result == ["cached-tool"]
+    assert c.is_connected is False
+    assert not c._ready_event.is_set()
+    assert c._reload_event.is_set()
+
+
+async def test_list_tools_retries_once_after_terminated_cold_session():
+    c = _client()
+    c.is_connected = True
+    c._ready_event.set()
+
+    class TerminatedSession:
+        async def list_tools(self):
+            raise McpError(
+                ErrorData(code=-32603, message="Session terminated"),
+            )
+
+    class HealthySession:
+        async def list_tools(self):
+            return type("Result", (), {"tools": ["fresh-tool"]})()
+
+    c.session = TerminatedSession()  # type: ignore[assignment]
+
+    async def reconnect() -> None:
+        await c._reload_event.wait()
+        c.session = HealthySession()  # type: ignore[assignment]
+        c.is_connected = True
+        c._ready_event.set()
+
+    reconnect_task = asyncio.create_task(reconnect())
+    try:
+        result = await c.list_tools()
+    finally:
+        await reconnect_task
+
+    assert result == ["fresh-tool"]
+    assert c._cached_tools == ["fresh-tool"]
 
 
 async def test_list_tools_raises_on_cold_start_without_cache():
