@@ -723,12 +723,28 @@ class QwenPawAgent(CodingModeMixin, Agent):
         stop_result = await self._run_stop_handlers(final_msg)
 
         if final_msg is None:
-            from ..loop.gates.runner import apply_stop_result
-
-            apply_stop_result(
-                self,
-                stop_result,
-                is_tool_call=True,
+            logger.warning(
+                "Model returned empty response (no content, no tool_calls). "
+                "This can happen when context nears the window limit and the "
+                "model produces no output. Consider increasing context size or "
+                "reducing message history.",
+            )
+            # Yield a visible error message to the user so they know what
+            # happened instead of the session silently losing response.
+            yield Msg(
+                name=self.name,
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "⚠️ The model returned an empty response. "
+                            "This often happens when the conversation context "
+                            "approaches the model's token limit. Try starting "
+                            "a new session or reducing context length."
+                        ),
+                    ),
+                ],
             )
             return
 
