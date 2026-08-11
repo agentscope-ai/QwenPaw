@@ -306,7 +306,7 @@ fn click_action(element: &AxElement, actions: &[String]) -> Option<&'static str>
         .map(|value| value.to_string())
         .unwrap_or_default();
     if matches!(role.as_str(), "AXMenuItem" | "AXMenuBarItem") {
-        action_named(actions, AX_PICK_ACTION).or_else(|| action_named(actions, kAXPressAction))
+        action_named(actions, kAXPressAction).or_else(|| action_named(actions, AX_PICK_ACTION))
     } else {
         action_named(actions, kAXPressAction)
     }
@@ -412,6 +412,19 @@ pub(crate) fn show_accessibility_menu(
         .element
         .perform_action(&CFString::from_static_string(AX_SHOW_MENU_ACTION))
     {
+        let app = AXUIElement::application(observation.window.owner_pid);
+        let _ = app.set_messaging_timeout(super::AX_MESSAGING_TIMEOUT_SECONDS);
+        if active_menu(
+            &app,
+            observation.window.owner_pid,
+            observation.window.hwnd as i64,
+        )
+        .is_some()
+        {
+            return Ok(Some(
+                json!({"applied": true, "native_action": AX_SHOW_MENU_ACTION}),
+            ));
+        }
         log::debug!(
             "[computer-use] {AX_SHOW_MENU_ACTION} unavailable; using verified pointer fallback: {error:?}"
         );

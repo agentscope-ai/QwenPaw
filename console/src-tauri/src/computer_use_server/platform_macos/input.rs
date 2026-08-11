@@ -174,9 +174,9 @@ pub(crate) fn invoke_element(
     if element_requires_frontmost(observation, params)? {
         set_focus(&observation.window)?;
     }
-    // Menu items use AXPick when the application exposes it. Unlike a pointer
-    // fallback, the semantic action also works when the command intentionally
-    // has no persistent on-screen rectangle.
+    // Menu items use their advertised semantic action. Unlike a pointer
+    // fallback, this also works when the command intentionally has no
+    // persistent on-screen rectangle.
     invoke_accessibility_element(observation, params, pending)
 }
 
@@ -302,7 +302,11 @@ pub(crate) fn type_text(
         }
         Ok(FocusedTextInput::Keyboard) => false,
         Err(error)
-            if transient_text_ready && matches!(error.0, "focus_failed" | "stale_observation") =>
+            if transient_text_ready
+                && matches!(
+                    error.0,
+                    "focus_failed" | "focus_not_editable" | "stale_observation"
+                ) =>
         {
             true
         }
@@ -363,16 +367,10 @@ fn post_text_event(
 
 fn post_key_chord(
     source: &CGEventSource,
-    window: &WindowInfo,
+    target_pid: i32,
     keycode: u16,
     flags: CGEventFlags,
 ) -> Result<(), (&'static str, String)> {
-    if !super::target_is_frontmost(window) {
-        return Err((
-            "focus_failed",
-            "The target application lost focus before keyboard input.".to_string(),
-        ));
-    }
     let down = CGEvent::new_keyboard_event(source.clone(), keycode, true).map_err(|_| {
         (
             "input_failed",
@@ -380,10 +378,7 @@ fn post_key_chord(
         )
     })?;
     down.set_flags(flags);
-    // Shortcuts must enter the same event path as a physical keyboard. Direct
-    // process delivery can invoke an application command without establishing
-    // the native responder or field editor that command normally creates.
-    down.post(CGEventTapLocation::HID);
+    down.post_to_pid(target_pid);
     let up = CGEvent::new_keyboard_event(source.clone(), keycode, false).map_err(|_| {
         (
             "input_failed",
@@ -391,15 +386,7 @@ fn post_key_chord(
         )
     })?;
     up.set_flags(flags);
-    // Always release the key even if the command changed application state;
-    // omitting key-up would leave the input session in an inconsistent state.
-    up.post(CGEventTapLocation::HID);
-    if !super::target_is_frontmost(window) {
-        return Err((
-            "focus_failed",
-            "The target application lost focus during keyboard input.".to_string(),
-        ));
-    }
+    up.post_to_pid(target_pid);
     Ok(())
 }
 
@@ -414,9 +401,9 @@ pub(crate) fn press_key(
         .ok_or(("invalid_request", "key is required.".to_string()))?;
     let (keycode, flags) =
         parse_key(key).ok_or(("invalid_request", format!("Unsupported key: {key}")))?;
-    set_focus(&observation.window)?;
+    let target_pid = set_focus(&observation.window)?;
     let source = event_source()?;
-    post_key_chord(&source, &observation.window, keycode, flags)?;
+    post_key_chord(&source, target_pid, keycode, flags)?;
     Ok(json!({"applied": true}))
 }
 
@@ -438,7 +425,7 @@ pub(crate) fn input_sequence(
         let result = match step {
             PreparedStep::Type(text) => post_sequence_text(observation, &source, target_pid, &text),
             PreparedStep::PressKey(keycode, flags) => {
-                post_key_chord(&source, &observation.window, keycode, flags)
+                post_key_chord(&source, target_pid, keycode, flags)
             }
         };
         if let Err(error) = result {

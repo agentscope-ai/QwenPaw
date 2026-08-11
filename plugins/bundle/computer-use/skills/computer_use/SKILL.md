@@ -110,8 +110,10 @@ exact element. `[settable]` explicitly confirms that `set_value` is
 supported; runtimes that do not publish capability markers may omit it.
 `[resource-backed]` means the displayed value names an object owned by the
 application. Do not use `set_value` on it: changing its accessibility label can
-repaint the text without changing the underlying object. Select the object and
-invoke the application's edit or rename command instead.
+repaint the text without changing the underlying object. Select it, observe
+again, then use an observed application command that explicitly describes the
+requested edit; a context menu exposed by `right_click` is one such route. Do
+not infer editing behavior from a generic accessibility action or shortcut.
 `[actions=...]` lists the accessibility actions the element exposes; never
 guess a semantic action when that list is present.
 
@@ -203,7 +205,9 @@ only when the surrounding application state shows the requested value. Do not su
 claim success or start another operation while confirmation remains pending.
 On macOS, only use `set_value` when `[settable]` is present. A
 `[resource-backed]` label must first be selected and put into edit mode through
-an explicit application command, such as an accessible edit or rename command.
+an observed application command, such as an accessible context-menu edit or
+rename command. Do not treat `AXConfirm` or `ENTER` as that command unless the
+application explicitly identifies it with the requested edit semantics.
 Some native editors are transient and appear only as the current focused AX
 element. Type when the replacement observation identifies that editable focus.
 If the command response instead contains `transient_text_ready: true`, the
@@ -214,6 +218,10 @@ window first. Its `effect` is unverified, so complete the edit with the
 application's documented command and observe the durable application state
 before continuing. Without editable focus or that explicit capability, stop
 rather than sending text to the surrounding view.
+If the completed resource is temporarily absent from the replacement
+accessibility listing, observe again without mutating anything. Repeat the edit
+only after a fresh observation proves that the old durable value remains; do
+not turn an application's transitional state into a duplicate write.
 Use the application's documented completion action when one is required, and
 verify the durable result. Do not guess completion commands or repeat an
 unverified write.
