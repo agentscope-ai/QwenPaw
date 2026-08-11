@@ -424,11 +424,7 @@ class DriverManager:
                     request_context=request_context,
                 )
             except Exception as exc:
-                # Global capability discovery is best-effort: one unhealthy
-                # external service must not unregister every healthy Driver.
-                # The single-driver API intentionally keeps propagating the
-                # error so diagnostics and configuration endpoints can report
-                # the failing Driver to the caller.
+                # Keep healthy Drivers available during partial failures.
                 logger.warning(
                     "Failed to list capabilities for Driver '%s': %s",
                     handler.name,

@@ -77,16 +77,11 @@ def _is_transport_error(exc: BaseException) -> bool:
     if isinstance(exc, _TRANSPORT_ERRORS):
         return True
 
-    # Some MCP servers report an expired/dead stateful session as a JSON-RPC
-    # error instead of closing the underlying HTTP stream.  The transport is
-    # still unusable in that state and must be recreated, even though the SDK
-    # surfaces it as ``McpError`` rather than ``httpx.TransportError``.
+    # A terminated MCP session requires a new transport.
     if isinstance(exc, McpError):
         message = str(getattr(exc.error, "message", exc)).strip().casefold()
         return message == "session terminated"
 
-    # Preserve transport classification when SDK/anyio errors are wrapped in
-    # an ExceptionGroup by a task group.
     sub_excs = getattr(exc, "exceptions", None)
     if sub_excs:
         return any(_is_transport_error(item) for item in sub_excs)
@@ -370,9 +365,7 @@ class _MCPClientMixin:
                 if not self._handle_transport_error(exc):
                     raise
 
-                # Tool schemas are connection-independent.  Keep previously
-                # discovered tools registered while the lifecycle task
-                # replaces the dead session in the background.
+                # Keep known schemas available during reconnection.
                 if self._cached_tools is not None:
                     logger.warning(
                         "MCP client '%s' session failed during list_tools; "
@@ -381,8 +374,7 @@ class _MCPClientMixin:
                     )
                     return self._cached_tools
 
-                # A cold client has no schemas to fall back to.  Wait briefly
-                # for the lifecycle task and retry discovery exactly once.
+                # Cold discovery waits for reconnection and retries once.
                 try:
                     await asyncio.wait_for(
                         self._ready_event.wait(),
@@ -581,8 +573,7 @@ class _MCPClientMixin:
         task also writes ``session``), adding unnecessary complexity.
 
         Returns:
-            ``True`` when the exception represents a dead transport/session
-            and recovery state was applied; otherwise ``False``.
+            Whether recovery state was applied.
         """
         if not _is_transport_error(exc):
             return False
