@@ -770,6 +770,93 @@ async def browse_dirs(
     return await asyncio.to_thread(_scan)
 
 
+# ---------------------------------------------------------------------------
+# Native OS folder picker
+# ---------------------------------------------------------------------------
+# The dialog window appears on the display the backend runs on. That is the
+# user's own screen for a local install, and the wrong screen (or nothing at
+# all) for a hosted one, so opening it is guarded as localhost-only.
+_LOCALHOST_ADDRS = {"127.0.0.1", "::1", "localhost"}
+
+
+def _enforce_localhost(request: Request) -> None:
+    """Reject non-localhost callers."""
+    client = request.client
+    if client and client.host not in _LOCALHOST_ADDRS:
+        raise HTTPException(
+            status_code=403,
+            detail="The native folder dialog is localhost-only",
+        )
+
+
+class NativePickerAvailability(BaseModel):
+    available: bool
+
+
+class NativePickerRequest(BaseModel):
+    prompt: str | None = None
+
+
+class NativePickerResult(BaseModel):
+    # None means the user cancelled, which is not an error.
+    path: str | None = None
+    cancelled: bool = False
+
+
+@router.get(
+    "/native-picker",
+    response_model=NativePickerAvailability,
+    summary="Whether this host can show an OS folder dialog",
+)
+async def native_picker_status(request: Request) -> NativePickerAvailability:
+    """Let the console decide between the OS dialog and the in-app browser."""
+    client = request.client
+    if client and client.host not in _LOCALHOST_ADDRS:
+        # Not an error: a remote console simply uses the in-app browser.
+        return NativePickerAvailability(available=False)
+    from ..native_dir_picker import native_picker_available
+
+    return NativePickerAvailability(
+        available=await asyncio.to_thread(native_picker_available),
+    )
+
+
+@router.post(
+    "/native-picker",
+    response_model=NativePickerResult,
+    summary="Open the OS folder dialog and return the chosen path",
+)
+async def native_picker_open(
+    request: Request,
+    req: NativePickerRequest | None = None,
+) -> NativePickerResult:
+    """Show the OS folder chooser and return an absolute path.
+
+    A browser cannot obtain an absolute path from its own file dialogs, so
+    the backend — which runs on the same machine for a local install —
+    opens the dialog instead.
+    """
+    _enforce_localhost(request)
+    from ..native_dir_picker import pick_directory
+
+    prompt = (req.prompt if req else None) or "Select a project folder"
+    try:
+        chosen = await pick_directory(prompt)
+    except RuntimeError as exc:
+        # 501: the host cannot do this, so the console should fall back
+        # rather than show the user a hard failure.
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+
+    if chosen is None:
+        return NativePickerResult(path=None, cancelled=True)
+    if not Path(chosen).is_dir():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Not a directory: {chosen}",
+        )
+    return NativePickerResult(path=chosen, cancelled=False)
+
+
 @router.get("/list", summary="List all project directorys for this agent")
 async def list_projects(request: Request) -> list[dict]:
     """Return all subdirectories in the agent's coding_projects folder."""

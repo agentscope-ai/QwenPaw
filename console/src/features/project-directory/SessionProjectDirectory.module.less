@@ -504,11 +504,11 @@
 
   :global(.ant-btn-primary) {
     min-width: 74px;
-    background: #f36b21;
+    background: var(--ant-color-primary);
     box-shadow: 0 5px 14px rgba(243, 107, 33, 0.18);
 
     &:hover {
-      background: #d95613 !important;
+      background: var(--ant-color-primary-hover, #d95613) !important;
     }
   }
 }
@@ -525,13 +525,18 @@
 
 .recentSelected {
   .recentIcon {
-    color: #f36b21;
+    color: var(--ant-color-primary);
   }
 }
 
+/* Reused for the "nested under another bound root" warning on a row. */
 .hint {
-  color: var(--ant-color-text-tertiary);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--ant-color-warning-text, #d48806);
   font-size: 10px;
+  line-height: 1.4;
 }
 
 .spin {
@@ -602,4 +607,347 @@
       text-overflow: ellipsis;
     }
   }
+}
+
+/* ── Session scope: collapsed card ─────────────────────────────────────
+   The card holds an inline-editable project name, so unlike the old pill
+   it needs a visible container of its own. */
+.sessionCard {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  min-height: 30px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06));
+  border-radius: 9px;
+  background: color-mix(
+    in srgb,
+    var(--ant-color-bg-container) 92%,
+    transparent
+  );
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+  line-height: 1;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.sessionCard:focus-within {
+  border-color: color-mix(in srgb, var(--ant-color-primary) 42%, transparent);
+}
+
+.sessionCard[data-missing="true"] {
+  border-color: var(--ant-color-error-border, #ffccc7);
+  color: var(--ant-color-error, #ff4d4f);
+}
+
+/* Chosen but not yet sent: dashed border; the tag tint is set separately
+   so "Pending" is not signalled by colour alone. */
+.sessionCard[data-pending="true"] {
+  border-style: dashed;
+  border-color: var(--ant-color-warning-border, #ffe58f);
+}
+
+.sessionCardCompact {
+  max-width: none;
+  padding: 0 4px;
+  gap: 4px;
+}
+
+/* The project name, editable in place. Borderless until hover/focus so the
+   card stays calm, but with a text cursor and a border on hover so it does
+   not look like static text. */
+.cardNameInput {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 70px;
+  max-width: 190px;
+  height: 22px;
+  padding: 0 4px;
+  color: var(--ant-color-text, rgba(0, 0, 0, 0.88));
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.cardNameInput:hover:not(:disabled) {
+  border-color: var(--ant-color-border, rgba(0, 0, 0, 0.12));
+  background: var(--ant-color-bg-container, #fff);
+}
+
+.cardNameInput:focus {
+  border-color: var(--ant-color-primary, #1677ff);
+  background: var(--ant-color-bg-container, #fff);
+  box-shadow: none;
+  outline: none;
+}
+
+.cardUnbound {
+  flex: none;
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+  font-weight: 600;
+}
+
+/* Count badge shown when more than one directory is bound. */
+.countTag {
+  flex: none;
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+  font-size: 10px;
+}
+
+/* Source pill: "Session" vs inherited. Not colour-only — it carries text. */
+.sourceTag {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--ant-color-fill-secondary, rgba(0, 0, 0, 0.06));
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.sessionCard[data-source="session"] .sourceTag {
+  background: var(--ant-color-primary-bg, #e6f4ff);
+  color: var(--ant-color-primary, #1677ff);
+}
+
+.sessionCard[data-pending="true"] .sourceTag {
+  background: var(--ant-color-warning-bg, #fffbe6);
+  color: var(--ant-color-warning-text, #d48806);
+}
+
+/* Only the chevron opens the panel, so it needs its own affordance. */
+.cardToggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+  cursor: pointer;
+}
+
+.cardToggle:hover,
+.cardToggle[aria-expanded="true"] {
+  background: var(--ant-color-fill-quaternary, rgba(0, 0, 0, 0.04));
+  color: var(--ant-color-text, rgba(0, 0, 0, 0.88));
+}
+
+.cardToggle:focus-visible {
+  outline: 2px solid var(--ant-color-primary, #1677ff);
+  outline-offset: 1px;
+}
+
+/* ── Session scope: expanded panel ───────────────────────────────────── */
+.sessionPopover :global(.ant-popover-inner) {
+  padding: 0;
+  border-radius: 10px;
+}
+
+.sessionPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 340px;
+  max-width: calc(100vw - 48px);
+  padding: 12px;
+  overflow: hidden;
+}
+
+.panelTitle {
+  color: var(--ant-color-text, rgba(0, 0, 0, 0.88));
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.panelHint {
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.errorNotice {
+  color: var(--ant-color-error, #ff4d4f);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.sessionActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Inline-flex wrapper so a Tooltip can still fire on a disabled button. */
+.restoreWrap {
+  display: inline-flex;
+}
+
+/* Directory list. The panel is a fixed-width flex column, so keep the list
+   from stretching and let it scroll once it grows past the cap. */
+.dirList {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.dirRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--ant-color-fill-quaternary, rgba(0, 0, 0, 0.02));
+}
+
+.dirRow[data-primary="true"] {
+  background: color-mix(in srgb, var(--ant-color-primary-bg) 55%, transparent);
+}
+
+.dirRow[data-missing="true"] {
+  outline: 1px solid var(--ant-color-error-border, #ffccc7);
+}
+
+.dirMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dirName {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--ant-color-text, rgba(0, 0, 0, 0.88));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dirRow[data-primary="true"] .dirName > svg {
+  color: var(--ant-color-primary, #1677ff);
+}
+
+.primaryLabel {
+  flex: none;
+  padding: 0 7px;
+  color: var(--ant-color-primary, #1677ff);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 22px;
+  white-space: nowrap;
+}
+
+.missingTag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  color: var(--ant-color-error, #ff4d4f);
+  font-size: 10px;
+}
+
+.dirPath {
+  overflow: hidden;
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dirActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+/* "Make primary" only appears on hover/focus so the list stays quiet at
+   rest; it shares a slot with the primary label to avoid layout shift. */
+.makePrimaryBtn {
+  padding: 0 7px;
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.dirRow:hover .makePrimaryBtn,
+.makePrimaryBtn:focus-visible {
+  opacity: 1;
+}
+
+/* Editable row label. Borderless at rest so a list of rows still reads as
+   a list, but with a border on hover/focus so it is visibly editable. */
+.nameInput {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.nameInput:hover:not(:disabled) {
+  border-color: var(--ant-color-border, rgba(0, 0, 0, 0.12));
+  background: var(--ant-color-bg-container, #fff);
+}
+
+.nameInput:focus,
+.nameInput:focus-within {
+  border-color: var(--ant-color-primary, #1677ff);
+  background: var(--ant-color-bg-container, #fff);
+  box-shadow: none;
+  outline: none;
+}
+
+.addSection {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Inline directory browser used as the fallback when the OS dialog is not
+   available (remote console / headless host). */
+.browserPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06));
+  border-radius: 8px;
+  background: var(--ant-color-bg-container, #fff);
+}
+
+.browserPicker .directories {
+  flex: 0 1 auto;
+  max-height: 160px;
 }

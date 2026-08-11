@@ -7,3 +7,6 @@ export const isTauri = vi.fn<() => boolean>(() => false);
 export const save = vi.fn<() => Promise<string | null>>(() =>
   Promise.resolve(null),
 );
+export const open = vi.fn<
+  (...args: unknown[]) => Promise<string | string[] | null>
+>(() => Promise.resolve(null));
