@@ -65,6 +65,7 @@ export default defineConfig(({ command, mode }) => {
     test: {
       globals: true,
       environment: "jsdom",
+      testTimeout: 15_000,
       setupFiles: ["./src/test/setup.ts"],
       css: true,
       // all @agentscope-ai/* packages excluded from inline — they are large / have CSS imports

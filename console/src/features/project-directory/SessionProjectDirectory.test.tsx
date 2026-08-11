@@ -102,7 +102,7 @@ describe("SessionProjectDirectory", () => {
       "aria-pressed",
       "false",
     );
-  }, 15_000);
+  });
 
   it("clears the recent selection when a browsed directory is chosen", async () => {
     const user = userEvent.setup();
