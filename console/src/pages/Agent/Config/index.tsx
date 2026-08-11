@@ -9,6 +9,7 @@ import {
   LlmRateLimiterCard,
   ToolExecutionLevelCard,
   AgentLoopCard,
+  ThemeEditorCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -21,7 +22,7 @@ import styles from "./index.module.less";
 
 function AgentConfigPage() {
   const { t } = useTranslation();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(
     searchParams.get("tab") || "reactAgent",
   );
@@ -134,6 +135,19 @@ function AgentConfigPage() {
         ),
       },
       {
+        key: "theme",
+        label: (
+          <span className={styles.tabLabel}>
+            {t("themeEditor.tabTitle", "Theme")}
+          </span>
+        ),
+        children: (
+          <div className={styles.tabContent}>
+            <ThemeEditorCard />
+          </div>
+        ),
+      },
+      {
         key: "llmRetry",
         label: (
           <span className={styles.tabLabel}>
@@ -235,11 +249,29 @@ function AgentConfigPage() {
   ]);
 
   useEffect(() => {
+    const requestedTab = searchParams.get("tab");
+    if (requestedTab && requestedTab !== activeTab) {
+      setActiveTab(requestedTab);
+    }
+  }, [searchParams, activeTab]);
+
+  useEffect(() => {
     const tabKeys = dynamicTabs.map((t) => t.key);
     if (!tabKeys.includes(activeTab)) {
       setActiveTab(tabKeys[0] ?? "reactAgent");
     }
   }, [dynamicTabs, activeTab]);
+
+  const handleTabChange = (key: string) => {
+    setActiveTab(key);
+    const nextSearchParams = new URLSearchParams(searchParams);
+    if (key === "theme") {
+      nextSearchParams.set("tab", "theme");
+    } else {
+      nextSearchParams.delete("tab");
+    }
+    setSearchParams(nextSearchParams, { replace: true });
+  };
 
   if (loading) {
     return (
@@ -273,25 +305,27 @@ function AgentConfigPage() {
           <Tabs
             className={styles.mainTabs}
             activeKey={activeTab}
-            onChange={setActiveTab}
+            onChange={handleTabChange}
             items={dynamicTabs}
             destroyInactiveTabPane={false}
           />
         </Form>
       </div>
 
-      <div className={styles.footerActions}>
-        <Button
-          onClick={fetchConfig}
-          disabled={saving}
-          style={{ marginRight: 8 }}
-        >
-          {t("common.reset")}
-        </Button>
-        <Button type="primary" onClick={handleSave} loading={saving}>
-          {t("common.save")}
-        </Button>
-      </div>
+      {activeTab !== "theme" && (
+        <div className={styles.footerActions}>
+          <Button
+            onClick={fetchConfig}
+            disabled={saving}
+            style={{ marginRight: 8 }}
+          >
+            {t("common.reset")}
+          </Button>
+          <Button type="primary" onClick={handleSave} loading={saving}>
+            {t("common.save")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

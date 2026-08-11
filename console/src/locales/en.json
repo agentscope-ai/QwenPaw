@@ -2819,7 +2819,34 @@
   "theme": {
     "dark": "Dark",
     "light": "Light",
-    "system": "System"
+    "system": "System",
+    "customize": "Customize"
+  },
+  "themeEditor": {
+    "tabTitle": "Theme",
+    "title": "Theme Customization",
+    "import": "Import",
+    "export": "Export",
+    "saveAs": "Save as new",
+    "currentTheme": "Current theme",
+    "savedThemes": "Saved themes",
+    "palette": "Palette",
+    "favorite": "Favorite",
+    "themeNamePlaceholder": "Theme name",
+    "searchPlaceholder": "Search colors",
+    "preview": "Preview",
+    "primaryButton": "Primary Button",
+    "defaultButton": "Default Button",
+    "link": "Sample link",
+    "error": "Error message",
+    "warning": "Warning message",
+    "success": "Success message",
+    "saveSuccess": "Theme colors saved",
+    "saveAsSuccess": "Theme saved as a new loadout",
+    "resetSuccess": "Theme colors reset",
+    "deleteSuccess": "Theme loadout deleted",
+    "importSuccess": "Theme imported",
+    "importFailed": "Failed to import theme"
   },
   "chat": {
     "fileReference": {

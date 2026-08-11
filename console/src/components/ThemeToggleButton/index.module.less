@@ -17,20 +17,25 @@
   font-size: 24px;
 
   &:hover {
-    background: rgba(97, 92, 237, 0.08);
-    color: #ff7f16;
+    background: rgba(var(--qwenpaw-color-primary-rgb, 255, 127, 22), 0.08);
+    color: var(--qwenpaw-color-primary, #ff7f16);
   }
 }
 
 /* ---- Theme Dropdown ---- */
 .themeDropdown {
+  min-width: 260px;
+
   :global {
     .qwenpaw-dropdown-menu-item,
     .ant-dropdown-menu-item {
       color: rgba(26, 23, 22, 0.65);
 
       &:hover {
-        background: rgba(43, 18, 0, 0.06) !important;
+        background: rgba(
+          var(--qwenpaw-color-primary-rgb, 255, 127, 22),
+          0.08
+        ) !important;
       }
     }
 
@@ -40,6 +45,68 @@
       color: rgba(26, 23, 22, 0.88) !important;
     }
   }
+}
+
+.themePresetMenuItem {
+  min-width: 228px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px 24px 24px;
+  align-items: center;
+  gap: 8px;
+}
+
+.themePresetMenuSwatch {
+  display: block;
+  position: relative;
+  width: 16px;
+  height: 16px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  clip-path: circle(50% at 50% 50%);
+  flex-shrink: 0;
+}
+
+.themePresetMenuSwatch::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: 50%;
+  background: var(--theme-preset-gradient);
+}
+
+.themePresetMenuName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.themePresetMenuCheck,
+.themePresetMenuActionActive {
+  color: var(--qwenpaw-color-primary, #ff7f16);
+}
+
+.themePresetMenuAction {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--qwenpaw-color-text-muted, #8a8a8a);
+  cursor: pointer;
+}
+
+.themePresetMenuAction:hover {
+  color: var(--qwenpaw-color-primary, #ff7f16);
+  background: rgba(var(--qwenpaw-color-primary-rgb, 255, 127, 22), 0.1);
 }
 
 /* Dark mode overrides */

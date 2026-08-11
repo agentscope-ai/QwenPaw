@@ -7,3 +7,4 @@ export { LightContextCard } from "./LightContextCard";
 export { ReMeLightMemoryCard } from "./ReMeLightMemoryCard";
 export { ToolExecutionLevelCard } from "./ToolExecutionLevelCard";
 export { ADBPGConfigCard } from "./ADBPGConfigCard";
+export { ThemeEditorCard } from "./ThemeEditorCard";

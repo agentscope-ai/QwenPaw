@@ -392,10 +392,10 @@
 .paramsCode {
   margin: 0;
   padding: 10px 12px;
-  background: #ffffff;
-  border: 1px solid #eef0f3;
+  background: var(--qwenpaw-color-code-bg, #ffffff);
+  border: 1px solid var(--qwenpaw-color-border, #eef0f3);
   border-radius: 4px;
-  color: #444;
+  color: var(--qwenpaw-color-code-text, #444);
   font-family: "SF Mono", "Monaco", "Consolas", monospace;
   font-size: 11px;
   line-height: 1.6;
@@ -411,16 +411,16 @@
   }
 
   &::-webkit-scrollbar-track {
-    background: #f5f5f5;
+    background: var(--qwenpaw-color-code-bg, #f5f5f5);
     border-radius: 2px;
   }
 
   &::-webkit-scrollbar-thumb {
-    background: #d4d4d4;
+    background: var(--qwenpaw-color-border, #d4d4d4);
     border-radius: 2px;
 
     &:hover {
-      background: #aaa;
+      background: var(--qwenpaw-color-text-muted, #aaa);
     }
   }
 }

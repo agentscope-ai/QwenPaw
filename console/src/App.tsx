@@ -143,7 +143,7 @@ function AuthGuard({
 function AppInner() {
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
-  const { isDark } = useTheme();
+  const { isDark, themeColors } = useTheme();
   const { loading: pluginsLoading } = usePlugins();
   const selectedTheme = isDark ? bailianDarkTheme : bailianTheme;
   const lang = i18n.resolvedLanguage || i18n.language || "en";
@@ -255,7 +255,32 @@ function AppInner() {
             ? antdTheme.darkAlgorithm
             : antdTheme.defaultAlgorithm,
           token: {
-            colorPrimary: "#FF7F16",
+            ...((selectedTheme as any)?.theme?.token ?? {}),
+            colorPrimary: themeColors.primary,
+            colorTextLightSolid: themeColors.buttonText,
+            colorLink: themeColors.link,
+            colorError: themeColors.error,
+            colorWarning: themeColors.warning,
+            colorSuccess: themeColors.success,
+            colorInfo: themeColors.info,
+            colorBgLayout: themeColors.pageBackground,
+            colorBgContainer: themeColors.surfaceBackground,
+            colorBgElevated: themeColors.surfaceBackground,
+            colorBorder: themeColors.border,
+            colorText: themeColors.text,
+            colorTextHeading: themeColors.headingText,
+            colorTextSecondary: themeColors.textSecondary,
+            colorTextTertiary: themeColors.textMuted,
+          },
+          components: {
+            ...((selectedTheme as any)?.theme?.components ?? {}),
+            Button: {
+              ...((selectedTheme as any)?.theme?.components?.Button ?? {}),
+              colorPrimary: themeColors.buttonBackground,
+              colorPrimaryHover: themeColors.buttonBackground,
+              colorPrimaryActive: themeColors.buttonBackground,
+              primaryColor: themeColors.buttonText,
+            },
           },
         }}
       >
