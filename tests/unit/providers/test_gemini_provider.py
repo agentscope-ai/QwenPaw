@@ -24,6 +24,31 @@ def _make_provider() -> GeminiProvider:
     )
 
 
+def test_chat_model_reuses_client_with_custom_headers(monkeypatch) -> None:
+    captured: list[dict] = []
+    fake_client = SimpleNamespace(aio=SimpleNamespace(models=object()))
+
+    def fake_client_factory(**kwargs):
+        captured.append(kwargs)
+        return fake_client
+
+    monkeypatch.setattr(
+        gemini_provider_module.genai,
+        "Client",
+        fake_client_factory,
+    )
+    provider = _make_provider()
+    provider.custom_headers = {"X-QwenPaw": "enabled"}
+
+    model = provider.get_chat_model_instance("gemini-2.5-flash")
+
+    assert model.client is fake_client
+    assert len(captured) == 1
+    assert captured[0]["http_options"].headers == {
+        "X-QwenPaw": "enabled",
+    }
+
+
 async def test_summary_limit_is_adapted_without_mutating_thinking(
     monkeypatch,
 ) -> None:

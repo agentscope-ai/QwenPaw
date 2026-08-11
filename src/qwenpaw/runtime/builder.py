@@ -842,9 +842,21 @@ class AgentBuilder:
                 if trc.enabled
                 else ContextConfig.model_fields["tool_result_limit"].default
             )
+            trigger_ratio = ccc.compact_threshold_ratio
+            reserve_ratio = min(
+                ccc.reserve_threshold_ratio,
+                trigger_ratio - 0.000001,
+            )
+            if reserve_ratio != ccc.reserve_threshold_ratio:
+                _logger.warning(
+                    f"Context reserve ratio "
+                    f"{ccc.reserve_threshold_ratio} must be smaller than "
+                    f"trigger ratio {trigger_ratio}; using "
+                    f"{reserve_ratio}.",
+                )
             return ContextConfig(
-                trigger_ratio=ccc.compact_threshold_ratio,
-                reserve_ratio=ccc.reserve_threshold_ratio,
+                trigger_ratio=trigger_ratio,
+                reserve_ratio=reserve_ratio,
                 tool_result_limit=tool_result_limit,
             )
         except Exception:

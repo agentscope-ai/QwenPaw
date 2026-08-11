@@ -537,13 +537,18 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     @staticmethod
     def _build_manual_context_config(agent_config: Any) -> Any:
-        """Build a ContextConfig that forces manual /compact to run."""
+        """Build the valid base ContextConfig for standalone compaction."""
         from agentscope.agent import ContextConfig
 
         ccc = agent_config.running.light_context_config.context_compact_config
+        trigger_ratio = ccc.compact_threshold_ratio
+        reserve_ratio = min(
+            ccc.reserve_threshold_ratio,
+            trigger_ratio - 0.000001,
+        )
         return ContextConfig(
-            trigger_ratio=0.000001,
-            reserve_ratio=ccc.reserve_threshold_ratio,
+            trigger_ratio=trigger_ratio,
+            reserve_ratio=reserve_ratio,
         )
 
     async def _build_tmp_agent(self) -> "Agent | None":
@@ -553,7 +558,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         context trimming, offloading) are reflected immediately.
         """
         try:
-            from agentscope.agent import Agent
+            from agentscope.agent import Agent, InjectionConfig
 
             from ..agents.model_factory import (
                 create_model_and_formatter,
@@ -572,6 +577,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 offloader=self._offloader,
                 context_config=self._build_manual_context_config(
                     agent_config,
+                ),
+                injection_config=InjectionConfig(
+                    inject_runtime_state=False,
                 ),
             )
         except Exception:

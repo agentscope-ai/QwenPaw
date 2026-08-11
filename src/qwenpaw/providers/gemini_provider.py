@@ -525,9 +525,14 @@ class _GeminiChatModelCompat:
 
         default_headers = kwargs.pop("default_headers", None)
         extra_config_kwargs = kwargs.pop("extra_config_kwargs", None) or {}
+        if default_headers:
+            client_kwargs = dict(kwargs.get("client_kwargs") or {})
+            client_kwargs["http_options"] = genai_types.HttpOptions(
+                headers=default_headers,
+            )
+            kwargs["client_kwargs"] = client_kwargs
 
         class _Compat(GeminiChatModel):
-            _qp_default_headers = default_headers
             _qp_extra_config_kwargs = extra_config_kwargs
 
             # TODO: Remove this override once agentscope >= 2.0.5 is
@@ -574,19 +579,6 @@ class _GeminiChatModelCompat:
 
                 from datetime import datetime
 
-                if self._qp_default_headers:
-                    client = genai.Client(
-                        api_key=self.credential.api_key.get_secret_value(),
-                        http_options=genai_types.HttpOptions(
-                            headers=self._qp_default_headers,
-                        ),
-                    )
-                else:
-                    client = genai.Client(
-                        api_key=self.credential.api_key.get_secret_value(),
-                        **self.client_kwargs,
-                    )
-
                 formatted = await self.formatter.format(messages)
                 config: dict[str, Any] = {**merged}
                 if self.parameters.max_tokens is not None:
@@ -623,14 +615,15 @@ class _GeminiChatModelCompat:
                 }
                 start = datetime.now()
                 if self.stream:
-                    stream_method = client.aio.models.generate_content_stream
+                    stream_method = (
+                        self.client.aio.models.generate_content_stream
+                    )
                     response = await stream_method(**call_kwargs)
                     return self._parse_stream_response(
                         start,
                         response,
-                        client,
                     )
-                response = await client.aio.models.generate_content(
+                response = await self.client.aio.models.generate_content(
                     **call_kwargs,
                 )
                 return self._parse_completion_response(start, response)
