@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument,protected-access
 from __future__ import annotations
 
@@ -745,6 +745,173 @@ async def test_async_provider_update_keeps_memory_on_write_failure(
 
     assert provider.api_key == "old-key"
     assert manager._provider_revision("openai") == revision
+
+
+async def test_add_model_write_failure_preserves_provider_state(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    await manager.save_provider_config_async("openai", provider)
+    provider_path = manager._provider_config_path("openai")
+    disk_before = provider_path.read_bytes()
+    revision = manager._provider_revision("openai")
+    models_before = [model.id for model in provider.extra_models]
+
+    def fail_save(*_args, **_kwargs):
+        raise OSError("write failed")
+
+    monkeypatch.setattr(manager, "_save_provider_snapshot", fail_save)
+
+    with pytest.raises(OSError, match="write failed"):
+        await manager.add_model_to_provider(
+            "openai",
+            ModelInfo(id="failed-add", name="Failed Add"),
+        )
+
+    assert [model.id for model in provider.extra_models] == models_before
+    assert manager._provider_revision("openai") == revision
+    assert provider_path.read_bytes() == disk_before
+
+
+async def test_hide_model_write_failure_preserves_provider_state(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    await manager.save_provider_config_async("openai", provider)
+    provider_path = manager._provider_config_path("openai")
+    disk_before = provider_path.read_bytes()
+    revision = manager._provider_revision("openai")
+    hidden_before = list(provider.hidden_model_ids)
+
+    def fail_save(*_args, **_kwargs):
+        raise OSError("write failed")
+
+    monkeypatch.setattr(manager, "_save_provider_snapshot", fail_save)
+
+    with pytest.raises(OSError, match="write failed"):
+        await manager.set_model_hidden(
+            "openai",
+            "failed-hidden",
+            hidden=True,
+        )
+
+    assert provider.hidden_model_ids == hidden_before
+    assert manager._provider_revision("openai") == revision
+    assert provider_path.read_bytes() == disk_before
+
+
+async def test_update_model_write_failure_preserves_provider_state(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    model = provider.models[0]
+    await manager.save_provider_config_async("openai", provider)
+    provider_path = manager._provider_config_path("openai")
+    disk_before = provider_path.read_bytes()
+    revision = manager._provider_revision("openai")
+    max_tokens_before = model.max_tokens
+
+    def fail_save(*_args, **_kwargs):
+        raise OSError("write failed")
+
+    monkeypatch.setattr(manager, "_save_provider_snapshot", fail_save)
+
+    with pytest.raises(OSError, match="write failed"):
+        await manager.update_model_config(
+            "openai",
+            model.id,
+            {"max_tokens": max_tokens_before + 1},
+        )
+
+    assert model.max_tokens == max_tokens_before
+    assert manager._provider_revision("openai") == revision
+    assert provider_path.read_bytes() == disk_before
+
+
+async def test_delete_model_write_failure_preserves_provider_state(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    provider.extra_models.append(
+        ModelInfo(id="failed-delete", name="Failed Delete"),
+    )
+    await manager.save_provider_config_async("openai", provider)
+    provider_path = manager._provider_config_path("openai")
+    disk_before = provider_path.read_bytes()
+    revision = manager._provider_revision("openai")
+
+    def fail_save(*_args, **_kwargs):
+        raise OSError("write failed")
+
+    monkeypatch.setattr(manager, "_save_provider_snapshot", fail_save)
+
+    with pytest.raises(OSError, match="write failed"):
+        await manager.delete_model_from_provider("openai", "failed-delete")
+
+    assert provider.get_model_info("failed-delete") is not None
+    assert "failed-delete" not in provider.removed_model_ids
+    assert manager._provider_revision("openai") == revision
+    assert provider_path.read_bytes() == disk_before
+
+
+async def test_capability_probe_write_failure_preserves_provider_state(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert isinstance(provider, OpenAIProvider)
+    model = ModelInfo(
+        id="failed-probe",
+        name="Failed Probe",
+        supports_image=False,
+        supports_video=False,
+        supports_multimodal=False,
+        probe_source="catalog",
+    )
+    provider.extra_models.append(model)
+    await manager.save_provider_config_async("openai", provider)
+    provider_path = manager._provider_config_path("openai")
+    disk_before = provider_path.read_bytes()
+    revision = manager._provider_revision("openai")
+
+    async def probe(_self, _model_id, **_kwargs):
+        return SimpleNamespace(
+            supports_image=True,
+            supports_video=True,
+            supports_multimodal=True,
+            image_message="ok",
+            video_message="ok",
+            probe_source="probed",
+        )
+
+    def fail_save(*_args, **_kwargs):
+        raise OSError("write failed")
+
+    monkeypatch.setattr(OpenAIProvider, "probe_model_multimodal", probe)
+    monkeypatch.setattr(manager, "_save_provider_snapshot", fail_save)
+
+    with pytest.raises(OSError, match="write failed"):
+        await manager.probe_model_multimodal("openai", "failed-probe")
+
+    assert model.supports_image is False
+    assert model.supports_video is False
+    assert model.supports_multimodal is False
+    assert model.probe_source == "catalog"
+    assert manager._provider_revision("openai") == revision
+    assert provider_path.read_bytes() == disk_before
 
 
 async def test_stale_model_check_does_not_restore_old_failure(

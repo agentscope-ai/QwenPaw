@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """A Manager class to handle all providers, including built-in and custom ones.
 It provides a unified interface to manage providers, such as listing available
 providers, adding/removing custom providers, and fetching provider details."""
@@ -8,7 +8,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Literal
+from typing import Any, Dict, List, Literal
 
 from agentscope.model import ChatModelBase
 
@@ -624,66 +624,71 @@ class ProviderManager(
         model_info: ModelInfo,
     ) -> ProviderInfo:
         provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
-        if not provider:
+        if not self.get_provider(provider_id):
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        discovered = next(
-            (
-                model
-                for model in provider.discovered_models
-                if model.id.strip() == model_info.id.strip()
-            ),
-            None,
-        )
-        if discovered is not None:
-            if discovered.availability_status in {
-                "permission_denied",
-                "model_not_found",
-                "incompatible_api",
-            }:
-                reason = (
-                    discovered.availability_message
-                    or discovered.availability_status
+        requested_model = model_info.model_copy(deep=True)
+
+        async def add_model(candidate: Provider) -> bool:
+            nonlocal requested_model
+            discovered = next(
+                (
+                    model
+                    for model in candidate.discovered_models
+                    if model.id.strip() == requested_model.id.strip()
+                ),
+                None,
+            )
+            if discovered is not None:
+                if discovered.availability_status in {
+                    "permission_denied",
+                    "model_not_found",
+                    "incompatible_api",
+                }:
+                    reason = (
+                        discovered.availability_message
+                        or discovered.availability_status
+                    )
+                    raise ProviderError(
+                        message=(
+                            f"Model '{requested_model.id}' cannot be added: "
+                            f"{reason}"
+                        ),
+                    )
+                payload = discovered.model_dump()
+                payload.update(
+                    {
+                        "id": requested_model.id,
+                        "name": requested_model.name or discovered.name,
+                        "source": "user",
+                    },
                 )
+                for field in requested_model.model_fields_set:
+                    payload[field] = getattr(requested_model, field)
+                requested_model = ModelInfo.model_validate(payload)
+
+            added, error_message = await candidate.add_model(requested_model)
+            if not added:
                 raise ProviderError(
-                    message=(
-                        f"Model '{model_info.id}' cannot be added: "
-                        f"{reason}"
-                    ),
+                    message=error_message,
+                    details={
+                        "provider_id": provider_id,
+                        "model_id": requested_model.id,
+                    },
                 )
-            # Preserve API-reported metadata when a catalog candidate becomes
-            # an explicitly configured model.
-            payload = discovered.model_dump()
-            payload.update(
-                {
-                    "id": model_info.id,
-                    "name": model_info.name or discovered.name,
-                    "source": "user",
-                },
-            )
-            for field in model_info.model_fields_set:
-                payload[field] = getattr(model_info, field)
-            model_info = ModelInfo.model_validate(payload)
+            return True
 
-        added, error_message = await provider.add_model(model_info)
-        if not added:
+        result = await self._mutate_provider_async(provider_id, add_model)
+        if result is None:
             raise ProviderError(
-                message=error_message,
-                details={
-                    "provider_id": provider_id,
-                    "model_id": model_info.id,
-                },
+                message=f"Provider '{provider_id}' not found.",
             )
-
-        self._bump_provider_revision(provider_id)
-        await self.save_provider_config_async(
-            provider_id,
-            provider,
-            update_kind="configured_add",
-            model_id=model_info.id.strip(),
-        )
+        provider = self.get_provider(provider_id)
+        if provider is None:
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
         return await provider.get_info()
 
     async def set_model_hidden(
@@ -695,27 +700,28 @@ class ProviderManager(
     ) -> ProviderInfo:
         """Persist whether one discovery candidate is hidden from the UI."""
         provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
-        if provider is None:
+        if self.get_provider(provider_id) is None:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
         model_id = model_id.strip()
         if not model_id:
             raise ProviderError(message="Model ID cannot be empty.")
-        hidden_ids = set(provider.hidden_model_ids)
-        if hidden:
-            hidden_ids.add(model_id)
-        else:
-            hidden_ids.discard(model_id)
-        provider.hidden_model_ids = sorted(hidden_ids)
-        await self.save_provider_config_async(
-            provider_id,
-            provider,
-            update_kind="config",
-            model_id=None,
-            fields={"hidden_model_ids"},
-        )
+
+        async def set_hidden(candidate: Provider) -> None:
+            hidden_ids = set(candidate.hidden_model_ids)
+            if hidden:
+                hidden_ids.add(model_id)
+            else:
+                hidden_ids.discard(model_id)
+            candidate.hidden_model_ids = sorted(hidden_ids)
+
+        await self._mutate_provider_async(provider_id, set_hidden)
+        provider = self.get_provider(provider_id)
+        if provider is None:
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
         return await provider.get_info()
 
     async def update_model_config(
@@ -726,24 +732,28 @@ class ProviderManager(
     ) -> ProviderInfo:
         """Update per-model configuration and persist to disk."""
         provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
-        if not provider:
+        if self.get_provider(provider_id) is None:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        if not provider.update_model_config(model_id, config):
-            raise ModelNotFoundException(
-                model_name=f"{provider_id}/{model_id}",
-                details={"provider_id": provider_id, "model_id": model_id},
-            )
+        config_snapshot = dict(config)
 
-        await self.save_provider_config_async(
-            provider_id,
-            provider,
-            update_kind="configured_update",
-            model_id=model_id.strip(),
-            fields=set(config),
-        )
+        async def update_model(candidate: Provider) -> None:
+            if not candidate.update_model_config(model_id, config_snapshot):
+                raise ModelNotFoundException(
+                    model_name=f"{provider_id}/{model_id}",
+                    details={
+                        "provider_id": provider_id,
+                        "model_id": model_id,
+                    },
+                )
+
+        await self._mutate_provider_async(provider_id, update_model)
+        provider = self.get_provider(provider_id)
+        if provider is None:
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
         return await provider.get_info()
 
     async def delete_model_from_provider(
@@ -752,20 +762,24 @@ class ProviderManager(
         model_id: str,
     ) -> ProviderInfo:
         provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
-        if not provider:
+        if self.get_provider(provider_id) is None:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        await provider.delete_model(model_id=model_id)
 
-        self._bump_provider_revision(provider_id)
-        await self.save_provider_config_async(
-            provider_id,
-            provider,
-            update_kind="configured_delete",
-            model_id=model_id.strip(),
-        )
+        async def delete_model(candidate: Provider) -> None:
+            deleted, error_message = await candidate.delete_model(
+                model_id=model_id,
+            )
+            if not deleted:
+                raise ProviderError(message=error_message)
+
+        await self._mutate_provider_async(provider_id, delete_model)
+        provider = self.get_provider(provider_id)
+        if provider is None:
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
         return await provider.get_info()
 
     async def probe_model_multimodal(
@@ -784,35 +798,39 @@ class ProviderManager(
                 will remain at its previous value (not updated).
         """
         provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
-        if not provider:
+        if self.get_provider(provider_id) is None:
             return {"error": f"Provider '{provider_id}' not found"}
 
-        result = await provider.probe_model_multimodal(
-            model_id,
-            image_only=image_only,
-        )
-
-        # Update the model's capability flags.
-        # For image_only probes, leave supports_video untouched so a
-        # subsequent full probe can fill it in correctly.
-        for model in provider.all_models():
-            if model.id == model_id:
-                model.supports_image = result.supports_image
+        async def probe_model(candidate: Provider) -> Any:
+            probe_result = await candidate.probe_model_multimodal(
+                model_id,
+                image_only=image_only,
+            )
+            for model in candidate.all_models():
+                if model.id != model_id:
+                    continue
+                model.supports_image = probe_result.supports_image
                 if not image_only:
-                    model.supports_video = result.supports_video
-                    model.supports_multimodal = result.supports_multimodal
-                else:
-                    # Partial update: derive supports_multimodal from
-                    # image alone; video will be updated by the full probe.
-                    if result.supports_image:
-                        model.supports_multimodal = True
+                    model.supports_video = probe_result.supports_video
+                    model.supports_multimodal = (
+                        probe_result.supports_multimodal
+                    )
+                elif probe_result.supports_image:
+                    model.supports_multimodal = True
                 model.probe_source = getattr(
-                    result,
+                    probe_result,
                     "probe_source",
                     "probed",
                 )
                 break
+            return probe_result
+
+        result = await self._mutate_provider_async(
+            provider_id,
+            probe_model,
+        )
+        if result is None:
+            return {"error": f"Provider '{provider_id}' not found"}
 
         # Compare probe result against expected baseline
         from .capability_baseline import compare_probe_result
@@ -836,12 +854,6 @@ class ProviderManager(
                     d.discrepancy_type,
                 )
 
-        await self.save_provider_config_async(
-            provider_id,
-            provider,
-            update_kind="capability",
-            model_id=model_id.strip(),
-        )
         return {
             "supports_image": result.supports_image,
             "supports_video": result.supports_video,

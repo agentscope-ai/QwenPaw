@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Workspace API – download / upload the entire WORKING_DIR as a zip.
 
 Also includes agent file management, language settings, audio/transcription
@@ -38,9 +38,9 @@ from pydantic import BaseModel, Field
 from ..utils import check_upload_size, safe_join, schedule_agent_reload
 from ...config import (
     load_config,
-    save_config,
     AgentsRunningConfig,
 )
+from ...config.utils import mutate_config
 from ...config.config import load_agent_config, save_agent_config
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.templates import get_workspace_md_template_id
@@ -60,6 +60,7 @@ from ...services.workspace_files import (
     resolve_workspace_path,
     save_text_file,
 )
+from ...utils.io_utils import run_sync_io
 from ..agent_context import (
     get_agent_for_request,
     get_agent_project_dir,
@@ -1258,9 +1259,11 @@ async def put_audio_mode(
                 f"Must be one of: {', '.join(sorted(valid))}"
             ),
         )
-    config = load_config()
-    config.agents.audio_mode = audio_mode
-    save_config(config)
+
+    def apply_audio_mode(config: Any) -> None:
+        config.agents.audio_mode = audio_mode
+
+    await run_sync_io(mutate_config, apply_audio_mode)
     return {"audio_mode": audio_mode}
 
 
@@ -1313,9 +1316,11 @@ async def put_transcription_provider_type(
                 f"Must be one of: {', '.join(sorted(valid))}"
             ),
         )
-    config = load_config()
-    config.agents.transcription_provider_type = provider_type
-    save_config(config)
+
+    def apply_provider_type(config: Any) -> None:
+        config.agents.transcription_provider_type = provider_type
+
+    await run_sync_io(mutate_config, apply_provider_type)
     return {"transcription_provider_type": provider_type}
 
 
@@ -1376,9 +1381,11 @@ async def put_transcription_provider(
 ) -> dict:
     """Set the transcription provider."""
     provider_id = (body.get("provider_id") or "").strip()
-    config = load_config()
-    config.agents.transcription_provider_id = provider_id
-    save_config(config)
+
+    def apply_provider(config: Any) -> None:
+        config.agents.transcription_provider_id = provider_id
+
+    await run_sync_io(mutate_config, apply_provider)
     return {"provider_id": provider_id}
 
 

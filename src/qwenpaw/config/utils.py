@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import json
@@ -13,7 +13,7 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 from json_repair import repair_json
 
@@ -37,6 +37,7 @@ from .config import (
     migrate_channel_display_fields,
     save_agent_config,
 )
+from ..utils.io_utils import write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ _config_lock = threading.RLock()
 # Agent config cache: {agent_id: (config, mtime)}
 # Using Any for forward reference to AgentProfileConfig
 _agent_config_cache: dict[str, tuple[Any, float]] = {}
-_agent_config_lock = threading.Lock()
+_agent_config_lock = threading.RLock()
 
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
@@ -581,8 +582,7 @@ def _load_and_validate_config(
                 f".{uuid.uuid4().hex[:8]}.{migration_name}-migrate.bak",
             )
             shutil.copy2(config_path, backup_path)
-            with open(config_path, "w", encoding="utf-8") as file:
-                json.dump(migrated_data, file, indent=2, ensure_ascii=False)
+            write_json_atomic(config_path, migrated_data)
             logger.warning(
                 "Migrated legacy channel configuration in %s (backup: %s)",
                 config_path,
@@ -607,23 +607,22 @@ def load_config(config_path: Optional[Path] = None) -> Config:
     if config_path is None:
         config_path = get_config_path()
 
-    if not config_path.is_file():
-        return Config()
-
-    # Check mtime to see if we can use cached config
-    try:
-        current_mtime = config_path.stat().st_mtime
-    except OSError:
-        return Config()
-
     with _config_lock:
+        if not config_path.is_file():
+            return Config()
+
+        try:
+            current_mtime = config_path.stat().st_mtime
+        except OSError:
+            return Config()
+
         # Return cached config if mtime hasn't changed
         if (
             _config_cache is not None
             and _config_mtime is not None
             and _config_mtime == current_mtime
         ):
-            return _config_cache
+            return _config_cache.model_copy(deep=True)
 
         # Need to reload config from disk
         data = _read_config_data(config_path)
@@ -632,12 +631,12 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         else:
             config = _load_and_validate_config(config_path, data)
 
-        _config_cache = config
+        _config_cache = config.model_copy(deep=True)
         try:
             _config_mtime = config_path.stat().st_mtime
         except OSError:
             _config_mtime = current_mtime
-        return config
+        return config.model_copy(deep=True)
 
 
 def strict_validate_config_file(
@@ -681,24 +680,36 @@ def strict_validate_config_file(
 
 
 def save_config(config: Config, config_path: Optional[Path] = None) -> None:
-    """Save the config to the file and invalidate cache."""
+    """Atomically save a detached config and publish it to the cache."""
     global _config_cache, _config_mtime
 
     if config_path is None:
         config_path = get_config_path()
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w", encoding="utf-8") as file:
-        json.dump(
-            config.model_dump(mode="json", by_alias=True),
-            file,
-            indent=2,
-            ensure_ascii=False,
-        )
-
-    # Invalidate cache after saving
+    candidate = config.model_copy(deep=True)
     with _config_lock:
-        _config_cache = None
-        _config_mtime = None
+        write_json_atomic(
+            config_path,
+            candidate.model_dump(mode="json", by_alias=True),
+        )
+        _config_cache = candidate.model_copy(deep=True)
+        try:
+            _config_mtime = config_path.stat().st_mtime
+        except OSError:
+            _config_mtime = None
+
+
+def mutate_config(
+    mutator: Callable[[Config], None],
+    config_path: Optional[Path] = None,
+) -> Config:
+    """Apply one root-config mutation as an atomic transaction."""
+    if config_path is None:
+        config_path = get_config_path()
+    with _config_lock:
+        candidate = load_config(config_path)
+        mutator(candidate)
+        save_config(candidate, config_path)
+        return candidate.model_copy(deep=True)
 
 
 def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:

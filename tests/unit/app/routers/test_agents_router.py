@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Unit tests for ``qwenpaw.app.routers.agents``.
 
 Covers the highest-value flows:
@@ -32,6 +32,7 @@ from qwenpaw.app.routers.agents import (
     copy_agent,
     create_agent,
     get_agent,
+    get_agent_memory_graph,
     reorder_agents,
     router as agents_router,
     update_backend_settings,
@@ -55,6 +56,31 @@ def _ref(agent_id: str, *, enabled: bool = True) -> AgentProfileRef:
         workspace_dir=f"/tmp/ws/{agent_id}",
         enabled=enabled,
     )
+
+
+def _root_transaction(config, calls=None):
+    """Return a test transaction that applies one root-config mutator."""
+
+    def mutate(mutator):
+        mutator(config)
+        if calls is not None:
+            calls.append(config)
+        return config
+
+    return mutate
+
+
+def _agent_transaction(config, calls=None):
+    """Return a test transaction over a detached agent snapshot."""
+
+    def mutate(agent_id, mutator):
+        candidate = config.model_copy(deep=True)
+        mutator(candidate)
+        if calls is not None:
+            calls.append((agent_id, candidate))
+        return candidate
+
+    return mutate
 
 
 @pytest.fixture
@@ -260,14 +286,10 @@ def test_update_backend_settings_from_chat(client):
         backend_settings={"unrelated": True},
     )
 
-    with (
-        patch(
-            "qwenpaw.app.routers.agents.load_agent_config",
-            return_value=cfg,
-        ),
-        patch(
-            "qwenpaw.app.routers.agents.save_agent_config",
-        ) as save,
+    calls = []
+    with patch(
+        "qwenpaw.app.routers.agents.mutate_agent_config",
+        side_effect=_agent_transaction(cfg, calls),
     ):
         response = client.patch(
             "/api/agents/bot/backend-settings",
@@ -283,34 +305,27 @@ def test_update_backend_settings_from_chat(client):
         "model": "gpt-test-codex",
         "reasoning_effort": "high",
     }
-    save.assert_called_once()
+    assert len(calls) == 1
 
 
 async def test_backend_settings_read_and_write_off_event_loop(monkeypatch):
-    """Route backend config persistence through ``asyncio.to_thread``."""
+    """Route backend config transaction through the I/O worker."""
     cfg = AgentProfileConfig(
         id="bot",
         name="Bot",
         workspace_dir="/tmp/ws/bot",
         backend="codex",
     )
-    calls = []
+    event_loop_thread = threading.get_ident()
+    io_threads = []
 
-    async def to_thread(func, *args):
-        calls.append((func, args))
-        return func(*args)
+    def mutate(agent_id, mutator):
+        io_threads.append(threading.get_ident())
+        return _agent_transaction(cfg)(agent_id, mutator)
 
     monkeypatch.setattr(
-        "qwenpaw.app.routers.agents.asyncio.to_thread",
-        to_thread,
-    )
-    monkeypatch.setattr(
-        "qwenpaw.app.routers.agents.load_agent_config",
-        lambda _agent_id: cfg,
-    )
-    monkeypatch.setattr(
-        "qwenpaw.app.routers.agents.save_agent_config",
-        lambda _agent_id, _config: None,
+        "qwenpaw.app.routers.agents.mutate_agent_config",
+        mutate,
     )
 
     await update_backend_settings(
@@ -323,9 +338,8 @@ async def test_backend_settings_read_and_write_off_event_loop(monkeypatch):
         agentId="bot",
     )
 
-    assert len(calls) == 2
-    assert calls[0][1] == ("bot",)
-    assert calls[1][1] == ("bot", cfg)
+    assert len(io_threads) == 1
+    assert io_threads[0] != event_loop_thread
 
 
 def test_get_agent_returns_404_for_missing(client):
@@ -346,16 +360,12 @@ def test_update_agent_returns_merged_config(client, fake_config):
         workspace_dir="/tmp/ws/bot",
     )
 
+    calls = []
     with (
         patch(
-            "qwenpaw.app.routers.agents.load_config",
-            return_value=fake_config,
+            "qwenpaw.app.routers.agents.mutate_agent_config",
+            side_effect=_agent_transaction(existing, calls),
         ),
-        patch(
-            "qwenpaw.app.routers.agents.load_agent_config",
-            return_value=existing,
-        ),
-        patch("qwenpaw.app.routers.agents.save_agent_config") as save,
         patch("qwenpaw.app.routers.agents.schedule_agent_reload") as reload,
     ):
         response = client.put(
@@ -373,7 +383,8 @@ def test_update_agent_returns_merged_config(client, fake_config):
     assert body["name"] == "Updated name"
     assert body["description"] == "preserved"
     assert body["thinking_level"] == "high"
-    save.assert_called_once_with("bot", existing)
+    assert len(calls) == 1
+    assert calls[0][0] == "bot"
     reload.assert_called_once()
 
 
@@ -397,12 +408,12 @@ def test_patch_agent_model_settings_preserves_active_model(
         thinking_level="high",
     )
 
+    calls = []
     with (
         patch(
-            "qwenpaw.app.routers.agents.load_agent_config",
-            return_value=existing,
+            "qwenpaw.app.routers.agents.mutate_agent_config",
+            side_effect=_agent_transaction(existing, calls),
         ),
-        patch("qwenpaw.app.routers.agents.save_agent_config") as save,
         patch("qwenpaw.app.routers.agents.schedule_agent_reload") as reload,
     ):
         response = client.patch(
@@ -429,7 +440,8 @@ def test_patch_agent_model_settings_preserves_active_model(
     assert body["fallback_models"] == [
         {"provider_id": "openai", "model": "fallback-model"},
     ]
-    save.assert_called_once_with("bot", existing)
+    assert len(calls) == 1
+    assert calls[0][0] == "bot"
     reload.assert_called_once()
 
 
@@ -612,6 +624,57 @@ def test_get_memory_graph_returns_reme_snapshot(
     memory_manager.graph_snapshot.assert_awaited_once_with()
 
 
+@pytest.mark.asyncio
+async def test_get_memory_graph_config_io_does_not_block_loop(
+    fake_config,
+    monkeypatch,
+):
+    """Slow graph config reads run in a worker while the loop advances."""
+    import asyncio
+    import time
+
+    io_threads = []
+    event_loop_thread = threading.get_ident()
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    graph_response = MagicMock(
+        success=True,
+        answer={"version": 1, "nodes": [], "edges": []},
+    )
+    memory_manager = MagicMock()
+    memory_manager.graph_snapshot = AsyncMock(return_value=graph_response)
+    manager = MagicMock()
+    manager.get_agent = AsyncMock(
+        return_value=MagicMock(memory_manager=memory_manager),
+    )
+
+    def slow_load_config():
+        io_threads.append(threading.get_ident())
+        time.sleep(0.1)
+        return fake_config
+
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.load_config",
+        slow_load_config,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.load_agent_config",
+        lambda _agent_id: agent_config,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents._get_multi_agent_manager",
+        lambda _request: manager,
+    )
+
+    task = asyncio.create_task(get_agent_memory_graph("bot", MagicMock()))
+    await asyncio.sleep(0.02)
+
+    assert not task.done()
+    assert threading.get_ident() == event_loop_thread
+    await task
+    assert io_threads
+    assert io_threads[0] != event_loop_thread
+
+
 def test_get_memory_graph_maps_nested_memory_roots(
     client,
     fake_config,
@@ -700,8 +763,8 @@ def test_get_memory_graph_reports_unavailable_reme(
 
 def test_reorder_agents_rejects_duplicate_ids(client, fake_config):
     with patch(
-        "qwenpaw.app.routers.agents.load_config",
-        return_value=fake_config,
+        "qwenpaw.app.routers.agents.mutate_config",
+        side_effect=_root_transaction(fake_config),
     ):
         response = client.put(
             "/api/agents/order",
@@ -714,8 +777,8 @@ def test_reorder_agents_rejects_duplicate_ids(client, fake_config):
 
 def test_reorder_agents_rejects_mismatched_ids(client, fake_config):
     with patch(
-        "qwenpaw.app.routers.agents.load_config",
-        return_value=fake_config,
+        "qwenpaw.app.routers.agents.mutate_config",
+        side_effect=_root_transaction(fake_config),
     ):
         response = client.put(
             "/api/agents/order",
@@ -726,12 +789,10 @@ def test_reorder_agents_rejects_mismatched_ids(client, fake_config):
 
 
 def test_reorder_agents_happy_path_saves(client, fake_config):
-    with (
-        patch(
-            "qwenpaw.app.routers.agents.load_config",
-            return_value=fake_config,
-        ),
-        patch("qwenpaw.app.routers.agents.save_config") as save_mock,
+    calls = []
+    with patch(
+        "qwenpaw.app.routers.agents.mutate_config",
+        side_effect=_root_transaction(fake_config, calls),
     ):
         response = client.put(
             "/api/agents/order",
@@ -740,7 +801,7 @@ def test_reorder_agents_happy_path_saves(client, fake_config):
 
     assert response.status_code == 200
     assert response.json()["success"] is True
-    save_mock.assert_called_once()
+    assert calls == [fake_config]
 
 
 @pytest.mark.asyncio
@@ -752,21 +813,17 @@ async def test_reorder_config_io_runs_off_event_loop(
     event_loop_thread = threading.get_ident()
     io_threads = []
 
-    def load():
+    def mutate(mutator):
         io_threads.append(threading.get_ident())
-        return fake_config
+        return _root_transaction(fake_config)(mutator)
 
-    def save(_config):
-        io_threads.append(threading.get_ident())
-
-    monkeypatch.setattr("qwenpaw.app.routers.agents.load_config", load)
-    monkeypatch.setattr("qwenpaw.app.routers.agents.save_config", save)
+    monkeypatch.setattr("qwenpaw.app.routers.agents.mutate_config", mutate)
 
     await reorder_agents(
         ReorderAgentsRequest(agent_ids=["default", "bot"]),
     )
 
-    assert len(io_threads) == 2
+    assert len(io_threads) == 1
     assert all(thread_id != event_loop_thread for thread_id in io_threads)
 
 
@@ -850,19 +907,23 @@ def test_delete_agent_happy_path_calls_stop_and_saves(
     fake_config,
     manager_mock,
 ):
+    calls = []
     with (
         patch(
             "qwenpaw.app.routers.agents.load_config",
             return_value=fake_config,
         ),
-        patch("qwenpaw.app.routers.agents.save_config") as save_mock,
+        patch(
+            "qwenpaw.app.routers.agents.mutate_config",
+            side_effect=_root_transaction(fake_config, calls),
+        ),
     ):
         response = client.delete("/api/agents/bot")
 
     assert response.status_code == 200
     assert response.json() == {"success": True, "agent_id": "bot"}
     manager_mock.stop_agent.assert_awaited_once_with("bot")
-    save_mock.assert_called_once()
+    assert calls == [fake_config]
     assert "bot" not in fake_config.agents.profiles
 
 
@@ -893,12 +954,16 @@ def test_toggle_enable_queues_bounded_startup(
 ):
     fake_config.agents.profiles["bot"].enabled = False
 
+    calls = []
     with (
         patch(
             "qwenpaw.app.routers.agents.load_config",
             return_value=fake_config,
         ),
-        patch("qwenpaw.app.routers.agents.save_config") as save_mock,
+        patch(
+            "qwenpaw.app.routers.agents.mutate_config",
+            side_effect=_root_transaction(fake_config, calls),
+        ),
     ):
         response = client.patch(
             "/api/agents/bot/toggle",
@@ -908,7 +973,7 @@ def test_toggle_enable_queues_bounded_startup(
     assert response.status_code == 200
     assert fake_config.agents.profiles["bot"].enabled is True
     manager_mock.schedule_agent_startup.assert_called_once_with("bot")
-    save_mock.assert_called_once()
+    assert calls == [fake_config]
 
 
 def test_delete_rejects_agent_during_startup(
@@ -1021,9 +1086,9 @@ def test_copy_agent_defaults_reset_channels_and_schedules_startup(
 
     saved = {}
 
-    def fake_save_agent_config(agent_id, agent_config):
-        saved["id"] = agent_id
-        saved["config"] = agent_config
+    def fake_write_agent(_path, payload):
+        saved["id"] = payload["id"]
+        saved["config"] = AgentProfileConfig.model_validate(payload)
 
     with (
         patch(
@@ -1034,10 +1099,13 @@ def test_copy_agent_defaults_reset_channels_and_schedules_startup(
             "qwenpaw.app.routers.agents.load_agent_config",
             return_value=source_cfg,
         ),
-        patch("qwenpaw.app.routers.agents.save_config"),
         patch(
-            "qwenpaw.app.routers.agents.save_agent_config",
-            side_effect=fake_save_agent_config,
+            "qwenpaw.app.routers.agents.mutate_config",
+            side_effect=_root_transaction(fake_config),
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.write_json_atomic",
+            side_effect=fake_write_agent,
         ),
         patch(
             "qwenpaw.app.routers.agents._initialize_agent_workspace",
@@ -1129,8 +1197,11 @@ def test_copy_agent_copies_skills_and_jobs_when_requested(
             "qwenpaw.app.routers.agents.load_agent_config",
             return_value=source_cfg,
         ),
-        patch("qwenpaw.app.routers.agents.save_config"),
-        patch("qwenpaw.app.routers.agents.save_agent_config"),
+        patch(
+            "qwenpaw.app.routers.agents.mutate_config",
+            side_effect=_root_transaction(fake_config),
+        ),
+        patch("qwenpaw.app.routers.agents.write_json_atomic"),
         patch(
             "qwenpaw.app.routers.agents._initialize_agent_workspace",
         ) as init_mock,
@@ -1222,8 +1293,11 @@ async def test_copy_agent_skips_startup_without_http_request(
             "qwenpaw.app.routers.agents.load_agent_config",
             return_value=source_cfg,
         ),
-        patch("qwenpaw.app.routers.agents.save_config"),
-        patch("qwenpaw.app.routers.agents.save_agent_config"),
+        patch(
+            "qwenpaw.app.routers.agents.mutate_config",
+            side_effect=_root_transaction(fake_config),
+        ),
+        patch("qwenpaw.app.routers.agents.write_json_atomic"),
         patch("qwenpaw.app.routers.agents._initialize_agent_workspace"),
         patch(
             "qwenpaw.app.routers.agents._generate_unique_id",
@@ -1349,8 +1423,11 @@ def test_copy_agent_optional_assets_match_request_flags(
             "qwenpaw.app.routers.agents.load_agent_config",
             return_value=source_cfg,
         ),
-        patch("qwenpaw.app.routers.agents.save_config"),
-        patch("qwenpaw.app.routers.agents.save_agent_config"),
+        patch(
+            "qwenpaw.app.routers.agents.mutate_config",
+            side_effect=_root_transaction(fake_config),
+        ),
+        patch("qwenpaw.app.routers.agents.write_json_atomic"),
         patch(
             "qwenpaw.app.routers.agents._generate_unique_id",
             return_value=agent_id,

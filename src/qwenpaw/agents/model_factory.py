@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Factory for creating chat models and formatters.
 
 This module provides a unified factory for creating chat model instances
@@ -21,8 +21,13 @@ from dataclasses import dataclass, field
 from typing import List, Sequence, Tuple, Type, Any, Union, Optional
 from urllib.parse import unquote, urlparse
 
-from agentscope.formatter import FormatterBase, OpenAIChatFormatter
-from agentscope.message import TextBlock
+import httpx
+from agentscope.formatter import (
+    DashScopeChatFormatter,
+    FormatterBase,
+    OpenAIChatFormatter,
+)
+from agentscope.message import Base64Source, TextBlock
 from agentscope.model import ChatModelBase
 
 try:
@@ -129,15 +134,6 @@ _SUPPORTED_IMAGE_EXTENSIONS: dict[str, str] = {
     ".webp": "image/webp",
 }
 
-_SUPPORTED_VIDEO_EXTENSIONS: dict[str, str] = {
-    ".mp4": "video/mp4",
-    ".webm": "video/webm",
-    ".mpeg": "video/mpeg",
-    ".mov": "video/quicktime",
-    ".avi": "video/x-msvideo",
-    ".mkv": "video/x-matroska",
-}
-
 
 @dataclass(frozen=True)
 class _LocalMediaRead:
@@ -148,10 +144,6 @@ class _LocalMediaRead:
     encoded: str | None
 
 
-_LOCAL_MEDIA_CACHE: ContextVar[dict[str, _LocalMediaRead] | None] = ContextVar(
-    "qwenpaw_local_media_cache",
-    default=None,
-)
 _FORMATTER_SEEN_MEDIA_KEYS: ContextVar[set[str] | None] = ContextVar(
     "qwenpaw_formatter_seen_media_keys",
     default=None,
@@ -172,7 +164,10 @@ def _local_media_path(url: str) -> str | None:
     return raw_url or None
 
 
-def _read_local_media(path: str) -> _LocalMediaRead:
+def _read_local_media(
+    path: str,
+    max_bytes: int = MAX_INLINE_MEDIA_BYTES,
+) -> _LocalMediaRead:
     """Inspect and, when allowed, encode a local file synchronously."""
     try:
         size = os.path.getsize(path)
@@ -181,7 +176,7 @@ def _read_local_media(path: str) -> _LocalMediaRead:
     except OSError:
         return _LocalMediaRead(False, 0, None)
 
-    if size > MAX_INLINE_MEDIA_BYTES:
+    if 0 < max_bytes < size:
         return _LocalMediaRead(True, size, None)
 
     try:
@@ -192,65 +187,73 @@ def _read_local_media(path: str) -> _LocalMediaRead:
     return _LocalMediaRead(True, size, encoded)
 
 
-def _local_media_cache_key(path: str) -> str:
-    """Normalize a local path for request-local media cache lookups."""
-    return os.path.normcase(os.path.normpath(path))
+@dataclass(frozen=True)
+class _MediaReference:
+    """One mutable message-list slot containing a URL-backed media block."""
+
+    items: list
+    index: int
+    block: Any
+    source: Any
+    kind: str
 
 
-def _video_source_url(block: Any) -> str | None:
-    """Return the URL from a video block without touching the filesystem."""
+def _media_source_value(source: Any, key: str, default: Any = None) -> Any:
+    """Read one media source field from a dict or Pydantic model."""
+    if isinstance(source, dict):
+        return source.get(key, default)
+    return getattr(source, key, default)
+
+
+def _media_kind(block: Any) -> str | None:
+    """Return the logical media kind represented by a content block."""
     block_type = (
         block.get("type")
         if isinstance(block, dict)
         else getattr(block, "type", None)
     )
+    if block_type in _MEDIA_BLOCK_TYPES:
+        return block_type
+    if block_type != "data":
+        return None
     source = (
         block.get("source")
         if isinstance(block, dict)
         else getattr(block, "source", None)
     )
-    if source is None:
-        return None
-
-    source_type = (
-        source.get("type")
-        if isinstance(source, dict)
-        else getattr(source, "type", None)
-    )
-    media_type = (
-        source.get("media_type", "")
-        if isinstance(source, dict)
-        else getattr(source, "media_type", "")
-    )
-    is_video = block_type == "video" or (
-        block_type == "data"
-        and isinstance(media_type, str)
-        and media_type.startswith("video/")
-    )
-    if not is_video or source_type != "url":
-        return None
-
-    url = (
-        source.get("url", "")
-        if isinstance(source, dict)
-        else str(getattr(source, "url", "") or "")
-    )
-    return url if isinstance(url, str) and url else None
+    media_type = str(_media_source_value(source, "media_type", "") or "")
+    kind = media_type.split("/", 1)[0]
+    return kind if kind in _MEDIA_BLOCK_TYPES else None
 
 
-def _collect_local_video_paths(
+def _collect_media_references(
     items: list,
-    paths: set[str],
+    references: list[_MediaReference],
     *,
     include_hint_videos: bool = False,
+    inside_hint: bool = False,
 ) -> None:
-    """Collect local video paths from supported nested block types."""
-    for block in items:
-        url = _video_source_url(block)
-        if url:
-            path = _local_media_path(url)
-            if path:
-                paths.add(path)
+    """Collect URL-backed media from messages and nested result blocks."""
+    for index, block in enumerate(items):
+        kind = _media_kind(block)
+        source = (
+            block.get("source")
+            if isinstance(block, dict)
+            else getattr(block, "source", None)
+        )
+        source_type = _media_source_value(source, "type")
+        url = str(_media_source_value(source, "url", "") or "")
+        if kind is None or source_type != "url" or not url:
+            is_url_source = False
+        else:
+            is_url_source = (
+                kind != "video" or not inside_hint or include_hint_videos
+            )
+        if is_url_source:
+            assert kind is not None
+            references.append(
+                _MediaReference(items, index, block, source, kind),
+            )
 
         block_type = (
             block.get("type")
@@ -264,53 +267,199 @@ def _collect_local_video_paths(
                 if isinstance(block, dict)
                 else getattr(block, "output", None)
             )
-        elif block_type == "hint" and include_hint_videos:
+        elif block_type == "hint":
             nested = (
                 block.get("hint")
                 if isinstance(block, dict)
                 else getattr(block, "hint", None)
             )
         if isinstance(nested, list):
-            _collect_local_video_paths(
+            _collect_media_references(
                 nested,
-                paths,
+                references,
                 include_hint_videos=include_hint_videos,
+                inside_hint=block_type == "hint",
             )
 
 
-async def _prepare_local_media_cache(
+def _remote_media_requires_download(
+    kind: str,
+    base_formatter_class: Type[FormatterBase],
+) -> bool:
+    """Whether the upstream formatter would synchronously download a URL."""
+    if AnthropicChatFormatter is not None and issubclass(
+        base_formatter_class,
+        AnthropicChatFormatter,
+    ):
+        return kind == "image"
+    if GeminiChatFormatter is not None and issubclass(
+        base_formatter_class,
+        GeminiChatFormatter,
+    ):
+        return True
+    if issubclass(base_formatter_class, DashScopeChatFormatter):
+        return False
+    return kind == "audio" and issubclass(
+        base_formatter_class,
+        (OpenAIChatFormatter, OpenAIResponseFormatter),
+    )
+
+
+async def _download_remote_media(url: str) -> _LocalMediaRead:
+    """Download and encode one remote media URL without blocking the loop."""
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=30.0,
+    ) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+    encoded = await run_sync_io(_encode_media_bytes, response.content)
+    return _LocalMediaRead(True, len(response.content), encoded)
+
+
+def _encode_media_bytes(data: bytes) -> str:
+    """Encode downloaded media away from the application event loop."""
+    return base64.b64encode(data).decode("utf-8")
+
+
+def _prepared_media_type(
+    reference: _MediaReference,
+    url: str,
+    base_formatter_class: Type[FormatterBase],
+) -> str:
+    """Return the media type expected by the downstream formatter."""
+    media_type = str(
+        _media_source_value(reference.source, "media_type", "") or "",
+    )
+    if reference.kind != "audio" or issubclass(
+        base_formatter_class,
+        DashScopeChatFormatter,
+    ):
+        return media_type
+    extension = urlparse(url).path.rsplit(".", 1)[-1].lower()
+    if extension in ("mp3", "wav"):
+        return f"audio/{extension}"
+    return media_type
+
+
+def _replace_media_reference(
+    reference: _MediaReference,
+    prepared: _LocalMediaRead,
+    url: str,
+    base_formatter_class: Type[FormatterBase],
+    *,
+    local: bool,
+    max_bytes: int,
+) -> None:
+    """Commit prepared media data into a copied request message."""
+    if not prepared.exists:
+        reference.items[reference.index] = TextBlock(
+            type="text",
+            text=(
+                f"[{reference.kind.title()} unavailable"
+                " - file deleted from disk]"
+            ),
+        )
+        return
+    if local and 0 < max_bytes < prepared.size:
+        reference.items[reference.index] = TextBlock(
+            type="text",
+            text=(
+                f"[{reference.kind} omitted from model context: local file "
+                f"is {prepared.size} bytes, exceeds inline limit of "
+                f"{max_bytes} bytes]"
+            ),
+        )
+        return
+    if prepared.encoded is None:
+        return
+
+    media_type = _prepared_media_type(
+        reference,
+        url,
+        base_formatter_class,
+    )
+    if isinstance(reference.block, dict):
+        reference.block["source"] = {
+            "type": "base64",
+            "data": prepared.encoded,
+            "media_type": media_type,
+        }
+    else:
+        reference.block.source = Base64Source(
+            data=prepared.encoded,
+            media_type=media_type,
+        )
+
+
+async def _prepare_media_sources(
     msgs: list,
+    base_formatter_class: Type[FormatterBase],
     *,
     include_hint_videos: bool = False,
-) -> dict[str, _LocalMediaRead]:
-    """Read local videos in worker threads before wire formatting."""
-    paths: set[str] = set()
+    max_bytes: int = MAX_INLINE_MEDIA_BYTES,
+) -> None:
+    """Prepare media so downstream formatting performs no blocking I/O."""
+    references: list[_MediaReference] = []
     for msg in msgs:
         content = getattr(msg, "content", None)
         if isinstance(content, list):
-            _collect_local_video_paths(
+            _collect_media_references(
                 content,
-                paths,
+                references,
                 include_hint_videos=include_hint_videos,
             )
 
-    ordered_paths = sorted(paths)
-    reads = await asyncio.gather(
-        *(run_sync_io(_read_local_media, path) for path in ordered_paths),
-    )
-    cache_keys = [_local_media_cache_key(path) for path in ordered_paths]
-    return dict(zip(cache_keys, reads))
+    pending: dict[tuple[str, str], asyncio.Task[_LocalMediaRead]] = {}
+    prepared_keys: list[tuple[str, str] | None] = []
+    for reference in references:
+        url = str(_media_source_value(reference.source, "url", "") or "")
+        local_path = _local_media_path(url)
+        key: tuple[str, str] | None = None
+        if local_path is not None:
+            key = ("local", os.path.normcase(os.path.normpath(local_path)))
+            if key not in pending:
+                pending[key] = asyncio.create_task(
+                    run_sync_io(
+                        _read_local_media,
+                        local_path,
+                        max_bytes,
+                    ),
+                )
+            prepared_keys.append(key)
+            continue
 
+        parsed = urlparse(url)
+        if parsed.scheme in ("http", "https") and (
+            _remote_media_requires_download(
+                reference.kind,
+                base_formatter_class,
+            )
+        ):
+            key = ("remote", url)
+            if key not in pending:
+                pending[key] = asyncio.create_task(
+                    _download_remote_media(url),
+                )
+            prepared_keys.append(key)
+            continue
+        prepared_keys.append(None)
 
-def _cached_local_media(url: str) -> _LocalMediaRead | None:
-    """Return media prepared for the active formatter request."""
-    cache = _LOCAL_MEDIA_CACHE.get()
-    if cache is None:
-        return None
-    path = _local_media_path(url)
-    if path is None:
-        return None
-    return cache.get(_local_media_cache_key(path))
+    if pending:
+        await asyncio.gather(*pending.values())
+
+    for reference, key in zip(references, prepared_keys):
+        if key is None:
+            continue
+        url = str(_media_source_value(reference.source, "url", "") or "")
+        _replace_media_reference(
+            reference,
+            pending[key].result(),
+            url,
+            base_formatter_class,
+            local=key[0] == "local",
+            max_bytes=max_bytes,
+        )
 
 
 def _supports_multimodal_for_current_model() -> bool:
@@ -468,26 +617,11 @@ def _format_anthropic_video_data_block(block: Any) -> dict | None:
     raw_url = _file_url_to_path(url_str)
     local_path = _local_media_path(url_str)
     if local_path is not None:
-        prepared = _cached_local_media(url_str)
-        if prepared is None or not prepared.exists:
-            return None
-        if prepared.size > MAX_INLINE_MEDIA_BYTES:
-            return _video_oversize_placeholder(prepared.size)
-        ext = os.path.splitext(local_path)[1].lower()
-        resolved_media_type = (
-            media_type
-            if media_type.startswith("video/")
-            else _SUPPORTED_VIDEO_EXTENSIONS.get(ext)
+        logger.warning(
+            "Local video reached Anthropic formatter without preparation: "
+            "%s",
+            local_path,
         )
-        if resolved_media_type and prepared.encoded is not None:
-            return {
-                "type": "video",
-                "source": {
-                    "type": "base64",
-                    "media_type": resolved_media_type,
-                    "data": prepared.encoded,
-                },
-            }
         return None
 
     parsed_url = urlparse(raw_url)
@@ -544,50 +678,16 @@ def _format_openai_video_block(
     elif source["type"] == "url":
         raw_url = _file_url_to_path(source["url"])
         local_path = _local_media_path(source["url"])
-        prepared = _cached_local_media(source["url"])
-        if prepared is not None:
-            if not prepared.exists:
-                raise ModelFormatterError(
-                    message=(
-                        f"Invalid video URL: {source['url']}. It should be"
-                        " a local file or a web URL."
-                    ),
-                )
-            if prepared.size > MAX_INLINE_MEDIA_BYTES:
-                return _video_oversize_placeholder(
-                    prepared.size,
-                    response_api=response_api,
-                )
-            if local_path is None:
-                raise ModelFormatterError(
-                    message=(
-                        f"Invalid video URL: {source['url']}. It should be"
-                        " a local file or a web URL."
-                    ),
-                )
-            ext = os.path.splitext(local_path)[1].lower()
-            media_type = _SUPPORTED_VIDEO_EXTENSIONS.get(ext)
-            if not media_type:
-                raise ModelFormatterError(
-                    f"Unsupported video extension: {ext}",
-                )
-            if prepared.encoded is None:
-                raise ModelFormatterError(
-                    message=f"Unable to read local video: {source['url']}",
-                )
-            url = f"data:{media_type};base64,{prepared.encoded}"
+        parsed = urlparse(raw_url)
+        if local_path is None and parsed.scheme not in ("", "file"):
+            url = source["url"]
         else:
-            parsed = urlparse(raw_url)
-            if parsed.scheme not in ("", "file"):
-                url = source["url"]
-            else:
-                raise ModelFormatterError(
-                    message=(
-                        f"Invalid video URL: "
-                        f"{source['url']}. It should be"
-                        " a local file or a web URL."
-                    ),
-                )
+            raise ModelFormatterError(
+                message=(
+                    f"Local video was not prepared: {source['url']}. "
+                    "It should be a readable local file or a web URL."
+                ),
+            )
     else:
         raise ModelFormatterError(
             message=f"Unsupported video source type: {source['type']}",
@@ -1241,15 +1341,7 @@ def _create_file_block_support_formatter(
             return super()._format_anthropic_data_block(block)
 
         # pylint: disable=too-many-branches, too-many-statements
-        def _format_in_worker(self, msgs):
-            """Run the complete formatting pipeline outside the main loop."""
-            return asyncio.run(self._format_impl(msgs))
-
         async def format(self, msgs):
-            """Format messages without blocking the application event loop."""
-            return await run_sync_io(self._format_in_worker, msgs)
-
-        async def _format_impl(self, msgs):
             """Override ``format`` (2.0 API) to inject normalization,
             reasoning_content relay, and provider-specific fixups.
             """
@@ -1257,7 +1349,7 @@ def _create_file_block_support_formatter(
             # Per-wire-request dedup scope — second occurrence of the
             # same media source becomes a text placeholder.  Reset on
             # every call so state never leaks across requests.
-            _FORMATTER_SEEN_MEDIA_KEYS.set(set())
+            seen_media_token = _FORMATTER_SEEN_MEDIA_KEYS.set(set())
 
             def _battr(block, key, default=None):
                 """Get attribute from dict or Pydantic block."""
@@ -1315,15 +1407,25 @@ def _create_file_block_support_formatter(
             if fixup_tasks:
                 await asyncio.gather(*fixup_tasks)
 
-            media_cache = (
-                {}
-                if _is_gemini_formatter
-                else await _prepare_local_media_cache(
-                    normalized_msgs,
-                    include_hint_videos=is_anthropic_formatter,
+            include_hint_videos = (
+                is_anthropic_formatter
+                or _is_gemini_formatter
+                or issubclass(
+                    base_formatter_class,
+                    DashScopeChatFormatter,
                 )
             )
-            media_cache_token = _LOCAL_MEDIA_CACHE.set(media_cache)
+            await _prepare_media_sources(
+                normalized_msgs,
+                base_formatter_class,
+                include_hint_videos=include_hint_videos,
+                max_bytes=getattr(
+                    self,
+                    "max_bytes",
+                    MAX_INLINE_MEDIA_BYTES,
+                ),
+            )
+
             try:
                 # OpenAI-family formatters reject video blocks; substitute
                 # them with text placeholders before formatting and restore
@@ -1359,7 +1461,7 @@ def _create_file_block_support_formatter(
                         response_api=_is_response_formatter,
                     )
             finally:
-                _LOCAL_MEDIA_CACHE.reset(media_cache_token)
+                _FORMATTER_SEEN_MEDIA_KEYS.reset(seen_media_token)
 
             messages = _reorder_tool_and_promoted_messages(messages)
             _fix_image_mime_types(messages)

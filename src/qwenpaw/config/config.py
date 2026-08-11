@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import importlib
@@ -7,7 +7,17 @@ import logging
 import re
 import threading
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal, Any, Set, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 from pydantic import (
     BaseModel,
@@ -2819,7 +2829,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         if agent_id in _agent_config_cache:
             cached_config, cached_mtime = _agent_config_cache[agent_id]
             if cached_mtime == current_mtime:
-                return cached_config
+                return cached_config.model_copy(deep=True)
 
         # Need to reload config from disk
         with open(agent_config_path, "r", encoding="utf-8") as f:
@@ -2868,12 +2878,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                         f"{migration_name}-migrate.bak",
                     )
                     _shutil.copy2(agent_config_path, backup_path)
-                with open(
-                    agent_config_path,
-                    "w",
-                    encoding="utf-8",
-                ) as file:
-                    json.dump(data, file, ensure_ascii=False, indent=2)
+                write_json_atomic(agent_config_path, data)
                 try:
                     current_mtime = agent_config_path.stat().st_mtime
                 except OSError:
@@ -2904,9 +2909,12 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         agent_config = AgentProfileConfig(**data)
 
         # Cache the config with its mtime
-        _agent_config_cache[agent_id] = (agent_config, current_mtime)
+        _agent_config_cache[agent_id] = (
+            agent_config.model_copy(deep=True),
+            current_mtime,
+        )
 
-        return agent_config
+        return agent_config.model_copy(deep=True)
 
 
 def save_agent_config(
@@ -2936,15 +2944,38 @@ def save_agent_config(
             message=f"Agent '{agent_id}' not found in config",
         )
 
-    agent_ref = config.agents.profiles[agent_id]
-    workspace_dir = Path(agent_ref.workspace_dir).expanduser()
-    agent_config_path = workspace_dir / "agent.json"
+    candidate = agent_config.model_copy(deep=True)
     with _agent_config_lock:
+        agent_ref = config.agents.profiles[agent_id]
+        workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+        agent_config_path = workspace_dir / "agent.json"
         write_json_atomic(
             agent_config_path,
-            agent_config.model_dump(exclude_none=True),
+            candidate.model_dump(exclude_none=True),
         )
-        _agent_config_cache.pop(agent_id, None)
+        try:
+            current_mtime = agent_config_path.stat().st_mtime
+        except OSError:
+            _agent_config_cache.pop(agent_id, None)
+        else:
+            _agent_config_cache[agent_id] = (
+                candidate.model_copy(deep=True),
+                current_mtime,
+            )
+
+
+def mutate_agent_config(
+    agent_id: str,
+    mutator: Callable[[AgentProfileConfig], None],
+) -> AgentProfileConfig:
+    """Apply one agent-profile mutation as an atomic transaction."""
+    from .utils import _agent_config_lock
+
+    with _agent_config_lock:
+        candidate = load_agent_config(agent_id)
+        mutator(candidate)
+        save_agent_config(agent_id, candidate)
+        return candidate.model_copy(deep=True)
 
 
 def migrate_legacy_config_to_multi_agent() -> bool:

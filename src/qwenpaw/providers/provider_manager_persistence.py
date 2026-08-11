@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Persistence and migration operations for ProviderManager."""
 
 import asyncio
@@ -7,7 +7,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict, Literal
+from typing import Any, Awaitable, Callable, Dict, Literal
 
 from ..config.config import ModelSlotConfig
 from ..exceptions import ProviderError
@@ -82,6 +82,35 @@ class ProviderManagerPersistenceMixin:
     """Provide provider snapshot persistence and migration operations."""
 
     active_model: ModelSlotConfig | None
+
+    async def _mutate_provider_async(
+        self,
+        provider_id: str,
+        operation: Callable[[Provider], Awaitable[Any]],
+    ) -> Any:
+        """Persist a provider mutation before committing live state."""
+        provider_id = self._normalize_provider_id(provider_id)
+        lock = self._provider_save_locks.setdefault(
+            provider_id,
+            asyncio.Lock(),
+        )
+        async with lock:
+            provider = self.get_provider(provider_id)
+            if provider is None:
+                return None
+            candidate = provider.model_copy(deep=True)
+            result = await operation(candidate)
+            provider_path = self._provider_config_path(provider_id)
+            snapshot = candidate.model_copy(deep=True)
+            await run_sync_io(
+                self._save_provider_snapshot_locked,
+                provider_id,
+                snapshot,
+                provider_path,
+            )
+            self._commit_provider_snapshot(provider_id, snapshot)
+            self._bump_provider_revision(provider_id)
+            return result
 
     def _save_provider(
         self,

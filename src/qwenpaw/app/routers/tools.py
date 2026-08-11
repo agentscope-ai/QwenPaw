@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # pylint: disable=too-many-nested-blocks,too-many-branches
 """API routes for built-in tools management."""
 
@@ -10,7 +10,9 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
-from ...config import load_config, save_config
+from ...config import load_config
+from ...config.utils import mutate_config
+from ...utils.io_utils import run_sync_io
 from ..utils import schedule_agent_reload
 
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -90,9 +92,11 @@ def _persist_browser_experimental(config: dict[str, Any]) -> None:
     experimental = config.get("experimental")
     if not isinstance(experimental, bool):
         return
-    application_config = load_config()
-    application_config.browser.experimental = experimental
-    save_config(application_config)
+
+    def apply_experimental(application_config: Any) -> None:
+        application_config.browser.experimental = experimental
+
+    mutate_config(apply_experimental)
     if experimental:
         from ...browser.runtime.managed_playwright import (
             start_managed_chromium_download,
@@ -436,7 +440,10 @@ async def update_tool_config(
         registry.set_tool_config(tool_name, workspace.agent_id, config_to_save)
 
         if tool_name == "browser":
-            _persist_browser_experimental(config_to_save)
+            await run_sync_io(
+                _persist_browser_experimental,
+                config_to_save,
+            )
 
         # Hot reload config to apply changes without full restart
         schedule_agent_reload(request, workspace.agent_id)

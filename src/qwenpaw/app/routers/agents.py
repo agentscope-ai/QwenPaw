@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Multi-agent management API.
 
 Provides RESTful API for managing multiple agent instances.
@@ -26,19 +26,19 @@ from ...config.config import (
     FallbackPolicyConfig,
     ModelSlotConfig,
     load_agent_config,
-    save_agent_config,
+    mutate_agent_config,
     generate_short_agent_id,
     sanitize_agent_id,
     validate_agent_id,
 )
-from ...config.utils import load_config, save_config
+from ...config.utils import load_config, mutate_config
 from ...agents.utils import copy_workspace_md_files, normalize_agent_language
 from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
 from ...harnesses.registry import ProviderCatalogItem, get_provider
 from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
-from ...utils.io_utils import run_sync_io
+from ...utils.io_utils import run_sync_io, write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -384,32 +384,31 @@ async def reorder_agents(
     reorder_request: ReorderAgentsRequest = Body(...),
 ) -> dict:
     """Persist the full ordered list of agent IDs."""
-    config = await run_sync_io(load_config)
-    configured_ids = list(config.agents.profiles.keys())
 
-    if len(reorder_request.agent_ids) != len(set(reorder_request.agent_ids)):
-        raise HTTPException(
-            status_code=400,
-            detail="Each configured agent ID must appear exactly once.",
-        )
+    def apply_order(config: Any) -> None:
+        configured_ids = list(config.agents.profiles.keys())
+        agent_ids = reorder_request.agent_ids
+        if len(agent_ids) != len(set(agent_ids)):
+            raise HTTPException(
+                status_code=400,
+                detail="Each configured agent ID must appear exactly once.",
+            )
+        if set(agent_ids) != set(configured_ids):
+            raise HTTPException(
+                status_code=400,
+                detail="Each configured agent ID must appear exactly once.",
+            )
+        if not _is_valid_display_order(config, agent_ids):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Agent order must keep default first and pinned agents "
+                    "before unpinned agents."
+                ),
+            )
+        config.agents.agent_order = list(agent_ids)
 
-    if set(reorder_request.agent_ids) != set(configured_ids):
-        raise HTTPException(
-            status_code=400,
-            detail="Each configured agent ID must appear exactly once.",
-        )
-
-    if not _is_valid_display_order(config, reorder_request.agent_ids):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Agent order must keep default first and pinned agents "
-                "before unpinned agents."
-            ),
-        )
-
-    config.agents.agent_order = list(reorder_request.agent_ids)
-    await run_sync_io(save_config, config)
+    config = await run_sync_io(mutate_config, apply_order)
 
     return {"success": True, "agent_ids": config.agents.agent_order}
 
@@ -424,25 +423,23 @@ async def set_agent_pinned(
     pinned: bool = Body(..., embed=True),
 ) -> dict:
     """Persist an agent's pinned state without changing enabled state."""
-    config = await run_sync_io(load_config)
 
-    if agentId not in config.agents.profiles:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent '{agentId}' not found",
-        )
+    def apply_pinned(config: Any) -> None:
+        if agentId not in config.agents.profiles:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Agent '{agentId}' not found",
+            )
+        if agentId == "default" and not pinned:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot unpin the default agent",
+            )
+        if agentId != "default":
+            config.agents.profiles[agentId].pinned = pinned
+            config.agents.agent_order = _display_agent_order(config)
 
-    if agentId == "default" and not pinned:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot unpin the default agent",
-        )
-
-    agent_ref = config.agents.profiles[agentId]
-    if agentId != "default":
-        agent_ref.pinned = pinned
-        config.agents.agent_order = _display_agent_order(config)
-        await run_sync_io(save_config, config)
+    await run_sync_io(mutate_config, apply_pinned)
 
     return {
         "success": True,
@@ -478,31 +475,36 @@ async def update_backend_settings(
     agentId: str = PathParam(...),
 ) -> AgentProfileConfig:
     """Persist model controls owned by a third-party agent backend."""
+    values = body.model_dump()
+
+    def apply_settings(agent_config: AgentProfileConfig) -> None:
+        if agent_config.backend == "qwenpaw":
+            raise HTTPException(
+                status_code=409,
+                detail="QwenPaw models use the native model configuration",
+            )
+        provider = _get_available_third_party_provider(agent_config.backend)
+        settings = dict(agent_config.backend_settings)
+        if provider.capabilities.model_selection:
+            if values["model"]:
+                settings["model"] = values["model"]
+            else:
+                settings.pop("model", None)
+        if provider.capabilities.reasoning_effort:
+            if values["reasoning_effort"]:
+                settings["reasoning_effort"] = values["reasoning_effort"]
+            else:
+                settings.pop("reasoning_effort", None)
+        agent_config.backend_settings = settings
+
     try:
-        agent_config = await asyncio.to_thread(load_agent_config, agentId)
+        return await run_sync_io(
+            mutate_agent_config,
+            agentId,
+            apply_settings,
+        )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    if agent_config.backend == "qwenpaw":
-        raise HTTPException(
-            status_code=409,
-            detail="QwenPaw models use the native model configuration",
-        )
-    provider = _get_available_third_party_provider(agent_config.backend)
-    settings = dict(agent_config.backend_settings)
-    values = body.model_dump()
-    if provider.capabilities.model_selection:
-        if values["model"]:
-            settings["model"] = values["model"]
-        else:
-            settings.pop("model", None)
-    if provider.capabilities.reasoning_effort:
-        if values["reasoning_effort"]:
-            settings["reasoning_effort"] = values["reasoning_effort"]
-        else:
-            settings.pop("reasoning_effort", None)
-    agent_config.backend_settings = settings
-    await asyncio.to_thread(save_agent_config, agentId, agent_config)
-    return agent_config
 
 
 def _generate_unique_id(existing_ids: set[str]) -> str:
@@ -620,7 +622,6 @@ async def create_agent(
 
     await run_sync_io(
         _persist_created_agent,
-        config,
         new_id,
         agent_ref,
         agent_config,
@@ -708,16 +709,27 @@ def _prepare_copied_workspace(
 
 
 def _persist_created_agent(
-    config: Any,
     agent_id: str,
     agent_ref: AgentProfileRef,
     agent_config: AgentProfileConfig,
 ) -> None:
-    """Persist a newly created agent and its profile atomically by sequence."""
-    config.agents.profiles[agent_id] = agent_ref
-    config.agents.agent_order = _normalized_agent_order(config)
-    save_config(config)
-    save_agent_config(agent_id, agent_config)
+    """Register a new agent under the root-config transaction lock."""
+
+    def register_agent(config: Any) -> None:
+        if agent_id in config.agents.profiles:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Agent ID '{agent_id}' already exists",
+            )
+        agent_path = Path(agent_ref.workspace_dir).expanduser() / "agent.json"
+        write_json_atomic(
+            agent_path,
+            agent_config.model_dump(exclude_none=True),
+        )
+        config.agents.profiles[agent_id] = agent_ref
+        config.agents.agent_order = _normalized_agent_order(config)
+
+    mutate_config(register_agent)
 
 
 @router.post(
@@ -786,7 +798,6 @@ async def copy_agent(
 
     await run_sync_io(
         _persist_created_agent,
-        config,
         new_id,
         agent_ref,
         agent_config,
@@ -823,23 +834,22 @@ async def update_agent(
     request: Request = None,
 ) -> AgentProfileConfig:
     """Update agent configuration."""
-    config = await asyncio.to_thread(load_config)
-
-    if agentId not in config.agents.profiles:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent '{agentId}' not found",
-        )
-
-    existing_config = await asyncio.to_thread(load_agent_config, agentId)
-
     update_data = agent_config.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        if key != "id":
-            setattr(existing_config, key, value)
 
-    existing_config.id = agentId
-    await asyncio.to_thread(save_agent_config, agentId, existing_config)
+    def apply_update(existing_config: AgentProfileConfig) -> None:
+        for key, value in update_data.items():
+            if key != "id":
+                setattr(existing_config, key, value)
+        existing_config.id = agentId
+
+    try:
+        existing_config = await run_sync_io(
+            mutate_agent_config,
+            agentId,
+            apply_update,
+        )
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     schedule_agent_reload(request, agentId)
 
     return existing_config
@@ -850,11 +860,12 @@ def _patch_agent_model_settings(
     values: dict[str, Any],
 ) -> AgentProfileConfig:
     """Apply model-routing fields to the latest persisted agent config."""
-    existing_config = load_agent_config(agent_id)
-    for key, value in values.items():
-        setattr(existing_config, key, value)
-    save_agent_config(agent_id, existing_config)
-    return existing_config
+
+    def apply_settings(existing_config: AgentProfileConfig) -> None:
+        for key, value in values.items():
+            setattr(existing_config, key, value)
+
+    return mutate_agent_config(agent_id, apply_settings)
 
 
 @router.patch(
@@ -944,14 +955,17 @@ async def get_agent_memory_graph(
     request: Request = None,
 ) -> MemoryGraphSnapshot:
     """Return a frontend-ready graph snapshot from embedded ReMe."""
-    config = load_config()
-    if agentId not in config.agents.profiles:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent '{agentId}' not found",
-        )
 
-    agent_config = load_agent_config(agentId)
+    def load_memory_configs() -> AgentProfileConfig:
+        config = load_config()
+        if agentId not in config.agents.profiles:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Agent '{agentId}' not found",
+            )
+        return load_agent_config(agentId)
+
+    agent_config = await run_sync_io(load_memory_configs)
     if agent_config.running.memory_manager_backend != "remelight":
         raise HTTPException(
             status_code=400,
@@ -1034,9 +1048,18 @@ async def delete_agent(
         )
     await manager.stop_agent(agentId)
 
-    del config.agents.profiles[agentId]
-    config.agents.agent_order = _normalized_agent_order(config)
-    await run_sync_io(save_config, config)
+    def remove_agent(latest_config: Any) -> None:
+        if agentId not in latest_config.agents.profiles:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Agent '{agentId}' not found",
+            )
+        del latest_config.agents.profiles[agentId]
+        latest_config.agents.agent_order = _normalized_agent_order(
+            latest_config,
+        )
+
+    await run_sync_io(mutate_config, remove_agent)
 
     return {"success": True, "agent_id": agentId}
 
@@ -1081,8 +1104,15 @@ async def toggle_agent_enabled(
     if not enabled and getattr(agent_ref, "enabled", True):
         await manager.stop_agent(agentId)
 
-    agent_ref.enabled = enabled
-    await run_sync_io(save_config, config)
+    def apply_enabled(latest_config: Any) -> None:
+        if agentId not in latest_config.agents.profiles:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Agent '{agentId}' not found",
+            )
+        latest_config.agents.profiles[agentId].enabled = enabled
+
+    await run_sync_io(mutate_config, apply_enabled)
 
     if enabled:
         manager.schedule_agent_startup(agentId)

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Tests for model_factory message normalization integration."""
 
 # pylint: disable=protected-access,redefined-outer-name,mixed-line-endings
@@ -806,10 +806,10 @@ async def test_local_video_preparation_does_not_block_event_loop(
     release = threading.Event()
     original_reader = model_factory._read_local_media
 
-    def blocking_reader(path: str):
+    def blocking_reader(path: str, max_bytes: int = 0):
         entered.set()
         release.wait(timeout=2)
-        return original_reader(path)
+        return original_reader(path, max_bytes)
 
     monkeypatch.setattr(
         model_factory,
@@ -843,45 +843,10 @@ async def test_local_video_preparation_does_not_block_event_loop(
         ],
     )
     preparation = asyncio.create_task(
-        model_factory._prepare_local_media_cache([user_msg, tool_msg]),
-    )
-    await asyncio.wait_for(asyncio.to_thread(entered.wait), timeout=1)
-
-    ticks = 0
-    deadline = asyncio.get_running_loop().time() + 0.05
-    while asyncio.get_running_loop().time() < deadline:
-        ticks += 1
-        await asyncio.sleep(0)
-
-    release.set()
-    cache = await preparation
-
-    assert ticks > 0
-    assert len(cache) == 1
-    assert next(iter(cache.values())).encoded == "dmlkZW8="
-
-
-@pytest.mark.asyncio
-async def test_formatter_base_call_does_not_block_event_loop() -> None:
-    """Base formatter media work must run outside the application loop."""
-    entered = threading.Event()
-    release = threading.Event()
-
-    class BlockingFormatter(OpenAIChatFormatter):
-        """Formatter that models a synchronous upstream media operation."""
-
-        async def format(self, _msgs):
-            entered.set()
-            release.wait(timeout=2)
-            return [{"role": "user", "content": "formatted"}]
-
-    formatter_class = model_factory._create_file_block_support_formatter(
-        BlockingFormatter,
-    )
-    formatter = formatter_class()
-    formatting = asyncio.create_task(
-        formatter.format(
-            [Msg(name="user", role="user", content=[TextBlock(text="hello")])],
+        model_factory._prepare_media_sources(
+            [user_msg, tool_msg],
+            _CappingOpenAIFormatter,
+            include_hint_videos=True,
         ),
     )
     await asyncio.wait_for(asyncio.to_thread(entered.wait), timeout=1)
@@ -893,9 +858,191 @@ async def test_formatter_base_call_does_not_block_event_loop() -> None:
         await asyncio.sleep(0)
 
     release.set()
+    await preparation
+
+    assert ticks > 0
+    assert user_msg.content[0].source.data == "dmlkZW8="
+
+
+@pytest.mark.asyncio
+async def test_remote_media_preparation_does_not_block_event_loop(
+    monkeypatch,
+) -> None:
+    """Remote downloads are awaited before in-memory wire formatting."""
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def delayed_download(_url: str):
+        entered.set()
+        await release.wait()
+        return model_factory._LocalMediaRead(True, 5, "aW1hZ2U=")
+
+    monkeypatch.setattr(
+        model_factory,
+        "_download_remote_media",
+        delayed_download,
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    formatting = asyncio.create_task(
+        formatter.format(
+            [
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[
+                        _data_block(
+                            "image/png",
+                            "https://example.com/image.png",
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    )
+    await asyncio.wait_for(entered.wait(), timeout=1)
+
+    ticks = 0
+    deadline = asyncio.get_running_loop().time() + 0.05
+    while asyncio.get_running_loop().time() < deadline:
+        ticks += 1
+        await asyncio.sleep(0)
+
+    release.set()
     formatted = await formatting
 
     assert ticks > 0
+    assert formatted[0]["content"][0]["source"]["data"] == "aW1hZ2U="
+
+
+@pytest.mark.asyncio
+async def test_concurrent_media_preparation_is_request_local(
+    monkeypatch,
+) -> None:
+    """Concurrent formatter calls keep downloaded media isolated."""
+
+    async def fake_download(url: str):
+        await asyncio.sleep(0)
+        encoded = "Zmlyc3Q=" if "first" in url else "c2Vjb25k"
+        return model_factory._LocalMediaRead(True, 6, encoded)
+
+    monkeypatch.setattr(
+        model_factory,
+        "_download_remote_media",
+        fake_download,
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+
+    async def format_url(url: str):
+        return await formatter.format(
+            [
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[_data_block("image/png", url)],
+                ),
+            ],
+        )
+
+    first, second = await asyncio.gather(
+        format_url("https://example.com/first.png"),
+        format_url("https://example.com/second.png"),
+    )
+
+    assert first[0]["content"][0]["source"]["data"] == "Zmlyc3Q="
+    assert second[0]["content"][0]["source"]["data"] == "c2Vjb25k"
+
+
+@pytest.mark.asyncio
+async def test_remote_media_preparation_propagates_cancellation(
+    monkeypatch,
+) -> None:
+    """Cancelling a formatter call also cancels its remote download."""
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def pending_download(_url: str):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(
+        model_factory,
+        "_download_remote_media",
+        pending_download,
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    formatting = asyncio.create_task(
+        formatter.format(
+            [
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[
+                        _data_block(
+                            "image/png",
+                            "https://example.com/pending.png",
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    )
+    await asyncio.wait_for(entered.wait(), timeout=1)
+
+    formatting.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await formatting
+    await asyncio.wait_for(cancelled.wait(), timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_formatter_base_call_does_not_block_event_loop() -> None:
+    """Base formatter runs on the event loop after media preparation."""
+    observed_loop = None
+
+    class BlockingFormatter(OpenAIChatFormatter):
+        """Formatter that records the loop used for wire formatting."""
+
+        async def format(self, _msgs):
+            nonlocal observed_loop
+            observed_loop = asyncio.get_running_loop()
+            return [{"role": "user", "content": "formatted"}]
+
+    formatter_class = model_factory._create_file_block_support_formatter(
+        BlockingFormatter,
+    )
+    formatter = formatter_class()
+    loop = asyncio.get_running_loop()
+    formatted = await formatter.format(
+        [Msg(name="user", role="user", content=[TextBlock(text="hello")])],
+    )
+    assert observed_loop is loop
     assert formatted == [{"role": "user", "content": "formatted"}]
 
 
@@ -939,6 +1086,38 @@ async def test_openai_formatter_uses_prepared_local_video(
 
 
 @pytest.mark.asyncio
+async def test_formatter_applies_custom_local_media_limit(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The async preparation stage honors formatter-specific media caps."""
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    image_path = tmp_path / "large.png"
+    image_path.write_bytes(b"image")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(max_bytes=4)
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[
+            _data_block("image/png", f"file://{image_path}"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    item = formatted[0]["content"][0]
+    assert item["type"] == "text"
+    assert "exceeds inline limit of 4 bytes" in item["text"]
+
+
+@pytest.mark.asyncio
 async def test_anthropic_hint_uses_prepared_local_video(
     tmp_path,
     monkeypatch,
@@ -955,9 +1134,9 @@ async def test_anthropic_hint_uses_prepared_local_video(
     original_reader = model_factory._read_local_media
     worker_reads: list[str] = []
 
-    def counted_reader(path: str):
+    def counted_reader(path: str, max_bytes: int = 0):
         worker_reads.append(path)
-        return original_reader(path)
+        return original_reader(path, max_bytes)
 
     monkeypatch.setattr(
         model_factory,
@@ -997,24 +1176,28 @@ async def test_anthropic_hint_uses_prepared_local_video(
 
 
 @pytest.mark.asyncio
-async def test_dashscope_hint_skips_local_video_preparation(
+async def test_dashscope_hint_prepares_local_video_once(
     tmp_path,
     monkeypatch,
 ) -> None:
-    """DashScope must avoid the unused worker-thread hint pre-read."""
+    """DashScope hint videos are prepared once before wire formatting."""
     monkeypatch.setattr(
         model_factory,
         "_supports_multimodal_for_current_model",
         lambda: True,
     )
 
-    def unexpected_reader(path: str):
-        raise AssertionError(f"unexpected worker-thread read: {path}")
+    original_reader = model_factory._read_local_media
+    reads: list[str] = []
+
+    def counted_reader(path: str, max_bytes: int = 0):
+        reads.append(path)
+        return original_reader(path, max_bytes)
 
     monkeypatch.setattr(
         model_factory,
         "_read_local_media",
-        unexpected_reader,
+        counted_reader,
     )
     video_path = tmp_path / "dashscope-hint-clip.mp4"
     video_path.write_bytes(b"video")
@@ -1041,6 +1224,7 @@ async def test_dashscope_hint_skips_local_video_preparation(
     assert video_item["video_url"]["url"].startswith(
         "data:video/mp4;base64,",
     )
+    assert len(reads) == 1
 
 
 @pytest.mark.asyncio
@@ -1087,11 +1271,62 @@ async def test_openai_hint_skips_local_video_preparation(
 
 
 @pytest.mark.asyncio
-async def test_gemini_formatter_skips_local_video_preparation(
+async def test_openai_hint_prepares_supported_local_media(
     tmp_path,
     monkeypatch,
 ) -> None:
-    """Gemini must not perform the unused worker-thread media pre-read."""
+    """Supported OpenAI hint media is prepared exactly once."""
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    original_reader = model_factory._read_local_media
+    reads: list[str] = []
+
+    def counted_reader(path: str, max_bytes: int = 0):
+        reads.append(path)
+        return original_reader(path, max_bytes)
+
+    monkeypatch.setattr(
+        model_factory,
+        "_read_local_media",
+        counted_reader,
+    )
+    image_path = tmp_path / "openai-hint.png"
+    image_path.write_bytes(b"image")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class()
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            HintBlock(
+                hint=[
+                    _data_block("image/png", f"file://{image_path}"),
+                ],
+            ),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    image_item = formatted[0]["content"][0]
+    assert image_item["type"] == "image_url"
+    assert image_item["image_url"]["url"].startswith(
+        "data:image/png;base64,",
+    )
+    assert len(reads) == 1
+
+
+@pytest.mark.asyncio
+async def test_gemini_formatter_prepares_local_video_once(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Gemini media is prepared before its in-memory formatter call."""
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
@@ -1101,13 +1336,17 @@ async def test_gemini_formatter_skips_local_video_preparation(
         lambda: True,
     )
 
-    def unexpected_reader(path: str):
-        raise AssertionError(f"unexpected worker-thread read: {path}")
+    original_reader = model_factory._read_local_media
+    reads: list[str] = []
+
+    def counted_reader(path: str, max_bytes: int = 0):
+        reads.append(path)
+        return original_reader(path, max_bytes)
 
     monkeypatch.setattr(
         model_factory,
         "_read_local_media",
-        unexpected_reader,
+        counted_reader,
     )
     video_path = tmp_path / "gemini-clip.mp4"
     video_path.write_bytes(b"video")
@@ -1126,6 +1365,7 @@ async def test_gemini_formatter_skips_local_video_preparation(
     formatted = await formatter.format([msg])
 
     assert formatted[0]["parts"][0]["inline_data"]["data"] == "dmlkZW8="
+    assert len(reads) == 1
 
 
 @pytest.mark.asyncio
@@ -1154,21 +1394,21 @@ async def test_openai_formatter_promotes_prepared_tool_video(
             },
         ],
     )
-    media_cache = await model_factory._prepare_local_media_cache([msg])
-    cache_token = model_factory._LOCAL_MEDIA_CACHE.set(media_cache)
-    try:
-        formatted = model_factory._promote_tool_result_videos(
-            [msg],
-            [
-                {
-                    "role": "tool",
-                    "tool_call_id": "call_1",
-                    "content": "tool output",
-                },
-            ],
-        )
-    finally:
-        model_factory._LOCAL_MEDIA_CACHE.reset(cache_token)
+    await model_factory._prepare_media_sources(
+        [msg],
+        _CappingOpenAIFormatter,
+        include_hint_videos=True,
+    )
+    formatted = model_factory._promote_tool_result_videos(
+        [msg],
+        [
+            {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "tool output",
+            },
+        ],
+    )
 
     video_items = [
         item

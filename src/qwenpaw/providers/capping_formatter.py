@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Capping formatters that refuse to inline oversized local media.
 
 agentscope's chat formatters (OpenAI, Anthropic, Gemini, DashScope, …) all
@@ -22,11 +22,7 @@ model via the ``formatter=`` constructor kwarg.
 
 from __future__ import annotations
 
-import base64
-import os
 from typing import Any, ClassVar
-from urllib.parse import urlparse
-from urllib.request import url2pathname
 
 # The capping formatters below override agentscope's ``_format_*_source``
 # methods, which are ``@staticmethod`` on the base classes, with instance
@@ -54,44 +50,6 @@ from pydantic import Field
 MAX_INLINE_MEDIA_BYTES = 2 * 1024 * 1024  # 2 MB
 
 
-def _resolve_local_path(url: str) -> str | None:
-    """Resolve a URL or bare path to a local filesystem path.
-
-    Returns ``None`` for any non-local scheme (http, https, s3,
-    oss, ftp, data, etc.).  Handles ``file://`` URIs (including
-    UNC and localhost authority) and bare local paths produced
-    by ``_fixup_media_list`` normalization.
-    """
-    parsed = urlparse(url)
-    scheme = parsed.scheme
-
-    if scheme == "file":
-        nl = parsed.netloc
-        if not nl or nl.lower() == "localhost":
-            # file:///path or file://localhost/path -> local
-            full_path = parsed.path
-        elif len(nl) == 2 and nl[0].isalpha() and nl[1] == ":":
-            # Two-slash Windows: file://C:/path
-            full_path = f"{nl}{parsed.path}"
-        else:
-            # UNC: file://server/share/path
-            full_path = f"//{nl}{parsed.path}"
-        return url2pathname(full_path)
-
-    if scheme == "":
-        # Bare local path (e.g. /tmp/x.png, C:/Temp/x.png,
-        # //server/share/x.png).
-        return url
-
-    # Single-letter scheme on Windows is a drive letter,
-    # e.g. urlparse("C:/Temp/x.png") gives scheme="c".
-    if len(scheme) == 1 and scheme.isalpha():
-        return url
-
-    # Any other scheme (http, https, s3, oss, ftp, data, ...)
-    return None
-
-
 def inline_media_size(source: Any) -> int | None:
     """Return the byte size of *source* if it would be inlined locally.
 
@@ -99,13 +57,7 @@ def inline_media_size(source: Any) -> int | None:
     unrecognised source types so the caller leaves them untouched.
     """
     if isinstance(source, URLSource):
-        path = _resolve_local_path(str(source.url))
-        if path is None:
-            return None
-        try:
-            return os.path.getsize(path)
-        except OSError:
-            return None
+        return None
     if isinstance(source, Base64Source):
         # base64 length -> approximate raw byte count.
         return len(source.data or "") * 3 // 4
@@ -162,21 +114,14 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
 
     @staticmethod
     def _local_source_to_base64(source: Any) -> Any:
-        """Convert a local URLSource to a Base64Source.
+        """Return media prepared by the request formatter unchanged.
 
-        Handles both ``file://`` URIs and bare local paths
-        (produced by ``_fixup_media_list`` normalization).
-        Non-local sources (remote URLs, already-base64 sources,
-        anything else) are returned unchanged.
+        QwenPaw's request formatter converts local sources to
+        :class:`Base64Source` before this synchronous provider-shaping
+        stage. Keeping this method as a compatibility hook avoids local
+        filesystem access in the event-loop formatter call.
         """
-        if not isinstance(source, URLSource):
-            return source
-        path = _resolve_local_path(str(source.url))
-        if path is None:
-            return source
-        with open(path, "rb") as f:
-            encoded = base64.b64encode(f.read()).decode("utf-8")
-        return Base64Source(data=encoded, media_type=source.media_type)
+        return source
 
 
 class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
@@ -184,7 +129,10 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
 
     _qwenpaw_supports_reasoning_content_fallback: ClassVar[bool] = True
 
-    def _format_image_source(self, source: Any) -> dict[str, Any]:
+    def _format_image_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
@@ -192,7 +140,10 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
             self._local_source_to_base64(source),
         )
 
-    def _format_audio_source(self, source: Any) -> dict[str, Any]:
+    def _format_audio_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "audio")
         if capped is not None:
             return capped
@@ -207,7 +158,10 @@ class _CappingAnthropicFormatter(
 ):
     """Anthropic formatter that caps oversized local image media."""
 
-    def _format_image_source(self, source: Any) -> dict[str, Any]:
+    def _format_image_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
@@ -228,7 +182,10 @@ class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
     def _placeholder(self, kind: str, size: int) -> dict[str, Any]:
         return {"text": self._placeholder_text(kind, size)}
 
-    def _format_media_source(self, source: Any) -> dict[str, Any]:
+    def _format_media_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "media")
         if capped is not None:
             return capped
@@ -245,7 +202,10 @@ class _CappingDashScopeFormatter(
 
     _qwenpaw_supports_reasoning_content_fallback: ClassVar[bool] = True
 
-    def _format_video_source(self, source: Any) -> dict[str, Any]:
+    def _format_video_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "video")
         if capped is not None:
             return capped
@@ -253,7 +213,10 @@ class _CappingDashScopeFormatter(
             self._local_source_to_base64(source),
         )
 
-    def _format_image_source(self, source: Any) -> dict[str, Any]:
+    def _format_image_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
@@ -261,7 +224,10 @@ class _CappingDashScopeFormatter(
             self._local_source_to_base64(source),
         )
 
-    def _format_audio_source(self, source: Any) -> dict[str, Any]:
+    def _format_audio_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "audio")
         if capped is not None:
             return capped
