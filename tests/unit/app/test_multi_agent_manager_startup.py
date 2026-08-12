@@ -17,6 +17,9 @@ import qwenpaw.constant as constants
 from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
 from qwenpaw.app.task_tracker import REPLAY_END_SSE, TaskTracker
+from qwenpaw.app.workspace import Workspace
+from qwenpaw.agents.memory.adbpg_memory_manager import ADBPGMemoryManager
+from qwenpaw.agents.memory.dummy import NoopMemoryManager
 from qwenpaw.constant import BUILTIN_QA_AGENT_ID
 
 
@@ -35,18 +38,33 @@ def _config(*agent_ids: str):
 
 
 class _ReloadServiceManager:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        reusable: dict | None = None,
+        accepted: set[str] | None = None,
+    ) -> None:
         self.services = {}
+        self._reusable = reusable or {}
+        self.reused_services = accepted or set()
+        self.descriptors = {
+            name: SimpleNamespace(reusable=True) for name in self._reusable
+        }
 
     def get_reusable_services(self) -> dict:
-        return {}
+        return self._reusable
 
 
 class _ReloadWorkspace:
-    def __init__(self, agent_id: str) -> None:
+    def __init__(
+        self,
+        agent_id: str,
+        *,
+        reusable: dict | None = None,
+        accepted: set[str] | None = None,
+    ) -> None:
         self.agent_id = agent_id
         self.task_tracker = TaskTracker()
-        self._service_manager = _ReloadServiceManager()
+        self._service_manager = _ReloadServiceManager(reusable, accepted)
         self.started = False
         self.stopped = False
         self.manager = None
@@ -67,6 +85,102 @@ class _ReloadWorkspace:
     async def stop(self, final: bool = True) -> None:
         del final
         self.stopped = True
+
+
+def test_get_loaded_agent_never_starts_a_workspace() -> None:
+    manager = MultiAgentManager()
+    workspace = MagicMock()
+    manager.agents["loaded"] = workspace
+
+    assert manager.get_loaded_agent("loaded") is workspace
+    assert manager.get_loaded_agent("not-loaded") is None
+
+
+def test_workspace_reload_reuses_memory_manager(tmp_path) -> None:
+    workspace = Workspace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+    )
+
+    descriptor = workspace._service_manager.descriptors["memory_manager"]
+    assert descriptor.reusable is True
+
+
+@pytest.mark.asyncio
+async def test_workspace_replaces_reused_memory_manager_after_backend_switch(
+    tmp_path,
+) -> None:
+    workspace = Workspace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+    )
+    workspace._config = SimpleNamespace(
+        running=SimpleNamespace(memory_manager_backend="none"),
+    )
+    old_manager = ADBPGMemoryManager(str(tmp_path), "agent-1")
+
+    await workspace.set_reusable_components(
+        {"memory_manager": old_manager},
+    )
+    descriptor = workspace._service_manager.descriptors["memory_manager"]
+    await workspace._service_manager._start_service(descriptor)
+
+    assert isinstance(workspace.memory_manager, NoopMemoryManager)
+    assert workspace.memory_manager is not old_manager
+    assert "memory_manager" not in workspace._service_manager.reused_services
+
+
+@pytest.mark.asyncio
+async def test_workspace_keeps_reused_manager_when_backend_is_unchanged(
+    tmp_path,
+) -> None:
+    workspace = Workspace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+    )
+    workspace._config = SimpleNamespace(
+        running=SimpleNamespace(memory_manager_backend="none"),
+    )
+    old_manager = NoopMemoryManager(str(tmp_path), "agent-1")
+
+    await workspace.set_reusable_components(
+        {"memory_manager": old_manager},
+    )
+    descriptor = workspace._service_manager.descriptors["memory_manager"]
+    await workspace._service_manager._start_service(descriptor)
+
+    assert workspace.memory_manager is old_manager
+    assert "memory_manager" in workspace._service_manager.reused_services
+
+
+@pytest.mark.asyncio
+async def test_reload_marks_rejected_reusable_service_for_cleanup(
+    monkeypatch,
+) -> None:
+    manager = MultiAgentManager()
+    config = _config("agent-1")
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: config,
+    )
+    memory_manager = object()
+    old_workspace = _ReloadWorkspace(
+        "agent-1",
+        reusable={"memory_manager": memory_manager},
+        accepted={"memory_manager"},
+    )
+    new_workspace = _ReloadWorkspace("agent-1", accepted=set())
+    manager.agents["agent-1"] = old_workspace
+    manager._create_workspace = MagicMock(return_value=new_workspace)
+
+    assert await manager.reload_agent("agent-1") is True
+
+    descriptor = old_workspace._service_manager.descriptors["memory_manager"]
+    assert descriptor.reusable is False
+    assert (
+        "memory_manager" not in old_workspace._service_manager.reused_services
+    )
+    assert old_workspace.stopped is True
 
 
 @pytest.mark.asyncio

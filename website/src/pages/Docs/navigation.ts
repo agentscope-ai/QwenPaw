@@ -32,7 +32,6 @@ export const DOC_GROUPS: DocGroup[] = [
         slug: "memory-evolving-and-proactive",
         titleKey: "docs.memoryEvolvingAndProactive",
       },
-      { slug: "coding-mode", titleKey: "docs.codingMode" },
     ],
   },
   {

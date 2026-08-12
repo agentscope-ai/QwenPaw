@@ -15,8 +15,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import {
@@ -25,6 +23,7 @@ import {
   type WorkspaceArtifactPreviewKind,
 } from "../../types/workspaceArtifacts";
 import { isDesktopTauriRuntime } from "../../utils/openExternalLink";
+import { RenderableCodeBlock } from "../../components/RenderableCodeBlock";
 import type { WorkspaceRoot } from "../../features/files-workspace/types";
 import { ExternalMarkdownLink } from "../../components/Markdown/externalLinkComponents";
 import { useAgentStore } from "../../stores/agentStore";
@@ -408,27 +407,15 @@ const markdownComponents = {
     void node;
     void inline;
     const match = /language-([\w-]+)/.exec(className || "");
-    const codeText = String(children).replace(/\n$/, "");
-    if (match) {
-      return (
-        <SyntaxHighlighter
-          language={match[1]}
-          style={oneDark}
-          customStyle={{
-            margin: 0,
-            borderRadius: "6px",
-            fontSize: "13px",
-            lineHeight: "1.6",
-          }}
-        >
-          {codeText}
-        </SyntaxHighlighter>
-      );
-    }
     return (
-      <code className={className} {...rest}>
+      <RenderableCodeBlock
+        {...rest}
+        block={!!match}
+        className={className}
+        lang={match?.[1]}
+      >
         {children}
-      </code>
+      </RenderableCodeBlock>
     );
   },
 };
@@ -602,15 +589,9 @@ function TextPreview({
   const extension = filePath.split(".").pop()?.toLowerCase() || "text";
   return (
     <div className={styles.textWrap}>
-      <SyntaxHighlighter
-        language={extension}
-        style={oneDark}
-        showLineNumbers
-        wrapLongLines
-        customStyle={{ margin: 0, minHeight: "100%", borderRadius: 0 }}
-      >
+      <RenderableCodeBlock block lang={extension}>
         {content}
-      </SyntaxHighlighter>
+      </RenderableCodeBlock>
     </div>
   );
 }

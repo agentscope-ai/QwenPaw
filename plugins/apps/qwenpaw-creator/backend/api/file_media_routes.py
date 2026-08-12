@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Iterator
 from pathlib import Path
+import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -23,11 +24,16 @@ from services.media_files.keyframe_cache import (
     materialize_keyframe,
     verified_indexed_path,
 )
+from services.media_files.motion_engine import (
+    referenced_vendor_filenames,
+    resolve_vendor_files,
+)
+from services.media_files.motion_overlay import render_motion_poster
 from services.project_files.assets import AssetFileError, AssetFileStore
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import IndexedFile
 from services.project_files.remote_cache import resolve_remote_cache
-from services.project_files.store import ProjectNotFound
+from services.project_files.store import ProjectNotFound, ProjectStoreError
 from services.runtime_files.execution_store import ProjectExecutionStore
 from utils.paths import media_path_from_url
 
@@ -170,12 +176,14 @@ async def _indexed_version(
             return match
         _VERSION_PROJECT_CACHE.pop((kind, version_id), None)
     matches: list[tuple[Path, IndexedFile | None, Any, str]] = []
-    summaries = await asyncio.to_thread(services.projects.list)
+    # discover_project_ids (not list) so bundled example Projects, which are
+    # hidden from the user's project shelf, still serve their media.
+    summaries = await asyncio.to_thread(services.projects.discover_project_ids)
     for summary in summaries:
         match = await asyncio.to_thread(
             _version_in_project,
             services,
-            project_id=summary.project_id,
+            project_id=summary,
             version_id=version_id,
             kind=kind,
         )
@@ -289,6 +297,251 @@ async def generated_file(path: str) -> FileResponse:
     if not target.is_file():
         raise NotFoundError("生成资源不存在")
     return FileResponse(target, content_disposition_type="inline")
+
+
+def _motion_document_in_project(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    file_id: str,
+) -> tuple[Path, IndexedFile] | None:
+    try:
+        snapshot = services.projects.read(project_id)
+    except ProjectNotFound:
+        return None
+    except ProjectStoreError:
+        # Discovery includes unvalidated directories; one corrupt Project must
+        # not block the scan of the remaining healthy ones.
+        return None
+    indexed = snapshot.project.assets.files_by_id.get(file_id)
+    if indexed is None or indexed.schema_name != "motion_document":
+        return None
+    return services.projects.project_root(project_id), indexed
+
+
+@router.get("/media/motion-documents/{file_id}")
+async def motion_document(
+    file_id: str,
+    request: Request,
+    services: CreatorFileServices = Depends(project_file_services),
+) -> Response:
+    """Serve one externalized motion document body.
+
+    Content is delivered as plain text: the frontend injects it into a
+    sandboxed iframe via srcDoc, and this route must never become a
+    same-origin HTML navigation target.
+    """
+
+    matches: list[tuple[Path, IndexedFile]] = []
+    # O(项目数) 扫描：本地单用户部署的项目数量有限，且命中后前端会长期
+    # immutable 缓存；若项目规模增长，应改为全局 file_id → 项目的索引。
+    # discover_project_ids (not list) so bundled example Projects, which are
+    # hidden from the user's project shelf, still serve their media.
+    project_ids = await asyncio.to_thread(
+        services.projects.discover_project_ids,
+    )
+    for project_id in project_ids:
+        match = await asyncio.to_thread(
+            _motion_document_in_project,
+            services,
+            project_id=project_id,
+            file_id=file_id,
+        )
+        if match is not None:
+            matches.append(match)
+    if not matches:
+        raise NotFoundError("motion 文档不存在")
+    # Content-addressed ids may legitimately appear in several Projects;
+    # every copy carries identical bytes, so the first match serves.
+    project_root, indexed = matches[0]
+
+    def open_verified():
+        try:
+            return AssetFileStore(project_root).open_verified(indexed)
+        except AssetFileError as error:
+            raise StorageIntegrityError(str(error)) from error
+
+    return _media_response(
+        request,
+        stream_factory=open_verified,
+        size_bytes=indexed.size_bytes,
+        media_type="text/plain; charset=utf-8",
+        name=f"{file_id}.html",
+        etag=f'"sha256:{indexed.sha256}"',
+        cache_control="public, max-age=31536000, immutable",
+    )
+
+
+@router.get("/media/motion-documents/{file_id}/poster")
+async def motion_document_poster(
+    file_id: str,
+    doc_format: Literal["html_css", "html_js"] = Query(
+        "html_css",
+        alias="format",
+    ),
+    width: int = Query(640, ge=16, le=1920),
+    height: int = Query(360, ge=16, le=1080),
+    services: CreatorFileServices = Depends(project_file_services),
+) -> Response:
+    """Deterministic PNG poster frame of one externalized motion document.
+
+    Backs the live preview of ``html_js`` documents: their scripts never
+    execute in the frontend, so the sandboxed render engine produces one
+    settled frame here instead.  Content-addressed and immutable.
+    """
+
+    matches: list[tuple[Path, IndexedFile]] = []
+    # discover_project_ids (not list) so bundled example Projects, which are
+    # hidden from the user's project shelf, still serve their media.
+    project_ids = await asyncio.to_thread(
+        services.projects.discover_project_ids,
+    )
+    for project_id in project_ids:
+        match = await asyncio.to_thread(
+            _motion_document_in_project,
+            services,
+            project_id=project_id,
+            file_id=file_id,
+        )
+        if match is not None:
+            matches.append(match)
+    if not matches:
+        raise NotFoundError("motion 文档不存在")
+    project_root, indexed = matches[0]
+
+    def read_verified() -> str:
+        try:
+            with AssetFileStore(project_root).open_verified(
+                indexed,
+            ) as stream:
+                return stream.read().decode("utf-8")
+        except AssetFileError as error:
+            raise StorageIntegrityError(str(error)) from error
+
+    html = await asyncio.to_thread(read_verified)
+    # ffmpeg 的 YUV 子采样要求偶数尺寸；ETag 必须反映实际渲染尺寸，
+    # 否则两个不同的奇数请求会产生同图不同 ETag 的缓存不一致。
+    actual_width = width // 2 * 2
+    actual_height = height // 2 * 2
+    payload = await asyncio.to_thread(
+        render_motion_poster,
+        html,
+        doc_format=doc_format,
+        box_width=actual_width,
+        box_height=actual_height,
+    )
+    if payload is None:
+        raise NotFoundError("无法渲染动效海报帧")
+    return Response(
+        payload,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "ETag": f'"poster:{indexed.sha256}:{actual_width}x{actual_height}"',
+        },
+    )
+
+
+# Host->document bridge for the sandboxed live-preview iframe: the paused
+# GSAP timeline never advances on its own, so the preview host drives it by
+# posting seek messages the same way the render worker drives __hf.seek.
+# targetOrigin is deliberately '*': the document runs in an opaque origin
+# (sandbox without allow-same-origin), which no concrete origin string can
+# match; the payload carries nothing but a type tag and a timestamp.
+_PREVIEW_SEEK_BRIDGE = """
+<script>
+window.addEventListener('message', function (event) {
+  var data = event.data || {};
+  if (data.type !== 'qwenpaw-motion-seek') return;
+  var seconds = Number(data.seconds) || 0;
+  var proto = window.__hf;
+  if (proto && typeof proto.seek === 'function') {
+    try { proto.seek(seconds, { suppressEvents: true }); } catch (error) {}
+  }
+  var animations = document.getAnimations
+    ? document.getAnimations({ subtree: true })
+    : [];
+  for (var i = 0; i < animations.length; i++) {
+    try { animations[i].currentTime = seconds * 1000; } catch (error) {}
+  }
+});
+try { parent.postMessage({ type: 'qwenpaw-motion-ready' }, '*'); } catch (error) {}
+</script>
+"""
+
+
+@router.get("/media/motion-documents/{file_id}/preview")
+async def motion_document_preview(
+    file_id: str,
+    services: CreatorFileServices = Depends(project_file_services),
+) -> Response:
+    """Self-contained playable copy of one html_js motion document.
+
+    The hyperframes-style same-source preview: the very document the
+    render worker captures also runs in the frontend, inside an iframe
+    sandboxed to ``allow-scripts`` only (opaque origin, no host access).
+    Vendored runtime references are inlined because the sandbox cannot
+    resolve relative ``vendor/`` paths, and a postMessage seek bridge
+    lets the host drive the paused timeline exactly like the renderer.
+    """
+
+    matches: list[tuple[Path, IndexedFile]] = []
+    summaries = await asyncio.to_thread(services.projects.list)
+    for summary in summaries:
+        match = await asyncio.to_thread(
+            _motion_document_in_project,
+            services,
+            project_id=summary.project_id,
+            file_id=file_id,
+        )
+        if match is not None:
+            matches.append(match)
+    if not matches:
+        raise NotFoundError("motion 文档不存在")
+    project_root, indexed = matches[0]
+
+    def build_preview() -> str:
+        try:
+            with AssetFileStore(project_root).open_verified(
+                indexed,
+            ) as stream:
+                html = stream.read().decode("utf-8")
+        except AssetFileError as error:
+            raise StorageIntegrityError(str(error)) from error
+        for filename, path in resolve_vendor_files(
+            referenced_vendor_filenames(html),
+        ).items():
+            body = Path(path).read_text(encoding="utf-8")
+            html = re.sub(
+                rf"<script\s+src=[\"']vendor/{re.escape(filename)}[\"']\s*>\s*</script>",
+                lambda _m, body=body: f"<script>{body}</script>",
+                html,
+                count=1,
+            )
+        # Fail closed on a leftover vendor reference: the sandboxed iframe
+        # cannot resolve relative paths, so an uninlined runtime would boot
+        # a silently dead document instead of a playable one.
+        if re.search(r"<script\s+src=[\"']vendor/", html):
+            raise StorageIntegrityError("动效文档的运行时引用未能内联，无法预览")
+        if "</body>" in html:
+            return html.replace("</body>", _PREVIEW_SEEK_BRIDGE + "</body>", 1)
+        return html + _PREVIEW_SEEK_BRIDGE
+
+    payload = await asyncio.to_thread(build_preview)
+    return Response(
+        payload,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "ETag": f'"preview:{indexed.sha256}"',
+            # The document runs in an opaque-origin sandbox; this CSP is a
+            # second fence: inline script/style only, no network at all.
+            "Content-Security-Policy": (
+                "default-src 'none'; script-src 'unsafe-inline'; "
+                "style-src 'unsafe-inline'; img-src data:; font-src data:"
+            ),
+        },
+    )
 
 
 @router.get("/media/assets/{version_id}")

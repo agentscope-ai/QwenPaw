@@ -18,17 +18,24 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, GetAncestor, GetForegroundWindow, GetWindowThreadProcessId, IsWindow,
-    SetCursorPos, SetForegroundWindow, ShowWindow, WindowFromPoint, GA_ROOT, SW_RESTORE,
+    SetCursorPos, SetForegroundWindow, ShowWindow, WindowFromPoint, GA_ROOT, GA_ROOTOWNER,
+    SW_RESTORE,
 };
 
 use super::super::state::{map_point, Observation, WindowInfo};
+use super::super::InputStep;
+use super::uia::{element_point, element_point_by_id};
 use super::window::get_visible_window_rect;
 
 pub(crate) fn click(
     observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
-    let point = verify_point(observation, params)?;
+    let point = if params.contains_key("element_id") {
+        verify_element_point(observation, params)?
+    } else {
+        verify_point(observation, params)?
+    };
     let button = params
         .get("button")
         .and_then(Value::as_str)
@@ -75,15 +82,49 @@ pub(crate) fn drag(
     observation: &Observation,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
-    let start = verify_point_with_prefix(observation, params, "start_")?;
-    let end = verify_point_with_prefix(observation, params, "end_")?;
+    let (start, end) = drag_points(observation, params)?;
     unsafe {
         SetCursorPos(start.x, start.y).map_err(|error| ("input_failed", error.to_string()))?;
         mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
-        SetCursorPos(end.x, end.y).map_err(|error| ("input_failed", error.to_string()))?;
+        thread::sleep(Duration::from_millis(80));
+        for step in 1..=12 {
+            let x = start.x + (end.x - start.x) * step / 12;
+            let y = start.y + (end.y - start.y) * step / 12;
+            SetCursorPos(x, y).map_err(|error| ("input_failed", error.to_string()))?;
+            thread::sleep(Duration::from_millis(16));
+        }
+        thread::sleep(Duration::from_millis(80));
         mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
     }
     Ok(json!({"applied": true}))
+}
+
+fn drag_points(
+    observation: &Observation,
+    params: &Map<String, Value>,
+) -> Result<(POINT, POINT), (&'static str, String)> {
+    let source_id = params.get("source_element_id").and_then(Value::as_str);
+    let target_id = params.get("target_element_id").and_then(Value::as_str);
+    match (source_id, target_id) {
+        (Some(source_id), Some(target_id)) => {
+            ensure_observed_geometry(observation)?;
+            set_focus(&observation.window)?;
+            ensure_observed_geometry(observation)?;
+            Ok((
+                validate_target_point(observation, element_point_by_id(observation, source_id)?)?,
+                validate_target_point(observation, element_point_by_id(observation, target_id)?)?,
+            ))
+        }
+        (None, None) => Ok((
+            verify_point_with_prefix(observation, params, "start_")?,
+            verify_point_with_prefix(observation, params, "end_")?,
+        )),
+        _ => Err((
+            "invalid_request",
+            "Both source_element_id and target_element_id are required for an element drag."
+                .to_string(),
+        )),
+    }
 }
 
 pub(crate) fn type_text(
@@ -97,10 +138,7 @@ pub(crate) fn type_text(
         .ok_or(("invalid_request", "text is required.".to_string()))?;
     set_focus(&observation.window)?;
     let mut inputs = Vec::with_capacity(text.encode_utf16().count() * 2);
-    for unit in text.encode_utf16() {
-        inputs.push(unicode_input(unit, KEYEVENTF_UNICODE));
-        inputs.push(unicode_input(unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
-    }
+    append_text_inputs(&mut inputs, text);
     send_inputs(&inputs)?;
     Ok(json!({"applied": true, "text_length": text.chars().count()}))
 }
@@ -118,14 +156,65 @@ pub(crate) fn press_key(
     let keys = parse_key_sequence(key)?;
     set_focus(&observation.window)?;
     let mut inputs = Vec::with_capacity(keys.len() * 2);
-    for value in &keys {
+    append_key_inputs(&mut inputs, &keys);
+    send_inputs(&inputs)?;
+    Ok(json!({"applied": true, "key": key}))
+}
+
+pub(crate) fn input_sequence(
+    observation: &Observation,
+    steps: &[InputStep],
+) -> Result<Value, (&'static str, String)> {
+    let (inputs, ends) = build_sequence_inputs(steps)?;
+    set_focus(&observation.window)?;
+    let applied = send_inputs_count(&inputs);
+    if applied == inputs.len() {
+        return Ok(json!({"applied": true, "completed_steps": steps.len()}));
+    }
+    let completed = completed_steps(&ends, applied);
+    Ok(json!({
+        "completed_steps": completed,
+        "error": {
+            "code": "input_failed",
+            "message": "Windows rejected part of the input sequence.",
+            "step_index": completed,
+            "outcome": "unknown",
+        },
+    }))
+}
+
+fn build_sequence_inputs(
+    steps: &[InputStep],
+) -> Result<(Vec<INPUT>, Vec<usize>), (&'static str, String)> {
+    let mut inputs = Vec::new();
+    let mut ends = Vec::with_capacity(steps.len());
+    for step in steps {
+        match step {
+            InputStep::Type(text) => append_text_inputs(&mut inputs, text),
+            InputStep::PressKey(key) => {
+                let keys = parse_key_sequence(key)?;
+                append_key_inputs(&mut inputs, &keys);
+            }
+        }
+        ends.push(inputs.len());
+    }
+    Ok((inputs, ends))
+}
+
+fn append_text_inputs(inputs: &mut Vec<INPUT>, text: &str) {
+    for unit in text.encode_utf16() {
+        inputs.push(unicode_input(unit, KEYEVENTF_UNICODE));
+        inputs.push(unicode_input(unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
+    }
+}
+
+fn append_key_inputs(inputs: &mut Vec<INPUT>, keys: &[VIRTUAL_KEY]) {
+    for value in keys {
         inputs.push(virtual_key_input(*value, Default::default()));
     }
     for value in keys.iter().rev() {
         inputs.push(virtual_key_input(*value, KEYEVENTF_KEYUP));
     }
-    send_inputs(&inputs)?;
-    Ok(json!({"applied": true, "key": key}))
 }
 
 fn parse_key_sequence(value: &str) -> Result<Vec<VIRTUAL_KEY>, (&'static str, String)> {
@@ -249,14 +338,21 @@ fn virtual_key_input(
 }
 
 fn send_inputs(inputs: &[INPUT]) -> Result<(), (&'static str, String)> {
-    let applied = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
-    if applied != inputs.len() as u32 {
+    if send_inputs_count(inputs) != inputs.len() {
         return Err((
             "input_failed",
             "Windows rejected keyboard input.".to_string(),
         ));
     }
     Ok(())
+}
+
+fn send_inputs_count(inputs: &[INPUT]) -> usize {
+    unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) as usize }
+}
+
+fn completed_steps(ends: &[usize], applied: usize) -> usize {
+    ends.iter().take_while(|end| **end <= applied).count()
 }
 
 fn verify_point(
@@ -266,14 +362,36 @@ fn verify_point(
     verify_point_with_prefix(observation, params, "")
 }
 
+fn verify_element_point(
+    observation: &Observation,
+    params: &Map<String, Value>,
+) -> Result<POINT, (&'static str, String)> {
+    ensure_observed_geometry(observation)?;
+    set_focus(&observation.window)?;
+    ensure_observed_geometry(observation)?;
+    validate_target_point(observation, element_point(observation, params)?)
+}
+
 fn verify_point_with_prefix(
     observation: &Observation,
     params: &Map<String, Value>,
     prefix: &str,
 ) -> Result<POINT, (&'static str, String)> {
+    ensure_observed_geometry(observation)?;
+    set_focus(&observation.window)?;
+    let x = integer_param(params, &format!("{prefix}x"))?;
+    let y = integer_param(params, &format!("{prefix}y"))?;
+    let (x_offset, y_offset) = map_point(observation, i64::from(x), i64::from(y))?;
+    let point = POINT {
+        x: observation.bounds[0] + x_offset as i32,
+        y: observation.bounds[1] + y_offset as i32,
+    };
+    validate_target_point(observation, point)
+}
+
+fn ensure_observed_geometry(observation: &Observation) -> Result<(), (&'static str, String)> {
     let current = get_visible_window_rect(HWND(observation.window.hwnd as _))
         .map_err(|error| ("stale_window", error))?;
-    // Observations record origin plus size, so compare in the same form.
     let current_bounds = [
         current.left,
         current.top,
@@ -286,17 +404,15 @@ fn verify_point_with_prefix(
             "Window geometry changed; observe it again.".to_string(),
         ));
     }
-    set_focus(&observation.window)?;
-    let x = integer_param(params, &format!("{prefix}x"))?;
-    let y = integer_param(params, &format!("{prefix}y"))?;
-    let (x_offset, y_offset) = map_point(observation, i64::from(x), i64::from(y))?;
-    let point = POINT {
-        x: observation.bounds[0] + x_offset as i32,
-        y: observation.bounds[1] + y_offset as i32,
-    };
+    Ok(())
+}
+
+fn validate_target_point(
+    observation: &Observation,
+    point: POINT,
+) -> Result<POINT, (&'static str, String)> {
     let hit = unsafe { WindowFromPoint(point) };
-    let root = unsafe { GetAncestor(hit, GA_ROOT) };
-    if root.0 != observation.window.hwnd as *mut _ {
+    if !matches_target_window(HWND(observation.window.hwnd as _), hit) {
         return Err((
             "target_not_at_point",
             "Target window is no longer at this point.".to_string(),
@@ -312,6 +428,9 @@ pub(crate) fn set_focus(window: &WindowInfo) -> Result<(), (&'static str, String
             "window_not_found",
             "Target window no longer exists.".to_string(),
         ));
+    }
+    if foreground_matches(hwnd) {
+        return Ok(());
     }
     unsafe {
         let _ = ShowWindow(hwnd, SW_RESTORE);
@@ -344,18 +463,33 @@ fn try_set_foreground(hwnd: HWND) -> bool {
     }
 }
 
-/// Accept activation when the target window is in the foreground, or when a
-/// child popup it owns (such as an open drop-down) currently holds it. Owned
-/// modal dialogs are separate top-level windows, so callers activate them by
-/// their own handle.
+/// Accept activation when the target, one of its child popups, or an owned
+/// top-level window currently holds the foreground.
 fn foreground_matches(hwnd: HWND) -> bool {
-    unsafe {
-        let foreground = GetForegroundWindow();
-        if foreground == hwnd {
-            return true;
-        }
-        !foreground.0.is_null() && GetAncestor(foreground, GA_ROOT) == hwnd
+    matches_target_window(hwnd, unsafe { GetForegroundWindow() })
+}
+
+fn matches_target_window(target: HWND, candidate: HWND) -> bool {
+    if candidate.0.is_null() {
+        return false;
     }
+    unsafe {
+        window_relation_matches(
+            target,
+            GetAncestor(candidate, GA_ROOT),
+            GetAncestor(target, GA_ROOTOWNER),
+            GetAncestor(candidate, GA_ROOTOWNER),
+        )
+    }
+}
+
+fn window_relation_matches(
+    target: HWND,
+    candidate_root: HWND,
+    target_root_owner: HWND,
+    candidate_root_owner: HWND,
+) -> bool {
+    candidate_root == target || (target_root_owner == target && candidate_root_owner == target)
 }
 
 /// The foreground lock rejects background processes, so temporarily join
@@ -442,6 +576,10 @@ fn integer_param(params: &Map<String, Value>, name: &str) -> Result<i32, (&'stat
 mod tests {
     use super::*;
 
+    fn hwnd(value: isize) -> HWND {
+        HWND(value as *mut std::ffi::c_void)
+    }
+
     #[test]
     fn function_and_keypad_keys_map_to_expected_codes() {
         assert_eq!(virtual_key("F1").unwrap(), VIRTUAL_KEY(0x70));
@@ -474,5 +612,42 @@ mod tests {
         assert!(parse_key_sequence("CTRL+SHIFT+F5").is_ok());
         assert!(parse_key_sequence("A+B+C+D+E").is_err());
         assert!(parse_key_sequence("").is_err());
+    }
+
+    #[test]
+    fn sequence_inputs_keep_step_boundaries() {
+        let steps = vec![
+            InputStep::Type("A".to_string()),
+            InputStep::PressKey("TAB".to_string()),
+            InputStep::Type("🙂".to_string()),
+        ];
+
+        let (inputs, ends) = build_sequence_inputs(&steps).unwrap();
+
+        assert_eq!(ends, vec![2, 4, 8]);
+        assert_eq!(inputs.len(), 8);
+        assert_eq!(completed_steps(&ends, 3), 1);
+        assert_eq!(completed_steps(&ends, 4), 2);
+    }
+
+    #[test]
+    fn sequence_keys_are_validated_before_input_is_built() {
+        let steps = vec![
+            InputStep::Type("already valid".to_string()),
+            InputStep::PressKey("NO_SUCH_KEY".to_string()),
+        ];
+
+        assert!(build_sequence_inputs(&steps).is_err());
+    }
+
+    #[test]
+    fn input_target_relationships_are_scoped() {
+        let owner = hwnd(1);
+        let modal = hwnd(2);
+        let sibling = hwnd(3);
+        assert!(window_relation_matches(owner, owner, owner, owner));
+        assert!(window_relation_matches(owner, modal, owner, owner));
+        assert!(!window_relation_matches(modal, owner, owner, owner));
+        assert!(!window_relation_matches(modal, sibling, owner, owner));
     }
 }

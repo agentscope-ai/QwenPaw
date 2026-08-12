@@ -19,6 +19,9 @@ from typing import Any, Final
 from uuid import uuid4
 
 from pydantic import ValidationError
+from services.runtime_files.atomic_store import (
+    fsync_directory as runtime_fsync_directory,
+)
 from services.runtime_files.locking import CrossProcessFileLock
 from services.storage_root import require_creator_data_root
 from utils.logger import setup_logger
@@ -26,7 +29,7 @@ from utils.logger import setup_logger
 from .models import Project
 from .serialization import (
     CanonicalJsonError,
-    load_project_json,
+    load_project_json_with_etag,
     project_etag,
     project_file_bytes,
 )
@@ -36,6 +39,11 @@ logger = setup_logger("store")
 
 DEFAULT_MAX_PROJECT_JSON_BYTES = 8 * 1024 * 1024
 _SAFE_PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+# Projects materialized from plugin-bundled inspiration examples carry this
+# marker file so listing keeps them out of the user's own project shelf while
+# every id-addressed route still serves them normally.
+BUILTIN_EXAMPLE_MARKER: Final = ".builtin-example"
 
 
 class ProjectStoreError(RuntimeError):
@@ -238,7 +246,11 @@ class ProjectStore:
         project_root = self.project_root(candidate.project_id)
         payload = self._checked_payload(candidate)
         staging_root = self.root / ".staging"
-        staged_project = staging_root / f"{candidate.project_id}.{uuid4().hex}"
+        # Keep the private staged directory name short: Runtime bootstrap
+        # writes deeply nested temp files inside it, and a long name here
+        # pushes those paths past the Windows MAX_PATH (260) limit.  The
+        # name is never parsed; publication renames it to the project id.
+        staged_project = staging_root / f"p{uuid4().hex}"
 
         # Keep one global lock order across lifecycle operations and commit
         # publication: lifecycle lock first, then the in-process store lock.
@@ -317,7 +329,7 @@ class ProjectStore:
                 f"project.json exceeds {self.max_project_json_bytes} bytes",
             )
         try:
-            project = load_project_json(payload)
+            project, source_etag = load_project_json_with_etag(payload)
         except CanonicalJsonError as exc:
             raise ProjectIntegrityError(
                 f"Invalid project.json for {safe_id}",
@@ -327,7 +339,11 @@ class ProjectStore:
                 f"Project identity mismatch: directory={safe_id}, file={project.project_id}",
             )
         self._validate_asset_paths(project_root, project)
-        return _snapshot(project)
+        return ProjectSnapshot(
+            project=project,
+            etag=source_etag,
+            generation=project.generation,
+        )
 
     def replace(
         self,
@@ -407,6 +423,9 @@ class ProjectStore:
             except UnsafeProjectPath:
                 continue
             if not (entry / "project.json").exists():
+                continue
+            # Bundled example Projects never surface in "my projects".
+            if (entry / BUILTIN_EXAMPLE_MARKER).exists():
                 continue
             try:
                 snapshot = self.read(safe_id)
@@ -698,14 +717,7 @@ def _snapshot(project: Project) -> ProjectSnapshot:
 
 
 def _fsync_directory(directory: Path) -> None:
-    flags = os.O_RDONLY
-    if hasattr(os, "O_DIRECTORY"):
-        flags |= os.O_DIRECTORY
-    descriptor = os.open(directory, flags)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    runtime_fsync_directory(directory)
 
 
 __all__ = [

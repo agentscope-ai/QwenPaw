@@ -1,8 +1,13 @@
 import { Brain } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   AudioOutlined,
   EyeOutlined,
+  GlobalOutlined,
+  NodeIndexOutlined,
   PictureOutlined,
+  SoundOutlined,
+  UserOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
 
@@ -17,30 +22,44 @@ interface ScenarioGuide {
   scenario: string;
   models: string;
   reason: string;
+  /** Model card the settings guide jumps to; unused in the home tour. */
+  target: string;
 }
 
-const SCENARIO_GUIDES: ScenarioGuide[] = [
-  {
-    scenario: "所有场景",
-    models: "LLM（必选）",
-    reason: "创作总纲规划、分镜脚本与 Agent 对话的大脑",
-  },
-  {
-    scenario: "短剧 / 通用生成",
-    models: "图片生成 + 视频生成 + VLM",
-    reason: "生成分镜图与视频画面，VLM 负责画面质量回看",
-  },
-  {
-    scenario: "剪辑 / 上传素材",
-    models: "VLM",
-    reason: "理解你上传的图片、视频素材的画面内容",
-  },
-  {
-    scenario: "素材含人声 / 需转写",
-    models: "ASR",
-    reason: "把素材中的语音识别成文字，用于剪辑与字幕",
-  },
-];
+function getScenarioGuides(t: (key: string) => string): ScenarioGuide[] {
+  return [
+    {
+      scenario: t("onboarding.modelGuideAllScenes"),
+      models: t("onboarding.modelGuideLlm"),
+      reason: t("onboarding.modelGuideLlmDesc"),
+      target: "llm",
+    },
+    {
+      scenario: t("onboarding.modelGuideDramaGeneral"),
+      models: t("onboarding.modelGuideDramaModels"),
+      reason: t("onboarding.modelGuideDramaGeneralDesc"),
+      target: "image",
+    },
+    {
+      scenario: t("onboarding.modelGuideEditUpload"),
+      models: t("onboarding.modelGuideEditModels"),
+      reason: t("onboarding.modelGuideEditUploadDesc"),
+      target: "vlm",
+    },
+    {
+      scenario: t("onboarding.modelGuideAsr"),
+      models: t("onboarding.modelGuideAsrModels"),
+      reason: t("onboarding.modelGuideAsrDesc"),
+      target: "asr",
+    },
+    {
+      scenario: t("onboarding.modelGuideVoice"),
+      models: t("onboarding.modelGuideVoiceModels"),
+      reason: t("onboarding.modelGuideVoiceDesc"),
+      target: "tts",
+    },
+  ];
+}
 
 interface ProviderGuide {
   type: string;
@@ -48,44 +67,70 @@ interface ProviderGuide {
   protocols: string;
 }
 
-const PROVIDER_GUIDES: ProviderGuide[] = [
-  {
-    type: "LLM / VLM",
-    icon: <Brain size={12} />,
-    protocols:
-      "OpenAI 协议、DashScope（百炼）、Anthropic Claude、DeepSeek、Google Gemini、百度千帆、Volcano Engine（火山引擎）、自定义",
-  },
-  {
-    type: "图片生成",
-    icon: <PictureOutlined style={{ fontSize: 12 }} />,
-    protocols: "OpenAI 协议、DashScope（百炼）",
-  },
-  {
-    type: "视频生成",
-    icon: <VideoCameraOutlined style={{ fontSize: 12 }} />,
-    protocols:
-      "DashScope（百炼：wan2.x r2v、happyhorse-1.x-r2v）、Volcano Engine（火山引擎：doubao-seedance-2.x）",
-  },
-  {
-    type: "ASR 语音识别",
-    icon: <AudioOutlined style={{ fontSize: 12 }} />,
-    protocols: "DashScope Fun-ASR、OpenAI Whisper",
-  },
-];
+function getProviderGuides(t: (key: string) => string): ProviderGuide[] {
+  return [
+    {
+      type: "LLM / VLM",
+      icon: <Brain size={12} />,
+      protocols: t("onboarding.modelGuideLlmProtocols"),
+    },
+    {
+      type: "Grounding",
+      icon: <GlobalOutlined style={{ fontSize: 12 }} />,
+      protocols: t("onboarding.modelGuideGroundingProtocols"),
+    },
+    {
+      type: t("onboarding.modelGuideImageGen"),
+      icon: <PictureOutlined style={{ fontSize: 12 }} />,
+      protocols: t("onboarding.modelGuideImageGenProtocols"),
+    },
+    {
+      type: t("onboarding.modelGuideVideoGen"),
+      icon: <VideoCameraOutlined style={{ fontSize: 12 }} />,
+      protocols: t("onboarding.modelGuideVideoGenProtocols"),
+    },
+    {
+      type: t("onboarding.modelGuideAsrTitle"),
+      icon: <AudioOutlined style={{ fontSize: 12 }} />,
+      protocols: t("onboarding.modelGuideAsrProtocols"),
+    },
+    {
+      type: t("onboarding.modelGuideTtsTitle"),
+      icon: <SoundOutlined style={{ fontSize: 12 }} />,
+      protocols: t("onboarding.modelGuideTtsProtocols"),
+    },
+    {
+      type: t("onboarding.modelGuideS2vTitle"),
+      icon: <UserOutlined style={{ fontSize: 12 }} />,
+      protocols: t("onboarding.modelGuideS2vProtocols"),
+    },
+    {
+      type: t("onboarding.modelGuideEmbeddingTitle"),
+      icon: <NodeIndexOutlined style={{ fontSize: 12 }} />,
+      protocols: t("onboarding.modelGuideEmbeddingProtocols"),
+    },
+  ];
+}
 
-export default function ModelSetupGuide() {
+export default function ModelSetupGuide({
+  onNavigateToModel,
+}: {
+  /** Renders a jump link per scenario row when provided (settings guide). */
+  onNavigateToModel?: (type: string) => void;
+}) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-3 text-xs leading-5 text-[var(--color-text-secondary)]">
       <div>
         <p className="mb-1.5 flex items-center gap-1.5 font-semibold text-[var(--color-text-primary)]">
           <EyeOutlined style={{ fontSize: 12 }} />
-          什么场景需要配什么模型？
+          {t("onboarding.modelGuideWhatModels")}
         </p>
         <ul className="space-y-1">
-          {SCENARIO_GUIDES.map((item) => (
+          {getScenarioGuides(t).map((item) => (
             <li
               key={item.scenario}
-              className="flex flex-wrap items-baseline gap-x-1.5 rounded-md bg-[var(--color-bg-secondary)] px-2 py-1"
+              className="flex flex-wrap items-baseline gap-x-1.5 rounded-[8px] bg-[var(--color-bg-layout)] px-2.5 py-1.5"
             >
               <span className="shrink-0 font-semibold text-[var(--color-text-primary)]">
                 {item.scenario}
@@ -96,19 +141,28 @@ export default function ModelSetupGuide() {
               <span className="min-w-0 text-[11px] text-[var(--color-text-tertiary)]">
                 {item.reason}
               </span>
+              {onNavigateToModel && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateToModel(item.target)}
+                  className="ml-auto shrink-0 cursor-pointer border-none bg-transparent p-0 text-[11px] font-semibold text-[var(--color-accent)] hover:underline"
+                >
+                  {t("onboarding.modelGuideGoConfigure")}
+                </button>
+              )}
             </li>
           ))}
         </ul>
       </div>
       <div>
         <p className="mb-1.5 font-semibold text-[var(--color-text-primary)]">
-          当前支持的提供商 / 协议
+          {t("onboarding.modelGuideProviders")}
         </p>
         <ul className="space-y-1">
-          {PROVIDER_GUIDES.map((item) => (
+          {getProviderGuides(t).map((item) => (
             <li
               key={item.type}
-              className="flex flex-wrap items-baseline gap-x-1.5 rounded-md bg-[var(--color-bg-secondary)] px-2 py-1"
+              className="flex flex-wrap items-baseline gap-x-1.5 rounded-[8px] bg-[var(--color-bg-layout)] px-2.5 py-1.5"
             >
               <span className="flex shrink-0 items-center gap-1 font-semibold text-[var(--color-text-primary)]">
                 {item.icon}
@@ -119,9 +173,7 @@ export default function ModelSetupGuide() {
           ))}
         </ul>
         <p className="mt-1.5 text-[11px] text-[var(--color-text-tertiary)]">
-          在「模型配置」中填写 Base URL、API Key
-          与模型名称，并通过「测试连通性」后启用；VLM 可直接复用支持多模态的 LLM
-          配置。
+          {t("onboarding.modelGuideSetupDesc")}
         </p>
       </div>
     </div>

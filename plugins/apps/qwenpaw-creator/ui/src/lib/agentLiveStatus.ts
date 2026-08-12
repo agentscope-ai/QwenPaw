@@ -14,8 +14,8 @@ import {
   taskKindLabel,
 } from "./creatorPresentation";
 import { taskProgressPercent } from "./taskPresentation";
+import i18n from "@/i18n";
 
-// Same "working" session criteria as AgentStatusBar/agentWorkingSelectors.
 const WORKING_SESSION_STATUSES = new Set([
   "RUNNING",
   "RESUMING",
@@ -44,6 +44,8 @@ export interface AgentLiveStatusInput {
   toolCalls: ToolCallPresentation[];
   tasks: TaskView[];
   project: ProjectDocument | null;
+  /** Latest model throttling retry, while the run keeps going. */
+  rateLimitRetry?: { attempt: number; maxAttempts: number } | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -76,12 +78,12 @@ function resolvedTargetName(
   if (!ref) return null;
   const label = creatorTargetLabel(ref, project);
   const fallbacks = new Set([
-    "当前项目",
-    "时间线内容",
-    "当前素材",
-    "素材版本",
-    "生成结果",
-    "素材文件",
+    i18n.t("presentation.targets.currentProject"),
+    i18n.t("presentation.targets.timelineContent"),
+    i18n.t("presentation.targets.currentSource"),
+    i18n.t("presentation.targets.sourceVersion"),
+    i18n.t("presentation.targets.genResult"),
+    i18n.t("presentation.targets.sourceFile"),
   ]);
   return fallbacks.has(label) ? null : clampTargetName(label);
 }
@@ -92,10 +94,14 @@ function imageGenerationLabel(
 ): string {
   const name = resolvedTargetName(ref, project);
   if (ref.startsWith("element:") || ref.startsWith("timeline:"))
-    return name ? `正在生成「${name}」分镜图…` : "正在生成分镜图…";
+    return name
+      ? i18n.t("liveStatus.generatingStoryboardOf", { name })
+      : i18n.t("liveStatus.generatingStoryboard");
   if (ref.startsWith("asset") || ref.startsWith("artifact"))
-    return name ? `正在生成「${name}」画面…` : "正在生成视觉资产…";
-  return "正在生成画面…";
+    return name
+      ? i18n.t("liveStatus.generatingVisualOf", { name })
+      : i18n.t("liveStatus.generatingVisual");
+  return i18n.t("liveStatus.generatingImage");
 }
 
 function r2vGenerationLabel(
@@ -103,7 +109,9 @@ function r2vGenerationLabel(
   project: ProjectDocument | null,
 ): string {
   const name = resolvedTargetName(ref, project);
-  return name ? `正在生成「${name}」视频…` : "正在生成视频…";
+  return name
+    ? i18n.t("liveStatus.generatingVideoOf", { name })
+    : i18n.t("liveStatus.generatingVideo");
 }
 
 function runningToolLabel(
@@ -126,7 +134,7 @@ function subagentRoleName(activity: SubagentActivity): string {
 function roleWorkingLabel(activity: SubagentActivity): string {
   const runningLabel = getRoleRunningLabel(activity.role);
   if (runningLabel) return runningLabel;
-  return `「${subagentRoleName(activity)}」工作中…`;
+  return i18n.t("liveStatus.roleWorking", { name: subagentRoleName(activity) });
 }
 
 function activeSubagentToolLabel(
@@ -190,7 +198,9 @@ function activeMainToolLabel(
       // brief "正在安排" until the specialist reports in.
       const args = isRecord(call.arguments) ? call.arguments : undefined;
       const role = typeof args?.role === "string" ? args.role : "";
-      return role ? `正在安排「${creatorRoleLabel(role)}」…` : "正在分配任务…";
+      return role
+        ? i18n.t("liveStatus.arrangingRole", { name: creatorRoleLabel(role) })
+        : i18n.t("liveStatus.assigningTask");
     }
     if (internalProjectTools.has(call.tool)) continue;
     const label = runningToolLabel(call.tool, call.arguments, [], project);
@@ -213,7 +223,9 @@ function activeTaskLabel(
 ): string {
   const name = resolvedTargetName(task.targetRef, project);
   const kind = taskKindLabel(task.kind);
-  return name ? `「${name}」${kind}中…` : `${kind}中…`;
+  return name
+    ? i18n.t("liveStatus.taskKindWorking", { name, kind })
+    : i18n.t("liveStatus.kindWorking", { kind });
 }
 
 function firstIncompleteActivity(
@@ -261,12 +273,13 @@ export function deriveAgentLiveStatus(
     toolCalls,
     tasks,
     project,
+    rateLimitRetry,
   } = input;
 
   if (stopping || session?.status === "INTERRUPT_REQUESTED")
     return {
       state: "stopping",
-      label: "正在停止所有 Agent…",
+      label: i18n.t("liveStatus.stopping"),
       progressPercent: null,
     };
 
@@ -274,20 +287,27 @@ export function deriveAgentLiveStatus(
   if (isReplaying)
     return {
       state: "idle",
-      label: "加载中…",
+      label: i18n.t("liveStatus.loading"),
       progressPercent: null,
     };
 
-  // CANCELLED/ERROR are terminal. IDLE remains actionable: an optimistic
+  // ERROR is terminal with a specific error message to surface.
+  if (session?.status === "ERROR")
+    return {
+      state: "idle",
+      label: session.error?.message || i18n.t("liveStatus.executionFailed"),
+      progressPercent: null,
+    };
+
+  // CANCELLED is terminal. IDLE remains actionable: an optimistic
   // queued message must be visible while the backend transitions to RUNNING.
   if (
     session?.status === "CANCELLED" ||
-    session?.status === "ERROR" ||
     (session?.status === "IDLE" && !hasQueuedInput)
   )
     return {
       state: "idle",
-      label: "待命中，可随时输入修改意图。",
+      label: i18n.t("liveStatus.idle"),
       progressPercent: null,
     };
 
@@ -302,6 +322,12 @@ export function deriveAgentLiveStatus(
   if (working) {
     const progressPercent = quantifiedProgressPercent(tasks, agentStatusBar);
     const label =
+      (rateLimitRetry
+        ? i18n.t("liveStatus.rateLimitRetrying", {
+            attempt: rateLimitRetry.attempt,
+            max: rateLimitRetry.maxAttempts,
+          })
+        : null) ??
       activeSubagentToolLabel(subagentActivities, project) ??
       activeMainToolLabel(toolCalls, subagentActivities, project) ??
       (runningTask ? activeTaskLabel(runningTask, project) : null) ??
@@ -311,8 +337,8 @@ export function deriveAgentLiveStatus(
       })() ??
       agentStatusBar?.progress.label ??
       (hasQueuedInput && session?.status !== "RUNNING"
-        ? "指令已发出，等待响应…"
-        : "正在思考…");
+        ? i18n.t("liveStatus.commandSent")
+        : i18n.t("liveStatus.thinking"));
     return {
       state: "working",
       label,
@@ -326,25 +352,25 @@ export function deriveAgentLiveStatus(
   if (session?.status === "WAITING_USER_INPUT")
     return {
       state: "waiting",
-      label: "等待补充信息，请继续输入。",
+      label: i18n.t("liveStatus.waitingUserInput"),
       progressPercent: null,
     };
   if (session?.status === "WAITING_EXECUTION_AUTH")
     return {
       state: "waiting",
-      label: "等待执行确认。",
+      label: i18n.t("liveStatus.waitingExecAuth"),
       progressPercent: null,
     };
   if (session?.status === "PENDING_REVIEW")
     return {
       state: "waiting",
-      label: "等待审阅 Agent 改动。",
+      label: i18n.t("liveStatus.waitingReview"),
       progressPercent: null,
     };
 
   return {
     state: "idle",
-    label: "待命中，可随时输入修改意图。",
+    label: i18n.t("liveStatus.idle"),
     progressPercent: null,
   };
 }

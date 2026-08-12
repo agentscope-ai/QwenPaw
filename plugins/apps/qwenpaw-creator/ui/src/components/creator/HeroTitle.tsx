@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import wordmarkUrl from "@/assets/design/wordmark-qwenpaw.svg";
 import cursorDirector from "@/assets/design/cursor-director.svg";
 import cursorWriter from "@/assets/design/cursor-writer.svg";
@@ -25,9 +26,9 @@ interface RoleCursor {
   delay: string;
 }
 
-const ROLE_CURSORS: RoleCursor[] = [
+const ROLE_CURSORS: (Omit<RoleCursor, "label"> & { labelKey: string })[] = [
   {
-    label: "导演",
+    labelKey: "home.heroTitleDirector",
     color: "#F4C21C",
     pill: { left: -102.5, top: 54 },
     arrow: { left: 50, top: -4 },
@@ -35,7 +36,7 @@ const ROLE_CURSORS: RoleCursor[] = [
     delay: "0s",
   },
   {
-    label: "编剧",
+    labelKey: "home.heroTitleWriter",
     color: "#F6851C",
     pill: { left: -29.5, top: -34 },
     arrow: { left: 44, top: 19 },
@@ -43,7 +44,7 @@ const ROLE_CURSORS: RoleCursor[] = [
     delay: "1.2s",
   },
   {
-    label: "动效师",
+    labelKey: "home.heroTitleEffects",
     color: "#5385FA",
     pill: { right: -51.6, top: -62 },
     arrow: { right: 56, top: 20 },
@@ -51,7 +52,7 @@ const ROLE_CURSORS: RoleCursor[] = [
     delay: "2.1s",
   },
   {
-    label: "剪辑",
+    labelKey: "home.heroTitleEditor",
     color: "#FCB900",
     pill: { right: -105.6, top: 54 },
     arrow: { right: 42, top: -12 },
@@ -61,6 +62,7 @@ const ROLE_CURSORS: RoleCursor[] = [
 ];
 
 export default function HeroTitle() {
+  const { t } = useTranslation();
   return (
     <div
       className="relative"
@@ -82,13 +84,13 @@ export default function HeroTitle() {
 
       {ROLE_CURSORS.map((role) => (
         <span
-          key={role.label}
+          key={role.labelKey}
           className="hero-role-tag"
           style={{ ...role.pill, animationDelay: role.delay }}
           aria-hidden="true"
         >
           <span className="hero-role-pill" style={{ background: role.color }}>
-            {role.label}
+            {t(role.labelKey)}
           </span>
           <img
             src={role.icon}

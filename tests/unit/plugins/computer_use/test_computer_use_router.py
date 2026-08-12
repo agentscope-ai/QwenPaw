@@ -11,13 +11,13 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from computer_use_tool import router as router_module
-from computer_use_tool.access import (
+from computer_use import router as router_module
+from computer_use.access import (
     ComputerUseAccessStore,
     PersistentAppAccess,
 )
-from computer_use_tool.feature_state import ComputerUseFeatureState
-from computer_use_tool.router import (
+from computer_use.feature_state import ComputerUseFeatureState
+from computer_use.router import (
     FeatureToggleRequest,
     PendingDecisionRequest,
     PersistentAccessRequest,

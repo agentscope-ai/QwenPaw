@@ -7,6 +7,7 @@ import type {
   SendCreatorMessageRequest,
 } from "@/contracts/creator";
 import { creatorRequest, jsonBody, newClientId } from "./client";
+import i18n from "@/i18n";
 
 export function getCreatorSession(
   projectId: string,
@@ -33,7 +34,7 @@ export function createConversation(
     {
       method: "POST",
       headers: { "Idempotency-Key": clientRequestId },
-      body: jsonBody({ title: "新对话" }),
+      body: jsonBody({ title: i18n.t("api.newConversation") }),
     },
   );
 }

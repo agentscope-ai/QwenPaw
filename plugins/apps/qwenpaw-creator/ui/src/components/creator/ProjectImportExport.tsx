@@ -1,4 +1,6 @@
 import { useCallback, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
 import { Modal, Progress, message } from "antd";
 import { X } from "lucide-react";
 import {
@@ -40,11 +42,11 @@ function importProject(
         try {
           resolve(JSON.parse(xhr.responseText) as ProjectImportResponse);
         } catch {
-          reject(new Error("导入失败：无法解析服务端响应"));
+          reject(new Error(i18n.t("lib.importFailedParse")));
         }
         return;
       }
-      let msg = `导入失败：HTTP ${xhr.status}`;
+      let msg = i18n.t("lib.importFailedHttp", { status: xhr.status });
       try {
         const body = JSON.parse(xhr.responseText);
         if (body?.message) msg = body.message;
@@ -53,8 +55,8 @@ function importProject(
       }
       reject(new Error(msg));
     };
-    xhr.onerror = () => reject(new Error("导入失败：网络错误"));
-    xhr.onabort = () => reject(new Error("导入失败：已取消"));
+    xhr.onerror = () => reject(new Error(i18n.t("lib.importFailedNetwork")));
+    xhr.onabort = () => reject(new Error(i18n.t("lib.importFailedCancelled")));
 
     xhr.send(form);
   });
@@ -76,6 +78,7 @@ export function ProjectImporter({
   onClose,
   onImported,
 }: ProjectImporterProps) {
+  const { t } = useTranslation();
   const [uploading, setUploading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [percent, setPercent] = useState(0);
@@ -99,7 +102,7 @@ export function ProjectImporter({
   const upload = useCallback(
     async (file: File) => {
       if (file.name.split(".").pop()?.toUpperCase() !== "ZIP") {
-        message.error("只接受 ZIP 文件");
+        message.error(t("importExport.zipOnly"));
         return;
       }
       setFileName(file.name);
@@ -109,12 +112,20 @@ export function ProjectImporter({
         const response = await importProject(file, (loaded, total) => {
           setPercent(total > 0 ? Math.round((loaded / total) * 100) : 0);
         });
-        message.success(`成功导入项目：${response.projectId}`, 10);
+        message.success(
+          t("importExport.importSuccess", { projectId: response.projectId }),
+          10,
+        );
         reset();
         onClose();
         onImported?.();
       } catch (error) {
-        message.error(error instanceof Error ? error.message : "导入失败", 10);
+        message.error(
+          error instanceof Error
+            ? error.message
+            : t("importExport.importFailed"),
+          10,
+        );
         reset();
       }
     },
@@ -135,13 +146,13 @@ export function ProjectImporter({
     >
       <div className="flex h-16 items-center justify-between border-b border-[#EAE9E7] pl-5 pr-3">
         <span className="text-base font-medium leading-7 text-[var(--color-text-primary)]">
-          导入已有项目
+          {t("importExport.importTitle")}
         </span>
         <button
           type="button"
           onClick={handleClose}
           disabled={uploading}
-          aria-label="关闭"
+          aria-label={t("common.close")}
           className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg text-[var(--color-text-secondary)] transition-colors hover:bg-[rgba(43,27,0,0.04)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <X className="h-5 w-5" />
@@ -184,10 +195,10 @@ export function ProjectImporter({
             }`}
           >
             <span className="text-base font-medium leading-7 text-[var(--color-text-primary)]">
-              点击或将文件拖动到此处上传
+              {t("importExport.dropzone")}
             </span>
             <span className="text-sm leading-6 text-[rgba(26,26,29,0.45)]">
-              上传项目zip文件，在系统里恢复成可操作项目。
+              {t("importExport.dropzoneDesc")}
             </span>
           </button>
         )}
@@ -219,10 +230,12 @@ export async function saveExportFile(
     },
   );
   if (!response.ok) {
-    throw new Error(`导出失败：HTTP ${response.status}`);
+    throw new Error(
+      i18n.t("lib.exportFailedHttp", { status: response.status }),
+    );
   }
   if (!response.body) {
-    throw new Error("导出失败：没有数据");
+    throw new Error(i18n.t("lib.exportFailedNoData"));
   }
 
   let filename = `${projectId}.zip`;
@@ -299,6 +312,7 @@ export function ExportProgressCard({
   progress,
   onDismiss,
 }: ExportProgressCardProps) {
+  const { t } = useTranslation();
   const done = progress.status === "done";
   const percent = done
     ? 100
@@ -320,12 +334,12 @@ export function ExportProgressCard({
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium text-[var(--color-text-primary)]">
-          {done ? "项目导出完成" : "正在导出项目"}
+          {done ? t("importExport.exportDone") : t("importExport.exporting")}
         </span>
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="关闭导出进度"
+          aria-label={t("importExport.closeExportProgress")}
           className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-text-secondary)] transition-colors hover:bg-[rgba(43,27,0,0.04)]"
         >
           <X className="h-4 w-4" />
