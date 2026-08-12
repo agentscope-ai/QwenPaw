@@ -113,7 +113,7 @@ Auto Memory is invoked by `MemoryMiddleware`, not directly on every model call. 
 - flushes pending turns after `auto_memory_interval` user turns;
 - also flushes after context is actually evicted or folded.
 
-Searched-turn and pending-turn markers live in `AgentState.middle_context`, so middleware rebuilds and restored sessions retain their progress. Search results themselves are not written to `AgentState.context`. A failed Auto Memory submission keeps its pending marker for a later turn to retry. Automation requests from `cron` or `heartbeat` do not mutate this state.
+Searched-turn and pending-turn state lives in `AgentState.middle_context`, so middleware rebuilds and restored sessions retain their progress. Search results themselves are not written to `AgentState.context`, but remain available to every model call in the active user turn. A failed Auto Memory submission keeps a per-turn message snapshot for a later retry. Automation requests from `cron` or `heartbeat` do not search or submit Auto Memory; if they evict pending user turns, the middleware only preserves the snapshots needed for a later user request to submit them safely.
 
 `auto_memory_interval` defaults to `5`. `None`, `0`, or a negative value disables periodic auto-memory.
 

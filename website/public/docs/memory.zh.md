@@ -333,8 +333,7 @@ POST /api/agents/{agentId}/memory/reindex
 
 在 `running.reme_light_memory_config.auto_memory_search_config` 中配置：
 
-启用后，搜索结果会作为已完成的 `memory_search` 交互临时注入当前模型输入，不会写入正式会话历史或 Scroll 持久化历史。
-该检索结果只供本次模型调用使用。
+启用后，搜索结果会作为已完成的 `memory_search` 交互临时注入当前用户 turn 的每次模型调用，不会写入正式会话历史或 Scroll 持久化历史。
 
 | 配置项        | 说明                             | 默认值  |
 | ------------- | -------------------------------- | ------- |

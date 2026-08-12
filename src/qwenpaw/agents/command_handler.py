@@ -16,8 +16,9 @@ from .context.scroll.continuation_summary import (
     redact_secrets,
 )
 from .middlewares import (
-    auto_memory_turn_state,
+    discard_auto_memory_turns,
     manual_compact_memory_by_handler,
+    reset_auto_memory_turn_state,
 )
 from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
@@ -480,16 +481,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
         messages: list[Msg],
     ) -> None:
         """Remove pending turns covered by the manual compact task."""
-        turn_state = auto_memory_turn_state(self._state)
-        pending = turn_state["pending"]
         submitted = {msg.id for msg in messages if msg.id}
-        pending[:] = [marker for marker in pending if marker not in submitted]
-        retry = turn_state.get("retry")
-        retry_markers = retry.get("markers") if isinstance(retry, dict) else []
-        if isinstance(retry_markers, list) and set(retry_markers).issubset(
-            submitted,
-        ):
-            turn_state.pop("retry", None)
+        discard_auto_memory_turns(self._state, submitted)
 
     @staticmethod
     def _scroll_index_text(agent: "Agent") -> str:
@@ -623,6 +616,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         await self._reset_modes()
         if not messages:
             self._set_summary("")
+            reset_auto_memory_turn_state(self._state)
             return await self._make_system_msg(
                 "**No messages to summarize.**\n\n"
                 "- Current memory is empty\n"
@@ -645,6 +639,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self._set_summary("")
 
         await self._persist_and_clear()
+        reset_auto_memory_turn_state(self._state)
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
             "- Summary task started in background\n"
@@ -661,6 +656,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Process /clear command."""
         await self._persist_and_clear()
         self._set_summary("")
+        reset_auto_memory_turn_state(self._state)
         await self._reset_modes()
         return await self._make_system_msg(
             "**History Cleared!**\n\n"

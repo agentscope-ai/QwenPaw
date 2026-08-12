@@ -74,9 +74,20 @@ def auto_memory_turn_state(agent_state: Any) -> dict[str, Any]:
         state["pending"] = []
     if not isinstance(state.get("seen"), dict):
         state["seen"] = {}
-    if not isinstance(state.get("searched_turn"), str):
-        state["searched_turn"] = ""
+    if not isinstance(state.get("snapshots"), dict):
+        state["snapshots"] = {}
+    if not isinstance(state.get("search"), dict):
+        state["search"] = {}
+    state.pop("searched_turn", None)
+    state["version"] = 2
     return state
+
+
+def reset_auto_memory_turn_state(agent_state: Any) -> None:
+    """Forget all conversation-scoped auto-memory lifecycle state."""
+    middle_context = getattr(agent_state, "middle_context", None)
+    if isinstance(middle_context, dict):
+        middle_context.pop(AUTO_MEMORY_TURN_STATE_KEY, None)
 
 
 class MemoryMiddleware(MiddlewareBase):
@@ -119,8 +130,12 @@ class MemoryMiddleware(MiddlewareBase):
         query_msg = self._latest_external_user_query(agent.state.context)
         turn_marker = query_msg.id if query_msg is not None else ""
         turn_state = self._auto_memory_turn_state(agent)
-        if turn_marker and turn_marker != turn_state.get("searched_turn"):
-            turn_state["searched_turn"] = turn_marker
+        search_state = turn_state["search"]
+        if turn_marker and turn_marker != search_state.get("turn_marker"):
+            # Replace the cache before searching so evidence from the previous
+            # user turn can never leak into the new one. A failed search is
+            # retried on the next model call because no turn marker is stored.
+            turn_state["search"] = {}
             try:
                 result = await self._memory_manager.auto_memory_search(
                     query_msg,
@@ -133,14 +148,26 @@ class MemoryMiddleware(MiddlewareBase):
                     "MemoryMiddleware auto_memory_search failed",
                 )
             else:
-                messages = list(input_kwargs.get("messages") or [])
                 memory_msgs = self._extract_memory_messages(
                     result,
                     context_len=len(agent.state.context),
                 )
-                if memory_msgs:
-                    messages.extend(memory_msgs)
-                    input_kwargs["messages"] = messages
+                self._save_search_cache(
+                    turn_state,
+                    turn_marker=turn_marker,
+                    messages=memory_msgs,
+                )
+
+        memory_msgs = self._load_search_cache(
+            turn_state,
+            turn_marker=turn_marker,
+        )
+        if memory_msgs:
+            input_kwargs["messages"] = self._inject_search_messages(
+                list(input_kwargs.get("messages") or []),
+                memory_msgs=memory_msgs,
+                turn_marker=turn_marker,
+            )
         return await next_handler(**input_kwargs)
 
     # pylint: disable=stop-iteration-return
@@ -172,6 +199,7 @@ class MemoryMiddleware(MiddlewareBase):
         interval = self._auto_memory_interval()
         if interval <= 0:
             pending_markers.clear()
+            turn_state["snapshots"].clear()
             turn_state.pop("retry", None)
             return
         if len(pending_markers) < interval:
@@ -192,36 +220,54 @@ class MemoryMiddleware(MiddlewareBase):
             await next_handler(**input_kwargs)
             return
 
-        if self._is_automation_request(agent):
-            await next_handler(**input_kwargs)
-            return
+        automation_request = self._is_automation_request(agent)
 
         source_context: list[Msg] = []
+        pending_markers: list[str] = []
         compression_state: tuple[Any, tuple[str, ...]] | None = None
         try:
-            pending_markers = self._auto_memory_turn_state(agent)["pending"]
+            pending_markers = list(
+                self._auto_memory_turn_state(agent)["pending"],
+            )
             if pending_markers:
-                source_context = deepcopy(
-                    self._messages_for_user_turns(
-                        list(agent.state.context),
-                        turn_markers=list(pending_markers),
-                    ),
-                )
+                source_context = deepcopy(list(agent.state.context))
                 compression_state = self._compression_state(agent)
         except Exception:
             logger.exception(
                 "MemoryMiddleware could not snapshot pending turns",
             )
 
-        await next_handler(**input_kwargs)
+        try:
+            await next_handler(**input_kwargs)
+        except BaseException:
+            # Scroll may rebuild the live context and only then discover that
+            # it still exceeds the hard limit. Preserve the pre-compression
+            # messages before propagating that original failure/cancellation.
+            if self._compression_changed(agent, compression_state):
+                try:
+                    self._save_turn_snapshots(
+                        self._auto_memory_turn_state(agent),
+                        source_context=source_context,
+                        turn_markers=pending_markers,
+                    )
+                except Exception:
+                    logger.exception(
+                        "MemoryMiddleware could not preserve snapshots after "
+                        "compression failure",
+                    )
+            raise
 
         if source_context and compression_state is not None:
             try:
                 if self._did_compress_context(agent, compression_state):
-                    await self._flush_auto_memory(
-                        agent,
+                    turn_state = self._auto_memory_turn_state(agent)
+                    self._save_turn_snapshots(
+                        turn_state,
                         source_context=source_context,
+                        turn_markers=pending_markers,
                     )
+                    if not automation_request:
+                        await self._flush_auto_memory(agent)
             except Exception:
                 logger.exception(
                     "MemoryMiddleware post-compression auto-memory flush "
@@ -233,7 +279,6 @@ class MemoryMiddleware(MiddlewareBase):
         agent: "Agent",
         *,
         count: int | None = None,
-        source_context: list["Msg"] | None = None,
     ) -> None:
         if self._is_automation_request(agent):
             logger.debug(
@@ -248,18 +293,29 @@ class MemoryMiddleware(MiddlewareBase):
         if not pending_markers:
             return
 
-        retry_batch = self._load_auto_memory_retry_batch(turn_state)
-        if retry_batch is not None:
-            turn_markers, messages = retry_batch
+        self.migrate_legacy_retry_batch(turn_state)
+        if count is None:
+            turn_markers = list(pending_markers)
         else:
-            if count is None:
-                turn_markers = list(pending_markers)
-            else:
-                turn_markers = pending_markers[:count]
-            messages = self._messages_for_user_turns(
-                source_context or list(agent.state.context),
-                turn_markers=turn_markers,
+            turn_markers = pending_markers[:count]
+
+        messages: list[Msg] = []
+        resolved_markers: list[str] = []
+        for turn_marker in turn_markers:
+            turn_messages = self._load_turn_snapshot(
+                turn_state,
+                turn_marker,
             )
+            if not turn_messages:
+                turn_messages = self._messages_for_user_turn(
+                    list(agent.state.context),
+                    turn_marker=turn_marker,
+                )
+            if not turn_messages:
+                continue
+            resolved_markers.append(turn_marker)
+            messages.extend(turn_messages)
+
         if not messages:
             logger.warning(
                 "MemoryMiddleware retained unresolved pending markers: %s",
@@ -274,26 +330,30 @@ class MemoryMiddleware(MiddlewareBase):
             )
         except Exception:
             logger.exception("MemoryMiddleware auto_memory failed")
-            self._save_auto_memory_retry_batch(
+            self._save_turn_snapshots_from_resolved_messages(
                 turn_state,
-                turn_markers=turn_markers,
+                turn_markers=resolved_markers,
                 messages=messages,
             )
             return
 
-        submitted = set(turn_markers)
+        submitted = set(resolved_markers)
         pending_markers[:] = [
             marker for marker in pending_markers if marker not in submitted
         ]
-        turn_state.pop("retry", None)
+        snapshots = turn_state["snapshots"]
+        for marker in submitted:
+            snapshots.pop(marker, None)
 
-    @staticmethod
-    def _load_auto_memory_retry_batch(
+    @classmethod
+    def migrate_legacy_retry_batch(
+        cls,
         turn_state: dict[str, Any],
-    ) -> tuple[list[str], list["Msg"]] | None:
+    ) -> None:
+        """Convert the old opaque retry batch into per-turn snapshots."""
         retry = turn_state.get("retry")
         if not isinstance(retry, dict):
-            return None
+            return
         markers = retry.get("markers")
         raw_messages = retry.get("messages")
         if (
@@ -303,7 +363,7 @@ class MemoryMiddleware(MiddlewareBase):
             or not raw_messages
         ):
             turn_state.pop("retry", None)
-            return None
+            return
         try:
             messages = [
                 msg if isinstance(msg, Msg) else Msg.model_validate(msg)
@@ -314,23 +374,138 @@ class MemoryMiddleware(MiddlewareBase):
                 "MemoryMiddleware invalid auto-memory retry batch",
             )
             turn_state.pop("retry", None)
-            return None
-        return [str(marker) for marker in markers], messages
+            return
+        cls._save_turn_snapshots(
+            turn_state,
+            source_context=messages,
+            turn_markers=[str(marker) for marker in markers],
+        )
+        turn_state.pop("retry", None)
 
-    @staticmethod
-    def _save_auto_memory_retry_batch(
+    @classmethod
+    def _save_turn_snapshots(
+        cls,
+        turn_state: dict[str, Any],
+        *,
+        source_context: list["Msg"],
+        turn_markers: list[str],
+    ) -> None:
+        snapshots = turn_state["snapshots"]
+        for marker in turn_markers:
+            if marker in snapshots:
+                continue
+            messages = cls._messages_for_user_turn(
+                source_context,
+                turn_marker=marker,
+            )
+            if not messages:
+                continue
+            try:
+                snapshots[marker] = [
+                    msg.model_dump(mode="json") for msg in messages
+                ]
+            except Exception:
+                logger.exception(
+                    "MemoryMiddleware could not save turn snapshot: %s",
+                    marker,
+                )
+
+    @classmethod
+    def _save_turn_snapshots_from_resolved_messages(
+        cls,
         turn_state: dict[str, Any],
         *,
         turn_markers: list[str],
         messages: list["Msg"],
     ) -> None:
+        cls._save_turn_snapshots(
+            turn_state,
+            source_context=messages,
+            turn_markers=turn_markers,
+        )
+
+    @staticmethod
+    def _load_turn_snapshot(
+        turn_state: dict[str, Any],
+        turn_marker: str,
+    ) -> list["Msg"]:
+        snapshots = turn_state["snapshots"]
+        raw_messages = snapshots.get(turn_marker)
+        if not isinstance(raw_messages, list) or not raw_messages:
+            return []
         try:
-            turn_state["retry"] = {
-                "markers": list(turn_markers),
+            return [
+                msg if isinstance(msg, Msg) else Msg.model_validate(msg)
+                for msg in raw_messages
+            ]
+        except Exception:
+            logger.exception(
+                "MemoryMiddleware invalid turn snapshot: %s",
+                turn_marker,
+            )
+            snapshots.pop(turn_marker, None)
+            return []
+
+    @staticmethod
+    def _save_search_cache(
+        turn_state: dict[str, Any],
+        *,
+        turn_marker: str,
+        messages: list["Msg"],
+    ) -> None:
+        try:
+            turn_state["search"] = {
+                "turn_marker": turn_marker,
                 "messages": [msg.model_dump(mode="json") for msg in messages],
             }
         except Exception:
-            logger.exception("MemoryMiddleware could not save retry batch")
+            logger.exception("MemoryMiddleware could not save search cache")
+            turn_state["search"] = {}
+
+    @staticmethod
+    def _load_search_cache(
+        turn_state: dict[str, Any],
+        *,
+        turn_marker: str,
+    ) -> list["Msg"]:
+        search = turn_state.get("search")
+        if (
+            not isinstance(search, dict)
+            or search.get("turn_marker") != turn_marker
+        ):
+            return []
+        raw_messages = search.get("messages")
+        if not isinstance(raw_messages, list):
+            return []
+        try:
+            return [
+                msg if isinstance(msg, Msg) else Msg.model_validate(msg)
+                for msg in raw_messages
+            ]
+        except Exception:
+            logger.exception("MemoryMiddleware invalid search cache")
+            turn_state["search"] = {}
+            return []
+
+    @staticmethod
+    def _inject_search_messages(
+        messages: list["Msg"],
+        *,
+        memory_msgs: list["Msg"],
+        turn_marker: str,
+    ) -> list["Msg"]:
+        """Insert transient evidence after its query, preserving chronology."""
+        existing_ids = {msg.id for msg in messages}
+        injected = [msg for msg in memory_msgs if msg.id not in existing_ids]
+        if not injected:
+            return messages
+
+        insert_at = len(messages)
+        for idx, msg in enumerate(messages):
+            if msg.id == turn_marker:
+                insert_at = idx + 1
+        messages[insert_at:insert_at] = injected
+        return messages
 
     @staticmethod
     def _agent_session_id(agent: "Agent") -> str:
@@ -371,6 +546,23 @@ class MemoryMiddleware(MiddlewareBase):
         if isinstance(stats, dict):
             return bool(stats.get("evicted") or stats.get("folded"))
         return cls._compression_state(agent) != before
+
+    @classmethod
+    def _compression_changed(
+        cls,
+        agent: "Agent",
+        before: tuple[Any, tuple[str, ...]] | None,
+    ) -> bool:
+        """Best-effort compression inspection for exception cleanup paths."""
+        if before is None:
+            return False
+        try:
+            return cls._did_compress_context(agent, before)
+        except Exception:
+            logger.exception(
+                "MemoryMiddleware could not inspect compression result",
+            )
+            return False
 
     @staticmethod
     def _extract_memory_messages(
@@ -467,6 +659,50 @@ class MemoryMiddleware(MiddlewareBase):
             for msg in messages[first_idx:end_idx]
             if msg.role != "user" or cls._is_external_user_query(msg)
         ]
+
+    @classmethod
+    def _messages_for_user_turn(
+        cls,
+        messages: list["Msg"],
+        *,
+        turn_marker: str,
+    ) -> list["Msg"]:
+        """Return one complete external-user turn without internal controls."""
+        start_idx: int | None = None
+        for idx, msg in enumerate(messages):
+            if cls._is_external_user_query(msg) and msg.id == turn_marker:
+                start_idx = idx
+                break
+        if start_idx is None:
+            return []
+
+        end_idx = len(messages)
+        for idx in range(start_idx + 1, len(messages)):
+            if cls._is_external_user_query(messages[idx]):
+                end_idx = idx
+                break
+        return [
+            msg
+            for msg in messages[start_idx:end_idx]
+            if msg.role != "user" or cls._is_external_user_query(msg)
+        ]
+
+
+def discard_auto_memory_turns(
+    agent_state: Any,
+    turn_markers: set[str],
+) -> None:
+    """Discard pending state for turns submitted by another lifecycle path."""
+    if not turn_markers:
+        return
+    state = auto_memory_turn_state(agent_state)
+    MemoryMiddleware.migrate_legacy_retry_batch(state)
+    state["pending"][:] = [
+        marker for marker in state["pending"] if marker not in turn_markers
+    ]
+    snapshots = state["snapshots"]
+    for marker in turn_markers:
+        snapshots.pop(marker, None)
 
 
 class ToolResultPruningMiddleware(MiddlewareBase):

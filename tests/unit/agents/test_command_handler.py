@@ -9,12 +9,18 @@ from agentscope.message import HintBlock, Msg, TextBlock
 
 from qwenpaw.agents.command_handler import CommandHandler
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
+from qwenpaw.agents.middlewares import auto_memory_turn_state
 
 
 def _make_agent():
     """Build a minimal fake agent satisfying CommandHandler's expectations."""
     agent = MagicMock()
-    agent.state = SimpleNamespace(context=[], session_id="session-1")
+    agent.state = SimpleNamespace(
+        context=[],
+        summary="",
+        session_id="session-1",
+        middle_context={},
+    )
     agent.memory_manager = None
     return agent
 
@@ -38,6 +44,48 @@ async def test_process_clear_returns_clear_history_metadata() -> None:
     msg = await handler.handle_command("/clear")
 
     assert msg.metadata == {"clear_history": True, "clear_plan": True}
+
+
+@pytest.mark.asyncio
+async def test_clear_discards_pending_auto_memory_snapshots() -> None:
+    agent = _make_agent()
+    agent.state.context = [_msg("user", "private", msg_id="turn-1")]
+    state = auto_memory_turn_state(agent.state)
+    state["pending"] = ["turn-1"]
+    state["snapshots"] = {"turn-1": [{"private": "payload"}]}
+    state["search"] = {"turn_marker": "turn-1", "messages": []}
+
+    await CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+    ).handle_command("/clear")
+
+    assert not agent.state.context
+    assert auto_memory_turn_state(agent.state)["pending"] == []
+    assert auto_memory_turn_state(agent.state)["snapshots"] == {}
+    assert auto_memory_turn_state(agent.state)["search"] == {}
+
+
+@pytest.mark.asyncio
+async def test_new_discards_auto_memory_state_after_summary_is_accepted() -> (
+    None
+):
+    agent = _make_agent()
+    agent.state.context = [_msg("user", "old turn", msg_id="turn-1")]
+    auto_memory_turn_state(agent.state)["pending"] = ["turn-1"]
+    memory_manager = MagicMock()
+    memory_manager.enabled = True
+    memory_manager.add_summarize_task = MagicMock()
+
+    await CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    ).handle_command("/new")
+
+    memory_manager.add_summarize_task.assert_called_once()
+    assert not agent.state.context
+    assert auto_memory_turn_state(agent.state)["pending"] == []
 
 
 @pytest.mark.asyncio

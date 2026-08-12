@@ -113,7 +113,7 @@ Auto Memory 由 `MemoryMiddleware` 调用，不是每次 model call 都直接运
 - 累计到 `auto_memory_interval` 个用户轮次后 flush；
 - 上下文实际完成 eviction/fold 后，也会 flush pending turns。
 
-自动搜索和待提交 turn 的标记保存在 `AgentState.middle_context`，因此 middleware 重建或 session 恢复不会重置进度。搜索结果本身不会写入 `AgentState.context`。如果 Auto Memory 提交失败，pending marker 会保留，后续 turn 可以重试。来源为 `cron` 或 `heartbeat` 的自动化请求不会改变这些状态。
+自动搜索和待提交 turn 的状态保存在 `AgentState.middle_context`，因此 middleware 重建或 session 恢复不会重置进度。搜索结果本身不会写入 `AgentState.context`，但在当前用户 turn 的每次模型调用中都可用。如果 Auto Memory 提交失败，会按 turn 保留消息快照供后续重试。来源为 `cron` 或 `heartbeat` 的自动化请求不会搜索或提交 Auto Memory；如果它们驱逐了待提交的用户 turn，middleware 只保存后续用户请求安全提交所需的快照。
 
 `auto_memory_interval` 默认是 `5`。`None`、`0` 或负数会禁用周期性 Auto Memory。
 

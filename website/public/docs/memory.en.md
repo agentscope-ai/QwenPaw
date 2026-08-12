@@ -388,9 +388,9 @@ agent, `503` when ReMe is unavailable, or `500` when the rebuild job fails.
 
 Configure in `running.reme_light_memory_config.auto_memory_search_config`:
 
-When enabled, search results are temporarily injected into the current model
-input as a completed `memory_search` interaction. They are not written to the
-formal conversation history or Scroll's persisted history.
+When enabled, search results are temporarily injected into every model input
+for the active user turn as a completed `memory_search` interaction. They are
+not written to the formal conversation history or Scroll's persisted history.
 
 | Field         | Description                                              | Default |
 | ------------- | -------------------------------------------------------- | ------- |
