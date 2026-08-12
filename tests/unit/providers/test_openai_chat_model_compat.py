@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,use-implicit-booleaness-not-comparison
 """Tests for schema-guided tool-call input coercion (issue #6839).
 
 Models sometimes emit unquoted numbers or booleans for string-typed tool
