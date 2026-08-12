@@ -196,6 +196,7 @@ async def test_inbox_and_dream_treat_partial_as_warning(monkeypatch):
     manager.agent_id = "agent-1"
     manager.get_memory_config = lambda: SimpleNamespace(
         inbox_push_enabled=True,
+        auto_dream_inbox_push_enabled=True,
     )
     event = {"id": "event-1", "status": "partial"}
     append = AsyncMock(return_value=event)
