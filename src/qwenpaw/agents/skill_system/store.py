@@ -89,6 +89,69 @@ def get_workspace_skills_dir(workspace_dir: Path) -> Path:
     return preferred
 
 
+def discover_workspace_skill_dirs(skill_root: Path) -> dict[str, Path]:
+    """Discover skill directories under ``skill_root``.
+
+    Directories containing ``SKILL.md`` are skills. Directories without
+    ``SKILL.md`` are treated as grouping folders and scanned recursively.
+    Skill identity remains the leaf directory name (no path separators).
+    When the same leaf name appears at multiple paths, the shallower path
+    wins; deeper duplicates are logged and skipped.
+
+    Skill directories themselves are not recursed into, so nested folders such
+    as ``scripts/`` or ``resource/`` are never treated as skills.
+    """
+    if not skill_root.is_dir():
+        return {}
+
+    candidates: dict[str, list[tuple[int, Path]]] = {}
+
+    def _walk(directory: Path, depth: int) -> None:
+        try:
+            entries = sorted(directory.iterdir(), key=lambda item: item.name)
+        except OSError:
+            return
+        for path in entries:
+            if not path.is_dir() or is_ignored_skill_entry(path.name):
+                continue
+            if (path / "SKILL.md").exists():
+                candidates.setdefault(path.name, []).append((depth, path))
+                continue
+            _walk(path, depth + 1)
+
+    _walk(skill_root, 0)
+
+    discovered: dict[str, Path] = {}
+    for skill_name, paths in candidates.items():
+        paths.sort(key=lambda item: (item[0], str(item[1])))
+        _depth, winner = paths[0]
+        discovered[skill_name] = winner
+        for _depth, shadowed in paths[1:]:
+            logger.warning(
+                "Skill '%s' at '%s' is shadowed by '%s'; skipping",
+                skill_name,
+                shadowed,
+                winner,
+            )
+    return discovered
+
+
+def resolve_workspace_skill_dir(
+    skill_root: Path,
+    skill_name: str,
+) -> Path | None:
+    """Resolve a workspace skill directory by leaf name, including nesting.
+
+    Returns ``None`` when the name is invalid or no matching skill directory
+    with ``SKILL.md`` exists under ``skill_root``.
+    """
+    try:
+        normalized = normalize_skill_dir_name(skill_name)
+    except SkillsError:
+        return None
+    return discover_workspace_skill_dirs(skill_root).get(normalized)
+
+
 def get_workspace_skill_manifest_path(workspace_dir: Path) -> Path:
     """Return the workspace skill manifest path."""
     return workspace_dir / "skill.json"
@@ -857,20 +920,12 @@ def workspace_skill_name_conflict(
     skill with *normalized_name* already exists, else ``None``.
     """
     skill_root = get_workspace_skills_dir(workspace_dir)
-    if not (skill_root / normalized_name).exists():
+    existing = discover_workspace_skill_dirs(skill_root)
+    if normalized_name not in existing:
         return None
-    existing = (
-        {
-            p.name
-            for p in skill_root.iterdir()
-            if p.is_dir() and not is_ignored_skill_entry(p.name)
-        }
-        if skill_root.exists()
-        else set()
-    )
     return normalized_name, suggest_conflict_name(
         normalized_name,
-        existing,
+        set(existing),
     )
 
 

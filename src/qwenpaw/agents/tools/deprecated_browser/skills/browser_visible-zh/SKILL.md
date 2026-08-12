@@ -8,7 +8,8 @@ metadata:
     requires: {}
 ---
 
-> **已弃用：** 此参考服务于稳定的 `browser` 实现。启用实验模式时，请优先使用统一的 `browser` 工具。
+> **稳定链路参考：** 在 `browser.experimental=false` 时使用本 skill。
+> 若已启用实验模式（统一 Browser SDK），请改用 `browser` skill。
 
 # 浏览器启动模式
 

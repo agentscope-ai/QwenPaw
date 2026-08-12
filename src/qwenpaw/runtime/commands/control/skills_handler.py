@@ -11,6 +11,7 @@ from pathlib import Path
 import frontmatter as fm
 
 from ....agents.skill_system import (
+    discover_workspace_skill_dirs,
     get_workspace_skills_dir,
     reconcile_workspace_manifest,
 )
@@ -57,6 +58,7 @@ class SkillsCommandHandler(BaseControlCommandHandler):
         channel_id = context.channel.channel
         manifest = reconcile_workspace_manifest(workspace_dir)
         skills_dir = get_workspace_skills_dir(workspace_dir)
+        discovered = discover_workspace_skill_dirs(skills_dir)
 
         lines = []
         found = False
@@ -68,8 +70,8 @@ class SkillsCommandHandler(BaseControlCommandHandler):
             channels = entry.get("channels") or ["all"]
             if "all" not in channels and channel_id not in channels:
                 continue
-            skill_dir = skills_dir / folder_name
-            if not skill_dir.exists():
+            skill_dir = discovered.get(folder_name)
+            if skill_dir is None or not skill_dir.exists():
                 continue
             found = True
 

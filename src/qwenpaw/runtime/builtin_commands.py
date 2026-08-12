@@ -606,6 +606,7 @@ async def _skill_fallback_handler(
         get_workspace_skills_dir,
         resolve_effective_skills,
     )
+    from ..agents.skill_system.store import discover_workspace_skill_dirs
 
     request = getattr(ctx, "request", None)
     channel = (getattr(request, "channel", "") if request else "") or "console"
@@ -619,14 +620,12 @@ async def _skill_fallback_handler(
         return None
 
     skills_dir = get_workspace_skills_dir(Path(workspace_dir))
-    skill_dir = next(
-        (
-            skills_dir / sn
-            for sn in effective_skills
-            if sn.lower() == skill_name
-        ),
+    discovered = discover_workspace_skill_dirs(skills_dir)
+    matched_name = next(
+        (sn for sn in effective_skills if sn.lower() == skill_name),
         None,
     )
+    skill_dir = discovered.get(matched_name) if matched_name else None
     if skill_dir is None or not skill_dir.exists():
         return None
 

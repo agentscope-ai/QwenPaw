@@ -26,6 +26,7 @@ from .store import (
     copy_skill_dir,
     default_pool_manifest,
     default_workspace_manifest,
+    discover_workspace_skill_dirs,
     extract_version,
     get_pool_skill_manifest_path,
     get_skill_pool_dirs,
@@ -213,15 +214,43 @@ def _select_builtin_variant(
     )
 
 
+def get_builtin_skills_dir() -> Path:
+    """Return the packaged built-in skill directory."""
+    return Path(__file__).resolve().parent.parent / "skills"
+
+
+def get_deprecated_browser_skills_dir() -> Path:
+    """Return skill dirs bound to the stable/deprecated browser tool."""
+    return (
+        Path(__file__).resolve().parent.parent
+        / "tools"
+        / "deprecated_browser"
+        / "skills"
+    )
+
+
 def _iter_packaged_builtin_dirs() -> Iterator[Path]:
-    """Yield packaged builtin skill directories in stable order."""
-    builtin_dir = get_builtin_skills_dir()
-    if not builtin_dir.exists():
-        return
-    for skill_dir in sorted(builtin_dir.iterdir()):
-        if is_ignored_skill_entry(skill_dir.name):
+    """Yield packaged builtin skill directories in stable order.
+
+    Includes the primary ``agents/skills`` tree and the stable-track browser
+    skills under ``deprecated_browser/skills``. Those browser helpers remain
+    packaged builtins so skill-pool sync does not mark them permanently
+    outdated when ``browser.experimental=false``.
+    """
+    roots = (get_builtin_skills_dir(), get_deprecated_browser_skills_dir())
+    seen: set[Path] = set()
+    for builtin_dir in roots:
+        if not builtin_dir.exists():
             continue
-        if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
+        for skill_dir in sorted(builtin_dir.iterdir()):
+            if is_ignored_skill_entry(skill_dir.name):
+                continue
+            if not (skill_dir.is_dir() and (skill_dir / "SKILL.md").exists()):
+                continue
+            resolved = skill_dir.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
             yield skill_dir
 
 
@@ -233,11 +262,6 @@ def get_packaged_builtin_versions() -> dict[str, str]:
         variant = _select_builtin_variant(registry, skill_name)
         versions[skill_name] = variant.version_text if variant else ""
     return versions
-
-
-def get_builtin_skills_dir() -> Path:
-    """Return the packaged built-in skill directory."""
-    return Path(__file__).resolve().parent.parent / "skills"
 
 
 def resolve_builtin_skill_dir(
@@ -253,11 +277,6 @@ def resolve_builtin_skill_dir(
         preferred_language=preferred_language,
     )
     return str(variant.skill_dir) if variant is not None else None
-
-
-# ---------------------------------------------------------------------------
-# Skill config -> environment variable overrides
-# ---------------------------------------------------------------------------
 
 
 def _stringify_skill_env_value(value: Any) -> str:
@@ -1055,7 +1074,8 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
     runtime-facing state in ``skill.json``.
 
     Behavior summary:
-    - Discover every on-disk skill directory with ``SKILL.md``.
+    - Discover every on-disk skill directory with ``SKILL.md``, including
+      skills nested under grouping folders (directories without ``SKILL.md``).
     - Preserve user state such as ``enabled``, ``channels``, and ``config``.
     - Refresh metadata and sync status from the real files.
     - Remove manifest entries whose directories no longer exist.
@@ -1064,6 +1084,9 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         if a user deletes ``workspaces/a1/skills/demo_skill`` by hand, the
         next reconcile removes ``demo_skill`` from
         ``workspaces/a1/skill.json``.
+
+        if a user places ``workspaces/a1/skills/custom/my_skill/SKILL.md``,
+        the next reconcile adds ``my_skill`` (leaf name) to the manifest.
     """
     workspace_dir.mkdir(parents=True, exist_ok=True)
     workspace_skills_dir = get_workspace_skills_dir(workspace_dir)
@@ -1078,13 +1101,7 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         payload.setdefault("skills", {})
         skills = payload["skills"]
 
-        discovered = {
-            path.name: path
-            for path in workspace_skills_dir.iterdir()
-            if not is_ignored_skill_entry(path.name)
-            and path.is_dir()
-            and (path / "SKILL.md").exists()
-        }
+        discovered = discover_workspace_skill_dirs(workspace_skills_dir)
 
         for skill_name, skill_dir in sorted(discovered.items()):
             raw_existing = skills.get(skill_name)
@@ -1204,14 +1221,16 @@ def resolve_effective_skills(
 ) -> list[str]:
     """Resolve enabled workspace skills for one channel."""
     manifest = read_skill_manifest(workspace_dir)
+    skill_root = get_workspace_skills_dir(workspace_dir)
+    discovered = discover_workspace_skill_dirs(skill_root)
     resolved = []
     for skill_name, entry in sorted(manifest.get("skills", {}).items()):
         if not entry.get("enabled", False):
             continue
         channels = entry.get("channels") or ["all"]
         if "all" in channels or channel_name in channels:
-            skill_dir = get_workspace_skills_dir(workspace_dir) / skill_name
-            if skill_dir.exists():
+            skill_dir = discovered.get(skill_name)
+            if skill_dir is not None and skill_dir.exists():
                 resolved.append(skill_name)
     return resolved
 

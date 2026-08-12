@@ -207,19 +207,21 @@ class AgentBuilder:
             return []
 
         from ..agents.skill_system import get_workspace_skills_dir
+        from ..agents.skill_system.store import discover_workspace_skill_dirs
         from ..constant import WORKING_DIR
 
         base = get_workspace_skills_dir(Path(workspace_dir or WORKING_DIR))
+        discovered = discover_workspace_skill_dirs(base)
         dirs: list[str] = []
         for name in names:
-            skill_dir = base / name
-            if (skill_dir / "SKILL.md").exists():
+            skill_dir = discovered.get(name)
+            if skill_dir is not None and (skill_dir / "SKILL.md").exists():
                 dirs.append(str(skill_dir))
             else:
                 _logger.debug(
-                    "skill '%s' has no SKILL.md at %s; not injected",
+                    "skill '%s' has no SKILL.md under %s; not injected",
                     name,
-                    skill_dir,
+                    base,
                 )
         return dirs
 

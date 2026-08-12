@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from ...agents.skill_system import (
+    discover_workspace_skill_dirs,
     ensure_skills_initialized,
     get_workspace_skills_dir,
     resolve_effective_skills,
@@ -78,9 +79,13 @@ class HarnessCapabilityResolver:
     def _resolve_skills(self, channel: str) -> list[HarnessSkillDefinition]:
         ensure_skills_initialized(self._workspace_dir)
         skills_dir = get_workspace_skills_dir(self._workspace_dir)
+        discovered = discover_workspace_skill_dirs(skills_dir)
         result: list[HarnessSkillDefinition] = []
         for name in resolve_effective_skills(self._workspace_dir, channel):
-            directory = (skills_dir / name).resolve()
+            directory = discovered.get(name)
+            if directory is None:
+                continue
+            directory = directory.resolve()
             info = read_skill_from_dir(directory, "workspace")
             if info is None:
                 continue

@@ -16,6 +16,7 @@ from ..agents.skill_system import (
     read_skill_manifest,
     reconcile_pool_manifest,
     reconcile_workspace_manifest,
+    resolve_workspace_skill_dir,
 )
 from ..agents.skill_system.registry import list_workspaces
 from ..agents.skill_system.store import validate_skill_content
@@ -133,7 +134,13 @@ def _resolve_skill_test_dir(skill: str, agent_id: str) -> Path:
         return candidate.resolve()
 
     working_dir = _get_agent_workspace(agent_id)
-    return get_workspace_skills_dir(working_dir) / skill
+    resolved = resolve_workspace_skill_dir(
+        get_workspace_skills_dir(working_dir),
+        skill,
+    )
+    return resolved if resolved is not None else (
+        get_workspace_skills_dir(working_dir) / skill
+    )
 
 
 def _run_skill_test(skill_dir: Path) -> str:
@@ -402,7 +409,12 @@ def info_cmd(
     entry = manifest.get(skill_name, {})
     channels = entry.get("channels") or ["all"]
     enabled = bool(entry.get("enabled", False))
-    skill_dir = get_workspace_skills_dir(working_dir) / skill_name
+    skill_dir = resolve_workspace_skill_dir(
+        get_workspace_skills_dir(working_dir),
+        skill_name,
+    )
+    if skill_dir is None:
+        skill_dir = get_workspace_skills_dir(working_dir) / skill_name
 
     click.echo(f"Skill: {skill.name}")
     click.echo(f"Enabled: {'yes' if enabled else 'no'}")

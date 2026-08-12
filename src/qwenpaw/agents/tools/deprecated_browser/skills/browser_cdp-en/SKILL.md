@@ -8,8 +8,9 @@ metadata:
     requires: {}
 ---
 
-> **Deprecated:** This reference supports the stable `browser` implementation.
-> hatch. Prefer the unified `browser` tool when experimental mode is enabled.
+> **Stable-track reference:** Use this skill when
+> `browser.experimental=false`. If experimental mode (unified Browser SDK)
+> is enabled, prefer the `browser` skill instead.
 
 # Browser CDP Reference
 

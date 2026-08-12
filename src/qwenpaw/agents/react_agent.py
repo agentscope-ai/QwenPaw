@@ -420,10 +420,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
             toolkit._qp_skills = {}  # pylint: disable=protected-access
         workspace_dir = self._workspace_dir or WORKING_DIR
         working_skills_dir = get_workspace_skills_dir(Path(workspace_dir))
+        from .skill_system.store import discover_workspace_skill_dirs
 
+        discovered = discover_workspace_skill_dirs(working_skills_dir)
         for skill_name in effective_skills:
-            skill_dir = working_skills_dir / skill_name
-            if skill_dir.exists():
+            skill_dir = discovered.get(skill_name)
+            if skill_dir is not None and skill_dir.exists():
                 try:
                     # pylint: disable=protected-access
                     toolkit._qp_skills[skill_name] = {

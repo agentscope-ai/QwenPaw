@@ -50,6 +50,7 @@ from ...agents.skill_system.store import (
     build_skill_metadata,
     default_pool_manifest,
     default_workspace_manifest,
+    discover_workspace_skill_dirs,
     get_pool_skill_manifest_path,
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
@@ -59,7 +60,7 @@ from ...agents.skill_system.store import (
     read_skill_manifest,
     read_skill_pool_manifest,
     resolve_pool_skill_dir,
-    safe_skill_dir,
+    resolve_workspace_skill_dir,
     suggest_conflict_name,
 )
 from ...security.skill_scanner import SkillScanError
@@ -653,6 +654,7 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
     manifest = read_skill_manifest(workspace_dir)
     entries = manifest.get("skills", {})
     skill_root = get_workspace_skills_dir(workspace_dir)
+    discovered = discover_workspace_skill_dirs(skill_root)
     specs: list[SkillSpec] = []
     for skill_name, raw_entry in sorted(entries.items()):
         entry = normalize_skill_manifest_entry(raw_entry)
@@ -663,8 +665,8 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
             )
         try:
             source = entry.get("source", "customized")
-            skill_dir = safe_skill_dir(skill_root, skill_name)
-            if not (skill_dir / "SKILL.md").is_file():
+            skill_dir = discovered.get(skill_name)
+            if skill_dir is None or not (skill_dir / "SKILL.md").is_file():
                 continue
             metadata = build_skill_metadata(
                 skill_name,
@@ -748,12 +750,11 @@ def _build_workspace_skill_detail(
     if raw_entry is None:
         return None
     entry = normalize_skill_manifest_entry(raw_entry)
-    try:
-        skill_dir = safe_skill_dir(
-            get_workspace_skills_dir(workspace_dir),
-            skill_name,
-        )
-    except AppBaseException:
+    skill_dir = resolve_workspace_skill_dir(
+        get_workspace_skills_dir(workspace_dir),
+        skill_name,
+    )
+    if skill_dir is None:
         return None
     source = str(entry.get("source", "customized") or "customized")
     skill_data = read_skill_content_and_metadata_from_dir(
@@ -838,14 +839,13 @@ def _build_pool_skill_detail(skill_name: str) -> PoolSkillDetail | None:
 def _list_workspace_skill_names(workspace_dir: Path) -> list[str]:
     """List names that the former full workspace index would have returned."""
     manifest = read_skill_manifest(workspace_dir)
-    skill_root = get_workspace_skills_dir(workspace_dir)
+    discovered = discover_workspace_skill_dirs(
+        get_workspace_skills_dir(workspace_dir),
+    )
     names: list[str] = []
     for skill_name in sorted(manifest.get("skills", {})):
-        try:
-            skill_dir = safe_skill_dir(skill_root, skill_name)
-        except AppBaseException:
-            continue
-        if (skill_dir / "SKILL.md").is_file():
+        skill_dir = discovered.get(skill_name)
+        if skill_dir is not None and (skill_dir / "SKILL.md").is_file():
             names.append(skill_name)
     return names
 
