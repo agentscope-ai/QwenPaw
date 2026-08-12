@@ -12,9 +12,13 @@ Covers:
 """
 # pylint: disable=protected-access,unused-argument
 
+import base64
+from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
+from agentscope.message import Base64Source
+from PIL import Image
 
 from qwenpaw.agents.tools.view_media import (
     _IMAGE_EXTENSIONS,
@@ -276,10 +280,130 @@ class TestViewImage:
     async def test_local_image_file(self, mock_support, tmp_path):
         mock_support.return_value = True
         img = tmp_path / "photo.png"
-        img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
+        Image.new("RGB", (2, 2), color="red").save(img)
         result = await view_image(str(img))
         types = [getattr(b, "type", None) for b in result.content]
         assert "data" in types
+        image_block = next(
+            block for block in result.content if block.type == "data"
+        )
+        assert isinstance(image_block.source, Base64Source)
+        assert image_block.source.media_type == "image/png"
+        assert base64.b64decode(image_block.source.data) == img.read_bytes()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("suffix", "image_format"),
+        [(".bmp", "BMP"), (".tiff", "TIFF")],
+    )
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_local_image_converts_to_png(
+        self,
+        mock_support,
+        tmp_path,
+        suffix,
+        image_format,
+    ):
+        mock_support.return_value = True
+        img = tmp_path / f"photo{suffix}"
+        Image.new("RGB", (2, 2), color="green").save(
+            img,
+            format=image_format,
+        )
+
+        result = await view_image(str(img))
+
+        image_block = next(
+            block for block in result.content if block.type == "data"
+        )
+        assert isinstance(image_block.source, Base64Source)
+        assert image_block.source.media_type == "image/png"
+        converted_bytes = base64.b64decode(image_block.source.data)
+        with Image.open(BytesIO(converted_bytes)) as converted:
+            assert converted.format == "PNG"
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_tiff_with_jpeg_suffix_converts_to_png(
+        self,
+        mock_support,
+        tmp_path,
+    ):
+        mock_support.return_value = True
+        img = tmp_path / "misleading.jpg"
+        Image.new("RGB", (2, 2), color="yellow").save(
+            img,
+            format="TIFF",
+        )
+
+        result = await view_image(str(img))
+
+        image_block = next(
+            block for block in result.content if block.type == "data"
+        )
+        assert image_block.source.media_type == "image/png"
+        converted_bytes = base64.b64decode(image_block.source.data)
+        with Image.open(BytesIO(converted_bytes)) as converted:
+            assert converted.format == "PNG"
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_local_image_uses_detected_mime(
+        self,
+        mock_support,
+        tmp_path,
+    ):
+        mock_support.return_value = True
+        img = tmp_path / "misleading.jpg"
+        Image.new("RGB", (2, 2), color="blue").save(img, format="PNG")
+
+        result = await view_image(str(img))
+
+        image_block = next(
+            block for block in result.content if block.type == "data"
+        )
+        assert image_block.source.media_type == "image/png"
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_invalid_local_image_returns_error(
+        self,
+        mock_support,
+        tmp_path,
+    ):
+        mock_support.return_value = True
+        img = tmp_path / "broken.png"
+        img.write_bytes(b"not-an-image")
+
+        result = await view_image(str(img))
+
+        assert len(result.content) == 1
+        assert "not a valid image" in result.content[0].text
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_overwritten_path_preserves_each_version(
+        self,
+        mock_support,
+        tmp_path,
+    ):
+        mock_support.return_value = True
+        img = tmp_path / "preview.png"
+        Image.new("RGB", (2, 2), color="red").save(img)
+        first = await view_image(str(img))
+        first_block = next(
+            block for block in first.content if block.type == "data"
+        )
+        first_data = first_block.source.data
+
+        Image.new("RGB", (2, 2), color="blue").save(img)
+        second = await view_image(str(img))
+        second_block = next(
+            block for block in second.content if block.type == "data"
+        )
+
+        assert first_block.source.data == first_data
+        assert second_block.source.data != first_data
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")

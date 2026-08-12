@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Load image or video files into the LLM context for analysis."""
 
+import base64
+from io import BytesIO
 import logging
 import mimetypes
 import os
@@ -10,11 +12,18 @@ from urllib.parse import unquote
 from pathlib import Path
 from typing import Optional
 
-from agentscope.message import DataBlock, TextBlock, URLSource
+from agentscope.message import (
+    Base64Source,
+    DataBlock,
+    TextBlock,
+    URLSource,
+    ToolResultState,
+)
 from agentscope.tool import ToolChunk
-from agentscope.message import ToolResultState
+from PIL import Image, UnidentifiedImageError
 
 from ...runtime.tool_registry import tool_descriptor
+from ...utils.io_utils import run_sync_io
 from .file_io import _path_to_file_url, _resolve_file_path
 
 logger = logging.getLogger(__name__)
@@ -44,6 +53,18 @@ _IMAGE_EXTENSIONS = {
     ".tiff",
     ".tif",
 }
+
+# Safe pass-through formats, not a declaration of model capability.
+_NATIVE_IMAGE_MEDIA_TYPES = frozenset(
+    {
+        "image/gif",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+    },
+)
+
+_PNG_CONVERTIBLE_IMAGE_FORMATS = frozenset({"BMP", "TIFF"})
 
 _VIDEO_EXTENSIONS = {
     ".mp4",
@@ -141,6 +162,72 @@ def _validate_media_path(
         )
 
     return resolved, None
+
+
+def _freeze_local_image(
+    image_path: Path,
+) -> tuple[DataBlock | None, str | None]:
+    """Validate and freeze one local image as immutable base64 content."""
+    try:
+        image_bytes = image_path.read_bytes()
+        with Image.open(BytesIO(image_bytes)) as image:
+            image_format = image.format
+            image.verify()
+    except (
+        Image.DecompressionBombError,
+        OSError,
+        UnidentifiedImageError,
+        ValueError,
+    ) as exc:
+        return None, f"Error: {image_path.name} is not a valid image: {exc}"
+
+    normalized_format = (image_format or "").upper()
+    media_type = Image.MIME.get(normalized_format)
+    if media_type in _NATIVE_IMAGE_MEDIA_TYPES:
+        frozen_bytes = image_bytes
+    elif normalized_format in _PNG_CONVERTIBLE_IMAGE_FORMATS:
+        try:
+            with Image.open(BytesIO(image_bytes)) as image:
+                image.seek(0)
+                image.load()
+                has_alpha = (
+                    "A" in image.getbands() or "transparency" in image.info
+                )
+                target_mode = "RGBA" if has_alpha else "RGB"
+                with image.convert(target_mode) as converted:
+                    output = BytesIO()
+                    converted.save(output, format="PNG")
+                    frozen_bytes = output.getvalue()
+            media_type = "image/png"
+        except (
+            Image.DecompressionBombError,
+            OSError,
+            UnidentifiedImageError,
+            ValueError,
+        ) as exc:
+            return (
+                None,
+                f"Error: {image_path.name} could not be converted to "
+                f"PNG: {exc}",
+            )
+    else:
+        detected = media_type or image_format or "unknown"
+        return (
+            None,
+            f"Error: {image_path.name} uses unsupported image format "
+            f"{detected}.",
+        )
+
+    encoded = base64.b64encode(frozen_bytes).decode("ascii")
+    return (
+        DataBlock(
+            source=Base64Source(
+                data=encoded,
+                media_type=media_type,
+            ),
+        ),
+        None,
+    )
 
 
 async def _probe_multimodal_if_needed(
@@ -392,7 +479,21 @@ async def view_image(image_path: str) -> ToolChunk:
     if err is not None:
         return err
 
-    file_url = _path_to_file_url(str(resolved))
+    frozen_image, freeze_error = await run_sync_io(
+        _freeze_local_image,
+        resolved,
+    )
+    if freeze_error is not None or frozen_image is None:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=freeze_error or f"Error: failed to load {resolved}",
+                ),
+            ],
+        )
 
     text_msg = (
         fallback_hint if fallback_hint else f"Image loaded: {resolved.name}"
@@ -401,7 +502,7 @@ async def view_image(image_path: str) -> ToolChunk:
         is_last=True,
         state=ToolResultState.SUCCESS,
         content=[
-            _media_data_block(file_url, "image"),
+            frozen_image,
             TextBlock(type="text", text=text_msg),
         ],
     )
