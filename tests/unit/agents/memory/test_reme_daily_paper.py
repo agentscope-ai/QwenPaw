@@ -152,7 +152,6 @@ def test_memory_prompt_omits_disabled_search_tool() -> None:
         language="en",
         running=SimpleNamespace(
             reme_light_memory_config=SimpleNamespace(
-                daily_dir="memory",
                 memory_search_enabled=False,
             ),
         ),
@@ -168,7 +167,7 @@ def test_memory_prompt_omits_disabled_search_tool() -> None:
         prompt = manager.get_memory_prompt()
 
     assert "memory_search" not in prompt
-    assert "memory/YYYY-MM-DD.md" in prompt
+    assert prompt == ""
 
 
 def test_memory_prompt_includes_enabled_search_tool() -> None:
@@ -178,7 +177,6 @@ def test_memory_prompt_includes_enabled_search_tool() -> None:
         language="en",
         running=SimpleNamespace(
             reme_light_memory_config=SimpleNamespace(
-                daily_dir="memory",
                 memory_search_enabled=True,
             ),
         ),
@@ -191,7 +189,7 @@ def test_memory_prompt_includes_enabled_search_tool() -> None:
         prompt = manager.get_memory_prompt()
 
     assert "memory_search" in prompt
-    assert "memory/*.md" in prompt
+    assert "personal knowledge base" in prompt
 
 
 def test_reme_declares_its_enabled_cron_jobs() -> None:
