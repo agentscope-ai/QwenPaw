@@ -55,7 +55,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_GLOBAL_MEDIA_CAPABILITY_PATTERNS = (
+    re.compile(r"\bmodel\s+is\s+text[- ]only\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:this|the|selected)?\s*model\b.{0,80}"
+        r"\b(?:does not|doesn't|cannot|can't)\s+support\b.{0,40}"
+        r"\b(?:media|multimodal)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bmultimodal\s+(?:input|capability)?\s*"
+        r"(?:is\s+)?not\s+enabled\b.{0,40}"
+        r"\b(?:model|deployment)\b",
+        re.IGNORECASE,
+    ),
+)
+
+# A global capability rejection must also trigger the one-request fallback.
+# Keep the global patterns as an explicit subset so the two classifiers
+# cannot silently drift apart.
 _EXPLICIT_UNSUPPORTED_MEDIA_PATTERNS = (
+    *_GLOBAL_MEDIA_CAPABILITY_PATTERNS,
     re.compile(
         r"\b(?:this|the|selected)?\s*model\b.{0,80}"
         r"\b(?:does not|doesn't|cannot|can't)\s+support\b.{0,40}"
@@ -74,7 +94,6 @@ _EXPLICIT_UNSUPPORTED_MEDIA_PATTERNS = (
         r"\b(?:model|deployment)\b",
         re.IGNORECASE,
     ),
-    re.compile(r"\bmodel\s+is\s+text[- ]only\b", re.IGNORECASE),
     re.compile(
         r"\bvision\s+is\s+not\s+enabled\s+for\s+"
         r"(?:this\s+)?(?:model|deployment)\b",
@@ -82,22 +101,6 @@ _EXPLICIT_UNSUPPORTED_MEDIA_PATTERNS = (
     ),
     re.compile(
         r"\bunsupported\s+modality\s*:?\s*(?:image|audio|video)\b",
-        re.IGNORECASE,
-    ),
-)
-
-_GLOBAL_MEDIA_CAPABILITY_PATTERNS = (
-    re.compile(r"\bmodel\s+is\s+text[- ]only\b", re.IGNORECASE),
-    re.compile(
-        r"\b(?:this|the|selected)?\s*model\b.{0,80}"
-        r"\b(?:does not|doesn't|cannot|can't)\s+support\b.{0,40}"
-        r"\b(?:media|multimodal)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\bmultimodal\s+(?:input|capability)?\s*"
-        r"(?:is\s+)?not\s+enabled\b.{0,40}"
-        r"\b(?:model|deployment)\b",
         re.IGNORECASE,
     ),
 )

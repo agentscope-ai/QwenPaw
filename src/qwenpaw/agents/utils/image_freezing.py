@@ -170,7 +170,7 @@ def _freeze_data_block(value: Any) -> tuple[Any, int]:
         result["type"] = block_type
         result["source"] = frozen.source.model_dump(mode="json")
         return result, 1
-    frozen.name = value.name
+    frozen.name = getattr(value, "name", None)
     return frozen, 1
 
 

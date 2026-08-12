@@ -20,6 +20,7 @@ import pytest
 from agentscope.message import Base64Source
 from PIL import Image
 
+from qwenpaw.agents.utils import image_freezing
 from qwenpaw.agents.tools.view_media import (
     _IMAGE_EXTENSIONS,
     _VIDEO_EXTENSIONS,
@@ -403,6 +404,7 @@ class TestViewImage:
     async def test_converted_png_must_fit_image_limit(
         self,
         mock_support,
+        monkeypatch,
         tmp_path,
     ):
         mock_support.return_value = True
@@ -414,7 +416,19 @@ class TestViewImage:
             compression="jpeg",
             quality=75,
         )
-        assert img.stat().st_size <= MAX_INLINE_MEDIA_BYTES
+        with Image.open(img) as image:
+            image.load()
+            converted = BytesIO()
+            image.convert("RGB").save(converted, format="PNG")
+        source_size = img.stat().st_size
+        converted_size = len(converted.getvalue())
+        assert source_size < converted_size
+        image_limit = (source_size + converted_size) // 2
+        monkeypatch.setattr(
+            image_freezing,
+            "MAX_INLINE_MEDIA_BYTES",
+            image_limit,
+        )
 
         result = await view_image(str(img))
 
