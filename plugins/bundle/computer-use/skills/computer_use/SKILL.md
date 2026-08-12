@@ -151,10 +151,11 @@ AX is insufficient and visual confirmation is necessary. Fields such as
 input, `effect: observed` means the native adapter also verified the editable
 buffer; `effect: unverified` requires confirmation from the replacement
 accessibility state or a fresh visual observation before claiming success. If
-an action reports `next_action: list_windows`, the original window was closed
-or replaced; list windows and observe the new target. When an action opens a
-separate window or dialog, list windows and observe that target before acting.
-Standard macOS sheets are observed as their own target.
+an action reports `requires_observe`, do not send more input first. Follow its
+`next_action`: observe the returned `window` directly when it says
+`observe_window`, or discover the replacement when it says `list_windows`.
+This handoff also applies when an action opens another application or a new
+dialog. Standard macOS sheets are observed as their own target.
 
 ## Choose One Target Channel
 
@@ -398,7 +399,9 @@ action: list or observe once more, then decide from fresh state whether the
 requested work still needs to continue. If intervention is detected again,
 stop and report that the user has control. If the user explicitly says to stop
 on any failure, every tool error or unmet observed postcondition is terminal
-and must not be retried by a different method. A stale-observation error is
-always terminal because its target snapshot is no longer valid; report the
-failure and do not switch strategies. Do not fall back to shell commands, to
-saving screenshots as files, or to `view_image` on non-image files.
+and must not be retried by a different method. Otherwise, an error carrying
+`requires_observe` invalidates the old target snapshot: follow its
+`next_action`, inspect fresh state, and only then decide whether the requested
+operation is still needed. Never replay the failed action from the old
+observation. Do not fall back to shell commands, to saving screenshots as
+files, or to `view_image` on non-image files.

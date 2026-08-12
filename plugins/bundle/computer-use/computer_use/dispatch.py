@@ -253,8 +253,20 @@ def _error(code: str, message: str) -> ToolChunk:
         "ok": False,
         "error": {"code": code, "message": message},
     }
-    if code == "user_intervention":
+    if code in {
+        "desktop_busy",
+        "focus_failed",
+        "input_failed",
+        "observation_required",
+        "stale_observation",
+        "target_not_at_point",
+        "user_intervention",
+    }:
         payload["requires_observe"] = True
+        payload["next_action"] = "observe_window"
+    elif code in {"stale_window", "window_not_found"}:
+        payload["requires_observe"] = True
+        payload["next_action"] = "list_windows"
     return _response(
         payload,
         state=ToolResultState.ERROR,
@@ -482,9 +494,11 @@ def _native_request(
         if action == "set_value":
             params["value"] = str(values["value"] or "")
         return (
-            "invoke_element"
-            if action in {"invoke", "begin_text_edit"}
-            else action,
+            (
+                "invoke_element"
+                if action in {"invoke", "begin_text_edit"}
+                else action
+            ),
             params,
             False,
         )

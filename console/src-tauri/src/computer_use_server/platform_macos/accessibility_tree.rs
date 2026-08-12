@@ -865,7 +865,7 @@ fn find_ax_window_in(element: &AXUIElement, target: u32, depth: usize) -> Option
         .find_map(|child| find_ax_window_in(&child, target, depth + 1))
 }
 
-fn focused_window_id(app: &AXUIElement) -> Option<u32> {
+pub(super) fn focused_window_id(app: &AXUIElement) -> Option<u32> {
     let focused = ax_element(app, "AXFocusedWindow")?;
     owning_window_id(&focused)
 }

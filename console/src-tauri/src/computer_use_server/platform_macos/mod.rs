@@ -45,7 +45,8 @@ pub(super) use input::{
 };
 pub(super) use permissions::ensure_for as ensure_permissions;
 pub(super) use window::{
-    app_id_from_bundle_path, close_window, is_forbidden, list_apps, list_windows, resolve_window,
+    active_window, app_id_from_bundle_path, close_window, is_forbidden, list_apps, list_windows,
+    resolve_window,
 };
 
 /// How long to wait on a single accessibility request before giving up.
