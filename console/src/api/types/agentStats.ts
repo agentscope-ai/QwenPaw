@@ -20,6 +20,7 @@ export interface DailyStats {
   /** Current-agent daily token totals from per-turn session metadata. */
   agent_prompt_tokens?: number;
   agent_completion_tokens?: number;
+  agent_llm_calls?: number;
 }
 
 export interface AgentStatsSummary {

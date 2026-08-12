@@ -11,8 +11,8 @@ use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
-    IsWindowVisible, PostMessageW, WM_CLOSE,
+    EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowRect, GetWindowTextW,
+    GetWindowThreadProcessId, IsWindow, IsWindowVisible, PostMessageW, WM_CLOSE,
 };
 
 use super::super::app_identity::app_id_from_path;
@@ -36,6 +36,10 @@ pub(crate) fn list_apps() -> Vec<Value> {
     // Windows discovery is limited to applications that own a window, so no
     // installed-only entries are contributed here.
     merge_app_list(Vec::new(), enumerate_windows())
+}
+
+pub(crate) fn active_window() -> Option<WindowInfo> {
+    window_info(unsafe { GetForegroundWindow() })
 }
 
 fn enumerate_windows() -> Vec<WindowInfo> {

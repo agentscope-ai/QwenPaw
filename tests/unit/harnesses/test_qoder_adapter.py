@@ -12,6 +12,14 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+# pylint: disable=wrong-import-position
+# flake8: noqa: E402,E501
+pytest.importorskip(
+    "qoder_agent_sdk",
+    reason="optional qoder_agent_sdk (qoder extra) is required",
+)
+
 from qoder_agent_sdk import (
     AssistantMessage,
     ModelInfo,

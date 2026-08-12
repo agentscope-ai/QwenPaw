@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from copy import deepcopy
+from hashlib import sha256
 import json
 from typing import Any, Mapping
 import threading
@@ -38,12 +39,151 @@ from .assets import AssetFileStore
 from .candidate_normalization import normalize_project_candidate
 from .commit import PROTECTED_EXACT_POINTERS, ProjectCommitBoundary
 from .jq_transform import JqProjectTransformer
-from .models import Project, TimelineElement
+from .models import EditPlan, Project, TimelineElement
 from .patch_ops import PatchOpError, apply_patch_ops
 from .schema_prompt import ProjectSchemaPrompt, build_project_schema_prompt
 from .store import ProjectSnapshot, ProjectStore
 
 logger = setup_logger("creator.project_files.agent_tools")
+
+
+class _AdvisoryDedup:
+    """Bounded, thread-safe per-project dedupe of advisory content hashes.
+
+    Commits from concurrent requests share this module-level cache, so the
+    read-check-write must run under a lock; the LRU cap keeps a
+    long-running server from accumulating one entry per project forever.
+    """
+
+    def __init__(self, max_size: int = 256) -> None:
+        self._cache: OrderedDict[str, str] = OrderedDict()
+        self._max = max_size
+        self._lock = threading.Lock()
+
+    def seen(self, key: str, digest: str) -> bool:
+        """Record *digest* for *key*; True when it was already current."""
+        with self._lock:
+            if self._cache.get(key) == digest:
+                self._cache.move_to_end(key)
+                return True
+            self._cache[key] = digest
+            self._cache.move_to_end(key)
+            while len(self._cache) > self._max:
+                self._cache.popitem(last=False)
+            return False
+
+    def clear(self) -> None:
+        with self._lock:
+            self._cache.clear()
+
+
+# Per-project dedupe of the latest plan-advisory content hash: the model
+# is nudged once per distinct gap, never spammed on every commit.
+_PLAN_ADVISORY_SEEN = _AdvisoryDedup()
+
+# Cut-boundary advisory dedupe + a small transcript-boundary cache keyed
+# by the intelligence file checksum (index bytes are immutable per hash).
+_CUT_ADVISORY_SEEN = _AdvisoryDedup()
+_TRANSCRIPT_BOUNDARY_CACHE: OrderedDict[str, tuple[int, ...]] = OrderedDict()
+_TRANSCRIPT_BOUNDARY_CACHE_MAX = 16
+# Audio-first cutting (WT-B5): a spoken-source cut endpoint further than
+# this from every ASR sentence boundary earns a hint (never a block).
+CUT_BOUNDARY_TOLERANCE_MS = 300
+
+
+def _edit_plan_missing_fields(plan: EditPlan | None) -> list[str]:
+    """Which taste-contract fields the plan advisory should ask for."""
+    if plan is None:
+        return [
+            "edit_plan",
+            "concept",
+            "pacing",
+            "design_floor.opening",
+            "design_floor.transitions",
+            "design_floor.body",
+            "design_floor.ending",
+        ]
+    missing: list[str] = []
+    if not plan.concept.strip():
+        missing.append("concept")
+    if not plan.pacing.strip():
+        missing.append("pacing")
+    for slot in ("opening", "transitions", "body", "ending"):
+        if not getattr(plan.design_floor, slot).strip():
+            missing.append(f"design_floor.{slot}")
+    return missing
+
+
+def _transcript_boundaries_ms(
+    project: Project,
+    project_root: Any,
+    intelligence_version_id: str,
+) -> tuple[int, ...]:
+    """Sorted ASR sentence boundaries (ms) of one intelligence version.
+
+    Empty when the version/file is absent or carries no speech; results
+    are cached by the immutable index-file checksum.
+    """
+    record = project.assets.intelligence_versions_by_id.get(
+        intelligence_version_id,
+    )
+    if record is None:
+        return ()
+    indexed = project.assets.files_by_id.get(record.file_id)
+    if indexed is None or indexed.kind != "source_intelligence":
+        return ()
+    cached = _TRANSCRIPT_BOUNDARY_CACHE.get(indexed.checksum)
+    if cached is not None:
+        _TRANSCRIPT_BOUNDARY_CACHE.move_to_end(indexed.checksum)
+        return cached
+    payload = AssetFileStore(project_root).read_verified(indexed)
+    raw = json.loads(payload.decode("utf-8"))
+    boundaries: set[int] = set()
+    for segment in raw.get("transcript") or []:
+        if not isinstance(segment, dict):
+            continue
+        start = segment.get("startMs")
+        end = segment.get("endMs")
+        if isinstance(start, int) and not isinstance(start, bool):
+            boundaries.add(start)
+        if isinstance(end, int) and not isinstance(end, bool):
+            boundaries.add(end)
+    result = tuple(sorted(boundaries))
+    _TRANSCRIPT_BOUNDARY_CACHE[indexed.checksum] = result
+    while len(_TRANSCRIPT_BOUNDARY_CACHE) > _TRANSCRIPT_BOUNDARY_CACHE_MAX:
+        _TRANSCRIPT_BOUNDARY_CACHE.popitem(last=False)
+    return result
+
+
+def _off_boundary_endpoints(
+    element: TimelineElement,
+    boundaries: tuple[int, ...],
+    ticks_per_second: int,
+) -> list[dict[str, Any]]:
+    """Endpoints of one edit's source range that miss every sentence edge."""
+    render_source = element.render_source
+    findings: list[dict[str, Any]] = []
+    endpoints: list[tuple[str, int | None]] = [
+        ("in", getattr(render_source, "source_in_tick", None)),
+        ("out", getattr(render_source, "source_out_tick", None)),
+    ]
+    for endpoint, tick in endpoints:
+        if tick is None:
+            continue
+        cut_ms = round(tick * 1000 / ticks_per_second)
+        nearest = min(boundaries, key=lambda item, cut=cut_ms: abs(item - cut))
+        offset = cut_ms - nearest
+        if abs(offset) > CUT_BOUNDARY_TOLERANCE_MS:
+            findings.append(
+                {
+                    "elementId": element.element_id,
+                    "endpoint": endpoint,
+                    "cutMs": cut_ms,
+                    "nearestSentenceBoundaryMs": nearest,
+                    "offsetMs": offset,
+                },
+            )
+    return findings
 
 
 READ_PROJECT_TOOL_NAME = "read_project"
@@ -288,6 +428,22 @@ class AgentProjectCommitResult(AgentProjectSnapshotResult):
     review_advisory: dict[str, Any] | None = Field(
         default=None,
         alias="reviewAdvisory",
+    )
+    # Advisory taste-contract nudge (upstream plan_gate, softened): set
+    # when this commit ADDED edit/motion_clip Elements to a Timeline whose
+    # edit_plan is missing or incomplete. Never blocks the commit; the
+    # model may fill the plan in or knowingly proceed.
+    plan_advisory: dict[str, Any] | None = Field(
+        default=None,
+        alias="planAdvisory",
+    )
+    # Advisory audio-first cut check (WT-B5, soft): set when this commit
+    # ADDED edit Elements whose spoken-source endpoints sit further than
+    # CUT_BOUNDARY_TOLERANCE_MS from every ASR sentence boundary. Never
+    # blocks the commit.
+    cut_advisory: dict[str, Any] | None = Field(
+        default=None,
+        alias="cutAdvisory",
     )
 
 
@@ -835,6 +991,7 @@ class AgentProjectTools:
             string_args=request.string_args,
             json_args=request.json_args,
         )
+        candidate = self._apply_agent_edit_impacts(base, candidate)
         normalized_pointers = normalize_project_candidate(candidate)
         base_data = base.project.model_dump(mode="json")
         changed_protected = [
@@ -876,7 +1033,52 @@ class AgentProjectTools:
             commit_result = commit_result.model_copy(
                 update={"review_advisory": advisory},
             )
+        plan_advisory = self._edit_plan_advisory(base.project, commit_result)
+        if plan_advisory is not None:
+            commit_result = commit_result.model_copy(
+                update={"plan_advisory": plan_advisory},
+            )
+        cut_advisory = self._cut_boundary_advisory(base.project, commit_result)
+        if cut_advisory is not None:
+            commit_result = commit_result.model_copy(
+                update={"cut_advisory": cut_advisory},
+            )
         return commit_result
+
+    def _apply_agent_edit_impacts(
+        self,
+        base: ProjectSnapshot,
+        candidate: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Invalidate downstream renders for agent commits (fail-open).
+
+        Manual edits already run apply_frontend_edit_impacts so a changed
+        Timeline marks its selected final render stale; agent jq/patch
+        commits must do the same, otherwise the unattended compose node
+        reads the old master as DONE and the corrected cut is never
+        rendered.
+        """
+        try:
+            from services.project_files.edit_impact import (
+                apply_frontend_edit_impacts,
+            )
+            from services.project_files.json_pointer import diff_json
+
+            base_data = base.project.model_dump(mode="json")
+            pointers = [
+                change.pointer for change in diff_json(base_data, candidate)
+            ]
+            if not pointers:
+                return candidate
+            updated, _ = apply_frontend_edit_impacts(
+                candidate,
+                pointers,
+                base=base_data,
+            )
+            return updated
+        except Exception:
+            logger.exception("agent edit impact application failed")
+            return candidate
 
     def _sync_review_advisory(
         self,
@@ -912,6 +1114,167 @@ class AgentProjectTools:
             logger.exception("sync review advisory failed")
             return None
 
+    def _edit_plan_advisory(
+        self,
+        base_project: Project,
+        commit_result: AgentProjectCommitResult,
+    ) -> dict[str, Any] | None:
+        """Advisory taste-contract nudge (upstream plan_gate, softened).
+
+        Emitted when an agent commit ADDED ``edit``/``motion_clip``
+        Elements to a Timeline whose ``edit_plan`` is missing or
+        incomplete. Purely advisory: the commit has already succeeded and
+        the model may fill the plan in or knowingly proceed. Repeated
+        identical hints for the same Timeline are deduplicated so the
+        nudge never turns into spam. Strictly fail-open.
+        """
+        if self.context.round_id is None:
+            return None
+        try:
+            hints: list[dict[str, Any]] = []
+            after_timelines = commit_result.project.timelines.items
+            before_timelines = base_project.timelines.items
+            for timeline_id, timeline in after_timelines.items():
+                before = before_timelines.get(timeline_id)
+                before_ids = (
+                    set(before.elements_by_id) if before is not None else set()
+                )
+                added = [
+                    element_id
+                    for element_id, element in timeline.elements_by_id.items()
+                    if element_id not in before_ids
+                    and getattr(element.creation, "type", None)
+                    in ("edit", "motion_clip")
+                ]
+                if not added:
+                    continue
+                plan = timeline.edit_plan
+                if plan is not None and plan.mechanical_exemption:
+                    continue
+                missing = _edit_plan_missing_fields(plan)
+                if not missing:
+                    continue
+                hints.append(
+                    {
+                        "timelineId": timeline_id,
+                        "addedElementIds": added,
+                        "missing": missing,
+                    },
+                )
+            if not hints:
+                return None
+            digest = sha256(
+                json.dumps(
+                    [
+                        {
+                            "timelineId": hint["timelineId"],
+                            "missing": hint["missing"],
+                        }
+                        for hint in hints
+                    ],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ).encode("utf-8"),
+            ).hexdigest()
+            dedupe_key = commit_result.project.project_id
+            if _PLAN_ADVISORY_SEEN.seen(dedupe_key, digest):
+                return None
+            return {
+                "kind": "edit_plan",
+                "hints": hints,
+                "message": (
+                    "本次提交新增了剪辑/动效片段，但目标 Timeline 的 "
+                    "edit_plan（品味契约）尚未写全。标准流程是先用 "
+                    "jq_project 写入 timelines.items[目标].edit_plan（一句话"
+                    "concept、三旋钮 dials、signature_device、pacing 能量骨架、"
+                    "design_floor 四槽位）再装配；已有充分创作理由可说明后"
+                    "继续。本提示不阻断提交。"
+                ),
+            }
+        except Exception:
+            logger.exception("edit plan advisory failed")
+            return None
+
+    def _cut_boundary_advisory(
+        self,
+        base_project: Project,
+        commit_result: AgentProjectCommitResult,
+    ) -> dict[str, Any] | None:
+        """Advisory audio-first cut check (WT-B5, soft validation).
+
+        For edit Elements ADDED by this agent commit whose source carries
+        an ASR transcript, endpoints further than the tolerance from every
+        sentence boundary earn a structured hint. Sources without speech
+        (pure BGM) never hint; the commit itself is untouched (fail-open).
+        """
+        if self.context.round_id is None:
+            return None
+        try:
+            project = commit_result.project
+            project_root = self.store.project_root(project.project_id)
+            hints: list[dict[str, Any]] = []
+            before_timelines = base_project.timelines.items
+            for timeline_id, timeline in project.timelines.items.items():
+                before = before_timelines.get(timeline_id)
+                before_ids = (
+                    set(before.elements_by_id) if before is not None else set()
+                )
+                for element_id, element in timeline.elements_by_id.items():
+                    creation = element.creation
+                    if (
+                        element_id in before_ids
+                        or getattr(creation, "type", None) != "edit"
+                        or element.render_source is None
+                    ):
+                        continue
+                    intelligence_id = getattr(
+                        creation,
+                        "source_intelligence_version_id",
+                        None,
+                    )
+                    if intelligence_id is None:
+                        continue
+                    boundaries = _transcript_boundaries_ms(
+                        project,
+                        project_root,
+                        intelligence_id,
+                    )
+                    if not boundaries:
+                        continue
+                    for finding in _off_boundary_endpoints(
+                        element,
+                        boundaries,
+                        timeline.ticks_per_second,
+                    ):
+                        hints.append(
+                            {"timelineId": timeline_id, **finding},
+                        )
+            if not hints:
+                return None
+            digest = sha256(
+                json.dumps(hints, ensure_ascii=False, sort_keys=True).encode(
+                    "utf-8",
+                ),
+            ).hexdigest()
+            dedupe_key = project.project_id
+            if _CUT_ADVISORY_SEEN.seen(dedupe_key, digest):
+                return None
+            return {
+                "kind": "cut_boundary",
+                "toleranceMs": CUT_BOUNDARY_TOLERANCE_MS,
+                "hints": hints,
+                "message": (
+                    "本次新增的剪辑片段中，以下切点离最近的 ASR 句边界超过 "
+                    f"{CUT_BOUNDARY_TOLERANCE_MS}ms。audio-first 剪辑原则："
+                    "语音素材的切点应落在句子边界，避免截断半句。可按 "
+                    "nearestSentenceBoundaryMs 微调 render_source 的进出点；"
+                    "若是有意为之（如留白/气口）可忽略。本提示不阻断提交。"
+                ),
+            }
+        except Exception:
+            logger.exception("cut boundary advisory failed")
+            return None
+
     def patch_project(
         self,
         *,
@@ -931,6 +1294,7 @@ class AgentProjectTools:
         base = self._base(request.project_id)
         candidate = base.project.model_dump(mode="json")
         apply_patch_ops(candidate, request.ops)
+        candidate = self._apply_agent_edit_impacts(base, candidate)
         normalized_pointers = normalize_project_candidate(candidate)
         result = self.commits.commit(
             base=base,
@@ -956,6 +1320,16 @@ class AgentProjectTools:
         if advisory is not None:
             commit_result = commit_result.model_copy(
                 update={"review_advisory": advisory},
+            )
+        plan_advisory = self._edit_plan_advisory(base.project, commit_result)
+        if plan_advisory is not None:
+            commit_result = commit_result.model_copy(
+                update={"plan_advisory": plan_advisory},
+            )
+        cut_advisory = self._cut_boundary_advisory(base.project, commit_result)
+        if cut_advisory is not None:
+            commit_result = commit_result.model_copy(
+                update={"cut_advisory": cut_advisory},
             )
         return commit_result
 

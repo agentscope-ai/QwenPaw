@@ -250,6 +250,15 @@ export function resolveElementPlayback(
   ) {
     return { element, status: "ready", media: null };
   }
+  // Full-canvas motion clips carry their designed document the same way:
+  // once the design pipeline wrote creation.motion the segment is ready,
+  // with the picture rasterized by the backend at composite time.
+  if (
+    element.creation.type === "motion_clip" &&
+    (element.creation.motion?.html || element.creation.motion?.html_file_id)
+  ) {
+    return { element, status: "ready", media: null };
+  }
   // Caption overlays (non-empty text) have no standalone artifact: the
   // final cut draws the bubble with a deterministic renderer at composite
   // time, and the live preview draws the same spec directly, so they count

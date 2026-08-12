@@ -32,7 +32,7 @@ from services.run_review.rubric_prompts import (
 )
 from services.runtime_files import RequestAdmissionConflict
 from utils.logger import setup_logger
-from vendor.mm_plugins import frame_stats, review_gates
+from vendor.media_toolkit import frame_stats, review_gates
 
 if TYPE_CHECKING:
     from services.project_files.facade import CreatorFileServices

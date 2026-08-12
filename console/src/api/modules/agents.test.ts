@@ -80,6 +80,30 @@ describe("agentsApi", () => {
     expect(result).toEqual(resp);
   });
 
+  it("getMemoryStatus fetches structured ReMe status", async () => {
+    const status = {
+      components: {},
+      components_total: "0 B",
+      process_rss: "1.00 KiB",
+    };
+    vi.mocked(request).mockResolvedValue(status);
+
+    const result = await agentsApi.getMemoryStatus("a1");
+
+    expect(request).toHaveBeenCalledWith("/agents/a1/memory/status");
+    expect(result).toEqual(status);
+  });
+
+  it("getMemoryStatus forwards a cancellation signal", async () => {
+    const controller = new AbortController();
+
+    await agentsApi.getMemoryStatus("a1", controller.signal);
+
+    expect(request).toHaveBeenCalledWith("/agents/a1/memory/status", {
+      signal: controller.signal,
+    });
+  });
+
   it("getMemoryGraph loads the indexed wikilink graph", async () => {
     const graph = { version: 1, nodes: [], edges: [] } as const;
     vi.mocked(request).mockResolvedValue(graph);

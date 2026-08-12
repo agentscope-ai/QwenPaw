@@ -19,6 +19,9 @@ from typing import Any, Final
 from uuid import uuid4
 
 from pydantic import ValidationError
+from services.runtime_files.atomic_store import (
+    fsync_directory as runtime_fsync_directory,
+)
 from services.runtime_files.locking import CrossProcessFileLock
 from services.storage_root import require_creator_data_root
 from utils.logger import setup_logger
@@ -243,7 +246,11 @@ class ProjectStore:
         project_root = self.project_root(candidate.project_id)
         payload = self._checked_payload(candidate)
         staging_root = self.root / ".staging"
-        staged_project = staging_root / f"{candidate.project_id}.{uuid4().hex}"
+        # Keep the private staged directory name short: Runtime bootstrap
+        # writes deeply nested temp files inside it, and a long name here
+        # pushes those paths past the Windows MAX_PATH (260) limit.  The
+        # name is never parsed; publication renames it to the project id.
+        staged_project = staging_root / f"p{uuid4().hex}"
 
         # Keep one global lock order across lifecycle operations and commit
         # publication: lifecycle lock first, then the in-process store lock.
@@ -710,14 +717,7 @@ def _snapshot(project: Project) -> ProjectSnapshot:
 
 
 def _fsync_directory(directory: Path) -> None:
-    flags = os.O_RDONLY
-    if hasattr(os, "O_DIRECTORY"):
-        flags |= os.O_DIRECTORY
-    descriptor = os.open(directory, flags)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    runtime_fsync_directory(directory)
 
 
 __all__ = [

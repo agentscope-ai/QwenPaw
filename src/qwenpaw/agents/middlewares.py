@@ -174,12 +174,10 @@ class MemoryMiddleware(MiddlewareBase):
             return
 
         try:
-            cfg = self._memory_config()
             pending_markers = self._auto_memory_turn_state(agent)["pending"]
-            if (
-                getattr(cfg, "summarize_when_compact", False)
-                and pending_markers
-                and await self._will_compress_context(agent, input_kwargs)
+            if pending_markers and await self._will_compress_context(
+                agent,
+                input_kwargs,
             ):
                 await self._flush_auto_memory(agent)
         except Exception:
@@ -294,9 +292,6 @@ class MemoryMiddleware(MiddlewareBase):
 
     def _auto_memory_interval(self) -> int:
         return int(self._memory_manager.get_auto_memory_interval())
-
-    def _memory_config(self) -> Any:
-        return self._memory_manager.get_memory_config()
 
     def _auto_memory_turn_state(self, agent: "Agent") -> dict[str, Any]:
         return self._memory_manager.get_auto_memory_turn_state(

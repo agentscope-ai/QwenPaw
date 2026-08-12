@@ -2,10 +2,12 @@
   position: relative;
   width: 100%;
   overflow: auto;
-  border-radius: 8px;
-  background: #fafafa;
-  border: 1px solid #f0f0f0;
-  margin: 12px 0;
+  background: radial-gradient(
+      circle at 50% 0%,
+      rgba(243, 107, 33, 0.14),
+      transparent 50%
+    ),
+    #fffaf6;
 }
 
 .isLoading {
@@ -22,7 +24,8 @@
 }
 
 .content {
-  padding: 16px;
+  min-width: max-content;
+  padding: 24px;
   display: flex;
   justify-content: center;
 
@@ -33,18 +36,55 @@
 }
 
 .mermaidError {
-  background: #fff2f0;
-  border: 1px solid #ffccc7;
-  border-radius: 8px;
-  padding: 12px 16px;
-  margin: 12px 0;
+  display: flex;
+  align-items: flex-start;
+  min-height: 110px;
+  gap: 12px;
+  padding: 24px;
+  margin: 0;
   overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 13px;
-  color: #ff4d4f;
+  color: #8a342f;
+  background: #fff8f6;
 
-  code {
-    color: inherit;
+  div {
+    display: grid;
+    min-width: 0;
+    gap: 4px;
+  }
+
+  strong {
+    font-size: 13px;
+  }
+
+  span {
+    overflow-wrap: anywhere;
+    color: rgba(138, 52, 47, 0.74);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      monospace;
+    font-size: 12px;
+  }
+}
+
+:global(.dark-mode) .mermaidDiagram {
+  background: radial-gradient(
+      circle at 50% 0%,
+      rgba(243, 107, 33, 0.18),
+      transparent 52%
+    ),
+    #17120f;
+}
+
+:global(.dark-mode) .mermaidError {
+  color: #f6aaa2;
+  background: #261918;
+
+  span {
+    color: rgba(246, 170, 162, 0.74);
+  }
+}
+
+@media (max-width: 600px) {
+  .content {
+    padding: 18px;
   }
 }

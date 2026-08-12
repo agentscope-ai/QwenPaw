@@ -383,7 +383,6 @@ def _make_config(
     *,
     compact_enabled: bool = True,
     reserve_ratio: float = 0.1,
-    summarize_when_compact: bool = True,
     strategy: str = "scroll",
 ):
     return SimpleNamespace(
@@ -394,9 +393,6 @@ def _make_config(
                     enabled=compact_enabled,
                     reserve_threshold_ratio=reserve_ratio,
                 ),
-            ),
-            reme_light_memory_config=SimpleNamespace(
-                summarize_when_compact=summarize_when_compact,
             ),
         ),
     )

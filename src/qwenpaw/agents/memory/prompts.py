@@ -5,6 +5,20 @@
 
 
 # Memory guidance prompts - explains how agent should use memory files
+MEMORY_RETRIEVAL_GUIDANCE_ZH = """\
+### 🔍 检索工具
+`memory_search` 用于查你**精选的长期记忆** — 持久的偏好、用户/画像事实、已确定的决策与未完成的待办。当问题取决于这些内容时，优先用它：
+1. 对 MEMORY.md 和 `{daily_dir}/*.md` 运行 `memory_search`
+2. 要读某一天的笔记，直接用 `read_file` 打开 `{daily_dir}/YYYY-MM-DD.md`
+"""
+
+MEMORY_RETRIEVAL_GUIDANCE_EN = """\
+### 🔍 Retrieval Tool
+`memory_search` is your lookup for **curated long-term memory** — durable preferences, profile/personal facts, settled decisions, and open to-dos. Reach for it first when a question turns on one of these:
+1. Run `memory_search` over MEMORY.md and `{daily_dir}/*.md`.
+2. To read a specific day's notes, open `{daily_dir}/YYYY-MM-DD.md` directly with `read_file`."""
+
+
 MEMORY_GUIDANCE_ZH_TEMPLATE = """\
 ## 记忆
 
@@ -16,11 +30,7 @@ MEMORY_GUIDANCE_ZH_TEMPLATE = """\
 
 因此你通常不必手动维护 MEMORY.md。只有当用户明确要求你记住某事，或形成了值得长期保留的决策或偏好时，才直接编辑它。
 
-### 🔍 检索工具
-`memory_search` 用于查你**精选的长期记忆** — 持久的偏好、用户/画像事实、已确定的决策与未完成的待办。当问题取决于这些内容时，优先用它：
-1. 对 MEMORY.md 和 `{daily_dir}/*.md` 运行 `memory_search`
-2. 要读某一天的笔记，直接用 `read_file` 打开 `{daily_dir}/YYYY-MM-DD.md`
-"""
+{retrieval_guidance}"""
 
 MEMORY_GUIDANCE_EN_TEMPLATE = """\
 ## Memory
@@ -33,10 +43,7 @@ Each session is fresh; the working-directory files are your memory continuity.
 
 So you usually don't need to maintain MEMORY.md by hand. Edit it directly only when the user explicitly asks you to remember something, or a decision or preference worth keeping long-term is settled.
 
-### 🔍 Retrieval Tool
-`memory_search` is your lookup for **curated long-term memory** — durable preferences, profile/personal facts, settled decisions, and open to-dos. Reach for it first when a question turns on one of these:
-1. Run `memory_search` over MEMORY.md and `{daily_dir}/*.md`.
-2. To read a specific day's notes, open `{daily_dir}/YYYY-MM-DD.md` directly with `read_file`."""
+{retrieval_guidance}"""
 
 MEMORY_GUIDANCE_TEMPLATES = {
     "zh": MEMORY_GUIDANCE_ZH_TEMPLATE,
@@ -48,9 +55,23 @@ def build_memory_guidance_prompt(
     language: str = "zh",
     *,
     daily_dir: str,
+    memory_search_enabled: bool = True,
 ) -> str:
     """Build memory guidance using the configured daily memory directory."""
+    retrieval_templates = {
+        "zh": MEMORY_RETRIEVAL_GUIDANCE_ZH,
+        "en": MEMORY_RETRIEVAL_GUIDANCE_EN,
+    }
+    retrieval_guidance = ""
+    if memory_search_enabled:
+        retrieval_guidance = retrieval_templates.get(
+            language,
+            MEMORY_RETRIEVAL_GUIDANCE_EN,
+        ).format(daily_dir=daily_dir)
     return MEMORY_GUIDANCE_TEMPLATES.get(
         language,
         MEMORY_GUIDANCE_EN_TEMPLATE,
-    ).format(daily_dir=daily_dir)
+    ).format(
+        daily_dir=daily_dir,
+        retrieval_guidance=retrieval_guidance,
+    )

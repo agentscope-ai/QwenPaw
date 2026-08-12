@@ -109,6 +109,1453 @@
   width: 100%;
 }
 
+.embeddingReindexAlert {
+  margin-bottom: 12px;
+}
+
+.memoryReferences {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 20px;
+  color: rgba(20, 20, 19, 0.42);
+  font-size: 11px;
+
+  a {
+    color: #c85e08;
+    font-weight: 550;
+    text-decoration: none;
+
+    &:hover {
+      color: #f07816;
+      text-decoration: underline;
+    }
+  }
+
+  i {
+    width: 2px;
+    height: 2px;
+    border-radius: 50%;
+    background: rgba(20, 20, 19, 0.28);
+  }
+}
+
+.memoryOverview {
+  margin-bottom: 18px;
+  padding: 20px;
+  border: 1px solid rgba(255, 127, 22, 0.16);
+  border-radius: 14px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 127, 22, 0.075),
+    rgba(255, 255, 255, 0) 58%
+  );
+}
+
+.memoryOverviewHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+
+  h3 {
+    margin: 3px 0 5px;
+    color: #242321;
+    font-size: 17px;
+    font-weight: 650;
+  }
+
+  p {
+    max-width: 720px;
+    margin: 0;
+    color: rgba(20, 20, 19, 0.54);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .memoryReferences {
+    margin: 7px 0 0;
+  }
+}
+
+.memoryStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+
+  > span,
+  > i {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+  }
+}
+
+.memoryStatusUnknown {
+  border: 1px solid rgba(102, 112, 133, 0.18);
+  background: rgba(102, 112, 133, 0.07);
+  color: #667085;
+
+  > span,
+  > i {
+    background: #98a2b3;
+  }
+}
+
+.memoryStatusChecking {
+  border: 1px solid rgba(47, 108, 229, 0.18);
+  background: rgba(47, 108, 229, 0.07);
+  color: #2f6ce5;
+
+  > span,
+  > i {
+    background: #5285eb;
+    box-shadow: 0 0 0 3px rgba(47, 108, 229, 0.11);
+  }
+}
+
+.memoryStatusHealthy {
+  border: 1px solid rgba(53, 168, 93, 0.17);
+  background: rgba(53, 168, 93, 0.07);
+  color: #258348;
+
+  > span,
+  > i {
+    background: #35a85d;
+    box-shadow: 0 0 0 3px rgba(53, 168, 93, 0.11);
+  }
+}
+
+.memoryStatusError {
+  border: 1px solid rgba(217, 54, 62, 0.18);
+  background: rgba(217, 54, 62, 0.07);
+  color: #c4313a;
+
+  > span,
+  > i {
+    background: #d9363e;
+    box-shadow: 0 0 0 3px rgba(217, 54, 62, 0.1);
+  }
+}
+
+.memoryStatusButton {
+  height: 30px;
+  border-color: rgba(255, 127, 22, 0.25) !important;
+  border-radius: 9px !important;
+  background: rgba(255, 255, 255, 0.58) !important;
+  color: #c85e08 !important;
+  font-size: 12px;
+  font-weight: 600;
+
+  &:hover {
+    border-color: rgba(255, 127, 22, 0.5) !important;
+    background: rgba(255, 127, 22, 0.08) !important;
+  }
+}
+
+.memoryOverviewGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid rgba(20, 20, 19, 0.07);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.56);
+  overflow: hidden;
+}
+
+.memoryOverviewItem {
+  min-width: 0;
+  padding: 13px 15px;
+  border-right: 1px solid rgba(20, 20, 19, 0.07);
+
+  &:last-child {
+    border-right: 0;
+  }
+
+  > span,
+  > strong,
+  > small {
+    display: block;
+  }
+
+  > span {
+    margin-bottom: 5px;
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 11px;
+  }
+
+  > strong {
+    overflow: hidden;
+    color: #2f2d2a;
+    font-size: 13px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > small {
+    margin-top: 2px;
+    overflow: hidden;
+    color: rgba(20, 20, 19, 0.4);
+    font-size: 10px;
+    line-height: 16px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > .memoryStatusBadge {
+    display: inline-flex;
+  }
+}
+
+.memoryOverviewActionItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+
+  > div {
+    min-width: 0;
+  }
+
+  > div > span {
+    display: block;
+    margin-bottom: 7px;
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 11px;
+  }
+
+  .memoryStatusBadge {
+    display: inline-flex;
+  }
+}
+
+.memoryOverviewMaintenance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: rgba(255, 183, 36, 0.075);
+
+  > div {
+    min-width: 0;
+  }
+
+  > div > strong,
+  > div > span,
+  > div > small {
+    display: block;
+  }
+
+  > div > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 5px;
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 11px;
+  }
+
+  > div > strong {
+    margin-bottom: 2px;
+    color: #302d29;
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  > div > small {
+    display: -webkit-box;
+    overflow: hidden;
+    color: rgba(20, 20, 19, 0.4);
+    font-size: 10px;
+    line-height: 1.5;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+
+  :global(.ant-btn),
+  :global(.qwenpaw-btn) {
+    flex: none;
+    border-color: rgba(205, 143, 26, 0.35) !important;
+    background: rgba(255, 255, 255, 0.64) !important;
+    color: #a96010 !important;
+
+    &:hover {
+      border-color: rgba(205, 143, 26, 0.62) !important;
+      background: rgba(255, 183, 36, 0.13) !important;
+    }
+  }
+}
+
+.memoryConfigGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: stretch;
+  margin-bottom: 18px;
+}
+
+.memoryConfigStack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 18px;
+
+  > section {
+    flex: 1 1 auto;
+  }
+}
+
+.memoryConfigPanel,
+.memoryRecallPanel {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid rgba(20, 20, 19, 0.09);
+  border-radius: 14px;
+  background: rgba(20, 20, 19, 0.018);
+}
+
+.memorySectionIcon {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.memorySectionIconPrimary {
+  border: 1px solid rgba(196, 98, 54, 0.22);
+  background: linear-gradient(
+    145deg,
+    rgba(226, 124, 76, 0.18),
+    rgba(244, 181, 126, 0.08)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 5px 14px rgba(171, 75, 39, 0.09);
+  color: #b95f36;
+}
+
+.memorySectionIconSecondary {
+  border: 1px solid rgba(82, 96, 174, 0.21);
+  background: linear-gradient(
+    145deg,
+    rgba(91, 107, 190, 0.17),
+    rgba(139, 151, 218, 0.07)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 5px 14px rgba(69, 82, 153, 0.09);
+  color: #5361ae;
+}
+
+.memorySectionIconTertiary {
+  border: 1px solid rgba(35, 133, 121, 0.21);
+  background: linear-gradient(
+    145deg,
+    rgba(42, 151, 137, 0.16),
+    rgba(113, 194, 181, 0.07)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 5px 14px rgba(30, 113, 103, 0.09);
+  color: #237f75;
+}
+
+.memoryCapabilityHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 2px 0 12px;
+
+  span,
+  h4 {
+    display: block;
+  }
+
+  span {
+    margin-bottom: 3px;
+    color: #d96b11;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  h4 {
+    margin: 0;
+    color: #2c2a27;
+    font-size: 14px;
+    font-weight: 650;
+  }
+
+  code {
+    flex: none;
+    padding: 3px 8px;
+    border: 1px solid rgba(20, 20, 19, 0.08);
+    border-radius: 999px;
+    background: rgba(20, 20, 19, 0.035);
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 10px;
+  }
+}
+
+.memoryCapabilityTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.memoryDevelopingBadge {
+  display: inline-flex !important;
+  align-items: center;
+  width: fit-content;
+  margin: 0 !important;
+  padding: 2px 7px;
+  border: 1px solid rgba(76, 132, 210, 0.2);
+  border-radius: 999px;
+  background: linear-gradient(
+    135deg,
+    rgba(68, 132, 219, 0.1),
+    rgba(114, 101, 211, 0.07)
+  );
+  color: #4c6fae !important;
+  font-size: 9px !important;
+  font-weight: 650 !important;
+  line-height: 15px;
+  letter-spacing: 0.02em !important;
+  text-transform: none !important;
+}
+
+.memorySourceCard {
+  overflow: hidden;
+  border: 1px solid rgba(20, 20, 19, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.memorySourceHeader {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+}
+
+.memorySourceToggle {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  > span:last-child {
+    min-width: 0;
+  }
+
+  strong,
+  small {
+    display: block;
+  }
+
+  strong {
+    margin-bottom: 4px;
+    color: #302e2b;
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  small {
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  &:focus-visible {
+    border-radius: 8px;
+    outline: 2px solid rgba(255, 127, 22, 0.45);
+    outline-offset: 4px;
+  }
+}
+
+.memorySourceChevron {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: rgba(20, 20, 19, 0.045);
+  color: rgba(20, 20, 19, 0.48);
+  font-size: 20px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 0.2s ease;
+}
+
+.memorySourceChevronExpanded {
+  transform: rotate(90deg);
+}
+
+.memorySourceActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 9px;
+
+  > a {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: #c46211;
+    font-size: 10px;
+    font-weight: 600;
+    text-decoration: none;
+
+    &:hover {
+      color: #ff7f16;
+    }
+  }
+
+  code {
+    padding: 3px 8px;
+    border: 1px solid rgba(20, 20, 19, 0.08);
+    border-radius: 999px;
+    background: rgba(20, 20, 19, 0.035);
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 10px;
+  }
+}
+
+.memorySourceContent {
+  padding: 16px 14px 0;
+  border-top: 1px solid rgba(20, 20, 19, 0.07);
+  background: rgba(20, 20, 19, 0.012);
+}
+
+.memoryCapabilityDivider {
+  height: 1px;
+  margin: 22px 0 20px;
+  background: linear-gradient(
+    90deg,
+    rgba(20, 20, 19, 0.09),
+    rgba(20, 20, 19, 0.025)
+  );
+}
+
+.memorySectionHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin-bottom: 20px;
+
+  h3 {
+    margin: 0 0 4px;
+    color: #282624;
+    font-size: 16px;
+    font-weight: 650;
+  }
+
+  p {
+    margin: 0;
+    color: rgba(20, 20, 19, 0.5);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+}
+
+.memoryToggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 56px;
+  margin-bottom: 14px;
+  padding: 11px 13px;
+  border: 1px solid rgba(20, 20, 19, 0.07);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+
+  > div {
+    min-width: 0;
+  }
+
+  strong,
+  span {
+    display: block;
+  }
+
+  strong {
+    margin-bottom: 3px;
+    color: #302e2b;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  span {
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+}
+
+.memorySettingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 56px;
+  padding: 11px 13px;
+  border: 1px solid rgba(20, 20, 19, 0.07);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+
+  > div:first-child {
+    min-width: 0;
+  }
+
+  strong,
+  > div:first-child > span {
+    display: block;
+  }
+
+  strong {
+    margin-bottom: 3px;
+    color: #302e2b;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  > div:first-child > span {
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+}
+
+.memoryRequiredMark {
+  display: inline !important;
+  margin-left: 4px;
+  color: #ff4d4f;
+}
+
+.memoryInlineField {
+  flex: 0 1 25%;
+  width: 25%;
+  min-width: 120px;
+  max-width: 160px;
+  margin-bottom: 0 !important;
+}
+
+.memoryStatusModalTitle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  > div {
+    min-width: 0;
+  }
+
+  strong,
+  span {
+    display: block;
+  }
+
+  strong {
+    color: #282624;
+    font-size: 16px;
+    font-weight: 650;
+  }
+
+  > div > span {
+    margin-top: 3px;
+    color: rgba(20, 20, 19, 0.5);
+    font-size: 11px;
+    font-weight: 400;
+  }
+}
+
+.memoryStatusModalIcon {
+  display: flex !important;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(255, 127, 22, 0.11);
+  color: #d96b11;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.memoryStatusModalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.memoryStatusLoading {
+  display: flex;
+  min-height: 260px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  color: rgba(20, 20, 19, 0.52);
+  font-size: 12px;
+}
+
+.memoryStatusContent {
+  padding-top: 4px;
+}
+
+.memoryRuntimeSection {
+  margin-bottom: 22px;
+  padding: 16px;
+  border: 1px solid rgba(255, 127, 22, 0.16);
+  border-radius: 13px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 127, 22, 0.065),
+    rgba(255, 255, 255, 0.12) 70%
+  );
+
+  :global(.ant-alert),
+  :global(.qwenpaw-alert) {
+    margin-top: 12px;
+  }
+}
+
+.memoryRuntimeSectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+
+  h4,
+  p {
+    margin: 0;
+  }
+
+  h4 {
+    color: #302e2b;
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  p {
+    margin-top: 3px;
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 10px;
+    line-height: 1.5;
+  }
+}
+
+.memoryRuntimeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid rgba(20, 20, 19, 0.075);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.62);
+  overflow: hidden;
+
+  > div {
+    min-width: 0;
+    padding: 13px;
+    border-right: 1px solid rgba(20, 20, 19, 0.07);
+
+    &:last-child {
+      border-right: 0;
+    }
+  }
+
+  span,
+  strong,
+  small {
+    display: block;
+  }
+
+  span {
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 10px;
+  }
+
+  strong {
+    margin: 5px 0 2px;
+    color: #292724;
+    font-size: 17px;
+    font-weight: 680;
+  }
+
+  small {
+    overflow: hidden;
+    color: rgba(20, 20, 19, 0.42);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.memoryRecentActivity {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 20px;
+  margin-top: 12px;
+
+  > div {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  span {
+    color: rgba(20, 20, 19, 0.44);
+    font-size: 10px;
+  }
+
+  strong {
+    overflow: hidden;
+    color: rgba(20, 20, 19, 0.68);
+    font-size: 10px;
+    font-weight: 550;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.memoryResourceHeading {
+  margin-bottom: 10px;
+
+  h4,
+  p {
+    margin: 0;
+  }
+
+  h4 {
+    color: #302e2b;
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  p {
+    margin-top: 3px;
+    color: rgba(20, 20, 19, 0.46);
+    font-size: 10px;
+  }
+}
+
+.memoryStatusMetrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+
+  > div {
+    padding: 16px;
+    border: 1px solid rgba(255, 127, 22, 0.16);
+    border-radius: 12px;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 127, 22, 0.075),
+      rgba(255, 255, 255, 0.2)
+    );
+  }
+
+  span,
+  strong,
+  small {
+    display: block;
+  }
+
+  span {
+    color: rgba(20, 20, 19, 0.52);
+    font-size: 11px;
+  }
+
+  strong {
+    margin: 5px 0 3px;
+    color: #292724;
+    font-size: 22px;
+    font-weight: 680;
+    letter-spacing: -0.02em;
+  }
+
+  small {
+    color: rgba(20, 20, 19, 0.42);
+    font-size: 10px;
+  }
+}
+
+.memoryStatusComponentSection {
+  h4 {
+    margin: 0 0 10px;
+    color: #302e2b;
+    font-size: 13px;
+    font-weight: 650;
+  }
+}
+
+.memoryStatusComponentList {
+  border: 1px solid rgba(20, 20, 19, 0.08);
+  border-radius: 11px;
+  overflow: hidden;
+}
+
+.memoryStatusComponentRow {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(100px, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 13px;
+  border-bottom: 1px solid rgba(20, 20, 19, 0.07);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  > span {
+    color: #403d39;
+    font-size: 12px;
+    font-weight: 550;
+  }
+
+  code {
+    overflow: hidden;
+    color: rgba(20, 20, 19, 0.5);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: #292724;
+    font-size: 12px;
+    font-weight: 650;
+  }
+}
+
+.memoryStatusNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: rgba(20, 20, 19, 0.035);
+
+  > span {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    background: rgba(20, 20, 19, 0.09);
+    color: rgba(20, 20, 19, 0.55);
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  p {
+    margin: 0;
+    color: rgba(20, 20, 19, 0.5);
+    font-size: 10px;
+    line-height: 1.55;
+  }
+}
+
+.embeddingStatusValueEnabled,
+.embeddingStatusValueDisabled {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  i {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+  }
+}
+
+.embeddingStatusValueEnabled {
+  color: #258348 !important;
+
+  i {
+    background: #35a85d;
+    box-shadow: 0 0 0 3px rgba(53, 168, 93, 0.12);
+  }
+}
+
+.embeddingStatusValueDisabled {
+  color: rgba(20, 20, 19, 0.5) !important;
+
+  i {
+    background: rgba(20, 20, 19, 0.28);
+  }
+}
+
+.embeddingStatusValueVerified {
+  color: #258348 !important;
+}
+
+.embeddingStatusValuePending {
+  color: #b56a19 !important;
+}
+
+.embeddingOverviewNote {
+  display: block;
+  margin-top: 7px;
+  color: rgba(20, 20, 19, 0.42);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.embeddingVerificationItem {
+  > div {
+    min-width: 0;
+  }
+
+  > div > span,
+  > div > strong,
+  > div > small {
+    display: block;
+  }
+
+  > div > span {
+    margin-bottom: 5px;
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 11px;
+  }
+
+  > div > strong {
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > div > small {
+    display: block;
+    margin-top: 2px;
+    overflow: hidden;
+    color: rgba(20, 20, 19, 0.4);
+    font-size: 10px;
+    line-height: 16px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 1100px) {
+  .memoryOverviewGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .memoryOverviewItem:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .memoryOverviewItem:nth-child(-n + 2) {
+    border-bottom: 1px solid rgba(20, 20, 19, 0.07);
+  }
+
+  .memoryConfigGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .memoryOverviewGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .memoryOverviewItem,
+  .memoryOverviewItem:nth-child(2) {
+    border-right: 0;
+    border-bottom: 1px solid rgba(20, 20, 19, 0.07);
+  }
+
+  .memoryOverviewItem:last-child {
+    border-bottom: 0;
+  }
+
+  .memoryOverviewActionItem,
+  .memoryOverviewMaintenance {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .memoryOverviewMaintenance :global(.ant-btn),
+  .memoryOverviewMaintenance :global(.qwenpaw-btn),
+  .memoryOverviewActionItem :global(.ant-btn),
+  .memoryOverviewActionItem :global(.qwenpaw-btn) {
+    width: 100%;
+  }
+
+  .memorySettingRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .memorySourceHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .memorySourceActions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .memoryInlineField {
+    flex-basis: auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .memoryOverviewHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .memoryCapabilityHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .memoryStatusMetrics {
+    grid-template-columns: 1fr;
+  }
+
+  .memoryRuntimeGrid,
+  .memoryRecentActivity {
+    grid-template-columns: 1fr;
+  }
+
+  .memoryRuntimeGrid > div {
+    border-right: 0;
+    border-bottom: 1px solid rgba(20, 20, 19, 0.07);
+
+    &:last-child {
+      border-bottom: 0;
+    }
+  }
+
+  .memoryStatusComponentRow {
+    grid-template-columns: 1fr auto;
+
+    code {
+      display: none;
+    }
+  }
+}
+
+:global(.dark-mode) {
+  .memorySectionIconPrimary {
+    border-color: rgba(255, 157, 76, 0.2);
+    background: linear-gradient(
+      145deg,
+      rgba(255, 127, 22, 0.2),
+      rgba(255, 183, 36, 0.08)
+    );
+    color: #ff9d4c;
+  }
+
+  .memorySectionIconSecondary {
+    border-color: rgba(139, 150, 255, 0.22);
+    background: linear-gradient(
+      145deg,
+      rgba(91, 103, 217, 0.22),
+      rgba(117, 137, 255, 0.08)
+    );
+    color: #a8b0ff;
+  }
+
+  .memoryReferences,
+  .memorySectionHeader p {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .memoryOverview {
+    border-color: rgba(255, 127, 22, 0.2);
+    background: linear-gradient(
+      135deg,
+      rgba(255, 127, 22, 0.1),
+      rgba(255, 255, 255, 0) 58%
+    );
+  }
+
+  .memoryReferences i {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .memoryOverviewHeader h3,
+  .memorySectionHeader h3 {
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .memorySectionIcon {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 5px 14px rgba(0, 0, 0, 0.12);
+  }
+
+  .memoryOverviewHeader p {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .embeddingOverviewNote,
+  .embeddingVerificationItem > div > span,
+  .embeddingVerificationItem > div > small {
+    color: rgba(255, 255, 255, 0.46);
+  }
+
+  .memoryOverviewGrid,
+  .memoryToggleRow,
+  .memorySettingRow {
+    border-color: rgba(255, 255, 255, 0.09);
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .memoryOverviewItem {
+    border-right-color: rgba(255, 255, 255, 0.08);
+
+    > span,
+    > small {
+      color: rgba(255, 255, 255, 0.46);
+    }
+
+    > strong {
+      color: rgba(255, 255, 255, 0.82);
+    }
+  }
+
+  .memoryConfigPanel,
+  .memoryRecallPanel {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  .memorySourceCard {
+    border-color: rgba(255, 255, 255, 0.09);
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .memorySourceToggle {
+    strong {
+      color: rgba(255, 255, 255, 0.86);
+    }
+
+    small {
+      color: rgba(255, 255, 255, 0.48);
+    }
+  }
+
+  .memorySourceChevron {
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.52);
+  }
+
+  .memorySourceActions {
+    > a {
+      color: #ff9d4c;
+    }
+
+    code {
+      border-color: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.05);
+      color: rgba(255, 255, 255, 0.5);
+    }
+  }
+
+  .memorySourceContent {
+    border-top-color: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.015);
+  }
+
+  .memoryCapabilityHeader {
+    h4 {
+      color: rgba(255, 255, 255, 0.86);
+    }
+
+    code {
+      border-color: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.05);
+      color: rgba(255, 255, 255, 0.5);
+    }
+  }
+
+  .memoryDevelopingBadge {
+    border-color: rgba(133, 169, 231, 0.26);
+    background: linear-gradient(
+      135deg,
+      rgba(82, 142, 224, 0.14),
+      rgba(125, 105, 218, 0.11)
+    );
+    color: #a9c9ff !important;
+  }
+
+  .memoryCapabilityDivider {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.1),
+      rgba(255, 255, 255, 0.025)
+    );
+  }
+
+  .memoryToggleRow {
+    strong {
+      color: rgba(255, 255, 255, 0.84);
+    }
+
+    span {
+      color: rgba(255, 255, 255, 0.46);
+    }
+  }
+
+  .memorySettingRow {
+    strong {
+      color: rgba(255, 255, 255, 0.84);
+    }
+
+    > div:first-child > span {
+      color: rgba(255, 255, 255, 0.46);
+    }
+  }
+
+  .memoryStatusButton {
+    border-color: rgba(255, 127, 22, 0.3) !important;
+    background: rgba(255, 255, 255, 0.045) !important;
+    color: #ff9d4c !important;
+  }
+
+  .memoryStatusModalTitle {
+    strong {
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    > div > span {
+      color: rgba(255, 255, 255, 0.5);
+    }
+  }
+
+  .memoryStatusMetrics {
+    > div {
+      border-color: rgba(255, 127, 22, 0.2);
+      background: rgba(255, 127, 22, 0.07);
+    }
+
+    span,
+    small {
+      color: rgba(255, 255, 255, 0.48);
+    }
+
+    strong {
+      color: rgba(255, 255, 255, 0.9);
+    }
+  }
+
+  .memoryRuntimeSection {
+    border-color: rgba(255, 127, 22, 0.2);
+    background: rgba(255, 127, 22, 0.06);
+  }
+
+  .memoryRuntimeSectionHeader h4,
+  .memoryResourceHeading h4,
+  .memoryRuntimeGrid strong,
+  .memoryRecentActivity strong {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .memoryRuntimeSectionHeader p,
+  .memoryResourceHeading p,
+  .memoryRuntimeGrid span,
+  .memoryRuntimeGrid small,
+  .memoryRecentActivity span {
+    color: rgba(255, 255, 255, 0.46);
+  }
+
+  .memoryRuntimeGrid {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.035);
+
+    > div {
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+  }
+
+  .memoryStatusComponentSection h4,
+  .memoryStatusComponentRow > span,
+  .memoryStatusComponentRow strong {
+    color: rgba(255, 255, 255, 0.84);
+  }
+
+  .memoryStatusComponentList {
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .memoryStatusComponentRow {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+
+    code {
+      color: rgba(255, 255, 255, 0.48);
+    }
+  }
+
+  .memoryStatusNote {
+    background: rgba(255, 255, 255, 0.05);
+
+    > span {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    p {
+      color: rgba(255, 255, 255, 0.48);
+    }
+  }
+
+  .memoryOverviewMaintenance {
+    background: rgba(255, 183, 36, 0.09);
+
+    > div > strong {
+      color: rgba(255, 255, 255, 0.86);
+    }
+
+    > div > span,
+    > div > small {
+      color: rgba(255, 255, 255, 0.48);
+    }
+  }
+}
+
 .visualCompactDescription {
   margin: 0 0 20px !important;
   line-height: 1.6;

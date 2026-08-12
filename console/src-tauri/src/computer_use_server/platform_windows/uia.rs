@@ -7,9 +7,9 @@ use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationInvokePattern,
-    IUIAutomationSelectionItemPattern, IUIAutomationTextPattern, IUIAutomationValuePattern,
-    TreeScope_Subtree, UIA_InvokePatternId, UIA_SelectionItemPatternId, UIA_TextPatternId,
-    UIA_ValuePatternId,
+    IUIAutomationSelectionItemPattern, IUIAutomationTextEditPattern, IUIAutomationTextPattern,
+    IUIAutomationValuePattern, TreeScope_Subtree, UIA_InvokePatternId, UIA_SelectionItemPatternId,
+    UIA_TextEditPatternId, UIA_TextPatternId, UIA_ValuePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
@@ -72,9 +72,10 @@ fn control_type_name(control_type: i32) -> &'static str {
 ///
 /// Rich documents expose TextPattern, while plain edit controls (Notepad's
 /// editor among them) only expose ValuePattern, so both are attempted.
-/// Returns `None` when the element carries no readable text.
-fn element_text(element: &IUIAutomationElement) -> Option<String> {
+/// Keeps a readable empty value so input effects can be verified.
+fn element_text_snapshot(element: &IUIAutomationElement) -> Option<String> {
     let limit = DOC_TEXT_MAX as i32;
+    let mut empty_text = None;
     if let Ok(pattern) =
         unsafe { element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) }
     {
@@ -84,17 +85,102 @@ fn element_text(element: &IUIAutomationElement) -> Option<String> {
                 if !text.is_empty() {
                     return Some(text);
                 }
+                empty_text = Some(text);
             }
         }
     }
     let pattern =
         unsafe { element.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) }
-            .ok()?;
-    let value = unsafe { pattern.CurrentValue() }.ok()?.to_string();
-    if value.is_empty() {
-        return None;
+            .ok();
+    if let Some(pattern) = pattern {
+        if let Ok(value) = unsafe { pattern.CurrentValue() } {
+            return Some(truncate_document_text(value.to_string()));
+        }
     }
-    Some(truncate_document_text(value))
+    empty_text
+}
+
+fn element_text(element: &IUIAutomationElement) -> Option<String> {
+    element_text_snapshot(element).filter(|text| !text.is_empty())
+}
+
+pub(crate) struct FocusedTextInput {
+    element: IUIAutomationElement,
+    before: Option<String>,
+}
+
+impl FocusedTextInput {
+    pub(crate) fn observed(&self, text: &str) -> bool {
+        unsafe { self.element.CurrentHasKeyboardFocus() }
+            .map(|focused| focused.as_bool())
+            .unwrap_or(false)
+            && self
+                .before
+                .as_deref()
+                .zip(element_text_snapshot(&self.element).as_deref())
+                .is_some_and(|(before, after)| text_replacement_observed(before, after, text))
+    }
+}
+
+pub(crate) fn focused_text_input(
+    observation: &Observation,
+) -> Result<FocusedTextInput, (&'static str, String)> {
+    let element = observation
+        .elements
+        .values()
+        .find(|element| {
+            unsafe { element.CurrentHasKeyboardFocus() }
+                .map(|focused| focused.as_bool())
+                .unwrap_or(false)
+        })
+        .ok_or((
+            "focus_not_editable",
+            "The observed window has no focused text input.".to_string(),
+        ))?;
+    if !element_belongs_to_window(element, observation.window.hwnd) {
+        return Err((
+            "stale_observation",
+            "Keyboard focus no longer belongs to the observed window.".to_string(),
+        ));
+    }
+    let writable_value =
+        unsafe { element.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) }
+            .ok()
+            .and_then(|pattern| unsafe { pattern.CurrentIsReadOnly() }.ok())
+            .is_some_and(|read_only| !read_only.as_bool());
+    let text_edit = unsafe {
+        element.GetCurrentPatternAs::<IUIAutomationTextEditPattern>(UIA_TextEditPatternId)
+    }
+    .is_ok();
+    if !writable_value && !text_edit {
+        return Err((
+            "focus_not_editable",
+            "The focused element does not expose text editing capabilities.".to_string(),
+        ));
+    }
+    Ok(FocusedTextInput {
+        before: element_text_snapshot(element),
+        element: element.clone(),
+    })
+}
+
+fn text_replacement_observed(before: &str, after: &str, text: &str) -> bool {
+    if before == after || text.is_empty() {
+        return false;
+    }
+    let before: Vec<char> = before.chars().collect();
+    let after: Vec<char> = after.chars().collect();
+    let inserted: Vec<char> = text.chars().collect();
+    if inserted.len() > after.len() {
+        return false;
+    }
+    (0..=after.len() - inserted.len()).any(|start| {
+        let suffix = after.len() - start - inserted.len();
+        after[start..start + inserted.len()] == inserted
+            && before.len() >= start + suffix
+            && before[..start] == after[..start]
+            && before[before.len() - suffix..] == after[start + inserted.len()..]
+    })
 }
 
 pub(crate) fn collect_accessibility(
@@ -142,6 +228,15 @@ pub(crate) fn collect_accessibility(
                 .map(|value| value.as_bool())
                 .unwrap_or(false)
         };
+        let actions = if unsafe {
+            element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
+        }
+        .is_ok()
+        {
+            vec!["Invoke"]
+        } else {
+            Vec::new()
+        };
         let element_id = format!("uia-{index}");
         let control_type = unsafe { element.CurrentControlType() }
             .map(|value| value.0)
@@ -165,6 +260,7 @@ pub(crate) fn collect_accessibility(
             "enabled": unsafe { element.CurrentIsEnabled() }.map(|value| value.as_bool()).unwrap_or(false),
             "offscreen": unsafe { element.CurrentIsOffscreen() }.map(|value| value.as_bool()).unwrap_or(true),
             "selected": selected,
+            "actions": actions,
             "bounds": [bounds.left, bounds.top, bounds.right, bounds.bottom],
         }));
         elements.insert(element_id, element);
@@ -404,5 +500,15 @@ mod tests {
         assert_eq!(control_type_name(50004), "Edit");
         assert_eq!(control_type_name(50007), "ListItem");
         assert_eq!(control_type_name(1), "Unknown");
+    }
+
+    #[test]
+    fn text_effect_requires_the_exact_inserted_delta() {
+        assert!(text_replacement_observed("", "hello", "hello"));
+        assert!(text_replacement_observed("abc", "abc🙂", "🙂"));
+        assert!(text_replacement_observed("256", "36", "36"));
+        assert!(text_replacement_observed("abc", "axc", "x"));
+        assert!(!text_replacement_observed("36", "36", "36"));
+        assert!(!text_replacement_observed("", "36 pt", "36"));
     }
 }
