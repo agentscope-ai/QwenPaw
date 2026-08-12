@@ -16,9 +16,12 @@ Currently provided:
 
 import asyncio
 import logging
+import re
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Iterator, Set
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.middleware import MiddlewareBase
 from agentscope.message import Msg
@@ -40,10 +43,47 @@ logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
 _AUTOMATION_MEMORY_SKIP_SOURCES = frozenset({"cron", "heartbeat"})
 _TOOL_RESULT_METADATA_KEY = "qwenpaw_tool_result_metadata"
+_CURRENT_DATE_LINE = re.compile(r"^- Current date: .*$", re.MULTILINE)
 _MANUAL_COMPACT_MEMORY_BY_HANDLER: ContextVar[bool] = ContextVar(
     "manual_compact_memory_by_handler",
     default=False,
 )
+
+
+class CurrentDateMiddleware(MiddlewareBase):
+    """Refresh the environment date before every model call."""
+
+    def __init__(
+        self,
+        timezone_name: str,
+        clock: Callable[[Any], datetime] = datetime.now,
+    ) -> None:
+        self._timezone_name = timezone_name or "UTC"
+        self._clock = clock
+
+    async def on_system_prompt(
+        self,
+        # pylint: disable=unused-argument
+        agent: "Agent",
+        current_prompt: str,
+    ) -> str:
+        timezone_name = self._timezone_name
+        try:
+            tz = ZoneInfo(timezone_name)
+        except (ZoneInfoNotFoundError, KeyError):
+            logger.warning(
+                "Invalid timezone %r, falling back to UTC",
+                timezone_name,
+            )
+            timezone_name = "UTC"
+            tz = timezone.utc
+
+        now = self._clock(tz)
+        current_date = (
+            f"- Current date: {now.strftime('%Y-%m-%d')} "
+            f"{timezone_name} ({now.strftime('%A')})"
+        )
+        return _CURRENT_DATE_LINE.sub(current_date, current_prompt, count=1)
 
 
 @contextmanager
