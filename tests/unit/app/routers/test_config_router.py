@@ -34,6 +34,7 @@ from qwenpaw.config.config import (
     ConsoleConfig,
     HeartbeatConfig,
     OneBotConfig,
+    TelegramConfig,
     ToolGuardConfig,
 )
 from qwenpaw.constant import (
@@ -284,6 +285,137 @@ def test_put_onebot_channel_rejects_invalid_value(
         fake_agent_workspace.config.channels.onebot,
         OneBotConfig,
     )
+
+
+# ---------------------------------------------------------------------------
+# /config/channels/{name}/conflict-check
+# ---------------------------------------------------------------------------
+
+
+def _running_telegram_workspace(
+    agent_id: str,
+    agent_name: str,
+    bot_token: str,
+    *,
+    channel_running: bool = True,
+):
+    channels = []
+    if channel_running:
+        channels.append(SimpleNamespace(channel="telegram"))
+    return SimpleNamespace(
+        agent_id=agent_id,
+        config=SimpleNamespace(
+            name=agent_name,
+            channels=ChannelConfig(
+                telegram=TelegramConfig(
+                    enabled=True,
+                    bot_token=bot_token,
+                ),
+            ),
+        ),
+        channel_manager=SimpleNamespace(channels=channels),
+    )
+
+
+def test_channel_conflict_check_returns_other_running_agent(
+    app,
+    client,
+    patch_get_agent,
+):
+    app.state.multi_agent_manager.agents = {
+        "sales": _running_telegram_workspace(
+            "sales",
+            "Sales Assistant",
+            "shared-secret-token",
+        ),
+    }
+
+    response = client.post(
+        "/api/config/channels/telegram/conflict-check",
+        json={"enabled": True, "bot_token": "shared-secret-token"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "conflict": True,
+        "agents": [
+            {
+                "agent_id": "sales",
+                "agent_name": "Sales Assistant",
+            },
+        ],
+    }
+    assert "shared-secret-token" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("payload", "other_token", "channel_running"),
+    [
+        ({"enabled": False, "bot_token": "shared"}, "shared", True),
+        ({"enabled": True, "bot_token": "different"}, "shared", True),
+        ({"enabled": True, "bot_token": "shared"}, "shared", False),
+        ({"enabled": True, "bot_token": ""}, "", True),
+    ],
+)
+def test_channel_conflict_check_ignores_non_conflicts(
+    app,
+    client,
+    patch_get_agent,
+    payload,
+    other_token,
+    channel_running,
+):
+    app.state.multi_agent_manager.agents = {
+        "sales": _running_telegram_workspace(
+            "sales",
+            "Sales Assistant",
+            other_token,
+            channel_running=channel_running,
+        ),
+    }
+
+    response = client.post(
+        "/api/config/channels/telegram/conflict-check",
+        json=payload,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"conflict": False, "agents": []}
+
+
+def test_channel_conflict_check_excludes_current_agent(
+    app,
+    client,
+    patch_get_agent,
+):
+    app.state.multi_agent_manager.agents = {
+        "default": _running_telegram_workspace(
+            "default",
+            "Default Agent",
+            "shared",
+        ),
+    }
+
+    response = client.post(
+        "/api/config/channels/telegram/conflict-check",
+        json={"enabled": True, "bot_token": "shared"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"conflict": False, "agents": []}
+
+
+def test_channel_conflict_check_skips_unsupported_channel(
+    client,
+    patch_get_agent,
+):
+    response = client.post(
+        "/api/config/channels/console/conflict-check",
+        json={"enabled": True},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"conflict": False, "agents": []}
 
 
 # ---------------------------------------------------------------------------

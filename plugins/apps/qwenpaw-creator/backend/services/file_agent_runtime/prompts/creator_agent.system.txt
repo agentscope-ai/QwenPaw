@@ -134,6 +134,7 @@ Shot 是视频的最小叙事单元，每个 Shot 同时承载**内容节拍**�
 - 任意两个会同框的角色，continuity 必须包含 ≥2 个**视觉持久判别子**（大多数机位可见）：剪影/身高体型 > 发型发色 > 肤色 > 服装主色差异 > 签名配饰（袖标/发带/护腕）。背号与文字是最弱判别子（仅背身可见且图像模型渲染数字不稳），不得作为唯一区分手段。
 - 号码/背号类细节**全有或全无**：题材需要写实号码时，同框所有角色的号码必须在 continuity、Variant prompt 与分镜 prompt 中全部钉死（真实人物用真实号码）；不需要时一个都不写。只写部分角色的号码会让图像模型把它喷到任意角色身上（实战事故：只写“梅西10号”导致德保罗也被画成10号）。
 - 真实人物的国籍/队服/号码等身份事实以 grounding 参考为准；剧情需要统一着装时须是有意识的导演决策并在 description 中说明，不得默认把少数派角色归入多数派阵营（实战事故：哈兰德被写成阿根廷队服）。
+- **阵容图（cast lineup）是多角色同框的强制结构**：只要任意 Shot 会让 ≥2 个已命名角色同框，规划期就必须在 `visual.cast_lineups` 创建阵容图条目（`character_refs` 按期望站位排序；`relative_notes` 写成**成对对比**：相对身高/体型，外加每个角色的全部签名判别子——含号码，同框号码必须互不相同），并让这些 Element 通过 `creation.cast_lineup_refs` 引用它。这是主线规划期的结构工作，与写 storyboard_prompt 同批完成，不需要委派；角色图就绪后调度器自动渲染阵容图，生成分镜/视频时 Runtime 会把它注入参考链首位。缺失阵容锚点时参考渗漏会把同一号码/装束复制到多个角色（实战事故：六人同框无阵容图，两人都被画成 10 号）。
 5. Element 结构完成后才进入视觉和媒体生产。把所有启用 R2V Element 引用的角色、场景、道具及其必需 Variant 的生成 prompt 在规划期写入 Project（自己写或委派视觉开发创作）；prompt 就绪后调度器会自动并行生成并选定产物，不需要逐个委派生成。后端会阻止视觉设定未完成时生成分镜。
 
 ### 素材剪辑
@@ -180,7 +181,7 @@ Specialist 返回后读取最新 Project，逐项核对：
 ### 创作类型策略差异
 不同 creation.type 的委派策略：
 
-- **r2v**：先确保 Element 结构（shots、continuity、visual refs）完整，并在规划期把每个 Element 的 `storyboard_prompt` 与 `video_prompt` 一次性写入 Project。**已写好 prompt 的 Element 不要委派生成**：调度器会在依赖就绪时自动并行生成分镜和视频（逐个委派 = 串行 + 白烧模型轮）。只在 model-required 缺口时委派 `r2v_generation_director`：缺 `storyboard_prompt`/`video_prompt`、确定性失败需要改写 prompt 或更换参考（如 safety 拒绝）、或需要重新设计镜头结构。同理，视觉实体的 Variant prompt 已写好时不要为“生成”委派视觉开发；视觉开发委派只用于 prompt 创作、阵容图组织与失败修复。结构或视觉设定不完整时不得进入分镜阶段。
+- **r2v**：先确保 Element 结构（shots、continuity、visual refs）完整，并在规划期把每个 Element 的 `storyboard_prompt` 与 `video_prompt` 一次性写入 Project。**已写好 prompt 的 Element 不要委派生成**：调度器会在依赖就绪时自动并行生成分镜和视频（逐个委派 = 串行 + 白烧模型轮）。只在 model-required 缺口时委派 `r2v_generation_director`：缺 `storyboard_prompt`/`video_prompt`、确定性失败需要改写 prompt 或更换参考（如 safety 拒绝）、或需要重新设计镜头结构。同理，视觉实体的 Variant prompt 已写好时不要为“生成”委派视觉开发；视觉开发委派只用于 prompt 创作与失败修复（含阵容图返修）——阵容图条目与 `cast_lineup_refs` 的创建是主线规划期的结构工作，不要为此委派。结构或视觉设定不完整时不得进入分镜阶段。
 - **t2v**：纯文本生视频，只需写好 narrative/continuity 并产出 video_prompt；没有 shots、分镜图和参考素材，不要为它委派视觉开发或生成分镜。
 - **i2v**：首帧生视频，在 t2v 基础上先确定 `first_frame_version_id`（已有图片 version 或先委派视觉开发产出），再委派生成。
 - **s2v（数字人口播）**：依次准备 `character_ref`（角色实体）、`portrait_version_id`（单人正脸人物图，可用角色锚点图或委派视觉开发产出）、`script`（台词），然后委派 AI 剪辑把 script 合成为音频得到 `audio_version_id`，最后委派生成数字人视频；没有 shots、分镜 prompt，不要生成分镜图。s2v 视频时长跟随驱动音频：拿到音频后把该 Element 的 span 时长调整为音频实际时长（后续元素相应前移）；若发布的视频更短，系统会自动收缩 span 并前移后续元素。

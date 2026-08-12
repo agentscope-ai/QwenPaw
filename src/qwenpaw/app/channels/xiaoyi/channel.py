@@ -362,6 +362,7 @@ class XiaoYiChannel(BaseChannel):
         ak: str,
         sk: str,
         agent_id: str,
+        ws_url: str = "",
         task_timeout_ms: int = DEFAULT_TASK_TIMEOUT_MS,
         on_reply_sent: OnReplySent = None,
         display_config: ChannelDisplayConfig | None = None,
@@ -385,6 +386,7 @@ class XiaoYiChannel(BaseChannel):
         self.ak = ak
         self.sk = sk
         self.agent_id = agent_id
+        self.ws_url = (ws_url or "").strip()
         self.task_timeout_ms = task_timeout_ms
         self.bot_prefix = bot_prefix
 
@@ -452,6 +454,7 @@ class XiaoYiChannel(BaseChannel):
                 ak=config.get("ak", ""),
                 sk=config.get("sk", ""),
                 agent_id=config.get("agent_id", ""),
+                ws_url=config.get("ws_url", ""),
                 task_timeout_ms=config.get(
                     "task_timeout_ms",
                     DEFAULT_TASK_TIMEOUT_MS,
@@ -477,6 +480,7 @@ class XiaoYiChannel(BaseChannel):
             ak=config.ak,
             sk=config.sk,
             agent_id=config.agent_id,
+            ws_url=getattr(config, "ws_url", "") or "",
             task_timeout_ms=config.task_timeout_ms,
             on_reply_sent=on_reply_sent,
             display_config=display_config
@@ -589,8 +593,8 @@ class XiaoYiChannel(BaseChannel):
 
         logger.info(
             "XiaoYi: Connecting to %s + %s...",
-            DEFAULT_WS_URL,
-            DEFAULT_WS_URL_BACKUP,
+            self.ws_url or DEFAULT_WS_URL,
+            "" if self.ws_url else DEFAULT_WS_URL_BACKUP,
         )
 
         await self._start_connections()
@@ -610,7 +614,7 @@ class XiaoYiChannel(BaseChannel):
 
         self._conn_primary = XiaoYiConnection(
             server_name="primary",
-            ws_url=DEFAULT_WS_URL,
+            ws_url=self.ws_url or DEFAULT_WS_URL,
             ak=self.ak,
             sk=self.sk,
             agent_id=self.agent_id,
@@ -620,7 +624,7 @@ class XiaoYiChannel(BaseChannel):
 
         tasks = [self._conn_primary.connect()]
 
-        if DEFAULT_WS_URL_BACKUP:
+        if DEFAULT_WS_URL_BACKUP and not self.ws_url:
             self._conn_backup = XiaoYiConnection(
                 server_name="backup",
                 ws_url=DEFAULT_WS_URL_BACKUP,

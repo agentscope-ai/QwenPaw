@@ -3183,6 +3183,25 @@ class FileLocalMediaExecutionService:
             for value in expected_object_versions
         ):
             raise ConflictError("本地媒体命令目标已被其他写者修改")
+        if command_value is CreatorCommandType.COMPOSE_FINAL_VIDEO:
+            from services.render_review.scene_review import (
+                auto_review_stale_scenes,
+                collect_scene_review_targets,
+            )
+
+            timeline = _target_timeline(base.project, target_ref)
+            stale, drafts = collect_scene_review_targets(timeline)
+            if stale or drafts:
+                await auto_review_stale_scenes(
+                    self.services,
+                    project_id=project_id,
+                    timeline_ref=target_ref,
+                    timeline=timeline,
+                )
+                base = await asyncio.to_thread(
+                    self.services.projects.read,
+                    project_id,
+                )
         resolved = await asyncio.to_thread(
             _resolve_execution,
             snapshot=base,

@@ -424,8 +424,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         evicted = int(
             compress_stats.get("evicted", inferred_evicted) or 0,
         )
-        reme_cfg = agent_config.running.reme_light_memory_config
-        if self._has_memory_manager() and reme_cfg.summarize_when_compact:
+        if self._has_memory_manager():
             self.memory_manager.add_summarize_task(
                 messages=messages,
                 session_id=self._current_session_id(),

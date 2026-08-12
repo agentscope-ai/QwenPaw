@@ -1534,6 +1534,7 @@ class FileR2VExecutionService:
             self._find_in_flight_duplicate,
             project_id,
             command_hash,
+            target_ref,
         )
         if in_flight is not None:
             logger.info(
@@ -1785,22 +1786,42 @@ class FileR2VExecutionService:
         self,
         project_id: str,
         command_hash: str,
+        target_ref: str,
     ) -> TaskRecord | None:
-        """Return a live R2V Task already generating this exact command.
+        """Return a live R2V Task already generating for this target.
 
         The command hash covers command type, target and arguments but not
         the caller's idempotency key, so it identifies "the same video"
-        across independent submissions.
+        across independent submissions — the caller attaches to it.
+
+        A live task for the same target with a *different* hash is a
+        conflict, not a sibling: an Element owns exactly one video slot,
+        so two concurrent renders make the selected output depend on
+        completion order and double the provider bill (field run
+        2026-08-11: the scheduler dispatched the committed video_prompt
+        while a specialist re-submitted its own inline rewrite 39s
+        later — both rendered). The dispatcher fails such submissions
+        closed; the caller retries once the in-flight render settles.
         """
 
         for task in self.executions.list_tasks(project_id):
             if (
-                task.kind is TaskKind.R2V_GENERATION
-                and task.status not in _TERMINAL_TASKS
-                and str(task.metadata.get("commandRequestHash") or "")
+                task.kind is not TaskKind.R2V_GENERATION
+                or task.status in _TERMINAL_TASKS
+            ):
+                continue
+            if str(task.metadata.get("targetRef") or "") != target_ref:
+                continue
+            if (
+                str(task.metadata.get("commandRequestHash") or "")
                 == command_hash
             ):
                 return task
+            raise ConflictError(
+                f"目标 {target_ref} 已有一个不同内容的视频任务在生成中"
+                f"（task={task.task_id}）；同一 Element 同时只允许一个在飞渲染，"
+                "请等待其完成后再提交（若需替换请先取消在飞任务）",
+            )
         return None
 
     @staticmethod

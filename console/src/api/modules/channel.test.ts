@@ -65,6 +65,26 @@ describe("channelApi", () => {
     expect(r).toBe(single);
   });
 
+  it("checkChannelConflict posts the proposed channel config", async () => {
+    const single = { enabled: true, bot_token: "secret" } as unknown;
+    const conflict = {
+      conflict: true,
+      agents: [{ agent_id: "sales", agent_name: "Sales Assistant" }],
+    };
+    vi.mocked(request).mockResolvedValue(conflict);
+
+    await expect(
+      channelApi.checkChannelConflict("telegram/bot", single as never),
+    ).resolves.toBe(conflict);
+    expect(request).toHaveBeenCalledWith(
+      expect.stringContaining("telegram%2Fbot/conflict-check"),
+      {
+        method: "POST",
+        body: JSON.stringify(single),
+      },
+    );
+  });
+
   // ---- URL-encoding of channel names ------------------------------------
 
   it("encodes a channel name with a slash when calling getChannelConfig", async () => {
