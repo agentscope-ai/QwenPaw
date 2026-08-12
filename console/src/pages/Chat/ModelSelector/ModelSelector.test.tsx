@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import ModelSelector from "./index";
@@ -92,13 +92,17 @@ const mockProvider = {
 
 const mockActiveModels = {
   active_llm: { provider_id: "openai", model: "gpt-4" },
-  session_model_overrides_enabled: false,
 };
 
 function setupDefaultMocks() {
   vi.mocked(providerApi.listProviders).mockResolvedValue([mockProvider]);
   vi.mocked(providerApi.getActiveModels).mockResolvedValue(mockActiveModels);
-  vi.mocked(providerApi.setActiveLlm).mockResolvedValue({});
+}
+
+function renderEstablishedSelector() {
+  return renderWithProviders(
+    <ModelSelector chatId="chat-1" sessionId="session-1" />,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +111,7 @@ function setupDefaultMocks() {
 
 describe("ModelSelector", () => {
   beforeEach(() => {
+    sessionStorage.clear();
     setupDefaultMocks();
   });
 
@@ -148,19 +153,9 @@ describe("ModelSelector", () => {
     });
   });
 
-  it("passes session_id when a session model scope is available", async () => {
-    renderWithProviders(<ModelSelector sessionId="console:session-1" />);
-    await screen.findAllByText("GPT-4");
-    expect(providerApi.getActiveModels).toHaveBeenCalledWith({
-      scope: "effective",
-      agent_id: "default",
-      session_id: "console:session-1",
-    });
-  });
-
   it("clicking trigger button opens dropdown and shows provider list", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderEstablishedSelector();
     await screen.findAllByText("GPT-4");
 
     await user.click(screen.getAllByText("GPT-4")[0]);
@@ -168,90 +163,33 @@ describe("ModelSelector", () => {
     expect(await screen.findByText("OpenAI")).toBeInTheDocument();
   });
 
-  it("clicking a model calls setActiveLlm with correct parameters", async () => {
+  it("stores a selection for the current session without changing the agent", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderEstablishedSelector();
     await screen.findAllByText("GPT-4");
 
     await user.click(screen.getAllByText("GPT-4")[0]);
     const gpt35 = await screen.findByText("GPT-3.5 Turbo");
     await user.click(gpt35);
 
-    expect(providerApi.setActiveLlm).toHaveBeenCalledWith({
+    expect(
+      JSON.parse(
+        sessionStorage.getItem(
+          "qwenpaw-session-model-override:default:session-1",
+        ) || "null",
+      ),
+    ).toEqual({
       provider_id: "openai",
       model: "gpt-3.5-turbo",
-      scope: "agent",
-      agent_id: "default",
     });
-  });
-
-  it("clicking a model writes a session override when sessionId is provided", async () => {
-    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
-      ...mockActiveModels,
-      session_model_overrides_enabled: true,
-    });
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector sessionId="console:session-1" />);
-    await screen.findAllByText("GPT-4");
-
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    const gpt35 = await screen.findByText("GPT-3.5 Turbo");
-    await user.click(gpt35);
-
-    expect(providerApi.setActiveLlm).toHaveBeenCalledWith({
-      provider_id: "openai",
-      model: "gpt-3.5-turbo",
-      scope: "session",
-      agent_id: "default",
-      session_id: "console:session-1",
-    });
-  });
-
-  it("does not fall back to agent scope before a new session is created", async () => {
-    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
-      ...mockActiveModels,
-      session_model_overrides_enabled: true,
-    });
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
-    const modelName = (await screen.findAllByText("GPT-4"))[0];
-    const trigger = modelName.closest('[aria-disabled="true"]');
-
-    expect(trigger).not.toBeNull();
-    await user.click(trigger as HTMLElement);
-
-    expect(screen.queryByText("OpenAI")).not.toBeInTheDocument();
     expect(providerApi.setActiveLlm).not.toHaveBeenCalled();
   });
 
-  it("keeps agent scope when per-session models are disabled", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector sessionId="console:session-1" />);
-    await screen.findAllByText("GPT-4");
-
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    await user.click(await screen.findByText("GPT-3.5 Turbo"));
-
-    expect(providerApi.setActiveLlm).toHaveBeenCalledWith({
-      provider_id: "openai",
-      model: "gpt-3.5-turbo",
-      scope: "agent",
-      agent_id: "default",
-    });
-  });
-
-  it("publishes the backend-resolved context window after a model switch", async () => {
-    vi.mocked(providerApi.setActiveLlm).mockResolvedValue({
-      active_llm: {
-        provider_id: "openai",
-        model: "gpt-3.5-turbo",
-      },
-      effective_max_input_length: 65536,
-    });
+  it("publishes the selected model context window", async () => {
     const switched = vi.fn();
     window.addEventListener("model-switched", switched);
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderEstablishedSelector();
     await screen.findAllByText("GPT-4");
 
     await user.click(screen.getAllByText("GPT-4")[0]);
@@ -260,7 +198,7 @@ describe("ModelSelector", () => {
     await waitFor(() => expect(switched).toHaveBeenCalledOnce());
     const event = switched.mock.calls[0][0] as CustomEvent;
     expect(event.detail).toEqual({
-      maxInputLength: 65536,
+      maxInputLength: 16384,
     });
     window.removeEventListener("model-switched", switched);
   });
@@ -285,7 +223,7 @@ describe("ModelSelector", () => {
 
   it("clicking the already active model does not call setActiveLlm", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderEstablishedSelector();
     await screen.findAllByText("GPT-4");
 
     await user.click(screen.getAllByText("GPT-4")[0]);
@@ -301,7 +239,7 @@ describe("ModelSelector", () => {
       active_llm: undefined,
     });
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderEstablishedSelector();
     await screen.findAllByText("modelSelector.selectModel");
 
     await user.click(screen.getAllByText("modelSelector.selectModel")[0]);
@@ -311,21 +249,74 @@ describe("ModelSelector", () => {
     ).toBeInTheDocument();
   });
 
-  it("still displays original active model after setActiveLlm failure", async () => {
-    vi.mocked(providerApi.setActiveLlm).mockRejectedValue(
-      new Error("API error"),
+  it("restores a pending selection when the component loads", async () => {
+    sessionStorage.setItem(
+      "qwenpaw-session-model-override:default:session-1",
+      JSON.stringify({
+        provider_id: "openai",
+        model: "gpt-3.5-turbo",
+      }),
+    );
+    renderEstablishedSelector();
+    expect(
+      (await screen.findAllByText("GPT-3.5 Turbo"))[0],
+    ).toBeInTheDocument();
+  });
+
+  it("does not open model selection before the first message", async () => {
+    sessionStorage.setItem(
+      "qwenpaw-session-model-override:default:new",
+      JSON.stringify({ provider_id: "openai", model: "gpt-3.5-turbo" }),
     );
     const user = userEvent.setup();
     renderWithProviders(<ModelSelector />);
+    const triggerName = (await screen.findAllByText("GPT-4"))[0];
+
+    await user.click(triggerName);
+
+    expect(screen.queryByText("OpenAI")).not.toBeInTheDocument();
+    expect(triggerName.closest("[aria-disabled='true']")).toBeInTheDocument();
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it("enables model selection when the first message resolves the chat", async () => {
+    const user = userEvent.setup();
+    const view = renderWithProviders(<ModelSelector />);
+    const disabledTrigger = (await screen.findAllByText("GPT-4"))[0];
+
+    expect(
+      disabledTrigger.closest("[aria-disabled='true']"),
+    ).toBeInTheDocument();
+
+    view.rerender(<ModelSelector chatId="chat-1" sessionId="session-1" />);
+    const enabledTrigger = (await screen.findAllByText("GPT-4"))[0];
+    await user.click(enabledTrigger);
+
+    expect(await screen.findByText("OpenAI")).toBeInTheDocument();
+  });
+
+  it("refreshes the displayed model after a model command completes", async () => {
+    renderEstablishedSelector();
     await screen.findAllByText("GPT-4");
+    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
+      active_llm: { provider_id: "openai", model: "gpt-3.5-turbo" },
+    });
 
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    const gpt35 = await screen.findByText("GPT-3.5 Turbo");
-    await user.click(gpt35);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("session-model-command-completed", {
+          detail: { agentId: "default" },
+        }),
+      );
+    });
 
-    // GPT-4 may appear in two places when dropdown is still open (trigger + dropdown item)
-    await waitFor(() => {
-      expect(screen.getAllByText("GPT-4").length).toBeGreaterThanOrEqual(1);
+    expect(
+      (await screen.findAllByText("GPT-3.5 Turbo"))[0],
+    ).toBeInTheDocument();
+    expect(providerApi.getActiveModels).toHaveBeenLastCalledWith({
+      scope: "effective",
+      agent_id: "default",
+      chat_id: "chat-1",
     });
   });
 });

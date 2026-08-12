@@ -97,75 +97,21 @@ export interface ModelSlotConfig {
 export interface ActiveModelsInfo {
   active_llm?: ModelSlotConfig;
   effective_max_input_length?: number | null;
-  session_model_overrides_enabled?: boolean;
 }
 
 export type ActiveModelScope = "effective" | "global" | "agent";
-export type ActiveModelWriteScope =
-  | Exclude<ActiveModelScope, "effective">
-  | "session";
-export type ModelSource = "session" | "agent" | "global" | "none";
 
 export interface GetActiveModelsRequest {
   scope?: ActiveModelScope;
   agent_id?: string;
-  session_id?: string;
+  chat_id?: string;
 }
 
 export interface ModelSlotRequest {
   provider_id: string;
   model: string;
-  scope: ActiveModelWriteScope;
+  scope: Exclude<ActiveModelScope, "effective">;
   agent_id?: string;
-  session_id?: string;
-}
-
-export interface SessionModelInfo {
-  id: string;
-  name: string;
-  session_id: string;
-  user_id: string;
-  channel: string;
-  created_at?: string | null;
-  updated_at?: string | null;
-  status?: string;
-  active_model?: ModelSlotConfig | null;
-  model_source: ModelSource;
-}
-
-export interface AgentSessionModelsInfo {
-  agent_id: string;
-  agent_name: string;
-  workspace_dir: string;
-  enabled: boolean;
-  default_model?: ModelSlotConfig | null;
-  default_model_source: ModelSource;
-  sessions: SessionModelInfo[];
-}
-
-export interface SessionModelOverridesInfo {
-  enabled: boolean;
-  agents: AgentSessionModelsInfo[];
-}
-
-export interface SessionModelFeatureResponse {
-  enabled: boolean;
-}
-
-export interface SessionModelOverrideRequest {
-  provider_id: string;
-  model: string;
-}
-
-export interface SessionModelMutationResponse {
-  agent_id: string;
-  session_id: string;
-  active_model?: ModelSlotConfig | null;
-  model_source: ModelSource;
-}
-
-export interface SessionModelResetAllResponse {
-  cleared_count: number;
 }
 
 /* ---- Custom provider CRUD ---- */

@@ -176,6 +176,34 @@ async def test_set_project_dir_persists_and_clears_controlled_meta(
     assert "runtime_context" not in cleared.meta
 
 
+@pytest.mark.asyncio
+async def test_set_model_slot_override_preserves_other_runtime_context(
+    manager: ChatManager,
+):
+    spec = await manager.create_chat(_make_spec(name="Model session"))
+    await manager.set_project_dir(spec.id, "/project/session")
+
+    updated = await manager.set_model_slot_override(
+        spec.id,
+        {"provider_id": "openai", "model": "gpt-4o"},
+    )
+
+    assert updated is not None
+    assert updated.meta["runtime_context"] == {
+        "project_dir": "/project/session",
+        "model_slot_override": {
+            "provider_id": "openai",
+            "model": "gpt-4o",
+        },
+    }
+
+    cleared = await manager.set_model_slot_override(spec.id, None)
+    assert cleared is not None
+    assert cleared.meta["runtime_context"] == {
+        "project_dir": "/project/session",
+    }
+
+
 # ---------------------------------------------------------------------------
 # patch_chat / patch_chat_if_name_matches
 # ---------------------------------------------------------------------------

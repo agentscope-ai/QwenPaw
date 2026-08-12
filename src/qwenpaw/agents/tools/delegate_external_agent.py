@@ -72,7 +72,10 @@ def _get_acp_service() -> Any:
     from ...config.config import ACPConfig
     from ...config.config import load_agent_config
 
-    from ..acp.service import get_acp_service, init_acp_service
+    # pylint: disable=no-name-in-module
+    # ``get_acp_service`` / ``init_acp_service`` are exposed via the
+    # ``qwenpaw.agents.acp.__getattr__`` lazy-loader; pylint can't see them.
+    from ..acp import get_acp_service, init_acp_service
 
     get_service = cast(Callable[[str], Any], get_acp_service)
     init_service = cast(

@@ -262,6 +262,36 @@ class ChatManager:
             await self._repo.upsert_chat(updated)
             return updated
 
+    async def set_model_slot_override(
+        self,
+        chat_id: str,
+        model_slot: dict[str, str] | None,
+    ) -> Optional[ChatSpec]:
+        """Set or clear the controlled Session model override."""
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            meta = dict(existing.meta)
+            runtime_context = dict(meta.get("runtime_context") or {})
+            current = runtime_context.get("model_slot_override")
+            if model_slot is None and current is None:
+                return existing
+            if model_slot is not None and current == model_slot:
+                return existing
+            if model_slot is None:
+                runtime_context.pop("model_slot_override", None)
+            else:
+                runtime_context["model_slot_override"] = dict(model_slot)
+            if runtime_context:
+                meta["runtime_context"] = runtime_context
+            else:
+                meta.pop("runtime_context", None)
+            updated = existing.model_copy(update={"meta": meta})
+            updated.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(updated)
+            return updated
+
     async def delete_chats(self, chat_ids: list[str]) -> bool:
         """Delete a chat spec.
 

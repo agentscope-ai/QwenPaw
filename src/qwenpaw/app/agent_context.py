@@ -44,6 +44,11 @@ _current_channel: ContextVar[Optional[str]] = ContextVar(
     default=None,
 )
 
+_current_model_slot_override: ContextVar[object | None] = ContextVar(
+    "current_model_slot_override",
+    default=None,
+)
+
 _current_approval_route: ContextVar[Optional[dict]] = ContextVar(
     "current_approval_route",
     default=None,
@@ -260,6 +265,16 @@ def scoped_session_id(session_id: str) -> Iterator[None]:
 
 def get_current_session_id() -> Optional[str]:
     return _current_session_id.get()
+
+
+def set_current_model_slot_override(value: object | None) -> None:
+    """Expose the request-level model selection to runtime consumers."""
+    _current_model_slot_override.set(value)
+
+
+def get_current_model_slot_override() -> object | None:
+    """Return the model selection attached to the current request."""
+    return _current_model_slot_override.get()
 
 
 def set_current_root_session_id(root_session_id: Optional[str]) -> None:

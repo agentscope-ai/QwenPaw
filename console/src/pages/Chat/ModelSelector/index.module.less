@@ -20,14 +20,6 @@
     box-shadow: 0 2px 8px rgba(97, 92, 237, 0.12);
   }
 
-  &.triggerDisabled,
-  &.triggerDisabled:hover {
-    cursor: not-allowed;
-    color: #999;
-    box-shadow: none;
-    opacity: 0.72;
-  }
-
   @media (max-width: 768px) {
     max-width: 140px;
     padding: 4px 6px;
@@ -37,6 +29,16 @@
   @media (max-width: 480px) {
     max-width: 96px;
     font-size: 13px;
+  }
+}
+
+.triggerDisabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+
+  &:hover {
+    color: #333;
+    box-shadow: none;
   }
 }
 
@@ -462,12 +464,6 @@
     &.triggerActive {
       color: #ff7f16;
       box-shadow: 0 2px 8px rgba(97, 92, 237, 0.2);
-    }
-
-    &.triggerDisabled,
-    &.triggerDisabled:hover {
-      color: rgba(255, 255, 255, 0.45);
-      box-shadow: none;
     }
   }
 

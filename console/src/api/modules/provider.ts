@@ -20,15 +20,10 @@ import type {
   DiscoverExtendedResponse,
   FilterModelsRequest,
   FilterModelsResponse,
-  SessionModelOverridesInfo,
-  SessionModelOverrideRequest,
-  SessionModelMutationResponse,
-  SessionModelResetAllResponse,
-  SessionModelFeatureResponse,
 } from "../types";
 
 function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
-  if (!params?.scope && !params?.agent_id && !params?.session_id) {
+  if (!params?.scope && !params?.agent_id) {
     return "/models/active";
   }
 
@@ -38,9 +33,6 @@ function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
   }
   if (params.agent_id) {
     searchParams.set("agent_id", params.agent_id);
-  }
-  if (params.session_id) {
-    searchParams.set("session_id", params.session_id);
   }
 
   return `/models/active?${searchParams.toString()}`;
@@ -65,10 +57,17 @@ export const providerApi = {
     }),
 
   getActiveModels: (params?: GetActiveModelsRequest) => {
-    const key = buildActiveModelQuery(params);
+    const path = buildActiveModelQuery(params);
+    const key = `${path}#${params?.chat_id ?? ""}`;
     const cached = activeModelPromises.get(key);
     if (cached) return cached;
-    const promise = request<ActiveModelsInfo>(key).finally(() => {
+    const promise = (
+      params?.chat_id
+        ? request<ActiveModelsInfo>(path, {
+            headers: { "X-Chat-Id": params.chat_id },
+          })
+        : request<ActiveModelsInfo>(path)
+    ).finally(() => {
       activeModelPromises.delete(key);
     });
     activeModelPromises.set(key, promise);
@@ -82,43 +81,6 @@ export const providerApi = {
     }).then((result) => {
       activeModelPromises.clear();
       return result;
-    }),
-
-  getSessionModelOverrides: () =>
-    request<SessionModelOverridesInfo>("/models/session-overrides"),
-
-  setSessionModelOverridesEnabled: (enabled: boolean) =>
-    request<SessionModelFeatureResponse>("/models/session-overrides", {
-      method: "PUT",
-      body: JSON.stringify({ enabled }),
-    }),
-
-  setSessionModelOverride: (
-    agentId: string,
-    sessionId: string,
-    body: SessionModelOverrideRequest,
-  ) =>
-    request<SessionModelMutationResponse>(
-      `/models/session-overrides/${encodeURIComponent(
-        agentId,
-      )}/${encodeURIComponent(sessionId)}`,
-      {
-        method: "PUT",
-        body: JSON.stringify(body),
-      },
-    ),
-
-  resetSessionModelOverride: (agentId: string, sessionId: string) =>
-    request<SessionModelMutationResponse>(
-      `/models/session-overrides/${encodeURIComponent(
-        agentId,
-      )}/${encodeURIComponent(sessionId)}`,
-      { method: "DELETE" },
-    ),
-
-  resetAllSessionModelOverrides: () =>
-    request<SessionModelResetAllResponse>("/models/session-overrides", {
-      method: "DELETE",
     }),
 
   /* ---- Custom provider CRUD ---- */

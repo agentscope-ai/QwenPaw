@@ -77,7 +77,6 @@ class ActiveModelsInfo(BaseModel):
 
     active_llm: ModelSlotConfig | None
     effective_max_input_length: int | None = None
-    session_model_overrides_enabled: bool = False
 
 
 class ACPAgentConfig(BaseModel):
@@ -1888,14 +1887,6 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Active model for this agent (provider_id + model)",
     )
-    session_model_overrides: Dict[str, "ModelSlotConfig"] = Field(
-        default_factory=dict,
-        description=(
-            "Per-session model overrides keyed by normalized session_id. "
-            "When set, a session override takes precedence over "
-            "active_model and the global default model."
-        ),
-    )
     language: str = Field(
         default="zh",
         description="Language setting for this agent",
@@ -1955,13 +1946,6 @@ class AgentsConfig(BaseModel):
             ),
         },
         description="Agent profile references (ID and workspace path only)",
-    )
-    session_model_overrides_enabled: bool = Field(
-        default=False,
-        description=(
-            "Enable per-session model overrides. When disabled, model "
-            "selection keeps the original per-agent behavior."
-        ),
     )
 
     # Legacy fields for backward compatibility (deprecated)
@@ -3307,18 +3291,18 @@ def get_model_max_input_length(
     on hot paths (pre_reasoning, compact_context, summarize, etc.).
     """
     from ..providers import ProviderManager
+    from ..app.agent_context import get_current_model_slot_override
+    from ..services.model_selection import resolve_effective_model_slot
 
-    session_id = None
-    try:
-        from ..app.agent_context import get_current_session_id
-
-        session_id = get_current_session_id()
-    except Exception:
-        pass
-
-    model_slot, source = resolve_effective_model_slot(
-        agent_config=agent_config,
-        session_id=session_id,
+    manager = ProviderManager.get_instance()
+    model_slot, _source = resolve_effective_model_slot(
+        request_override=get_current_model_slot_override(),
+        agent_model=agent_config.active_model,
+        global_model=(
+            manager.get_active_model()
+            if hasattr(manager, "get_active_model")
+            else None
+        ),
     )
 
     if model_slot and model_slot.provider_id and model_slot.model:
@@ -3331,9 +3315,8 @@ def get_model_max_input_length(
             pass
     logger.debug(
         "Could not resolve max_input_length for agent '%s' "
-        "(effective_model=%s source=%s), falling back to 128K default.",
+        "(active_model=%s), falling back to 128K default.",
         getattr(agent_config, "id", "?"),
         model_slot,
-        source,
     )
     return 128 * 1024

@@ -1335,45 +1335,6 @@ def _strip_top_level_message_name(
     return messages
 
 
-def _resolve_model_slot_override(model_slot_override: Any):
-    """Parse an optional per-request model override into a model slot."""
-    from ..config.config import ModelSlotConfig
-
-    slot = None
-    if isinstance(model_slot_override, ModelSlotConfig):
-        slot = model_slot_override
-    if isinstance(model_slot_override, dict):
-        try:
-            slot = ModelSlotConfig.model_validate(model_slot_override)
-        except Exception:
-            logger.warning(
-                "Ignoring invalid model_slot_override dict: %r",
-                model_slot_override,
-            )
-    if isinstance(model_slot_override, str):
-        # Use partition so version-tagged model names can contain ':'.
-        provider_id, sep, model_name = model_slot_override.partition(":")
-        if sep and provider_id.strip() and model_name.strip():
-            slot = ModelSlotConfig(
-                provider_id=provider_id.strip(),
-                model=model_name.strip(),
-            )
-        else:
-            logger.warning(
-                "Ignoring invalid model_slot_override string: %r",
-                model_slot_override,
-            )
-    if model_slot_override is not None and not isinstance(
-        model_slot_override,
-        (ModelSlotConfig, dict, str),
-    ):
-        logger.warning(
-            "Unsupported model_slot_override type: %s",
-            type(model_slot_override).__name__,
-        )
-    return slot
-
-
 def _bind_provider_id_to_model(
     model: ChatModelBase,
     provider_id: str,
@@ -1388,28 +1349,6 @@ def _bind_provider_id_to_model(
 def _resolved_provider_id(provider: Any, configured_provider_id: str) -> str:
     """Return the canonical ID exposed by a resolved provider instance."""
     return str(getattr(provider, "id", "") or configured_provider_id)
-
-
-def _resolve_model_context_ids(
-    agent_id: Optional[str],
-) -> tuple[Optional[str], Optional[str]]:
-    """Resolve the agent and session IDs available to model creation."""
-    from ..app.agent_context import get_current_agent_id
-    from ..app.agent_context import get_current_session_id
-
-    resolved_agent_id = agent_id
-    if resolved_agent_id is None:
-        try:
-            resolved_agent_id = get_current_agent_id()
-        except Exception:
-            pass
-
-    session_id = None
-    try:
-        session_id = get_current_session_id()
-    except Exception:
-        pass
-    return resolved_agent_id, session_id
 
 
 def create_model_and_formatter(
@@ -1436,23 +1375,28 @@ def create_model_and_formatter(
     Example:
         >>> model, formatter = create_model_and_formatter()
     """
+    from ..app.agent_context import (
+        get_current_agent_id,
+        get_current_model_slot_override,
+    )
     from ..config.config import load_agent_config
-    from ..config.config import resolve_effective_model_slot
+    from ..services.model_selection import resolve_effective_model_slot
 
-    agent_id, session_id = _resolve_model_context_ids(agent_id)
+    # Determine agent_id (parameter > context > None)
+    if agent_id is None:
+        agent_id = get_current_agent_id()
+    if model_slot_override is None:
+        model_slot_override = get_current_model_slot_override()
 
-    # Try to get session/agent-specific model first
-    model_slot = None
+    manager = ProviderManager.get_instance()
+    agent_model = None
     retry_config = None
     rate_limit_config = None
     compact_threshold: Optional[float] = None
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
-            model_slot, _source = resolve_effective_model_slot(
-                agent_config=agent_config,
-                session_id=session_id,
-            )
+            agent_model = agent_config.active_model
             retry_config = RetryConfig(
                 enabled=agent_config.running.llm_retry_enabled,
                 max_retries=agent_config.running.llm_max_retries,
@@ -1475,14 +1419,18 @@ def create_model_and_formatter(
         except Exception:
             pass
 
-    slot = _resolve_model_slot_override(model_slot_override)
-    if slot is not None and slot.provider_id and slot.model:
-        model_slot = slot
+    model_slot, _source = resolve_effective_model_slot(
+        request_override=model_slot_override,
+        agent_model=agent_model,
+        global_model=(
+            manager.get_active_model()
+            if hasattr(manager, "get_active_model")
+            else None
+        ),
+    )
 
-    # Create chat model from agent-specific or global config
+    # Create the chat model from the unified request/session/agent/global slot.
     if model_slot and model_slot.provider_id and model_slot.model:
-        # Use agent-specific model
-        manager = ProviderManager.get_instance()
         provider = manager.get_provider(model_slot.provider_id)
         if provider is None:
             raise ProviderError(

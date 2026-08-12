@@ -244,8 +244,8 @@ class AgentBuilder:
             resolve_effective_skills,
         )
         from ..config.config import load_agent_config
-        from ..config.config import resolve_effective_model_slot
         from ..constant import WORKING_DIR
+        from ..services.model_selection import resolve_current_model_slot
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
         agent_config = load_agent_config(agent_id)
@@ -257,9 +257,10 @@ class AgentBuilder:
         ctx.agent_config = agent_config
 
         # Validate model availability.
-        active, _source = resolve_effective_model_slot(
-            agent_config=agent_config,
-            session_id=getattr(ctx, "session_id", None),
+        model_slot_override = getattr(ctx.request, "model_slot_override", None)
+        active, _source = resolve_current_model_slot(
+            agent_id=agent_id,
+            request_override=model_slot_override,
         )
         if active is None or not active.provider_id or not active.model:
             raise RuntimeError(
@@ -342,7 +343,6 @@ class AgentBuilder:
 
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
-        model_slot_override = getattr(ctx.request, "model_slot_override", None)
         model, _formatter = self.build_model(
             agent_config,
             model_slot_override=model_slot_override,
@@ -716,12 +716,7 @@ class AgentBuilder:
             or os.environ.get("SHELL")
             or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
         )
-        from ..config.config import resolve_effective_model_slot
-
-        _active, _ = resolve_effective_model_slot(
-            agent_config=agent_config,
-            session_id=getattr(ctx, "session_id", None),
-        )
+        _active = getattr(agent_config, "active_model", None)
         _model_name = (
             _active.model
             if _active and getattr(_active, "model", None)

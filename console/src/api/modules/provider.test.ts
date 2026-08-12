@@ -46,14 +46,15 @@ describe("providerApi", () => {
     );
   });
 
-  it("getActiveModels with session_id builds correct query", async () => {
+  it("getActiveModels sends the resolved chat id as a header", async () => {
     await providerApi.getActiveModels({
       scope: "effective",
       agent_id: "agent-1",
-      session_id: "channel:private:user-1",
+      chat_id: "chat-1",
     });
     expect(request).toHaveBeenCalledWith(
-      "/models/active?scope=effective&agent_id=agent-1&session_id=channel%3Aprivate%3Auser-1",
+      "/models/active?scope=effective&agent_id=agent-1",
+      { headers: { "X-Chat-Id": "chat-1" } },
     );
   });
 
@@ -67,50 +68,6 @@ describe("providerApi", () => {
     expect(request).toHaveBeenCalledWith("/models/active", {
       method: "PUT",
       body: JSON.stringify(body),
-    });
-  });
-
-  it("getSessionModelOverrides calls /models/session-overrides", async () => {
-    await providerApi.getSessionModelOverrides();
-    expect(request).toHaveBeenCalledWith("/models/session-overrides");
-  });
-
-  it("setSessionModelOverridesEnabled sends a PUT request", async () => {
-    await providerApi.setSessionModelOverridesEnabled(true);
-    expect(request).toHaveBeenCalledWith("/models/session-overrides", {
-      method: "PUT",
-      body: JSON.stringify({ enabled: true }),
-    });
-  });
-
-  it("setSessionModelOverride encodes ids and sends PUT", async () => {
-    const body = { provider_id: "openai", model: "gpt-4o" };
-    await providerApi.setSessionModelOverride(
-      "agent/1",
-      "channel:private:user-1",
-      body,
-    );
-    expect(request).toHaveBeenCalledWith(
-      "/models/session-overrides/agent%2F1/channel%3Aprivate%3Auser-1",
-      {
-        method: "PUT",
-        body: JSON.stringify(body),
-      },
-    );
-  });
-
-  it("resetSessionModelOverride encodes ids and sends DELETE", async () => {
-    await providerApi.resetSessionModelOverride("agent/1", "console:session-1");
-    expect(request).toHaveBeenCalledWith(
-      "/models/session-overrides/agent%2F1/console%3Asession-1",
-      { method: "DELETE" },
-    );
-  });
-
-  it("resetAllSessionModelOverrides sends DELETE", async () => {
-    await providerApi.resetAllSessionModelOverrides();
-    expect(request).toHaveBeenCalledWith("/models/session-overrides", {
-      method: "DELETE",
     });
   });
 

@@ -318,8 +318,12 @@ function snapshotFromSsePayload(raw: string): TurnUsageSnapshot | null {
 export function wrapChatResponseUsageStream(
   response: Response,
   chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
+  onComplete?: () => void,
 ): Response {
-  if (!response.body) return response;
+  if (!response.body) {
+    onComplete?.();
+    return response;
+  }
 
   const decoder = new TextDecoder();
   let buffer = "";
@@ -338,15 +342,19 @@ export function wrapChatResponseUsageStream(
         }
       },
       flush() {
-        buffer += decoder.decode();
-        const parsed = parseSseDataLines(`${buffer}\n\n`);
-        for (const raw of parsed.events) {
-          const snap = snapshotFromSsePayload(raw);
-          if (snap) pendingUsage = snap;
-        }
-        if (pendingUsage) {
-          useTurnUsageStore.getState().setSnapshot(pendingUsage);
-          schedulePatchLastResponseCardUsage(chatRef, pendingUsage);
+        try {
+          buffer += decoder.decode();
+          const parsed = parseSseDataLines(`${buffer}\n\n`);
+          for (const raw of parsed.events) {
+            const snap = snapshotFromSsePayload(raw);
+            if (snap) pendingUsage = snap;
+          }
+          if (pendingUsage) {
+            useTurnUsageStore.getState().setSnapshot(pendingUsage);
+            schedulePatchLastResponseCardUsage(chatRef, pendingUsage);
+          }
+        } finally {
+          onComplete?.();
         }
       },
     }),
