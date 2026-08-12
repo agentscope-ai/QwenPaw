@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 _NONE_REASONING_EFFORT_MODELS = frozenset(
     {
         "gpt-5.5",
+        "gpt-5.5-2026-04-23",
+        "gpt-5.6",
         "gpt-5.6-luna",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
@@ -25,7 +27,7 @@ _NONE_REASONING_EFFORT_MODELS = frozenset(
 
 
 def _supports_none_reasoning_effort(model_name: str) -> bool:
-    """Whether a known model accepts ``reasoning.effort=none``."""
+    """Whether a documented model accepts ``reasoning.effort=none``."""
     canonical_name = model_name.rsplit("/", 1)[-1].lower()
     return canonical_name in _NONE_REASONING_EFFORT_MODELS
 
@@ -111,10 +113,9 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         ):
             merged["max_output_tokens"] = inherited_max_tokens
         if disable_thinking:
+            merged.pop("reasoning", None)
             if _supports_none_reasoning_effort(model_name):
                 merged["reasoning"] = {"effort": "none"}
-            else:
-                merged.pop("reasoning", None)
         return await super()._call_api(
             model_name,
             messages,

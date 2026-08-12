@@ -367,7 +367,8 @@ async def test_video_probe_reasoning_fallback(
         "gpt-5.3-codex",
         "gpt-5.4-pro",
         "gpt-5.5-pro",
-        "gpt-5.6",
+        "gpt-5.5-pro-2026-04-23",
+        "gpt-5.6-codex-2026-07-16",
         "gpt-5.7",
         "custom-reasoner",
     ],
@@ -418,6 +419,8 @@ async def test_summary_call_removes_reasoning_when_none_is_unsupported(
     "model_name",
     [
         "gpt-5.5",
+        "gpt-5.5-2026-04-23",
+        "gpt-5.6",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
         "openai/gpt-5.6-luna",
