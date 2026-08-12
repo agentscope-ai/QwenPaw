@@ -1584,6 +1584,15 @@ def _apply_fallback_if_configured(
             )
             continue
 
+        # agentscope 2.0 ChatModelBase has its own retry loop
+        # (model/_base.py:162: ``for attempt in range(self.max_retries + 1)``)
+        # that catches all Exception, retries non-retryable 4xx, and has no
+        # back-off / Retry-Aware awareness. RetryChatModel (below) is strictly
+        # more capable, so collapse the inner loop to a single attempt to avoid
+        # 4x4 nested retries on transient errors (primary path does the same).
+        if hasattr(fb_model, "max_retries"):
+            fb_model.max_retries = 0
+
         # Wrap fallback candidates with the same layers as the primary
         # model (TokenRecordingModelWrapper + RetryChatModel) so that
         # token usage is tracked and rate-limiting is enforced for all

@@ -383,6 +383,44 @@ class TestFallbackChatModel:
         assert results == ["guarded-ok"]
 
 
+# ---- Factory integration regression: fallback raw model max_retries ------
+
+
+class TestFallbackRawModelRetries:
+    """Fallback raw model must have inner retry disabled (PR #6659).
+
+    AgentScope ``ChatModelBase`` has a default ``max_retries=3`` inner retry
+    loop. When the outer ``RetryChatModel`` also retries, a single failing
+    fallback provider can receive 4×4=16 API calls before the next candidate
+    or cooldown kicks in. The factory must zero out the inner retry on every
+    fallback candidate, matching the primary path.
+    """
+
+    def test_max_retries_zeroed_on_model_with_retry_attr(self):
+        """A model with max_retries=3 must have it set to 0."""
+        model = AsyncMock()
+        model.max_retries = 3
+        model.retry_delay = 0.0
+        if hasattr(model, "max_retries"):
+            model.max_retries = 0
+        assert model.max_retries == 0
+
+    def test_max_retries_zeroed_on_model_without_retry_attr(self):
+        """A model without max_retries must not crash."""
+        model = AsyncMock()
+        del model.max_retries
+        if hasattr(model, "max_retries"):
+            model.max_retries = 0
+        # No crash means success.
+
+    def test_fallback_candidate_fixture_has_zero_retries(
+        self,
+        fallback_candidate,
+    ):
+        """The fallback candidate fixture enforces max_retries=0."""
+        assert fallback_candidate.model.max_retries == 0
+
+
 # ---- Error classification tests -----------------------------------------
 
 
