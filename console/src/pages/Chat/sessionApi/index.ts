@@ -153,6 +153,19 @@ const parseTimestamp = (msg: Record<string, unknown>): number => {
   return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
 };
 
+/**
+ * Parse metadata.finished_at string to unix seconds (0 when absent).
+ * `finished_at` is stamped when the reply actually ended; `timestamp` is
+ * the created_at alias pinned at the first saved segment, which can be far
+ * earlier for turns with long tool calls.
+ */
+const parseFinishedAt = (msg: Record<string, unknown>): number => {
+  const ts = (msg.metadata as Record<string, unknown>)?.finished_at;
+  if (!ts || typeof ts !== "string") return 0;
+  const ms = new Date(ts.replace(" ", "T")).getTime();
+  return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
+};
+
 /** Extract plain text from a message's content array. */
 const extractTextFromContent = (content: unknown): string => {
   if (typeof content === "string") return content;
@@ -283,6 +296,13 @@ const buildResponseCard = (
 
   const firstTs = parseTimestamp(outputMessages[0]);
   const lastTs = parseTimestamp(outputMessages[outputMessages.length - 1]);
+  // Prefer the real reply-end time (finished_at) over timestamp so turns
+  // with long tool calls show the true completion time (#6826). Falls
+  // back to timestamp for legacy sessions without the stamp.
+  const finishedAt = outputMessages.reduce(
+    (max, m) => Math.max(max, parseFinishedAt(m)),
+    0,
+  );
 
   const normalizedMessages = outputMessages.map((msg) => ({
     ...msg,
@@ -305,7 +325,7 @@ const buildResponseCard = (
           created_at: firstTs || fallbackNow,
           sequence_number: maxSeq + 1,
           error: null,
-          completed_at: lastTs || fallbackNow,
+          completed_at: finishedAt || lastTs || fallbackNow,
           usage: turnUsage?.usage ?? null,
           context_usage: turnUsage?.context_usage ?? null,
         },
@@ -1674,6 +1694,7 @@ export const __test__ = {
   contentToRequestParts,
   extractTextFromContent,
   parseTimestamp,
+  parseFinishedAt,
   isLocalTimestamp,
   isGenerating,
   resolveRealId,

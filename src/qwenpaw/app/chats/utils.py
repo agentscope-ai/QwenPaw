@@ -554,11 +554,23 @@ def agentscope_msg_to_message(
         if ts_value:
             ts_value = _normalize_msg_timestamp(ts_value, user_tz)
 
+        # ``finished_at`` marks when the reply actually completed (stamped
+        # on REPLY_END by the runtime executor).  ``timestamp`` is the
+        # created_at alias — the first-segment save time — which can be
+        # far earlier for turns with long tool calls.  Expose both so the
+        # frontend can display the true completion time; ``finished_at``
+        # stays None for messages that never received a stamp (e.g. legacy
+        # sessions), letting consumers fall back to ``timestamp``.
+        finished_value = getattr(msg, "finished_at", None)
+        if finished_value:
+            finished_value = _normalize_msg_timestamp(finished_value, user_tz)
+
         metadata = {
             "original_id": msg.id,
             "original_name": msg.name,
             "metadata": msg.metadata,
             "timestamp": ts_value,
+            "finished_at": finished_value or None,
         }
 
         if isinstance(msg.content, str):
