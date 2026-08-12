@@ -802,3 +802,18 @@ class TestFlushAutoMemoryDefensiveGuard:
             "turn-2",
         ]
         assert _turn_state(agent)["pending"] == ["turn-1"]
+
+    @pytest.mark.asyncio
+    async def test_unresolved_marker_does_not_consume_batch_limit(self):
+        mm = _make_memory_manager()
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        agent.state.context = [_user_msg(msg_id="turn-2")]
+        _turn_state(agent)["pending"] = ["missing", "turn-2"]
+
+        await mw._flush_auto_memory(agent, count=1)
+
+        assert [msg.id for msg in mm.auto_memory.await_args.args[0]] == [
+            "turn-2",
+        ]
+        assert _turn_state(agent)["pending"] == ["missing"]

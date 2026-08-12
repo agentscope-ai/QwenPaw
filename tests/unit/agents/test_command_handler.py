@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
+import json
 import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -170,6 +171,46 @@ async def test_new_no_mem_mgr_resets_stop_gates() -> None:
 
     mode.on_conversation_reset.assert_awaited_once_with(ctx)
     assert "Memory Manager Disabled" in msg.get_text_content()
+
+
+@pytest.mark.asyncio
+async def test_load_history_discards_previous_auto_memory_state(
+    tmp_path,
+) -> None:
+    agent = _make_agent()
+    old_msg = _msg("user", "old turn", msg_id="old-turn")
+    agent.state.context = [old_msg]
+    state = auto_memory_turn_state(agent.state)
+    state["pending"] = ["old-turn"]
+    state["snapshots"] = {
+        "old-turn": [old_msg.model_dump(mode="json")],
+    }
+    state["seen"] = {"old-turn": None}
+    state["search"] = {
+        "turn_marker": "old-turn",
+        "messages": [old_msg.model_dump(mode="json")],
+    }
+
+    loaded_msg = _msg("user", "loaded turn", msg_id="loaded-turn")
+    history_file = tmp_path / "debug_history.jsonl"
+    history_file.write_text(
+        json.dumps(loaded_msg.to_dict(), ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+    handler._get_agent_config = lambda: SimpleNamespace(
+        workspace_dir=str(tmp_path),
+    )
+
+    result = await handler.handle_command("/load_history")
+
+    assert "History Loaded" in result.get_text_content()
+    assert [msg.id for msg in agent.state.context] == ["loaded-turn"]
+    loaded_state = auto_memory_turn_state(agent.state)
+    assert loaded_state["pending"] == []
+    assert loaded_state["snapshots"] == {}
+    assert loaded_state["seen"] == {}
+    assert loaded_state["search"] == {}
 
 
 @pytest.mark.asyncio

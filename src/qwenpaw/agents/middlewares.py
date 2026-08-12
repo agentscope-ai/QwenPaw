@@ -294,14 +294,13 @@ class MemoryMiddleware(MiddlewareBase):
             return
 
         self.migrate_legacy_retry_batch(turn_state)
-        if count is None:
-            turn_markers = list(pending_markers)
-        else:
-            turn_markers = pending_markers[:count]
-
         messages: list[Msg] = []
         resolved_markers: list[str] = []
-        for turn_marker in turn_markers:
+        attempted_markers: list[str] = []
+        for turn_marker in list(pending_markers):
+            if count is not None and len(resolved_markers) >= count:
+                break
+            attempted_markers.append(turn_marker)
             turn_messages = self._load_turn_snapshot(
                 turn_state,
                 turn_marker,
@@ -319,7 +318,7 @@ class MemoryMiddleware(MiddlewareBase):
         if not messages:
             logger.warning(
                 "MemoryMiddleware retained unresolved pending markers: %s",
-                turn_markers,
+                attempted_markers,
             )
             return
 

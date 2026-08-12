@@ -1222,6 +1222,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
             for msg in loaded_messages:
                 self._state.context.append(msg)
 
+            # Auto-memory lifecycle data belongs to the context that was
+            # replaced above.  Do not let pending turns, saved snapshots, or
+            # search/seen caches from the previous history leak into the
+            # loaded conversation.
+            reset_auto_memory_turn_state(self._state)
+
             logger.info(
                 f"Loaded {len(loaded_messages)} messages from {history_file}",
             )
