@@ -116,10 +116,10 @@ Use the safest channel that expresses the requested operation:
 3. Use current screenshot coordinates only when accessibility is unavailable
    or unsuitable.
 
-Do not replace an operation with a broader sequence that changes its semantics
-or side effects. In particular, do not simulate moving a resource by copying
-it and deleting the source. Use the application's native move operation and
-verify both source and destination.
+Preserve the semantics and side effects of the requested operation. Do not
+approximate an unsupported operation with a broader sequence that adds side
+effects. If no available action preserves the requested semantics, report the
+limitation.
 
 ### Elements and Coordinates
 
@@ -127,6 +127,12 @@ Use `click`, `double_click`, or `right_click` with `element_id` when the target
 appears in `accessibility.elements`. Use `invoke` only when ordinary clicking
 is unavailable and the element explicitly exposes the required semantic
 action.
+
+`click`, `double_click`, and `right_click` accept no keyboard modifier
+parameter, and `press_key` cannot hold a modifier across tool calls. Never
+claim that one of these actions used `CTRL`, `ALT`, `SHIFT`, or `WIN`. Use
+another supported action only when it preserves the requested semantics;
+otherwise report the limitation.
 
 Use coordinates only with the current observation. The runtime revalidates
 window geometry and the hit window before input. If it rejects a changed,
@@ -191,19 +197,12 @@ Apply only the subsection matching the runtime platform.
 
 - Express Command as `WIN` and Option as `ALT`; for example,
   `WIN+SHIFT+N` is Command-Shift-N.
-- To move Finder resources with the keyboard, copy the selected resources,
-  navigate to the destination, and use `WIN+ALT+V` (Move Item Here). Prefer an
-  observed command with the same semantics when available. Verify that each
-  resource disappeared from the source and appeared at the destination.
 - Use `set_value` only when `[settable]` is present.
 - `INSERT` is unavailable.
 
 ### Windows
 
 - `CTRL`, `ALT`, and `WIN` retain their Windows meanings.
-- To move File Explorer resources with the keyboard, use `CTRL+X`, navigate to
-  the destination, then use `CTRL+V`. Prefer an observed Move or Cut command
-  when available. Verify source and destination.
 - `list_apps` may omit an application that has no current window; use an
   explicit executable path when necessary.
 - `INSERT` is available.
