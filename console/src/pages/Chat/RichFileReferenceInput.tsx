@@ -436,7 +436,7 @@ function RichEditorBridge({
 
   return (
     <OnChangePlugin
-      ignoreSelectionChange={false}
+      ignoreSelectionChange={true}
       onChange={(editorState) => {
         editorState.read(() => {
           const raw = $getRoot().getTextContent();
