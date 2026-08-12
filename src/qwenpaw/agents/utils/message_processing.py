@@ -329,13 +329,19 @@ async def _process_local_data_block(
         return None
     media_type = getattr(source, "media_type", "") or ""
     if media_type.startswith("audio/"):
-        await _process_audio_block(
+        handled = await _process_audio_block(
             message_content,
             index,
             local_path,
             block,
         )
-        return None
+        if handled:
+            # Audio was transcribed or sent natively; suppress the
+            # "file downloaded" notification that would follow.
+            return None
+        # Transcription failed — keep the local path so the caller's
+        # "file downloaded" notification still surfaces it.
+        return local_path
     return local_path
 
 

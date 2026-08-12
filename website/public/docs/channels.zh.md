@@ -542,6 +542,17 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 | `access_token`           | string | `""`        | OneBot 客户端携带的共享 Token。**`ws_host` 不是回环地址时必填** |
 | `share_session_in_group` | bool   | `false`     | 为 `true` 时群成员共享一个会话；为 `false` 时每个成员独立会话   |
 
+### 入站媒体
+
+从 OneBot 客户端收到的图片、语音、视频、文件会在交给 agent 之前先下载并本地化保存，与 Feishu、DingTalk、WeCom、Telegram、QQ 等其他渠道的处理方式一致。默认保存在 agent workspace 目录下的 `media/onebot` 中。
+
+以下两个高级字段仅可通过 `config.json` 设置（Console 表单未暴露），用于覆盖默认行为：
+
+| 字段                     | 类型   | 默认值  | 说明                                                                                  |
+| ------------------------ | ------ | ------- | ------------------------------------------------------------------------------------- |
+| `media_dir`              | string | `null`  | 覆盖下载媒体的存放目录，默认为 `<workspace>/media/onebot`                              |
+| `media_download_max_mb`  | int    | `50`    | 单个入站下载文件的大小上限（MB）。与 `media_base64_max_mb`（仅约束出站 Base64 内联）互相独立 |
+
 ### 安全说明
 
 反向 WebSocket 服务接收 OneBot 事件，而这些事件会驱动 agent 执行。因此一个可从网络访问、又未开启鉴权的监听端口，等于允许任何人驱动你的 agent。

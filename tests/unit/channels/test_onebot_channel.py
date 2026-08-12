@@ -11,10 +11,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
+from agentscope.message import TextBlock
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 from aiohttp.web import TCPSite
 from pydantic import ValidationError
+from qwenpaw.agents.utils.message_processing import (
+    process_file_and_media_blocks_in_message,
+)
 from qwenpaw.config.config import OneBotConfig
 from qwenpaw.runtime.message_convert import _request_input_to_msgs
 from qwenpaw.schemas import (
@@ -33,6 +37,7 @@ from qwenpaw.app.channels.onebot.channel import (
     OneBotChannel,
     _normalize_media_ref_sync,
 )
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +83,25 @@ def test_media_base64_config():
     assert ch._media_base64_max_bytes == 3_000_000
     with pytest.raises(ValidationError):
         OneBotConfig(media_base64_max_mb=0)
+
+
+def test_media_download_max_mb_config():
+    """Inbound download limit is independent of the base64 limit."""
+
+    async def _noop_process(_request):
+        yield  # pragma: no cover
+
+    config = OneBotConfig(enabled=True, media_download_max_mb=5)
+    ch = OneBotChannel.from_config(_noop_process, config)
+
+    assert OneBotConfig().model_dump()["media_download_max_mb"] == 50
+    assert config.model_dump()["media_download_max_mb"] == 5
+    assert ch._media_download_max_bytes == 5_000_000
+    # A large-but-under-download-limit file must not be rejected just
+    # because base64 inlining is disabled/small by default.
+    assert ch._media_download_max_bytes != ch._media_base64_max_bytes
+    with pytest.raises(ValidationError):
+        OneBotConfig(media_download_max_mb=0)
 
 
 def test_media_dir_config(tmp_path):
@@ -476,30 +500,56 @@ class TestInboundMediaResolution:
         assert resolved[0].type == ContentType.TEXT
         assert resolved[0].text == "[file: download failed]"
 
+
+def _make_download_response(
+    chunks: list,
+    content_type: str = "application/octet-stream",
+    content_length: int | None = None,
+) -> MagicMock:
+    """Build a mocked aiohttp response for ``_download_remote_media``."""
+    response = MagicMock()
+    response.content_length = content_length
+    response.headers = {"Content-Type": content_type}
+    response.raise_for_status = MagicMock()
+
+    async def _chunks():
+        for chunk in chunks:
+            yield chunk
+
+    response.content.iter_chunked.return_value = _chunks()
+    return response
+
+
+def _make_get_context(response: MagicMock) -> MagicMock:
+    """Wrap a mocked response as an ``async with session.get(...)`` value."""
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(return_value=response)
+    ctx.__aexit__ = AsyncMock(return_value=None)
+    return ctx
+
+
+class TestDownloadRemoteMedia:
+    """Covers streaming download: session reuse, concurrency limit, atomic
+    rename and cleanup of aborted/oversized downloads.  These behaviors
+    replace the old ``_inline_remote_images``/``_download_image_data_url``
+    path, which is now dead production code and has been removed.
+    """
+
     async def test_download_remote_media_writes_local_file(self, tmp_path):
-        ch = _make_channel(media_base64=True, media_dir=str(tmp_path))
-        response = MagicMock()
-        response.content_length = 5
-        response.headers = {"Content-Type": "image/png"}
-        response.raise_for_status = MagicMock()
-
-        async def _chunks():
-            yield b"image"
-
-        response.content.iter_chunked.return_value = _chunks()
-        request_context = MagicMock()
-        request_context.__aenter__ = AsyncMock(return_value=response)
-        request_context.__aexit__ = AsyncMock(return_value=None)
+        ch = _make_channel(media_dir=str(tmp_path))
+        response = _make_download_response(
+            [b"image"],
+            content_type="image/png",
+            content_length=5,
+        )
         session = MagicMock()
-        session.get.return_value = request_context
+        session.get.return_value = _make_get_context(response)
+        session.close = AsyncMock()
 
         with patch(
             "qwenpaw.app.channels.onebot.channel.aiohttp.ClientSession",
+            return_value=session,
         ) as session_cls:
-            session_cls.return_value.__aenter__ = AsyncMock(
-                return_value=session,
-            )
-            session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
             result = await ch._download_remote_media(
                 "https://img.example.com/pic",
                 "image",
@@ -511,210 +561,224 @@ class TestInboundMediaResolution:
         path = Path(result)
         assert path.suffix == ".png"
         assert path.read_bytes() == b"image"
+        assert not path.name.endswith(".part")
         session.get.assert_called_once_with(
             "https://img.example.com/pic",
             allow_redirects=True,
             max_redirects=3,
         )
+        # No channel-level session was running, so a scratch session was
+        # created (and must be closed) for this one-off download.
+        session_cls.assert_called_once()
+        session.close.assert_awaited_once()
 
-
-class TestInlineRemoteImages:
-    async def test_disabled_keeps_remote_url(self):
-        ch = _make_channel(media_base64=False)
-        part = ImageContent(
-            type=ContentType.IMAGE,
-            image_url="https://img.example.com/pic.png",
-        )
-
-        resolved = await ch._inline_remote_images([part])
-
-        assert resolved == [part]
-
-    async def test_enabled_replaces_remote_url_with_data_url(self):
-        ch = _make_channel(media_base64=True)
-        part = ImageContent(
-            type=ContentType.IMAGE,
-            image_url="https://img.example.com/pic.png",
-        )
-        ch._download_image_data_url = AsyncMock(
-            return_value="data:image/png;base64,aW1hZ2U=",
-        )
+    async def test_download_reuses_channel_http_session(self, tmp_path):
+        ch = _make_channel(media_dir=str(tmp_path))
+        response = _make_download_response([b"%PDF-data"], "application/pdf")
+        session = MagicMock()
+        session.closed = False
+        session.get.return_value = _make_get_context(response)
+        session.close = AsyncMock()
+        ch._http_session = session
 
         with patch(
             "qwenpaw.app.channels.onebot.channel.aiohttp.ClientSession",
         ) as session_cls:
-            session = MagicMock()
-            session_cls.return_value.__aenter__ = AsyncMock(
-                return_value=session,
+            result = await ch._download_remote_media(
+                "https://cdn.example.com/doc.pdf",
+                "file",
+                0,
+                "doc.pdf",
             )
-            session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
-            resolved = await ch._inline_remote_images([part])
 
-        assert resolved[0].image_url == "data:image/png;base64,aW1hZ2U="
-        ch._download_image_data_url.assert_awaited_once_with(
-            session,
-            "https://img.example.com/pic.png",
+        assert result is not None
+        session_cls.assert_not_called()
+        session.close.assert_not_awaited()
+
+    async def test_download_rejects_oversized_content_length(self, tmp_path):
+        ch = _make_channel(media_dir=str(tmp_path), media_download_max_mb=1)
+        response = _make_download_response(
+            [],
+            content_length=ch._media_download_max_bytes + 1,
         )
-
-    async def test_download_builds_data_url(self):
-        ch = _make_channel(media_base64=True)
-        response = MagicMock()
-        response.content_length = 5
-        response.headers = {"Content-Type": "image/png; charset=binary"}
-        response.raise_for_status = MagicMock()
-
-        async def _chunks():
-            yield b"image"
-
-        response.content.iter_chunked.return_value = _chunks()
-        request_context = MagicMock()
-        request_context.__aenter__ = AsyncMock(return_value=response)
-        request_context.__aexit__ = AsyncMock(return_value=None)
         session = MagicMock()
-        session.get.return_value = request_context
+        session.closed = False
+        session.get.return_value = _make_get_context(response)
+        ch._http_session = session
 
-        result = await ch._download_image_data_url(
-            session,
-            "https://img.example.com/pic.png",
-        )
-
-        assert result == "data:image/png;base64,aW1hZ2U="
-        session.get.assert_called_once_with(
-            "https://img.example.com/pic.png",
-            allow_redirects=True,
-            max_redirects=3,
-        )
-
-    async def test_download_rejects_oversized_content_length(self):
-        ch = _make_channel(media_base64=True, media_base64_max_mb=1)
-        response = MagicMock()
-        response.content_length = ch._media_base64_max_bytes + 1
-        response.headers = {"Content-Type": "image/png"}
-        response.raise_for_status = MagicMock()
-        request_context = MagicMock()
-        request_context.__aenter__ = AsyncMock(return_value=response)
-        request_context.__aexit__ = AsyncMock(return_value=None)
-        session = MagicMock()
-        session.get.return_value = request_context
-
-        result = await ch._download_image_data_url(
-            session,
+        result = await ch._download_remote_media(
             "https://img.example.com/huge.png",
+            "image",
+            0,
+            "huge.png",
         )
 
         assert result is None
 
-    async def test_download_rejects_non_image_content_type(self):
-        ch = _make_channel(media_base64=True)
-        response = MagicMock()
-        response.content_length = 4
-        response.headers = {"Content-Type": "text/html"}
-        response.raise_for_status = MagicMock()
-
-        async def _chunks():
-            yield b"html"
-
-        response.content.iter_chunked.return_value = _chunks()
-        request_context = MagicMock()
-        request_context.__aenter__ = AsyncMock(return_value=response)
-        request_context.__aexit__ = AsyncMock(return_value=None)
+    async def test_download_aborts_and_cleans_up_when_oversized(
+        self,
+        tmp_path,
+    ):
+        ch = _make_channel(media_dir=str(tmp_path))
+        ch._media_download_max_bytes = 4
+        response = _make_download_response([b"x" * 10])
         session = MagicMock()
-        session.get.return_value = request_context
+        session.closed = False
+        session.get.return_value = _make_get_context(response)
+        ch._http_session = session
 
-        result = await ch._download_image_data_url(
-            session,
-            "https://img.example.com/not-image",
+        result = await ch._download_remote_media(
+            "https://cdn.example.com/big.bin",
+            "file",
+            0,
+            "big.bin",
         )
 
         assert result is None
+        assert not list(tmp_path.iterdir())
 
-    async def test_download_rejects_oversized_chunked_body(self):
-        ch = _make_channel(media_base64=True, media_base64_max_mb=1)
-        response = MagicMock()
-        response.content_length = None
-        response.headers = {"Content-Type": "image/png"}
-        response.raise_for_status = MagicMock()
-
-        async def _chunks():
-            yield b"x" * (ch._media_base64_max_bytes + 1)
-
-        response.content.iter_chunked.return_value = _chunks()
-        request_context = MagicMock()
-        request_context.__aenter__ = AsyncMock(return_value=response)
-        request_context.__aexit__ = AsyncMock(return_value=None)
+    async def test_download_rejects_empty_body(self, tmp_path):
+        ch = _make_channel(media_dir=str(tmp_path))
+        response = _make_download_response([], content_type="image/png")
         session = MagicMock()
-        session.get.return_value = request_context
+        session.closed = False
+        session.get.return_value = _make_get_context(response)
+        ch._http_session = session
 
-        result = await ch._download_image_data_url(
-            session,
-            "https://img.example.com/chunked.png",
-        )
-
-        assert result is None
-
-    async def test_download_rejects_empty_body(self):
-        ch = _make_channel(media_base64=True)
-        response = MagicMock()
-        response.content_length = 0
-        response.headers = {"Content-Type": "image/png"}
-        response.raise_for_status = MagicMock()
-
-        async def _chunks():
-            for chunk in ():
-                yield chunk
-
-        response.content.iter_chunked.return_value = _chunks()
-        request_context = MagicMock()
-        request_context.__aenter__ = AsyncMock(return_value=response)
-        request_context.__aexit__ = AsyncMock(return_value=None)
-        session = MagicMock()
-        session.get.return_value = request_context
-
-        result = await ch._download_image_data_url(
-            session,
+        result = await ch._download_remote_media(
             "https://img.example.com/empty.png",
+            "image",
+            0,
+            "empty.png",
         )
 
         assert result is None
+        assert not list(tmp_path.iterdir())
 
-    async def test_download_http_error_returns_none(self):
-        ch = _make_channel(media_base64=True)
+    async def test_download_http_error_returns_none(self, tmp_path):
+        ch = _make_channel(media_dir=str(tmp_path))
+        session = MagicMock()
+        session.closed = False
         request_context = MagicMock()
         request_context.__aenter__ = AsyncMock(
             side_effect=aiohttp.ClientError("boom"),
         )
         request_context.__aexit__ = AsyncMock(return_value=None)
-        session = MagicMock()
         session.get.return_value = request_context
+        ch._http_session = session
 
-        result = await ch._download_image_data_url(
-            session,
+        result = await ch._download_remote_media(
             "https://img.example.com/error.png",
+            "image",
+            0,
+            "error.png",
         )
 
         assert result is None
 
-    async def test_inline_download_failure_becomes_text(self):
-        ch = _make_channel(media_base64=True)
-        part = ImageContent(
-            type=ContentType.IMAGE,
-            image_url="https://img.example.com/missing.png",
+    async def test_download_enforces_concurrency_limit(self, tmp_path):
+        ch = _make_channel(media_dir=str(tmp_path))
+        ch._download_semaphore = asyncio.Semaphore(1)
+        active = 0
+        max_active = 0
+
+        async def _chunks():
+            nonlocal active, max_active
+            active += 1
+            max_active = max(max_active, active)
+            try:
+                await asyncio.sleep(0.05)
+                yield b"data"
+            finally:
+                active -= 1
+
+        def _new_response():
+            response = MagicMock()
+            response.content_length = None
+            response.headers = {"Content-Type": "application/octet-stream"}
+            response.raise_for_status = MagicMock()
+            response.content.iter_chunked.return_value = _chunks()
+            return response
+
+        session = MagicMock()
+        session.closed = False
+        session.get.side_effect = lambda *a, **k: _make_get_context(
+            _new_response(),
         )
-        ch._download_image_data_url = AsyncMock(return_value=None)
+        ch._http_session = session
 
+        await asyncio.gather(
+            ch._download_remote_media(
+                "https://cdn.example.com/a",
+                "file",
+                0,
+                "a",
+            ),
+            ch._download_remote_media(
+                "https://cdn.example.com/b",
+                "file",
+                1,
+                "b",
+            ),
+        )
+
+        assert max_active == 1
+
+
+class TestAudioTranscriptionIntegration:
+    """End-to-end: a remote OneBot voice message is downloaded/localized
+    and reaches transcription through the shared message-processing
+    pipeline.  Migrated from ``test_message_processing.py`` so OneBot's
+    own download/localization behavior is covered alongside the rest of
+    this channel's tests.
+    """
+
+    async def test_remote_audio_reaches_transcription(self, tmp_path):
+        ch = _make_channel(media_dir=str(tmp_path))
+        assert ch._media_base64 is False
+
+        local_audio = tmp_path / "voice.mp3"
+        local_audio.write_bytes(b"ID3")
+        ch._download_remote_media = AsyncMock(return_value=str(local_audio))
+        remote_audio = AudioContent(
+            type=ContentType.AUDIO,
+            data="https://cdn.example.com/voice.amr",
+        )
+
+        resolved = await ch._resolve_inbound_media(
+            [remote_audio],
+            [{"type": "record", "data": {"url": remote_audio.data}}],
+            "private",
+            {},
+        )
+
+        assert resolved[0].data == str(local_audio)
+        ch._download_remote_media.assert_awaited_once()
+
+        messages = _request_input_to_msgs(
+            [Message(role=Role.USER, content=resolved)],
+        )
+        block = messages[0].content[0]
+        assert str(block.source.url) == local_audio.resolve().as_uri()
+
+        audio_config = MagicMock()
+        audio_config.agents.audio_mode = "auto"
+        audio_config.agents.language = "en"
         with patch(
-            "qwenpaw.app.channels.onebot.channel.aiohttp.ClientSession",
-        ) as session_cls:
-            session = MagicMock()
-            session_cls.return_value.__aenter__ = AsyncMock(
-                return_value=session,
-            )
-            session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
-            resolved = await ch._inline_remote_images([part])
+            "qwenpaw.agents.utils.message_processing.load_config",
+            return_value=audio_config,
+        ), patch(
+            "qwenpaw.agents.utils.audio_transcription.transcribe_audio",
+            new=AsyncMock(return_value="hello from OneBot"),
+        ) as transcribe:
+            await process_file_and_media_blocks_in_message(messages[0])
 
-        assert len(resolved) == 1
-        assert resolved[0].type == ContentType.TEXT
-        assert resolved[0].text == "[image: download failed]"
+        transcribe.assert_awaited_once_with(str(local_audio.resolve()))
+        assert len(messages[0].content) == 1
+        assert isinstance(messages[0].content[0], TextBlock)
+        assert messages[0].content[0].text == (
+            "[Voice message]: hello from OneBot"
+        )
 
 
 # ===================================================================
@@ -813,8 +877,8 @@ class TestHandleMessageEvent:
     async def test_require_mention_blocks_before_remote_image_download(self):
         ch = _make_channel(require_mention=True, media_base64=True)
         ch._self_id = 99999
-        ch._download_image_data_url = AsyncMock(
-            return_value="data:image/png;base64,aW1hZ2U=",
+        ch._download_remote_media = AsyncMock(
+            return_value="/tmp/onebot-media/pic.png",
         )
         enqueued: list = []
         ch._enqueue = enqueued.append
@@ -832,7 +896,7 @@ class TestHandleMessageEvent:
         await ch._handle_message_event(event)
 
         assert len(enqueued) == 0
-        ch._download_image_data_url.assert_not_called()
+        ch._download_remote_media.assert_not_called()
 
     async def test_require_mention_allows_with_at(self):
         ch = _make_channel(require_mention=True)
@@ -1158,6 +1222,64 @@ class TestHandleMessageEvent:
 
         ch._call_api.assert_not_awaited()
         assert not enqueued
+
+    async def test_access_control_blocks_before_quoted_message_lookup(self):
+        """ACL must run before any reply-quote lookup or media I/O so a
+        blocked sender never triggers OneBot API calls or downloads."""
+        ch = _make_channel(access_control_dm=True)
+        ch._access_control_gate = AsyncMock(return_value=True)
+        ch._get_quoted_message_segments = AsyncMock()
+        ch._resolve_inbound_media = AsyncMock()
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            segments=[
+                {"type": "reply", "data": {"id": "321"}},
+                {"type": "text", "data": {"text": "hello"}},
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        ch._access_control_gate.assert_awaited_once()
+        gate_payload = ch._access_control_gate.await_args.args[0]
+        assert gate_payload["acl_sender_id"] == "12345"
+        ch._get_quoted_message_segments.assert_not_awaited()
+        ch._resolve_inbound_media.assert_not_awaited()
+        assert len(enqueued) == 0
+
+    async def test_access_control_blocks_before_media_download(self):
+        ch = _make_channel(access_control_dm=True)
+        ch._access_control_gate = AsyncMock(return_value=True)
+        ch._download_remote_media = AsyncMock()
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            segments=[
+                {
+                    "type": "image",
+                    "data": {"url": "https://img.example.com/pic.png"},
+                },
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        ch._access_control_gate.assert_awaited_once()
+        ch._download_remote_media.assert_not_awaited()
+        assert len(enqueued) == 0
+
+    async def test_access_control_allows_when_gate_passes(self):
+        ch = _make_channel(access_control_dm=True)
+        ch._access_control_gate = AsyncMock(return_value=False)
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event()
+        await ch._handle_message_event(event)
+
+        ch._access_control_gate.assert_awaited_once()
+        assert len(enqueued) == 1
 
 
 # ===================================================================
@@ -1491,6 +1613,68 @@ class TestSendMedia:
                 ],
             },
         )
+
+    async def test_send_strips_think_blocks_when_hidden(self):
+        ch = _make_channel(
+            display_config=ChannelDisplayConfig(show_thinking=False),
+        )
+        ch._call_api = AsyncMock(return_value={"retcode": 0})
+
+        await ch.send(
+            "12345",
+            "before\n<think>private reasoning</think>\nafter",
+            {"sender_id": "12345"},
+        )
+
+        message = ch._call_api.call_args.args[1]["message"]
+        assert message == [
+            {"type": "text", "data": {"text": "before\n\nafter"}},
+        ]
+
+    async def test_send_preserves_think_blocks_inside_code_fences(self):
+        ch = _make_channel(
+            display_config=ChannelDisplayConfig(show_thinking=False),
+        )
+        ch._call_api = AsyncMock(return_value={"retcode": 0})
+
+        await ch.send(
+            "12345",
+            (
+                "```xml\n<think>literal</think>\n```\n"
+                "<think>secret</think>\nanswer"
+            ),
+            {"sender_id": "12345"},
+        )
+
+        message = ch._call_api.call_args.args[1]["message"]
+        assert message == [
+            {
+                "type": "text",
+                "data": {
+                    "text": "```xml\n<think>literal</think>\n```\n\nanswer",
+                },
+            },
+        ]
+
+    async def test_send_keeps_think_blocks_when_visible(self):
+        ch = _make_channel(
+            display_config=ChannelDisplayConfig(show_thinking=True),
+        )
+        ch._call_api = AsyncMock(return_value={"retcode": 0})
+
+        await ch.send(
+            "12345",
+            "<think>visible reasoning</think>\nanswer",
+            {"sender_id": "12345"},
+        )
+
+        message = ch._call_api.call_args.args[1]["message"]
+        assert message == [
+            {
+                "type": "text",
+                "data": {"text": "<think>visible reasoning</think>\nanswer"},
+            },
+        ]
 
 
 # ===================================================================

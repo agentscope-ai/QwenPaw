@@ -21,6 +21,7 @@ import logging
 import mimetypes
 import os
 import re
+import tempfile
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -54,7 +55,17 @@ logger = logging.getLogger(__name__)
 
 # Hard cap on concurrently-tracked event handlers (flood protection).
 _EVENT_TASK_HARD_CAP = 500
+# Hard cap on queued-but-unprocessed events per session (flood protection
+# for a single conversation, independent of the global event task cap).
+_SESSION_QUEUE_HARD_CAP = 50
 _DEFAULT_MEDIA_BASE64_MAX_MB = 10
+_DEFAULT_MEDIA_DOWNLOAD_MAX_MB = 50
+# Bound on concurrent remote media downloads, independent of the global
+# event task cap — protects LM/disk resources under a media flood.
+_DEFAULT_MAX_CONCURRENT_DOWNLOADS = 4
+# Filesystem component name length safety margin (most filesystems cap at
+# 255 bytes; leave room for a uuid prefix, separators and a suffix).
+_MAX_FILENAME_STEM_LENGTH = 100
 _DEFAULT_WS_HOST = "127.0.0.1"
 # OneBot v11 defines the "Bearer" scheme; "Token" is an ecosystem
 # convention popularised by NoneBot.  Matching is case-insensitive per
@@ -67,6 +78,14 @@ _MARKDOWN_LINK_RE = re.compile(
 )
 _WRAPPED_URL_RE = re.compile(
     r"(?P<mark>\*\*|__)(?P<url>https?://\S+?)(?P=mark)",
+)
+_THINK_BLOCK_RE = re.compile(
+    r"<think\b[^>]*>.*?</think>",
+    re.IGNORECASE | re.DOTALL,
+)
+_THINK_OPEN_RE = re.compile(
+    r"<think\b[^>]*>.*\Z",
+    re.IGNORECASE | re.DOTALL,
 )
 
 
@@ -118,6 +137,48 @@ def _clean_inline_text(text: str) -> str:
         closing_end = closing + len(marker)
         result.append(text[opening:closing_end])
         cursor = closing_end
+    return "".join(result)
+
+
+def _strip_thinking_blocks(text: str) -> str:
+    """Remove model-emitted thinking tags outside code fences."""
+    if not text or "<think" not in text.lower():
+        return text
+
+    result: list[str] = []
+    outside_fence: list[str] = []
+    fence_mark = ""
+
+    def _flush_outside_fence() -> None:
+        if outside_fence:
+            outside = "".join(outside_fence)
+            outside = _THINK_BLOCK_RE.sub("", outside)
+            outside = _THINK_OPEN_RE.sub("", outside)
+            result.append(outside)
+            outside_fence.clear()
+
+    for line in text.splitlines(keepends=True):
+        match = _CODE_FENCE_RE.match(line)
+        if fence_mark:
+            result.append(line)
+            if (
+                match
+                and match.group("mark")[0] == fence_mark[0]
+                and len(
+                    match.group("mark"),
+                )
+                >= len(fence_mark)
+            ):
+                fence_mark = ""
+            continue
+        if match:
+            _flush_outside_fence()
+            fence_mark = match.group("mark")
+            result.append(line)
+            continue
+        outside_fence.append(line)
+
+    _flush_outside_fence()
     return "".join(result)
 
 
@@ -176,6 +237,40 @@ def _local_path_from_media_ref(ref: str) -> Path | None:
     except OSError:
         return None
     return None
+
+
+def _probe_local_media_path_sync(ref: str) -> str | None:
+    """Synchronously resolve an existing local path for a media ref.
+
+    Runs the blocking ``Path.is_file()``/``Path.resolve()`` probing so
+    callers can offload it via ``asyncio.to_thread`` and keep the event
+    loop free.
+    """
+    local = file_url_to_local_path(ref)
+    if local:
+        try:
+            path = Path(local).expanduser()
+            if path.is_file():
+                return str(path.resolve())
+        except OSError:
+            return None
+    if ref.startswith(("http://", "https://")):
+        return None
+    try:
+        path = Path(ref).expanduser()
+        if path.is_file():
+            return str(path.resolve())
+    except OSError:
+        return None
+    return None
+
+
+def _unlink_quietly(path: Path) -> None:
+    """Best-effort removal of a leftover temp/partial download file."""
+    try:
+        path.unlink()
+    except OSError:
+        pass
 
 
 def _local_media_base64_ref(
@@ -308,6 +403,7 @@ class OneBotChannel(BaseChannel):
         access_control_group: bool = False,
         media_base64: bool = False,
         media_base64_max_mb: int = _DEFAULT_MEDIA_BASE64_MAX_MB,
+        media_download_max_mb: int = _DEFAULT_MEDIA_DOWNLOAD_MAX_MB,
         media_dir: str = "",
         workspace_dir: Path | None = None,
     ):
@@ -346,6 +442,24 @@ class OneBotChannel(BaseChannel):
             else _DEFAULT_MEDIA_BASE64_MAX_MB
         )
         self._media_base64_max_bytes = max_mb * 1_000_000
+        download_max_mb = (
+            media_download_max_mb
+            if media_download_max_mb > 0
+            else _DEFAULT_MEDIA_DOWNLOAD_MAX_MB
+        )
+        # Inbound download size limit — intentionally independent of
+        # ``_media_base64_max_bytes``, which only bounds outbound Base64
+        # serialization of already-local files.
+        self._media_download_max_bytes = download_max_mb * 1_000_000
+        # Bounds concurrent remote downloads regardless of how many event
+        # tasks/session queues are in flight.
+        self._download_semaphore = asyncio.Semaphore(
+            _DEFAULT_MAX_CONCURRENT_DOWNLOADS,
+        )
+        # Channel-owned session, created in start() and reused across
+        # downloads; created lazily on first use so unit tests that call
+        # _download_remote_media() directly (without start()) still work.
+        self._http_session: Optional[aiohttp.ClientSession] = None
         base_media_dir = Path(media_dir).expanduser() if media_dir else None
         if base_media_dir is None:
             workspace_base = workspace_dir or DEFAULT_MEDIA_DIR.parent
@@ -363,6 +477,13 @@ class OneBotChannel(BaseChannel):
 
         # Fire-and-forget event handlers, tracked so stop() can cancel them.
         self._event_tasks: Set[asyncio.Task] = set()
+        # Per-session ordering: one queue + one consumer task per session
+        # key, so messages within a conversation are processed in arrival
+        # order while different conversations still run concurrently and
+        # the WS read loop is never blocked by media downloads or API
+        # calls.
+        self._session_queues: Dict[str, asyncio.Queue] = {}
+        self._session_workers: Dict[str, asyncio.Task] = {}
 
         # Bot self ID (populated on first meta_event/lifecycle)
         self._self_id: Optional[int] = None
@@ -409,6 +530,12 @@ class OneBotChannel(BaseChannel):
                     str(_DEFAULT_MEDIA_BASE64_MAX_MB),
                 ),
             ),
+            media_download_max_mb=int(
+                os.getenv(
+                    "ONEBOT_MEDIA_DOWNLOAD_MAX_MB",
+                    str(_DEFAULT_MEDIA_DOWNLOAD_MAX_MB),
+                ),
+            ),
             media_dir=os.getenv("ONEBOT_MEDIA_DIR", ""),
         )
 
@@ -420,6 +547,7 @@ class OneBotChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
+        workspace_dir: Path | None = None,
     ) -> "OneBotChannel":
         return cls(
             process=process,
@@ -450,7 +578,13 @@ class OneBotChannel(BaseChannel):
             ),
             media_base64=config.media_base64,
             media_base64_max_mb=config.media_base64_max_mb,
+            media_download_max_mb=getattr(
+                config,
+                "media_download_max_mb",
+                _DEFAULT_MEDIA_DOWNLOAD_MAX_MB,
+            ),
             media_dir=config.media_dir or "",
+            workspace_dir=workspace_dir,
         )
 
     # ------------------------------------------------------------------
@@ -497,6 +631,11 @@ class OneBotChannel(BaseChannel):
             logger.debug("onebot channel disabled")
             return
         self._stopping = False
+        if self._http_session is None or self._http_session.closed:
+            self._http_session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=15),
+                trust_env=False,
+            )
         await self._start_ws_server()
         self._watchdog_task = asyncio.create_task(self._watchdog_loop())
 
@@ -518,6 +657,19 @@ class OneBotChannel(BaseChannel):
         if self._event_tasks:
             await asyncio.gather(*self._event_tasks, return_exceptions=True)
             self._event_tasks.clear()
+        # Cancel per-session ordering workers and drop their queues.
+        for task in list(self._session_workers.values()):
+            task.cancel()
+        if self._session_workers:
+            await asyncio.gather(
+                *self._session_workers.values(),
+                return_exceptions=True,
+            )
+            self._session_workers.clear()
+        self._session_queues.clear()
+        if self._http_session is not None and not self._http_session.closed:
+            await self._http_session.close()
+        self._http_session = None
 
     async def _start_ws_server(self) -> None:
         """Create and start the aiohttp WebSocket server.
@@ -714,6 +866,13 @@ class OneBotChannel(BaseChannel):
                         continue
                     if "echo" in data:
                         self._handle_api_response(data)
+                    elif data.get("post_type") == "message":
+                        # Enqueue onto the session's ordering queue.
+                        # put_nowait() never awaits, so the WS read loop
+                        # stays unblocked and keeps receiving the API echo
+                        # responses that in-flight handlers await while
+                        # resolving media/quoted messages.
+                        self._dispatch_message_event(data)
                     else:
                         # Dispatch as background task so the WS read
                         # loop stays unblocked — handlers can freely
@@ -761,8 +920,89 @@ class OneBotChannel(BaseChannel):
         self._event_tasks.add(task)
         task.add_done_callback(self._event_tasks.discard)
 
+    def _session_queue_key(self, data: Dict[str, Any]) -> str:
+        """Return the ordering key for one conversation's message events.
+
+        Mirrors :meth:`resolve_session_id` (without requiring the parsed
+        content) so that one queue maps 1:1 to one downstream session —
+        shared-group sessions share a queue, otherwise ordering is kept
+        per sender.  Computed synchronously from the raw event, with no
+        network I/O.
+        """
+        message_type = str(data.get("message_type") or "private")
+        user_id = str(data.get("user_id", ""))
+        group_id = str(data.get("group_id", ""))
+        is_group = message_type == "group"
+        return self.resolve_session_id(
+            user_id,
+            {"is_group": is_group, "group_id": group_id},
+        )
+
+    def _dispatch_message_event(self, data: Dict[str, Any]) -> None:
+        """Enqueue a message event onto its session's ordering queue.
+
+        Every WebSocket event previously ran in its own independent task,
+        so a later text message could overtake an earlier one still
+        downloading media from the same conversation.  Routing through a
+        per-session queue with a single consumer preserves arrival order
+        within one conversation while different conversations still run
+        concurrently.  This method never awaits, so the WS read loop is
+        never blocked by it.
+        """
+        key = self._session_queue_key(data)
+        queue = self._session_queues.get(key)
+        if queue is None:
+            if len(self._session_queues) >= _EVENT_TASK_HARD_CAP:
+                logger.warning(
+                    "onebot: session queue cap (%d) reached — dropping "
+                    "event for session=%s",
+                    _EVENT_TASK_HARD_CAP,
+                    key,
+                )
+                return
+            queue = asyncio.Queue(maxsize=_SESSION_QUEUE_HARD_CAP)
+            self._session_queues[key] = queue
+            worker = asyncio.create_task(
+                self._session_worker_loop(key, queue),
+            )
+            self._session_workers[key] = worker
+        try:
+            queue.put_nowait(data)
+        except asyncio.QueueFull:
+            logger.warning(
+                "onebot: session %s event queue full (%d) — dropping event",
+                key,
+                _SESSION_QUEUE_HARD_CAP,
+            )
+
+    async def _session_worker_loop(
+        self,
+        key: str,
+        queue: asyncio.Queue,
+    ) -> None:
+        """Process one session's message events strictly in arrival order."""
+        try:
+            while True:
+                data = await queue.get()
+                try:
+                    await self._handle_message_event(data)
+                except Exception:
+                    logger.exception(
+                        "onebot: unhandled error processing session %s "
+                        "event",
+                        key,
+                    )
+        except asyncio.CancelledError:
+            pass
+
     async def _handle_event(self, data: Dict[str, Any]) -> None:
-        """Dispatch an OneBot v11 event."""
+        """Dispatch an OneBot v11 event.
+
+        Message events are routed through :meth:`_dispatch_message_event`
+        directly from the WS read loop and never reach this method in
+        production; it is kept as a small entry point for meta events and
+        for direct/test invocation.
+        """
         post_type = data.get("post_type")
         if post_type == "meta_event":
             self._handle_meta_event(data)
@@ -818,6 +1058,14 @@ class OneBotChannel(BaseChannel):
         # Mention check (group messages may require @bot). Keep all
         # OneBot API calls after this gate to avoid I/O for ignored messages.
         if not self._check_group_mention(is_group, meta):
+            return
+
+        # Access control gate runs before any quoted-message lookup or
+        # media download so blacklisted/pending senders never trigger
+        # OneBot API calls or remote downloads.
+        if await self._access_control_gate(
+            {"acl_sender_id": user_id, "meta": meta},
+        ):
             return
 
         if reply_message_id:
@@ -1277,25 +1525,14 @@ class OneBotChannel(BaseChannel):
             text=f"[{kind}: download failed]",
         )
 
-    def _local_media_path(self, ref: str) -> str | None:
-        """Return an existing local path for file:// or plain path refs."""
-        local = file_url_to_local_path(ref)
-        if local:
-            try:
-                path = Path(local).expanduser()
-                if path.is_file():
-                    return str(path.resolve())
-            except OSError:
-                return None
-        if ref.startswith(("http://", "https://")):
-            return None
-        try:
-            path = Path(ref).expanduser()
-            if path.is_file():
-                return str(path.resolve())
-        except OSError:
-            return None
-        return None
+    async def _local_media_path(self, ref: str) -> str | None:
+        """Return an existing local path for file:// or plain path refs.
+
+        The actual filesystem probing is synchronous (``Path.is_file()`` /
+        ``Path.resolve()``); it is offloaded to a worker thread so the
+        event loop is never blocked by it.
+        """
+        return await asyncio.to_thread(_probe_local_media_path_sync, ref)
 
     async def _resolve_inbound_media(
         self,
@@ -1357,7 +1594,7 @@ class OneBotChannel(BaseChannel):
             )
             if api_ref:
                 ref = api_ref
-        local_path = self._local_media_path(ref)
+        local_path = await self._local_media_path(ref)
         if local_path:
             return local_path
         if not ref.startswith(("http://", "https://")):
@@ -1437,13 +1674,28 @@ class OneBotChannel(BaseChannel):
         segment_index: int,
         filename_hint: str,
     ) -> str | None:
-        """Download one remote OneBot media URL into managed local storage."""
-        timeout = aiohttp.ClientTimeout(total=15)
-        try:
-            async with aiohttp.ClientSession(
-                timeout=timeout,
-                trust_env=False,
-            ) as session:
+        """Download one remote OneBot media URL into managed local storage.
+
+        Bounded by ``self._download_semaphore`` (concurrent downloads) and
+        ``self._media_download_max_bytes`` (per-file size) — independent
+        of the outbound Base64 limit.  Reuses the channel-level HTTP
+        session started in ``start()`` when available; otherwise creates
+        (and closes) a scratch session, which keeps direct unit-test calls
+        working without a running channel.  Streams the response body to a
+        temp file under ``self._media_dir`` and atomically ``os.replace``s
+        it into place, so an aborted/oversized download never leaves a
+        partial file at the final path.
+        """
+        async with self._download_semaphore:
+            session = self._http_session
+            owns_session = session is None or session.closed
+            if owns_session:
+                session = aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=15),
+                    trust_env=False,
+                )
+            tmp_path: Optional[Path] = None
+            try:
                 async with session.get(
                     url,
                     allow_redirects=True,
@@ -1453,7 +1705,7 @@ class OneBotChannel(BaseChannel):
                     content_length = response.content_length
                     if (
                         content_length is not None
-                        and content_length > self._media_base64_max_bytes
+                        and content_length > self._media_download_max_bytes
                     ):
                         logger.warning(
                             "onebot: remote %s exceeds media limit: %s bytes",
@@ -1461,51 +1713,89 @@ class OneBotChannel(BaseChannel):
                             content_length,
                         )
                         return None
-                    data = bytearray()
-                    async for chunk in response.content.iter_chunked(
-                        64 * 1024,
-                    ):
-                        data.extend(chunk)
-                        if len(data) > self._media_base64_max_bytes:
-                            logger.warning(
-                                "onebot: remote %s download exceeded limit",
-                                kind,
-                            )
-                            return None
-                    if not data:
+
+                    await asyncio.to_thread(
+                        self._media_dir.mkdir,
+                        parents=True,
+                        exist_ok=True,
+                    )
+                    # Closed explicitly in the finally block below (kept
+                    # open across the streaming write loop), so this
+                    # cannot use a ``with`` block here.
+                    # pylint: disable=consider-using-with
+                    tmp_file = tempfile.NamedTemporaryFile(
+                        delete=False,
+                        dir=str(self._media_dir),
+                        suffix=".part",
+                    )
+                    tmp_path = Path(tmp_file.name)
+                    sniff = b""
+                    total = 0
+                    try:
+                        async for chunk in response.content.iter_chunked(
+                            64 * 1024,
+                        ):
+                            if not chunk:
+                                continue
+                            total += len(chunk)
+                            if total > self._media_download_max_bytes:
+                                logger.warning(
+                                    "onebot: remote %s download exceeded "
+                                    "limit",
+                                    kind,
+                                )
+                                return None
+                            if len(sniff) < 32:
+                                sniff += chunk[: 32 - len(sniff)]
+                            await asyncio.to_thread(tmp_file.write, chunk)
+                    finally:
+                        await asyncio.to_thread(tmp_file.close)
+                    if total == 0:
                         return None
+
                     media_type = response.headers.get("Content-Type", "")
-                    return await asyncio.to_thread(
-                        self._write_downloaded_media,
-                        bytes(data),
+                    final_path = await asyncio.to_thread(
+                        self._finalize_downloaded_media,
+                        tmp_path,
+                        sniff,
                         media_type,
                         kind,
                         segment_index,
                         filename_hint,
                     )
-        except (
-            aiohttp.ClientError,
-            asyncio.TimeoutError,
-            ValueError,
-            OSError,
-        ):
-            logger.warning(
-                "onebot: failed to download remote %s %s",
-                kind,
-                url,
-                exc_info=True,
-            )
-            return None
+                    # Renamed away; nothing left for the finally block to
+                    # clean up.
+                    tmp_path = None
+                    return final_path
+            except (
+                aiohttp.ClientError,
+                asyncio.TimeoutError,
+                ValueError,
+                OSError,
+            ):
+                logger.warning(
+                    "onebot: failed to download remote %s %s",
+                    kind,
+                    url,
+                    exc_info=True,
+                )
+                return None
+            finally:
+                if tmp_path is not None:
+                    await asyncio.to_thread(_unlink_quietly, tmp_path)
+                if owns_session:
+                    await session.close()
 
-    def _write_downloaded_media(
+    def _finalize_downloaded_media(
         self,
-        data: bytes,
+        tmp_path: Path,
+        sniff: bytes,
         raw_media_type: str,
         kind: str,
         segment_index: int,
         filename_hint: str,
     ) -> str:
-        """Write downloaded bytes under media_dir and return local path."""
+        """Atomically move a fully-downloaded temp file into media_dir."""
         media_type = raw_media_type.split(";", 1)[0].strip().lower()
         default_name = self._default_media_filename(kind)
         safe_name = self._safe_media_filename(filename_hint, default_name)
@@ -1513,117 +1803,14 @@ class OneBotChannel(BaseChannel):
         if not suffix and media_type:
             suffix = mimetypes.guess_extension(media_type) or ""
         if not suffix:
-            suffix = self._suffix_from_bytes(data) or Path(default_name).suffix
-        stem = Path(safe_name).stem or kind
+            suffix = (
+                self._suffix_from_bytes(sniff) or Path(default_name).suffix
+            )
+        stem = (Path(safe_name).stem or kind)[:_MAX_FILENAME_STEM_LENGTH]
         filename = f"{uuid.uuid4().hex}_{segment_index}_{stem}{suffix}"
-        self._media_dir.mkdir(parents=True, exist_ok=True)
-        path = (self._media_dir / filename).resolve()
-        path.write_bytes(data)
-        return str(path)
-
-    async def _inline_remote_images(self, content_parts: list) -> list:
-        """Inline remote OneBot images when base64 media mode is enabled."""
-        if not self._media_base64:
-            return content_parts
-
-        remote_images = [
-            part
-            for part in content_parts
-            if getattr(part, "type", None) == ContentType.IMAGE
-            and str(getattr(part, "image_url", "") or "").startswith(
-                ("http://", "https://"),
-            )
-        ]
-        if not remote_images:
-            return content_parts
-
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(
-            timeout=timeout,
-            trust_env=False,
-        ) as session:
-            resolved: list = []
-            for part in content_parts:
-                image_url = str(getattr(part, "image_url", "") or "")
-                if part not in remote_images:
-                    resolved.append(part)
-                    continue
-                data_url = await self._download_image_data_url(
-                    session,
-                    image_url,
-                )
-                if data_url:
-                    resolved.append(
-                        ImageContent(
-                            type=ContentType.IMAGE,
-                            image_url=data_url,
-                        ),
-                    )
-                else:
-                    resolved.append(
-                        TextContent(
-                            type=ContentType.TEXT,
-                            text="[image: download failed]",
-                        ),
-                    )
-            return resolved
-
-    async def _download_image_data_url(
-        self,
-        session: aiohttp.ClientSession,
-        url: str,
-    ) -> str | None:
-        """Download one image into a size-limited data URL."""
-        try:
-            async with session.get(
-                url,
-                allow_redirects=True,
-                max_redirects=3,
-            ) as response:
-                response.raise_for_status()
-                content_length = response.content_length
-                if (
-                    content_length is not None
-                    and content_length > self._media_base64_max_bytes
-                ):
-                    logger.warning(
-                        "onebot: remote image exceeds base64 limit: %s bytes",
-                        content_length,
-                    )
-                    return None
-
-                data = bytearray()
-                async for chunk in response.content.iter_chunked(64 * 1024):
-                    data.extend(chunk)
-                    if len(data) > self._media_base64_max_bytes:
-                        logger.warning(
-                            "onebot: remote image download exceeded "
-                            "base64 limit",
-                        )
-                        return None
-                if not data:
-                    return None
-
-                raw_media_type = response.headers.get("Content-Type", "")
-                media_type = raw_media_type.split(";", 1)[0].strip().lower()
-                if media_type and not media_type.startswith("image/"):
-                    logger.warning(
-                        "onebot: remote image returned non-image "
-                        "content type: %s",
-                        media_type,
-                    )
-                    return None
-                if not media_type:
-                    media_type = "image/jpeg"
-                encoded = base64.b64encode(data).decode("ascii")
-                return f"data:{media_type};base64,{encoded}"
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
-            logger.warning(
-                "onebot: failed to download remote image %s",
-                url,
-                exc_info=True,
-            )
-            return None
+        final_path = (self._media_dir / filename).resolve()
+        os.replace(tmp_path, final_path)
+        return str(final_path)
 
     # ------------------------------------------------------------------
     # Build AgentRequest
@@ -1683,6 +1870,8 @@ class OneBotChannel(BaseChannel):
         if not self.enabled or not text.strip():
             return
 
+        if not self._display_config.show_thinking:
+            text = await asyncio.to_thread(_strip_thinking_blocks, text)
         text = await asyncio.to_thread(_clean_onebot_plain_text, text)
         if not text.strip():
             return

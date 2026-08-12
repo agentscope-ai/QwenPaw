@@ -545,6 +545,21 @@ NapCat  ──reverse WS──▶  QwenPaw (:6199/ws)
 | `access_token`           | string | `""`        | Shared token sent by the OneBot client. **Required when `ws_host` is not a loopback address**            |
 | `share_session_in_group` | bool   | `false`     | If `true`, all members in a group share one session; if `false`, each member gets an independent session |
 
+### Inbound media
+
+Images, voice, video and files received from the OneBot client are downloaded
+and localized to disk before the agent sees them, the same way as other
+channels (Feishu, DingTalk, WeCom, Telegram, QQ, ...). By default they are
+stored under `media/onebot` inside the agent's workspace directory.
+
+Two advanced fields, only settable via `config.json` (no Console form field),
+let you override this:
+
+| Field                   | Type | Default | Description                                                                                   |
+| ------------------------ | ---- | ------- | ----------------------------------------------------------------------------------------------- |
+| `media_dir`               | string | `null` | Override the directory downloaded media is written to. Defaults to `<workspace>/media/onebot` |
+| `media_download_max_mb`   | int    | `50`   | Maximum size, in MB, for one downloaded inbound file. Independent from `media_base64_max_mb`, which only bounds outbound Base64 inlining |
+
 ### Security
 
 The reverse WebSocket server accepts OneBot events, and those events drive the
