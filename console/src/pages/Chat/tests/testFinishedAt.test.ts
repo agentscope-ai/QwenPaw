@@ -62,16 +62,22 @@ describe("buildResponseCard completed_at (issue #6826)", () => {
       outputMsg({ timestamp: created, finished_at: finished }, 2),
     ];
     const data = cardData(buildResponseCard(msgs as never));
-    expect(data.completed_at).toBe(Math.floor(new Date(finished).getTime() / 1000));
+    expect(data.completed_at).toBe(
+      Math.floor(new Date(finished).getTime() / 1000),
+    );
     // created_at still reflects the first segment.
-    expect(data.created_at).toBe(Math.floor(new Date(created).getTime() / 1000));
+    expect(data.created_at).toBe(
+      Math.floor(new Date(created).getTime() / 1000),
+    );
   });
 
   it("falls back to timestamp when finished_at is absent (legacy)", () => {
     const created = "2026-08-12T17:00:00+08:00";
     const msgs = [outputMsg({ timestamp: created }, 1)];
     const data = cardData(buildResponseCard(msgs as never));
-    expect(data.completed_at).toBe(Math.floor(new Date(created).getTime() / 1000));
+    expect(data.completed_at).toBe(
+      Math.floor(new Date(created).getTime() / 1000),
+    );
   });
 
   it("uses the max finished_at across messages in a turn", () => {

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Tests for the REPLY_END ``finished_at`` backfill in AgentExecutor.
 
 Regression tests for issue #6826: assistant messages persisted via
@@ -147,7 +148,10 @@ async def test_run_stamps_finished_at_on_reply_end() -> None:
             return
             yield  # pragma: no cover
 
-        async def translate_event(self, event: Any) -> AsyncGenerator[Any, None]:
+        async def translate_event(
+            self,
+            event: Any,
+        ) -> AsyncGenerator[Any, None]:
             del event
             return
             yield  # pragma: no cover
