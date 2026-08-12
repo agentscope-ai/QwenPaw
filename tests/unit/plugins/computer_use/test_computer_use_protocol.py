@@ -589,6 +589,19 @@ def test_element_line_uses_value_on_macos() -> None:
     assert line == 'ax-2 Edit "note" =hello'
 
 
+def test_element_line_preserves_application_identifier() -> None:
+    """Stable command identities disambiguate localized menu labels."""
+    line = _element_line(
+        {
+            "id": "ax-3",
+            "control_type_name": "MenuItem",
+            "name": "复制",
+            "identifier": "cmdDuplicate:",
+        },
+    )
+    assert line == 'ax-3 MenuItem "复制" [identifier=cmdDuplicate:]'
+
+
 def test_element_line_keeps_disabled_and_offscreen_visible() -> None:
     """Both states stay in the listing: they inform the next decision."""
     line = _element_line(

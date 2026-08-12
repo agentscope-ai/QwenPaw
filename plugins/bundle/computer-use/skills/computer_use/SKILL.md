@@ -108,6 +108,10 @@ cannot be acted on right now, so choose another route instead of retrying it.
 view before acting on it. `[selected]` confirms the application selected that
 exact element. `[settable]` explicitly confirms that `set_value` is
 supported; runtimes that do not publish capability markers may omit it.
+`[identifier=...]` is an application-provided identity. Treat it as supporting
+evidence when matching a control to the requested action; never infer an effect
+from an opaque identifier. If the label, role, identifier, and observed state
+do not identify one unambiguous action, do not invoke the control.
 `[resource-backed]` means the displayed value names an object owned by the
 application. Do not use `set_value` on it: changing its accessibility label can
 repaint the text without changing the underlying object. Select it, observe

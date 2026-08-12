@@ -172,6 +172,9 @@ def _element_line(element: Mapping[str, Any]) -> str:
             parts.append(f"screen@{(left + right) // 2},{(top + bottom) // 2}")
     elif isinstance(value, str) and value:
         parts.append(f"={value}")
+    identifier = element.get("identifier")
+    if isinstance(identifier, str) and identifier:
+        parts.append(f"[identifier={identifier}]")
     # Both states stay visible: an offscreen entry may become reachable
     # after scrolling, and a disabled control tells the model not to try.
     if element.get("enabled") is False:
