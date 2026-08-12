@@ -32,6 +32,7 @@ from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
     ChannelConfig,
+    Config,
     DingTalkConfig,
     HeartbeatConfig,
     MCPConfig,
@@ -293,6 +294,143 @@ def test_create_agent_rejects_unavailable_backend(
     )
 
     assert response.status_code == expected_status
+
+
+def test_list_agent_workspace_roots_uses_local_config(
+    client,
+    tmp_path,
+):
+    """Expose root IDs resolved from local server configuration."""
+    trusted_root = tmp_path / "trusted"
+    config = Config(
+        agent_workspace_roots={"trusted": str(trusted_root)},
+    )
+
+    with patch(
+        "qwenpaw.app.routers.agents.load_config",
+        return_value=config,
+    ):
+        response = client.get("/api/agents/workspace-roots")
+
+    assert response.status_code == 200
+    assert {item["id"]: item["label"] for item in response.json()["roots"]}[
+        "trusted"
+    ] == str(trusted_root.resolve())
+
+
+def test_create_agent_rejects_client_workspace_path(
+    client,
+    tmp_path,
+):
+    """Reject a client filesystem path before entering the route."""
+    with (
+        patch("qwenpaw.app.routers.agents.save_config") as save_config_mock,
+        patch(
+            "qwenpaw.app.routers.agents.save_agent_config",
+        ) as save_agent_mock,
+        patch(
+            "qwenpaw.app.routers.agents._initialize_agent_workspace",
+        ) as initialize_mock,
+    ):
+        response = client.post(
+            "/api/agents",
+            json={
+                "name": "Blocked Agent",
+                "workspace_dir": str(tmp_path / "outside"),
+            },
+        )
+
+    assert response.status_code == 422
+    assert "workspace_dir" in response.text
+    assert "extra_forbidden" in response.text
+    assert not (tmp_path / "outside").exists()
+    save_config_mock.assert_not_called()
+    save_agent_mock.assert_not_called()
+    initialize_mock.assert_not_called()
+
+
+def test_create_agent_rejects_unknown_workspace_root_id(
+    client,
+    tmp_path,
+):
+    """Reject an unknown root ID before any filesystem mutation."""
+    config = Config()
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=config,
+        ),
+        patch("qwenpaw.app.routers.agents.save_config") as save_config_mock,
+        patch(
+            "qwenpaw.app.routers.agents.save_agent_config",
+        ) as save_agent_mock,
+        patch(
+            "qwenpaw.app.routers.agents._initialize_agent_workspace",
+        ) as initialize_mock,
+        patch(
+            "qwenpaw.app.routers.agents.generate_short_agent_id",
+            return_value="blocked-agent",
+        ),
+    ):
+        response = client.post(
+            "/api/agents",
+            json={
+                "name": "Blocked Agent",
+                "workspace_root_id": "missing",
+            },
+        )
+
+    assert response.status_code == 400
+    assert "is not configured" in response.json()["detail"]
+    save_config_mock.assert_not_called()
+    save_agent_mock.assert_not_called()
+    initialize_mock.assert_not_called()
+
+
+def test_create_agent_accepts_configured_workspace_root_id(
+    client,
+    tmp_path,
+):
+    """Create a workspace from a locally configured root ID."""
+    trusted_root = tmp_path / "trusted"
+    workspace = trusted_root / "custom-agent"
+    config = Config(
+        agent_workspace_roots={"trusted": str(trusted_root)},
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=config,
+        ),
+        patch(
+            "qwenpaw.config.utils.load_config",
+            return_value=config,
+        ),
+        patch("qwenpaw.app.routers.agents.save_config"),
+        patch(
+            "qwenpaw.app.routers.agents._initialize_agent_workspace",
+        ) as initialize_mock,
+        patch(
+            "qwenpaw.app.routers.agents.generate_short_agent_id",
+            return_value="custom-agent",
+        ),
+    ):
+        response = client.post(
+            "/api/agents",
+            json={
+                "name": "Custom Agent",
+                "workspace_root_id": "trusted",
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["workspace_dir"] == str(workspace.resolve())
+    assert response.json()["workspace_root_id"] == "trusted"
+    assert response.json()["workspace_name"] == "custom-agent"
+    assert (workspace / "agent.json").is_file()
+    initialize_mock.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -765,7 +903,7 @@ def test_copy_agent_defaults_reset_channels_and_schedules_startup(
     working_dir = tmp_path / "working"
     working_dir.mkdir()
     monkeypatch.setattr(
-        "qwenpaw.app.routers.agents.WORKING_DIR",
+        "qwenpaw.config.paths.WORKING_DIR",
         working_dir,
     )
 
@@ -866,7 +1004,7 @@ def test_copy_agent_copies_skills_and_jobs_when_requested(
     working_dir = tmp_path / "working"
     working_dir.mkdir()
     monkeypatch.setattr(
-        "qwenpaw.app.routers.agents.WORKING_DIR",
+        "qwenpaw.config.paths.WORKING_DIR",
         working_dir,
     )
 
@@ -959,7 +1097,7 @@ async def test_copy_agent_skips_startup_without_http_request(
     working_dir = tmp_path / "working"
     working_dir.mkdir()
     monkeypatch.setattr(
-        "qwenpaw.app.routers.agents.WORKING_DIR",
+        "qwenpaw.config.paths.WORKING_DIR",
         working_dir,
     )
 
@@ -1082,7 +1220,7 @@ def test_copy_agent_optional_assets_match_request_flags(
     working_dir = tmp_path / "working"
     working_dir.mkdir()
     monkeypatch.setattr(
-        "qwenpaw.app.routers.agents.WORKING_DIR",
+        "qwenpaw.config.paths.WORKING_DIR",
         working_dir,
     )
 

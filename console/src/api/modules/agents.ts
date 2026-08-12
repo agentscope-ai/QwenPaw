@@ -7,12 +7,17 @@ import type {
   AgentProfileRef,
   MemoryGraphSnapshot,
   ReorderAgentsResponse,
+  AgentWorkspaceRootsResponse,
 } from "../types/agents";
 
 // Multi-agent management API
 export const agentsApi = {
   // List all agents
   listAgents: () => request<AgentListResponse>("/agents"),
+
+  // List server-approved roots available to new agent workspaces
+  listWorkspaceRoots: () =>
+    request<AgentWorkspaceRootsResponse>("/agents/workspace-roots"),
 
   // Get agent details
   getAgent: (agentId: string) =>

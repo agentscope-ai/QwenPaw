@@ -22,6 +22,7 @@ from ..constant import (
     BUILTIN_QA_AGENT_ID,
     CUSTOM_AGENT_STARTUP_CONCURRENCY,
 )
+from ..config.config import resolve_agent_profile_workspace
 from ..config.utils import load_config
 from ..utils.startup_display import AgentStartupDisplay
 
@@ -96,7 +97,6 @@ class MultiAgentManager:
 
         should_start = False
         event = None
-        agent_ref = None
 
         async with self._lock:
             # Re-check under lock
@@ -119,7 +119,6 @@ class MultiAgentManager:
                             f"{list(config.agents.profiles.keys())}"
                         ),
                     )
-                agent_ref = config.agents.profiles[agent_id]
                 event = asyncio.Event()
                 self._pending_starts[agent_id] = event
                 self._agent_startup_statuses[
@@ -142,9 +141,13 @@ class MultiAgentManager:
         t0 = time.perf_counter()
         try:
             logger.debug(f"Creating new workspace: {agent_id}")
+            workspace_dir = resolve_agent_profile_workspace(
+                agent_id,
+                config,
+            )
             instance = self._create_workspace(
                 agent_id=agent_id,
-                workspace_dir=agent_ref.workspace_dir,
+                workspace_dir=str(workspace_dir),
             )
             await instance.start()
             instance.set_manager(self)
@@ -163,7 +166,7 @@ class MultiAgentManager:
             await self._fire_workspace_created_hooks(
                 {
                     "agent_id": agent_id,
-                    "workspace_dir": str(agent_ref.workspace_dir),
+                    "workspace_dir": str(workspace_dir),
                 },
             )
 
@@ -434,19 +437,19 @@ class MultiAgentManager:
             )
             return False
 
-        agent_ref = config.agents.profiles[agent_id]
+        workspace_dir = resolve_agent_profile_workspace(agent_id, config)
 
         # Step 3: Create and start new workspace instance (outside lock)
         # This is the slow part, but doesn't block other agents
         logger.info(f"Creating new workspace instance: {agent_id}")
         new_instance = self._create_workspace(
             agent_id=agent_id,
-            workspace_dir=agent_ref.workspace_dir,
+            workspace_dir=str(workspace_dir),
         )
 
         # Step 3.5: Set reusable components from old instance (if any)
         async with self._lock:
-            old_instance = self.agents.get(agent_id)
+            old_instance: Workspace | None = self.agents.get(agent_id)
 
         if old_instance:
             # TaskTracker is agent-scoped rather than workspace-scoped. Reuse

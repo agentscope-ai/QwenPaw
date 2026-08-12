@@ -24,6 +24,18 @@ describe("agentsApi", () => {
     expect(result).toEqual(data);
   });
 
+  it("listWorkspaceRoots calls the trusted roots endpoint", async () => {
+    const data = {
+      roots: [{ id: "default", label: "C:\\QwenPaw\\workspaces" }],
+    };
+    vi.mocked(request).mockResolvedValue(data);
+
+    const result = await agentsApi.listWorkspaceRoots();
+
+    expect(request).toHaveBeenCalledWith("/agents/workspace-roots");
+    expect(result).toEqual(data);
+  });
+
   it("getAgent calls GET /agents/${id}", async () => {
     const data = { name: "a1" } as any;
     vi.mocked(request).mockResolvedValue(data);

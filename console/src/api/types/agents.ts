@@ -87,7 +87,7 @@ export interface CreateAgentRequest {
   id?: string;
   name: string;
   description?: string;
-  workspace_dir?: string;
+  workspace_root_id?: string;
   language?: string;
   skill_names?: string[];
   active_model?: ModelSlotConfig | null;
@@ -98,6 +98,15 @@ export interface CreateAgentRequest {
     reasoning_effort?: string;
     [key: string]: unknown;
   };
+}
+
+export interface AgentWorkspaceRoot {
+  id: string;
+  label: string;
+}
+
+export interface AgentWorkspaceRootsResponse {
+  roots: AgentWorkspaceRoot[];
 }
 
 export interface CopyAgentRequest {
@@ -111,6 +120,8 @@ export interface CopyAgentRequest {
 export interface AgentProfileRef {
   id: string;
   workspace_dir: string;
+  workspace_root_id?: string | null;
+  workspace_name?: string | null;
   enabled?: boolean;
   pinned?: boolean;
 }

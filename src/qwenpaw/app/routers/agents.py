@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from qwenpaw.exceptions import (
     AppBaseException,
@@ -24,6 +24,7 @@ from ...config.config import (
     AgentProfileRef,
     ModelSlotConfig,
     load_agent_config,
+    resolve_agent_profile_workspace,
     save_agent_config,
     generate_short_agent_id,
     sanitize_agent_id,
@@ -35,7 +36,11 @@ from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
 from ...harnesses.registry import ProviderCatalogItem, get_provider
 from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
-from ...constant import WORKING_DIR
+from ...config.paths import (
+    DEFAULT_AGENT_WORKSPACE_ROOT_ID,
+    resolve_agent_workspace_roots,
+    resolve_workspace_identity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +68,19 @@ class AgentListResponse(BaseModel):
     """Response for listing agents."""
 
     agents: list[AgentSummary]
+
+
+class AgentWorkspaceRoot(BaseModel):
+    """One server-configured root available for new workspaces."""
+
+    id: str
+    label: str
+
+
+class AgentWorkspaceRootList(BaseModel):
+    """Workspace roots that clients may select by opaque ID."""
+
+    roots: list[AgentWorkspaceRoot]
 
 
 class MemoryGraphNode(BaseModel):
@@ -115,10 +133,12 @@ class CreateAgentRequest(BaseModel):
     short UUID is generated automatically.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     id: str | None = None
     name: str
     description: str = ""
-    workspace_dir: str | None = None
+    workspace_root_id: str | None = None
     language: str | None = None
     skill_names: list[str] | None = None
     active_model: ModelSlotConfig | None = None
@@ -136,10 +156,10 @@ class CreateAgentRequest(BaseModel):
             return sanitized if sanitized else None
         return value
 
-    @field_validator("workspace_dir", mode="before")
+    @field_validator("workspace_root_id", mode="before")
     @classmethod
-    def strip_workspace_dir(cls, value: str | None) -> str | None:
-        """Strip accidental whitespace"""
+    def strip_workspace_root_id(cls, value: str | None) -> str | None:
+        """Strip accidental whitespace from a workspace root ID."""
         if value is None:
             return None
         if isinstance(value, str):
@@ -281,6 +301,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
     agents = []
     for agent_id in ordered_agent_ids:
         agent_ref = config.agents.profiles[agent_id]
+        workspace_dir = resolve_agent_profile_workspace(agent_id, config)
         enabled = getattr(agent_ref, "enabled", True)
         pinned = agent_id == "default" or getattr(
             agent_ref,
@@ -300,7 +321,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
             agent_config = load_agent_config(agent_id)
             description = agent_config.description or ""
 
-            profile_desc = _read_profile_description(agent_ref.workspace_dir)
+            profile_desc = _read_profile_description(str(workspace_dir))
             if profile_desc:
                 if description.strip():
                     description = f"{description.strip()} | {profile_desc}"
@@ -323,7 +344,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     id=agent_id,
                     name=agent_config.name,
                     description=description,
-                    workspace_dir=agent_ref.workspace_dir,
+                    workspace_dir=str(workspace_dir),
                     enabled=enabled,
                     pinned=pinned,
                     startup_status=startup_status,
@@ -344,7 +365,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     id=agent_id,
                     name=agent_id.title(),
                     description="",
-                    workspace_dir=agent_ref.workspace_dir,
+                    workspace_dir=str(workspace_dir),
                     enabled=enabled,
                     pinned=pinned,
                     startup_status=startup_status,
@@ -352,6 +373,23 @@ async def list_agents(request: Request = None) -> AgentListResponse:
             )
 
     return AgentListResponse(agents=agents)
+
+
+@router.get(
+    "/workspace-roots",
+    response_model=AgentWorkspaceRootList,
+    summary="List trusted agent workspace roots",
+)
+async def list_agent_workspace_roots() -> AgentWorkspaceRootList:
+    """Return server-owned root IDs without accepting client paths."""
+    config = load_config()
+    roots = resolve_agent_workspace_roots(config.agent_workspace_roots)
+    return AgentWorkspaceRootList(
+        roots=[
+            AgentWorkspaceRoot(id=root_id, label=str(root))
+            for root_id, root in roots.items()
+        ],
+    )
 
 
 @router.put(
@@ -536,9 +574,17 @@ async def create_agent(
     else:
         new_id = _generate_unique_id(existing_ids)
 
-    workspace_dir = Path(
-        request.workspace_dir or f"{WORKING_DIR}/workspaces/{new_id}",
-    ).expanduser()
+    workspace_root_id = (
+        request.workspace_root_id or DEFAULT_AGENT_WORKSPACE_ROOT_ID
+    )
+    try:
+        workspace_dir = resolve_workspace_identity(
+            workspace_root_id,
+            new_id,
+            config.agent_workspace_roots,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
     from ...config.config import (
@@ -593,6 +639,8 @@ async def create_agent(
     agent_ref = AgentProfileRef(
         id=new_id,
         workspace_dir=str(workspace_dir),
+        workspace_root_id=workspace_root_id,
+        workspace_name=new_id,
         enabled=True,
     )
 
@@ -689,14 +737,16 @@ async def copy_agent(
     except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
-    source_workspace = Path(
-        config.agents.profiles[agentId].workspace_dir,
-    ).expanduser()
+    source_workspace = resolve_agent_profile_workspace(agentId, config)
 
     existing_ids = set(config.agents.profiles.keys())
     new_id = _generate_unique_id(existing_ids)
     new_name = (request.name or "").strip() or f"{source_config.name} Copy"
-    workspace_dir = Path(f"{WORKING_DIR}/workspaces/{new_id}").expanduser()
+    workspace_dir = resolve_workspace_identity(
+        DEFAULT_AGENT_WORKSPACE_ROOT_ID,
+        new_id,
+        config.agent_workspace_roots,
+    )
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
     language = normalize_agent_language(
@@ -727,6 +777,8 @@ async def copy_agent(
     agent_ref = AgentProfileRef(
         id=new_id,
         workspace_dir=str(workspace_dir),
+        workspace_root_id=DEFAULT_AGENT_WORKSPACE_ROOT_ID,
+        workspace_name=new_id,
         enabled=True,
     )
 

@@ -792,7 +792,10 @@ def sync_all_scroll_agents() -> None:
 def _sync_all_scroll_agents() -> None:
     # Imported lazily to keep this module importable without the app config.
     from ....config import load_config
-    from ....config.config import load_agent_config
+    from ....config.config import (
+        load_agent_config,
+        resolve_agent_profile_workspace,
+    )
     from .history import HistoryStore
 
     config = load_config()
@@ -800,7 +803,7 @@ def _sync_all_scroll_agents() -> None:
     total_sessions = 0
     synced_agents = 0
 
-    for agent_id, agent_ref in config.agents.profiles.items():
+    for agent_id in config.agents.profiles:
         try:
             agent_config = load_agent_config(agent_id)
         except Exception as exc:  # noqa: BLE001
@@ -819,11 +822,7 @@ def _sync_all_scroll_agents() -> None:
         if strategy != "scroll":
             continue
 
-        # Use the profile ref's path (each id -> its own dir), NOT
-        # ``agent_config.workspace_dir``: that field is baked into agent.json
-        # at clone time, so every clone points back at the original and they'd
-        # all collapse onto one workspace.
-        workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+        workspace_dir = resolve_agent_profile_workspace(agent_id, config)
         sessions_dir = workspace_dir / "sessions"
         chats_path = workspace_dir / "chats.json"
         if not sessions_dir.is_dir():
