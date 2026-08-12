@@ -202,6 +202,11 @@ class MemoryMiddleware(MiddlewareBase):
             turn_state["snapshots"].clear()
             turn_state.pop("retry", None)
             return
+
+        # Pending markers are persisted independently from the live context.
+        # Drop orphaned markers before applying the interval so stale state
+        # cannot make every subsequent user turn look like a full batch.
+        self._discard_unresolved_pending_markers(agent, turn_state)
         if len(pending_markers) < interval:
             return
 
@@ -293,14 +298,17 @@ class MemoryMiddleware(MiddlewareBase):
         if not pending_markers:
             return
 
-        self.migrate_legacy_retry_batch(turn_state)
+        # Flushes can also be triggered by context compression, without first
+        # passing through on_reply(), so enforce the same invariant here.
+        self._discard_unresolved_pending_markers(agent, turn_state)
+        if not pending_markers:
+            return
+
         messages: list[Msg] = []
         resolved_markers: list[str] = []
-        attempted_markers: list[str] = []
         for turn_marker in list(pending_markers):
             if count is not None and len(resolved_markers) >= count:
                 break
-            attempted_markers.append(turn_marker)
             turn_messages = self._load_turn_snapshot(
                 turn_state,
                 turn_marker,
@@ -316,10 +324,6 @@ class MemoryMiddleware(MiddlewareBase):
             messages.extend(turn_messages)
 
         if not messages:
-            logger.warning(
-                "MemoryMiddleware retained unresolved pending markers: %s",
-                attempted_markers,
-            )
             return
 
         try:
@@ -344,42 +348,42 @@ class MemoryMiddleware(MiddlewareBase):
         for marker in submitted:
             snapshots.pop(marker, None)
 
-    @classmethod
-    def migrate_legacy_retry_batch(
-        cls,
+    def _discard_unresolved_pending_markers(
+        self,
+        agent: "Agent",
         turn_state: dict[str, Any],
     ) -> None:
-        """Convert the old opaque retry batch into per-turn snapshots."""
-        retry = turn_state.get("retry")
-        if not isinstance(retry, dict):
+        """Remove markers whose turn payload is no longer recoverable."""
+        # Legacy retry state is intentionally ignored. At worst it may cause
+        # redundant messages, which the memory LLM can deduplicate; migration
+        # is not worth the added complexity.
+        pending_markers = turn_state["pending"]
+        if not pending_markers:
             return
-        markers = retry.get("markers")
-        raw_messages = retry.get("messages")
-        if (
-            not isinstance(markers, list)
-            or not markers
-            or not isinstance(raw_messages, list)
-            or not raw_messages
-        ):
-            turn_state.pop("retry", None)
+
+        context = list(agent.state.context)
+        unresolved: list[str] = []
+        for turn_marker in pending_markers:
+            if self._load_turn_snapshot(turn_state, turn_marker):
+                continue
+            if self._messages_for_user_turn(
+                context,
+                turn_marker=turn_marker,
+            ):
+                continue
+            unresolved.append(turn_marker)
+
+        if not unresolved:
             return
-        try:
-            messages = [
-                msg if isinstance(msg, Msg) else Msg.model_validate(msg)
-                for msg in raw_messages
-            ]
-        except Exception:
-            logger.exception(
-                "MemoryMiddleware invalid auto-memory retry batch",
-            )
-            turn_state.pop("retry", None)
-            return
-        cls._save_turn_snapshots(
-            turn_state,
-            source_context=messages,
-            turn_markers=[str(marker) for marker in markers],
+
+        stale = set(unresolved)
+        pending_markers[:] = [
+            marker for marker in pending_markers if marker not in stale
+        ]
+        logger.warning(
+            "MemoryMiddleware discarded unresolved pending markers: %s",
+            unresolved,
         )
-        turn_state.pop("retry", None)
 
     @classmethod
     def _save_turn_snapshots(
@@ -695,7 +699,6 @@ def discard_auto_memory_turns(
     if not turn_markers:
         return
     state = auto_memory_turn_state(agent_state)
-    MemoryMiddleware.migrate_legacy_retry_batch(state)
     state["pending"][:] = [
         marker for marker in state["pending"] if marker not in turn_markers
     ]

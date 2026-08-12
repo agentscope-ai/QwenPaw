@@ -501,6 +501,38 @@ class TestOnReplyAutomationSkip:
         mm.auto_memory.assert_awaited_once()
         assert not _turn_state(agent2)["pending"]
 
+    @pytest.mark.asyncio
+    async def test_stale_markers_do_not_bypass_interval(self):
+        mm = _make_memory_manager(interval=5)
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        _turn_state(agent)["pending"] = [f"missing-{idx}" for idx in range(5)]
+
+        async def _next(**_kwargs):
+            yield "done"
+
+        async def reply(turn_number: int) -> None:
+            agent.state.context.append(
+                _user_msg(msg_id=f"turn-{turn_number}"),
+            )
+            async for _ in mw.on_reply(agent, {}, _next):
+                pass
+
+        for turn_number in range(1, 5):
+            await reply(turn_number)
+            mm.auto_memory.assert_not_awaited()
+
+        await reply(5)
+        mm.auto_memory.assert_awaited_once()
+        assert [msg.id for msg in mm.auto_memory.await_args.args[0]] == [
+            f"turn-{idx}" for idx in range(1, 6)
+        ]
+        assert not _turn_state(agent)["pending"]
+
+        await reply(6)
+        mm.auto_memory.assert_awaited_once()
+        assert _turn_state(agent)["pending"] == ["turn-6"]
+
 
 # ---------------------------------------------------------------------------
 # on_compress_context integration tests
@@ -767,29 +799,7 @@ class TestFlushAutoMemoryDefensiveGuard:
         assert not _turn_state(agent)["snapshots"]
 
     @pytest.mark.asyncio
-    async def test_legacy_retry_batch_migrates_to_turn_snapshot(self):
-        mm = _make_memory_manager()
-        mw = MemoryMiddleware(memory_manager=mm)
-        agent = _make_agent(source="user")
-        query = _user_msg("legacy retry")
-        state = _turn_state(agent)
-        state["pending"] = ["turn-1"]
-        state["retry"] = {
-            "markers": ["turn-1"],
-            "messages": [query.model_dump(mode="json")],
-        }
-
-        await mw._flush_auto_memory(agent)
-
-        assert mm.auto_memory.await_args.args[0][0].get_text_content() == (
-            "legacy retry"
-        )
-        assert not state["pending"]
-        assert "retry" not in state
-        assert not state["snapshots"]
-
-    @pytest.mark.asyncio
-    async def test_only_resolved_markers_are_removed_after_submission(self):
+    async def test_unresolved_markers_are_discarded_after_submission(self):
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
         agent = _make_agent(source="user")
@@ -801,10 +811,12 @@ class TestFlushAutoMemoryDefensiveGuard:
         assert [msg.id for msg in mm.auto_memory.await_args.args[0]] == [
             "turn-2",
         ]
-        assert _turn_state(agent)["pending"] == ["turn-1"]
+        assert not _turn_state(agent)["pending"]
 
     @pytest.mark.asyncio
-    async def test_unresolved_marker_does_not_consume_batch_limit(self):
+    async def test_unresolved_marker_is_discarded_and_does_not_consume_limit(
+        self,
+    ):
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
         agent = _make_agent(source="user")
@@ -816,4 +828,4 @@ class TestFlushAutoMemoryDefensiveGuard:
         assert [msg.id for msg in mm.auto_memory.await_args.args[0]] == [
             "turn-2",
         ]
-        assert _turn_state(agent)["pending"] == ["missing"]
+        assert not _turn_state(agent)["pending"]
