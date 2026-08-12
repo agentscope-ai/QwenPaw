@@ -124,6 +124,11 @@ def _select_latest_version(
 ) -> str:
     """Return the newest published version from PyPI metadata."""
     releases = data.get("releases") or {}
+    if not isinstance(releases, dict):
+        raise click.ClickException(
+            "Received an invalid response from PyPI when checking for the "
+            "latest QwenPaw version.",
+        )
     candidates: list[Version] = []
     for version_str, files in releases.items():
         if not files:
