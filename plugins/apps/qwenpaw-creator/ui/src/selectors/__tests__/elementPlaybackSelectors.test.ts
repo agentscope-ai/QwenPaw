@@ -10,6 +10,7 @@ import {
   resolveElementPlayback,
   transitionOpacityAtTick,
 } from "@/selectors/elementPlaybackSelectors";
+import { classifyElementTrack } from "@/selectors/timelineElementSelectors";
 import { projectDocument } from "@/test/creatorFixtures";
 
 function cloneProject(): ProjectDocument {
@@ -37,6 +38,40 @@ function task(overrides: Partial<TaskView>): TaskView {
 }
 
 describe("resolveElementPlayback", () => {
+  it("marks a designed motion clip ready and keeps its clip-track slot", () => {
+    const project = cloneProject();
+    const timeline = timelineOf(project);
+    timeline.elements_by_id["clip-scene"] = {
+      element_id: "clip-scene",
+      label: "开场题面",
+      enabled: true,
+      span: { start_tick: 0, duration_tick: 4000 },
+      location: null,
+      z_index: 0,
+      creation: {
+        type: "motion_clip",
+        intent: "",
+        prompt: "开场题面",
+        motion: {
+          format: "html_js",
+          html: null,
+          html_file_id: "file-motion-doc",
+          fps: 24,
+          loop: false,
+        },
+      },
+      outputs: {},
+      render_source: null,
+      provenance_refs: [],
+    } as unknown as TimelineElementDocument;
+    const element = timeline.elements_by_id["clip-scene"];
+    const playback = resolveElementPlayback(project, timeline, element);
+    // The designed document is the picture; the backend rasterizes it at
+    // composite time, so the segment must not stay "pending" forever.
+    expect(playback.status).toBe("ready");
+    expect(classifyElementTrack(element)).toBe("clip");
+  });
+
   it("resolves edit elements from their source asset render_source", () => {
     const project = cloneProject();
     const timeline = timelineOf(project);

@@ -110,6 +110,12 @@ export interface SubagentActivity {
   tools: Record<string, SubagentStreamTool>;
 }
 
+export interface RateLimitRetryState {
+  attempt: number;
+  maxAttempts: number;
+  runId: string;
+}
+
 interface CreatorSessionState {
   projectId: string | null;
   session: CreatorSessionView | null;
@@ -130,6 +136,7 @@ interface CreatorSessionState {
   isReplaying: boolean;
   error: string | null;
   stream: CreatorEventStream | null;
+  rateLimitRetry: RateLimitRetryState | null;
   bootstrap: (projectId: string) => Promise<void>;
   setConversation: (conversationId: string) => Promise<void>;
   newConversation: () => Promise<string>;
@@ -355,6 +362,7 @@ function defaultState() {
     isReplaying: false,
     error: null,
     stream: null as CreatorEventStream | null,
+    rateLimitRetry: null as RateLimitRetryState | null,
   };
 }
 
@@ -1009,6 +1017,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           let subagentActivities = current.subagentActivities;
           let queuedUi = current.queuedUi;
           let session = current.session;
+          let rateLimitRetry = current.rateLimitRetry;
           accepted.forEach((event) => {
             const actionId = eventString(event.data, "actionId");
             const subagentDetail =
@@ -1268,8 +1277,10 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             }
             if (
               event.type === "agent.run.failed" ||
-              event.type === "agent.run.cancelled"
+              event.type === "agent.run.cancelled" ||
+              event.type === "agent.run.completed"
             ) {
+              rateLimitRetry = null;
               const terminalRunId = eventString(event.data, "runId");
               if (terminalRunId) {
                 const remaining = Object.fromEntries(
@@ -1286,7 +1297,12 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
               }
               if (event.type === "agent.run.failed" && session) {
                 const errorPayload = event.data.error as
-                  | { code?: string; message?: string; retryable?: boolean }
+                  | {
+                      code?: string;
+                      message?: string;
+                      retryable?: boolean;
+                      details?: Record<string, unknown>;
+                    }
                   | undefined;
                 if (errorPayload?.message) {
                   session = {
@@ -1295,12 +1311,26 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                       code: string;
                       message: string;
                       retryable: boolean;
+                      details?: Record<string, unknown>;
                     },
                   };
                 }
               }
             }
+            if (event.type === "agent.model.rate_limit_retry") {
+              const attempt = Number(event.data.attempt);
+              const maxAttempts = Number(event.data.maxAttempts);
+              if (Number.isFinite(attempt) && Number.isFinite(maxAttempts)) {
+                rateLimitRetry = {
+                  attempt,
+                  maxAttempts,
+                  runId: eventString(event.data, "runId") ?? "",
+                };
+              }
+            }
             if (event.type === "agent.message_delta") {
+              // The model answered again, so any throttling notice is stale.
+              rateLimitRetry = null;
               const messageId =
                 typeof event.data.messageId === "string"
                   ? event.data.messageId
@@ -1493,6 +1523,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                   status === "CANCELLED" ||
                   status === "ERROR"
                 ) {
+                  rateLimitRetry = null;
                   Object.entries(subagentActivities).forEach(
                     ([key, activity]) => {
                       if (activity.completed) return;
@@ -1534,6 +1565,9 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           }
           if (queuedUi !== current.queuedUi) patch.queuedUi = queuedUi;
           if (session !== current.session) patch.session = session;
+          if (rateLimitRetry !== current.rateLimitRetry) {
+            patch.rateLimitRetry = rateLimitRetry;
+          }
           return patch;
         });
         if (messageRefreshAfter != null)

@@ -130,6 +130,7 @@ async def _leave_interrupted_translate_task(
     services: CreatorFileServices,
     *,
     idempotency_key: str,
+    ledger_kind: str = "image_translate",
 ) -> str:
     """Reproduce the durable state a crash leaves mid-translate."""
 
@@ -167,7 +168,7 @@ async def _leave_interrupted_translate_task(
         note_provider_task(
             provider_task_id=PROVIDER_TASK_ID,
             model="qwen-mt-image",
-            kind="image_translate",
+            kind=ledger_kind,
         )
     return task.task_id
 
@@ -736,3 +737,105 @@ def test_cancel_stops_the_image_supervisor(tmp_path, monkeypatch) -> None:
         return not worker._resume_jobs
 
     assert asyncio.run(scenario()) is True
+
+
+class _AsyncGenerationAcceptedProvider:
+    """Accepts (bills) an async *generation* job, then times out locally."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate(self, **kwargs):
+        self.calls += 1
+        from models.provider_tasks import note_provider_task
+
+        note_provider_task(
+            provider_task_id=PROVIDER_TASK_ID,
+            model="wan-image-async",
+            kind="image_generation",
+        )
+        from utils.exceptions import ModelError
+
+        raise ModelError(
+            "Image generation did not finish within 60s "
+            f"(task_id={PROVIDER_TASK_ID})",
+            model_name="wan-image-async",
+        )
+
+
+def test_unresumable_generation_timeout_fails_closed_with_billed_id(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """An accepted kind without a resume implementation must terminalize.
+
+    The supervisor only understands ``image_translate``; deferring an
+    ``image_generation`` ledger entry would strand the paid Task in RUNNING
+    forever. Fail closed instead, naming the billed id for retrieval.
+    """
+
+    services = _services(tmp_path, monkeypatch)
+    provider = _AsyncGenerationAcceptedProvider()
+    worker = FileImageExecutionService(services, provider=provider)
+
+    async def scenario() -> None:
+        from utils.exceptions import ModelError
+
+        with pytest.raises(ModelError):
+            await worker.execute(
+                project_id=PROJECT_ID,
+                command="GENERATE_ASSET",
+                target_ref=f"asset:{ENTITY_ID}",
+                arguments={
+                    "prompt": "翻译海报文字",
+                    "mode": "translate",
+                    "referenceImageRefs": [SOURCE_VERSION_ID],
+                },
+                idempotency_key="generation-timeout",
+            )
+
+    asyncio.run(scenario())
+
+    task = worker.executions.get_task(
+        PROJECT_ID,
+        worker._ids(PROJECT_ID, "generation-timeout")["task_id"],
+    )
+    # Terminal and actionable — not RUNNING behind a poller that would
+    # immediately drop the job as "unsupported".
+    assert task.status is TaskStatus.FAILED
+    assert PROVIDER_TASK_ID in str(task.error)
+    assert not worker._resume_jobs
+
+
+def test_startup_recovery_terminalizes_an_unresumable_generation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Restart recovery must not park unresumable kinds in RUNNING."""
+
+    services = _services(tmp_path, monkeypatch)
+    provider = _UncalledProvider()
+    worker = FileImageExecutionService(services, provider=provider)
+    task_id = asyncio.run(
+        _leave_interrupted_translate_task(
+            worker,
+            services,
+            idempotency_key="generation-restart",
+            ledger_kind="image_generation",
+        ),
+    )
+
+    async def recover_and_drain() -> None:
+        await recover_interrupted_image_tasks(services)
+        await image_execution.file_image_execution_service(
+            services,
+        ).drain_resume_jobs()
+
+    asyncio.run(recover_and_drain())
+
+    task = worker.executions.get_task(PROJECT_ID, task_id)
+    assert task.status is TaskStatus.FAILED
+    # The billed id stays named for manual retrieval, and nothing was
+    # resubmitted to the provider.
+    assert PROVIDER_TASK_ID in str(task.error)
+    assert provider.calls == 0

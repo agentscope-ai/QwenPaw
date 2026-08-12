@@ -71,7 +71,15 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    var(--font-geist-sans),
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -96,6 +104,9 @@ a {
 .app-shell {
   background: var(--color-bg-layout);
   min-height: 100vh;
+  /* Safety net below the smallest supported breakpoint: stop squeezing and
+     let the viewport scroll horizontally instead. */
+  min-width: 560px;
 }
 
 .page-container {
@@ -112,7 +123,9 @@ a {
 }
 
 .surface-hover {
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .surface-hover:hover {
@@ -357,8 +370,7 @@ a {
    can be stopped immediately */
 @keyframes agent-dock-stop-glow {
   0% {
-    box-shadow: 0 0 0 0
-      color-mix(in srgb, var(--color-danger) 35%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-danger) 35%, transparent);
   }
   70% {
     box-shadow: 0 0 0 8px transparent;
@@ -379,7 +391,11 @@ a {
   100% {
     transform: scale(1);
     box-shadow: 0 0 0 0
-      color-mix(in srgb, var(--agent-live-dot, var(--color-accent)) 45%, transparent);
+      color-mix(
+        in srgb,
+        var(--agent-live-dot, var(--color-accent)) 45%,
+        transparent
+      );
   }
   50% {
     transform: scale(1.15);
@@ -457,7 +473,11 @@ a {
   0%,
   100% {
     box-shadow: 0 0 0 0
-      color-mix(in srgb, var(--decision-tray-dot, var(--color-accent)) 45%, transparent);
+      color-mix(
+        in srgb,
+        var(--decision-tray-dot, var(--color-accent)) 45%,
+        transparent
+      );
     opacity: 1;
   }
   50% {
@@ -551,7 +571,18 @@ a {
   border-radius: 16px;
   padding: 0;
   overflow: hidden;
-  box-shadow: 0 25px 60px rgba(0,0,0,0.15) !important;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Onboarding tour panels must never outgrow a narrow window: cap the width
+   to the viewport and let long step bodies scroll (handled in TourRunner). */
+.ant-tour {
+  max-width: min(520px, calc(100vw - 24px)) !important;
+}
+.ant-tour .ant-tour-section {
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .model-config-modal .ant-modal-body {
@@ -568,7 +599,9 @@ a {
   -webkit-backdrop-filter: blur(16px);
   border-radius: 14px;
   border: 1px solid var(--color-border);
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .glass-card:hover {
@@ -657,7 +690,7 @@ a {
   background: #fff;
   border-radius: 50%;
   transition: 0.2s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
 .desktop-toggle input:checked + .track {
@@ -705,15 +738,27 @@ a {
    module box glows tint + inset shadow + border + outer glow together, so
    the whole box brightens and dims evenly; flashes three times then fades. */
 @keyframes slide-progress {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(300%); }
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
 }
 
 @keyframes plan-progress {
-  0%   { width: 0%; }
-  30%  { width: 60%; }
-  70%  { width: 83%; }
-  100% { width: 92%; }
+  0% {
+    width: 0%;
+  }
+  30% {
+    width: 60%;
+  }
+  70% {
+    width: 83%;
+  }
+  100% {
+    width: 92%;
+  }
 }
 
 @keyframes review-flash {
@@ -808,7 +853,12 @@ a {
   inset: 0;
   width: 40%;
   border-radius: inherit;
-  background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-accent),
+    transparent
+  );
   opacity: 0.65;
   animation: slide-progress 1.4s ease-in-out infinite;
 }

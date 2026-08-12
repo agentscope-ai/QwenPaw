@@ -25,6 +25,7 @@ use objc2_app_kit::NSWorkspace;
 use serde_json::{Map, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 mod accessibility_tree;
@@ -33,10 +34,14 @@ mod input;
 mod permissions;
 mod window;
 
-pub(super) use accessibility_tree::{set_value, validate_observation, AxElement};
+pub(super) use accessibility_tree::{
+    element_is_transient_menu_item, element_requires_frontmost, set_value, validate_observation,
+    AxElement,
+};
 pub(super) use capture::observe_window;
 pub(super) use input::{
-    click, desktop_locked, drag, invoke_element, last_input_age_ms, press_key, scroll, type_text,
+    click, desktop_locked, drag, input_sequence, invoke_element, last_input_age_ms, press_key,
+    scroll, type_text,
 };
 pub(super) use permissions::ensure_for as ensure_permissions;
 pub(super) use window::{
@@ -50,6 +55,7 @@ pub(super) use window::{
 const AX_MESSAGING_TIMEOUT_SECONDS: f32 = 2.0;
 const CONTROL_MAX_MESSAGE_BYTES: usize = 4096;
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
+static NEXT_FOCUS_LEASE_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Whether physical user input would currently target this window's app.
 pub(super) fn target_is_frontmost(window: &super::state::WindowInfo) -> bool {
@@ -58,17 +64,24 @@ pub(super) fn target_is_frontmost(window: &super::state::WindowInfo) -> bool {
         .is_some_and(|application| application.processIdentifier() == window.owner_pid)
 }
 
-/// A host-owned lease for actions that must preserve foreground focus.
-/// Drop restores host visibility without activating it and leaves a short
-/// idempotency window; the desktop also expires the lease if this process dies.
+/// A host-owned assertion that keeps the desktop UI from taking foreground.
+///
+/// The server state owns one assertion for the whole Computer Use turn. Drop
+/// therefore has a real lifecycle boundary: end_turn, connection loss, user
+/// intervention, or helper exit, rather than a guessed delay between actions.
 pub(super) struct HostFocusLease {
     id: String,
 }
 
 impl HostFocusLease {
-    pub(super) fn begin(target_pid: i32) -> Result<Self, (&'static str, String)> {
-        let response = host_control_request("begin_focus", Some(target_pid), None)?;
-        let id = response
+    pub(super) fn begin() -> Result<Self, (&'static str, String)> {
+        let id = format!(
+            "{}-{}",
+            std::process::id(),
+            NEXT_FOCUS_LEASE_ID.fetch_add(1, Ordering::Relaxed)
+        );
+        let response = host_control_request("begin_focus", Some(&id))?;
+        let issued_id = response
             .get("lease_id")
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
@@ -76,19 +89,24 @@ impl HostFocusLease {
                 "focus_failed",
                 "Desktop host did not issue a foreground lease.".to_string(),
             ))?;
-        Ok(Self { id: id.to_string() })
+        if issued_id != id {
+            return Err((
+                "focus_failed",
+                "Desktop host issued an invalid foreground lease.".to_string(),
+            ));
+        }
+        Ok(Self { id })
     }
 }
 
 impl Drop for HostFocusLease {
     fn drop(&mut self) {
-        let _ = host_control_request("end_focus", None, Some(&self.id));
+        let _ = host_control_request("end_focus", Some(&self.id));
     }
 }
 
 fn host_control_request(
     action: &str,
-    target_pid: Option<i32>,
     lease_id: Option<&str>,
 ) -> Result<Value, (&'static str, String)> {
     let host = std::env::var("QWENPAW_COMPUTER_USE_CONTROL_HOST").unwrap_or_default();
@@ -106,7 +124,6 @@ fn host_control_request(
         "token": token,
         "action": action,
         "helper_pid": std::process::id(),
-        "target_pid": target_pid,
         "lease_id": lease_id,
     });
     let payload = serde_json::to_vec(&request).map_err(|error| {

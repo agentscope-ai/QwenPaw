@@ -224,3 +224,40 @@ async def test_request_approval_with_tool_target_uses_target_name_in_summary(
 
     asyncio.create_task(_approver())
     await gate.request_approval(ctx)
+
+
+async def test_request_approval_passes_channel_routing_fields_to_pending(
+    svc: ApprovalService,
+):
+    """The driver gate must pass channel_meta and _channel_instance to the
+    pending extra payload so that the ApprovalService can route notifications
+    to the correct channel (see #6819)."""
+    gate = QwenPawDriverApprovalGate()
+    ctx = _ctx(tool_call_id="tc-5")
+
+    # Inject channel routing data into the request context
+    ctx.request_context["channel_meta"] = {"conversation_id": "conv-1"}
+    ctx.request_context["_channel_instance"] = "mock_channel"
+
+    async def _approver() -> None:
+        for _ in range(100):
+            await asyncio.sleep(0)
+            if svc._pending:
+                break
+
+        pending = next(iter(svc._pending.values()))
+
+        # Verify the channel routing fields were propagated unconditionally
+        assert pending.extra.get("channel_meta") == {
+            "conversation_id": "conv-1",
+        }
+        assert pending.extra.get("_channel_instance") == "mock_channel"
+        assert "_spawn_subagent" not in pending.extra
+
+        await svc.resolve_request(
+            pending.request_id,
+            ApprovalDecision.APPROVED,
+        )
+
+    asyncio.create_task(_approver())
+    await gate.request_approval(ctx)

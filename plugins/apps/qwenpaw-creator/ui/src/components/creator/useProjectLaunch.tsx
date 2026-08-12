@@ -11,13 +11,14 @@ import {
   createAssetImport,
   createProject,
   getAssetImport,
-  getModelConfig,
   getTask,
   ingestAssetFile,
   ingestAssetValue,
   newClientId,
   sendCreatorMessage,
 } from "@/api/creator";
+import { useModelConfigStore } from "@/store/modelConfigStore";
+import { useLaunchUploadStore } from "@/store/launchUploadStore";
 import { taskErrorMessage } from "@/lib/taskPresentation";
 import { creatorStatusLabel } from "@/lib/creatorPresentation";
 import { useRouter } from "@/routing/navigation";
@@ -101,6 +102,201 @@ async function waitForTask(
   }
 }
 
+// Batch launches upload every attachment before the first message can be
+// sent; doing that one file at a time kept users staring at the composer
+// for minutes (field run 2026-08-10: 18 clips ≈ uploads × RTT serialized).
+// A small worker pool preserves per-file error isolation while letting
+// uploads and ingest polling overlap.
+const INGEST_CONCURRENCY = 4;
+
+async function mapWithConcurrency<T>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      for (;;) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= items.length) return;
+        await run(items[index]);
+      }
+    },
+  );
+  await Promise.all(workers);
+}
+
+interface LaunchContinuation {
+  project: Awaited<ReturnType<typeof createProject>>;
+  goal: string;
+  folderFiles: Extract<AttachmentDraft, { kind: "file" }>[];
+  looseFiles: Extract<AttachmentDraft, { kind: "file" }>[];
+  urlAttachments: Extract<AttachmentDraft, { kind: "url" }>[];
+}
+
+/**
+ * Ingest launch attachments and send the durable first message after the
+ * composer already navigated away. Module-level on purpose: it must not
+ * depend on any component lifecycle, and it reports every step to the
+ * launch-upload store so the project workspace can render live progress.
+ */
+async function continueLaunchInBackground({
+  project,
+  goal,
+  folderFiles,
+  looseFiles,
+  urlAttachments,
+}: LaunchContinuation): Promise<void> {
+  const projectId = project.projectId;
+  const progress = useLaunchUploadStore.getState();
+  progress.begin(
+    projectId,
+    folderFiles.length + looseFiles.length + urlAttachments.length,
+  );
+  const refs: string[] = [];
+  const remoteContentParts: CreatorContentPart[] = [];
+  try {
+    if (folderFiles.length > 0) {
+      const files = folderFiles.map((att) => att.file);
+      try {
+        const accepted = await createAssetImport(
+          project.projectId,
+          files,
+          "NONE",
+          newClientId("asset"),
+        );
+        for (;;) {
+          const view = await getAssetImport(
+            project.projectId,
+            accepted.importId,
+          );
+          if (terminal.has(view.status)) {
+            if (view.status !== "SUCCEEDED")
+              throw new Error(
+                i18n.t("lib.folderImportFailed", {
+                  status: creatorStatusLabel(view.status),
+                }),
+              );
+            refs.push(
+              ...view.items.map(
+                (item) => `asset-version:${item.assetVersionId}`,
+              ),
+            );
+            if (view.failures.length > 0) {
+              message.warning(
+                i18n.t("lib.folderImportSkipped", {
+                  count: view.failures.length,
+                }),
+              );
+            }
+            break;
+          }
+          await wait(800);
+        }
+        for (const att of folderFiles) {
+          useLaunchUploadStore
+            .getState()
+            .fileFinished(projectId, att.file.name, true);
+        }
+      } catch (error) {
+        message.warning(
+          i18n.t("lib.folderImportError", {
+            detail: (error as Error).message,
+          }),
+        );
+        for (const att of folderFiles) {
+          useLaunchUploadStore
+            .getState()
+            .fileFinished(projectId, att.file.name, false);
+        }
+      }
+    }
+
+    await mapWithConcurrency(looseFiles, INGEST_CONCURRENCY, async (att) => {
+      const store = useLaunchUploadStore.getState();
+      store.fileStarted(projectId, att.file.name);
+      try {
+        const accepted = await ingestAssetFile(
+          project.projectId,
+          att.file,
+          "NONE",
+          newClientId("asset"),
+        );
+        const taskRefs = accepted.assetVersionId
+          ? [`asset-version:${accepted.assetVersionId}`]
+          : await waitForTask(project.projectId, accepted.taskId);
+        refs.push(...taskRefs);
+        useLaunchUploadStore
+          .getState()
+          .fileFinished(projectId, att.file.name, true);
+      } catch (error) {
+        useLaunchUploadStore
+          .getState()
+          .fileFinished(projectId, att.file.name, false);
+        message.warning(
+          i18n.t("lib.attachmentIngestFailed", {
+            name: att.file.name,
+            detail: (error as Error).message,
+          }),
+        );
+      }
+    });
+
+    for (const att of urlAttachments) {
+      // The Agent can consume the public URL immediately. Local caching is
+      // a parallel Runtime task whose progress is rendered in the Project.
+      remoteContentParts.push(remoteUrlContentPart(att.url));
+      try {
+        const accepted = await ingestAssetValue(
+          project.projectId,
+          {
+            kind: "url",
+            name: att.url,
+            value: att.url,
+            postIngestAction: "NONE",
+          },
+          newClientId("asset"),
+        );
+        if (accepted.assetVersionId) {
+          refs.push(`asset-version:${accepted.assetVersionId}`);
+        }
+        useLaunchUploadStore.getState().fileFinished(projectId, att.url, true);
+      } catch (error) {
+        useLaunchUploadStore.getState().fileFinished(projectId, att.url, false);
+        message.warning(
+          i18n.t("lib.attachmentIngestFailed", {
+            name: att.url,
+            detail: (error as Error).message,
+          }),
+        );
+      }
+    }
+
+    useLaunchUploadStore.getState().messaging(projectId);
+    const uniqueRefs = [...new Set(refs)].filter((ref) =>
+      ref.startsWith("asset-version:"),
+    );
+    // Deliberate: the first message is sent even when every ingest failed —
+    // the text goal alone is a valid brief, and each failure was already
+    // surfaced to the user as a warning above.
+    await sendCreatorMessage(project.projectId, {
+      clientMessageId: newClientId("initial-message"),
+      creatorSessionId: project.creatorSessionId,
+      conversationId: project.conversationId,
+      content: [{ type: "text", text: goal }, ...remoteContentParts],
+      assetVersionRefs: uniqueRefs,
+      context: { panel: "composer" },
+    });
+    useLaunchUploadStore.getState().finish(projectId, true);
+  } catch (error) {
+    useLaunchUploadStore.getState().finish(projectId, false);
+    message.error((error as Error).message || i18n.t("home.launchFailed"));
+  }
+}
+
 export function chipLabel(att: AttachmentDraft): { tag: string; name: string } {
   if (att.kind === "url") return { tag: "URL", name: att.url };
   if (att.source === "folder")
@@ -156,7 +352,10 @@ export function useProjectLaunch(options?: { onLaunched?: () => void }) {
   const projectRequest = useRef({ signature: "", id: "" });
   const initialMessageRequests = useRef(new Map<string, string>());
   const sourceRequestIds = useRef(new Map<string, string>());
-  const [modelConfig, setModelConfig] = useState<ModelConfigData | null>(null);
+  // Shared snapshot: saving the config in the home banner or header badges
+  // modal must clear this composer's required-model hint without a reload.
+  const modelConfig = useModelConfigStore((state) => state.config);
+  const refreshModelConfig = useModelConfigStore((state) => state.refresh);
   const [modelConfigModalOpen, setModelConfigModalOpen] = useState(false);
   const hasUrl =
     urlDraft.trim().length > 0 || attachments.some((att) => att.kind === "url");
@@ -181,14 +380,9 @@ export function useProjectLaunch(options?: { onLaunched?: () => void }) {
     }
     return missing;
   }, [modelConfig, scenario, hasAttachments]);
-  const refreshModelConfig = useCallback(() => {
-    getModelConfig()
-      .then(setModelConfig)
-      .catch(() => setModelConfig(null));
-  }, []);
   useEffect(() => {
-    refreshModelConfig();
-  }, [refreshModelConfig, scenario, hasAttachments]);
+    void refreshModelConfig();
+  }, [refreshModelConfig]);
 
   const requestIdFor = (key: string) => {
     const existing = sourceRequestIds.current.get(key);
@@ -352,153 +546,24 @@ export function useProjectLaunch(options?: { onLaunched?: () => void }) {
         return;
       }
 
-      const refs: string[] = [];
-      const remoteContentParts: CreatorContentPart[] = [];
-      if (folderFiles.length > 0) {
-        try {
-          const files = folderFiles.map((att) => att.file);
-          if (stopOnOversizedFiles(files)) {
-            return;
-          }
-          const folderKey = files
-            .map((file) => {
-              const relative =
-                (file as File & { webkitRelativePath?: string })
-                  .webkitRelativePath || file.name;
-              return `${relative}:${file.size}:${file.lastModified}`;
-            })
-            .join("|");
-          const accepted = await createAssetImport(
-            project.projectId,
-            files,
-            "NONE",
-            requestIdFor(`folder:${folderKey}`),
-          );
-          for (;;) {
-            const view = await getAssetImport(
-              project.projectId,
-              accepted.importId,
-            );
-            if (terminal.has(view.status)) {
-              if (view.status !== "SUCCEEDED")
-                throw new Error(
-                  i18n.t("lib.folderImportFailed", {
-                    status: creatorStatusLabel(view.status),
-                  }),
-                );
-              refs.push(
-                ...view.items.map(
-                  (item) => `asset-version:${item.assetVersionId}`,
-                ),
-              );
-              if (view.failures.length > 0) {
-                message.warning(
-                  i18n.t("lib.folderImportSkipped", {
-                    count: view.failures.length,
-                  }),
-                );
-              }
-              break;
-            }
-            await wait(800);
-          }
-        } catch (error) {
-          message.warning(
-            i18n.t("lib.folderImportError", {
-              detail: (error as Error).message,
-            }),
-          );
-        }
-      }
-
-      for (const att of looseFiles) {
-        try {
-          const accepted = await ingestAssetFile(
-            project.projectId,
-            att.file,
-            "NONE",
-            requestIdFor(
-              `file:${att.file.name}:${att.file.size}:${att.file.lastModified}`,
-            ),
-          );
-          const taskRefs = accepted.assetVersionId
-            ? [`asset-version:${accepted.assetVersionId}`]
-            : await waitForTask(project.projectId, accepted.taskId);
-          refs.push(...taskRefs);
-        } catch (error) {
-          message.warning(
-            i18n.t("lib.attachmentIngestFailed", {
-              name: att.file.name,
-              detail: (error as Error).message,
-            }),
-          );
-        }
-      }
-
-      for (const att of urlAttachments) {
-        // The Agent can consume the public URL immediately. Local caching is a
-        // parallel Runtime task whose progress is rendered in the Project.
-        remoteContentParts.push(remoteUrlContentPart(att.url));
-        try {
-          const accepted = await ingestAssetValue(
-            project.projectId,
-            {
-              kind: "url",
-              name: att.url,
-              value: att.url,
-              postIngestAction: "NONE",
-            },
-            requestIdFor(`url:${att.url}`),
-          );
-          const taskRefs = accepted.assetVersionId
-            ? [`asset-version:${accepted.assetVersionId}`]
-            : [];
-          refs.push(...taskRefs);
-        } catch (error) {
-          message.warning(
-            i18n.t("lib.attachmentIngestFailed", {
-              name: att.url,
-              detail: (error as Error).message,
-            }),
-          );
-        }
-      }
-
-      const uniqueRefs = [...new Set(refs)].filter((ref) =>
-        ref.startsWith("asset-version:"),
-      );
-      const messageSignature = JSON.stringify({
-        projectId: project.projectId,
-        conversationId: project.conversationId,
-        goal: projectDescription.trim(),
-        assetVersionRefs: uniqueRefs,
-        remoteUrls: urlAttachments.map((item) => item.url),
-      });
-      const clientMessageId =
-        initialMessageRequests.current.get(messageSignature) ??
-        newClientId("initial-message");
-      initialMessageRequests.current.set(messageSignature, clientMessageId);
-      await sendCreatorMessage(project.projectId, {
-        clientMessageId,
-        creatorSessionId: project.creatorSessionId,
-        conversationId: project.conversationId,
-        content: [
-          { type: "text", text: projectDescription.trim() },
-          ...remoteContentParts,
-        ],
-        assetVersionRefs: uniqueRefs,
-        context: { panel: "composer" },
-      });
-      // Keep the Composer context alive until the durable first message has
-      // been accepted.  Navigating before a slow remote ingest completes can
-      // tear down this async continuation and leave a valid Project with no
-      // Goal, no message, and an AgentDock permanently showing IDLE.
+      // Navigate immediately: the user lands on the project page while
+      // attachments upload in the background. The continuation lives at
+      // module level (not in this component's closure), reports to the
+      // launch-upload store for the workspace progress card, and sends
+      // the durable first message once every ingest settled — so a
+      // torn-down composer can no longer strand a Goal-less Project.
       router.push(`/project/${project.projectId}/plan`);
       onLaunched?.();
-      initialMessageRequests.current.delete(messageSignature);
       projectRequest.current = { signature: "", id: "" };
       initialMessageRequests.current.clear();
       sourceRequestIds.current.clear();
+      void continueLaunchInBackground({
+        project,
+        goal: projectDescription.trim(),
+        folderFiles,
+        looseFiles,
+        urlAttachments,
+      });
     } catch (error) {
       message.error((error as Error).message || t("home.launchFailed"));
     } finally {

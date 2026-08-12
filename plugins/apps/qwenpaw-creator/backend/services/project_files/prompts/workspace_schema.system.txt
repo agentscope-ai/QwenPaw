@@ -22,8 +22,10 @@ Project
 │   │   └── variants.items[variantId] # VisualVariant：requirements、prompt、参考、生成版本与独立 selected_artifact_version_id、derived_from_variant_id
 │   └── cast_lineups.items[lineupId]  # VisualCastLineup：多角色阵容图（群体锚点）：character_refs 顺序即站位、relative_notes、生成/选定版本
 ├── timelines                         # Timeline 的 EntityCollection
-│   └── items[timelineId].elements_by_id
-│       └── span, location, z_index, creation, outputs, render_source
+│   └── items[timelineId]
+│       ├── edit_plan                 # 剪辑品味契约（可为 null）：concept、dials(energy/density/decoration: low|mid|high)、signature_device、pacing、design_floor(opening/transitions/body/ending)、mechanical_exemption、scene_ledger[]
+│       └── elements_by_id
+│           └── span, location, z_index, creation, outputs, render_source
 └── assets                            # 文件、源版本、理解版本、Artifact 槽位与版本索引
 ```
 

@@ -82,6 +82,27 @@ async function errorFrom(response: Response): Promise<CreatorHttpError> {
   } catch {
     body = { message: response.statusText };
   }
+  if (!body.message) {
+    // FastAPI request-body validation failures bypass the Creator error
+    // envelope and answer with a raw `detail` payload; surface the field
+    // errors instead of the opaque "request failed (422)" fallback.
+    const detail = (body as { detail?: unknown }).detail;
+    if (typeof detail === "string") {
+      body = { ...body, message: detail };
+    } else if (Array.isArray(detail)) {
+      const message = detail
+        .map((item) => {
+          const entry = item as { loc?: unknown[]; msg?: string };
+          const loc = Array.isArray(entry.loc)
+            ? entry.loc.filter((part) => part !== "body").join(".")
+            : "";
+          return loc ? `${loc}: ${entry.msg ?? ""}` : entry.msg ?? "";
+        })
+        .filter(Boolean)
+        .join("; ");
+      if (message) body = { ...body, message };
+    }
+  }
   return new CreatorHttpError(response.status, body);
 }
 

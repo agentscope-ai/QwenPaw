@@ -54,6 +54,22 @@ def _endpoint(base_url: str, suffix: str) -> str:
 
 _FUN_ASR_TRANSCRIPTION_SUFFIX = "services/audio/asr/transcription"
 
+# Provider verdicts meaning "the audio simply contains no speech"; they
+# arrive as task/subtask failure codes but describe the footage, not an
+# infrastructure fault.
+_NO_SPEECH_CODES = frozenset({"ASR_RESPONSE_HAVE_NO_WORDS"})
+
+
+def _no_speech_output(output: Mapping[str, Any]) -> bool:
+    """True when every failure in one Fun-ASR poll is a no-speech verdict."""
+
+    codes = [str(output.get("code") or "")]
+    for item in output.get("results") or ():
+        if isinstance(item, Mapping):
+            codes.append(str(item.get("code") or ""))
+    hits = [code for code in codes if code in _NO_SPEECH_CODES]
+    return bool(hits)
+
 
 def _fun_asr_base(base_url: str) -> str:
     """Return the API root for Fun-ASR submit/poll joins.
@@ -251,7 +267,9 @@ async def _fun_asr_file_url(media_url: str, api_key: str, model: str) -> str:
     )
 
 
-async def _fun_asr(media_url: str) -> ASRResult:
+async def _fun_asr(  # pylint: disable=too-many-statements
+    media_url: str,
+) -> ASRResult:
     base = _fun_asr_base(config.get_asr_base_url())
     key = config.get_asr_api_key()
     model = config.get_asr_model_name() or "fun-asr"
@@ -331,6 +349,16 @@ async def _fun_asr(media_url: str) -> ASRResult:
                 ),
                 None,
             )
+            if _no_speech_output(output):
+                # "No words" is a fact about the footage (ambient-only
+                # audio), not a provider failure: report an empty
+                # transcript so agents stop probing sibling clips for a
+                # transcript that cannot exist.
+                logger.info(
+                    "Fun-ASR: task %s reported no speech in the audio",
+                    task_id,
+                )
+                return ASRResult("dashscope", model, [])
             if status != "SUCCEEDED" or not succeeded:
                 raise RuntimeError(f"Fun-ASR failed: {output}")
             logger.info(

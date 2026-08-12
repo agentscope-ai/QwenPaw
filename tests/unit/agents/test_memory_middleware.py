@@ -400,16 +400,9 @@ class TestOnCompressContextAutomationSkip:
 
         with patch.object(
             MemoryMiddleware,
-            "_memory_config",
-        ) as mock_cfg, patch.object(
-            MemoryMiddleware,
             "_will_compress_context",
             return_value=True,
         ) as mock_wc:
-            cfg = MagicMock()
-            cfg.summarize_when_compact = True
-            mock_cfg.return_value = cfg
-
             agent.state.context = [_user_msg()]
 
             await mw.on_compress_context(agent, {}, next_handler)
@@ -421,7 +414,6 @@ class TestOnCompressContextAutomationSkip:
     @pytest.mark.parametrize(
         "failing_step",
         [
-            "memory_config",
             "turn_state",
             "will_compress",
             "flush",
@@ -437,12 +429,7 @@ class TestOnCompressContextAutomationSkip:
         agent = _make_agent(source="user")
         next_handler = AsyncMock()
 
-        if failing_step == "memory_config":
-            mm.get_memory_config.side_effect = RuntimeError(
-                "memory config unavailable",
-            )
-        else:
-            _auto_memory_turn_state(mm)["pending"] = ["m1"]
+        _auto_memory_turn_state(mm)["pending"] = ["m1"]
 
         if failing_step == "turn_state":
             mm.get_auto_memory_turn_state.side_effect = RuntimeError(

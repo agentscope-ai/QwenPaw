@@ -31,11 +31,13 @@ import threading
 import time
 from typing import Any, Literal, NoReturn
 from urllib.parse import unquote, urljoin, urlsplit, urlunsplit
+from urllib.request import url2pathname
 from uuid import uuid4
 
 import httpx
 
 from domain.errors import StorageIntegrityError, ValidationError
+from services.runtime_files.atomic_store import fsync_directory
 
 logger = logging.getLogger("qwenpaw.creator.media_files.secure_video_stream")
 
@@ -47,6 +49,9 @@ _COPY_CHUNK_BYTES = 64 * 1024
 _MAGIC_PREFIX_BYTES = 4096
 _PROCESS_R2V_MATERIALIZE_SEMAPHORE = threading.BoundedSemaphore(4)
 _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
+# A native Windows absolute path: drive letter (C:\ or C:/) or UNC (\\host).
+# urlsplit() would read "C:" as a URL scheme, so these are matched first.
+_WINDOWS_NATIVE_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
@@ -172,6 +177,43 @@ def _file_create_flags() -> int:
     )
 
 
+def _supports_descriptor_rooted_io() -> bool:
+    return (
+        os.name != "nt"
+        and hasattr(os, "O_NOFOLLOW")
+        and os.open in os.supports_dir_fd
+        and os.rename in os.supports_dir_fd
+        and os.unlink in os.supports_dir_fd
+    )
+
+
+def _require_real_directory(path: Path, *, label: str) -> None:
+    try:
+        details = path.lstat()
+    except OSError as error:
+        raise ValidationError(f"{label} 不存在、不是目录或包含符号链接") from error
+    if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
+        raise ValidationError(f"{label} 不存在、不是目录或包含符号链接")
+
+
+def _require_regular_private_file(
+    path: Path,
+    *,
+    label: str,
+) -> os.stat_result:
+    try:
+        details = path.lstat()
+    except OSError as error:
+        raise ValidationError(
+            f"{label} 不存在、不是 regular file 或包含符号链接",
+        ) from error
+    if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
+        raise ValidationError(f"{label} 不存在、不是 regular file 或包含符号链接")
+    if details.st_nlink != 1:
+        raise ValidationError(f"{label} 不允许使用硬链接")
+    return details
+
+
 def _open_absolute_directory(path: Path) -> int:
     """Open every component from ``/`` with openat and O_NOFOLLOW."""
 
@@ -222,8 +264,12 @@ class _TaskScratch:
             raise ValidationError("Project root 与 project_id 不匹配")
         self.path = self.project_root / "runtime" / "task-work" / self.task_id
         self.fd = -1
+        self._descriptor_rooted = _supports_descriptor_rooted_io()
 
     def __enter__(self) -> _TaskScratch:
+        if not self._descriptor_rooted:
+            self._enter_path_fallback()
+            return self
         project_fd = _open_absolute_directory(self.project_root)
         opened = [project_fd]
         try:
@@ -263,6 +309,38 @@ class _TaskScratch:
                 os.close(descriptor)
         return self
 
+    def _enter_path_fallback(self) -> None:
+        if not self.project_root.is_absolute():
+            raise ValidationError("Project root 必须是绝对路径")
+        _require_real_directory(self.project_root, label="Project root")
+        project_file = self.project_root / "project.json"
+        try:
+            project_details = project_file.lstat()
+        except OSError as error:
+            raise ValidationError(
+                "Project root 缺少 regular project.json",
+            ) from error
+        if stat.S_ISLNK(project_details.st_mode) or not stat.S_ISREG(
+            project_details.st_mode,
+        ):
+            raise ValidationError("Project root 缺少 regular project.json")
+        runtime = self.project_root / "runtime"
+        work = runtime / "task-work"
+        for path, label in (
+            (runtime, "runtime"),
+            (work, "runtime/task-work"),
+            (self.path, "current Task scratch"),
+        ):
+            _require_real_directory(path, label=label)
+        try:
+            self.path.resolve(strict=True).relative_to(
+                work.resolve(strict=True),
+            )
+        except (OSError, ValueError) as error:
+            raise ValidationError(
+                "current Task scratch 跨越 Project scope",
+            ) from error
+
     def __exit__(self, *_args: object) -> None:
         if self.fd >= 0:
             os.close(self.fd)
@@ -275,6 +353,8 @@ class _TaskScratch:
             _safe_segment(part, label="provider 本地视频路径")
             for part in relative_parts
         )
+        if not self._descriptor_rooted:
+            return self._open_regular_path_fallback(safe_parts)
         parent = os.dup(self.fd)
         try:
             for part in safe_parts[:-1]:
@@ -306,26 +386,70 @@ class _TaskScratch:
         finally:
             os.close(parent)
 
+    def _open_regular_path_fallback(self, safe_parts: Sequence[str]) -> int:
+        parent = self.path
+        for part in safe_parts[:-1]:
+            parent = parent / part
+            _require_real_directory(parent, label="provider 本地视频父目录")
+        target = parent / safe_parts[-1]
+        _require_regular_private_file(target, label="provider 本地视频")
+        try:
+            descriptor = os.open(
+                target,
+                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0),
+            )
+        except OSError as error:
+            raise ValidationError(
+                "provider 本地视频不存在、不是 regular file 或包含符号链接",
+            ) from error
+        details = os.fstat(descriptor)
+        if not stat.S_ISREG(details.st_mode):
+            os.close(descriptor)
+            raise ValidationError("provider 本地视频必须是 regular file")
+        if details.st_nlink != 1:
+            os.close(descriptor)
+            raise ValidationError("provider 本地视频不允许使用硬链接")
+        return descriptor
+
     def create_temp(self) -> tuple[str, int]:
         name = f"r2v-materialized-{uuid4().hex}.part"
+        if not self._descriptor_rooted:
+            flags = (
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(
+                    os,
+                    "O_CLOEXEC",
+                    0,
+                )
+            )
+            return name, os.open(self.path / name, flags, 0o600)
         descriptor = os.open(name, _file_create_flags(), 0o600, dir_fd=self.fd)
         return name, descriptor
 
     def remove(self, name: str) -> None:
         try:
-            os.unlink(name, dir_fd=self.fd)
+            if self._descriptor_rooted:
+                os.unlink(name, dir_fd=self.fd)
+            else:
+                (self.path / name).unlink()
         except FileNotFoundError:
             pass
 
     def finish(self, temporary_name: str, suffix: str) -> Path:
         final_name = f"{temporary_name.removesuffix('.part')}{suffix}"
-        os.rename(
-            temporary_name,
-            final_name,
-            src_dir_fd=self.fd,
-            dst_dir_fd=self.fd,
-        )
-        os.fsync(self.fd)
+        if self._descriptor_rooted:
+            os.rename(
+                temporary_name,
+                final_name,
+                src_dir_fd=self.fd,
+                dst_dir_fd=self.fd,
+            )
+            os.fsync(self.fd)
+        else:
+            os.rename(self.path / temporary_name, self.path / final_name)
+            fsync_directory(self.path)
         return self.path / final_name
 
 
@@ -523,9 +647,15 @@ def _local_relative_parts(
     project_id: str,
     task_id: str,
 ) -> tuple[str, ...] | None:
+    scratch = project_root / "runtime" / "task-work" / task_id
+    if _WINDOWS_NATIVE_PATH.match(source):
+        # Windows providers legitimately return drive-letter or UNC paths
+        # for local outputs; urlsplit() would misread "C:" as a scheme and
+        # reject them. Containment against the Task scratch still applies.
+        candidate = Path(source)
+        return _contained_relative_parts(candidate, scratch)
     parsed = urlsplit(source)
     scheme = parsed.scheme.casefold()
-    scratch = project_root / "runtime" / "task-work" / task_id
     if scheme in {"http", "https"}:
         return None
     if scheme == "file":
@@ -535,7 +665,10 @@ def _local_relative_parts(
             or parsed.fragment
         ):
             raise ValidationError("provider file URL host/query/fragment 非法")
-        candidate = Path(unquote(parsed.path))
+        # url2pathname() applies platform semantics: on Windows it turns
+        # /C:/dir/file (Path.as_uri() output) into C:\dir\file, on POSIX
+        # it just unquotes — Path(unquote(...)) mis-parsed the drive form.
+        candidate = Path(url2pathname(parsed.path))
     elif not scheme and source.startswith("/generated/"):
         if parsed.query or parsed.fragment:
             raise ValidationError("provider generated URL 不允许 query/fragment")
@@ -557,6 +690,14 @@ def _local_relative_parts(
         raise ValidationError("provider 视频 URL scheme 不受支持")
     else:
         candidate = Path(source).expanduser()
+    return _contained_relative_parts(candidate, scratch)
+
+
+def _contained_relative_parts(
+    candidate: Path,
+    scratch: Path,
+) -> tuple[str, ...]:
+    """Validate a local candidate path against the Task scratch scope."""
 
     if candidate.is_absolute():
         try:

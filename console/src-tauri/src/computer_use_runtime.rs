@@ -5,6 +5,8 @@
 //! spawn flag remain Windows specific (macOS relies on the helper's own
 //! parent-death watch for reaping).
 
+#[cfg(target_os = "macos")]
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -51,8 +53,6 @@ const CONTROL_MAX_MESSAGE_BYTES: usize = 4096;
 #[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 const HELPER_READY_PREFIX: &str = "QWENPAW_COMPUTER_USE_READY ";
 const HELPER_READY_TIMEOUT: Duration = Duration::from_secs(8);
-#[cfg(target_os = "macos")]
-const FOCUS_LEASE_IDLE_TIMEOUT: Duration = Duration::from_secs(12);
 const CONTROL_CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 const MAX_CAPTURED_HELPER_STDERR_CHARS: usize = 4096;
@@ -76,15 +76,9 @@ struct RuntimeInner {
     capability: Option<RuntimeCapability>,
     helper_pid: Option<u32>,
     #[cfg(target_os = "macos")]
-    focus_lease: Option<FocusLease>,
-}
-
-#[cfg(target_os = "macos")]
-struct FocusLease {
-    id: String,
-    helper_pid: u32,
-    host_was_visible: bool,
-    expires_at: Instant,
+    focus_leases: HashSet<String>,
+    #[cfg(target_os = "macos")]
+    restore_host_after_focus: bool,
 }
 
 #[derive(Clone)]
@@ -106,8 +100,6 @@ struct ControlRequest {
     action: String,
     #[serde(default)]
     helper_pid: Option<u32>,
-    #[serde(default)]
-    target_pid: Option<i32>,
     #[serde(default)]
     lease_id: Option<String>,
 }
@@ -226,8 +218,8 @@ pub(crate) fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
                 log::warn!("[computer-use] helper exited before next acquire: {status}");
                 inner.helper_pid.take();
                 #[cfg(target_os = "macos")]
-                if let Some(lease) = inner.focus_lease.take() {
-                    release_focus_lease(app, lease);
+                if clear_focus_leases(&mut inner) {
+                    show_host_window(app);
                 }
             }
             Err(error) => {
@@ -757,12 +749,12 @@ fn stop_helper(app: &tauri::AppHandle) -> Result<(), String> {
     let capability = inner.capability.take();
     let helper_pid = inner.helper_pid.take();
     #[cfg(target_os = "macos")]
-    let focus_lease = inner.focus_lease.take();
+    let restore_host = clear_focus_leases(&mut inner);
     drop(inner);
 
     #[cfg(target_os = "macos")]
-    if let Some(lease) = focus_lease {
-        release_focus_lease(app, lease);
+    if restore_host {
+        show_host_window(app);
     }
 
     if let Some(mut child) = child {
@@ -962,28 +954,19 @@ fn cleanup_endpoint(endpoint: &str) {
 fn begin_focus_lease(
     app: &tauri::AppHandle,
     helper_pid: u32,
-    _target_pid: i32,
+    lease_id: &str,
 ) -> Result<String, &'static str> {
-    expire_focus_lease(app);
     let state = app.state::<ComputerUseRuntimeState>();
-    let stale_lease = {
-        let mut inner = state.inner.lock().map_err(|_| "runtime_unavailable")?;
+    {
+        let inner = state.inner.lock().map_err(|_| "runtime_unavailable")?;
         if inner.helper_pid != Some(helper_pid) || inner.child.is_none() {
             return Err("stale_helper");
         }
-        if inner
-            .focus_lease
-            .as_ref()
-            .is_some_and(|lease| lease.helper_pid != helper_pid)
-        {
-            inner.focus_lease.take()
-        } else {
-            None
+        // The helper supplies the identifier, so retrying a control request
+        // after a lost response cannot create an assertion that no turn owns.
+        if inner.focus_leases.contains(lease_id) {
+            return Ok(lease_id.to_string());
         }
-    };
-    if let Some(lease) = stale_lease {
-        log::warn!("[computer-use] releasing a stale foreground lease");
-        release_focus_lease(app, lease);
     }
 
     let window = app.get_webview_window("main");
@@ -1021,22 +1004,9 @@ fn begin_focus_lease(
             return Err("runtime_unavailable");
         }
     };
-    if let Some(lease) = inner.focus_lease.as_mut() {
-        // begin_focus is idempotent for the managed helper. Keeping one lease
-        // across adjacent actions preserves transient UI state such as an
-        // inline editor, and also makes a lost control response safe to retry.
-        lease.host_was_visible |= host_is_visible;
-        lease.expires_at = Instant::now() + FOCUS_LEASE_IDLE_TIMEOUT;
-        return Ok(lease.id.clone());
-    }
-    let id = random_hex(16);
-    inner.focus_lease = Some(FocusLease {
-        id: id.clone(),
-        helper_pid,
-        host_was_visible: host_is_visible,
-        expires_at: Instant::now() + FOCUS_LEASE_IDLE_TIMEOUT,
-    });
-    Ok(id)
+    inner.restore_host_after_focus |= host_is_visible;
+    inner.focus_leases.insert(lease_id.to_string());
+    Ok(lease_id.to_string())
 }
 
 #[cfg(target_os = "macos")]
@@ -1047,41 +1017,25 @@ fn end_focus_lease(
 ) -> Result<(), &'static str> {
     let state = app.state::<ComputerUseRuntimeState>();
     let mut inner = state.inner.lock().map_err(|_| "runtime_unavailable")?;
-    let Some(lease) = inner.focus_lease.as_mut() else {
-        return Ok(());
-    };
-    if lease.helper_pid != helper_pid || lease.id != lease_id {
-        return Err("stale_lease");
+    if inner.helper_pid != Some(helper_pid) || inner.child.is_none() {
+        return Err("stale_helper");
     }
-    // Drop marks the end of one native action, not the end of the whole
-    // interaction. Keep the host hidden until the lease goes idle so adjacent
-    // actions preserve transient target state such as a menu or inline editor.
-    lease.expires_at = Instant::now() + FOCUS_LEASE_IDLE_TIMEOUT;
+    inner.focus_leases.remove(lease_id);
+    let restore_host = inner.focus_leases.is_empty() && inner.restore_host_after_focus;
+    if restore_host {
+        inner.restore_host_after_focus = false;
+    }
+    drop(inner);
+    if restore_host {
+        show_host_window(app);
+    }
     Ok(())
 }
 
 #[cfg(target_os = "macos")]
-fn expire_focus_lease(app: &tauri::AppHandle) {
-    let state = app.state::<ComputerUseRuntimeState>();
-    let lease = state.inner.lock().ok().and_then(|mut inner| {
-        inner
-            .focus_lease
-            .as_ref()
-            .is_some_and(|lease| Instant::now() >= lease.expires_at)
-            .then(|| inner.focus_lease.take())
-            .flatten()
-    });
-    if let Some(lease) = lease {
-        log::debug!("[computer-use] releasing idle foreground lease");
-        release_focus_lease(app, lease);
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn release_focus_lease(app: &tauri::AppHandle, lease: FocusLease) {
-    if lease.host_was_visible {
-        show_host_window(app);
-    }
+fn clear_focus_leases(inner: &mut RuntimeInner) -> bool {
+    inner.focus_leases.clear();
+    std::mem::take(&mut inner.restore_host_after_focus)
 }
 
 #[cfg(target_os = "macos")]
@@ -1105,21 +1059,21 @@ fn reap_exited_helper(app: &tauri::AppHandle) {
         inner.child.take();
         inner.helper_pid.take();
         #[cfg(target_os = "macos")]
-        let focus_lease = inner.focus_lease.take();
+        let restore_host = clear_focus_leases(&mut inner);
         #[cfg(not(target_os = "macos"))]
-        let focus_lease = ();
-        Some((status, capability, focus_lease))
+        let restore_host = ();
+        Some((status, capability, restore_host))
     });
-    let Some((status, capability, focus_lease)) = reaped else {
+    let Some((status, capability, restore_host)) = reaped else {
         return;
     };
     log::warn!("[computer-use] helper exited: {status}");
     #[cfg(target_os = "macos")]
-    if let Some(lease) = focus_lease {
-        release_focus_lease(app, lease);
+    if restore_host {
+        show_host_window(app);
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = focus_lease;
+    let _ = restore_host;
     if let Some(capability) = capability {
         cleanup_endpoint(&capability.pipe_name);
     }
@@ -1133,8 +1087,6 @@ fn serve_control(
 ) {
     while !stop.load(Ordering::Acquire) {
         reap_exited_helper(&app);
-        #[cfg(target_os = "macos")]
-        expire_focus_lease(&app);
         match listener.accept() {
             Ok((stream, address)) if address.ip().is_loopback() => {
                 if let Err(err) = serve_control_connection(stream, &app, &token) {
@@ -1179,9 +1131,9 @@ fn serve_control_connection(
                 }
             },
             #[cfg(target_os = "macos")]
-            "begin_focus" => match (request.helper_pid, request.target_pid) {
-                (Some(helper_pid), Some(target_pid)) if target_pid > 0 => {
-                    match begin_focus_lease(app, helper_pid, target_pid) {
+            "begin_focus" => match (request.helper_pid, request.lease_id.as_deref()) {
+                (Some(helper_pid), Some(lease_id)) if !lease_id.is_empty() => {
+                    match begin_focus_lease(app, helper_pid, lease_id) {
                         Ok(lease_id) => ControlResponse::lease(lease_id),
                         Err(error) => ControlResponse::error(error),
                     }

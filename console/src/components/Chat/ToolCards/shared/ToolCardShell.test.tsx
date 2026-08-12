@@ -13,8 +13,8 @@ vi.mock("./ToolCallSessionContext", () => ({
 vi.mock("../../../../hooks/useToolCallControl", () => ({
   useToolCallControl: () => ({
     bannerVisible: false,
-    offloadRemaining: null,
-    killRemaining: null,
+    offloadRemaining: 12,
+    killRemaining: 30,
     defaultPolicy: "keep_foreground",
     maxInternalTimeoutSecs: null,
     elapsed: 0,
@@ -38,6 +38,12 @@ const content: ToolCallContent = {
   params: {},
   result: "output",
   status: "done",
+};
+
+const runningContent: ToolCallContent = {
+  ...content,
+  params: { command: "python verbose_script.py" },
+  status: "calling",
 };
 
 describe("ToolCardShell lazy body", () => {
@@ -124,5 +130,22 @@ describe("ToolCardShell lazy body", () => {
     details!.open = false;
     fireEvent(details!, new Event("toggle"));
     expect(screen.getByText("Expensive output")).toBeInTheDocument();
+  });
+
+  it("groups Parameters and Runtime in one metadata panel", () => {
+    const { container } = render(
+      <ToolCardShell
+        content={runningContent}
+        icon={<span />}
+        title="Shell"
+        isStreaming
+        defaultExpanded
+      />,
+    );
+
+    const metadata = container.querySelector('[class*="toolCallMetadata"]');
+    expect(metadata).not.toBeNull();
+    expect(metadata).toHaveTextContent("Parameters");
+    expect(metadata).toHaveTextContent("Runtime");
   });
 });

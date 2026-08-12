@@ -1029,9 +1029,12 @@ def _stage_materialized_video(
     """Stream a verified private scratch file into immutable Asset staging."""
 
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
-    if not hasattr(os, "O_NOFOLLOW"):
-        raise RuntimeError("R2V Asset staging requires O_NOFOLLOW")
-    flags |= os.O_NOFOLLOW
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    else:
+        value = materialized.path.lstat()
+        if stat.S_ISLNK(value.st_mode):
+            raise ValidationError("R2V Asset staging refuses symlink output")
     descriptor = os.open(materialized.path, flags)
     try:
         details = os.fstat(descriptor)
@@ -4446,15 +4449,19 @@ class FileR2VExecutionService:
 
 
 def _has_accepted_provider_task(task_id: str, project_id: str) -> bool:
-    """Whether a billed provider task was accepted for this Creator Task."""
+    """Whether a *resumable* billed provider task exists for this Task.
+
+    Only ledger kinds the image resume supervisor supports count: handing
+    it an accepted-but-unresumable job (async image generation today) would
+    end supervision as "unsupported" and strand the Task in RUNNING, so
+    those fall through to the fail-closed terminalization below — the
+    billed ids stay named in the error for manual retrieval.
+    """
 
     try:
-        from models.provider_tasks import read_provider_tasks
+        from .image_execution import resumable_provider_entries
 
-        return any(
-            entry.get("providerTaskId")
-            for entry in read_provider_tasks(task_id, project_id)
-        )
+        return bool(resumable_provider_entries(task_id, project_id))
     except Exception:  # noqa: BLE001 - absence of a ledger is not an error
         return False
 
@@ -4529,11 +4536,12 @@ async def recover_interrupted_image_tasks(
                 recovered += 1
                 continue
             if task.status is TaskStatus.RUNNING:
-                # A server-side provider job (qwen-mt-image translation) is
-                # billed on acceptance and its id is durable, so hand it to
-                # the background poller rather than discarding a paid result
-                # or blocking startup on it. Only the one-shot synchronous
-                # calls stay fail-closed below.
+                # A resumable server-side provider job (qwen-mt-image
+                # translation) is billed on acceptance and its id is durable,
+                # so hand it to the background poller rather than discarding
+                # a paid result or blocking startup on it. Unresumable
+                # provider jobs and one-shot synchronous calls stay
+                # fail-closed below.
                 if _has_accepted_provider_task(task.task_id, project_id):
                     worker.schedule_resume(task)
                     recovered += 1
