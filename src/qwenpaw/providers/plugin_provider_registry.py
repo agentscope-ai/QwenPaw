@@ -35,12 +35,13 @@ class PluginProviderRegistry:
             for registration in self._manager.plugin_providers.values()
         ]
 
-    def register(  # pylint: disable=too-many-positional-arguments
+    def register(
         self,
         provider_id: str,
         provider_class: type[Provider],
         label: str,
         base_url: str,
+        *,
         metadata: dict,
     ) -> None:
         """Register a plugin provider using the compatibility transaction."""
@@ -63,7 +64,7 @@ class PluginProviderRegistry:
             provider_class,
             label,
             base_url,
-            metadata,
+            metadata=metadata,
             saved_config_path=provider_path,
         )
         self._manager.plugin_providers[provider_key] = registration

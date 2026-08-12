@@ -411,11 +411,11 @@ class ProviderManagerPersistenceMixin:
         if current is not None:
             self._copy_provider_state(current, snapshot)
 
-    # pylint: disable-next=too-many-positional-arguments
     def _merge_and_save_provider_snapshot(
         self,
         provider_id: str,
         provider: Provider,
+        *,
         update_kind: PluginUpdateKind,
         model_id: str | None,
         fields: set[str] | None,
@@ -539,13 +539,13 @@ class ProviderManagerPersistenceMixin:
             fields=fields,
         )
 
-    # pylint: disable-next=too-many-positional-arguments
     async def register_plugin_provider_async(
         self,
         provider_id: str,
         provider_class,
         label: str,
         base_url: str,
+        *,
         metadata: Dict,
     ) -> None:
         """Register a plugin provider without blocking the event loop."""
@@ -561,7 +561,7 @@ class ProviderManagerPersistenceMixin:
             provider_class,
             label,
             base_url,
-            metadata,
+            metadata=metadata,
             saved_config_path=provider_path,
         )
         lock = self._provider_save_locks.setdefault(
@@ -573,15 +573,14 @@ class ProviderManagerPersistenceMixin:
                 return
             self.plugin_providers[provider_key] = registration
 
-    # pylint: disable-next=too-many-positional-arguments
     def _prepare_plugin_registration(
         self,
         provider_id: str,
         provider_class,
         label: str,
         base_url: str,
-        metadata: Dict,
         *,
+        metadata: Dict,
         saved_config_path: Path,
     ) -> dict:
         """Build plugin registration data without touching shared state."""

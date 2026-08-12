@@ -958,13 +958,13 @@ class ProviderManager(
             },
         )
 
-    # pylint: disable-next=too-many-positional-arguments
     def register_plugin_provider(
         self,
         provider_id: str,
         provider_class,
         label: str,
         base_url: str,
+        *,
         metadata: Dict,
     ):
         """Register a plugin provider.
@@ -981,7 +981,7 @@ class ProviderManager(
             provider_class,
             label,
             base_url,
-            metadata,
+            metadata=metadata,
         )
 
     def unregister_plugin_provider(self, provider_id: str) -> bool:

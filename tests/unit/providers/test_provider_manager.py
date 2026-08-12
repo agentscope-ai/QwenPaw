@@ -234,7 +234,7 @@ async def test_plugin_provider_rejects_casefold_collisions(
             OpenAIProvider,
             "Builtin Collision",
             "https://plugin.example/v1",
-            {},
+            metadata={},
         )
     with pytest.raises(ProviderError, match="conflicts"):
         await manager.register_plugin_provider_async(
@@ -242,7 +242,7 @@ async def test_plugin_provider_rejects_casefold_collisions(
             OpenAIProvider,
             "Custom Collision",
             "https://plugin.example/v1",
-            {},
+            metadata={},
         )
 
 
@@ -2609,7 +2609,7 @@ async def test_async_plugin_registration_runs_prepare_off_event_loop(
         OpenAIProvider,
         "Plugin Async Register",
         "https://plugin.example/v1",
-        {"chat_model": "OpenAIChatModel"},
+        metadata={"chat_model": "OpenAIChatModel"},
     )
 
     assert called_in_thread is True
