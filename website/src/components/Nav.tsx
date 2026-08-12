@@ -5,7 +5,13 @@ import { QwenpawMascot } from "./QwenpawMascot";
 import { useTranslation } from "react-i18next";
 import { useSiteLanguage } from "@/i18n/SiteLanguageContext";
 import { useSiteConfig } from "@/config-context";
-import { GitHubIcon, BlogIcon, NoteIcon, AgentScopePlatformIcon } from "./Icon";
+import {
+  GitHubIcon,
+  BlogIcon,
+  NoteIcon,
+  AgentScopePlatformIcon,
+  LuckyBagIcon,
+} from "./Icon";
 import {
   COMMUNITY_BENEFITS_URL,
   CommunityBenefitsTriggerLabel,
@@ -195,6 +201,7 @@ export function Nav() {
                     className={exploreMenuItemClass}
                     onClick={() => setExploreOpen(false)}
                   >
+                    <LuckyBagIcon />
                     <CommunityBenefitsTriggerLabel badgeAfter />
                   </a>
                   <a
@@ -319,6 +326,7 @@ export function Nav() {
           className={navLinkOrangeClass}
           onClick={() => setOpen(false)}
         >
+          <LuckyBagIcon />
           <CommunityBenefitsTriggerLabel badgeAfter />
         </a>
 
