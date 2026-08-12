@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """Start the configured context service and verify the private gateway."""
+# pylint: disable=wrong-import-position,protected-access
 
 from __future__ import annotations
 
@@ -22,7 +24,10 @@ async def check() -> None:
     try:
         await main._gateway.start()  # noqa: SLF001
         try:
-            health = await main._gateway.json("GET", "/api/health")  # noqa: SLF001
+            health = await main._gateway.json(
+                "GET",
+                "/api/health",
+            )  # noqa: SLF001
             print(json.dumps(health, ensure_ascii=False, indent=2))
         finally:
             await main._gateway.stop()  # noqa: SLF001

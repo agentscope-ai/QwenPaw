@@ -69,4 +69,3 @@ async def test_get_chat_hides_app_owned_dialogue_when_caller_opts_out():
         )
 
     assert raised.value.status_code == 404
-

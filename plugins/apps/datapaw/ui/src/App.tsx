@@ -197,7 +197,9 @@ export function App({ paw }: { paw: PawAppSdk }) {
     // The embedded console reads the language at boot; remount it.
     setConsoleEpoch((epoch) => epoch + 1);
     await paw.toast(
-      next === "zh" ? "界面语言已切换为中文" : "Interface language set to English",
+      next === "zh"
+        ? "界面语言已切换为中文"
+        : "Interface language set to English",
       "success",
     );
   }

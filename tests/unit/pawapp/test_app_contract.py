@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import sys
@@ -37,7 +38,9 @@ def _route_paths(router) -> set[str]:
 
 
 @pytest.mark.asyncio
-async def test_managed_service_allocates_port_and_stops(tmp_path: Path) -> None:
+async def test_managed_service_allocates_port_and_stops(
+    tmp_path: Path,
+) -> None:
     service = ManagedService(
         ManagedServiceSpec(
             name="fixture",
@@ -101,7 +104,9 @@ async def test_external_service_mode_never_starts_process(
 
 
 @pytest.mark.asyncio
-async def test_managed_service_preserves_non_sdk_braces(tmp_path: Path) -> None:
+async def test_managed_service_preserves_non_sdk_braces(
+    tmp_path: Path,
+) -> None:
     script = (
         "import http.server, os, sys; "
         'assert sys.argv[3] == \'{"kind":"fixture"}\'; '
@@ -215,7 +220,9 @@ def test_managed_service_rejects_non_loopback_host() -> None:
         )
 
 
-def test_pawapp_delegates_extensions_through_plugin_api(tmp_path: Path) -> None:
+def test_pawapp_delegates_extensions_through_plugin_api(
+    tmp_path: Path,
+) -> None:
     api = MagicMock()
     app = PawApp("Fixture", app_id="fixture")
     app.enable_standard_capabilities()
@@ -241,7 +248,10 @@ def test_pawapp_delegates_extensions_through_plugin_api(tmp_path: Path) -> None:
     assert section["provider"](object()) == "Use fixture context"
 
     router = api.register_http_router.call_args_list[0].args[0]
-    assert api.register_http_router.call_args_list[0].kwargs["prefix"] == "/fixture"
+    assert (
+        api.register_http_router.call_args_list[0].kwargs["prefix"]
+        == "/fixture"
+    )
     assert _route_paths(router) >= {
         "/chat",
         "/chat/history",
@@ -275,7 +285,8 @@ async def test_pawapp_manages_agent_profile_through_host_lifecycle(
 ) -> None:
     api = MagicMock()
     manager = MagicMock()
-    api._registry.get_workspace_manager.return_value = manager
+    registry = api._registry  # pylint: disable=protected-access
+    registry.get_workspace_manager.return_value = manager
     app = PawApp("Fixture", app_id="fixture")
     profile = app.agent_profile(
         "fixture-agent",
@@ -321,7 +332,9 @@ def test_dependency_agent_tools_are_explicit_and_app_scoped() -> None:
 
     app.register(api)
 
-    tool_names = {call.kwargs["tool_name"] for call in api.register_tool.call_args_list}
+    tool_names = {
+        call.kwargs["tool_name"] for call in api.register_tool.call_args_list
+    }
     assert tool_names == {
         "fixture_dependency_status",
         "fixture_dependency_action",
@@ -366,7 +379,7 @@ def test_chat_reports_missing_model_as_actionable_unavailable() -> None:
                 "label": "Configure a model",
                 "path": "/models",
             },
-        }
+        },
     }
 
 
@@ -414,7 +427,7 @@ def test_chat_history_reads_the_same_app_session() -> None:
                 "type": "message",
                 "role": "user",
                 "content": [{"type": "text", "text": "hello"}],
-            }
+            },
         ],
     }
 
@@ -526,7 +539,12 @@ def test_chat_session_routes_delegate_to_the_app_scoped_catalog() -> None:
 
 
 def test_chat_reply_returns_only_the_last_assistant_message() -> None:
-    def message(text: str, *, message_type: str = "message", role: str = "assistant"):
+    def message(
+        text: str,
+        *,
+        message_type: str = "message",
+        role: str = "assistant",
+    ):
         return SimpleNamespace(
             type=message_type,
             role=role,

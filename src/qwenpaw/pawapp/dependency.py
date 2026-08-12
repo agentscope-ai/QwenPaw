@@ -73,9 +73,13 @@ class DependencyProbe:
         if not callable(self.callback):
             raise ValueError("dependency probe callback must be callable")
         if self.timeout_seconds <= 0:
-            raise ValueError("dependency probe timeout_seconds must be positive")
+            raise ValueError(
+                "dependency probe timeout_seconds must be positive",
+            )
         if self.cache_seconds < 0:
-            raise ValueError("dependency probe cache_seconds cannot be negative")
+            raise ValueError(
+                "dependency probe cache_seconds cannot be negative",
+            )
 
 
 @dataclass(frozen=True)
@@ -92,13 +96,18 @@ class DependencyLifecycle:
     def __post_init__(self) -> None:
         callbacks = (self.start, self.stop, self.restart, self.provision)
         if any(
-            callback is not None and not callable(callback) for callback in callbacks
+            callback is not None and not callable(callback)
+            for callback in callbacks
         ):
             raise ValueError("dependency lifecycle callbacks must be callable")
         if self.action_timeout_seconds <= 0:
-            raise ValueError("dependency action timeout_seconds must be positive")
+            raise ValueError(
+                "dependency action timeout_seconds must be positive",
+            )
         if self.readiness_timeout_seconds <= 0:
-            raise ValueError("dependency readiness timeout_seconds must be positive")
+            raise ValueError(
+                "dependency readiness timeout_seconds must be positive",
+            )
 
 
 @dataclass(frozen=True)
@@ -159,7 +168,10 @@ class DependencyRegistry:
         self._probe_locks: dict[str, asyncio.Lock] = {}
         self._action_locks: dict[str, asyncio.Lock] = {}
         self._transitions: dict[str, str] = {}
-        self._idempotency: dict[tuple[str, str, str], tuple[float, dict[str, Any]]] = {}
+        self._idempotency: dict[
+            tuple[str, str, str],
+            tuple[float, dict[str, Any]],
+        ] = {}
 
     def __len__(self) -> int:
         return len(self._specs)
@@ -186,12 +198,17 @@ class DependencyRegistry:
         if ownership not in _OWNERSHIP_VALUES:
             raise ValueError(f"unsupported dependency ownership: {ownership}")
         if ownership == "external" and lifecycle is not None:
-            raise ValueError("external dependencies cannot declare lifecycle actions")
+            raise ValueError(
+                "external dependencies cannot declare lifecycle actions",
+            )
         normalized_capabilities = tuple(dict.fromkeys(capabilities))
         if any(
-            not item or not isinstance(item, str) for item in normalized_capabilities
+            not item or not isinstance(item, str)
+            for item in normalized_capabilities
         ):
-            raise ValueError("dependency capabilities must be non-empty strings")
+            raise ValueError(
+                "dependency capabilities must be non-empty strings",
+            )
         spec = DependencySpec(
             dependency_id=normalized_id,
             display_name=(display_name or normalized_id).strip(),
@@ -208,7 +225,10 @@ class DependencyRegistry:
 
     async def snapshot(self, *, force: bool = False) -> dict[str, Any]:
         statuses = await asyncio.gather(
-            *(self.get(dependency_id, force=force) for dependency_id in self._specs),
+            *(
+                self.get(dependency_id, force=force)
+                for dependency_id in self._specs
+            ),
         )
         return {
             "schema_version": "1",
@@ -227,7 +247,12 @@ class DependencyRegistry:
             "capabilities": snapshot["capabilities"],
         }
 
-    async def get(self, dependency_id: str, *, force: bool = False) -> dict[str, Any]:
+    async def get(
+        self,
+        dependency_id: str,
+        *,
+        force: bool = False,
+    ) -> dict[str, Any]:
         spec = self._require(dependency_id)
         cached = self._cache.get(spec.dependency_id)
         if not force and cached and cached.expires_at > time.monotonic():
@@ -270,7 +295,9 @@ class DependencyRegistry:
                     lifecycle=self._fallback_lifecycle(spec),
                     error_code="CONNECTION_REFUSED",
                     message="Dependency is not accepting connections",
-                    remediation="Start the configured service or contact its owner",
+                    remediation=(
+                        "Start the configured service or contact its owner"
+                    ),
                     latency_ms=round((time.monotonic() - started) * 1000),
                 )
             except Exception:  # noqa: BLE001 - redact app/driver failures
@@ -284,7 +311,9 @@ class DependencyRegistry:
                     lifecycle=self._fallback_lifecycle(spec),
                     error_code="PROBE_FAILED",
                     message="Dependency health check failed",
-                    remediation="Inspect backend diagnostics and retry the check",
+                    remediation=(
+                        "Inspect backend diagnostics and retry the check"
+                    ),
                     latency_ms=round((time.monotonic() - started) * 1000),
                 )
 
@@ -296,7 +325,7 @@ class DependencyRegistry:
             self._cache[spec.dependency_id] = cached
             return self._public_status(spec, cached)
 
-    async def action(
+    async def action(  # pylint: disable=R0912
         self,
         dependency_id: str,
         action: str,
@@ -321,13 +350,20 @@ class DependencyRegistry:
         )
         if callback is None:
             raise DependencyError(
-                "NOT_MANAGED" if spec.ownership == "external" else "ACTION_NOT_ALLOWED",
-                f"Action '{normalized_action}' is not available for this dependency",
+                "NOT_MANAGED"
+                if spec.ownership == "external"
+                else "ACTION_NOT_ALLOWED",
+                f"Action '{normalized_action}' is not available "
+                f"for this dependency",
                 dependency_id=spec.dependency_id,
                 action=normalized_action,
             )
 
-        cache_key = (spec.dependency_id, normalized_action, idempotency_key or "")
+        cache_key = (
+            spec.dependency_id,
+            normalized_action,
+            idempotency_key or "",
+        )
         if idempotency_key:
             if len(idempotency_key) > 128:
                 raise DependencyError(
@@ -338,7 +374,9 @@ class DependencyRegistry:
                 )
             now = time.monotonic()
             self._idempotency = {
-                key: value for key, value in self._idempotency.items() if value[0] > now
+                key: value
+                for key, value in self._idempotency.items()
+                if value[0] > now
             }
             cached_action = self._idempotency.get(cache_key)
             if cached_action and cached_action[0] > time.monotonic():
@@ -350,7 +388,9 @@ class DependencyRegistry:
                 cached_action = self._idempotency.get(cache_key)
                 if cached_action and cached_action[0] > time.monotonic():
                     return cached_action[1]
-            transition = "stopping" if normalized_action == "stop" else "starting"
+            transition = (
+                "stopping" if normalized_action == "stop" else "starting"
+            )
             self._transitions[spec.dependency_id] = transition
             try:
                 await asyncio.wait_for(
@@ -415,7 +455,10 @@ class DependencyRegistry:
             try:
                 return await self.get(dependency_id, force=force)
             except DependencyError as exc:
-                raise HTTPException(exc.status_code, detail=exc.detail()) from exc
+                raise HTTPException(
+                    exc.status_code,
+                    detail=exc.detail(),
+                ) from exc
 
         @router.post("/dependencies/{dependency_id}/actions/{action}")
         async def run_action(
@@ -430,7 +473,10 @@ class DependencyRegistry:
                     idempotency_key=idempotency_key,
                 )
             except DependencyError as exc:
-                raise HTTPException(exc.status_code, detail=exc.detail()) from exc
+                raise HTTPException(
+                    exc.status_code,
+                    detail=exc.detail(),
+                ) from exc
 
         return router
 
@@ -516,10 +562,13 @@ class DependencyRegistry:
         if not statuses:
             return "unknown"
         if any(
-            item["required"] and item["health"] == "unavailable" for item in statuses
+            item["required"] and item["health"] == "unavailable"
+            for item in statuses
         ):
             return "unavailable"
-        if any(item["health"] in {"unavailable", "degraded"} for item in statuses):
+        if any(
+            item["health"] in {"unavailable", "degraded"} for item in statuses
+        ):
             return "degraded"
         if any(item["health"] in {"unknown", "checking"} for item in statuses):
             return "unknown"

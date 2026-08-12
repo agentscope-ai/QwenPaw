@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
 import importlib.util
@@ -8,7 +10,12 @@ from fastapi import HTTPException
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 GATEWAY_FILE = (
-    REPOSITORY_ROOT / "plugins" / "apps" / "datapaw" / "backend" / "context_gateway.py"
+    REPOSITORY_ROOT
+    / "plugins"
+    / "apps"
+    / "datapaw"
+    / "backend"
+    / "context_gateway.py"
 )
 
 
@@ -65,7 +72,9 @@ def test_context_gateway_accepts_ui_and_cli_path_shapes(
         "/api/v1\\private",
     ],
 )
-def test_context_gateway_rejects_boundary_and_traversal_paths(path: str) -> None:
+def test_context_gateway_rejects_boundary_and_traversal_paths(
+    path: str,
+) -> None:
     with pytest.raises(HTTPException) as error:
         _gateway_class()._validate_path(path)
     assert error.value.status_code == 404

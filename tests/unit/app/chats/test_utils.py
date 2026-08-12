@@ -162,7 +162,10 @@ def test_msg_to_message_omits_runtime_hints_from_history():
         content=[
             {
                 "type": "hint",
-                "hint": "<system-reminder>private runtime state</system-reminder>",
+                "hint": (
+                    "<system-reminder>private runtime state"
+                    "</system-reminder>"
+                ),
                 "source": '{"label": "System"}',
             },
             {"type": "text", "text": "visible answer"},

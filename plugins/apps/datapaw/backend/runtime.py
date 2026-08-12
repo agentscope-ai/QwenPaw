@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Resolve QwenPaw-Data package assets without coupling to a developer machine."""
+"""Resolve QwenPaw-Data package assets without machine coupling."""
 
 from __future__ import annotations
 
@@ -58,6 +58,8 @@ def skill_layers(root: Path) -> list[Path]:
     for candidate in sorted(root.iterdir()):
         if not candidate.is_dir():
             continue
-        if any((child / "SKILL.md").is_file() for child in candidate.iterdir()):
+        if any(
+            (child / "SKILL.md").is_file() for child in candidate.iterdir()
+        ):
             layers.append(candidate)
     return layers

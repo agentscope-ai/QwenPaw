@@ -16,7 +16,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from qwenpaw.agents.skill_system import get_workspace_skills_dir
-from qwenpaw.agents.utils import copy_workspace_md_files, normalize_agent_language
+from qwenpaw.agents.utils import (
+    copy_workspace_md_files,
+    normalize_agent_language,
+)
 from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
@@ -85,7 +88,9 @@ class ManagedAgentProfile:
 
     @property
     def workspace_dir(self) -> Path:
-        return (Path(WORKING_DIR) / "workspaces" / self.spec.agent_id).resolve()
+        return (
+            Path(WORKING_DIR) / "workspaces" / self.spec.agent_id
+        ).resolve()
 
     def ensure(self) -> bool:
         """Create the profile if absent and refresh app-owned persona files.
@@ -111,7 +116,9 @@ class ManagedAgentProfile:
             config.agents.agent_order = _normalized_agent_order(config)
             save_config(config)
         else:
-            actual_workspace = Path(existing.workspace_dir).expanduser().resolve()
+            actual_workspace = (
+                Path(existing.workspace_dir).expanduser().resolve()
+            )
             if actual_workspace != expected_workspace:
                 raise RuntimeError(
                     f"Agent '{agent_id}' already uses a different workspace",
@@ -138,7 +145,10 @@ class ManagedAgentProfile:
             )
         else:
             profile = load_agent_config(agent_id)
-            if profile.template_id not in {self.spec.template_id, self.spec.agent_id}:
+            if profile.template_id not in {
+                self.spec.template_id,
+                self.spec.agent_id,
+            }:
                 raise RuntimeError(
                     f"Agent '{agent_id}' exists but is not owned by PawApp "
                     f"'{self.spec.app_id}'",
@@ -176,8 +186,14 @@ class ManagedAgentProfile:
         get_workspace_skills_dir(workspace).mkdir(exist_ok=True)
         copy_workspace_md_files(language, workspace)
         (workspace / "BOOTSTRAP.md").unlink(missing_ok=True)
-        _write_initial_json(workspace / "jobs.json", {"version": 1, "jobs": []})
-        _write_initial_json(workspace / "chats.json", {"version": 1, "chats": []})
+        _write_initial_json(
+            workspace / "jobs.json",
+            {"version": 1, "jobs": []},
+        )
+        _write_initial_json(
+            workspace / "chats.json",
+            {"version": 1, "chats": []},
+        )
 
         persona_dir = self.spec.persona_dir
         if persona_dir is None:

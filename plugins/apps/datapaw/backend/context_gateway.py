@@ -132,7 +132,10 @@ class ContextGateway:
     async def _send(self, method: str, path: str, **kwargs) -> httpx.Response:
         self._validate_path(path)
         if self._client is None:
-            raise HTTPException(status_code=503, detail="Context gateway is not ready")
+            raise HTTPException(
+                status_code=503,
+                detail="Context gateway is not ready",
+            )
         token = (
             os.getenv("DATAPAW_CONTEXT_TOKEN", "").strip()
             if self._service.is_external
@@ -156,8 +159,16 @@ class ContextGateway:
 
     @staticmethod
     def _validate_path(path: str) -> None:
-        if not path.startswith("/") or "\\" in path or "?" in path or "#" in path:
-            raise HTTPException(status_code=404, detail="Context route is not exposed")
+        if (
+            not path.startswith("/")
+            or "\\" in path
+            or "?" in path
+            or "#" in path
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail="Context route is not exposed",
+            )
 
         decoded = path
         for _ in range(3):
@@ -166,24 +177,38 @@ class ContextGateway:
                 break
             decoded = next_value
         if "\\" in decoded or "?" in decoded or "#" in decoded:
-            raise HTTPException(status_code=404, detail="Context route is not exposed")
+            raise HTTPException(
+                status_code=404,
+                detail="Context route is not exposed",
+            )
         segments = decoded.split("/")
         if any(segment in {".", ".."} for segment in segments):
-            raise HTTPException(status_code=404, detail="Context route is not exposed")
+            raise HTTPException(
+                status_code=404,
+                detail="Context route is not exposed",
+            )
 
         allowed = any(
             decoded == route or (subtree and decoded.startswith(f"{route}/"))
             for route, subtree in _ALLOWED_ROUTES
         )
         if not allowed:
-            raise HTTPException(status_code=404, detail="Context route is not exposed")
+            raise HTTPException(
+                status_code=404,
+                detail="Context route is not exposed",
+            )
 
     @staticmethod
     def _error_detail(response: httpx.Response) -> str:
         try:
             payload = response.json()
             if isinstance(payload, dict):
-                return str(payload.get("detail") or payload.get("message") or payload)
+                return str(
+                    payload.get("detail") or payload.get("message") or payload,
+                )
         except ValueError:
             pass
-        return response.text[:500] or f"Context request failed ({response.status_code})"
+        return (
+            response.text[:500]
+            or f"Context request failed ({response.status_code})"
+        )

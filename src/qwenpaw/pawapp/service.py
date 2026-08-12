@@ -55,7 +55,9 @@ def _normalize_external_url(value: str) -> str:
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("managed service external URL must use HTTP or HTTPS")
     if parsed.username or parsed.password:
-        raise ValueError("managed service external URL cannot contain credentials")
+        raise ValueError(
+            "managed service external URL cannot contain credentials",
+        )
     if parsed.query or parsed.fragment:
         raise ValueError(
             "managed service external URL cannot contain a query or fragment",
@@ -76,7 +78,10 @@ def _health_request(url: str, timeout: float) -> bool:
             url,
             headers={"Accept": "application/json"},
         )
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+        with urllib.request.urlopen(
+            request,
+            timeout=timeout,
+        ) as response:  # noqa: S310
             return 200 <= response.status < 300
     except (OSError, urllib.error.URLError, ValueError):
         return False
@@ -102,7 +107,11 @@ class ManagedService:
     """Runtime handle returned by :meth:`PawApp.managed_service`."""
 
     def __init__(self, spec: ManagedServiceSpec):
-        if not spec.name or not spec.command or isinstance(spec.command, (str, bytes)):
+        if (
+            not spec.name
+            or not spec.command
+            or isinstance(spec.command, (str, bytes))
+        ):
             raise ValueError("managed service requires a name and command")
         if not spec.health_path.startswith("/"):
             raise ValueError("managed service health_path must start with '/'")
@@ -117,7 +126,9 @@ class ManagedService:
     @property
     def base_url(self) -> str:
         if self._base_url is None:
-            raise RuntimeError(f"managed service '{self.spec.name}' is not ready")
+            raise RuntimeError(
+                f"managed service '{self.spec.name}' is not ready",
+            )
         return self._base_url
 
     @property
@@ -167,7 +178,8 @@ class ManagedService:
         if mode == "external" or external_url:
             if not external_url:
                 raise RuntimeError(
-                    f"external service mode requires {self.spec.external_url_env}",
+                    "external service mode requires "
+                    f"{self.spec.external_url_env}",
                 )
             normalized_external_url = _normalize_external_url(external_url)
             self._external = True
@@ -261,7 +273,7 @@ class ManagedService:
         self._log_tasks.clear()
 
     async def restart(self) -> None:
-        """Restart the managed process using the existing safe specification."""
+        """Restart the managed process with the existing safe spec."""
         await self.stop()
         await self.start()
 
@@ -276,7 +288,9 @@ class ManagedService:
         )
 
     async def _wait_until_healthy(self) -> None:
-        deadline = asyncio.get_running_loop().time() + self.spec.startup_timeout
+        deadline = (
+            asyncio.get_running_loop().time() + self.spec.startup_timeout
+        )
         health_url = f"{self.base_url}{self.spec.health_path}"
         while asyncio.get_running_loop().time() < deadline:
             if self._process and self._process.returncode is not None:

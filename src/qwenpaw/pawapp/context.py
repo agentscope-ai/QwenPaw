@@ -368,7 +368,9 @@ class PawAppContext:
     def is_app_session_id(self, session_id: str) -> bool:
         """Return whether a session key is namespaced to this PawApp."""
         namespace = self._session_namespace()
-        return session_id == namespace or session_id.startswith(f"{namespace}:")
+        return session_id == namespace or session_id.startswith(
+            f"{namespace}:",
+        )
 
     def _owns_chat_spec(self, chat: Any) -> bool:
         """Return whether a ChatSpec belongs to this app/agent/user scope."""
@@ -721,7 +723,7 @@ class ChatReply:
         self._chunks = chunks
 
     @property
-    def text(self) -> str:
+    def text(self) -> str:  # pylint: disable=R0915
         """Extract assistant text from the streamed chunks.
 
         The runtime yields Pydantic objects (``AgentResponse`` /

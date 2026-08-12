@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import importlib.util
@@ -71,5 +72,7 @@ def test_backend_entry_loads_with_plugin_loader_package_shape() -> None:
         assert module.plugin is module.app
     finally:
         for loaded_name in list(sys.modules):
-            if loaded_name == module_name or loaded_name.startswith(f"{module_name}."):
+            if loaded_name == module_name or loaded_name.startswith(
+                f"{module_name}.",
+            ):
                 sys.modules.pop(loaded_name, None)

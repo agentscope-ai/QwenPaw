@@ -66,7 +66,10 @@ export function EmbeddedConsole({
   return (
     <div className="datapaw-embedded-console">
       {availability === "checking" || !loaded ? (
-        <div className="datapaw-embedded-console__loading" aria-hidden={active ? undefined : true}>
+        <div
+          className="datapaw-embedded-console__loading"
+          aria-hidden={active ? undefined : true}
+        >
           Loading console…
         </div>
       ) : null}

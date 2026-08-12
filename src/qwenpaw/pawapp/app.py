@@ -100,7 +100,7 @@ def _configuration_error_detail(exc: ConfigurationException) -> dict:
     return detail
 
 
-def _build_capability_router() -> APIRouter:
+def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
     """Build the standard frontend-to-host routes every PawApp receives."""
     import json
 
@@ -212,14 +212,20 @@ def _build_capability_router() -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if result is None:
-            raise HTTPException(status_code=404, detail="Chat session not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Chat session not found",
+            )
         return result
 
     @router.post("/chat/sessions/{chat_id}/archive")
     async def archive_chat_session(chat_id: str, ctx=Depends(get_ctx)):
         result = await ctx.archive_chat_session(chat_id)
         if result is None:
-            raise HTTPException(status_code=404, detail="Chat session not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Chat session not found",
+            )
         return result
 
     @router.post("/chat/sessions/{chat_id}/pin")
@@ -230,14 +236,20 @@ def _build_capability_router() -> APIRouter:
     ):
         result = await ctx.pin_chat_session(chat_id, pinned=request.pinned)
         if result is None:
-            raise HTTPException(status_code=404, detail="Chat session not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Chat session not found",
+            )
         return result
 
     @router.delete("/chat/sessions/{chat_id}")
     async def delete_chat_session(chat_id: str, ctx=Depends(get_ctx)):
         deleted = await ctx.delete_chat_session(chat_id)
         if not deleted:
-            raise HTTPException(status_code=404, detail="Chat session not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Chat session not found",
+            )
         return {"ok": True}
 
     @router.get("/storage")
@@ -672,13 +684,13 @@ class PawApp:
         )
 
     def enable_dependency_agent_tools(self) -> PawApp:
-        """Opt into app-scoped status and lifecycle tools for the host agent."""
+        """Opt into app-scoped status and lifecycle tools for the agent."""
         self._dependency_agent_tools_enabled = True
         return self
 
     # ─── Plugin registration (called by PluginLoader) ───────────────
 
-    def register(self, api: Any) -> None:
+    def register(self, api: Any) -> None:  # pylint: disable=R0912
         """Called by PluginLoader when the plugin is loaded.
 
         ``api`` is a ``PluginApi`` instance. We apply all buffered
@@ -732,7 +744,10 @@ class PawApp:
                 force: bool = False,
             ) -> Any:
                 if dependency_id:
-                    return await self.dependencies.get(dependency_id, force=force)
+                    return await self.dependencies.get(
+                        dependency_id,
+                        force=force,
+                    )
                 return await self.dependencies.snapshot(force=force)
 
             async def dependency_action(
@@ -745,7 +760,8 @@ class PawApp:
                 tool_name=f"{self.app_id}_dependency_status",
                 tool_func=dependency_status,
                 description=(
-                    f"Inspect structured dependency and capability health for {self.name}."
+                    f"Inspect structured dependency and capability health "
+                    f"for {self.name}."
                 ),
                 icon="🩺",
                 enabled=True,
@@ -756,8 +772,9 @@ class PawApp:
                 tool_name=f"{self.app_id}_dependency_action",
                 tool_func=dependency_action,
                 description=(
-                    "Run a pre-registered dependency action such as check, start, "
-                    "stop, or restart. Arbitrary commands are not accepted."
+                    "Run a pre-registered dependency action such as "
+                    "check, start, stop, or restart. Arbitrary commands "
+                    "are not accepted."
                 ),
                 icon="⚙️",
                 enabled=True,
@@ -788,9 +805,13 @@ class PawApp:
             ) -> None:
                 selected_profile.ensure()
                 registry = getattr(api, "_registry", None)
-                manager = registry.get_workspace_manager() if registry else None
+                manager = (
+                    registry.get_workspace_manager() if registry else None
+                )
                 if manager is not None:
-                    manager.schedule_agent_startup(selected_profile.spec.agent_id)
+                    manager.schedule_agent_startup(
+                        selected_profile.spec.agent_id,
+                    )
 
             async def detach_profile(
                 selected_profile: ManagedAgentProfile = profile,

@@ -101,7 +101,11 @@ app.dependency(
     ownership="external",
     capabilities=("context-graph", "context-search", "semantic-grounding"),
     required=False,
-    probe=DependencyProbe(callback=_probe_graph, timeout_seconds=5, cache_seconds=8),
+    probe=DependencyProbe(
+        callback=_probe_graph,
+        timeout_seconds=5,
+        cache_seconds=8,
+    ),
 )
 
 
@@ -190,7 +194,10 @@ async def _register_data_source_dependencies() -> None:
                     lifecycle="unmanaged",
                     error_code="DATASOURCE_UNAVAILABLE",
                     message="Data source connection check failed",
-                    remediation="Verify the source service, credentials, and network access",
+                    remediation=(
+                        "Verify the source service, credentials, and "
+                        "network access"
+                    ),
                 )
             return DependencyHealth(
                 health="healthy",
@@ -219,6 +226,26 @@ router = APIRouter()
 _llm_bootstrap_done = False
 
 
+def _host_llm_payload() -> dict[str, Any] | None:
+    """Read the host's active model as an OpenAI-compatible payload."""
+    try:
+        from qwenpaw.providers.provider_manager import ProviderManager
+
+        manager = ProviderManager.get_instance()
+        slot = manager.get_active_model()
+        provider = manager.get_provider(slot.provider_id) if slot else None
+    except Exception:  # pragma: no cover - host internals unavailable
+        return None
+    if slot is None or provider is None:
+        return None
+    model = (slot.model or "").strip()
+    base_url = (getattr(provider, "base_url", "") or "").strip()
+    api_key = (getattr(provider, "api_key", "") or "").strip()
+    if not model or not base_url or not api_key:
+        return None
+    return {"model": model, "base_url": base_url, "api_key": api_key}
+
+
 async def _bootstrap_llm_from_host() -> None:
     """Bootstrap the Context service's LLM from the QwenPaw host model.
 
@@ -239,26 +266,9 @@ async def _bootstrap_llm_from_host() -> None:
         # App-specific configuration exists; leave it alone for good.
         _llm_bootstrap_done = True
         return
-    try:
-        from qwenpaw.providers.provider_manager import ProviderManager
-
-        manager = ProviderManager.get_instance()
-        slot = manager.get_active_model()
-        provider = manager.get_provider(slot.provider_id) if slot else None
-    except Exception:  # pragma: no cover - host internals unavailable
+    body = _host_llm_payload()
+    if body is None:
         return
-    if slot is None or provider is None:
-        return
-    model = (slot.model or "").strip()
-    base_url = (getattr(provider, "base_url", "") or "").strip()
-    api_key = (getattr(provider, "api_key", "") or "").strip()
-    if not model or not base_url or not api_key:
-        return
-    body: dict[str, Any] = {
-        "model": model,
-        "base_url": base_url,
-        "api_key": api_key,
-    }
     try:
         await _gateway.json("PUT", "/api/system/model-config/llm", body=body)
     except HTTPException:
@@ -315,7 +325,10 @@ app.include_router(router)
 
 @app.tool(
     "datapaw_search_context",
-    description="Retrieve QwenPaw-Data semantic, metric, dataset, and graph context for a question.",
+    description=(
+        "Retrieve QwenPaw-Data semantic, metric, dataset, and graph "
+        "context for a question."
+    ),
     icon="🔎",
     tool_type="network",
 )
@@ -345,7 +358,10 @@ async def datapaw_list_domains(datasource_id: str = "") -> Any:
 
 @app.tool(
     "datapaw_explore_entity",
-    description="Explore a metric or business entity across QwenPaw-Data context graphs.",
+    description=(
+        "Explore a metric or business entity across QwenPaw-Data "
+        "context graphs."
+    ),
     icon="🕸️",
     tool_type="network",
 )
@@ -364,7 +380,10 @@ async def datapaw_explore_entity(
 
 @app.tool(
     "datapaw_execute_sql",
-    description="Execute a read-only SQL query through the selected QwenPaw-Data source.",
+    description=(
+        "Execute a read-only SQL query through the selected "
+        "QwenPaw-Data source."
+    ),
     icon="🧮",
     tool_type="network",
 )

@@ -30,7 +30,9 @@ def _make_provider(**overrides) -> GeminiProvider:
 
 def test_chat_model_configures_persistent_client_headers(monkeypatch) -> None:
     captured: list[dict] = []
-    fake_client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace()))
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace()),
+    )
 
     def create_client(**kwargs):
         captured.append(kwargs)

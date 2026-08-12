@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
@@ -14,7 +15,7 @@ from qwenpaw.pawapp import (
 
 
 @pytest.mark.asyncio
-async def test_dependency_snapshot_caches_and_aggregates_capabilities() -> None:
+async def test_dependency_snapshot_caches_and_aggregates_capabilities():
     probe = AsyncMock(
         return_value=DependencyHealth(
             health="healthy",
@@ -47,7 +48,7 @@ async def test_dependency_snapshot_caches_and_aggregates_capabilities() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dependency_action_waits_for_readiness_and_is_idempotent() -> None:
+async def test_dependency_action_waits_for_readiness_and_is_idempotent():
     running = False
     starts = 0
 
