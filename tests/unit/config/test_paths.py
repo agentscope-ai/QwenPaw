@@ -180,7 +180,7 @@ def test_legacy_default_workspace_migrates(
                 "analyst": {
                     "id": "analyst",
                     "workspace_dir": str(
-                        working_dir / "workspaces" / "analyst"
+                        working_dir / "workspaces" / "analyst",
                     ),
                 },
             },

@@ -11,8 +11,7 @@ Covers the highest-value flows:
 - ``POST /agents/{id}/copy`` — selective config copy without assets
 """
 
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
-# pylint: disable=too-many-positional-arguments
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,R0917
 from __future__ import annotations
 
 from pathlib import Path

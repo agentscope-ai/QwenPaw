@@ -2871,7 +2871,8 @@ def build_fallback_agent_profile_config(
         raise ValueError(f"Agent '{agent_id}' not found in config")
 
     workspace_dir = resolve_registered_agent_profile_workspace(
-        agent_id, config
+        agent_id,
+        config,
     )
     return AgentProfileConfig(
         id=agent_id,
