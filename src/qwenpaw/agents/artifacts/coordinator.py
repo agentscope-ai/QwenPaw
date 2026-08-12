@@ -67,5 +67,21 @@ class ArtifactCoordinator:
             self._active.discard(handle)
             handle.active = False
 
+    async def complete(self, handle: ArtifactTurnHandle | None) -> bool:
+        """Atomically read overlap state and remove a completed turn.
+
+        The final snapshot must be captured before this boundary. Any turn
+        registered before the boundary marks this handle as overlapped, so
+        snapshot changes are disabled before collection begins.
+        """
+        if handle is None:
+            return False
+        async with self._lock:
+            overlapped = handle.overlapped
+            if handle.active:
+                self._active.discard(handle)
+                handle.active = False
+            return overlapped
+
 
 __all__ = ["ArtifactCoordinator", "ArtifactTurnHandle"]

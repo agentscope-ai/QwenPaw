@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 import uuid
 
 from ...utils.io_utils import run_sync_io
@@ -14,7 +14,7 @@ from .context import (
     set_current_artifact_collector,
 )
 from .coordinator import ArtifactCoordinator, ArtifactTurnHandle
-from .models import ArtifactRoot
+from .models import ArtifactRoot, WorkspaceSnapshot
 from .serializer import serialize_manifest
 from .snapshot import capture_workspace_snapshot
 
@@ -56,13 +56,15 @@ def _collect_manifest(
     agent_id: str,
     session_id: str,
     turn_id: str,
+    after: Mapping[ArtifactRoot, WorkspaceSnapshot] | None = None,
     include_snapshot_changes: bool = True,
     root_refs: dict[ArtifactRoot, str] | None = None,
 ) -> dict | None:
-    after = {
-        root: capture_workspace_snapshot(path)
-        for root, path in collector.roots.items()
-    }
+    if after is None:
+        after = {
+            root: capture_workspace_snapshot(path)
+            for root, path in collector.roots.items()
+        }
     collection = collector.collect(
         after,
         include_snapshot_changes=include_snapshot_changes,
@@ -175,15 +177,19 @@ class ArtifactTurn:
         self._finalized = True
         if self._collector is None:
             return None
+        after = await run_sync_io(
+            _capture_after_snapshots,
+            self._collector,
+        )
+        overlapped = await self._coordinator.complete(self._handle)
         self._manifest = await run_sync_io(
             _collect_manifest,
             self._collector,
             agent_id=self._agent_id,
             session_id=self._session_id,
             turn_id=self._turn_id,
-            include_snapshot_changes=not (
-                self._handle is not None and self._handle.overlapped
-            ),
+            after=after,
+            include_snapshot_changes=not overlapped,
             root_refs=self._root_refs,
         )
         return self._manifest
@@ -196,6 +202,16 @@ class ArtifactTurn:
             reset_current_artifact_collector(token)
         await self._coordinator.finish(self._handle)
         self._handle = None
+
+
+def _capture_after_snapshots(
+    collector: ArtifactCollectorGroup,
+) -> dict[ArtifactRoot, WorkspaceSnapshot]:
+    """Capture final snapshots before the coordinator completion boundary."""
+    return {
+        root: capture_workspace_snapshot(path)
+        for root, path in collector.roots.items()
+    }
 
 
 __all__ = ["ArtifactTurn", "resolve_artifact_roots"]

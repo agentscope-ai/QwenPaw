@@ -223,6 +223,73 @@ async def test_overlapping_turns_run_without_cross_claiming_files(
     assert second_manifest["truncated"] is True
 
 
+async def test_late_overlap_is_detected_before_first_collection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace = SimpleNamespace()
+    first_ctx = SimpleNamespace(
+        workspace_dir=tmp_path,
+        workspace=workspace,
+        extras={"turn_id": "turn-1"},
+        agent_id="agent-1",
+        session_id="chat-1",
+    )
+    second_ctx = SimpleNamespace(
+        workspace_dir=tmp_path,
+        workspace=workspace,
+        extras={"turn_id": "turn-2"},
+        agent_id="agent-1",
+        session_id="chat-2",
+    )
+    scan_started = threading.Event()
+    release_scan = threading.Event()
+    original_capture = getattr(
+        artifact_lifecycle_module,
+        "_capture_after_snapshots",
+    )
+
+    def pause_capture(collector):
+        scan_started.set()
+        release_scan.wait(timeout=5)
+        return original_capture(collector)
+
+    monkeypatch.setattr(
+        artifact_lifecycle_module,
+        "_capture_after_snapshots",
+        pause_capture,
+    )
+
+    await WorkspaceArtifactsHook().run(first_ctx)
+    first_file = tmp_path / "first.txt"
+    first_file.write_text("first", encoding="utf-8")
+    first_ctx.extras["workspace_artifact_turn"].collector.register(
+        first_file,
+    )
+    first_finalize = asyncio.create_task(
+        WorkspaceArtifactsFinalizeHook().run(first_ctx),
+    )
+    scan_observed = await asyncio.to_thread(scan_started.wait, 1)
+    assert scan_observed is True
+
+    await WorkspaceArtifactsHook().run(second_ctx)
+    second_file = tmp_path / "second.txt"
+    second_file.write_text("second", encoding="utf-8")
+    second_ctx.extras["workspace_artifact_turn"].collector.register(
+        second_file,
+    )
+    release_scan.set()
+    await first_finalize
+    await WorkspaceArtifactsCleanupHook().run(first_ctx)
+    await WorkspaceArtifactsFinalizeHook().run(second_ctx)
+    await WorkspaceArtifactsCleanupHook().run(second_ctx)
+
+    first_manifest = first_ctx.extras["workspace_artifact_manifest"]
+    assert [item["path"] for item in first_manifest["artifacts"]] == [
+        "first.txt",
+    ]
+
+
 async def test_cancelled_pre_scan_finishes_coordination(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

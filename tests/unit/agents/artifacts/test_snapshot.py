@@ -3,6 +3,8 @@ from pathlib import Path
 
 from qwenpaw.agents.artifacts import (
     SnapshotLimits,
+    WorkspaceFileState,
+    WorkspaceSnapshot,
     capture_workspace_snapshot,
     diff_workspace_snapshots,
 )
@@ -138,4 +140,37 @@ def test_diff_reports_created_modified_and_deleted(
         ("created.txt", "created"),
         ("deleted.txt", "deleted"),
         ("modified.txt", "modified"),
+    ]
+
+
+def test_diff_does_not_infer_created_from_truncated_before() -> None:
+    state = WorkspaceFileState(size=1, modified_ns=1)
+    before = WorkspaceSnapshot.create({}, truncated=True)
+    after = WorkspaceSnapshot.create({"new.txt": state})
+
+    assert not diff_workspace_snapshots(before, after)
+
+
+def test_diff_does_not_infer_deleted_from_truncated_after() -> None:
+    state = WorkspaceFileState(size=1, modified_ns=1)
+    before = WorkspaceSnapshot.create({"old.txt": state})
+    after = WorkspaceSnapshot.create({}, truncated=True)
+
+    assert not diff_workspace_snapshots(before, after)
+
+
+def test_diff_keeps_modified_when_both_snapshots_are_truncated() -> None:
+    before = WorkspaceSnapshot.create(
+        {"same.txt": WorkspaceFileState(size=1, modified_ns=1)},
+        truncated=True,
+    )
+    after = WorkspaceSnapshot.create(
+        {"same.txt": WorkspaceFileState(size=2, modified_ns=2)},
+        truncated=True,
+    )
+
+    changes = diff_workspace_snapshots(before, after)
+
+    assert [(change.path, change.change) for change in changes] == [
+        ("same.txt", "modified"),
     ]

@@ -86,9 +86,11 @@ def diff_workspace_snapshots(
         old_state = before.files.get(path)
         new_state = after.files.get(path)
         if old_state is None:
-            changes.append(WorkspaceChange(path, "created"))
+            if not before.truncated:
+                changes.append(WorkspaceChange(path, "created"))
         elif new_state is None:
-            changes.append(WorkspaceChange(path, "deleted"))
+            if not after.truncated:
+                changes.append(WorkspaceChange(path, "deleted"))
         elif old_state != new_state:
             changes.append(WorkspaceChange(path, "modified"))
     return tuple(changes)
