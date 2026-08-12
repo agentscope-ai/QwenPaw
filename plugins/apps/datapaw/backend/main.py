@@ -216,10 +216,61 @@ async def _register_data_source_dependencies() -> None:
 router = APIRouter()
 
 
+_llm_bootstrap_done = False
+
+
+async def _bootstrap_llm_from_host() -> None:
+    """Bootstrap the Context service's LLM from the QwenPaw host model.
+
+    The app owns its model configuration, matching standalone datapaw-cli
+    and Data-Cloud deployments. The host's active model is used only as a
+    first-run default when no LLM has been configured yet; an existing
+    configuration is never overwritten.
+    """
+    global _llm_bootstrap_done
+    if _llm_bootstrap_done or not _context_service.is_ready:
+        return
+    try:
+        current = await _gateway.json("GET", "/api/system/model-config/")
+    except HTTPException:
+        return
+    llm_config = (current or {}).get("llm") or {}
+    if (llm_config.get("api_key") or "").strip():
+        # App-specific configuration exists; leave it alone for good.
+        _llm_bootstrap_done = True
+        return
+    try:
+        from qwenpaw.providers.provider_manager import ProviderManager
+
+        manager = ProviderManager.get_instance()
+        slot = manager.get_active_model()
+        provider = manager.get_provider(slot.provider_id) if slot else None
+    except Exception:  # pragma: no cover - host internals unavailable
+        return
+    if slot is None or provider is None:
+        return
+    model = (slot.model or "").strip()
+    base_url = (getattr(provider, "base_url", "") or "").strip()
+    api_key = (getattr(provider, "api_key", "") or "").strip()
+    if not model or not base_url or not api_key:
+        return
+    body: dict[str, Any] = {
+        "model": model,
+        "base_url": base_url,
+        "api_key": api_key,
+    }
+    try:
+        await _gateway.json("PUT", "/api/system/model-config/llm", body=body)
+    except HTTPException:
+        return
+    _llm_bootstrap_done = True
+
+
 @router.get("/status")
 async def status() -> dict[str, Any]:
     health: dict[str, Any] | None = None
     if _context_service.is_ready:
+        await _bootstrap_llm_from_host()
         health = await _gateway.json("GET", "/api/health")
     return {
         "app": "datapaw",
@@ -235,11 +286,27 @@ async def status() -> dict[str, Any]:
     }
 
 
+@router.get("/context/api/auth/status")
+async def context_auth_status() -> dict[str, Any]:
+    """Report that the embedded console needs no client-side login.
+
+    The gateway injects the Context service token server-side, so from the
+    embedded UI's point of view authentication is never required.  Serve
+    both contract shapes: ``required`` (public datapaw-context 0.2.x
+    AuthGate) and ``enabled`` (internal Data-Cloud auth store).
+    """
+    return {"required": False, "enabled": False}
+
+
 @router.api_route(
     "/context/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
 )
 async def context_proxy(path: str, request: Request) -> Any:
+    # First-run default: seed the LLM config from the host before the
+    # console reads it; configured values are never overwritten.
+    if request.method == "GET" and "system/model-config" in path:
+        await _bootstrap_llm_from_host()
     return await _gateway.proxy(path, request)
 
 

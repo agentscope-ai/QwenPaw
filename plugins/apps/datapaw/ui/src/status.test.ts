@@ -76,7 +76,7 @@ describe("DataPaw status model", () => {
 
     expect(model.label).toBe("Degraded");
     expect(model.categories.find((item) => item.id === "data")?.detail).toBe(
-      "Selected source unavailable",
+      "Source unavailable",
     );
   });
 

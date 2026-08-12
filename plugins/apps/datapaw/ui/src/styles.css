@@ -3,11 +3,10 @@
   --datapaw-muted: #727b8f;
   --datapaw-line: #e6e9f0;
   --datapaw-soft: #f5f6fa;
-  --datapaw-purple: #6558e8;
-  --datapaw-purple-deep: #5144d6;
+  --datapaw-purple: #0d76fd; /* aligned with the embedded console BRAND_PRIMARY */
+  --datapaw-purple-deep: #0a5fd0; /* BRAND_PRIMARY_ACTIVE */
   --datapaw-mint: #12a594;
-  --datapaw-page-max-width: 1280px;
-  --datapaw-page-gutter: 44px;
+  --datapaw-page-gutter: 32px;
   --datapaw-page-top: 32px;
 }
 
@@ -23,8 +22,8 @@
 }
 
 .datapaw-app {
-  display: grid;
-  grid-template-columns: 224px minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   width: 100%;
   min-width: 0;
   height: 100%;
@@ -39,25 +38,82 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
+  /* Adaptive rules track the app's own width (the host console can shrink
+     this area while the viewport stays wide), hence container queries. */
+  container-type: inline-size;
+  container-name: datapaw-app;
+}
+
+.datapaw-topbar {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: 52px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--datapaw-line);
+  background: #fff;
+}
+.datapaw-topbar img {
+  display: block;
+  width: auto;
+  height: 26px;
+}
+.datapaw-topbar__fallback {
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+.datapaw-topbar__actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  /* Clear the host console's floating window controls pinned to the
+     top-right corner. */
+  margin-right: 104px;
+}
+.datapaw-topbar__actions button {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 7px;
+  border: 1px solid var(--datapaw-line);
+  border-radius: 8px;
+  color: #646d80;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: 140ms ease;
+}
+.datapaw-topbar__actions button:hover {
+  border-color: #a8cdfe;
+  color: var(--datapaw-purple);
+  background: #ecf4ff;
+}
+.datapaw-topbar__actions button.datapaw-topbar__icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.datapaw-body {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
 }
 
 .datapaw-nav {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* Top padding lines the first nav row up with the embedded console's
+     first menu item and its page title. */
   padding: 24px 16px 18px;
   border-right: 1px solid var(--datapaw-line);
   background: linear-gradient(180deg, #f8f8fc 0%, #f4f5f9 100%);
 }
 
-.datapaw-brand {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 0 7px 25px;
-}
-
-.datapaw-brand__mark,
 .datapaw-welcome__mark {
   display: grid;
   place-items: center;
@@ -72,7 +128,6 @@
   box-shadow: 0 7px 18px rgba(23, 31, 51, 0.12);
 }
 
-.datapaw-brand__mark img,
 .datapaw-welcome__mark img,
 .datapaw-logo-fallback {
   width: 100%;
@@ -85,24 +140,9 @@
   display: grid;
   place-items: center;
   color: #fff;
-  background: linear-gradient(145deg, #6558e8, #12a594);
-  font-size: 10px;
+  background: linear-gradient(145deg, #0d76fd, #12a594);
+  font-size: 13px;
   letter-spacing: -0.02em;
-}
-
-.datapaw-brand b,
-.datapaw-brand span {
-  display: block;
-}
-
-.datapaw-brand b {
-  font-size: 16px;
-  letter-spacing: -0.02em;
-}
-.datapaw-brand span {
-  margin-top: 2px;
-  color: #8b91a1;
-  font-size: 10px;
 }
 
 .datapaw-nav nav {
@@ -131,8 +171,8 @@
   background: #ececf4;
 }
 .datapaw-nav nav button.is-active {
-  color: #5144d6;
-  background: #eae8fb;
+  color: var(--datapaw-purple-deep);
+  background: #ecf4ff; /* BRAND_PRIMARY_BG */
   font-weight: 650;
 }
 
@@ -154,6 +194,23 @@
   border: 1px solid #e2e4ec;
   border-radius: 13px;
   background: rgba(255, 255, 255, 0.58);
+}
+
+.datapaw-status-panel.is-clickable {
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+.datapaw-status-panel.is-clickable:hover {
+  border-color: #a8cdfe;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(13, 118, 253, 0.08);
+}
+.datapaw-status-panel.is-clickable:focus-visible {
+  outline: 2px solid var(--datapaw-purple);
+  outline-offset: 2px;
 }
 
 .datapaw-status-panel__summary {
@@ -199,13 +256,13 @@
 
 .datapaw-status-panel__summary b {
   color: #465165;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .datapaw-status-panel__summary small {
   margin-top: 2px;
   color: #9299a8;
-  font-size: 8px;
+  font-size: 12px;
   line-height: 1.35;
 }
 
@@ -221,11 +278,11 @@
 
 .datapaw-status-panel li {
   display: grid;
-  grid-template-columns: 7px 38px minmax(0, 1fr);
+  grid-template-columns: 7px 44px minmax(0, 1fr);
   align-items: center;
   gap: 6px;
   color: #697286;
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .datapaw-status-panel li small {
@@ -242,17 +299,12 @@
   justify-content: space-between;
   gap: 5px;
   color: #a0a5b0;
-  font-size: 7px;
+  font-size: 12px;
+  white-space: nowrap;
 }
-
-.datapaw-status-panel__footer button {
-  padding: 0;
-  border: 0;
-  color: #6558e8;
-  background: transparent;
-  font-size: 8px;
-  font-weight: 680;
-  cursor: pointer;
+.datapaw-status-panel__footer span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .datapaw-main {
@@ -264,11 +316,61 @@
 .datapaw-main > div {
   height: 100%;
 }
+
+.datapaw-embedded-console {
+  position: relative;
+  height: 100%;
+  min-height: 420px;
+}
+.datapaw-embedded-console iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+.datapaw-embedded-console__loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--datapaw-muted);
+  font-size: 14px;
+  background: #fff;
+}
+.datapaw-embedded-console__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 420px;
+  padding: 0 var(--datapaw-page-gutter);
+  text-align: center;
+}
+.datapaw-embedded-console__empty b {
+  font-size: 15px;
+}
+.datapaw-embedded-console__empty p {
+  max-width: 460px;
+  margin: 0;
+  color: var(--datapaw-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.datapaw-embedded-console__empty code {
+  padding: 1px 5px;
+  background: var(--datapaw-soft);
+  border-radius: 5px;
+  font-size: 14px;
+}
 .datapaw-eyebrow {
   display: block;
   margin-bottom: 7px;
   color: var(--datapaw-purple);
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 760;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -278,8 +380,10 @@
 .datapaw-sources,
 .datapaw-semantic,
 .datapaw-graph-page {
-  width: min(var(--datapaw-page-max-width), 100%);
-  margin: 0 auto;
+  /* Fluid like the embedded Manage console: fill the container and let
+     content breathe with gutters only, no centered max-width clamp. */
+  width: 100%;
+  margin: 0;
   padding-right: var(--datapaw-page-gutter);
   padding-left: var(--datapaw-page-gutter);
 }
@@ -288,8 +392,8 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 12px;
-  height: calc(100vh - 56px);
-  min-height: 560px;
+  height: 100%;
+  min-height: 420px;
   padding-top: var(--datapaw-page-top);
   padding-bottom: 24px;
   overflow: hidden;
@@ -316,6 +420,12 @@
   background: #fff;
 }
 
+.datapaw-chat__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 14px;
+}
+
 .datapaw-page-header__copy {
   min-width: 0;
 }
@@ -330,12 +440,13 @@
   font-size: 27px;
   line-height: 1.16;
   letter-spacing: -0.04em;
+  text-wrap: balance;
 }
 
 .datapaw-page-header__description {
   margin: 8px 0 0;
   color: var(--datapaw-muted);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.4;
 }
 
@@ -366,7 +477,7 @@
   border-radius: 10px 0 0 10px;
   color: #626c7f;
   background: #fafafd;
-  font-size: 11px;
+  font-size: 14px;
   cursor: pointer;
 }
 
@@ -377,14 +488,14 @@
 
 .datapaw-history-tab i {
   font-style: normal;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1;
 }
 
 .datapaw-history-tab span {
   color: #959cab;
   writing-mode: vertical-rl;
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 720;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -393,7 +504,7 @@
 .datapaw-history {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: 262px;
+  width: clamp(216px, 22cqw, 280px);
   min-height: 0;
   border: 1px solid var(--datapaw-line);
   border-radius: 14px;
@@ -409,9 +520,14 @@
   padding: 11px 12px;
   border-bottom: 1px solid var(--datapaw-line);
 }
+.datapaw-history__header .datapaw-new-chat {
+  height: 28px;
+  padding: 0 9px;
+  font-size: 12px;
+}
 
 .datapaw-history__header > b {
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: -0.01em;
 }
 
@@ -439,7 +555,7 @@
 }
 
 .datapaw-history__item.is-active {
-  background: #f5f3ff;
+  background: #ecf4ff;
 }
 
 .datapaw-history__open {
@@ -459,7 +575,7 @@
   align-items: center;
   gap: 5px;
   color: #232a3c;
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 640;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -469,12 +585,12 @@
 .datapaw-history__open b i {
   flex: 0 0 auto;
   font-style: normal;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .datapaw-history__open small {
   color: var(--datapaw-muted);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .datapaw-history__more {
@@ -486,7 +602,7 @@
   border-radius: 7px;
   color: #959cab;
   background: none;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
 }
@@ -522,7 +638,7 @@
   border-radius: 7px;
   color: #333a4c;
   background: none;
-  font-size: 11px;
+  font-size: 14px;
   text-align: left;
   cursor: pointer;
 }
@@ -548,17 +664,17 @@
   border: 1px solid #9e96eb;
   border-radius: 8px;
   outline: 0;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .datapaw-new-chat {
   height: 32px;
   padding: 0 10px;
-  border: 1px solid #d8d5f3;
+  border: 1px solid #c4defe;
   border-radius: 9px;
-  color: #5548d5;
-  background: #f5f3ff;
-  font-size: 10px;
+  color: #0a5fd0;
+  background: #ecf4ff;
+  font-size: 13px;
   font-weight: 680;
   white-space: nowrap;
   cursor: pointer;
@@ -580,7 +696,7 @@
   border-radius: 10px;
   color: #626c7f;
   background: #fafafd;
-  font-size: 11px;
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -592,6 +708,28 @@
   flex: 0 0 auto;
   border-radius: 50%;
   background: var(--datapaw-mint);
+}
+
+.datapaw-source-pill--select {
+  padding: 0 4px 0 11px;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease;
+}
+.datapaw-source-pill--select:hover {
+  border-color: #a8cdfe;
+  background: #ecf4ff;
+}
+.datapaw-source-pill--select select {
+  max-width: 240px;
+  padding: 8px 4px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  outline: none;
 }
 .datapaw-conversation {
   min-height: 0;
@@ -622,7 +760,7 @@
   max-width: 560px;
   margin: 11px auto 25px;
   color: var(--datapaw-muted);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.65;
 }
 .datapaw-starters {
@@ -641,7 +779,7 @@
   border-radius: 13px;
   color: #465066;
   background: #fff;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
   text-align: left;
   cursor: pointer;
@@ -664,7 +802,7 @@
   gap: 26px;
 }
 .datapaw-message {
-  max-width: 780px;
+  max-width: min(100%, 1080px);
 }
 .datapaw-message--user {
   align-self: flex-end;
@@ -673,7 +811,7 @@
 .datapaw-message__role {
   margin-bottom: 6px;
   color: #8d94a4;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -686,7 +824,7 @@
   border-radius: 13px;
   color: #3f485b;
   background: #f4f4f8;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.65;
   white-space: pre-wrap;
 }
@@ -707,7 +845,7 @@
   gap: 8px;
   padding: 10px 12px;
   color: #6f778a;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 650;
   cursor: pointer;
   list-style: none;
@@ -745,7 +883,7 @@
   padding: 11px 0;
   overflow: auto;
   color: #737b8d;
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.55;
   white-space: pre-wrap;
 }
@@ -789,13 +927,13 @@
   display: block;
 }
 .datapaw-analysis-trace li b {
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 650;
 }
 .datapaw-analysis-trace li small {
   margin-top: 2px;
   color: #969dac;
-  font-size: 9px;
+  font-size: 12px;
 }
 .datapaw-trace-result {
   max-height: 210px;
@@ -809,7 +947,7 @@
   width: 100%;
   border-collapse: collapse;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 9px;
+  font-size: 12px;
 }
 .datapaw-trace-result th,
 .datapaw-trace-result td {
@@ -889,7 +1027,7 @@
   resize: none;
   color: var(--datapaw-ink);
   background: transparent;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
 }
 .datapaw-composer textarea::placeholder {
@@ -916,7 +1054,7 @@
 .datapaw-composer__hint {
   padding: 2px 12px 5px;
   color: #9ca1ae;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .datapaw-sources {
@@ -929,11 +1067,11 @@
   border-radius: 9px;
   color: #596276;
   background: #fff;
-  font-size: 11px;
+  font-size: 14px;
   cursor: pointer;
 }
 .datapaw-secondary-button:hover {
-  border-color: #c9c5ef;
+  border-color: #a8cdfe;
   color: var(--datapaw-purple);
 }
 .datapaw-source-grid {
@@ -970,13 +1108,13 @@
 
 .datapaw-dependency-sections h2 {
   color: #40495d;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .datapaw-dependency-sections header p {
   margin-top: 3px;
   color: #969dab;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .datapaw-dependency-sections header > span {
@@ -985,7 +1123,7 @@
   border-radius: 10px;
   color: #7d8596;
   background: #f0f1f5;
-  font-size: 8px;
+  font-size: 12px;
   text-align: center;
 }
 
@@ -1010,7 +1148,7 @@
   border-radius: 8px;
   color: #858c9c;
   background: #f1f2f6;
-  font-size: 7px;
+  font-size: 10px;
   font-style: normal;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1059,7 +1197,7 @@
   margin: 13px 0 6px;
   padding-right: 68px;
   color: #697287;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
@@ -1094,13 +1232,13 @@
   transition: 150ms ease;
 }
 .datapaw-source-card:hover {
-  border-color: #c9c5ef;
+  border-color: #a8cdfe;
   box-shadow: 0 7px 20px rgba(36, 40, 68, 0.06);
 }
 .datapaw-source-card.is-selected {
-  border-color: #958bed;
-  background: #f8f7ff;
-  box-shadow: 0 0 0 2px rgba(101, 88, 232, 0.08);
+  border-color: #3d91fd; /* BRAND_PRIMARY_HOVER */
+  background: #ecf4ff; /* BRAND_PRIMARY_BG */
+  box-shadow: 0 0 0 2px rgba(13, 118, 253, 0.08);
 }
 .datapaw-source-card__icon {
   display: grid;
@@ -1121,16 +1259,16 @@
   white-space: nowrap;
 }
 .datapaw-source-card b {
-  font-size: 13px;
+  font-size: 14px;
 }
 .datapaw-source-card small {
   margin-top: 5px;
   color: #8c93a3;
-  font-size: 10px;
+  font-size: 13px;
 }
 .datapaw-source-card i {
   color: var(--datapaw-purple);
-  font-size: 9px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 700;
   text-transform: uppercase;
@@ -1146,11 +1284,11 @@
   border-radius: 14px;
   color: #8b92a2;
   text-align: center;
-  font-size: 11px;
+  font-size: 14px;
 }
 .datapaw-empty-panel strong {
   color: #596174;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .datapaw-live-controls {
@@ -1164,7 +1302,7 @@
   align-items: center;
   gap: 6px;
   color: #768093;
-  font-size: 10px;
+  font-size: 13px;
   white-space: nowrap;
 }
 
@@ -1192,7 +1330,7 @@
   border-radius: 11px;
   color: #737c8f;
   background: #fafafd;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .datapaw-semantic__scope > span {
@@ -1204,7 +1342,7 @@
 
 .datapaw-semantic__scope b {
   color: #4f586c;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .datapaw-semantic__scope small {
@@ -1238,7 +1376,7 @@
 .datapaw-semantic-summary span {
   overflow: hidden;
   color: #8991a1;
-  font-size: 9px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1270,7 +1408,7 @@
   display: block;
   margin: 3px 8px 10px;
   color: #a0a5b2;
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 760;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1286,18 +1424,18 @@
   border-radius: 8px;
   color: #687184;
   background: transparent;
-  font-size: 10px;
+  font-size: 13px;
   cursor: pointer;
 }
 
 .datapaw-semantic-nav button:hover {
-  color: #4f45c7;
-  background: #f0effa;
+  color: #0a5fd0;
+  background: #ecf4ff;
 }
 
 .datapaw-semantic-nav button.is-active {
-  color: #4f45c7;
-  background: #eae8fb;
+  color: #0a5fd0;
+  background: #ecf4ff;
   font-weight: 680;
 }
 
@@ -1307,7 +1445,7 @@
   border-radius: 8px;
   color: #8e94a2;
   background: rgba(255, 255, 255, 0.72);
-  font-size: 8px;
+  font-size: 12px;
   text-align: center;
 }
 
@@ -1325,7 +1463,7 @@
 
 .datapaw-semantic-table-heading .datapaw-eyebrow {
   margin-bottom: 3px;
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .datapaw-semantic-table-heading h2,
@@ -1337,7 +1475,7 @@
 
 .datapaw-semantic-table-heading > span {
   color: #9299a8;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .datapaw-semantic-table-scroll {
@@ -1356,7 +1494,7 @@
   padding: 11px 13px;
   border-bottom: 1px solid #eff0f4;
   color: #657084;
-  font-size: 10px;
+  font-size: 13px;
   line-height: 1.45;
   text-align: left;
   vertical-align: top;
@@ -1369,7 +1507,7 @@
   top: 0;
   color: #969dab;
   background: #fafbfc;
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 760;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1397,7 +1535,7 @@
   margin-top: 3px;
   color: #a0a6b2;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .datapaw-semantic-placeholder {
@@ -1409,13 +1547,13 @@
   gap: 7px;
   padding: 36px;
   color: #9299a8;
-  font-size: 10px;
+  font-size: 13px;
   text-align: center;
 }
 
 .datapaw-semantic-placeholder b {
   color: #5b6477;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .datapaw-weave-tasks {
@@ -1470,18 +1608,18 @@
 
 .datapaw-weave-tasks li b {
   color: #4a5366;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .datapaw-weave-tasks li small {
   margin-top: 2px;
   color: #969dab;
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .datapaw-weave-tasks li em {
   color: #747d8f;
-  font-size: 8px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 720;
   text-transform: uppercase;
@@ -1494,7 +1632,7 @@
   border-radius: 11px;
   color: #778093;
   background: #fafafd;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .datapaw-cli-bridge summary {
@@ -1512,9 +1650,9 @@
   padding: 10px;
   border-radius: 8px;
   overflow: auto;
-  color: #4f45c7;
-  background: #f0effa;
-  font-size: 9px;
+  color: #0a5fd0;
+  background: #ecf4ff;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -1525,7 +1663,7 @@
   border-radius: 9px;
   color: #a54b58;
   background: #fff5f6;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .datapaw-graph-page {
@@ -1550,7 +1688,7 @@
   border-radius: 7px;
   color: #7c8495;
   background: transparent;
-  font-size: 10px;
+  font-size: 13px;
   cursor: pointer;
 }
 .datapaw-segmented button.is-active {
@@ -1589,7 +1727,7 @@
   outline: 0;
   color: #485164;
   background: #fafbfc;
-  font-size: 10px;
+  font-size: 13px;
 }
 .datapaw-search input:focus {
   border-color: #a8a0ed;
@@ -1610,7 +1748,7 @@
   display: block;
   margin: 12px 8px 7px;
   color: #9ca2af;
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 760;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1625,13 +1763,13 @@
   border-radius: 8px;
   color: #697284;
   background: transparent;
-  font-size: 10px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
 .datapaw-zone-list button.is-active {
-  color: #4f45c7;
-  background: #eeecfb;
+  color: #0a5fd0;
+  background: #ecf4ff;
   font-weight: 650;
 }
 .datapaw-zone-list i {
@@ -1655,7 +1793,7 @@
   border-radius: 6px;
   color: #687184;
   background: #fff;
-  font-size: 8px;
+  font-size: 12px;
   font-style: normal;
   cursor: pointer;
 }
@@ -1685,7 +1823,7 @@
 .datapaw-cypher label {
   grid-column: 1 / -1;
   color: #8d94a4;
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 760;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1700,7 +1838,7 @@
   color: #384155;
   background: #f8f9fb;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 10px;
+  font-size: 13px;
   line-height: 1.5;
 }
 .datapaw-cypher button {
@@ -1710,12 +1848,12 @@
   border-radius: 8px;
   color: #fff;
   background: var(--datapaw-purple);
-  font-size: 10px;
+  font-size: 13px;
   cursor: pointer;
 }
 .datapaw-cypher button span {
   margin-left: 6px;
-  font-size: 8px;
+  font-size: 12px;
 }
 .datapaw-graph-main > .datapaw-error-banner {
   position: absolute;
@@ -1749,7 +1887,7 @@
   place-items: center;
   color: #939aaa;
   background: rgba(250, 251, 252, 0.82);
-  font-size: 11px;
+  font-size: 14px;
 }
 .datapaw-edges line {
   stroke: #bcc2ce;
@@ -1758,7 +1896,7 @@
 }
 .datapaw-edges text {
   fill: #9aa1af;
-  font-size: 7px;
+  font-size: 10px;
   text-anchor: middle;
   paint-order: stroke;
   stroke: #fafbfc;
@@ -1783,7 +1921,7 @@
 }
 .datapaw-node-label {
   fill: #465065;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 650;
   text-anchor: middle;
   paint-order: stroke;
@@ -1792,7 +1930,7 @@
 }
 .datapaw-node-type {
   fill: #939aaa;
-  font-size: 7px;
+  font-size: 10px;
   text-anchor: middle;
   paint-order: stroke;
   stroke: #fafbfc;
@@ -1805,7 +1943,7 @@
   border-top: 1px solid var(--datapaw-line);
   color: #8f96a5;
   background: #fff;
-  font-size: 8px;
+  font-size: 12px;
 }
 .datapaw-graph-footer span:last-child {
   margin-left: auto;
@@ -1824,12 +1962,12 @@
   padding: 8px 11px;
   color: #858c9c;
   background: #f8f9fb;
-  font-size: 8px;
+  font-size: 12px;
 }
 .datapaw-query-table table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 9px;
+  font-size: 12px;
 }
 .datapaw-query-table th,
 .datapaw-query-table td {
@@ -1879,7 +2017,7 @@
 .datapaw-properties > p {
   margin: 0 0 20px;
   color: #81899a;
-  font-size: 10px;
+  font-size: 13px;
 }
 .datapaw-properties dl {
   margin: 0;
@@ -1891,7 +2029,7 @@
 .datapaw-properties dt {
   margin-bottom: 4px;
   color: #9ca2af;
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1900,25 +2038,17 @@
   margin: 0;
   color: #515b6f;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 900px) {
-  :root {
+@container datapaw-app (max-width: 900px) {
+  .datapaw-body {
     --datapaw-page-gutter: 24px;
     --datapaw-page-top: 28px;
-  }
-
-  .datapaw-app {
     grid-template-columns: 68px minmax(0, 1fr);
   }
-  .datapaw-brand {
-    padding: 0 1px 25px;
-    justify-content: center;
-  }
-  .datapaw-brand > div:last-child,
   .datapaw-nav nav span,
   .datapaw-nav__bottom {
     display: none;
@@ -1926,6 +2056,9 @@
   .datapaw-nav nav button {
     justify-content: center;
     padding: 10px;
+  }
+  .datapaw-page-header h1 {
+    font-size: 22px;
   }
   .datapaw-chat {
     padding-bottom: 20px;
@@ -1956,13 +2089,10 @@
   }
 }
 
-@media (max-width: 660px) {
-  :root {
+@container datapaw-app (max-width: 660px) {
+  .datapaw-body {
     --datapaw-page-gutter: 16px;
     --datapaw-page-top: 24px;
-  }
-
-  .datapaw-app {
     display: block;
     overflow: auto;
   }
@@ -1977,9 +2107,6 @@
     border-right: 0;
     border-bottom: 1px solid var(--datapaw-line);
   }
-  .datapaw-brand {
-    display: none;
-  }
   .datapaw-nav nav {
     flex-direction: row;
     width: 100%;
@@ -1993,9 +2120,12 @@
     min-height: 0;
     padding-bottom: 18px;
   }
+  .datapaw-page-header h1 {
+    font-size: 20px;
+  }
   .datapaw-chat {
-    height: calc(100vh - 52px);
-    min-height: 520px;
+    height: auto;
+    min-height: 480px;
     padding-bottom: 14px;
   }
   .datapaw-chat__topline {

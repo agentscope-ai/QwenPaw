@@ -2,7 +2,6 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DataSourceMetadata } from "./api";
 import { LogoMark } from "./LogoMark";
-import { PageHeader } from "./PageHeader";
 import type {
   PawAppSdk,
   PawChatHistoryMessage,
@@ -400,6 +399,12 @@ export function analysisErrorMessage(error: unknown): string {
     );
   }
   const detail = error instanceof Error ? error.message : String(error);
+  if (/not found in config/i.test(detail)) {
+    return (
+      "The QwenPaw-Data agent is reloading (this happens briefly after an " +
+      "app update). Please retry in a few seconds."
+    );
+  }
   return `I could not run that analysis. ${detail}`;
 }
 
@@ -509,6 +514,8 @@ function DialogueHistory({
   sessions,
   activeSessionId,
   busy,
+  creating,
+  onCreate,
   onSelect,
   onTogglePin,
   onRename,
@@ -518,6 +525,8 @@ function DialogueHistory({
   sessions: PawChatSession[];
   activeSessionId: string;
   busy: boolean;
+  creating: boolean;
+  onCreate(): void;
   onSelect(sessionId: string): void;
   onTogglePin(session: PawChatSession): void;
   onRename(session: PawChatSession, name: string): void;
@@ -542,9 +551,17 @@ function DialogueHistory({
   }
 
   return (
-    <aside className="datapaw-history" aria-label="Dialogue history">
+    <aside className="datapaw-history" aria-label="Session history">
       <header className="datapaw-history__header">
-        <b>Dialogues</b>
+        <b>Sessions</b>
+        <button
+          type="button"
+          className="datapaw-new-chat"
+          disabled={busy || creating}
+          onClick={onCreate}
+        >
+          {creating ? "Creating…" : "+ New chat"}
+        </button>
       </header>
       <ul className="datapaw-history__list">
         {ordered.map((session) => {
@@ -681,9 +698,15 @@ function DialogueHistory({
 export function ChatWorkspace({
   paw,
   selectedSource,
+  sources,
+  selectedSourceId,
+  onSelectSource,
 }: {
   paw: PawAppSdk;
   selectedSource?: DataSourceMetadata;
+  sources: DataSourceMetadata[];
+  selectedSourceId: string;
+  onSelectSource(id: string): void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessions, setSessions] = useState<PawChatSession[]>([]);
@@ -1007,28 +1030,28 @@ export function ChatWorkspace({
       aria-label="Data analysis chat"
     >
       <div className="datapaw-chat__main">
-        <PageHeader
-          className="datapaw-chat__topline"
-          eyebrow="Analysis workspace"
-          title="Ask your data, with context."
-          description="Explore governed data with semantic and graph-grounded context."
-          actions={
-            <div className="datapaw-chat__controls">
-              <button
-                type="button"
-                className="datapaw-new-chat"
-                disabled={sending || restoring || creatingSession}
-                onClick={() => void createDialogue()}
+        <div className="datapaw-chat__topline datapaw-chat__toolbar">
+          <div className="datapaw-chat__controls">
+            <label className="datapaw-source-pill datapaw-source-pill--select">
+              <span className="datapaw-source-pill__dot" />
+              <select
+                aria-label="Default data source for analysis"
+                value={selectedSourceId}
+                onChange={(event) => onSelectSource(event.target.value)}
               >
-                {creatingSession ? "Creating…" : "+ New chat"}
-              </button>
-              <div className="datapaw-source-pill">
-                <span className="datapaw-source-pill__dot" />
-                {sourceLabel || "All available context"}
-              </div>
-            </div>
-          }
-        />
+                <option value="">All available context</option>
+                {sources.map((source) => (
+                  <option
+                    key={source.datasource_id}
+                    value={source.datasource_id}
+                  >
+                    {source.datasource_name || source.datasource_id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
         <div
           className="datapaw-conversation"
           aria-live="polite"
@@ -1132,20 +1155,20 @@ export function ChatWorkspace({
           className="datapaw-history-tab"
           aria-expanded={historyOpen}
           aria-label={
-            historyOpen
-              ? "Collapse dialogue history"
-              : "Expand dialogue history"
+            historyOpen ? "Collapse session history" : "Expand session history"
           }
           onClick={toggleHistory}
         >
           <i aria-hidden="true">{historyOpen ? "›" : "‹"}</i>
-          <span>History</span>
+          <span>Sessions</span>
         </button>
         {historyOpen ? (
           <DialogueHistory
             sessions={sessions}
             activeSessionId={activeSessionId}
             busy={sending || restoring}
+            creating={creatingSession}
+            onCreate={() => void createDialogue()}
             onSelect={switchDialogue}
             onTogglePin={togglePin}
             onRename={renameDialogue}

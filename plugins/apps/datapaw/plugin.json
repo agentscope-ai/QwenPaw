@@ -1,7 +1,7 @@
 {
   "id": "datapaw",
   "name": "QwenPaw-Data",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "app",
   "description": "Self-Evolving, Graph-Grounded Agentic BI at Enterprise Scale",
   "description_i18n": {
@@ -44,7 +44,13 @@
         "external_token_env": "DATAPAW_CONTEXT_TOKEN"
       }
     },
-    "features": ["chat-analysis", "context-graph", "data-sources"],
+    "features": [
+      "chat-analysis",
+      "context-graph",
+      "data-sources",
+      "semantic-management",
+      "graph-management"
+    ],
     "planned_features": ["task-graph", "artifacts", "tool-renderers"]
   }
 }

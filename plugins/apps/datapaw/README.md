@@ -72,13 +72,51 @@ The app also opts into the generic `datapaw_dependency_status` and
 as the UI and request only pre-registered actions; the host remains responsible
 for tool governance and audit.
 
+### Local infrastructure quick reference
+
+Service endpoints are environment-driven with local defaults; nothing is
+hardcoded. `datapaw-context` resolves them at startup (see
+`packages/datapaw-context/src/context_manager/config.py` and
+`packages/datapaw-context/README.md` in the QwenPaw-Data workspace):
+
+| Dependency | Configuration | Local default |
+| --- | --- | --- |
+| Graph Store (Neo4j) | `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` in the workspace `.env` | `bolt://localhost:7687` |
+| Data sources (PostgreSQL / MySQL / ODPS / ...) | registered through the DataBridge semantic-config layer (`/api/semantic-config/datasource`), not read from `.env` | none |
+| LLM / Embedding | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `LLM_MODEL`, `EMBED_*` | — |
+
+Local lifecycle, by owner:
+
+- **Graph Store (Neo4j)** — owned by the QwenPaw-Data workspace tooling:
+  `scripts/start_databridge.sh` reuses a Neo4j that is already reachable on
+  the bolt port, otherwise it runs
+  `packages/datapaw-context/docker-compose.yml`. This requires a running
+  Docker daemon (for example `colima start`) and `NEO4J_PASSWORD` in the
+  workspace `.env`.
+- **Diagnostics** — `datapaw doctor --json` reports Docker, Neo4j, DataBridge
+  API, and model-configuration readiness with remediation hints. It is
+  read-only.
+- **Data-source servers** — external infrastructure. DataPaw packages manage
+  their registration and readiness, never their provisioning.
+
+The standalone DataBridge API (`127.0.0.1:8765`) is only used when running
+QwenPaw-Data outside QwenPaw. Inside QwenPaw, the PawApp lifecycle manages a
+private context service on a dynamic loopback port, so a `doctor` failure on
+8765 alone does not affect this app.
+
 ## Package responsibilities
 
 - `datapaw-context`: context APIs, semantic configuration, and graph memory.
+  It also owns the local Graph Store definition
+  (`docker-compose.yml`) and the datasource registrations in the
+  semantic-config layer.
 - `datapaw-host-core`: shared analysis runtime and orchestration contracts.
+  It does not touch infrastructure.
 - `datapaw-skills`: app-provided data analysis skills.
-- `datapaw-cli`: standalone lifecycle and diagnostic tooling; it is the only
-  DataPaw package intended to own local infrastructure commands.
+- `datapaw-cli`: standalone lifecycle and diagnostic tooling (`doctor`,
+  `datasource`, `semantic`); it is the only DataPaw package intended to own
+  local infrastructure commands. Data-source servers themselves remain
+  external infrastructure.
 
 QwenPaw remains the only UI/backend process the user starts. In managed mode,
 the PawApp lifecycle starts and stops the context service automatically.

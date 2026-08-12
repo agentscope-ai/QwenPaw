@@ -7,21 +7,38 @@ import {
 } from "./api";
 import { ChatWorkspace } from "./ChatWorkspace";
 import { DataSources } from "./DataSources";
-import { GraphExplorer } from "./GraphExplorer";
-import { LogoMark } from "./LogoMark";
-import { SemanticCatalog } from "./SemanticCatalog";
+import { EmbeddedConsole } from "./EmbeddedConsole";
+import { WordmarkLogo } from "./LogoMark";
 import type { PawAppSdk } from "./sdk";
 import type { PawDependencyAction, PawDependencySnapshot } from "./sdk";
 import { buildAppStatusModel } from "./status";
 
-type Page = "analysis" | "semantic" | "graph" | "sources";
+type Page = "analysis" | "manage" | "health";
 
 const NAVIGATION: Array<{ id: Page; icon: string; label: string }> = [
-  { id: "analysis", icon: "✦", label: "Analysis" },
-  { id: "semantic", icon: "◇", label: "Semantic model" },
-  { id: "graph", icon: "⌘", label: "Context graph" },
-  { id: "sources", icon: "◉", label: "Data sources" },
+  { id: "analysis", icon: "✦", label: "Analyze" },
+  { id: "manage", icon: "❖", label: "Manage" },
 ];
+
+/**
+ * Default deep link into the embedded Context console (hash-routed build).
+ * The console ships its own sidebar covering data sources, datasets,
+ * dimensions, metrics, semantic weaving, and the CM graph.
+ */
+const CONSOLE_HOME = "/data-source";
+
+/** localStorage key the embedded console's i18next reads at boot. */
+const CONSOLE_LANGUAGE_KEY = "language";
+
+function currentConsoleLanguage(): "zh" | "en" {
+  try {
+    const stored = window.localStorage.getItem(CONSOLE_LANGUAGE_KEY);
+    if (stored === "zh" || stored === "en") return stored;
+  } catch {
+    /* storage unavailable */
+  }
+  return navigator.language?.toLowerCase().startsWith("zh") ? "zh" : "en";
+}
 
 function StatusPanel({
   status,
@@ -36,7 +53,19 @@ function StatusPanel({
 }) {
   const model = buildAppStatusModel(status, dependencies, selectedSourceId);
   return (
-    <div className={`datapaw-status-panel is-${model.tone}`}>
+    <div
+      className={`datapaw-status-panel is-clickable is-${model.tone}`}
+      role="button"
+      tabIndex={0}
+      aria-label="Open runtime status details"
+      onClick={onOpenDetails}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpenDetails();
+        }
+      }}
+    >
       <div className="datapaw-status-panel__summary">
         <i aria-hidden="true" />
         <span>
@@ -62,9 +91,6 @@ function StatusPanel({
               })}`
             : "Waiting for first check"}
         </span>
-        <button type="button" onClick={onOpenDetails}>
-          Details →
-        </button>
       </div>
     </div>
   );
@@ -73,17 +99,18 @@ function StatusPanel({
 export function App({ paw }: { paw: PawAppSdk }) {
   const api = useMemo(() => createQwenPawDataApi(paw), [paw]);
   const [page, setPage] = useState<Page>("analysis");
+  const [consoleRoute, setConsoleRoute] = useState(CONSOLE_HOME);
+  const [consoleEpoch, setConsoleEpoch] = useState(0);
+  const [language, setLanguage] = useState<"zh" | "en">(currentConsoleLanguage);
   const [status, setStatus] = useState<AppStatus>();
   const [dependencies, setDependencies] = useState<PawDependencySnapshot>();
   const [sources, setSources] = useState<DataSourceMetadata[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [sourceLoading, setSourceLoading] = useState(true);
   const [sourceError, setSourceError] = useState("");
   const [sourcesUpdatedAt, setSourcesUpdatedAt] = useState<Date>();
 
   const loadSources = useCallback(
     async (background = false) => {
-      if (!background) setSourceLoading(true);
       setSourceError("");
       try {
         const response = await api.listDataSources();
@@ -91,8 +118,6 @@ export function App({ paw }: { paw: PawAppSdk }) {
         setSourcesUpdatedAt(new Date());
       } catch (error) {
         setSourceError(error instanceof Error ? error.message : String(error));
-      } finally {
-        if (!background) setSourceLoading(false);
       }
     },
     [api],
@@ -156,64 +181,108 @@ export function App({ paw }: { paw: PawAppSdk }) {
     setDependencies(await paw.dependencies.list(true));
   }
 
+  function openModelSettings() {
+    setConsoleRoute("/model-config");
+    setPage("manage");
+  }
+
+  async function toggleLanguage() {
+    const next = language === "zh" ? "en" : "zh";
+    try {
+      window.localStorage.setItem(CONSOLE_LANGUAGE_KEY, next);
+    } catch {
+      /* storage unavailable */
+    }
+    setLanguage(next);
+    // The embedded console reads the language at boot; remount it.
+    setConsoleEpoch((epoch) => epoch + 1);
+    await paw.toast(
+      next === "zh" ? "界面语言已切换为中文" : "Interface language set to English",
+      "success",
+    );
+  }
+
   return (
     <div className="datapaw-app">
-      <aside className="datapaw-nav">
-        <div className="datapaw-brand">
-          <div className="datapaw-brand__mark">
-            <LogoMark />
+      <header className="datapaw-topbar">
+        <WordmarkLogo />
+        <div className="datapaw-topbar__actions">
+          <button
+            type="button"
+            className="datapaw-topbar__icon"
+            title="Model settings"
+            aria-label="Model settings"
+            onClick={openModelSettings}
+          >
+            ⚙︎
+          </button>
+          <button
+            type="button"
+            title={language === "zh" ? "Switch to English" : "切换为中文"}
+            aria-label="Switch language"
+            onClick={() => void toggleLanguage()}
+          >
+            {language === "zh" ? "中" : "EN"}
+          </button>
+        </div>
+      </header>
+      <div className="datapaw-body">
+        <aside className="datapaw-nav">
+          <nav aria-label="QwenPaw-Data navigation">
+            {NAVIGATION.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={page === item.id ? "is-active" : ""}
+                onClick={() => setPage(item.id)}
+              >
+                <i aria-hidden="true">{item.icon}</i>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="datapaw-nav__bottom">
+            <StatusPanel
+              status={status}
+              dependencies={dependencies}
+              selectedSourceId={selectedId}
+              onOpenDetails={() => setPage("health")}
+            />
           </div>
-          <div>
-            <b>QwenPaw-Data</b>
-            <span>Self-Evolving Agentic BI</span>
+        </aside>
+        <main className="datapaw-main">
+          <div hidden={page !== "analysis"}>
+            <ChatWorkspace
+              paw={paw}
+              selectedSource={selectedSource}
+              sources={sources}
+              selectedSourceId={selectedId}
+              onSelectSource={(id) => void selectSource(id)}
+            />
           </div>
-        </div>
-        <nav aria-label="QwenPaw-Data navigation">
-          {NAVIGATION.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={page === item.id ? "is-active" : ""}
-              onClick={() => setPage(item.id)}
-            >
-              <i aria-hidden="true">{item.icon}</i>
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="datapaw-nav__bottom">
-          <StatusPanel
-            status={status}
-            dependencies={dependencies}
-            selectedSourceId={selectedId}
-            onOpenDetails={() => setPage("sources")}
-          />
-        </div>
-      </aside>
-      <main className="datapaw-main">
-        <div hidden={page !== "analysis"}>
-          <ChatWorkspace paw={paw} selectedSource={selectedSource} />
-        </div>
-        {page === "semantic" ? (
-          <SemanticCatalog api={api} selectedSource={selectedSource} />
-        ) : null}
-        {page === "graph" ? (
-          <GraphExplorer api={api} selectedSource={selectedSource} />
-        ) : null}
-        {page === "sources" ? (
-          <DataSources
-            sources={sources}
-            selectedId={selectedId}
-            loading={sourceLoading}
-            error={sourceError}
-            onSelect={(id) => void selectSource(id)}
-            onReload={() => void loadSources()}
-            lastUpdatedAt={sourcesUpdatedAt}
-            dependencies={dependencies?.dependencies ?? []}
-            onDependencyAction={runDependencyAction}
-          />
-        ) : null}
-      </main>
+          <div hidden={page !== "manage"}>
+            <EmbeddedConsole
+              key={consoleEpoch}
+              route={consoleRoute}
+              active={page === "manage"}
+            />
+          </div>
+          {page === "health" ? (
+            <DataSources
+              selectedId={selectedId}
+              error={sourceError}
+              onReload={() => void loadSources()}
+              onOpenManage={() => {
+                setConsoleRoute(CONSOLE_HOME);
+                setPage("manage");
+              }}
+              lastUpdatedAt={sourcesUpdatedAt}
+              dependencies={dependencies?.dependencies ?? []}
+              onDependencyAction={runDependencyAction}
+            />
+          ) : null}
+        </main>
+      </div>
     </div>
   );
 }

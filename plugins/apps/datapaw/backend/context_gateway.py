@@ -16,8 +16,14 @@ from qwenpaw.pawapp import ManagedService
 _ALLOWED_ROUTES = (
     ("/api/health", False),
     ("/api/v1", True),
-    ("/api/system/model-config", False),
+    # Subtree: the console's Model Configuration page manages the Context
+    # service's internal LLM/embedding stack (/llm, /embedding, /embedding/jobs
+    # and their /test probes).
+    ("/api/system/model-config", True),
     ("/api/semantic-config", True),
+    # Read-only auth probe used by the embedded Context console; the managed
+    # service runs without DATAPAW_AUTH_SECRET so it reports auth disabled.
+    ("/api/auth/status", False),
 )
 _FORWARDED_REQUEST_HEADERS = {
     "accept",

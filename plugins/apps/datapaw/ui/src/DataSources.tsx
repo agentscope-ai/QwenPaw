@@ -1,32 +1,21 @@
-import type { DataSourceMetadata } from "./api";
 import type { PawDependencyAction, PawDependencyStatus } from "./sdk";
 import { useState } from "react";
 import { PageHeader } from "./PageHeader";
 import { groupDependencies } from "./status";
 
-function sourceInitial(source: DataSourceMetadata): string {
-  return (source.datasource_name || source.datasource_id || "D")
-    .slice(0, 1)
-    .toUpperCase();
-}
-
 export function DataSources({
-  sources,
   selectedId,
-  loading,
   error,
-  onSelect,
   onReload,
+  onOpenManage,
   lastUpdatedAt,
   dependencies,
   onDependencyAction,
 }: {
-  sources: DataSourceMetadata[];
   selectedId: string;
-  loading: boolean;
   error: string;
-  onSelect(id: string): void;
   onReload(): void;
+  onOpenManage(): void;
   lastUpdatedAt?: Date;
   dependencies: PawDependencyStatus[];
   onDependencyAction(id: string, action: PawDependencyAction): Promise<void>;
@@ -46,9 +35,9 @@ export function DataSources({
   return (
     <section className="datapaw-sources">
       <PageHeader
-        eyebrow="Query scope"
-        title="Data sources"
-        description="Select the default source for chat and graph exploration."
+        eyebrow="Diagnostics"
+        title="Runtime status"
+        description="Health of the managed services and connections behind QwenPaw-Data. Add or edit connections in Manage."
         actions={
           <div className="datapaw-live-controls">
             <span className="datapaw-live-status">
@@ -67,6 +56,13 @@ export function DataSources({
               onClick={onReload}
             >
               Reload
+            </button>
+            <button
+              className="datapaw-secondary-button"
+              type="button"
+              onClick={onOpenManage}
+            >
+              Manage sources →
             </button>
           </div>
         }
@@ -139,51 +135,6 @@ export function DataSources({
           </section>
         ))}
       </div>
-      <div className="datapaw-source-grid" aria-busy={loading}>
-        <button
-          type="button"
-          className={`datapaw-source-card ${selectedId ? "" : "is-selected"}`}
-          onClick={() => onSelect("")}
-        >
-          <span className="datapaw-source-card__icon">∞</span>
-          <span>
-            <b>All available context</b>
-            <small>Let the analysis choose from configured sources</small>
-          </span>
-          <i>{selectedId ? "" : "Selected"}</i>
-        </button>
-        {sources.map((source) => (
-          <button
-            type="button"
-            className={`datapaw-source-card ${
-              selectedId === source.datasource_id ? "is-selected" : ""
-            }`}
-            key={source.datasource_id}
-            onClick={() => onSelect(source.datasource_id)}
-          >
-            <span className="datapaw-source-card__icon">
-              {sourceInitial(source)}
-            </span>
-            <span>
-              <b>{source.datasource_name || source.datasource_id}</b>
-              <small>
-                {source.datasource_type || "data source"} ·{" "}
-                {source.datasource_id}
-              </small>
-            </span>
-            <i>{selectedId === source.datasource_id ? "Selected" : ""}</i>
-          </button>
-        ))}
-      </div>
-      {!loading && sources.length === 0 ? (
-        <div className="datapaw-empty-panel">
-          <strong>No data sources configured yet.</strong>
-          <span>
-            Add a source with the QwenPaw-Data CLI. This page refreshes every
-            five seconds.
-          </span>
-        </div>
-      ) : null}
     </section>
   );
 }

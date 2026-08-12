@@ -2,3 +2,4 @@
 .venv-datapaw
 ui/dist/
 ui/node_modules/
+ui/public/context-console/

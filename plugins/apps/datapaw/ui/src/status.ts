@@ -125,11 +125,11 @@ export function buildAppStatusModel(
       label: "Data",
       detail: selectedSource
         ? selectedSource.health === "healthy"
-          ? "Selected source ready"
-          : "Selected source unavailable"
+          ? "Source ready"
+          : "Source unavailable"
         : sources.length
-        ? `${sourceReady}/${sources.length} connections ready`
-        : "No connections discovered",
+        ? `${sourceReady}/${sources.length} sources ready`
+        : "No sources discovered",
       tone: selectedTone,
     },
     {

@@ -4,7 +4,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$APP_DIR/../../.." && pwd)"
 DATAPAW_SOURCE_DIR="${DATAPAW_SOURCE_DIR:-$HOME/dev/QwenPaw-Data}"
+# Prefer the workspace CLI: a PATH-installed qwenpaw may come from another
+# checkout whose plugin validation rejects this app's imports.
+if [[ -z "${QWENPAW_BIN:-}" && -x "$REPO_ROOT/.venv/bin/qwenpaw" ]]; then
+  QWENPAW_BIN="$REPO_ROOT/.venv/bin/qwenpaw"
+fi
 QWENPAW_BIN="${QWENPAW_BIN:-qwenpaw}"
 QWENPAW_HOST="${QWENPAW_HOST:-127.0.0.1}"
 QWENPAW_PORT="${QWENPAW_PORT:-8089}"
@@ -41,9 +47,34 @@ fi
 mkdir -p "$STAGE_DIR/ui/dist/app"
 cp "$LOGO_ASSET" "$STAGE_DIR/ui/dist/app/"
 
+CONTEXT_CONSOLE_DIR="$APP_DIR/ui/dist/context-console"
+if [[ -d "$CONTEXT_CONSOLE_DIR" ]]; then
+  cp -R "$CONTEXT_CONSOLE_DIR" "$STAGE_DIR/ui/dist/context-console"
+else
+  echo "NOTE: embedded Context console not found; run" \
+    "scripts/sync-context-ui.sh to vendor it." >&2
+fi
+
+# Hot-install against the configured instance. The CLI's hot-install path
+# routes via config.json's last_api (ignoring --host/--port), which can point
+# at a different running QwenPaw instance; talk to the API directly instead.
+install_plugin() {
+  local source_path="$1"
+  local response
+  if ! response=$(curl -sf --max-time 180 \
+    -X POST "http://$QWENPAW_HOST:$QWENPAW_PORT/api/plugins/install" \
+    -H 'Content-Type: application/json' \
+    -d "{\"source\":\"$source_path\",\"force\":true}"); then
+    echo "Hot-install failed against" \
+      "http://$QWENPAW_HOST:$QWENPAW_PORT — is QwenPaw running there?" >&2
+    exit 1
+  fi
+  echo "✅ Hot-installed: $response" | head -c 200
+  echo
+}
+
 echo "==> Installing the staged PawApp"
-"$QWENPAW_BIN" --host "$QWENPAW_HOST" --port "$QWENPAW_PORT" \
-  plugin install "$STAGE_DIR" --force
+install_plugin "$STAGE_DIR"
 
 INSTALLED_APP="$WORKING_DIR/plugins/datapaw"
 if [[ ! -d "$INSTALLED_APP" ]]; then
@@ -67,5 +98,12 @@ link_path "$DATAPAW_SOURCE_DIR" "$INSTALLED_APP/.datapaw-dev/source"
 link_path \
   "$DATAPAW_SOURCE_DIR/packages/datapaw-skills/skills" \
   "$INSTALLED_APP/.datapaw-dev/skills"
+
+# The first install imports the backend before the .datapaw-dev symlinks
+# exist, so skills resolve as unavailable. Reinstalling from the installed
+# directory itself skips the copy (source == target) and only re-imports,
+# which picks the symlinks up.
+echo "==> Reloading the app so it picks up the dev symlinks"
+install_plugin "$INSTALLED_APP"
 
 echo "==> QwenPaw-Data installed. Start QwenPaw and open /apps/datapaw"
