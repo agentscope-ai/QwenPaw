@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Tests for video size capping in the model_factory video helpers.
 
 Tool-result videos inline through ``_format_openai_video_block`` and

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Tests for active-model context-window metadata."""
 
 from types import SimpleNamespace

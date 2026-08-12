@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """API routes for LLM providers and models."""
 
 from __future__ import annotations

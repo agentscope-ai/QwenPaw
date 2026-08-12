@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Plugin provider registry operations for ProviderManager."""
 
 from __future__ import annotations
