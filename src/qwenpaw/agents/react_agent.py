@@ -832,6 +832,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         safety_markers = (
             "new_sensitive",
             "image is sensitive",
+            "sensitive content",
+            "content sensitivity",
             "content policy",
             "content_policy",
             "moderation",
@@ -874,7 +876,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             "invalid image",
             "invalid media",
             "mime",
-            "sensitive",
             "unsupported image format",
         )
         if any(signal in error_str for signal in invalid_asset_signals):

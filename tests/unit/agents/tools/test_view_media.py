@@ -31,6 +31,7 @@ from qwenpaw.agents.tools.view_media import (
     view_image,
     view_video,
 )
+from qwenpaw.providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +380,47 @@ class TestViewImage:
 
         assert len(result.content) == 1
         assert "not a valid image" in result.content[0].text
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_oversized_local_image_is_rejected_before_decode(
+        self,
+        mock_support,
+        tmp_path,
+    ):
+        mock_support.return_value = True
+        img = tmp_path / "oversized.png"
+        img.write_bytes(b"x" * (MAX_INLINE_MEDIA_BYTES + 1))
+
+        result = await view_image(str(img))
+
+        assert len(result.content) == 1
+        assert "exceeds" in result.content[0].text
+        assert str(MAX_INLINE_MEDIA_BYTES) in result.content[0].text
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_converted_png_must_fit_image_limit(
+        self,
+        mock_support,
+        tmp_path,
+    ):
+        mock_support.return_value = True
+        img = tmp_path / "compressed.tiff"
+        channels = [Image.effect_noise((1000, 1000), 100) for _ in range(3)]
+        Image.merge("RGB", channels).save(
+            img,
+            format="TIFF",
+            compression="jpeg",
+            quality=75,
+        )
+        assert img.stat().st_size <= MAX_INLINE_MEDIA_BYTES
+
+        result = await view_image(str(img))
+
+        assert len(result.content) == 1
+        assert "converted" in result.content[0].text
+        assert "exceeds" in result.content[0].text
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")

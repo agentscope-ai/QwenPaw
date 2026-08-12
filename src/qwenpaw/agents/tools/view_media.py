@@ -22,6 +22,7 @@ from agentscope.message import (
 from agentscope.tool import ToolChunk
 from PIL import Image, UnidentifiedImageError
 
+from ...providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
 from ...runtime.tool_registry import tool_descriptor
 from ...utils.io_utils import run_sync_io
 from .file_io import _path_to_file_url, _resolve_file_path
@@ -169,25 +170,29 @@ def _freeze_local_image(
 ) -> tuple[DataBlock | None, str | None]:
     """Validate and freeze one local image as immutable base64 content."""
     try:
-        image_bytes = image_path.read_bytes()
-        with Image.open(BytesIO(image_bytes)) as image:
-            image_format = image.format
-            image.verify()
-    except (
-        Image.DecompressionBombError,
-        OSError,
-        UnidentifiedImageError,
-        ValueError,
-    ) as exc:
-        return None, f"Error: {image_path.name} is not a valid image: {exc}"
+        file_size = image_path.stat().st_size
+        if file_size > MAX_INLINE_MEDIA_BYTES:
+            return (
+                None,
+                f"Error: {image_path.name} is {file_size} bytes and "
+                f"exceeds the {MAX_INLINE_MEDIA_BYTES}-byte image limit.",
+            )
+        with image_path.open("rb") as image_file:
+            image_bytes = image_file.read(MAX_INLINE_MEDIA_BYTES + 1)
+        if len(image_bytes) > MAX_INLINE_MEDIA_BYTES:
+            return (
+                None,
+                f"Error: {image_path.name} exceeds the "
+                f"{MAX_INLINE_MEDIA_BYTES}-byte image limit.",
+            )
 
-    normalized_format = (image_format or "").upper()
-    media_type = Image.MIME.get(normalized_format)
-    if media_type in _NATIVE_IMAGE_MEDIA_TYPES:
-        frozen_bytes = image_bytes
-    elif normalized_format in _PNG_CONVERTIBLE_IMAGE_FORMATS:
-        try:
-            with Image.open(BytesIO(image_bytes)) as image:
+        with Image.open(BytesIO(image_bytes)) as image:
+            normalized_format = (image.format or "").upper()
+            media_type = Image.MIME.get(normalized_format)
+            if media_type in _NATIVE_IMAGE_MEDIA_TYPES:
+                image.verify()
+                frozen_bytes = image_bytes
+            elif normalized_format in _PNG_CONVERTIBLE_IMAGE_FORMATS:
                 image.seek(0)
                 image.load()
                 has_alpha = (
@@ -198,24 +203,28 @@ def _freeze_local_image(
                     output = BytesIO()
                     converted.save(output, format="PNG")
                     frozen_bytes = output.getvalue()
-            media_type = "image/png"
-        except (
-            Image.DecompressionBombError,
-            OSError,
-            UnidentifiedImageError,
-            ValueError,
-        ) as exc:
-            return (
-                None,
-                f"Error: {image_path.name} could not be converted to "
-                f"PNG: {exc}",
-            )
-    else:
-        detected = media_type or image_format or "unknown"
+                media_type = "image/png"
+            else:
+                detected = media_type or image.format or "unknown"
+                return (
+                    None,
+                    f"Error: {image_path.name} uses unsupported image "
+                    f"format {detected}.",
+                )
+    except (
+        Image.DecompressionBombError,
+        OSError,
+        UnidentifiedImageError,
+        ValueError,
+    ) as exc:
+        return None, f"Error: {image_path.name} is not a valid image: {exc}"
+
+    if len(frozen_bytes) > MAX_INLINE_MEDIA_BYTES:
         return (
             None,
-            f"Error: {image_path.name} uses unsupported image format "
-            f"{detected}.",
+            f"Error: converted {image_path.name} is "
+            f"{len(frozen_bytes)} bytes and exceeds the "
+            f"{MAX_INLINE_MEDIA_BYTES}-byte image limit.",
         )
 
     encoded = base64.b64encode(frozen_bytes).decode("ascii")
