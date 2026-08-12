@@ -14,15 +14,20 @@ from .openai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
+_NONE_REASONING_EFFORT_MODELS = frozenset(
+    {
+        "gpt-5.5",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+    },
+)
+
 
 def _supports_none_reasoning_effort(model_name: str) -> bool:
-    """Whether an official GPT model accepts ``reasoning.effort=none``."""
+    """Whether a known model accepts ``reasoning.effort=none``."""
     canonical_name = model_name.rsplit("/", 1)[-1].lower()
-    prefix = "gpt-5."
-    if not canonical_name.startswith(prefix):
-        return False
-    minor_version = canonical_name[len(prefix) :].split("-", 1)[0]
-    return minor_version.isdigit() and int(minor_version) >= 2
+    return canonical_name in _NONE_REASONING_EFFORT_MODELS
 
 
 def _extract_response_text(response: Any) -> str:

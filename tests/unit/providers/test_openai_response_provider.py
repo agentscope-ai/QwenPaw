@@ -6,6 +6,7 @@ import time
 from types import SimpleNamespace
 
 import httpx
+import pytest
 from agentscope.model import OpenAIResponseModel
 from openai import BadRequestError
 
@@ -359,8 +360,21 @@ async def test_video_probe_reasoning_fallback(
 # ------ existing test -----------------------------------
 
 
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "gpt-5.2-pro",
+        "gpt-5.3-codex",
+        "gpt-5.4-pro",
+        "gpt-5.5-pro",
+        "gpt-5.6",
+        "gpt-5.7",
+        "custom-reasoner",
+    ],
+)
 async def test_summary_call_removes_reasoning_when_none_is_unsupported(
     monkeypatch,
+    model_name: str,
 ) -> None:
     captured: dict = {}
 
@@ -385,10 +399,10 @@ async def test_summary_call_removes_reasoning_when_none_is_unsupported(
             "max_output_tokens": 100_000,
         },
     )
-    model = provider.get_chat_model_instance("gpt-5")
+    model = provider.get_chat_model_instance(model_name)
 
     result = await model._call_api(
-        "gpt-5",
+        model_name,
         [],
         max_tokens=256,
         disable_thinking=True,
@@ -400,8 +414,18 @@ async def test_summary_call_removes_reasoning_when_none_is_unsupported(
     assert "reasoning" not in captured
 
 
-async def test_summary_call_explicitly_disables_gpt_5_6_reasoning(
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "gpt-5.5",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "openai/gpt-5.6-luna",
+    ],
+)
+async def test_summary_call_explicitly_disables_known_reasoning(
     monkeypatch,
+    model_name: str,
 ) -> None:
     captured: dict = {}
 
@@ -423,10 +447,10 @@ async def test_summary_call_explicitly_disables_gpt_5_6_reasoning(
         chat_model="OpenAIResponseModel",
         generate_kwargs={"reasoning": {"effort": "xhigh"}},
     )
-    model = provider.get_chat_model_instance("gpt-5.6")
+    model = provider.get_chat_model_instance(model_name)
 
     result = await model._call_api(
-        "gpt-5.6",
+        model_name,
         [],
         disable_thinking=True,
     )
