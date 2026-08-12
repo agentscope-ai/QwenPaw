@@ -42,7 +42,6 @@ from ...config.paths import (
     resolve_agent_workspace_roots,
     resolve_workspace_identity,
 )
-from ...constant import WORKING_DIR
 from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
@@ -436,8 +435,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
 )
 async def list_agent_workspace_roots() -> AgentWorkspaceRootList:
     """Return server-owned root IDs without accepting client paths."""
-    config = load_config()
-    roots = resolve_agent_workspace_roots(config.agent_workspace_roots)
+    roots = resolve_agent_workspace_roots()
     return AgentWorkspaceRootList(
         roots=[
             AgentWorkspaceRoot(id=root_id, label=str(root))
@@ -635,7 +633,6 @@ async def create_agent(
         workspace_dir = resolve_workspace_identity(
             workspace_root_id,
             new_id,
-            config.agent_workspace_roots,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -799,7 +796,6 @@ async def copy_agent(
     workspace_dir = resolve_workspace_identity(
         DEFAULT_AGENT_WORKSPACE_ROOT_ID,
         new_id,
-        config.agent_workspace_roots,
     )
     workspace_dir.mkdir(parents=True, exist_ok=True)
 

@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +20,7 @@ _WORKSPACE_ROOT_ID_PATTERN = re.compile(
 
 def _working_dir_path(working_dir: Path | None) -> Path:
     """Return one absolute QwenPaw working directory."""
-    base = Path(working_dir or WORKING_DIR).expanduser()
+    base = working_dir or WORKING_DIR
     if not base.is_absolute():
         base = Path(os.path.abspath(base))
     return Path(os.path.realpath(base))
@@ -84,59 +83,46 @@ def sanitize_workspace_root_id(root_id: str) -> str:
     return normalized
 
 
-def resolve_configured_path(
-    value: str | Path,
-    *,
-    working_dir: Path | None = None,
-) -> Path:
-    """Resolve configured paths relative to QwenPaw's working directory."""
-    base = _working_dir_path(working_dir)
-    path = Path(value).expanduser()
-    if not path.is_absolute():
-        path = base / path
-    return _canonical_path(path)
-
-
-def resolve_agent_workspace_path(
-    workspace_dir: str | Path | None,
-    agent_id: str,
-    *,
-    working_dir: Path | None = None,
-) -> Path:
-    """Resolve a legacy workspace path or its default location."""
-    base = _working_dir_path(working_dir)
-    if workspace_dir is None or not str(workspace_dir).strip():
-        safe_agent_id = sanitize_agent_path_segment(agent_id)
-        return _resolve_contained_path(
-            base / "workspaces",
-            safe_agent_id,
-        )
-    return resolve_configured_path(workspace_dir, working_dir=base)
+def _workspace_root_registry_path(working_dir: Path) -> Path:
+    """Return the server-managed workspace root registry directory."""
+    return working_dir / "workspace-roots"
 
 
 def resolve_agent_workspace_roots(
-    configured_roots: Mapping[str, str | Path],
     *,
     working_dir: Path | None = None,
 ) -> dict[str, Path]:
-    """Resolve locally configured roots that may contain workspaces."""
+    """Enumerate server-managed roots that may contain workspaces."""
     base = _working_dir_path(working_dir)
     roots = {
         DEFAULT_AGENT_WORKSPACE_ROOT_ID: _canonical_path(
             base / "workspaces",
         ),
     }
-    for raw_root_id, value in configured_roots.items():
-        root_id = sanitize_workspace_root_id(raw_root_id)
-        if root_id == DEFAULT_AGENT_WORKSPACE_ROOT_ID:
-            raise ValueError(
-                f"Workspace root ID '{root_id}' is reserved",
+    registry = _workspace_root_registry_path(base)
+    if not registry.is_dir():
+        return roots
+
+    try:
+        entries = sorted(registry.iterdir(), key=lambda entry: entry.name)
+    except OSError:
+        return roots
+
+    for entry in entries:
+        try:
+            root_id = sanitize_workspace_root_id(entry.name)
+        except ValueError:
+            continue
+        if root_id == DEFAULT_AGENT_WORKSPACE_ROOT_ID or not entry.is_dir():
+            continue
+        root = _canonical_path(entry)
+        try:
+            roots[root_id] = _reject_filesystem_root(
+                root,
+                label=f"Workspace root '{root_id}'",
             )
-        root = resolve_configured_path(value, working_dir=base)
-        roots[root_id] = _reject_filesystem_root(
-            root,
-            label=f"Workspace root '{value}'",
-        )
+        except ValueError:
+            continue
     return roots
 
 
@@ -150,22 +136,18 @@ def _select_workspace_root(
         if candidate_id == normalized:
             return candidate_root
     raise ValueError(
-        f"Workspace root ID '{normalized}' is not configured",
+        f"Workspace root ID '{normalized}' is not registered",
     )
 
 
 def resolve_workspace_identity(
     root_id: str,
     workspace_name: str,
-    configured_roots: Mapping[str, str | Path],
     *,
     working_dir: Path | None = None,
 ) -> Path:
-    """Resolve a workspace from a trusted root and one safe name."""
-    roots = resolve_agent_workspace_roots(
-        configured_roots,
-        working_dir=working_dir,
-    )
+    """Resolve a workspace from a registered root and one safe name."""
+    roots = resolve_agent_workspace_roots(working_dir=working_dir)
     root = _select_workspace_root(root_id, roots)
     safe_name = sanitize_agent_path_segment(workspace_name)
     return _resolve_contained_path(root, safe_name)
@@ -182,66 +164,102 @@ def resolve_workspace_child_path(
     return _resolve_contained_path(workspace_dir, safe_filename)
 
 
-def _legacy_root_id(path: Path) -> str:
-    """Return a stable local identifier for one migrated root."""
-    identity = os.path.normcase(os.fspath(path)).encode("utf-8")
-    digest = hashlib.sha256(identity).hexdigest()[:24]
-    return f"legacy-{digest}"
+def _normalize_path_text(value: str) -> str:
+    """Normalize path text without interpreting it as a filesystem path."""
+    normalized = value.strip().replace("\\", "/")
+    while "//" in normalized:
+        normalized = normalized.replace("//", "/")
+    if len(normalized) > 1:
+        normalized = normalized.rstrip("/")
+    if os.name == "nt":
+        normalized = normalized.casefold()
+    return normalized
+
+
+def _trusted_path_texts(path: Path, working_dir: Path) -> set[str]:
+    """Return accepted text forms derived only from one trusted path."""
+    texts = {_normalize_path_text(os.fspath(path))}
+    try:
+        relative = path.relative_to(working_dir)
+    except ValueError:
+        pass
+    else:
+        texts.add(_normalize_path_text(os.fspath(relative)))
+    home = Path.home()
+    try:
+        relative_home = path.relative_to(home)
+    except ValueError:
+        pass
+    else:
+        texts.add(
+            _normalize_path_text(
+                f"~/{relative_home.as_posix()}",
+            ),
+        )
+    return texts
+
+
+def _registered_workspace_path_texts(
+    root_id: str,
+    workspace_name: str,
+    *,
+    working_dir: Path,
+) -> tuple[Path, set[str]]:
+    """Return trusted resolved and registry-alias forms for a workspace."""
+    resolved = resolve_workspace_identity(
+        root_id,
+        workspace_name,
+        working_dir=working_dir,
+    )
+    if root_id == DEFAULT_AGENT_WORKSPACE_ROOT_ID:
+        registered_root = working_dir / "workspaces"
+    else:
+        registered_root = _workspace_root_registry_path(working_dir) / root_id
+    candidates = _trusted_path_texts(resolved, working_dir)
+    candidates.update(
+        _trusted_path_texts(
+            registered_root / workspace_name,
+            working_dir,
+        ),
+    )
+    return resolved, candidates
 
 
 def derive_legacy_workspace_identity(
     workspace_dir: str | Path | None,
     agent_id: str,
-    configured_roots: MutableMapping[str, str],
     *,
     working_dir: Path | None = None,
 ) -> tuple[str, str, Path]:
-    """Convert one trusted local legacy path into root/name identity."""
+    """Match one legacy workspace to an already registered root."""
     safe_agent_id = sanitize_agent_path_segment(agent_id)
-    if workspace_dir is None or not str(workspace_dir).strip():
+    base = _working_dir_path(working_dir)
+    if workspace_dir is None or not os.fspath(workspace_dir).strip():
         root_id = DEFAULT_AGENT_WORKSPACE_ROOT_ID
         resolved = resolve_workspace_identity(
             root_id,
             safe_agent_id,
-            configured_roots,
-            working_dir=working_dir,
+            working_dir=base,
         )
         return root_id, safe_agent_id, resolved
 
-    resolved = _reject_filesystem_root(
-        resolve_configured_path(
-            workspace_dir,
-            working_dir=working_dir,
-        ),
-        label=f"Agent workspace '{workspace_dir}'",
+    workspace_text = os.fspath(workspace_dir).strip()
+    normalized_workspace = _normalize_path_text(workspace_text)
+    workspace_name = sanitize_agent_path_segment(
+        normalized_workspace.rsplit("/", maxsplit=1)[-1],
     )
-    workspace_name = sanitize_agent_path_segment(resolved.name)
-    parent = resolved.parent
-    roots = resolve_agent_workspace_roots(
-        configured_roots,
-        working_dir=working_dir,
-    )
-    for root_id, root in roots.items():
-        if os.path.normcase(os.fspath(root)) == os.path.normcase(
-            os.fspath(parent),
-        ):
+    for root_id in resolve_agent_workspace_roots(working_dir=base):
+        resolved, candidates = _registered_workspace_path_texts(
+            root_id,
+            workspace_name,
+            working_dir=base,
+        )
+        if normalized_workspace in candidates:
             return root_id, workspace_name, resolved
 
-    root_id = _legacy_root_id(parent)
-    existing = configured_roots.get(root_id)
-    if existing is not None:
-        existing_path = resolve_configured_path(
-            existing,
-            working_dir=working_dir,
-        )
-        if os.path.normcase(os.fspath(existing_path)) != os.path.normcase(
-            os.fspath(parent),
-        ):
-            raise ValueError(
-                f"Workspace root ID collision for '{parent}'",
-            )
-    configured_roots[root_id] = os.fspath(parent)
-    return root_id, workspace_name, resolved
+    raise ValueError(
+        f"Legacy workspace for agent '{safe_agent_id}' is not registered",
+    )
 
 
 def migrate_legacy_agent_workspace_profiles(
@@ -249,19 +267,14 @@ def migrate_legacy_agent_workspace_profiles(
     *,
     working_dir: Path | None = None,
 ) -> bool:
-    """Migrate root config workspace paths without moving user files."""
+    """Migrate workspace paths only when they match registered roots."""
+    changed = data.pop("agent_workspace_roots", None) is not None
     agents = data.get("agents")
     if not isinstance(agents, dict):
-        return False
+        return changed
     profiles = agents.get("profiles")
     if not isinstance(profiles, dict):
-        return False
-
-    raw_roots = data.setdefault("agent_workspace_roots", {})
-    if not isinstance(raw_roots, dict):
-        return False
-    configured_roots: MutableMapping[str, str] = raw_roots
-    changed = False
+        return changed
 
     for raw_agent_id, raw_profile in profiles.items():
         if not isinstance(raw_agent_id, str) or not isinstance(
@@ -271,16 +284,37 @@ def migrate_legacy_agent_workspace_profiles(
             continue
         root_id = raw_profile.get("workspace_root_id")
         workspace_name = raw_profile.get("workspace_name")
-        if isinstance(root_id, str) and isinstance(workspace_name, str):
-            continue
-        root_id, workspace_name, resolved = derive_legacy_workspace_identity(
-            raw_profile.get("workspace_dir"),
-            raw_agent_id,
-            configured_roots,
-            working_dir=working_dir,
-        )
-        raw_profile["workspace_root_id"] = root_id
-        raw_profile["workspace_name"] = workspace_name
-        raw_profile["workspace_dir"] = os.fspath(resolved)
-        changed = True
+        try:
+            if isinstance(root_id, str) and isinstance(
+                workspace_name,
+                str,
+            ):
+                resolved = resolve_workspace_identity(
+                    root_id,
+                    workspace_name,
+                    working_dir=working_dir,
+                )
+            else:
+                raise ValueError("Workspace identity is incomplete")
+        except ValueError:
+            (
+                root_id,
+                workspace_name,
+                resolved,
+            ) = derive_legacy_workspace_identity(
+                raw_profile.get("workspace_dir"),
+                raw_agent_id,
+                working_dir=working_dir,
+            )
+
+        resolved_text = os.fspath(resolved)
+        updates = {
+            "workspace_root_id": root_id,
+            "workspace_name": workspace_name,
+            "workspace_dir": resolved_text,
+        }
+        for key, value in updates.items():
+            if raw_profile.get(key) != value:
+                raw_profile[key] = value
+                changed = True
     return changed

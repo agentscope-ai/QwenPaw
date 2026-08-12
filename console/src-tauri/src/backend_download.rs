@@ -175,7 +175,8 @@ mod tests {
                     "profiles": {
                         "test-agent": {
                             "id": "test-agent",
-                            "workspace_dir": working_dir.join("workspaces/test-agent").to_str().unwrap(),
+                            "workspace_root_id": "default",
+                            "workspace_name": "test-agent",
                             "enabled": true,
                         }
                     }
@@ -230,7 +231,8 @@ mod tests {
                 "agents": {
                     "profiles": {
                         "test-agent": {
-                            "workspace_dir": workspace_dir,
+                            "workspace_root_id": "default",
+                            "workspace_name": "test-agent",
                         }
                     }
                 }
@@ -270,7 +272,8 @@ mod tests {
                     "profiles": {
                         "test-agent": {
                             "id": "test-agent",
-                            "workspace_dir": working_dir.join("workspaces/test-agent").to_str().unwrap(),
+                            "workspace_root_id": "default",
+                            "workspace_name": "test-agent",
                             "enabled": true,
                         }
                     }
@@ -291,11 +294,11 @@ mod tests {
     }
 
     #[test]
-    fn agent_workspace_resolves_relative_to_working_directory() {
+    fn agent_workspace_ignores_legacy_path_field() {
         let _guard = ENV_LOCK.lock().unwrap();
         let temp = tempfile::tempdir().unwrap();
         let working_dir = temp.path();
-        let workspace_dir = working_dir.join("relative-workspace");
+        let workspace_dir = working_dir.join("workspaces/test-agent");
         std::fs::create_dir_all(&workspace_dir).unwrap();
         std::fs::write(
             working_dir.join("config.json"),
@@ -304,6 +307,8 @@ mod tests {
                     "profiles": {
                         "test-agent": {
                             "workspace_dir": "relative-workspace",
+                            "workspace_root_id": "default",
+                            "workspace_name": "test-agent",
                         }
                     }
                 }
@@ -320,6 +325,40 @@ mod tests {
     }
 
     #[test]
+    fn agent_workspace_resolves_registered_custom_root() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let working_dir = temp.path();
+        let workspace_dir = working_dir
+            .join("workspace-roots")
+            .join("trusted")
+            .join("analyst");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+        std::fs::write(
+            working_dir.join("config.json"),
+            serde_json::json!({
+                "agents": {
+                    "profiles": {
+                        "test-agent": {
+                            "workspace_dir": working_dir.join("outside"),
+                            "workspace_root_id": "trusted",
+                            "workspace_name": "analyst",
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        std::env::set_var("QWENPAW_WORKING_DIR", working_dir);
+        let result = get_agent_workspace_directory("test-agent").unwrap();
+        std::env::remove_var("QWENPAW_WORKING_DIR");
+
+        assert_eq!(result, workspace_dir.canonicalize().unwrap());
+    }
+
+    #[test]
     fn builtin_agent_id_with_dot_resolves_from_config() {
         let _guard = ENV_LOCK.lock().unwrap();
         let temp = tempfile::tempdir().unwrap();
@@ -332,7 +371,8 @@ mod tests {
                 "agents": {
                     "profiles": {
                         "QwenPaw_QA_Agent_0.2": {
-                            "workspace_dir": "workspaces/qa"
+                            "workspace_root_id": "default",
+                            "workspace_name": "qa"
                         }
                     }
                 }
@@ -401,7 +441,8 @@ mod tests {
                 "agents": {
                     "profiles": {
                         "test-agent": {
-                            "workspace_dir": workspace_dir,
+                            "workspace_root_id": "default",
+                            "workspace_name": "test-agent",
                         }
                     }
                 }
@@ -445,7 +486,8 @@ mod tests {
                 "agents": {
                     "profiles": {
                         "test-agent": {
-                            "workspace_dir": workspace_dir,
+                            "workspace_root_id": "default",
+                            "workspace_name": "test-agent",
                         }
                     }
                 }

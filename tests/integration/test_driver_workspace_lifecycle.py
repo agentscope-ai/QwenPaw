@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=no-name-in-module
 from pathlib import Path
 
 import pytest
@@ -37,8 +38,8 @@ async def test_driver_manager_uses_per_workspace_storage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
-    workspace_one = Workspace("agent-one", str(tmp_path / "one"))
-    workspace_two = Workspace("agent-two", str(tmp_path / "two"))
+    workspace_one = Workspace("agent-one", tmp_path / "one")
+    workspace_two = Workspace("agent-two", tmp_path / "two")
     dump_card(
         _mcp_card("driver-one"),
         card_path(

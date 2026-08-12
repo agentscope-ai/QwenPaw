@@ -46,10 +46,10 @@ pub(crate) fn resolve_agent_artifact_file_path(
 pub(crate) fn get_agent_workspace_directory(
     agent_id: &str,
 ) -> Result<PathBuf, String> {
+    validate_fallback_agent_id(agent_id)?;
     let working_dir = get_working_directory()?;
     let config_path = working_dir.join("config.json");
     if !config_path.exists() {
-        validate_fallback_agent_id(agent_id)?;
         return Ok(working_dir.join("workspaces").join(agent_id));
     }
     let content = std::fs::read_to_string(&config_path)
@@ -61,11 +61,23 @@ pub(crate) fn get_agent_workspace_directory(
         .and_then(|agents| agents.get("profiles"))
         .and_then(|profiles| profiles.get(agent_id))
         .ok_or_else(|| format!("agent '{agent_id}' not found in config"))?;
-    Ok(profile
-        .get("workspace_dir")
-        .and_then(|path| path.as_str())
-        .map(|path| resolve_configured_path(path, &working_dir))
-        .unwrap_or_else(|| working_dir.join("workspaces").join(agent_id)))
+    let root_id = profile
+        .get("workspace_root_id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| {
+            format!("agent '{agent_id}' has no registered workspace root")
+        })?;
+    let workspace_name = profile
+        .get("workspace_name")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| {
+            format!("agent '{agent_id}' has no registered workspace name")
+        })?;
+    resolve_registered_workspace_directory(
+        &working_dir,
+        root_id,
+        workspace_name,
+    )
 }
 
 /// Get the configured coding project or agent workspace directory.
@@ -89,16 +101,7 @@ pub(crate) fn get_coding_directory(
             .and_then(|active| active.as_str())
             .unwrap_or("default")
     });
-    let profile = config
-        .get("agents")
-        .and_then(|agents| agents.get("profiles"))
-        .and_then(|profiles| profiles.get(target_agent))
-        .ok_or_else(|| format!("agent '{target_agent}' not found in config"))?;
-    let workspace_dir = profile
-        .get("workspace_dir")
-        .and_then(|path| path.as_str())
-        .map(|path| resolve_configured_path(path, &working_dir))
-        .unwrap_or_else(|| working_dir.join("workspaces").join(target_agent));
+    let workspace_dir = get_agent_workspace_directory(target_agent)?;
 
     let agent_config_path = workspace_dir.join("agent.json");
     if agent_config_path.is_file() {
@@ -180,4 +183,71 @@ fn validate_fallback_agent_id(agent_id: &str) -> Result<(), String> {
         return Err("agent id is not a safe path component".into());
     }
     Ok(())
+}
+
+fn validate_workspace_root_id(root_id: &str) -> Result<(), String> {
+    let mut chars = root_id.chars();
+    let first = chars.next().ok_or("workspace root id is empty")?;
+    if !first.is_ascii_alphanumeric()
+        || root_id.len() > 64
+        || chars.any(|ch| {
+            !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_'
+        })
+    {
+        return Err(format!("invalid workspace root id '{root_id}'"));
+    }
+    Ok(())
+}
+
+fn resolve_registered_workspace_directory(
+    working_dir: &Path,
+    root_id: &str,
+    workspace_name: &str,
+) -> Result<PathBuf, String> {
+    validate_workspace_root_id(root_id)?;
+    validate_fallback_agent_id(workspace_name)?;
+    let registered_root = if root_id == "default" {
+        working_dir.join("workspaces")
+    } else {
+        working_dir.join("workspace-roots").join(root_id)
+    };
+    if root_id != "default" && !registered_root.is_dir() {
+        return Err(format!(
+            "workspace root id '{root_id}' is not registered"
+        ));
+    }
+
+    let canonical_root = if registered_root.exists() {
+        let resolved = registered_root.canonicalize().map_err(|err| {
+            format!(
+                "failed to resolve workspace root '{}': {err}",
+                registered_root.display()
+            )
+        })?;
+        if resolved.parent().is_none() {
+            return Err("workspace root must not be a filesystem root".into());
+        }
+        Some(resolved)
+    } else {
+        None
+    };
+
+    let workspace = registered_root.join(workspace_name);
+    if workspace.exists() {
+        let canonical_workspace = workspace.canonicalize().map_err(|err| {
+            format!(
+                "failed to resolve workspace '{}': {err}",
+                workspace.display()
+            )
+        })?;
+        if let Some(root) = canonical_root {
+            if !canonical_workspace.starts_with(root) {
+                return Err(
+                    "workspace path escapes its registered root".into()
+                );
+            }
+        }
+        return Ok(canonical_workspace);
+    }
+    Ok(workspace)
 }

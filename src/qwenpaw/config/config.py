@@ -34,7 +34,6 @@ from qwenpaw.exceptions import (
 
 from .paths import (
     DEFAULT_AGENT_WORKSPACE_ROOT_ID,
-    derive_legacy_workspace_identity,
     resolve_workspace_child_path,
     resolve_workspace_identity,
     sanitize_agent_path_segment,
@@ -2725,12 +2724,6 @@ class Config(BaseModel):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     last_dispatch: Optional[LastDispatchConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)
-    agent_workspace_roots: Dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "Locally configured root IDs available for agent workspaces"
-        ),
-    )
     acp: ACPConfig = Field(default_factory=ACPConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
     show_tool_details: bool = True
@@ -2752,50 +2745,18 @@ class Config(BaseModel):
         "listed, downloaded to a workspace, and deleted.",
     )
 
-    @field_validator("agent_workspace_roots", mode="before")
-    @classmethod
-    def _normalize_agent_workspace_roots(cls, value: Any) -> Any:
-        """Normalize server-owned workspace root configuration."""
-        if not isinstance(value, dict):
-            return value
-        roots: Dict[str, str] = {}
-        for raw_root_id, raw_path in value.items():
-            if not isinstance(raw_root_id, str) or not isinstance(
-                raw_path,
-                str,
-            ):
-                raise ValueError(
-                    "Agent workspace root IDs and paths must be strings",
-                )
-            root_id = sanitize_workspace_root_id(raw_root_id)
-            path = raw_path.strip()
-            if root_id == DEFAULT_AGENT_WORKSPACE_ROOT_ID:
-                raise ValueError(
-                    f"Workspace root ID '{root_id}' is reserved",
-                )
-            if not path:
-                raise ValueError(
-                    f"Workspace root '{root_id}' requires a path",
-                )
-            roots[root_id] = path
-        return roots
-
     @model_validator(mode="after")
     def _resolve_agent_workspace_references(self) -> "Config":
         """Canonicalize compatibility paths from trusted identities."""
-        configured_roots = dict(self.agent_workspace_roots)
         for agent_id, agent_ref in self.agents.profiles.items():
             root_id = agent_ref.workspace_root_id
             workspace_name = agent_ref.workspace_name
             if root_id is None or workspace_name is None:
-                (
+                root_id = DEFAULT_AGENT_WORKSPACE_ROOT_ID
+                workspace_name = sanitize_agent_path_segment(agent_id)
+                workspace_dir = resolve_workspace_identity(
                     root_id,
                     workspace_name,
-                    workspace_dir,
-                ) = derive_legacy_workspace_identity(
-                    agent_ref.workspace_dir,
-                    agent_id,
-                    configured_roots,
                 )
                 agent_ref.workspace_root_id = root_id
                 agent_ref.workspace_name = workspace_name
@@ -2803,10 +2764,8 @@ class Config(BaseModel):
                 workspace_dir = resolve_workspace_identity(
                     root_id,
                     workspace_name,
-                    configured_roots,
                 )
             agent_ref.workspace_dir = str(workspace_dir)
-        self.agent_workspace_roots = configured_roots
         return self
 
 
@@ -2855,34 +2814,15 @@ def resolve_agent_profile_workspace(
     agent_ref = config.agents.profiles[safe_agent_id]
     root_id = getattr(agent_ref, "workspace_root_id", None)
     workspace_name = getattr(agent_ref, "workspace_name", None)
-    configured_root_values = getattr(
-        config,
-        "agent_workspace_roots",
-        {},
-    )
     if root_id is None or workspace_name is None:
-        configured_roots = dict(configured_root_values)
-        (
-            root_id,
-            workspace_name,
-            workspace_dir,
-        ) = derive_legacy_workspace_identity(
-            agent_ref.workspace_dir,
-            safe_agent_id,
-            configured_roots,
+        raise ConfigurationException(
+            config_key="agent",
+            message=f"Agent '{agent_id}' has no registered workspace identity",
         )
-        if hasattr(config, "agent_workspace_roots"):
-            config.agent_workspace_roots = configured_roots
-        if hasattr(agent_ref, "workspace_root_id"):
-            agent_ref.workspace_root_id = root_id
-        if hasattr(agent_ref, "workspace_name"):
-            agent_ref.workspace_name = workspace_name
-    else:
-        workspace_dir = resolve_workspace_identity(
-            root_id,
-            workspace_name,
-            configured_root_values,
-        )
+    workspace_dir = resolve_workspace_identity(
+        root_id,
+        workspace_name,
+    )
 
     agent_ref.workspace_dir = str(workspace_dir)
     return workspace_dir
@@ -2914,7 +2854,6 @@ def resolve_registered_agent_profile_workspace(
     return resolve_workspace_identity(
         root_id,
         workspace_name,
-        config.agent_workspace_roots,
     )
 
 

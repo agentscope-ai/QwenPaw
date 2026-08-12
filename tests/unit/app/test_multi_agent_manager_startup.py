@@ -28,6 +28,8 @@ def _config(*agent_ids: str):
         agent_id: SimpleNamespace(
             id=agent_id,
             workspace_dir=f"/tmp/{agent_id}",
+            workspace_root_id="default",
+            workspace_name=agent_id,
             enabled=True,
         )
         for agent_id in agent_ids
@@ -99,7 +101,7 @@ def test_get_loaded_agent_never_starts_a_workspace() -> None:
 def test_workspace_reload_reuses_memory_manager(tmp_path) -> None:
     workspace = Workspace(
         agent_id="agent-1",
-        workspace_dir=str(tmp_path),
+        workspace_dir=tmp_path,
     )
 
     descriptor = workspace._service_manager.descriptors["memory_manager"]
@@ -112,7 +114,7 @@ async def test_workspace_replaces_reused_memory_manager_after_backend_switch(
 ) -> None:
     workspace = Workspace(
         agent_id="agent-1",
-        workspace_dir=str(tmp_path),
+        workspace_dir=tmp_path,
     )
     workspace._config = SimpleNamespace(
         running=SimpleNamespace(memory_manager_backend="none"),
@@ -136,7 +138,7 @@ async def test_workspace_keeps_reused_manager_when_backend_is_unchanged(
 ) -> None:
     workspace = Workspace(
         agent_id="agent-1",
-        workspace_dir=str(tmp_path),
+        workspace_dir=tmp_path,
     )
     workspace._config = SimpleNamespace(
         running=SimpleNamespace(memory_manager_backend="none"),

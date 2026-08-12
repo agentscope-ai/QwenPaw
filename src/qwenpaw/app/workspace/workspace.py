@@ -13,6 +13,7 @@ Request processing is handled by ``Runtime`` (see ``stream_query``).
 import asyncio
 import logging
 import uuid
+from pathlib import Path
 from typing import Any, AsyncGenerator, Iterable, Optional
 
 from ...config.timezone import normalize_tz
@@ -35,7 +36,6 @@ from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
 from ...agents.artifacts import ArtifactTurn
 from ...services.project_directory import resolve_effective_project_dir
-from ...config.paths import resolve_agent_workspace_path
 
 logger = logging.getLogger(__name__)
 
@@ -54,18 +54,17 @@ class Workspace:
     to ``Runtime.run()``.
     """
 
-    def __init__(self, agent_id: str, workspace_dir: str):
+    def __init__(self, agent_id: str, workspace_dir: Path):
         """Initialize agent instance.
 
         Args:
             agent_id: Unique agent identifier
-            workspace_dir: Path to agent's workspace directory
+            workspace_dir: Trusted, resolved agent workspace directory
         """
+        if not isinstance(workspace_dir, Path):
+            raise TypeError("workspace_dir must be a resolved Path")
         self.agent_id = agent_id
-        self.workspace_dir = resolve_agent_workspace_path(
-            workspace_dir,
-            agent_id,
-        )
+        self.workspace_dir = workspace_dir
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
 
         # Per-workspace pluggable registries (tools, hooks, commands, prompts)

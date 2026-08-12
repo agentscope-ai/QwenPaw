@@ -8,6 +8,7 @@ including lazy loading, lifecycle management, and hot reloading.
 import asyncio
 import logging
 import time
+from pathlib import Path
 from typing import Callable, Dict, Set
 
 from qwenpaw.exceptions import (
@@ -60,7 +61,7 @@ class MultiAgentManager:
     def _create_workspace(
         self,
         agent_id: str,
-        workspace_dir: str,
+        workspace_dir: Path,
     ) -> Workspace:
         """Factory method for workspace creation.
 
@@ -151,7 +152,7 @@ class MultiAgentManager:
             )
             instance = self._create_workspace(
                 agent_id=agent_id,
-                workspace_dir=str(workspace_dir),
+                workspace_dir=workspace_dir,
             )
             await instance.start()
             instance.set_manager(self)
@@ -472,12 +473,12 @@ class MultiAgentManager:
         logger.info(f"Creating new workspace instance: {agent_id}")
         new_instance = self._create_workspace(
             agent_id=agent_id,
-            workspace_dir=str(workspace_dir),
+            workspace_dir=workspace_dir,
         )
 
         # Step 3.5: Set reusable components from old instance (if any)
         async with self._lock:
-            old_instance: Workspace | None = self.agents.get(agent_id)
+            old_instance = self.agents.get(agent_id)
 
         reusable = {}
         if old_instance:

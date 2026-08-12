@@ -19,6 +19,7 @@ from json_repair import repair_json
 
 from pydantic import ValidationError
 
+from ..exceptions import ConfigurationException
 from ..constant import (
     HEARTBEAT_FILE,
     JOBS_FILE,
@@ -532,7 +533,7 @@ def _read_config_data(config_path: Path) -> Optional[dict]:
     return data
 
 
-def _load_and_validate_config(
+def _load_and_validate_config(  # pylint: disable=too-many-statements
     config_path: Path,
     data: dict,
 ) -> Config:
@@ -553,7 +554,10 @@ def _load_and_validate_config(
             config_path,
             f"invalid agent workspace path: {exc}",
         )
-        return Config()
+        raise ConfigurationException(
+            config_key="agents.profiles",
+            message=f"Invalid agent workspace configuration: {exc}",
+        ) from exc
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
         la = data.setdefault("last_api", {})
@@ -691,6 +695,10 @@ def strict_validate_config_file(
         return False, f"unreadable or invalid JSON — {config_path}"
 
     data = _normalize_working_dir_bound_paths(data)
+    try:
+        migrate_legacy_agent_workspace_profiles(data)
+    except ValueError as exc:
+        return False, f"{config_path}: {exc}"
     if "last_api_host" in data or "last_api_port" in data:
         la = data.setdefault("last_api", {})
         if "host" not in la and "last_api_host" in data:

@@ -80,7 +80,7 @@ def _enabled_mcp_config(client_count: int = 1) -> MCPConfig:
 async def test_deferred_mcp_service_uses_background_initialization(tmp_path):
     workspace = Workspace(  # pylint: disable=unexpected-keyword-arg
         agent_id="default",
-        workspace_dir=str(tmp_path),
+        workspace_dir=tmp_path,
         defer_mcp_startup=True,
     )
     workspace._config = SimpleNamespace(mcp=_enabled_mcp_config())
@@ -99,7 +99,7 @@ async def test_deferred_mcp_service_uses_background_initialization(tmp_path):
 async def test_regular_mcp_service_still_blocks_for_initialization(tmp_path):
     workspace = Workspace(
         agent_id="default",
-        workspace_dir=str(tmp_path),
+        workspace_dir=tmp_path,
     )
     workspace._config = SimpleNamespace(mcp=_enabled_mcp_config())
     workspace._service_manager.services["runner"] = _Runner()
