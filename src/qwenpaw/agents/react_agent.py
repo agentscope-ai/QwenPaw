@@ -31,6 +31,7 @@ from agentscope.tool import Toolkit
 
 from .context.base import ContextManager
 from .skill_system import get_workspace_skills_dir
+from .utils.image_freezing import freeze_local_images_async
 from ..modes.coding import CodingModeMixin
 from ..utils.io_utils import run_sync_io
 from ..constant import (
@@ -67,6 +68,12 @@ _EXPLICIT_UNSUPPORTED_MEDIA_PATTERNS = (
         r"\b(?:by|for)\b.{0,30}\b(?:model|deployment)\b",
         re.IGNORECASE,
     ),
+    re.compile(
+        r"\b(?:image|audio|video|media)\b.{0,60}"
+        r"\b(?:is|are)\s+not supported\b.{0,40}"
+        r"\b(?:model|deployment)\b",
+        re.IGNORECASE,
+    ),
     re.compile(r"\bmodel\s+is\s+text[- ]only\b", re.IGNORECASE),
     re.compile(
         r"\bvision\s+is\s+not\s+enabled\s+for\s+"
@@ -77,6 +84,54 @@ _EXPLICIT_UNSUPPORTED_MEDIA_PATTERNS = (
         r"\bunsupported\s+modality\s*:?\s*(?:image|audio|video)\b",
         re.IGNORECASE,
     ),
+)
+
+_GLOBAL_MEDIA_CAPABILITY_PATTERNS = (
+    re.compile(r"\bmodel\s+is\s+text[- ]only\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:this|the|selected)?\s*model\b.{0,80}"
+        r"\b(?:does not|doesn't|cannot|can't)\s+support\b.{0,40}"
+        r"\b(?:media|multimodal)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bmultimodal\s+(?:input|capability)?\s*"
+        r"(?:is\s+)?not\s+enabled\b.{0,40}"
+        r"\b(?:model|deployment)\b",
+        re.IGNORECASE,
+    ),
+)
+
+# These messages reject only the current media shape, not the model's
+# overall multimodal capability. They may justify a media-free retry, but
+# must never poison the model-wide ``rejects_media`` cache.
+_REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS = (
+    "multiple image",
+    "multiple video",
+    "multiple audio",
+    "more than one image",
+    "more than 1 image",
+    "single image",
+    "image count",
+    "too many image",
+    "animated image",
+    "animated gif",
+    "animation",
+    "dimensions",
+    "dimension",
+    "resolution",
+    "image width",
+    "image height",
+    "pixel",
+    "megapixel",
+    "frame rate",
+    "sample rate",
+    "video duration",
+    "audio duration",
+    "larger than",
+    "smaller than",
+    "per image",
+    "file size",
 )
 
 
@@ -540,6 +595,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
             and (count > 0)
         )
 
+    async def _prepare_model_input(self) -> dict[str, Any]:
+        """Freeze local images before they enter a provider request."""
+        await freeze_local_images_async(self.state.context)
+        return await super()._prepare_model_input()
+
     @staticmethod
     def _is_context_overflow_error(exc: Exception) -> bool:
         """Return whether *exc* is a provider 400 for an oversized input.
@@ -749,6 +809,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 raise
 
             model_key = self._get_model_key()
+            learn_global_rejection = self._is_global_media_capability_error(e)
             logger.warning(
                 "_reasoning failed because the provider explicitly rejected "
                 "the model's media capability (%s); "
@@ -769,7 +830,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         final_msg = evt
                     else:
                         yield evt
-                if model_key:
+                if model_key and learn_global_rejection:
                     get_capability_cache().learn(
                         model_key,
                         "rejects_media",
@@ -845,7 +906,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     @staticmethod
     def _is_explicit_media_capability_error(exc: Exception) -> bool:
-        """Return True only for an explicit model capability rejection."""
+        """Return whether an explicit media rejection permits fallback."""
         error_str = str(exc).lower()
 
         # Veto: content safety/moderation rejections are about a
@@ -884,6 +945,20 @@ class QwenPawAgent(CodingModeMixin, Agent):
         return any(
             pattern.search(error_str) is not None
             for pattern in _EXPLICIT_UNSUPPORTED_MEDIA_PATTERNS
+        )
+
+    @staticmethod
+    def _is_global_media_capability_error(exc: Exception) -> bool:
+        """Return whether an error proves model-wide media rejection."""
+        error_str = str(exc).lower()
+        if any(
+            signal in error_str
+            for signal in _REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS
+        ):
+            return False
+        return any(
+            pattern.search(error_str) is not None
+            for pattern in _GLOBAL_MEDIA_CAPABILITY_PATTERNS
         )
 
     def _is_media_block(self, block: Any) -> bool:

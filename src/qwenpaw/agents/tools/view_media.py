@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """Load image or video files into the LLM context for analysis."""
 
-import base64
-from io import BytesIO
 import logging
 import mimetypes
 import os
@@ -13,19 +11,17 @@ from pathlib import Path
 from typing import Optional
 
 from agentscope.message import (
-    Base64Source,
     DataBlock,
     TextBlock,
     URLSource,
     ToolResultState,
 )
 from agentscope.tool import ToolChunk
-from PIL import Image, UnidentifiedImageError
 
-from ...providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
 from ...runtime.tool_registry import tool_descriptor
 from ...utils.io_utils import run_sync_io
 from .file_io import _path_to_file_url, _resolve_file_path
+from ..utils.image_freezing import freeze_local_image
 
 logger = logging.getLogger(__name__)
 
@@ -54,18 +50,6 @@ _IMAGE_EXTENSIONS = {
     ".tiff",
     ".tif",
 }
-
-# Safe pass-through formats, not a declaration of model capability.
-_NATIVE_IMAGE_MEDIA_TYPES = frozenset(
-    {
-        "image/gif",
-        "image/jpeg",
-        "image/png",
-        "image/webp",
-    },
-)
-
-_PNG_CONVERTIBLE_IMAGE_FORMATS = frozenset({"BMP", "TIFF"})
 
 _VIDEO_EXTENSIONS = {
     ".mp4",
@@ -165,78 +149,19 @@ def _validate_media_path(
     return resolved, None
 
 
-def _freeze_local_image(
-    image_path: Path,
-) -> tuple[DataBlock | None, str | None]:
-    """Validate and freeze one local image as immutable base64 content."""
-    try:
-        file_size = image_path.stat().st_size
-        if file_size > MAX_INLINE_MEDIA_BYTES:
-            return (
-                None,
-                f"Error: {image_path.name} is {file_size} bytes and "
-                f"exceeds the {MAX_INLINE_MEDIA_BYTES}-byte image limit.",
-            )
-        with image_path.open("rb") as image_file:
-            image_bytes = image_file.read(MAX_INLINE_MEDIA_BYTES + 1)
-        if len(image_bytes) > MAX_INLINE_MEDIA_BYTES:
-            return (
-                None,
-                f"Error: {image_path.name} exceeds the "
-                f"{MAX_INLINE_MEDIA_BYTES}-byte image limit.",
-            )
-
-        with Image.open(BytesIO(image_bytes)) as image:
-            normalized_format = (image.format or "").upper()
-            media_type = Image.MIME.get(normalized_format)
-            if media_type in _NATIVE_IMAGE_MEDIA_TYPES:
-                image.verify()
-                frozen_bytes = image_bytes
-            elif normalized_format in _PNG_CONVERTIBLE_IMAGE_FORMATS:
-                image.seek(0)
-                image.load()
-                has_alpha = (
-                    "A" in image.getbands() or "transparency" in image.info
-                )
-                target_mode = "RGBA" if has_alpha else "RGB"
-                with image.convert(target_mode) as converted:
-                    output = BytesIO()
-                    converted.save(output, format="PNG")
-                    frozen_bytes = output.getvalue()
-                media_type = "image/png"
-            else:
-                detected = media_type or image.format or "unknown"
-                return (
-                    None,
-                    f"Error: {image_path.name} uses unsupported image "
-                    f"format {detected}.",
-                )
-    except (
-        Image.DecompressionBombError,
-        OSError,
-        UnidentifiedImageError,
-        ValueError,
-    ) as exc:
-        return None, f"Error: {image_path.name} is not a valid image: {exc}"
-
-    if len(frozen_bytes) > MAX_INLINE_MEDIA_BYTES:
-        return (
-            None,
-            f"Error: converted {image_path.name} is "
-            f"{len(frozen_bytes)} bytes and exceeds the "
-            f"{MAX_INLINE_MEDIA_BYTES}-byte image limit.",
-        )
-
-    encoded = base64.b64encode(frozen_bytes).decode("ascii")
-    return (
-        DataBlock(
-            source=Base64Source(
-                data=encoded,
-                media_type=media_type,
-            ),
-        ),
-        None,
+def _load_local_image(
+    image_path: str,
+) -> tuple[Path, DataBlock | None, ToolChunk | None, str | None]:
+    """Resolve, validate, and freeze one local image transaction."""
+    resolved, validation_error = _validate_media_path(
+        image_path,
+        _IMAGE_EXTENSIONS,
+        "image",
     )
+    if validation_error is not None:
+        return resolved, None, validation_error, None
+    frozen, freeze_error = freeze_local_image(resolved)
+    return resolved, frozen, None, freeze_error
 
 
 async def _probe_multimodal_if_needed(
@@ -480,18 +405,12 @@ async def view_image(image_path: str) -> ToolChunk:
             ],
         )
 
-    resolved, err = _validate_media_path(
+    resolved, frozen_image, validation_error, freeze_error = await run_sync_io(
+        _load_local_image,
         image_path,
-        _IMAGE_EXTENSIONS,
-        "image",
     )
-    if err is not None:
-        return err
-
-    frozen_image, freeze_error = await run_sync_io(
-        _freeze_local_image,
-        resolved,
-    )
+    if validation_error is not None:
+        return validation_error
     if freeze_error is not None or frozen_image is None:
         return ToolChunk(
             is_last=True,

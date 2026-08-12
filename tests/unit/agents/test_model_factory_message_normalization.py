@@ -53,6 +53,15 @@ def _base64_data_block(media_type: str, content: bytes) -> DataBlock:
     )
 
 
+def test_anthropic_dedup_key_uses_immutable_base64_directly() -> None:
+    block = _base64_data_block("image/png", b"immutable-content")
+
+    key = model_factory._anthropic_media_dedup_key(block.source)
+
+    assert key == ("base64", "image/png", block.source.data)
+    assert key[2] is block.source.data
+
+
 def _media_messages() -> list[Msg]:
     """Create a list of messages with media blocks for testing."""
     return [
