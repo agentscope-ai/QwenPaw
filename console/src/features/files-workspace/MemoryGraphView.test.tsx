@@ -244,7 +244,11 @@ describe("MemoryGraphView", () => {
     const graphDataCall =
       graph.graphData.mock.calls[graph.graphData.mock.calls.length - 1];
     const graphData = graphDataCall?.[0] as {
-      nodes: Array<{ id: string }>;
+      nodes: Array<{
+        id: string;
+        isRoot: boolean;
+        isRootDirect: boolean;
+      }>;
       links: unknown[];
     };
 
@@ -253,13 +257,29 @@ describe("MemoryGraphView", () => {
       "memory/a.md",
       "missing.md",
     ]);
+    expect(
+      graphData.nodes.find((node) => node.id === "virtual:wiki"),
+    ).toMatchObject({
+      isRoot: true,
+      isRootDirect: false,
+    });
+    expect(
+      graphData.nodes.find((node) => node.id === "memory/a.md"),
+    ).toMatchObject({
+      isRoot: false,
+      isRootDirect: true,
+    });
+    expect(
+      graphData.nodes.find((node) => node.id === "missing.md"),
+    ).toMatchObject({
+      isRoot: false,
+      isRootDirect: false,
+    });
     expect(graphData.links).toHaveLength(2);
     expect(graph.nodeThreeObject).toHaveBeenCalledWith(expect.any(Function));
     const nodeLabelAccessor = graph.nodeLabel.mock.calls[
       graph.nodeLabel.mock.calls.length - 1
-    ]?.[0] as
-      | ((node: { id: string }) => string)
-      | undefined;
+    ]?.[0] as ((node: { id: string }) => string) | undefined;
     expect(nodeLabelAccessor).toEqual(expect.any(Function));
     expect(nodeLabelAccessor?.({ id: "memory/a.md" })).toBe("");
     await waitFor(() =>

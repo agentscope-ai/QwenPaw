@@ -1,23 +1,101 @@
 .graphView {
-  --graph-3d-surface: #f6f8f5;
-  --graph-3d-root: #e86431;
-  --graph-3d-active: #ef6b37;
-  --graph-3d-hub: #2f6556;
-  --graph-3d-hover: #4b8b74;
-  --graph-3d-indexed: #53665f;
-  --graph-3d-unresolved: #ad745f;
-  --graph-3d-muted: #c7cfcb;
-  --graph-3d-edge: #78968b;
-  --graph-3d-edge-active: #ce5b30;
-  --graph-3d-edge-muted: #dce2df;
-  --graph-3d-label: #1f2c27;
-  --graph-3d-label-background: rgba(247, 249, 246, 0.9);
-  --graph-3d-label-border: rgba(74, 98, 89, 0.24);
-  --graph-3d-ambient-light: #dfe8e3;
-  --graph-3d-key-light: #fff4eb;
-  --graph-3d-fill-light: #d8ebe4;
-  --graph-panel: var(--files-panel);
-  --graph-border: color-mix(in srgb, var(--files-line) 82%, transparent);
+  --graph-accent: var(
+    --qwenpaw-color-primary,
+    var(--ant-color-primary, #ff7f16)
+  );
+  --graph-accent-soft: var(
+    --qwenpaw-color-primary-bg,
+    var(--ant-color-primary-bg, #fff2e8)
+  );
+  --graph-on-accent: var(
+    --qwenpaw-color-text-light-solid,
+    var(--ant-color-text-light-solid, #fff)
+  );
+  --graph-success: var(
+    --qwenpaw-color-success-text,
+    var(--ant-color-success-text, #389e5c)
+  );
+  --graph-success-soft: var(
+    --qwenpaw-color-success-bg,
+    var(--ant-color-success-bg, #eef8f1)
+  );
+  --graph-warning: var(
+    --qwenpaw-color-warning-text,
+    var(--ant-color-warning-text, #d89614)
+  );
+  --graph-warning-soft: var(
+    --qwenpaw-color-warning-bg,
+    var(--ant-color-warning-bg, #fff8e6)
+  );
+  --graph-3d-surface: var(
+    --qwenpaw-color-bg-container,
+    var(--ant-color-bg-container, #fffdfb)
+  );
+  --graph-3d-root: var(
+    --qwenpaw-color-primary,
+    var(--ant-color-primary, #ff7f16)
+  );
+  --graph-3d-active: var(
+    --qwenpaw-color-primary-active,
+    var(--ant-color-primary-active, #d9650b)
+  );
+  --graph-3d-direct: var(
+    --qwenpaw-color-success-text,
+    var(--ant-color-success-text, #389e5c)
+  );
+  --graph-3d-hover: var(
+    --qwenpaw-color-primary-hover,
+    var(--ant-color-primary-hover, #ff9a45)
+  );
+  --graph-3d-file: var(
+    --qwenpaw-color-text-secondary,
+    var(--ant-color-text-secondary, #71665e)
+  );
+  --graph-3d-muted: var(
+    --qwenpaw-color-text-quaternary,
+    var(--ant-color-text-quaternary, #c7bfb8)
+  );
+  --graph-3d-edge: var(
+    --qwenpaw-color-border,
+    var(--ant-color-border, #d8cec6)
+  );
+  --graph-3d-edge-active: var(
+    --qwenpaw-color-primary-active,
+    var(--ant-color-primary-active, #d9650b)
+  );
+  --graph-3d-edge-muted: var(
+    --qwenpaw-color-border-secondary,
+    var(--ant-color-border-secondary, #eee7e1)
+  );
+  --graph-3d-label: var(--qwenpaw-color-text, var(--ant-color-text, #292522));
+  --graph-3d-label-background: var(
+    --qwenpaw-color-bg-elevated,
+    var(--ant-color-bg-elevated, #fffdfb)
+  );
+  --graph-3d-label-border: var(
+    --qwenpaw-color-primary-border,
+    var(--ant-color-primary-border, #ffc58f)
+  );
+  --graph-3d-ambient-light: var(
+    --qwenpaw-color-fill-secondary,
+    var(--ant-color-fill-secondary, #eee7e1)
+  );
+  --graph-3d-key-light: var(
+    --qwenpaw-color-bg-container,
+    var(--ant-color-bg-container, #fffdfb)
+  );
+  --graph-3d-fill-light: var(
+    --qwenpaw-color-primary-bg,
+    var(--ant-color-primary-bg, #fff2e8)
+  );
+  --graph-panel: var(
+    --qwenpaw-color-bg-container,
+    var(--ant-color-bg-container, var(--files-panel))
+  );
+  --graph-border: var(
+    --qwenpaw-color-border-secondary,
+    var(--ant-color-border-secondary, var(--files-line))
+  );
   height: 100%;
   min-height: 0;
   display: flex;
@@ -85,14 +163,14 @@
       transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 
     &:hover:not(:disabled) {
-      color: var(--files-accent);
-      background: color-mix(in srgb, var(--files-accent) 10%, transparent);
+      color: var(--graph-accent);
+      background: var(--graph-accent-soft);
       transform: translateY(-1px);
     }
 
     &:focus-visible {
       outline: 2px solid
-        color-mix(in srgb, var(--files-accent) 42%, transparent);
+        color-mix(in srgb, var(--graph-accent) 42%, transparent);
       outline-offset: 1px;
     }
 
@@ -103,8 +181,8 @@
   }
 
   .actionActive {
-    color: var(--files-accent);
-    background: color-mix(in srgb, var(--files-accent) 11%, transparent);
+    color: var(--graph-accent);
+    background: var(--graph-accent-soft);
   }
 }
 
@@ -172,7 +250,7 @@
   button {
     margin-left: 4px;
     padding: 6px 10px;
-    color: var(--files-accent);
+    color: var(--graph-accent);
     border: 1px solid var(--files-line);
     border-radius: 6px;
     background: var(--files-bg);
@@ -209,19 +287,23 @@
     width: 9px;
     height: 9px;
     display: inline-block;
-    border: 1.5px solid var(--graph-3d-indexed);
+    border: 1.5px solid var(--graph-3d-file);
     border-radius: 50%;
-    background: var(--graph-3d-indexed);
+    background: var(--graph-3d-file);
 
-    &[data-kind="unresolved"] {
-      border-color: var(--graph-3d-unresolved);
-      border-style: dashed;
-      background: transparent;
+    &[data-kind="root"] {
+      border-color: var(--graph-3d-root);
+      background: var(--graph-3d-root);
+    }
+
+    &[data-kind="direct"] {
+      border-color: var(--graph-3d-direct);
+      background: var(--graph-3d-direct);
     }
   }
 
   b {
-    color: var(--graph-3d-edge-active);
+    color: var(--graph-3d-edge);
     font-size: 13px;
     font-weight: 600;
   }
@@ -272,9 +354,9 @@
     white-space: nowrap;
 
     &:focus-visible {
-      border-color: var(--files-accent);
+      border-color: var(--graph-accent);
       outline: 2px solid
-        color-mix(in srgb, var(--files-accent) 28%, transparent);
+        color-mix(in srgb, var(--graph-accent) 28%, transparent);
       outline-offset: 1px;
     }
   }
@@ -346,7 +428,7 @@
 
     &:focus-visible {
       outline: 2px solid
-        color-mix(in srgb, var(--files-accent) 38%, transparent);
+        color-mix(in srgb, var(--graph-accent) 38%, transparent);
       outline-offset: 1px;
     }
   }
@@ -355,20 +437,20 @@
 .nodeStatus {
   width: fit-content;
   padding: 3px 7px;
-  color: #287452;
+  color: var(--graph-success);
   border-radius: 999px;
-  background: #e5f4ec;
+  background: var(--graph-success-soft);
   font-size: 10px;
   font-weight: 650;
 
   &[data-indexed="false"] {
-    color: #994638;
-    background: #fbe9e5;
+    color: var(--graph-warning);
+    background: var(--graph-warning-soft);
   }
 
   &[data-virtual="true"] {
-    color: #a94720;
-    background: #fce9df;
+    color: var(--graph-accent);
+    background: var(--graph-accent-soft);
   }
 }
 
@@ -381,11 +463,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  color: color-mix(in srgb, var(--files-accent) 80%, var(--files-ink));
+  color: var(--graph-accent);
   border: 1px solid
-    color-mix(in srgb, var(--files-accent) 24%, var(--files-line));
+    color-mix(in srgb, var(--graph-accent) 28%, var(--graph-border));
   border-radius: 7px;
-  background: color-mix(in srgb, var(--files-accent) 8%, var(--files-bg));
+  background: var(--graph-accent-soft);
   font-size: 11px;
   font-weight: 650;
   cursor: pointer;
@@ -396,14 +478,14 @@
     transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 
   &:hover {
-    color: var(--files-bg);
-    border-color: var(--files-accent);
-    background: var(--files-accent);
+    color: var(--graph-on-accent);
+    border-color: var(--graph-accent);
+    background: var(--graph-accent);
     transform: translateY(-1px);
   }
 
   &:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--files-accent) 40%, transparent);
+    outline: 2px solid color-mix(in srgb, var(--graph-accent) 40%, transparent);
     outline-offset: 2px;
   }
 }
@@ -443,7 +525,7 @@
 
     &:focus-visible {
       outline: 2px solid
-        color-mix(in srgb, var(--files-accent) 34%, transparent);
+        color-mix(in srgb, var(--graph-accent) 34%, transparent);
       outline-offset: 1px;
     }
 
@@ -457,7 +539,7 @@
 
     small {
       flex: 0 0 auto;
-      color: var(--files-accent);
+      color: var(--graph-accent);
       font-size: 10px;
     }
   }
@@ -477,7 +559,7 @@
   button {
     margin-left: 4px;
     padding: 6px 10px;
-    color: var(--files-accent);
+    color: var(--graph-accent);
     border: 1px solid var(--files-line);
     border-radius: 6px;
     background: var(--files-bg);
@@ -491,37 +573,24 @@
 
 :global(.dark-mode) {
   .graphView {
-    --graph-3d-surface: #121714;
-    --graph-3d-root: #ff8b5e;
-    --graph-3d-active: #ff8b5e;
-    --graph-3d-hub: #4f8674;
-    --graph-3d-indexed: #6f847b;
-    --graph-3d-unresolved: #c18a78;
-    --graph-3d-muted: #343d39;
-    --graph-3d-edge: #617970;
-    --graph-3d-edge-active: #ec8158;
-    --graph-3d-edge-muted: #252d29;
-    --graph-3d-label: #edf4f0;
-    --graph-3d-label-background: rgba(20, 27, 23, 0.9);
-    --graph-3d-label-border: rgba(134, 163, 151, 0.3);
-    --graph-3d-ambient-light: #27352f;
-    --graph-3d-key-light: #c8d4ce;
-    --graph-3d-fill-light: #557468;
-  }
-
-  .nodeStatus {
-    color: #9fd7bd;
-    background: #243b31;
-
-    &[data-indexed="false"] {
-      color: #efaaa1;
-      background: #402724;
-    }
-
-    &[data-virtual="true"] {
-      color: #ffc0a6;
-      background: #4a2d23;
-    }
+    --graph-3d-surface: var(--files-bg);
+    --graph-3d-root: var(--files-accent);
+    --graph-3d-active: #ffbc82;
+    --graph-3d-direct: #8bd5bd;
+    --graph-3d-hover: #ffd2ac;
+    --graph-3d-file: var(--files-muted);
+    --graph-3d-muted: var(--files-line);
+    --graph-3d-edge: #b7a299;
+    --graph-3d-edge-active: var(--files-accent);
+    --graph-3d-edge-muted: var(--files-line);
+    --graph-3d-label: var(--files-ink);
+    --graph-3d-label-background: var(--files-panel);
+    --graph-3d-label-border: #7f5d49;
+    --graph-3d-ambient-light: var(--files-ink);
+    --graph-3d-key-light: var(--files-ink);
+    --graph-3d-fill-light: var(--files-accent);
+    --graph-panel: var(--files-panel);
+    --graph-border: var(--files-line);
   }
 }
 

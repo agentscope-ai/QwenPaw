@@ -44,6 +44,8 @@ import styles from "./MemoryGraphView.module.less";
 interface GraphNode extends NodeObject {
   degree: number;
   id: string;
+  isRoot: boolean;
+  isRootDirect: boolean;
   memory: MemoryGraphNode;
 }
 
@@ -64,13 +66,13 @@ interface GraphModel {
 interface GraphPalette {
   active: string;
   ambientLight: string;
+  direct: string;
   edge: string;
   edgeActive: string;
   edgeMuted: string;
   fillLight: string;
-  hub: string;
   hover: string;
-  indexed: string;
+  isDark: boolean;
   keyLight: string;
   label: string;
   labelBackground: string;
@@ -78,7 +80,7 @@ interface GraphPalette {
   muted: string;
   root: string;
   surface: string;
-  unresolved: string;
+  file: string;
 }
 
 interface OrbitControlsLike {
@@ -188,12 +190,29 @@ function graphBelowRoot(
   };
 }
 
-function toGraphModel(snapshot: MemoryGraphSnapshot): GraphModel {
+function toGraphModel(
+  snapshot: MemoryGraphSnapshot,
+  root: MemoryGraphRoot,
+): GraphModel {
   const degree = new Map(snapshot.nodes.map((node) => [node.id, 0]));
   snapshot.edges.forEach((edge) => {
     degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1);
     degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1);
   });
+
+  const rootNode = snapshot.nodes.find(
+    (node) =>
+      node.id === `virtual:${root}` || (node.virtual && node.name === root),
+  );
+  const rootDirectIds = new Set(
+    snapshot.edges
+      .filter(
+        (edge) => edge.source === rootNode?.id || edge.target === rootNode?.id,
+      )
+      .map((edge) =>
+        edge.source === rootNode?.id ? edge.target : edge.source,
+      ),
+  );
 
   const nodes = snapshot.nodes.map<GraphNode>((memory) => ({
     degree: degree.get(memory.id) ?? 0,
@@ -201,6 +220,8 @@ function toGraphModel(snapshot: MemoryGraphSnapshot): GraphModel {
     fy: memory.virtual ? 0 : undefined,
     fz: memory.virtual ? 0 : undefined,
     id: memory.id,
+    isRoot: memory.id === rootNode?.id,
+    isRootDirect: rootDirectIds.has(memory.id),
     memory,
   }));
   const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -240,48 +261,86 @@ function endpointId(endpoint: GraphLink["source"]): string {
   return typeof endpoint === "object" ? endpoint.id : String(endpoint);
 }
 
+function cssColorChannels(color: string): [number, number, number] | null {
+  const hex = color.match(/^#([\da-f]{3}|[\da-f]{6})$/i)?.[1];
+  if (hex) {
+    const normalized =
+      hex.length === 3
+        ? hex
+            .split("")
+            .map((channel) => `${channel}${channel}`)
+            .join("")
+        : hex;
+    return [0, 2, 4].map((offset) =>
+      Number.parseInt(normalized.slice(offset, offset + 2), 16),
+    ) as [number, number, number];
+  }
+  const rgb = color.match(
+    /^rgba?\(\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*[, ]\s*([\d.]+)/i,
+  );
+  return rgb ? (rgb.slice(1, 4).map(Number) as [number, number, number]) : null;
+}
+
+function opaqueThemeColor(color: string, surface: string): string {
+  const rgba = color.match(
+    /^rgba?\(\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*[, ]\s*([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/i,
+  );
+  if (!rgba?.[4]) return color;
+  const alpha = Math.min(1, Math.max(0, Number(rgba[4])));
+  const background = cssColorChannels(surface) ?? [255, 253, 251];
+  const foreground = rgba.slice(1, 4).map(Number);
+  const composite = foreground.map((channel, index) => {
+    return Math.round(channel * alpha + background[index] * (1 - alpha));
+  });
+  return `rgb(${composite.join(", ")})`;
+}
+
+function isDarkSurface(color: string): boolean {
+  const channels = cssColorChannels(color);
+  if (!channels) return false;
+  const [red, green, blue] = channels.map((channel) => channel / 255);
+  const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  return luminance < 0.28;
+}
+
 function graphPalette(element: HTMLElement): GraphPalette {
   const computed = window.getComputedStyle(element);
   const value = (name: string, fallback: string) =>
     computed.getPropertyValue(name).trim() || fallback;
+  const surface = value("--graph-3d-surface", "#fffdfb");
+  const opaqueValue = (name: string, fallback: string) =>
+    opaqueThemeColor(value(name, fallback), surface);
   return {
-    active: value("--graph-3d-active", "#f26a36"),
-    ambientLight: value("--graph-3d-ambient-light", "#dfe7e2"),
-    edge: value("--graph-3d-edge", "#7d928a"),
-    edgeActive: value("--graph-3d-edge-active", "#d95d30"),
-    edgeMuted: value("--graph-3d-edge-muted", "#d8ddda"),
-    fillLight: value("--graph-3d-fill-light", "#dcece6"),
-    hub: value("--graph-3d-hub", "#5f8175"),
-    hover: value("--graph-3d-hover", "#4b8b74"),
-    indexed: value("--graph-3d-indexed", "#7d8782"),
-    keyLight: value("--graph-3d-key-light", "#fff4eb"),
-    label: value("--graph-3d-label", "#26312d"),
-    labelBackground: value(
-      "--graph-3d-label-background",
-      "rgba(248, 248, 246, 0.88)",
-    ),
-    labelBorder: value(
-      "--graph-3d-label-border",
-      "rgba(83, 103, 95, 0.24)",
-    ),
-    muted: value("--graph-3d-muted", "#cdd2cf"),
-    root: value("--graph-3d-root", "#ef6835"),
-    surface: value("--graph-3d-surface", "#f8f8f6"),
-    unresolved: value("--graph-3d-unresolved", "#b48f80"),
+    active: opaqueValue("--graph-3d-active", "#d9650b"),
+    ambientLight: opaqueValue("--graph-3d-ambient-light", "#eee7e1"),
+    direct: opaqueValue("--graph-3d-direct", "#389e5c"),
+    edge: opaqueValue("--graph-3d-edge", "#d8cec6"),
+    edgeActive: opaqueValue("--graph-3d-edge-active", "#d9650b"),
+    edgeMuted: opaqueValue("--graph-3d-edge-muted", "#eee7e1"),
+    fillLight: opaqueValue("--graph-3d-fill-light", "#fff2e8"),
+    hover: opaqueValue("--graph-3d-hover", "#ff9a45"),
+    isDark: isDarkSurface(surface),
+    keyLight: opaqueValue("--graph-3d-key-light", "#fffdfb"),
+    label: opaqueValue("--graph-3d-label", "#292522"),
+    labelBackground: value("--graph-3d-label-background", "#fffdfb"),
+    labelBorder: opaqueValue("--graph-3d-label-border", "#ffc58f"),
+    muted: opaqueValue("--graph-3d-muted", "#c7bfb8"),
+    root: opaqueValue("--graph-3d-root", "#ff7f16"),
+    surface,
+    file: opaqueValue("--graph-3d-file", "#71665e"),
   };
 }
 
 function baseNodeColor(node: GraphNode, palette: GraphPalette): string {
-  if (node.memory.virtual) return palette.root;
-  if (!node.memory.indexed) return palette.unresolved;
-  if (node.degree >= 5) return palette.hub;
-  return palette.indexed;
+  if (node.isRoot) return palette.root;
+  if (node.isRootDirect) return palette.direct;
+  return palette.file;
 }
 
 function graphNodeRadius(node: GraphNode): number {
-  if (node.memory.virtual) return 4.8;
+  if (node.isRoot) return 4.8;
+  if (node.isRootDirect) return 3.55;
   if (!node.memory.indexed) return 2.55;
-  if (node.degree >= 5) return 3.55;
   return Math.min(3.35, 2.7 + Math.sqrt(node.degree) * 0.24);
 }
 
@@ -295,19 +354,28 @@ function graphLabelText(node: GraphNode): string {
 }
 
 function shouldRenderGraphLabel(node: GraphNode, nodeCount: number): boolean {
-  return nodeCount <= 42 || node.memory.virtual || node.degree >= 4;
+  return nodeCount <= 42 || node.isRoot || node.degree >= 4;
 }
 
 function createGraphLights(palette: GraphPalette) {
-  const ambient = new AmbientLight(palette.ambientLight, 1.25);
+  const ambient = new AmbientLight(
+    palette.ambientLight,
+    palette.isDark ? 1.45 : 1.25,
+  );
   const hemisphere = new HemisphereLight(
     palette.keyLight,
     palette.ambientLight,
-    1.05,
+    palette.isDark ? 1.22 : 1.05,
   );
-  const key = new DirectionalLight(palette.keyLight, 2.3);
+  const key = new DirectionalLight(
+    palette.keyLight,
+    palette.isDark ? 2.7 : 2.3,
+  );
   key.position.set(110, 150, 190);
-  const fill = new DirectionalLight(palette.fillLight, 0.82);
+  const fill = new DirectionalLight(
+    palette.fillLight,
+    palette.isDark ? 1.08 : 0.82,
+  );
   fill.position.set(-120, -55, -90);
   return [ambient, hemisphere, key, fill];
 }
@@ -324,12 +392,12 @@ function createGraphNodeVisual(
   const coreMaterial = new MeshStandardMaterial({
     color: baseColor,
     emissive: new Color(baseColor),
-    emissiveIntensity: node.memory.virtual ? 0.1 : 0.025,
-    metalness: 0.035,
-    opacity: node.memory.indexed || node.memory.virtual ? 1 : 0.74,
-    roughness: node.memory.virtual ? 0.46 : 0.62,
+    emissiveIntensity: node.isRoot ? 0.14 : node.isRootDirect ? 0.07 : 0.03,
+    metalness: node.isRoot || node.isRootDirect ? 0.08 : 0.035,
+    opacity: node.memory.indexed || node.isRoot ? 1 : 0.74,
+    roughness: node.isRoot ? 0.38 : node.isRootDirect ? 0.46 : 0.58,
     transparent: !node.memory.indexed,
-    wireframe: !node.memory.indexed && !node.memory.virtual,
+    wireframe: !node.memory.indexed && !node.isRoot,
   });
   const core = new Mesh(
     new SphereGeometry(radius, segments, Math.max(10, segments - 6)),
@@ -338,9 +406,9 @@ function createGraphNodeVisual(
   object.add(core);
 
   const orbitMaterial = new MeshBasicMaterial({
-    color: node.memory.virtual ? palette.root : palette.active,
+    color: node.isRoot ? palette.root : palette.active,
     depthWrite: false,
-    opacity: node.memory.virtual ? 0.34 : 0,
+    opacity: node.isRoot ? 0.42 : 0,
     transparent: true,
   });
   const orbit = new Mesh(
@@ -348,7 +416,7 @@ function createGraphNodeVisual(
     orbitMaterial,
   );
   orbit.rotation.set(Math.PI * 0.38, Math.PI * 0.12, Math.PI * 0.08);
-  orbit.visible = Boolean(node.memory.virtual);
+  orbit.visible = node.isRoot;
   object.add(orbit);
 
   const glowMaterial = new MeshBasicMaterial({
@@ -369,19 +437,19 @@ function createGraphNodeVisual(
   if (shouldRenderGraphLabel(node, nodeCount)) {
     label = new SpriteText(
       graphLabelText(node),
-      node.memory.virtual ? 4.3 : 3.7,
+      node.isRoot ? 4.3 : 3.7,
       palette.label,
     );
-    label.backgroundColor = node.memory.virtual
+    label.backgroundColor = node.isRoot
       ? palette.labelBackground
       : "transparent";
     label.borderColor = palette.labelBorder;
     label.borderRadius = 1.1;
-    label.borderWidth = node.memory.virtual ? 0.14 : 0;
+    label.borderWidth = node.isRoot ? 0.14 : 0;
     label.fontFace = "Inter, ui-sans-serif, system-ui, sans-serif";
     label.fontSize = 76;
-    label.fontWeight = node.memory.virtual ? "650" : "560";
-    label.padding = node.memory.virtual ? [1.05, 0.68] : [0.32, 0.1];
+    label.fontWeight = node.isRoot ? "650" : "560";
+    label.padding = node.isRoot ? [1.05, 0.68] : [0.32, 0.1];
     label.position.set(0, -(radius + 3.6), 0);
     label.renderOrder = 4;
     label.material.depthTest = false;
@@ -407,66 +475,52 @@ function applyGraphVisualState(
     if (!visual) return;
     const isSelected = node.id === selectedId;
     const isNeighbor = selectedNeighbors.has(node.id);
-    const isMuted =
-      Boolean(selectedId) &&
-      !isSelected &&
-      !isNeighbor;
+    const isMuted = Boolean(selectedId) && !isSelected && !isNeighbor;
     const baseColor = baseNodeColor(node, palette);
     const nodeColor = isSelected
       ? palette.active
       : isMuted
-        ? palette.muted
-        : baseColor;
+      ? palette.muted
+      : baseColor;
 
     visual.core.material.color.set(nodeColor);
-    visual.core.material.emissive.set(
-      isSelected ? palette.active : baseColor,
-    );
+    visual.core.material.emissive.set(isSelected ? palette.active : baseColor);
     visual.core.material.emissiveIntensity = isSelected
-      ? 0.25
-      : node.memory.virtual
-        ? 0.09
-        : 0.025;
+      ? 0.32
+      : node.isRoot
+      ? 0.13
+      : node.isRootDirect
+      ? 0.07
+      : 0.03;
     visual.core.material.opacity = isMuted
       ? 0.24
-      : node.memory.indexed || node.memory.virtual
-        ? 1
-        : 0.74;
+      : node.memory.indexed || node.isRoot
+      ? 1
+      : 0.74;
     visual.core.material.transparent = isMuted || !node.memory.indexed;
     visual.core.material.needsUpdate = true;
 
-    visual.orbit.visible = isSelected || Boolean(node.memory.virtual);
-    visual.orbit.material.color.set(
-      isSelected ? palette.active : palette.root,
-    );
-    visual.orbit.material.opacity = isSelected
-      ? 0.72
-      : isMuted
-        ? 0.12
-        : 0.34;
+    visual.orbit.visible = isSelected || node.isRoot;
+    visual.orbit.material.color.set(isSelected ? palette.active : palette.root);
+    visual.orbit.material.opacity = isSelected ? 0.78 : isMuted ? 0.12 : 0.42;
     visual.glow.visible = isSelected;
     visual.glow.material.color.set(palette.active);
-    visual.glow.material.opacity = isSelected ? 0.09 : 0;
+    visual.glow.material.opacity = isSelected ? 0.13 : 0;
 
     if (visual.label) {
       visual.label.visible =
-        !selectedId ||
-        isSelected ||
-        isNeighbor ||
-        Boolean(node.memory.virtual);
+        !selectedId || isSelected || isNeighbor || node.isRoot;
       visual.label.color = isSelected
         ? palette.active
         : isMuted
-          ? palette.muted
-          : palette.label;
+        ? palette.muted
+        : palette.label;
       visual.label.backgroundColor =
-        node.memory.virtual || isSelected
-          ? palette.labelBackground
-          : "transparent";
+        node.isRoot || isSelected ? palette.labelBackground : "transparent";
       visual.label.borderColor = isSelected
         ? palette.active
         : palette.labelBorder;
-      visual.label.borderWidth = node.memory.virtual || isSelected ? 0.14 : 0;
+      visual.label.borderWidth = node.isRoot || isSelected ? 0.14 : 0;
       visual.label.material.opacity = isMuted ? 0.3 : 1;
     }
   });
@@ -485,7 +539,7 @@ function applyGraphVisualState(
       return palette.edgeMuted;
     })
     .linkWidth((link) => {
-      if (!selectedId) return 0.32;
+      if (!selectedId) return 0.42;
       return isActiveLink(link) ? 1.05 : 0.08;
     })
     .linkDirectionalArrowLength((link) => {
@@ -525,13 +579,12 @@ function setHoveredGraphNodeColor(
     const visual = visuals.get(candidate.id);
     if (!visual) return;
     const isHovered = candidate.id === node?.id;
-    const isMuted =
-      Boolean(selectedId) && !selectedNeighbors.has(candidate.id);
+    const isMuted = Boolean(selectedId) && !selectedNeighbors.has(candidate.id);
     const color = isHovered
       ? palette.hover
       : isMuted
-        ? palette.muted
-        : baseNodeColor(candidate, palette);
+      ? palette.muted
+      : baseNodeColor(candidate, palette);
 
     visual.core.material.color.set(color);
     visual.core.material.emissive.set(color);
@@ -583,8 +636,7 @@ function fitGraphModel(
     if (nodes.length < 2) {
       applyGraphZoomLimits(
         graph,
-        GRAPH_ZOOM_MIN_DISTANCE_FLOOR /
-          GRAPH_ZOOM_MIN_DISTANCE_RATIO,
+        GRAPH_ZOOM_MIN_DISTANCE_FLOOR / GRAPH_ZOOM_MIN_DISTANCE_RATIO,
       );
     }
     graph.zoomToFit(duration, 64);
@@ -625,8 +677,7 @@ function fitGraphModel(
     ),
     30,
   );
-  const distance =
-    (viewRadius / Math.tan((camera.fov * Math.PI) / 360)) * 0.92;
+  const distance = (viewRadius / Math.tan((camera.fov * Math.PI) / 360)) * 0.92;
   applyGraphZoomLimits(graph, distance);
   const currentCamera = graph.cameraPosition();
   const offset = {
@@ -730,8 +781,8 @@ export default function MemoryGraphView({
     [currentSnapshot, root],
   );
   const graphModel = useMemo(
-    () => toGraphModel(graphSnapshot ?? EMPTY_GRAPH),
-    [graphSnapshot],
+    () => toGraphModel(graphSnapshot ?? EMPTY_GRAPH, root),
+    [graphSnapshot, root],
   );
   const selectedNeighbors = useMemo(
     () => graphNeighborIds(graphSnapshot, selectedId),
@@ -769,7 +820,7 @@ export default function MemoryGraphView({
         z: camera.z - target.z,
       };
       const length = Math.hypot(offset.x, offset.y, offset.z) || 1;
-      const distance = node.memory.virtual ? 185 : 118;
+      const distance = node.isRoot ? 185 : 118;
       const controls = graph.controls() as OrbitControlsLike;
       controls.minDistance = Math.min(controls.minDistance, distance);
       graph.cameraPosition(
@@ -874,7 +925,13 @@ export default function MemoryGraphView({
           if (!graph) return;
           const nextPalette = graphPalette(container);
           graph.backgroundColor(nextPalette.surface);
-          graph.scene().fog = new FogExp2(nextPalette.surface, 0.0016);
+          graph.scene().fog = new FogExp2(
+            nextPalette.surface,
+            nextPalette.isDark ? 0.00085 : 0.0016,
+          );
+          graph.renderer().toneMappingExposure = nextPalette.isDark
+            ? 1.1
+            : 0.98;
           graph.lights(createGraphLights(nextPalette));
           applyGraphVisualState(
             graph,
@@ -892,11 +949,7 @@ export default function MemoryGraphView({
           resizeFrame = window.requestAnimationFrame(() => {
             if (!selectedIdRef.current) {
               if (graph) {
-                fitGraphModel(
-                  graph,
-                  graphModel.nodes,
-                  reducedMotion ? 0 : 220,
-                );
+                fitGraphModel(graph, graphModel.nodes, reducedMotion ? 0 : 220);
               }
             }
           });
@@ -982,13 +1035,16 @@ export default function MemoryGraphView({
         const renderer = createdGraph.renderer();
         renderer.outputColorSpace = SRGBColorSpace;
         renderer.toneMapping = ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 0.98;
+        renderer.toneMappingExposure = palette.isDark ? 1.1 : 0.98;
         const camera = createdGraph.camera() as PerspectiveCamera;
         camera.fov = 44;
         camera.near = 0.1;
         camera.far = GRAPH_ZOOM_MAX_DISTANCE_CEILING * 1.6;
         camera.updateProjectionMatrix();
-        createdGraph.scene().fog = new FogExp2(palette.surface, 0.0016);
+        createdGraph.scene().fog = new FogExp2(
+          palette.surface,
+          palette.isDark ? 0.00085 : 0.0016,
+        );
         createdGraph.lights(createGraphLights(palette));
 
         const canvas = renderer.domElement;
@@ -1010,11 +1066,7 @@ export default function MemoryGraphView({
         });
         createdGraph.onEngineStop(() => {
           if (graph) {
-            fitGraphModel(
-              graph,
-              graphModel.nodes,
-              reducedMotion ? 0 : 480,
-            );
+            fitGraphModel(graph, graphModel.nodes, reducedMotion ? 0 : 480);
           }
         });
         setGraphReady(true);
@@ -1060,13 +1112,7 @@ export default function MemoryGraphView({
       selectedNeighbors,
       reducedMotion,
     );
-  }, [
-    graphModel,
-    graphReady,
-    reducedMotion,
-    selectedId,
-    selectedNeighbors,
-  ]);
+  }, [graphModel, graphReady, reducedMotion, selectedId, selectedNeighbors]);
 
   useEffect(() => {
     const graph = graphRef.current;
@@ -1227,12 +1273,16 @@ export default function MemoryGraphView({
             </div>
             <div className={styles.legend}>
               <span>
-                <i data-kind="indexed" />
-                {t("files.memoryGraphIndexed")}
+                <i data-kind="root" />
+                {t("files.memoryGraphRoot")}
               </span>
               <span>
-                <i data-kind="unresolved" />
-                {t("files.memoryGraphUnresolved")}
+                <i data-kind="direct" />
+                {t("files.memoryGraphRootDirect")}
+              </span>
+              <span>
+                <i data-kind="file" />
+                {t("files.memoryGraphOtherFile")}
               </span>
               <span>
                 <b>→</b>
