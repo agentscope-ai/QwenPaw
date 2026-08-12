@@ -105,11 +105,7 @@ function createChatUiNamespace(provider: AppIdProvider): PawChatUiNamespace {
     toolRender: (toolName, render) =>
       requireChat().toolRender(resolveAppId(provider), toolName, render),
     approvalRender: (sourceType, render) =>
-      requireChat().approval.render(
-        resolveAppId(provider),
-        sourceType,
-        render,
-      ),
+      requireChat().approval.render(resolveAppId(provider), sourceType, render),
     card: (cardName, render) =>
       requireChat().card(resolveAppId(provider), cardName, render),
     disposeAll: () => requireChat().disposeAll(resolveAppId(provider)),
