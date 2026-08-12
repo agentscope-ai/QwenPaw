@@ -129,6 +129,64 @@ def test_close_window_maps_to_the_native_method() -> None:
     assert include_images is False
 
 
+def test_sequence_maps_a_bounded_keyboard_batch() -> None:
+    steps = [
+        {"action": "type", "text": "INV-001"},
+        {"action": "press_key", "key": "TAB"},
+    ]
+
+    method, params, include_images = _native_request("sequence", steps=steps)
+
+    assert method == "sequence"
+    assert params == {"steps": steps}
+    assert include_images is False
+
+
+def test_sequence_accepts_a_json_encoded_batch() -> None:
+    steps = json.dumps(
+        [
+            {"action": "type", "text": "INV-001"},
+            {"action": "press_key", "key": "TAB"},
+        ],
+    )
+
+    method, params, include_images = _native_request("sequence", steps=steps)
+
+    assert method == "sequence"
+    assert params["steps"][0]["text"] == "INV-001"
+    assert include_images is False
+
+
+def test_sequence_tool_schema_accepts_array_or_json_string() -> None:
+    import jsonschema
+
+    schema = FunctionTool(computer_use).input_schema
+    steps = [{"action": "type", "text": "INV-001"}]
+
+    jsonschema.validate({"action": "sequence", "steps": steps}, schema)
+    jsonschema.validate(
+        {"action": "sequence", "steps": json.dumps(steps)},
+        schema,
+    )
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [
+        [],
+        "not-json",
+        [{"action": "click", "x": 1, "y": 1}],
+        [{"action": "type", "text": "x", "extra": True}],
+        [{"action": "press_key", "key": " "}],
+        [{"action": "type", "text": "x"}] * 21,
+        [{"action": "type", "text": "x" * 513}],
+    ],
+)
+def test_sequence_rejects_inputs_outside_its_contract(steps: Any) -> None:
+    with pytest.raises(ValueError):
+        _native_request("sequence", steps=steps)
+
+
 def test_client_injects_its_private_observation() -> None:
     client = ComputerUseClient("session-1")
     client._observation_id = "observation-1"
@@ -136,6 +194,24 @@ def test_client_injects_its_private_observation() -> None:
     params = client._native_params("close_window", {})
 
     assert params == {"observation_id": "observation-1"}
+
+
+def test_partial_sequence_result_advances_the_private_observation() -> None:
+    client = ComputerUseClient("session-1")
+    client._observation_id = "observation-1"
+
+    result = client._accept_result(
+        "sequence",
+        {
+            "observation_id": "observation-2",
+            "completed_steps": 1,
+            "error": {"code": "input_failed"},
+        },
+    )
+
+    assert client._observation_id == "observation-2"
+    assert "observation_id" not in result
+    assert result["completed_steps"] == 1
 
 
 def test_client_rejects_action_before_observe() -> None:
@@ -183,6 +259,62 @@ def test_native_error_marks_the_tool_call_as_failed() -> None:
     assert '"ok":false' in response.content[-1].text
 
 
+def test_sequence_steps_count_against_the_action_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(dispatch_module, "_action_times", [])
+    monkeypatch.setattr(dispatch_module, "_MAX_ACTIONS_PER_MINUTE", 3)
+
+    dispatch_module._check_rate_limit(3)
+
+    with pytest.raises(ComputerUseProtocolError) as refusal:
+        dispatch_module._check_rate_limit()
+    assert refusal.value.code == "rate_limited"
+
+
+@pytest.mark.asyncio
+async def test_partial_sequence_is_an_error_with_a_fresh_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Enabled:
+        @staticmethod
+        def is_enabled() -> bool:
+            return True
+
+    class _PartialClient:
+        @staticmethod
+        async def execute(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {
+                "completed_steps": 1,
+                "error": {"code": "input_failed", "step_index": 1},
+                "screenshots": [],
+            }
+
+    monkeypatch.setattr(dispatch_module, "_check_rate_limit", lambda *_: None)
+    monkeypatch.setattr(
+        dispatch_module,
+        "get_computer_use_feature_state",
+        lambda: _Enabled(),
+    )
+    monkeypatch.setattr(
+        dispatch_module,
+        "get_computer_use_client",
+        lambda: _PartialClient(),
+    )
+
+    response = await computer_use(
+        action="sequence",
+        steps=[
+            {"action": "type", "text": "A"},
+            {"action": "press_key", "key": "TAB"},
+        ],
+    )
+
+    assert response.state == ToolResultState.ERROR
+    assert '"ok":false' in response.content[-1].text
+    assert '"completed_steps":1' in response.content[-1].text
+
+
 @pytest.mark.asyncio
 async def test_function_tool_preserves_intervention_error_state(
     monkeypatch: pytest.MonkeyPatch,
@@ -220,9 +352,10 @@ async def test_function_tool_preserves_intervention_error_state(
     assert response.is_last is True
     assert response.state == ToolResultState.ERROR
     assert '"code":"user_intervention"' in response.content[-1].text
+    assert '"requires_observe":true' in response.content[-1].text
 
 
-def test_uia_input_leaves_observation_to_client() -> None:
+def test_semantic_actions_leave_observation_to_client() -> None:
     method, params, _ = _native_request(
         "invoke",
         element_id="uia-7",
@@ -230,6 +363,17 @@ def test_uia_input_leaves_observation_to_client() -> None:
 
     assert method == "invoke_element"
     assert params == {"element_id": "uia-7"}
+
+    method, params, _ = _native_request(
+        "begin_text_edit",
+        element_id="uia-8",
+    )
+
+    assert method == "invoke_element"
+    assert params == {
+        "element_id": "uia-8",
+        "expects_text_input": True,
+    }
 
 
 class _FakeTransport(ComputerUseTransport):

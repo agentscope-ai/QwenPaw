@@ -2,7 +2,7 @@
 
 **Long-term Memory** gives QwenPaw persistent memory across conversations. In the default backend, QwenPaw embeds the
 ReMe application in-process and runs ReMe jobs to save conversation facts, build daily notes, extract digest memories,
-watch resource files, and search the memory vault.
+generate Daily Paper reports, and search the memory vault.
 
 > The long-term memory mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented via **ReMeLight** from [ReMe](https://github.com/agentscope-ai/ReMe) — a file-based memory backend where working and long-term memory nodes are plain Markdown files that can be read, edited, and migrated directly.
 
@@ -15,7 +15,7 @@ ReMe's core goal is to grow a **self-evolving personal knowledge base** on the p
 | Long-term memory | `digest/`                   | Reusable knowledge nodes (`personal` / `procedure` / `wiki`)  |
 | System state     | `mem_metadata/`             | Indexes, wikilink graph, catalogs — not hand-edited           |
 
-Memory evolves through a **capture → index → consolidate → recall** loop: Auto-Memory / Auto-Resource capture daily notes, indexing keeps them searchable, Auto-Dream consolidates them into linked digest nodes, and search / proactive recall them. For the full narrative — including how Auto-Dream corroborates, refines, and corrects digest nodes and weaves the wikilink graph — see [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive). The sections below cover the technical implementation and configuration.
+Memory evolves through a **capture → index → consolidate → recall** loop: Auto-Memory and Daily Paper produce daily notes, indexing keeps them searchable, Auto-Dream consolidates them into linked digest nodes, and search / proactive recall them. For the full narrative — including how Auto-Dream corroborates, refines, and corrects digest nodes and weaves the wikilink graph — see [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive). The sections below cover the technical implementation and configuration.
 
 ---
 
@@ -30,26 +30,27 @@ graph TB
     Jobs --> AutoMemory[auto_memory]
     Jobs --> AutoDream[auto_dream]
     Jobs --> Search[search]
-    Jobs --> Resource[auto_resource]
+    Jobs --> DailyPaper[daily_paper]
     Jobs --> Reindex[reindex / index_update_loop]
     AutoMemory --> Daily[memory/YYYY-MM-DD/*.md]
     AutoMemory --> Session[mem_session/dialog/*.jsonl]
     AutoDream --> Digest[digest/*.md and interests.yaml]
-    Resource --> ResourceDir[resource/*]
+    DailyPaper --> ResourceDir[resource/papers/*.pdf]
+    DailyPaper --> Daily
     Search --> Store[mem_metadata file store + BM25 + optional embeddings]
 ```
 
 Long-term memory management includes the following capabilities:
 
-| Capability             | Description                                                                                                      |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **Embedded ReMe app**  | QwenPaw starts ReMe in-process and injects the active QwenPaw model into ReMe's default LLM component            |
-| **Auto-Memory**        | After a configurable number of user turns, ReMe extracts useful conversation facts into daily Markdown notes     |
-| **Context compaction** | Before context compression, pending turns can be flushed into the same `auto_memory` pipeline                    |
-| **Auto-Dream**         | A cron job extracts higher-level digest units and proactive-interest topics from recent daily notes              |
-| **Hybrid Search**      | `memory_search` calls ReMe's `search` job, using BM25 plus optional vector search and reciprocal-rank fusion     |
-| **Resource Memory**    | Files under `resource/` are cataloged and can be interpreted into source-linked daily notes                      |
-| **Inbox Results**      | `auto_memory`, `auto_dream`, and `auto_resource` results are pushed to QwenPaw's inbox when they produce changes |
+| Capability             | Description                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Embedded ReMe app**  | QwenPaw starts ReMe in-process and injects the active QwenPaw model into ReMe's default LLM component        |
+| **Auto-Memory**        | After a configurable number of user turns, ReMe extracts useful conversation facts into daily Markdown notes |
+| **Context compaction** | Before context compression, pending turns can be flushed into the same `auto_memory` pipeline                |
+| **Auto-Dream**         | A cron job extracts higher-level digest units and proactive-interest topics from recent daily notes          |
+| **Hybrid Search**      | `memory_search` calls ReMe's `search` job, using BM25 plus optional vector search and reciprocal-rank fusion |
+| **Daily Paper**        | Scheduled paper readings and a daily brief; PDFs go to `resource/papers/` and Markdown goes to daily memory  |
+| **Inbox Results**      | `auto_memory`, `auto_dream`, and `daily_paper` results are pushed to QwenPaw's inbox                         |
 
 ---
 
@@ -70,7 +71,8 @@ while `mem_metadata/` stores search indexes, catalogs, graphs, and embedding cac
 │       └── <session_id>.jsonl       ← Sanitized conversation history used as note source
 │
 ├── digest/                         ← Auto-Dream digest memory and interest topics
-├── resource/                       ← External assets watched by auto_resource
+├── resource/                       ← Raw assets produced by knowledge workflows
+│   └── papers/                     ← arXiv PDFs downloaded by Daily Paper
 └── mem_metadata/                   ← ReMe persistent indexes, graph, catalogs, and caches
     ├── file_store/
     │   └── file_chunks_default_v1.jsonl.zst
@@ -78,7 +80,6 @@ while `mem_metadata/` stores search indexes, catalogs, graphs, and embedding cac
     │   └── default.jsonl.zst
     ├── file_catalog/
     │   ├── default.jsonl.zst
-    │   ├── resource.jsonl.zst
     │   ├── digest.jsonl.zst
     │   └── dream.jsonl.zst
     ├── embedding_store/
@@ -131,27 +132,14 @@ user-interest topics for proactive use.
   (`relates_to:: [[digest/...]]`) so digest memory stays traceable and connected; `memory_search` expands along these links
 - **Updates**: ReMe `auto_dream`, usually triggered by `dream_cron`
 
-### resource/ (Resource Memory)
+### resource/ and Daily Paper
 
-Files placed under `resource/` are watched and cataloged. When supported files change, ReMe can interpret them into
-source-linked daily notes via `auto_resource`.
+`resource/` remains the raw-asset directory for proactive knowledge workflows; arbitrary files are no longer watched.
+Daily Paper selects papers from Hugging Face weekly/monthly rankings, stores arXiv PDFs under
+`resource/papers/<arxiv_id>.pdf`, and writes three detailed readings plus one brief under `memory/YYYY-MM-DD/`.
+The Markdown output enters the existing memory index and the job result is delivered to QwenPaw's inbox.
 
-- **Location**: `{working_dir}/resource/`
-- **Supported default suffixes**: `md`, `txt`, `json`, `jsonl`, `csv`, `yaml`, `html`
-- **Date assignment**: Files directly under `resource/` are assigned to the current date. Files under
-  `resource/YYYY-MM-DD/` use that date and may be nested in additional subdirectories.
-- **Output**: Creates or updates `memory/YYYY-MM-DD/<note>.md` and retains a `source_resource` link in its frontmatter
-- **Inbox behavior**: Resource processing results are pushed to the inbox only when memory changed
-
-```text
-resource/report.txt                    # Assigned to the current date
-resource/2026-07-14/report.txt         # Assigned to 2026-07-14
-resource/2026-07-14/project/data.json  # Subdirectories are allowed below the date
-```
-
-> Auto Resource currently reads resources as UTF-8 text. Binary files such as PDF, Word, Excel, and images are not in
-> the watched-suffix list and are not parsed automatically; convert them to one of the supported text formats first.
-> The `yml` suffix is also not in the default allowlist; use `yaml`.
+Daily Paper is disabled by default. When `daily_paper_cron_enabled` is on, `daily_paper_cron` controls its schedule.
 
 > For a complete walkthrough of Auto-Memory, Auto-Dream, Auto-Memory-Search, and Proactive, see [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive). The sections below cover technical implementation details and configuration only.
 
@@ -356,19 +344,25 @@ Before restoring, the system prompts to create a snapshot of the current state. 
 
 Memory configuration is located in `agent.json` under `running.reme_light_memory_config`:
 
-| Field                    | Description                                                                                                                     | Default          |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `metadata_dir`           | ReMe persistent state directory for indexes, catalogs, graph data, and caches                                                   | `"mem_metadata"` |
-| `session_dir`            | Directory for saved source conversations                                                                                        | `"mem_session"`  |
-| `mem_session_dir`        | Directory for ReMe internal memory-agent sessions                                                                               | `"mem_agent"`    |
-| `resource_dir`           | Directory watched by `auto_resource`                                                                                            | `"resource"`     |
-| `daily_dir`              | Directory for daily memory notes                                                                                                | `"memory"`       |
-| `digest_dir`             | Directory for dream/digest memory                                                                                               | `"digest"`       |
-| `summarize_when_compact` | Whether pending turns are flushed to Auto-Memory before context compression                                                     | `true`           |
-| `inbox_push_enabled`     | Whether `auto_memory`, `auto_dream`, and `auto_resource` job results are pushed to the QwenPaw inbox                            | `true`           |
-| `auto_memory_interval`   | Auto-Memory every N user turns. `None` or `<= 0` disables periodic Auto-Memory                                                  | `5`              |
-| `dream_cron_enabled`     | Whether the scheduled Auto-Dream job is enabled                                                                                 | `true`           |
-| `dream_cron`             | Valid 5-field cron expression for Auto-Dream (required when enabled); scheduled runs start after a random delay of 0–60 seconds | `"0 23 * * *"`   |
+| Field                            | Description                                                                                                                     | Default          |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `metadata_dir`                   | ReMe persistent state directory for indexes, catalogs, graph data, and caches                                                   | `"mem_metadata"` |
+| `session_dir`                    | Directory for saved source conversations                                                                                        | `"mem_session"`  |
+| `mem_session_dir`                | Directory for ReMe internal memory-agent sessions                                                                               | `"mem_agent"`    |
+| `resource_dir`                   | Raw resource directory used by Daily Paper and future knowledge workflows                                                       | `"resource"`     |
+| `daily_dir`                      | Directory for daily memory notes                                                                                                | `"memory"`       |
+| `digest_dir`                     | Directory for dream/digest memory                                                                                               | `"digest"`       |
+| `auto_memory_inbox_push_enabled` | Whether `auto_memory` results are pushed to the QwenPaw inbox                                                                   | `true`           |
+| `auto_dream_inbox_push_enabled`  | Whether `auto_dream` results are pushed to the QwenPaw inbox                                                                    | `true`           |
+| `daily_paper_inbox_push_enabled` | Whether `daily_paper` results are pushed to the QwenPaw inbox                                                                   | `true`           |
+| `auto_memory_interval`           | Auto-Memory every N user turns. `None` or `<= 0` disables periodic Auto-Memory                                                  | `5`              |
+| `dream_cron_enabled`             | Whether the scheduled Auto-Dream job is enabled                                                                                 | `true`           |
+| `dream_cron`                     | Valid 5-field cron expression for Auto-Dream (required when enabled); scheduled runs start after a random delay of 0–60 seconds | `"0 23 * * *"`   |
+| `daily_paper_cron_enabled`       | Whether the scheduled Daily Paper job is enabled                                                                                | `false`          |
+| `daily_paper_cron`               | Valid 5-field cron expression for Daily Paper (required when enabled)                                                           | `"0 9 * * *"`    |
+| `daily_paper_use_hf_mirror`      | Whether to fetch paper information through the Hugging Face mirror                                                              | `false`          |
+| `daily_paper_topics`             | Topics to prioritize when selecting papers                                                                                      | `""`             |
+| `memory_search_enabled`          | Whether to expose the `memory_search` tool to the agent; independent from automatic search                                      | `true`           |
 
 ### Rebuilding the Memory Search Index
 

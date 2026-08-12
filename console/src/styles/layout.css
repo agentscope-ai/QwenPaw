@@ -784,11 +784,11 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] h6,
 html.dark-mode
   [class*="chat-anywhere"]
   [class*="message"]
-  span:not([class*="diffAddBadge"]):not([class*="diffDelBadge"]):not(
-    [class*="lineReadBadge"]
-  ):not([class*="lineSearchBadge"]):not([class*="jsonKey"]):not(
-    [class*="jsonStr"]
-  ):not([class*="jsonNum"]):not([class*="jsonNull"]),
+  span:not(.qwenpaw-code-block span):not([class*="diffAddBadge"]):not(
+    [class*="diffDelBadge"]
+  ):not([class*="lineReadBadge"]):not([class*="lineSearchBadge"]):not(
+    [class*="jsonKey"]
+  ):not([class*="jsonStr"]):not([class*="jsonNum"]):not([class*="jsonNull"]),
 html.dark-mode [class*="chat-anywhere"] [class*="message"] blockquote,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] td,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] th {
@@ -800,7 +800,10 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] b {
   color: rgba(255, 255, 255, 0.95) !important;
 }
 
-html.dark-mode [class*="chat-anywhere"] [class*="message"] code {
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="message"]
+  code:not(.qwenpaw-code-block code) {
   color: rgba(255, 255, 255, 0.85) !important;
   background: rgba(255, 255, 255, 0.08) !important;
 }
