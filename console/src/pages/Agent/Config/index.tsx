@@ -9,6 +9,7 @@ import {
   LlmRateLimiterCard,
   ToolExecutionLevelCard,
   AgentLoopCard,
+  EmbeddingModelCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -18,12 +19,24 @@ import {
 import api from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
 import styles from "./index.module.less";
+import { MemoryMaintenanceContext } from "./memoryMaintenanceContext";
+import { useReMeRuntimeStatus } from "./useReMeRuntimeStatus";
 
 function AgentConfigPage() {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(
     searchParams.get("tab") || "reactAgent",
+  );
+  const [needsReindex, setNeedsReindex] = useState(false);
+  const [localReindexing, setLocalReindexing] = useState(false);
+  const [configRevision, setConfigRevision] = useState(0);
+  const syncReindexRequirement = useCallback(
+    (config: { reme_light_memory_config?: { needs_reindex?: boolean } }) => {
+      setNeedsReindex(config.reme_light_memory_config?.needs_reindex === true);
+      setConfigRevision((revision) => revision + 1);
+    },
+    [],
   );
   const {
     form,
@@ -40,7 +53,7 @@ function AgentConfigPage() {
     handleSave,
     handleLanguageChange,
     handleTimezoneChange,
-  } = useAgentConfig();
+  } = useAgentConfig(syncReindexRequirement);
 
   const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
   const contextBackend =
@@ -48,6 +61,12 @@ function AgentConfigPage() {
   const memoryBackend =
     Form.useWatch("memory_manager_backend", form) || "remelight";
   const { selectedAgent } = useAgentStore();
+  const { runtimeStatus, checkMemoryStatus } = useReMeRuntimeStatus(
+    memoryBackend === "remelight",
+  );
+  const remoteReindexing =
+    runtimeStatus.type === "healthy" && runtimeStatus.data.runtime.reindexing;
+  const reindexing = localReindexing || remoteReindexing;
 
   const [maxInputLength, setMaxInputLength] = useState(131072);
   const refreshEffectiveContextWindow = useCallback(() => {
@@ -197,6 +216,22 @@ function AgentConfigPage() {
       });
     }
 
+    if (memoryBackend === "remelight") {
+      baseTabs.push({
+        key: "embeddingModel",
+        label: (
+          <span className={styles.tabLabel}>
+            {t("agentConfig.embeddingModelTitle")}
+          </span>
+        ),
+        children: (
+          <div className={styles.tabContent}>
+            <EmbeddingModelCard />
+          </div>
+        ),
+      });
+    }
+
     // Add Tool Execution Level tab
     baseTabs.push({
       key: "toolExecutionLevel",
@@ -269,15 +304,28 @@ function AgentConfigPage() {
       <PageHeader parent={t("nav.agent")} current={t("agentConfig.title")} />
 
       <div className={styles.content}>
-        <Form form={form} layout="vertical" className={styles.form}>
-          <Tabs
-            className={styles.mainTabs}
-            activeKey={activeTab}
-            onChange={setActiveTab}
-            items={dynamicTabs}
-            destroyInactiveTabPane={false}
-          />
-        </Form>
+        <MemoryMaintenanceContext.Provider
+          value={{
+            needsReindex,
+            setNeedsReindex,
+            reindexing,
+            setReindexing: setLocalReindexing,
+            openMemorySettings: () => setActiveTab("remeLightMemory"),
+            runtimeStatus,
+            checkMemoryStatus,
+            configRevision,
+          }}
+        >
+          <Form form={form} layout="vertical" className={styles.form}>
+            <Tabs
+              className={styles.mainTabs}
+              activeKey={activeTab}
+              onChange={setActiveTab}
+              items={dynamicTabs}
+              destroyInactiveTabPane={false}
+            />
+          </Form>
+        </MemoryMaintenanceContext.Provider>
       </div>
 
       <div className={styles.footerActions}>

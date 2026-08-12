@@ -27,6 +27,7 @@ from ...config.config import (
     ModelSlotConfig,
     load_agent_config,
     mutate_agent_config,
+    update_agent_config_async,
     generate_short_agent_id,
     sanitize_agent_id,
     validate_agent_id,
@@ -123,6 +124,57 @@ class AgentModelSettingsPatch(BaseModel):
         "medium",
         "high",
     ] | None = None
+
+
+class ReMeComponentMemoryUsage(BaseModel):
+    """Estimated memory owned by one ReMe component."""
+
+    bytes: int
+    human: str
+
+
+class MemoryWorkerRuntimeStatus(BaseModel):
+    """Sanitized state of the background memory worker."""
+
+    status: Literal["idle", "busy", "stopping", "error"]
+    queue_pending: int
+    tasks_running: int
+
+
+class AutoMemoryRuntimeStatus(BaseModel):
+    """Aggregate auto-memory progress without exposing session identity."""
+
+    enabled: bool
+    interval: int
+    active_sessions: int
+    sessions_with_pending: int
+    pending_turns: int
+
+
+class RecentMemoryRuntimeStatus(BaseModel):
+    """Latest terminal task timestamps and a bounded error summary."""
+
+    last_completed_at: str | None = None
+    last_failed_at: str | None = None
+    last_error: str | None = None
+
+
+class MemoryRuntimeStatus(BaseModel):
+    """Operational state surfaced to the Console."""
+
+    worker: MemoryWorkerRuntimeStatus
+    auto_memory: AutoMemoryRuntimeStatus
+    recent: RecentMemoryRuntimeStatus
+    reindexing: bool
+
+
+class ReMeMemoryStatusResponse(BaseModel):
+    """Structured memory information returned by ReMe's status job."""
+
+    components: dict[str, dict[str, ReMeComponentMemoryUsage]]
+    components_total: str
+    process_rss: str
+    runtime: MemoryRuntimeStatus
 
 
 class CreateAgentRequest(BaseModel):
@@ -837,14 +889,31 @@ async def update_agent(
     update_data = agent_config.model_dump(exclude_unset=True)
 
     def apply_update(existing_config: AgentProfileConfig) -> None:
-        for key, value in update_data.items():
+        requested = AgentProfileConfig.model_validate(
+            {**existing_config.model_dump(), **update_data},
+        )
+        old_memory = existing_config.running.reme_light_memory_config
+        old_embedding = old_memory.embedding_model_config
+        requested_running = update_data.get("running")
+        if requested_running is not None:
+            new_memory = requested.running.reme_light_memory_config
+            new_embedding = new_memory.embedding_model_config
+            if old_embedding != new_embedding:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Embedding configuration must be updated through "
+                        "/workspace/running-config so the live ReMe runtime "
+                        "can be changed transactionally"
+                    ),
+                )
+        for key in update_data:
             if key != "id":
-                setattr(existing_config, key, value)
+                setattr(existing_config, key, getattr(requested, key))
         existing_config.id = agentId
 
     try:
-        existing_config = await run_sync_io(
-            mutate_agent_config,
+        existing_config = await update_agent_config_async(
             agentId,
             apply_update,
         )
@@ -942,6 +1011,115 @@ async def rebuild_agent_memory_index(
         raise HTTPException(status_code=500, detail=str(response.answer))
 
     return {"status": "completed"}
+
+
+@router.get(
+    "/{agentId}/memory/runtime-status",
+    response_model=MemoryRuntimeStatus,
+    summary="Get agent memory runtime state",
+    description="Return in-memory ReMe lifecycle state without a ReMe lease",
+)
+async def get_agent_memory_runtime_status(
+    agentId: str = PathParam(...),
+    request: Request = None,
+) -> MemoryRuntimeStatus:
+    """Return immediately even while an exclusive lifecycle job is active."""
+    config = await run_sync_io(load_config)
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    agent_config = await run_sync_io(load_agent_config, agentId)
+    if agent_config.running.memory_manager_backend != "remelight":
+        raise HTTPException(
+            status_code=400,
+            detail="Memory status is only supported by ReMe Light",
+        )
+
+    manager = _get_multi_agent_manager(request)
+    workspace = manager.get_loaded_agent(agentId)
+    if workspace is None or workspace.memory_manager is None:
+        raise HTTPException(status_code=503, detail="Agent is not running")
+    memory_config = agent_config.running.reme_light_memory_config
+    return MemoryRuntimeStatus.model_validate(
+        workspace.memory_manager.get_runtime_status(
+            auto_memory_interval=memory_config.auto_memory_interval,
+        ),
+    )
+
+
+@router.get(
+    "/{agentId}/memory/status",
+    response_model=ReMeMemoryStatusResponse,
+    summary="Get agent ReMe memory status",
+    description="Return ReMe component memory estimates and process RSS",
+)
+async def get_agent_memory_status(
+    agentId: str = PathParam(...),
+    request: Request = None,
+) -> ReMeMemoryStatusResponse:
+    """Inspect the currently running ReMe instance without reloading it."""
+    config = await run_sync_io(load_config)
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    agent_config = await run_sync_io(load_agent_config, agentId)
+    if agent_config.running.memory_manager_backend != "remelight":
+        raise HTTPException(
+            status_code=400,
+            detail="Memory status is only supported by ReMe Light",
+        )
+
+    manager = _get_multi_agent_manager(request)
+    workspace = manager.get_loaded_agent(agentId)
+    if workspace is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Agent is not running",
+        )
+    memory_manager = workspace.memory_manager
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory manager is not available",
+        )
+
+    response = await memory_manager.reme_status()
+    if response is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ReMe is not started or status reporting is unavailable",
+        )
+    if not response.success:
+        raise HTTPException(status_code=500, detail=str(response.answer))
+
+    metadata = getattr(response, "metadata", None) or {}
+    memory = metadata.get("status", {}).get("memory")
+    if not isinstance(memory, dict):
+        raise HTTPException(
+            status_code=500,
+            detail="ReMe returned an invalid memory status payload",
+        )
+    memory_config = agent_config.running.reme_light_memory_config
+    try:
+        return ReMeMemoryStatusResponse.model_validate(
+            {
+                **memory,
+                "runtime": memory_manager.get_runtime_status(
+                    auto_memory_interval=memory_config.auto_memory_interval,
+                ),
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="ReMe returned an invalid memory status payload",
+        ) from exc
 
 
 @router.get(
@@ -1097,7 +1275,7 @@ async def toggle_agent_enabled(
             status_code=409,
             detail=(
                 f"Agent '{agentId}' is still starting and cannot be "
-                f"disabled yet"
+                "disabled yet"
             ),
         )
 

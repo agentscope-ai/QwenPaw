@@ -125,8 +125,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   };
 }
 
-function renderConfigHook() {
-  return renderHook(() => useAgentConfig());
+function renderConfigHook(onConfigLoaded?: (config: Config) => void) {
+  return renderHook(() => useAgentConfig(onConfigLoaded));
 }
 
 describe("useAgentConfig", () => {
@@ -250,6 +250,25 @@ describe("useAgentConfig", () => {
 
     expect(apiMocks.updateAgentRunningConfig).toHaveBeenCalledTimes(1);
     expect(messageMock.success).toHaveBeenCalledWith("agentConfig.saveSuccess");
+  });
+
+  it("reports the server config after save", async () => {
+    const onConfigLoaded = vi.fn();
+    const savedConfig = makeConfig({
+      reme_light_memory_config: {
+        needs_reindex: true,
+      } as Config["reme_light_memory_config"],
+    });
+    apiMocks.updateAgentRunningConfig.mockResolvedValue(savedConfig);
+    const { result } = renderConfigHook(onConfigLoaded);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    onConfigLoaded.mockClear();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(onConfigLoaded).toHaveBeenCalledWith(savedConfig);
   });
 
   it("handleSave persists configToSave containing approval_level", async () => {

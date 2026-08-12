@@ -42,7 +42,7 @@ async def test_reme_auto_search_loads_config_in_worker_thread(monkeypatch):
         return agent_config
 
     monkeypatch.setattr(
-        "qwenpaw.agents.memory.reme_light_memory_manager.load_agent_config",
+        "qwenpaw.config.config.load_agent_config",
         load_config,
     )
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
@@ -69,7 +69,7 @@ async def test_reme_inbox_config_loads_in_worker_thread(monkeypatch):
         return SimpleNamespace(
             running=SimpleNamespace(
                 reme_light_memory_config=SimpleNamespace(
-                    inbox_push_enabled=False,
+                    auto_memory_inbox_push_enabled=False,
                 ),
             ),
         )

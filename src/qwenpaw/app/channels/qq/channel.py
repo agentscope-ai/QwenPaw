@@ -288,6 +288,11 @@ def _get_api_base() -> str:
     return os.getenv("QQ_API_BASE", DEFAULT_API_BASE).rstrip("/")
 
 
+def _get_token_url() -> str:
+    """Token endpoint (override with QQ_TOKEN_URL, e.g. for sandboxes)."""
+    return os.getenv("QQ_TOKEN_URL", TOKEN_URL)
+
+
 def _get_channel_url_sync(access_token: str) -> str:
     import urllib.error
     import urllib.request
@@ -720,7 +725,7 @@ class QQChannel(BaseChannel):
             import urllib.request
 
             req = urllib.request.Request(
-                TOKEN_URL,
+                _get_token_url(),
                 data=json.dumps(
                     {"appId": self.app_id, "clientSecret": self.client_secret},
                 ).encode(),
@@ -759,7 +764,7 @@ class QQChannel(BaseChannel):
             ):
                 return self._token_cache["token"]
         async with self._http.post(
-            TOKEN_URL,
+            _get_token_url(),
             json={"appId": self.app_id, "clientSecret": self.client_secret},
             headers={"Content-Type": "application/json"},
         ) as resp:
