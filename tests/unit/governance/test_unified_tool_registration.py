@@ -1059,3 +1059,56 @@ class TestWindowsStylePathExtraction:
         assert "main.py" in target
         # ntpath.basename still sees the leaf under Windows separators.
         assert ntpath.basename(relative) == "main.py"
+
+
+# ---------------------------------------------------------------------------
+# RuntimeToolRegistry.filter() ordering (prefix cache stability)
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeToolRegistryFilterOrdering:
+    """ToolRegistry.filter() must return descriptors in sorted name order.
+
+    Tool schemas appear before messages in the LLM request and represent the
+    largest prefix segment (~3,000-8,000 tokens). An unsorted dict iteration
+    is stable within a process but not across restarts or plugin load-order
+    changes. Sorting prevents prefix cache invalidation from registration
+    timing differences.
+    """
+
+    def _desc(self, name: str) -> ToolDescriptor:
+        return ToolDescriptor(name=name, func=lambda: None)
+
+    def test_filter_returns_sorted_names(self):
+        """filter() output is alphabetically sorted by descriptor name."""
+        registry = RuntimeToolRegistry()
+        # Register in deliberately reverse-alphabetical order
+        for name in ["zebra", "alpha", "middle", "gamma", "beta"]:
+            registry.register(self._desc(name))
+        result = registry.filter()
+        names = [d.name for d in result]
+        assert names == ["alpha", "beta", "gamma", "middle", "zebra"]
+
+    def test_filter_sorted_with_allowed_subset(self):
+        """filter() sorts even when an allowed whitelist restricts the set."""
+        registry = RuntimeToolRegistry()
+        for name in ["zebra", "alpha", "middle", "gamma"]:
+            registry.register(self._desc(name))
+        result = registry.filter(allowed={"gamma", "alpha", "zebra"})
+        names = [d.name for d in result]
+        assert names == ["alpha", "gamma", "zebra"]
+
+    def test_filter_sorted_with_denied(self):
+        """filter() sorts even when denied removes entries."""
+        registry = RuntimeToolRegistry()
+        for name in ["zebra", "alpha", "middle"]:
+            registry.register(self._desc(name))
+        result = registry.filter(denied={"alpha"})
+        names = [d.name for d in result]
+        assert names == ["middle", "zebra"]
+
+    def test_filter_empty_returns_empty(self):
+        """filter() on an empty registry returns an empty list."""
+        registry = RuntimeToolRegistry()
+        result = registry.filter()
+        assert result == []

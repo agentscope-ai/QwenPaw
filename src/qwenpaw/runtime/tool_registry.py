@@ -177,6 +177,7 @@ class ToolRegistry:
             ):
                 continue
             out.append(d)
+        out.sort(key=lambda d: d.name)
         return out
 
 

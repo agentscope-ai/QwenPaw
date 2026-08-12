@@ -14,6 +14,7 @@ from qwenpaw.app.chats.utils import (
     _normalize_msg_timestamp,
     _resolve_content_url,
     agentscope_msg_to_message,
+    build_env_context,
     clean_display_text,
     strip_injected_skill_block,
 )
@@ -431,3 +432,111 @@ def test_clean_title_truncates_long_title():
     long_title = "x" * 200
     result = _clean_title(long_title)
     assert len(result) <= 80
+
+
+# ---------------------------------------------------------------------------
+# build_env_context() prefix cache stability
+# ---------------------------------------------------------------------------
+
+
+class TestBuildEnvContextOrdering:
+    """build_env_context() must emit static fields before dynamic fields.
+
+    Tool schemas and env_context are the largest prefix segments in the LLM
+    request. Static content (About, GitHub, Docs, Important) should appear
+    first so the KV cache can reuse it across turns; per-session dynamic
+    fields (OS, date, session_id, working_dir) sit at the tail where their
+    variation only affects the trailing tokens.
+    """
+
+    def test_static_fields_precede_dynamic_fields(self):
+        """Static prefix lines (About, GitHub, Docs) appear before dynamic lines."""
+        ctx = build_env_context(
+            session_id="test-session-123",
+            user_id="user-42",
+            working_dir="/tmp/work",
+        )
+        lines = ctx.split("\n")
+        # Find line indices for static and dynamic fields
+        static_fields = ["About:", "GitHub:", "Docs:"]
+        dynamic_fields = ["OS:", "Current date:", "Session ID:", "Working directory:"]
+
+        static_indices = []
+        dynamic_indices = []
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            for sf in static_fields:
+                if sf in stripped:
+                    static_indices.append(i)
+            for df in dynamic_fields:
+                if df in stripped:
+                    dynamic_indices.append(i)
+
+        # All static lines should appear before all dynamic lines
+        assert static_indices, f"No static fields found in:\n{ctx}"
+        assert dynamic_indices, f"No dynamic fields found in:\n{ctx}"
+        assert max(
+            static_indices
+        ) < min(
+            dynamic_indices
+        ), f"Static fields (max index {max(static_indices)}) must precede "
+        f"dynamic fields (min index {min(dynamic_indices)})"
+
+    def test_dynamic_fields_preserved(self):
+        """All provided dynamic fields appear in the output."""
+        ctx = build_env_context(
+            session_id="abc-123",
+            user_id="uid-99",
+            user_name="Alice",
+            channel="console",
+            working_dir="/home/alice/project",
+        )
+        assert "Session ID: abc-123" in ctx
+        assert "User ID: uid-99" in ctx
+        assert "User Name: Alice" in ctx
+        assert "Channel: console" in ctx
+        assert "Working directory: /home/alice/project" in ctx
+
+    def test_important_hint_in_static_prefix(self):
+        """The Important hint block is in the static prefix (before dynamic fields)."""
+        ctx = build_env_context(
+            session_id="test-session",
+            working_dir="/tmp",
+            add_hint=True,
+        )
+        lines = ctx.split("\n")
+        important_idx = None
+        first_dynamic_idx = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if important_idx is None and "Important:" in stripped:
+                important_idx = i
+            if first_dynamic_idx is None and stripped.startswith("- OS:"):
+                first_dynamic_idx = i
+
+        assert important_idx is not None, "Important hint not found"
+        assert first_dynamic_idx is not None, "OS (first dynamic field) not found"
+        assert (
+            important_idx < first_dynamic_idx
+        ), f"Important hint (line {important_idx}) must precede "
+        f"OS (line {first_dynamic_idx})"
+
+    def test_no_hint_still_ordered(self):
+        """Without hints, static fields still precede dynamic fields."""
+        ctx = build_env_context(
+            session_id="test-session",
+            working_dir="/tmp",
+            add_hint=False,
+        )
+        lines = ctx.split("\n")
+        about_idx = None
+        os_idx = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if about_idx is None and "About:" in stripped:
+                about_idx = i
+            if os_idx is None and stripped.startswith("- OS:"):
+                os_idx = i
+        assert about_idx is not None
+        assert os_idx is not None
+        assert about_idx < os_idx
