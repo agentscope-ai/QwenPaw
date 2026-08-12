@@ -44,6 +44,8 @@ from agentscope.formatter import OpenAIResponseFormatter
 from agentscope.message import Base64Source, URLSource
 from pydantic import Field
 
+from ..utils.media_paths import local_media_path
+
 # Maximum size (in bytes) of a local media file we are willing to inline as
 # base64 into the model request body.  See the module docstring for the
 # rationale.
@@ -112,6 +114,28 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
             return None
         return self._placeholder(kind, size)
 
+    def _unprepared_local_placeholder(
+        self,
+        source: Any,
+        kind: str,
+    ) -> dict[str, Any] | None:
+        """Reject a local URL that bypassed asynchronous preparation."""
+        if not isinstance(source, URLSource):
+            return None
+        if local_media_path(str(source.url)) is None:
+            return None
+        return self._placeholder_unprepared(kind)
+
+    def _placeholder_unprepared(self, kind: str) -> dict[str, Any]:
+        """Return a provider-shaped placeholder for unprepared media."""
+        return {
+            "type": "text",
+            "text": (
+                f"[{kind} unavailable to model: local media preparation "
+                "was bypassed]"
+            ),
+        }
+
     @staticmethod
     def _local_source_to_base64(source: Any) -> Any:
         """Return media prepared by the request formatter unchanged.
@@ -136,6 +160,9 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
+        unprepared = self._unprepared_local_placeholder(source, "image")
+        if unprepared is not None:
+            return unprepared
         return super()._format_image_source(
             self._local_source_to_base64(source),
         )
@@ -147,6 +174,9 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
         capped = self._maybe_cap(source, "audio")
         if capped is not None:
             return capped
+        unprepared = self._unprepared_local_placeholder(source, "audio")
+        if unprepared is not None:
+            return unprepared
         return super()._format_audio_source(
             self._local_source_to_base64(source),
         )
@@ -165,6 +195,9 @@ class _CappingAnthropicFormatter(
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
+        unprepared = self._unprepared_local_placeholder(source, "image")
+        if unprepared is not None:
+            return unprepared
         return super()._format_image_source(
             self._local_source_to_base64(source),
         )
@@ -182,6 +215,14 @@ class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
     def _placeholder(self, kind: str, size: int) -> dict[str, Any]:
         return {"text": self._placeholder_text(kind, size)}
 
+    def _placeholder_unprepared(self, kind: str) -> dict[str, Any]:
+        return {
+            "text": (
+                f"[{kind} unavailable to model: local media preparation "
+                "was bypassed]"
+            ),
+        }
+
     def _format_media_source(
         self,
         source: URLSource | Base64Source,
@@ -189,6 +230,9 @@ class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
         capped = self._maybe_cap(source, "media")
         if capped is not None:
             return capped
+        unprepared = self._unprepared_local_placeholder(source, "media")
+        if unprepared is not None:
+            return unprepared
         return super()._format_media_source(
             self._local_source_to_base64(source),
         )
@@ -209,6 +253,9 @@ class _CappingDashScopeFormatter(
         capped = self._maybe_cap(source, "video")
         if capped is not None:
             return capped
+        unprepared = self._unprepared_local_placeholder(source, "video")
+        if unprepared is not None:
+            return unprepared
         return super()._format_video_source(
             self._local_source_to_base64(source),
         )
@@ -220,6 +267,9 @@ class _CappingDashScopeFormatter(
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
+        unprepared = self._unprepared_local_placeholder(source, "image")
+        if unprepared is not None:
+            return unprepared
         return super()._format_image_source(
             self._local_source_to_base64(source),
         )
@@ -231,6 +281,9 @@ class _CappingDashScopeFormatter(
         capped = self._maybe_cap(source, "audio")
         if capped is not None:
             return capped
+        unprepared = self._unprepared_local_placeholder(source, "audio")
+        if unprepared is not None:
+            return unprepared
         return super()._format_audio_source(
             self._local_source_to_base64(source),
         )
@@ -252,10 +305,22 @@ class _CappingOpenAIResponseFormatter(
             "text": self._placeholder_text(kind, size),
         }
 
+    def _placeholder_unprepared(self, kind: str) -> dict[str, Any]:
+        return {
+            "type": "input_text",
+            "text": (
+                f"[{kind} unavailable to model: local media preparation "
+                "was bypassed]"
+            ),
+        }
+
     def _format_image_source(self, source: Any) -> dict[str, Any]:
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
+        unprepared = self._unprepared_local_placeholder(source, "image")
+        if unprepared is not None:
+            return unprepared
         return super()._format_image_source(
             self._local_source_to_base64(source),
         )

@@ -6,6 +6,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+import anthropic
+import httpx
+import openai
+
+from .error_utils import extract_status_code
+
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504, 529})
 
 ModelErrorKind = Literal[
@@ -19,35 +25,31 @@ ModelErrorKind = Literal[
     "unknown",
 ]
 
+_SDK_RATE_LIMIT_ERRORS = (
+    openai.RateLimitError,
+    anthropic.RateLimitError,
+)
+_SDK_TRANSIENT_ERRORS = (
+    httpx.NetworkError,
+    httpx.TimeoutException,
+    httpx.RemoteProtocolError,
+    openai.APIConnectionError,
+    openai.APITimeoutError,
+    openai.InternalServerError,
+    anthropic.APIConnectionError,
+    anthropic.APITimeoutError,
+    anthropic.InternalServerError,
+)
 
-def _is_sdk_network_error(exc: Exception) -> bool:
-    """Return whether an installed SDK identifies a network failure."""
-    network_errors: tuple[type[Exception], ...] = ()
-    try:
-        import httpx
 
-        network_errors += (httpx.NetworkError, httpx.TimeoutException)
-    except ImportError:
-        pass
-    try:
-        import openai
+def _is_sdk_rate_limit(exc: Exception) -> bool:
+    """Return whether an installed SDK identifies a rate-limit error."""
+    return isinstance(exc, _SDK_RATE_LIMIT_ERRORS)
 
-        network_errors += (
-            openai.APIConnectionError,
-            openai.APITimeoutError,
-        )
-    except ImportError:
-        pass
-    try:
-        import anthropic
 
-        network_errors += (
-            anthropic.APIConnectionError,
-            anthropic.APITimeoutError,
-        )
-    except ImportError:
-        pass
-    return bool(network_errors) and isinstance(exc, network_errors)
+def _is_sdk_transient(exc: Exception) -> bool:
+    """Return whether an installed SDK identifies a transient failure."""
+    return isinstance(exc, _SDK_TRANSIENT_ERRORS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,30 +62,6 @@ class ModelErrorDecision:
     fallback_eligible: bool
 
 
-def extract_status_code(exc: Exception) -> int | None:
-    """Extract a best-effort HTTP status from common SDK exceptions."""
-    status = getattr(exc, "status_code", None)
-    if status is not None:
-        try:
-            return int(status)
-        except (TypeError, ValueError):
-            pass
-    body = getattr(exc, "body", None)
-    if not isinstance(body, dict):
-        return None
-    for container in (body, body.get("error")):
-        if not isinstance(container, dict):
-            continue
-        raw = container.get("status_code", container.get("code"))
-        if raw is None:
-            continue
-        try:
-            return int(raw)
-        except (TypeError, ValueError):
-            continue
-    return None
-
-
 def classify_model_error(exc: Exception) -> ModelErrorDecision:
     """Classify whether a model error may retry or cross-model fallback."""
     status = extract_status_code(exc)
@@ -92,6 +70,17 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
         kind: ModelErrorKind = "authentication"
     elif status == 404 or "model not found" in message:
         kind = "model_not_found"
+    elif status == 429 or _is_sdk_rate_limit(exc):
+        kind = "rate_limited"
+    elif (
+        status in RETRYABLE_STATUS_CODES
+        or isinstance(
+            exc,
+            (ConnectionError, TimeoutError),
+        )
+        or _is_sdk_transient(exc)
+    ):
+        kind = "transient"
     elif any(
         marker in message
         for marker in (
@@ -113,17 +102,6 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
         )
     ):
         kind = "content_safety"
-    elif status == 429:
-        kind = "rate_limited"
-    elif (
-        status in RETRYABLE_STATUS_CODES
-        or isinstance(
-            exc,
-            (ConnectionError, TimeoutError),
-        )
-        or _is_sdk_network_error(exc)
-    ):
-        kind = "transient"
     elif status is not None and 400 <= status < 500:
         kind = "bad_request"
     else:

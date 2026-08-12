@@ -19,7 +19,7 @@ import re
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import List, Sequence, Tuple, Type, Any, Union, Optional
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 
 import httpx
 from agentscope.formatter import (
@@ -56,6 +56,10 @@ from ..providers.retry_chat_model import (
 )
 from ..token_usage import TokenRecordingModelWrapper
 from ..utils.io_utils import run_sync_io
+from ..utils.media_paths import (
+    file_url_to_path as _file_url_to_path,
+    local_media_path as _local_media_path,
+)
 
 # TODO(AgentScope compatibility): This is a temporary workaround for
 # AgentScope releases that emit random promoted-media identifiers. Remove it
@@ -94,36 +98,6 @@ def _stabilize_promoted_tool_result_media_identifiers(
     return text, rewritten
 
 
-def _file_url_to_path(url: str) -> str:
-    """Convert a file:// URI to a local filesystem path.
-
-    Handles Windows drive letters, UNC authority, and
-    percent-encoded characters.  Non-file:// URLs are
-    returned with only percent-decoding applied.
-
-    Examples:
-        file:///C:/path       -> C:/path
-        file:///tmp/path      -> /tmp/path
-        file://server/share/x -> //server/share/x  (UNC)
-    """
-    if not url.startswith("file://"):
-        return unquote(url)
-    s = url[7:]  # strip "file://"
-    # Strip localhost authority: localhost/path -> /path
-    if s.startswith("localhost/"):
-        s = s[9:]  # len("localhost") == 9
-    # Windows drive letter: /C:/path -> C:/path (three-slash form)
-    if len(s) >= 3 and s.startswith("/") and s[1].isalpha() and s[2] == ":":
-        s = s[1:]
-    # Windows drive letter: C:/path (two-slash form file://C:/...)
-    elif len(s) >= 2 and s[0].isalpha() and s[1] == ":":
-        pass  # already correct
-    elif not s.startswith("/"):
-        # UNC authority form: server/share/x -> //server/share/x
-        s = f"//{s}"
-    return unquote(s)
-
-
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_IMAGE_EXTENSIONS: dict[str, str] = {
@@ -148,20 +122,6 @@ _FORMATTER_SEEN_MEDIA_KEYS: ContextVar[set[str] | None] = ContextVar(
     "qwenpaw_formatter_seen_media_keys",
     default=None,
 )
-
-
-def _local_media_path(url: str) -> str | None:
-    """Return a local path for a media URL, or ``None`` for remote URLs."""
-    raw_url = _file_url_to_path(url)
-    parsed_url = urlparse(raw_url)
-    if parsed_url.scheme in ("http", "https", "data"):
-        return None
-    is_windows_drive = (
-        len(raw_url) >= 2 and raw_url[0].isalpha() and raw_url[1] == ":"
-    )
-    if parsed_url.scheme and not is_windows_drive:
-        return None
-    return raw_url or None
 
 
 def _read_local_media(

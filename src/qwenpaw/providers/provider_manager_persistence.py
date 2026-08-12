@@ -40,43 +40,16 @@ from .provider_persistence import (
     replace_with_retry,
     write_provider_snapshot,
 )
+from .provider_update_fields import (
+    AVAILABILITY_MODEL_FIELDS as _AVAILABILITY_MODEL_FIELDS,
+    CAPABILITY_MODEL_FIELDS as _CAPABILITY_MODEL_FIELDS,
+    CONNECTION_CONFIG_FIELDS as _CONNECTION_CONFIG_FIELDS,
+    PluginUpdateKind,
+)
 
 logger = logging.getLogger(__name__)
 
-PluginUpdateKind = Literal[
-    "replace",
-    "config",
-    "discovery",
-    "availability",
-    "configured_add",
-    "configured_delete",
-    "configured_update",
-    "capability",
-]
 ProviderStorageKind = Literal["builtin", "custom", "plugin"]
-_AVAILABILITY_MODEL_FIELDS = (
-    "availability_status",
-    "availability_message",
-    "availability_http_status",
-    "availability_retryable",
-    "availability_checked_at",
-    "availability_verification",
-)
-_CAPABILITY_MODEL_FIELDS = (
-    "supports_image",
-    "supports_video",
-    "supports_multimodal",
-    "probe_source",
-)
-_CONNECTION_CONFIG_FIELDS = {
-    "api_key",
-    "base_url",
-    "auth_mode",
-    "custom_headers",
-    "chat_model",
-    "api_key_prefix",
-    "api_key_prefixes",
-}
 
 
 class ProviderManagerPersistenceMixin:

@@ -8,7 +8,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List
 
 from agentscope.model import ChatModelBase
 
@@ -45,44 +45,16 @@ from .provider_manager_discovery import ProviderManagerDiscoveryMixin
 from .provider_manager_persistence import (
     ProviderManagerPersistenceMixin,
 )
+from .provider_update_fields import (
+    AVAILABILITY_MODEL_FIELDS as _AVAILABILITY_MODEL_FIELDS,
+    CAPABILITY_MODEL_FIELDS as _CAPABILITY_MODEL_FIELDS,
+    CONNECTION_CONFIG_FIELDS as _CONNECTION_CONFIG_FIELDS,
+    PluginUpdateKind,
+)
 from .plugin_provider_registry import PluginProviderRegistry
 from .provider_annotations import ProviderAnnotationService
 
 logger = logging.getLogger(__name__)
-
-PluginUpdateKind = Literal[
-    "replace",
-    "config",
-    "discovery",
-    "availability",
-    "configured_add",
-    "configured_delete",
-    "configured_update",
-    "capability",
-]
-_AVAILABILITY_MODEL_FIELDS = (
-    "availability_status",
-    "availability_message",
-    "availability_http_status",
-    "availability_retryable",
-    "availability_checked_at",
-    "availability_verification",
-)
-_CAPABILITY_MODEL_FIELDS = (
-    "supports_image",
-    "supports_video",
-    "supports_multimodal",
-    "probe_source",
-)
-_CONNECTION_CONFIG_FIELDS = {
-    "api_key",
-    "base_url",
-    "auth_mode",
-    "custom_headers",
-    "chat_model",
-    "api_key_prefix",
-    "api_key_prefixes",
-}
 
 
 # Preserve the catalog constants historically exported by this module.
@@ -867,8 +839,10 @@ class ProviderManager(
         # Compare probe result against expected baseline
         from .capability_baseline import compare_probe_result
 
-        registry = ExpectedCapabilityRegistry()
-        expected = registry.get_expected(provider_id, model_id)
+        expected = self._capability_registry.get_expected(
+            provider_id,
+            model_id,
+        )
         if expected:
             discrepancies = compare_probe_result(
                 expected,

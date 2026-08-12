@@ -19,7 +19,7 @@ from qwenpaw.agents import model_factory
 from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
 from qwenpaw.providers.model_capability_cache import get_capability_cache
 from qwenpaw.providers.model_error_policy import RETRYABLE_STATUS_CODES
-from qwenpaw.providers.rate_limiter import _limiters
+from qwenpaw.providers.rate_limiter import LLMRateLimiter, _limiters
 from qwenpaw.providers.retry_chat_model import (
     RetryChatModel,
     RetryConfig,
@@ -376,6 +376,31 @@ class _StructuredRetryModel:
         return SimpleNamespace(value=f"ok-{self.calls}")
 
 
+class _ResponseOnlyRateLimitModel:
+    model = "response-only-rate-limit-test"
+    stream = False
+    context_size = 32768
+    parameters = None
+    _provider_id = "unit"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate_structured_output(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> Any:
+        self.calls += 1
+        if self.calls == 1:
+            exc = Exception("Too many requests")
+            exc.response = SimpleNamespace(  # type: ignore[attr-defined]
+                status_code=429,
+            )
+            raise exc
+        return SimpleNamespace(value=f"ok-{self.calls}")
+
+
 @pytest.mark.asyncio
 async def test_structured_output_retries_same_model() -> None:
     _limiters.clear()
@@ -402,6 +427,52 @@ async def test_structured_output_retries_same_model() -> None:
 
         assert result.value == "ok-2"
         assert inner.calls == 2
+    finally:
+        _limiters.clear()
+
+
+@pytest.mark.asyncio
+async def test_response_only_429_reports_rate_limit_and_retries(
+    monkeypatch,
+) -> None:
+    reported: list[float | None] = []
+
+    async def report_rate_limit(
+        _limiter: LLMRateLimiter,
+        retry_after: float | None = None,
+    ) -> None:
+        reported.append(retry_after)
+
+    monkeypatch.setattr(
+        LLMRateLimiter,
+        "report_rate_limit",
+        report_rate_limit,
+    )
+    _limiters.clear()
+    try:
+        inner = _ResponseOnlyRateLimitModel()
+        model = RetryChatModel(
+            inner,  # type: ignore[arg-type]
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=1,
+                backoff_base=0.01,
+                backoff_cap=0.01,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+        )
+
+        result = await model.generate_structured_output(messages=[])
+
+        assert result.value == "ok-2"
+        assert inner.calls == 2
+        assert reported == [None]
     finally:
         _limiters.clear()
 

@@ -19,6 +19,26 @@ class HttpError(Exception):
         self.status_code = status_code
 
 
+class ResponseStatusError(Exception):
+    """Exception exposing status only through its response."""
+
+    def __init__(self, status_code: int, message: str = "error") -> None:
+        super().__init__(message)
+        self.response = type(
+            "Response",
+            (),
+            {"status_code": status_code},
+        )()
+
+
+class CodeStatusError(Exception):
+    """Exception exposing status only through its code attribute."""
+
+    def __init__(self, code: int, message: str = "error") -> None:
+        super().__init__(message)
+        self.code = code
+
+
 @pytest.mark.parametrize("status", [429, 500, 502, 503, 504, 529])
 def test_transient_http_errors_allow_retry_and_fallback(status: int) -> None:
     decision = classify_model_error(HttpError(status))
@@ -50,6 +70,51 @@ def test_context_overflow_does_not_fallback() -> None:
 
     assert decision.kind == "context_overflow"
     assert decision.fallback_eligible is False
+
+
+def test_response_status_is_rate_limited() -> None:
+    decision = classify_model_error(ResponseStatusError(429))
+
+    assert decision.status_code == 429
+    assert decision.kind == "rate_limited"
+    assert decision.retryable is True
+    assert decision.fallback_eligible is True
+
+
+def test_code_status_is_transient() -> None:
+    decision = classify_model_error(CodeStatusError(529))
+
+    assert decision.status_code == 529
+    assert decision.kind == "transient"
+    assert decision.retryable is True
+
+
+def test_streaming_status_is_transient() -> None:
+    decision = classify_model_error(
+        Exception("Streaming response failed: [503] unavailable"),
+    )
+
+    assert decision.status_code == 503
+    assert decision.kind == "transient"
+    assert decision.retryable is True
+
+
+def test_remote_protocol_error_is_transient() -> None:
+    decision = classify_model_error(
+        httpx.RemoteProtocolError("peer closed connection"),
+    )
+
+    assert decision.kind == "transient"
+    assert decision.retryable is True
+
+
+def test_rate_limit_status_precedes_context_heuristic() -> None:
+    decision = classify_model_error(
+        ResponseStatusError(429, "Too many tokens per minute"),
+    )
+
+    assert decision.kind == "rate_limited"
+    assert decision.retryable is True
 
 
 def test_content_safety_does_not_fallback() -> None:

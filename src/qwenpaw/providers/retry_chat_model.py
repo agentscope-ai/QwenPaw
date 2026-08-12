@@ -55,10 +55,6 @@ from .rate_limiter import LLMRateLimiter, get_rate_limiter
 
 logger = logging.getLogger(__name__)
 
-_openai_retryable: tuple[type[Exception], ...] | None = None
-_anthropic_retryable: tuple[type[Exception], ...] | None = None
-_httpx_retryable: tuple[type[Exception], ...] | None = None
-
 
 class _AcquireTimeoutError(RateLimitExceededException):
     """Raised when ``limiter.acquire()`` times out internally.
@@ -100,58 +96,6 @@ class RateLimitConfig:
     pause_seconds: float = LLM_RATE_LIMIT_PAUSE
     jitter_range: float = LLM_RATE_LIMIT_JITTER
     acquire_timeout: float = LLM_ACQUIRE_TIMEOUT
-
-
-def _get_openai_retryable() -> tuple[type[Exception], ...]:
-    global _openai_retryable
-    if _openai_retryable is None:
-        try:
-            import openai
-
-            _openai_retryable = tuple(
-                cls
-                for cls in (
-                    openai.RateLimitError,
-                    openai.APITimeoutError,
-                    openai.APIConnectionError,
-                    getattr(openai, "InternalServerError", None),
-                )
-                if cls is not None
-            )
-        except ImportError:
-            _openai_retryable = ()
-    return _openai_retryable
-
-
-def _get_anthropic_retryable() -> tuple[type[Exception], ...]:
-    global _anthropic_retryable
-    if _anthropic_retryable is None:
-        try:
-            import anthropic
-
-            _anthropic_retryable = (
-                anthropic.RateLimitError,
-                anthropic.APITimeoutError,
-                anthropic.APIConnectionError,
-            )
-        except ImportError:
-            _anthropic_retryable = ()
-    return _anthropic_retryable
-
-
-def _get_httpx_retryable() -> tuple[type[Exception], ...]:
-    global _httpx_retryable
-    if _httpx_retryable is None:
-        try:
-            import httpx
-
-            _httpx_retryable = (
-                httpx.RemoteProtocolError,
-                httpx.TimeoutException,
-            )
-        except ImportError:
-            _httpx_retryable = ()
-    return _httpx_retryable
 
 
 def _is_retryable(exc: Exception) -> bool:
