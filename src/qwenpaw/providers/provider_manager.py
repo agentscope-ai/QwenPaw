@@ -564,7 +564,6 @@ class ProviderManager(
             model=model_id,
         )
         await self.save_active_model_async(active_model)
-        self.active_model = active_model
 
         # Drop a stale ``rejects_media`` entry for this model so that a
         # transient upstream failure (e.g. a gateway misroute) does not

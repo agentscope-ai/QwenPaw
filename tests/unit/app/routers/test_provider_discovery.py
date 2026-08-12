@@ -53,7 +53,6 @@ async def test_configure_provider_schedules_model_discovery() -> None:
     manager.get_provider_info = AsyncMock(
         return_value=ProviderInfo(id="openai", name="OpenAI"),
     )
-    manager.save_provider_config_async = AsyncMock()
     manager.discover_provider_models = AsyncMock()
     tasks = BackgroundTasks()
 
@@ -77,11 +76,7 @@ async def test_configure_provider_schedules_model_discovery() -> None:
         },
     )
     assert len(tasks.tasks) == 1
-    assert provider.models_syncing is True
-    manager.save_provider_config_async.assert_awaited_once_with(
-        "openai",
-        provider,
-    )
+    assert provider.models_syncing is False
     task = tasks.tasks[0]
     assert task.func == manager.discover_provider_models
     assert task.args == ("openai",)

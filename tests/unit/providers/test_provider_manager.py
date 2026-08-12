@@ -466,6 +466,82 @@ async def test_cancelled_active_model_save_holds_lock_until_io_finishes(
     assert not (manager.root_path / "active_model.json").exists()
 
 
+async def test_cancelled_active_model_save_commits_memory_after_write(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    manager.active_model = ModelSlotConfig(
+        provider_id="openai",
+        model="gpt-5.2",
+    )
+    requested = ModelSlotConfig(
+        provider_id="openai",
+        model="gpt-5",
+    )
+    started = threading.Event()
+    release = threading.Event()
+    original_save = manager.save_active_model
+
+    def slow_save(active_model):
+        started.set()
+        release.wait(timeout=5)
+        original_save(active_model)
+
+    monkeypatch.setattr(manager, "save_active_model", slow_save)
+    save_task = asyncio.create_task(
+        manager.save_active_model_async(requested),
+    )
+    assert await asyncio.to_thread(started.wait, 5)
+    save_task.cancel()
+    release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await save_task
+    assert manager.active_model == requested
+    assert manager.load_active_model() == requested
+
+
+async def test_cancelled_provider_mutation_commits_persisted_snapshot(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    started = threading.Event()
+    release = threading.Event()
+    original_save = manager._save_provider_snapshot_locked
+
+    def slow_save(*args, **kwargs):
+        started.set()
+        release.wait(timeout=5)
+        original_save(*args, **kwargs)
+
+    monkeypatch.setattr(
+        manager,
+        "_save_provider_snapshot_locked",
+        slow_save,
+    )
+    mutation = asyncio.create_task(
+        manager.set_model_hidden(
+            "openai",
+            "gpt-5",
+            hidden=True,
+        ),
+    )
+    assert await asyncio.to_thread(started.wait, 5)
+    mutation.cancel()
+    release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await mutation
+    assert "gpt-5" in provider.hidden_model_ids
+    reloaded = ProviderManager().get_provider("openai")
+    assert reloaded is not None
+    assert "gpt-5" in reloaded.hidden_model_ids
+
+
 async def test_cancelled_custom_delete_finishes_before_lock_releases(
     isolated_secret_dir,
     monkeypatch,

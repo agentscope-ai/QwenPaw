@@ -18,6 +18,7 @@ export function useModelSelectorData({
   );
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const providersRequestRef = useRef(0);
   const activeRequestRef = useRef(0);
 
   const applyActiveModels = useCallback(
@@ -29,18 +30,23 @@ export function useModelSelectorData({
   );
 
   const fetchData = useCallback(async () => {
-    const requestId = ++activeRequestRef.current;
+    const providersRequestId = ++providersRequestRef.current;
+    const activeRequestId = ++activeRequestRef.current;
     setLoading(true);
     setLoadError(false);
     try {
       const result = await modelSelectorApi.loadModelSelectorData(agentId);
-      if (requestId !== activeRequestRef.current) return;
+      if (providersRequestId !== providersRequestRef.current) return;
       if (result.providers) setProviders(result.providers);
-      if (result.activeModels) applyActiveModels(result.activeModels);
+      if (result.activeModels && activeRequestId === activeRequestRef.current) {
+        applyActiveModels(result.activeModels);
+      }
       setLoadError(result.loadError);
       return result;
     } finally {
-      if (requestId === activeRequestRef.current) setLoading(false);
+      if (providersRequestId === providersRequestRef.current) {
+        setLoading(false);
+      }
     }
   }, [agentId, applyActiveModels]);
 

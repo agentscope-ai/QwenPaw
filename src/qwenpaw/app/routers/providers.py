@@ -24,7 +24,11 @@ from qwenpaw.exceptions import (
 
 from ..agent_context import get_agent_for_request
 from ..utils import schedule_agent_reload
-from ...config.config import load_agent_config, save_agent_config
+from ...config.config import (
+    AgentProfileConfig,
+    load_agent_config,
+    update_agent_config_async,
+)
 from ...providers.provider import (
     ModelInfo,
     ProviderInfo,
@@ -322,10 +326,7 @@ async def configure_provider(
 
     provider = manager.get_provider(provider_id)
     if _should_auto_discover(body, background_tasks, provider):
-        assert provider is not None
         assert background_tasks is not None
-        provider.models_syncing = True
-        await manager.save_provider_config_async(provider_id, provider)
         background_tasks.add_task(
             manager.discover_provider_models,
             provider_id,
@@ -833,23 +834,28 @@ async def set_active_model(
         # Sync to active agent if its active_model is unset (#4937)
         try:
             workspace = await get_agent_for_request(request)
-            agent_config = await asyncio.to_thread(
-                load_agent_config,
-                workspace.agent_id,
-            )
-            if (
-                not agent_config.active_model
-                or not agent_config.active_model.provider_id
-            ):
+            changed = False
+
+            def apply_global_default(
+                agent_config: AgentProfileConfig,
+            ) -> None:
+                nonlocal changed
+                if (
+                    agent_config.active_model
+                    and agent_config.active_model.provider_id
+                ):
+                    return
                 agent_config.active_model = ModelSlotConfig(
                     provider_id=body.provider_id,
                     model=body.model,
                 )
-                await asyncio.to_thread(
-                    save_agent_config,
-                    workspace.agent_id,
-                    agent_config,
-                )
+                changed = True
+
+            await update_agent_config_async(
+                workspace.agent_id,
+                apply_global_default,
+            )
+            if changed:
                 schedule_agent_reload(request, workspace.agent_id)
         except Exception:
             pass
@@ -869,18 +875,16 @@ async def set_active_model(
             request,
             agent_id=body.agent_id,
         )
-        agent_config = await asyncio.to_thread(
-            load_agent_config,
+
+        def apply_active_model(agent_config: AgentProfileConfig) -> None:
+            agent_config.active_model = ModelSlotConfig(
+                provider_id=body.provider_id,
+                model=body.model,
+            )
+
+        await update_agent_config_async(
             workspace.agent_id,
-        )
-        agent_config.active_model = ModelSlotConfig(
-            provider_id=body.provider_id,
-            model=body.model,
-        )
-        await asyncio.to_thread(
-            save_agent_config,
-            workspace.agent_id,
-            agent_config,
+            apply_active_model,
         )
         # Hot reload agent (async, non-blocking)
         schedule_agent_reload(request, workspace.agent_id)

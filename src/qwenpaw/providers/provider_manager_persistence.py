@@ -76,14 +76,18 @@ class ProviderManagerPersistenceMixin:
             result = await operation(candidate)
             provider_path = self._provider_config_path(provider_id)
             snapshot = candidate.model_copy(deep=True)
-            await run_sync_io(
-                self._save_provider_snapshot_locked,
-                provider_id,
-                snapshot,
-                provider_path,
-            )
-            self._commit_provider_snapshot(provider_id, snapshot)
-            self._bump_provider_revision(provider_id)
+
+            async def persist_and_commit() -> None:
+                await run_sync_io(
+                    self._save_provider_snapshot_locked,
+                    provider_id,
+                    snapshot,
+                    provider_path,
+                )
+                self._commit_provider_snapshot(provider_id, snapshot)
+                self._bump_provider_revision(provider_id)
+
+            await run_async_to_completion(persist_and_commit())
             return result
 
     def _save_provider(
@@ -875,14 +879,19 @@ class ProviderManagerPersistenceMixin:
         self,
         active_model: ModelSlotConfig,
     ) -> None:
-        """Persist the active model without blocking the event loop."""
+        """Persist and commit the active model as one transaction."""
         lock = self._provider_save_locks.setdefault(
             "__active_model__",
             asyncio.Lock(),
         )
         snapshot = active_model.model_copy(deep=True)
-        async with lock:
-            await run_sync_io(self.save_active_model, snapshot)
+
+        async def save_and_commit() -> None:
+            async with lock:
+                await run_sync_io(self.save_active_model, snapshot)
+                self.active_model = snapshot
+
+        await run_async_to_completion(save_and_commit())
 
     def clear_active_model(self, provider_id: str | None = None) -> bool:
         """Clear the active provider/model configuration.
