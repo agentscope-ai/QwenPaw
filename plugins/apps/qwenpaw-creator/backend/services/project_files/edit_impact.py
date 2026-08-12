@@ -481,6 +481,25 @@ def _apply_element_path(  # pylint: disable=too-many-branches
     _mark_timeline_render_stale(document, timeline_id, impact)
 
 
+def _apply_timeline_setting_path(
+    document: dict[str, Any],
+    tokens: tuple[str, ...],
+    impact: EditImpact,
+) -> None:
+    """Timeline-level render settings invalidate the selected master.
+
+    ``color_grade`` changes the final compose output without touching any
+    Element, so the stale flag must come from this dedicated path.
+    """
+    if (
+        len(tokens) >= 4
+        and tokens[0] == "timelines"
+        and tokens[1] == "items"
+        and tokens[3] == "color_grade"
+    ):
+        _mark_timeline_render_stale(document, tokens[2], impact)
+
+
 def _apply_slot_selection_path(
     document: dict[str, Any],
     tokens: tuple[str, ...],
@@ -576,6 +595,7 @@ def apply_frontend_edit_impacts(
             impact,
             base_document=base,
         )
+        _apply_timeline_setting_path(document, tokens, impact)
         _apply_slot_selection_path(document, tokens, impact)
     return document, impact
 

@@ -289,4 +289,31 @@ describe("AppCenterPage", () => {
       await screen.findByText("appCenter.appNotLoaded"),
     ).toBeInTheDocument();
   });
+
+  it("restores an OS PawApp when navigating back and forward", async () => {
+    window.history.replaceState({ osApp: "core.app-center" }, "", "/os");
+    renderPage();
+    await screen.findByText("alpha-app");
+
+    fireEvent.click(screen.getByText("alpha-app"));
+
+    expect(window.location.pathname).toBe("/os");
+    expect(window.history.state).toEqual({
+      osApp: "core.app-center",
+      osPawAppId: "alpha-app",
+    });
+    expect(
+      await screen.findByText("appCenter.appNotLoaded"),
+    ).toBeInTheDocument();
+
+    window.history.back();
+    await waitFor(() => {
+      expect(screen.getByText("alpha-app")).toBeInTheDocument();
+    });
+
+    window.history.forward();
+    expect(
+      await screen.findByText("appCenter.appNotLoaded"),
+    ).toBeInTheDocument();
+  });
 });

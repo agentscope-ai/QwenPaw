@@ -1,5 +1,6 @@
 import type {
   InspirationExampleListResponse,
+  InspirationExampleOpenProgress,
   InspirationExampleOpenResponse,
   ProjectCreateRequest,
   ProjectCreateResponse,
@@ -145,6 +146,7 @@ export async function getProjectSnapshot(
       body.syncStatus ?? body.sync_status,
       responseSyncStatus,
     ),
+    builtinExample: body.builtinExample === true,
     project: project as ProjectSnapshotEnvelope["project"],
   };
 }
@@ -192,6 +194,15 @@ export function openInspirationExample(
     // First open downloads the archive from OSS (tens of MB), so this call
     // gets a much longer budget than regular API requests.
     { timeoutMs: 300_000 },
+  );
+}
+
+/** Polled archive download progress for one example (while open runs). */
+export function getInspirationExampleOpenProgress(
+  exampleId: string,
+): Promise<InspirationExampleOpenProgress> {
+  return creatorRequest(
+    `/examples/${encodeURIComponent(exampleId)}/open-progress`,
   );
 }
 

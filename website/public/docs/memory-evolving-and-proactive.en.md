@@ -1,6 +1,6 @@
 # Agent Memory Evolving & Proactive Interaction (Beta)
 
-> **Beta Feature**: QwenPaw's ReMeLight memory manager embeds [ReMe](https://github.com/agentscope-ai/ReMe) as an in-process application. Auto Memory, Auto Resource, Auto Dream, search, and ReMe's low-level proactive topic reader are ReMe jobs. QwenPaw's `/proactive` command is a separate runtime feature that reads recent chat sessions and optional screen context.
+> **Beta Feature**: QwenPaw's ReMeLight memory manager embeds [ReMe](https://github.com/agentscope-ai/ReMe) as an in-process application. Auto Memory, Daily Paper, Auto Dream, search, and ReMe's low-level proactive topic reader are ReMe jobs. QwenPaw's `/proactive` command is a separate runtime feature that reads recent chat sessions and optional screen context.
 
 QwenPaw stores memory as files under the agent workspace. Conversations are saved as JSONL source logs, useful conversation facts are written to daily Markdown notes, resources can be converted into daily notes, and Auto Dream periodically integrates reusable abstractions into digest memory.
 
@@ -37,7 +37,7 @@ QwenPaw's directory names differ from ReMe's upstream defaults, but the layer ro
 
 The base grows through a continuous **capture → index → consolidate → recall** loop:
 
-1. **Capture** — Auto Memory distills conversations into daily notes; Auto Resource turns files under `resource/` into daily notes. The raw conversation is retained as evidence.
+1. **Capture** — Auto Memory distills conversations into daily notes; Daily Paper writes paper readings and a brief as daily notes. Raw conversations and paper PDFs remain as evidence.
 2. **Index** — A background job keeps `memory/` and `digest/` searchable through a BM25 keyword index, optional embeddings, and a wikilink graph.
 3. **Consolidate** — Auto Dream reads recent daily notes and integrates them into long-term `digest/` nodes. This is where memory actually _evolves_: instead of copying text, each extracted unit is merged into an existing node or creates a new one, and source and relationship wikilinks are woven in.
 4. **Recall** — `memory_search` retrieves the most relevant fragments and expands along the wikilink graph; interest topics and QwenPaw's `/proactive` surface what is worth attention.
@@ -54,9 +54,9 @@ graph LR
     B --> C[ReMe auto_memory job]
     C --> D[mem_session/dialog/*.jsonl]
     C --> E[memory/<date>/<note>.md]
-    R[resource/<date>/*] --> S[resource_watch_loop]
-    S --> T[ReMe auto_resource job]
-    T --> E
+    R[Hugging Face paper rankings] --> S[ReMe daily_paper job]
+    S --> T[resource/papers/*.pdf]
+    S --> E
     E --> U[ReMe auto_dream job]
     U --> V["digest/personal | procedure | wiki/*.md"]
     U --> W[memory/<date>/interests.yaml]
@@ -65,7 +65,7 @@ graph LR
 | Capability           | Code path                                                    | Trigger                                                                                                     | Main output                                                                            |
 | -------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------- |
 | Auto Memory          | `ReMeLightMemoryManager.auto_memory()` -> ReMe `auto_memory` | `MemoryMiddleware` after every configured number of user turns, and before context compression when enabled | `mem_session/dialog/<session_id>.jsonl`, `memory/<date>/<note>.md`, `memory/<date>.md` |
-| Auto Resource        | ReMe `resource_watch_loop` -> `auto_resource`                | Embedded ReMe background watcher for `resource_dir`                                                         | `memory/<date>/<resource_note>.md`                                                     |
+| Daily Paper          | `ReMeLightMemoryManager.daily_paper()` -> ReMe `daily_paper` | `daily_paper_cron` scheduler when `daily_paper_cron_enabled` is on                                          | `resource/papers/*.pdf`, detailed readings, and a daily brief                          |
 | Auto Dream           | `ReMeLightMemoryManager.dream()` -> ReMe `auto_dream`        | `/dream` command or `dream_cron` scheduler                                                                  | `digest/*/*.md`, `memory/<date>/interests.yaml`                                        |
 | ReMe proactive job   | ReMe `proactive`                                             | Direct ReMe job call only                                                                                   | Metadata/content from `memory/<date>/interests.yaml`                                   |
 | QwenPaw `/proactive` | `src/qwenpaw/agents/memory/proactive`                        | `/proactive [minutes                                                                                        | on                                                                                     | off]` idle loop | A proactive chat request sent through `/api/console/chat` |
@@ -85,9 +85,9 @@ The embedded ReMe config comes from `src/qwenpaw/agents/memory/reme_config.py` a
 │   └── dialog/
 │       └── <session_id>.jsonl
 ├── mem_agent/      # Internal ReMe memory-agent sessions
-├── resource/       # External assets watched by Auto Resource
-│   └── YYYY-MM-DD/
-│       └── <resource>.<ext>
+├── resource/       # Raw assets produced by proactive knowledge workflows
+│   └── papers/
+│       └── <arxiv_id>.pdf
 ├── memory/         # Daily memory notes and day indexes
 │   ├── YYYY-MM-DD.md
 │   └── YYYY-MM-DD/
@@ -111,7 +111,7 @@ Auto Memory is invoked by `MemoryMiddleware`, not directly on every model call. 
 - optionally injects auto memory search context before model calls when `auto_memory_search_config.enabled` is true;
 - collects user-turn markers after replies;
 - flushes pending turns after `auto_memory_interval` user turns;
-- also flushes before context compression when `summarize_when_compact` is true and compression is about to happen.
+- also flushes pending turns before context compression.
 
 `auto_memory_interval` defaults to `5`. `None`, `0`, or a negative value disables periodic auto-memory.
 
@@ -140,25 +140,17 @@ If the job succeeds but no note was changed, QwenPaw does not push an inbox even
 
 ---
 
-## Auto Resource
+## Daily Paper
 
-QwenPaw configures a ReMe background job named `resource_watch_loop`. It watches `resource_dir` and dispatches change batches to `auto_resource`.
+QwenPaw calls ReMe's `daily_paper` job through `ReMeLightMemoryManager.daily_paper()`. It collects candidates from
+Hugging Face weekly and monthly rankings, excludes recently recommended arXiv IDs, selects three papers, downloads
+their PDFs, and produces three detailed readings plus a daily brief.
 
-Watched suffixes are:
+PDFs are stored under `resource_dir/papers/`; Markdown is stored under `daily_dir/<date>/` and enters the existing
+memory index. Results are delivered through QwenPaw's inbox, with no DingTalk step.
 
-```text
-md, txt, json, jsonl, csv, yaml, html
-```
-
-Files can be placed directly in the `resource_dir` root, in which case QwenPaw's configured timezone determines the
-current date, or under `resource_dir/YYYY-MM-DD/`, in which case the path supplies the date. Additional subdirectories
-may follow the date directory. For added and modified resources, ReMe reads the content as UTF-8 text and asks the
-memory agent to create or update a daily note. Deleting a resource also deletes its corresponding source-linked note.
-
-Binary files such as PDF, Word, Excel, and images are not parsed automatically. The `yml` suffix is not in the default
-allowlist either; convert these inputs to one of the supported text formats first.
-
-Each change item may contain `path` or `file_path` and a `change` value such as `added`, `modified`, or `deleted`. The ReMe step interprets changed resource files into daily notes. QwenPaw pushes an `Auto-resource result` inbox event only when the job reports a real modification.
+`daily_paper_cron_enabled` defaults to `false`. When enabled, `daily_paper_cron` controls the schedule and defaults to
+`0 9 * * *`.
 
 ---
 
@@ -317,6 +309,6 @@ This document describes the current code paths:
 - Auto Dream runs by `/dream` or `dream_cron`;
 - ReMe writes `interests.yaml`, and ReMe has a low-level reader for it;
 - QwenPaw `/proactive` currently uses recent chat/session/screen context rather than ReMe interest topics;
-- Auto Memory, Auto Resource, and Auto Dream results may be delivered to the inbox when they produce reportable output.
+- Auto Memory, Daily Paper, and Auto Dream results may be delivered to the inbox when they produce reportable output.
 
 The feature remains Beta, but the behavior above is the behavior represented by the current code.

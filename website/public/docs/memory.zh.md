@@ -1,7 +1,7 @@
 # 长期记忆
 
 **长期记忆** 让 QwenPaw 拥有跨对话的持久记忆能力。默认后端会在 QwenPaw 进程内嵌入 ReMe 应用，并通过 ReMe jobs
-完成对话事实保存、每日记忆、梦境摘要、资源文件监听和记忆检索。
+完成对话事实保存、每日记忆、梦境摘要、每日论文生成和记忆检索。
 
 > 长期记忆机制设计受 [OpenClaw](https://github.com/openclaw/openclaw)
 > 启发，由 [ReMe](https://github.com/agentscope-ai/ReMe) 的 **ReMeLight** 实现——以文件系统为存储后端，工作记忆与长期记忆节点均为 Markdown
@@ -16,7 +16,7 @@ ReMe 的核心目标，是基于 _Memory as File, File as Memory_ 原则长出�
 | 长期记忆 | `digest/`                   | 可复用知识节点（`personal` / `procedure` / `wiki`） |
 | 系统状态 | `mem_metadata/`             | 索引、wikilink 图、catalog——不手工编辑              |
 
-记忆通过 **capture → index → consolidate → recall** 闭环进化：Auto-Memory / Auto-Resource 捕获 daily note，索引让其可检索，Auto-Dream 把它们整合成带链接的 digest 节点，search / proactive 再召回。完整叙述——包括 Auto-Dream 如何对 digest 节点 corroborate、refine、correct 并织成 wikilink 图——见[智能体记忆进化与主动交互](./memory-evolving-and-proactive)。以下章节聚焦技术实现与配置。
+记忆通过 **capture → index → consolidate → recall** 闭环进化：Auto-Memory 和 Daily Paper 产出 daily note，索引让其可检索，Auto-Dream 把它们整合成带链接的 digest 节点，search / proactive 再召回。完整叙述——包括 Auto-Dream 如何对 digest 节点 corroborate、refine、correct 并织成 wikilink 图——见[智能体记忆进化与主动交互](./memory-evolving-and-proactive)。以下章节聚焦技术实现与配置。
 
 ---
 
@@ -31,26 +31,27 @@ graph TB
     Jobs --> AutoMemory[auto_memory]
     Jobs --> AutoDream[auto_dream]
     Jobs --> Search[search]
-    Jobs --> Resource[auto_resource]
+    Jobs --> DailyPaper[daily_paper]
     Jobs --> Reindex[reindex / index_update_loop]
     AutoMemory --> Daily[memory/YYYY-MM-DD/*.md]
     AutoMemory --> Session[mem_session/dialog/*.jsonl]
     AutoDream --> Digest[digest/*.md 和 interests.yaml]
-    Resource --> ResourceDir[resource/*]
+    DailyPaper --> ResourceDir[resource/papers/*.pdf]
+    DailyPaper --> Daily
     Search --> Store[mem_metadata 文件存储 + BM25 + 可选向量]
 ```
 
 长期记忆管理包含以下能力：
 
-| 能力               | 说明                                                                                    |
-| ------------------ | --------------------------------------------------------------------------------------- |
-| **嵌入式 ReMe**    | QwenPaw 在进程内启动 ReMe，并将当前 Agent 使用的 QwenPaw 模型注入到 ReMe 默认 LLM 组件  |
-| **Auto-Memory**    | 每隔可配置数量的用户回合，将对话中值得保留的事实抽取为每日 Markdown 记忆                |
-| **上下文压缩保存** | 上下文压缩前，可把尚未写入的回合先提交给同一套 `auto_memory` 流程                       |
-| **Auto-Dream**     | 定时从近期每日记忆中提取更高层的 digest 单元和主动交互兴趣主题                          |
-| **混合检索**       | `memory_search` 调用 ReMe `search` job，通过 BM25 + 可选向量检索，并使用 RRF 融合排序   |
-| **资源记忆**       | `resource/` 下的外部文件会被编目，变更后可通过 `auto_resource` 转成带来源链接的每日记忆 |
-| **Inbox 通知**     | `auto_memory`、`auto_dream`、`auto_resource` 产生结果时，会推送到 QwenPaw inbox         |
+| 能力               | 说明                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------- |
+| **嵌入式 ReMe**    | QwenPaw 在进程内启动 ReMe，并将当前 Agent 使用的 QwenPaw 模型注入到 ReMe 默认 LLM 组件 |
+| **Auto-Memory**    | 每隔可配置数量的用户回合，将对话中值得保留的事实抽取为每日 Markdown 记忆               |
+| **上下文压缩保存** | 上下文压缩前，可把尚未写入的回合先提交给同一套 `auto_memory` 流程                      |
+| **Auto-Dream**     | 定时从近期每日记忆中提取更高层的 digest 单元和主动交互兴趣主题                         |
+| **混合检索**       | `memory_search` 调用 ReMe `search` job，通过 BM25 + 可选向量检索，并使用 RRF 融合排序  |
+| **Daily Paper**    | 可配置定时生成论文精读和每日简报；PDF 保存在 `resource/papers/`，Markdown 写入每日记忆 |
+| **Inbox 通知**     | `auto_memory`、`auto_dream`、`daily_paper` 产生结果时，会推送到 QwenPaw inbox          |
 
 ---
 
@@ -71,7 +72,8 @@ graph TB
 │       └── <session_id>.jsonl       ← 作为记忆来源的对话记录
 │
 ├── digest/                         ← Auto-Dream 产出的 digest 记忆和兴趣主题
-├── resource/                       ← auto_resource 监听的外部资源
+├── resource/                       ← Daily Paper 等能力保存的原始资源
+│   └── papers/                     ← Daily Paper 下载的 arXiv PDF
 └── mem_metadata/                   ← ReMe 持久化索引、图、catalog 和缓存
     ├── file_store/
     │   └── file_chunks_default_v1.jsonl.zst
@@ -79,7 +81,6 @@ graph TB
     │   └── default.jsonl.zst
     ├── file_catalog/
     │   ├── default.jsonl.zst
-    │   ├── resource.jsonl.zst
     │   ├── digest.jsonl.zst
     │   └── dream.jsonl.zst
     ├── embedding_store/
@@ -128,26 +129,13 @@ note，而不是无限创建重复文件。
   （`relates_to:: [[digest/...]]`），让 digest 记忆保持可追溯、可连通；`memory_search` 会沿这些链接展开
 - **更新**：ReMe `auto_dream`，通常由 `dream_cron` 定时触发
 
-### resource/（资源记忆）
+### resource/ 与 Daily Paper
 
-`resource/` 下的文件会被监听和编目。支持的文件发生变化时，ReMe 可以通过 `auto_resource` 将其解释为带来源链接的每日记忆。
+`resource/` 保留为主动知识能力的原始资源目录，不再监听任意文件。当前 Daily Paper 会从 Hugging Face
+周榜/月榜筛选论文，将 arXiv PDF 保存到 `resource/papers/<arxiv_id>.pdf`，再把三篇论文精读和一份每日简报写入
+`memory/YYYY-MM-DD/`。简报及详细笔记会进入现有记忆索引，执行结果推送到 QwenPaw inbox。
 
-- **位置**：`{working_dir}/resource/`
-- **默认支持后缀**：`md`、`txt`、`json`、`jsonl`、`csv`、`yaml`、`html`
-- **日期归属**：直接放在 `resource/` 下的文件归入当天；`resource/YYYY-MM-DD/`
-  下的文件归入指定日期，且可继续使用子目录
-- **输出**：生成或更新 `memory/YYYY-MM-DD/<note>.md`，frontmatter 中保留
-  `source_resource` 链接
-- **Inbox 行为**：只有实际修改记忆时，资源处理结果才会推送到 inbox
-
-```text
-resource/report.txt                    # 归入当天
-resource/2026-07-14/report.txt         # 归入 2026-07-14
-resource/2026-07-14/project/data.json  # 日期目录下可使用子目录
-```
-
-> Auto Resource 当前按 UTF-8 文本读取资源。PDF、Word、Excel、图片等二进制文件不在监听后缀中，
-> 不会被自动解析；请先转换为上述受支持的文本格式。`yml` 也不在默认白名单中，请使用 `yaml`。
+Daily Paper 默认关闭。启用 `daily_paper_cron_enabled` 后按 `daily_paper_cron` 调度。
 
 > 关于 Auto-Memory、Auto-Dream、Auto-Memory-Search 和 Proactive
 > 的完整工作流介绍，请参阅 [智能体记忆进化与主动交互](./memory-evolving-and-proactive)。以下仅补充技术实现细节与配置说明。
@@ -303,19 +291,25 @@ score、vector、keyword 字段，不要总结或改写。
 
 记忆配置位于 `agent.json` 的 `running.reme_light_memory_config` 中：
 
-| 配置项                   | 说明                                                                                | 默认值           |
-| ------------------------ | ----------------------------------------------------------------------------------- | ---------------- |
-| `metadata_dir`           | ReMe 持久状态目录，用于保存索引、catalog、graph 和缓存                              | `"mem_metadata"` |
-| `session_dir`            | 来源对话保存目录                                                                    | `"mem_session"`  |
-| `mem_session_dir`        | ReMe 内部 memory-agent 会话目录                                                     | `"mem_agent"`    |
-| `resource_dir`           | `auto_resource` 监听的资源目录                                                      | `"resource"`     |
-| `daily_dir`              | 每日记忆目录                                                                        | `"memory"`       |
-| `digest_dir`             | dream/digest 记忆目录                                                               | `"digest"`       |
-| `summarize_when_compact` | 是否在上下文压缩前将待保存回合提交给 Auto-Memory                                    | `true`           |
-| `inbox_push_enabled`     | 是否将 `auto_memory`、`auto_dream`、`auto_resource` 的 job 结果推送到 QwenPaw inbox | `true`           |
-| `auto_memory_interval`   | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆            | `5`              |
-| `dream_cron_enabled`     | 是否启用按 Cron 定时执行的 Auto-Dream 任务                                          | `true`           |
-| `dream_cron`             | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动    | `"0 23 * * *"`   |
+| 配置项                           | 说明                                                                             | 默认值           |
+| -------------------------------- | -------------------------------------------------------------------------------- | ---------------- |
+| `metadata_dir`                   | ReMe 持久状态目录，用于保存索引、catalog、graph 和缓存                           | `"mem_metadata"` |
+| `session_dir`                    | 来源对话保存目录                                                                 | `"mem_session"`  |
+| `mem_session_dir`                | ReMe 内部 memory-agent 会话目录                                                  | `"mem_agent"`    |
+| `resource_dir`                   | Daily Paper 等能力保存原始资源的目录                                             | `"resource"`     |
+| `daily_dir`                      | 每日记忆目录                                                                     | `"memory"`       |
+| `digest_dir`                     | dream/digest 记忆目录                                                            | `"digest"`       |
+| `auto_memory_inbox_push_enabled` | 是否将 `auto_memory` 结果推送到 QwenPaw inbox                                    | `true`           |
+| `auto_dream_inbox_push_enabled`  | 是否将 `auto_dream` 结果推送到 QwenPaw inbox                                     | `true`           |
+| `daily_paper_inbox_push_enabled` | 是否将 `daily_paper` 结果推送到 QwenPaw inbox                                    | `true`           |
+| `auto_memory_interval`           | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆         | `5`              |
+| `dream_cron_enabled`             | 是否启用按 Cron 定时执行的 Auto-Dream 任务                                       | `true`           |
+| `dream_cron`                     | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动 | `"0 23 * * *"`   |
+| `daily_paper_cron_enabled`       | 是否启用按 Cron 定时执行的 Daily Paper                                           | `false`          |
+| `daily_paper_cron`               | Daily Paper 的有效 5 段 Cron 表达式（启用时必填）                                | `"0 9 * * *"`    |
+| `daily_paper_use_hf_mirror`      | 是否通过 Hugging Face 镜像站获取论文信息                                         | `false`          |
+| `daily_paper_topics`             | 精选论文时优先考虑的主题                                                         | `""`             |
+| `memory_search_enabled`          | 是否向智能体提供 `memory_search` 工具；与自动搜索开关相互独立                    | `true`           |
 
 ### 重建记忆搜索索引
 

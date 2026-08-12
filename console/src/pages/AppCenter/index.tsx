@@ -3,8 +3,8 @@
  *
  * Lists all plugins with `meta.pawapp` from the backend. Clicking an
  * app renders its registered route component INLINE within this page
- * (no full-page navigation). The URL bar mirrors the app path while keeping
- * OS-owned pages under `/os`, so refresh never falls back to the classic UI.
+ * (no full-page navigation). The classic console mirrors the app path in the
+ * URL; the Desktop OS keeps its single `/os` browser entry point.
  */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -40,9 +40,10 @@ import { AppCard, pickAppDescription, type AppCardData } from "./AppCard";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import {
   addRouterBasename,
-  getOsAppHref,
+  getOsPawAppIdFromHistoryState,
   getOsRootHref,
   isOsPath,
+  withOsPawAppHistoryState,
 } from "../../utils/navigationMode";
 import styles from "./index.module.less";
 
@@ -177,18 +178,41 @@ export default function AppCenterPage() {
 
   const handleAppClick = (app: AppCardData) => {
     const target = appTarget(app);
-    const browserPath = isOsPath(window.location.pathname)
-      ? getOsAppHref(window.location.pathname, target)
-      : addRouterBasename(window.location.pathname, target);
-    window.history.pushState({ pawappInline: true }, "", browserPath);
+    if (isOsPath(window.location.pathname)) {
+      window.history.pushState(
+        withOsPawAppHistoryState(window.history.state, app.id),
+        "",
+        getOsRootHref(window.location.pathname),
+      );
+    } else {
+      window.history.pushState(
+        { pawappInline: true },
+        "",
+        addRouterBasename(window.location.pathname, target),
+      );
+    }
     setActiveApp(app);
   };
 
   const handleBack = () => {
-    const browserPath = isOsPath(window.location.pathname)
-      ? getOsRootHref(window.location.pathname)
-      : addRouterBasename(window.location.pathname, "/apps");
-    window.history.pushState({}, "", browserPath);
+    if (isOsPath(window.location.pathname)) {
+      if (getOsPawAppIdFromHistoryState(window.history.state)) {
+        window.history.back();
+        return;
+      }
+      window.history.replaceState(
+        withOsPawAppHistoryState(window.history.state, null),
+        "",
+        getOsRootHref(window.location.pathname),
+      );
+      setActiveApp(null);
+      return;
+    }
+    window.history.pushState(
+      {},
+      "",
+      addRouterBasename(window.location.pathname, "/apps"),
+    );
     setActiveApp(null);
   };
 
@@ -223,17 +247,15 @@ export default function AppCenterPage() {
 
   // Keep the inline view in sync with browser back/forward.
   useEffect(() => {
-    const onPop = () => {
-      const pathAppId =
-        window.location.pathname.match(/\/apps\/([^/?#]+)/)?.[1];
-      if (!pathAppId) {
+    const onPop = (event: PopStateEvent) => {
+      const appId = isOsPath(window.location.pathname)
+        ? getOsPawAppIdFromHistoryState(event.state)
+        : window.location.pathname.match(/\/apps\/([^/?#]+)/)?.[1];
+      if (!appId) {
         setActiveApp(null);
         return;
       }
-      const found = apps.find((app) => app.id === pathAppId);
-      if (found) {
-        setActiveApp(found);
-      }
+      setActiveApp(apps.find((app) => app.id === appId) ?? null);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);

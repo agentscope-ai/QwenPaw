@@ -94,3 +94,15 @@ def test_idle_status_reuses_latest_durable_completion() -> None:
     assert view["progress"]["label"] == "视觉开发已完成"
     assert view["progress"]["timelineId"] == "timeline:main"
     assert "activity" not in view
+
+
+def test_every_task_kind_has_a_presentation_or_degrades() -> None:
+    # Field run 2026-08-09: review_scene tasks 500'd the session
+    # bootstrap and blanked AgentDock history. Every TaskKind must map,
+    # and unknown kinds must degrade instead of raising.
+    from services.runtime_files import status_projection
+
+    # pylint: disable-next=protected-access
+    presentation = status_projection._TASK_PRESENTATION  # noqa: SLF001
+    for kind in TaskKind:
+        assert kind in presentation, kind

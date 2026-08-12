@@ -182,7 +182,7 @@ def parse_sync_advisory(
 
 
 def _stage_rows(stage: str):
-    from vendor.mm_plugins.review_rubrics import APPEAL_RUBRIC_ROWS
+    from vendor.media_toolkit.review_rubrics import APPEAL_RUBRIC_ROWS
 
     indexes = STAGE_RUBRIC_ROWS.get(stage, (0, 1, 2))
     return [row for row in APPEAL_RUBRIC_ROWS if row.index in indexes]
