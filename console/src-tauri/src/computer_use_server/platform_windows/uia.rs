@@ -142,6 +142,15 @@ pub(crate) fn collect_accessibility(
                 .map(|value| value.as_bool())
                 .unwrap_or(false)
         };
+        let actions = if unsafe {
+            element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
+        }
+        .is_ok()
+        {
+            vec!["Invoke"]
+        } else {
+            Vec::new()
+        };
         let element_id = format!("uia-{index}");
         let control_type = unsafe { element.CurrentControlType() }
             .map(|value| value.0)
@@ -165,6 +174,7 @@ pub(crate) fn collect_accessibility(
             "enabled": unsafe { element.CurrentIsEnabled() }.map(|value| value.as_bool()).unwrap_or(false),
             "offscreen": unsafe { element.CurrentIsOffscreen() }.map(|value| value.as_bool()).unwrap_or(true),
             "selected": selected,
+            "actions": actions,
             "bounds": [bounds.left, bounds.top, bounds.right, bounds.bottom],
         }));
         elements.insert(element_id, element);

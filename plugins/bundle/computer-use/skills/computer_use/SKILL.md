@@ -2,7 +2,7 @@
 name: computer_use
 description: "Read before using computer_use. Work through approved Apps and fresh observations; the runtime keeps each action bound to its current observation."
 metadata:
-  builtin_skill_version: "5.4"
+  builtin_skill_version: "5.5"
   qwenpaw:
     requires: {}
 ---
@@ -11,10 +11,10 @@ metadata:
 
 ## Tool Boundaries
 
-Read this Skill completely before Windows automation work, before reporting
-Computer Use unavailable, and before falling back to another Windows
-automation method. During a Computer Use workflow, do not switch to PowerShell
-UI Automation; keep Windows UI automation on the native desktop runtime.
+Read this Skill completely before desktop automation work, before reporting
+Computer Use unavailable, and before falling back to another desktop
+automation method. During a Computer Use workflow on Windows, do not switch to
+PowerShell UI Automation; keep UI automation on the native desktop runtime.
 
 Use Computer Use when command-line tools or structured integrations are not
 enough, including tasks that require the live GUI or visual verification. Keep
@@ -94,13 +94,13 @@ uia-18 Button "Save" screen@1662,1290
 uia-31 ListItem "All files (*.*)" screen@1355,832 [offscreen]
 ```
 
-Each line is `element_id`, `control_type_name` (for example `Edit`, `Button`,
-`ComboBox`, `MenuItem`), the control's `name` in quotes, and a locator. On
-Windows the locator is `screen@x,y`, the centre point in desktop coordinates;
-it is a recognition aid, not a click parameter. Coordinate actions always use
-the screenshot's own `viewport` coordinates. On macOS the locator is `=value`,
-the control's current value, because that platform reports values rather than
-pixel bounds.
+Each line starts with `element_id`, `control_type_name` (for example `Edit`,
+`Button`, `ComboBox`, `MenuItem`), and the control's `name` in quotes. A locator
+follows when the platform exposes one. On Windows it is `screen@x,y`, the centre
+point in desktop coordinates; it is a recognition aid, not a click parameter.
+Coordinate actions always use the screenshot's own `viewport` coordinates. On
+macOS the optional locator is `=value`, the control's current value, because
+that platform reports values rather than pixel bounds.
 
 Additional markers may follow. `[disabled]` means the control is present but
 cannot be acted on right now, so choose another route instead of retrying it.
@@ -163,7 +163,8 @@ dialog. Standard macOS sheets are observed as their own target.
 
 ## Choose One Target Channel
 
-Use UI Automation when the desired element is present in
+Use native accessibility automation (UIA on Windows and AX on macOS) when the
+desired element is present in
 `accessibility.elements`. Locate it by its `control_type_name` and `name`,
 then act on it by `element_id`. Use `click` for ordinary visible controls,
 including buttons and menu items, and use `set_value` for an `Edit` or
@@ -246,8 +247,9 @@ Use the application's documented completion action when one is required, and
 verify the durable result. Do not guess completion commands or repeat an
 unverified write.
 
-Use visual coordinates only when UI Automation is unavailable or unsuitable.
-Every visual action uses the current observation retained by the runtime.
+Use visual coordinates only when native accessibility automation is unavailable
+or unsuitable. Every visual action uses the current observation retained by the
+runtime.
 
 ```json
 {
@@ -319,8 +321,9 @@ succeeded.
 Recognized names include modifiers (`CTRL`, `ALT`, `SHIFT`, `WIN`), letters and
 digits, function keys (`F1`-`F12`), the numeric keypad (`NUMPAD0`-`NUMPAD9`),
 and editing or navigation keys such as `ENTER`, `TAB`, `ESC`, `SPACE`,
-`BACKSPACE`, `DELETE`, `INSERT`, `HOME`, `END`, `PAGEUP`, `PAGEDOWN`, and the
-arrow keys `UP`/`DOWN`/`LEFT`/`RIGHT`.
+`BACKSPACE`, `DELETE`, `HOME`, `END`, `PAGEUP`, `PAGEDOWN`, and the arrow keys
+`UP`/`DOWN`/`LEFT`/`RIGHT`. `DELETE` removes forward and `BACKSPACE` removes
+backward on both platforms. `INSERT` is available only on Windows.
 
 When a command is expected to expose a temporary editor, menu, sheet, or
 dialog that the next action depends on, enter that state through a matching

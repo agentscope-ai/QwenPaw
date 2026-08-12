@@ -523,7 +523,8 @@ fn keycode_for(key: &str) -> Option<u16> {
         "return" | "enter" => KeyCode::RETURN,
         "tab" => KeyCode::TAB,
         "space" => KeyCode::SPACE,
-        "delete" | "backspace" => KeyCode::DELETE,
+        "backspace" => KeyCode::DELETE,
+        "delete" | "del" => KeyCode::FORWARD_DELETE,
         "escape" | "esc" => KeyCode::ESCAPE,
         "home" => KeyCode::HOME,
         "end" => KeyCode::END,
@@ -604,7 +605,7 @@ fn keycode_for(key: &str) -> Option<u16> {
         "add" => 69,
         "subtract" => 78,
         "divide" => 75,
-        "insert" | "ins" | "help" => 114,
+        "help" => KeyCode::HELP,
         _ => return None,
     })
 }
@@ -904,4 +905,16 @@ fn frontmost_window_at_point(point: CGPoint) -> Option<i64> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn editing_keys_keep_their_platform_independent_meaning() {
+        assert_eq!(keycode_for("backspace"), Some(KeyCode::DELETE));
+        assert_eq!(keycode_for("delete"), Some(KeyCode::FORWARD_DELETE));
+        assert_eq!(keycode_for("insert"), None);
+    }
 }

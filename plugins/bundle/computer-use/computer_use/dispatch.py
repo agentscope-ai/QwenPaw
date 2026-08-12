@@ -172,7 +172,7 @@ def _element_line(element: Mapping[str, Any]) -> str:
             parts.append(f"screen@{(left + right) // 2},{(top + bottom) // 2}")
     elif isinstance(value, str) and value:
         parts.append(f"={value}")
-    identifier = element.get("identifier")
+    identifier = element.get("identifier") or element.get("automation_id")
     if isinstance(identifier, str) and identifier:
         parts.append(f"[identifier={identifier}]")
     # Both states stay visible: an offscreen entry may become reachable

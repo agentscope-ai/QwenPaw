@@ -602,6 +602,23 @@ def test_element_line_preserves_application_identifier() -> None:
     assert line == 'ax-3 MenuItem "复制" [identifier=cmdDuplicate:]'
 
 
+def test_element_line_normalizes_windows_semantic_capabilities() -> None:
+    """Windows UIA metadata uses the same compact contract as macOS AX."""
+    line = _element_line(
+        {
+            "id": "uia-4",
+            "control_type_name": "Button",
+            "name": "Continue",
+            "automation_id": "continue-button",
+            "actions": ["Invoke"],
+        },
+    )
+    assert line == (
+        'uia-4 Button "Continue" [identifier=continue-button] '
+        "[actions=Invoke]"
+    )
+
+
 def test_element_line_keeps_disabled_and_offscreen_visible() -> None:
     """Both states stay in the listing: they inform the next decision."""
     line = _element_line(
