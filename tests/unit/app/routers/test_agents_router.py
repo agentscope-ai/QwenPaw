@@ -11,7 +11,7 @@ Covers the highest-value flows:
 - ``POST /agents/{id}/copy`` — selective config copy without assets
 """
 
-# pylint: disable=protected-access,redefined-outer-name,unused-argument,R0917
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 from pathlib import Path
@@ -89,6 +89,12 @@ def fake_config():
     }
     config.agents.agent_order = ["default", "bot"]
     return config
+
+
+@pytest.fixture
+def agent_copy_context(client, fake_config, manager_mock):
+    """Return dependencies shared by agent copy tests."""
+    return client, fake_config, manager_mock
 
 
 # ---------------------------------------------------------------------------
@@ -1391,22 +1397,20 @@ def test_initialize_agent_workspace_applies_md_templates_by_default(
 
 
 @pytest.mark.parametrize(
-    ("copy_skills", "copy_jobs", "agent_id"),
+    "copy_case",
     [
         (False, False, "copied4"),
         (True, True, "copied5"),
     ],
 )
 def test_copy_agent_optional_assets_match_request_flags(
-    client,
-    fake_config,
-    manager_mock,
+    agent_copy_context,
     tmp_path,
     monkeypatch,
-    copy_skills,
-    copy_jobs,
-    agent_id,
+    copy_case,
 ):
+    client, fake_config, manager_mock = agent_copy_context
+    copy_skills, copy_jobs, agent_id = copy_case
     source_ws = tmp_path / "source"
     _seed_source_workspace(source_ws)
     fake_config.agents.profiles["bot"].workspace_dir = str(source_ws)
