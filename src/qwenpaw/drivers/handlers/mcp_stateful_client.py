@@ -27,6 +27,7 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.exceptions import McpError
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,9 @@ _TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     ConnectionResetError,
     BrokenPipeError,
 )
+_TRANSPORT_MCP_MESSAGES = frozenset(
+    {"session terminated", "connection closed"},
+)
 
 
 # How long ``list_tools`` waits for an in-flight reconnect before raising.
@@ -73,7 +77,18 @@ def _is_transport_error(exc: BaseException) -> bool:
     reconnect rather than treat the failure as permanent.  See
     ``_TRANSPORT_ERRORS`` for the full list of recognised exception types.
     """
-    return isinstance(exc, _TRANSPORT_ERRORS)
+    if isinstance(exc, _TRANSPORT_ERRORS):
+        return True
+
+    if isinstance(exc, McpError):
+        error = getattr(exc, "error", None)
+        message = str(getattr(error, "message", exc)).strip().casefold()
+        return message in _TRANSPORT_MCP_MESSAGES
+
+    sub_excs = getattr(exc, "exceptions", None)
+    if sub_excs:
+        return any(_is_transport_error(item) for item in sub_excs)
+    return False
 
 
 def _is_401_error(exc: BaseException) -> bool:
@@ -350,8 +365,34 @@ class _MCPClientMixin:
             try:
                 res = await self.session.list_tools()
             except Exception as exc:
-                self._handle_transport_error(exc)
-                raise
+                if not self._handle_transport_error(exc):
+                    raise
+
+                # Keep known schemas available during reconnection.
+                if self._cached_tools is not None:
+                    logger.warning(
+                        "MCP client '%s' session failed during list_tools; "
+                        "serving cached schemas while reconnecting.",
+                        self.name,
+                    )
+                    return self._cached_tools
+
+                # Cold discovery waits for reconnection and retries once.
+                try:
+                    await asyncio.wait_for(
+                        self._ready_event.wait(),
+                        timeout=_LIST_TOOLS_RECONNECT_WAIT,
+                    )
+                except asyncio.TimeoutError:
+                    raise exc from None
+
+                if not self.is_connected or self.session is None:
+                    raise exc from None
+                try:
+                    res = await self.session.list_tools()
+                except Exception as retry_exc:
+                    self._handle_transport_error(retry_exc)
+                    raise
             self._cached_tools = res.tools
             return res.tools
 
@@ -500,7 +541,7 @@ class _MCPClientMixin:
         await asyncio.gather(task, return_exceptions=True)
         self._clear_lifecycle_state(task)
 
-    def _handle_transport_error(self, exc: BaseException) -> None:
+    def _handle_transport_error(self, exc: BaseException) -> bool:
         """Mark the client as disconnected and schedule a reconnect when *exc*
         indicates a transport/stream failure rather than an MCP-level error.
 
@@ -533,9 +574,12 @@ class _MCPClientMixin:
         ``session`` reference is never reached before the lifecycle task
         replaces it.  Clearing it here would require a lock (the lifecycle
         task also writes ``session``), adding unnecessary complexity.
+
+        Returns:
+            Whether recovery state was applied.
         """
         if not _is_transport_error(exc):
-            return
+            return False
         logger.warning(
             "Transport error on MCP client '%s' (%s: %s); "
             "marking as disconnected and scheduling reconnect.",
@@ -560,6 +604,7 @@ class _MCPClientMixin:
         # session is left as-is; see docstring above.
         if not self._stop_event.is_set():
             self._reload_event.set()
+        return True
 
     async def _wait_for_reload_or_stop(self) -> None:
         """Wait for lifecycle control events without polling."""

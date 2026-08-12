@@ -1172,7 +1172,7 @@ def test_unknown_extraction_total_yields_unknown_ratio(
     # A row-capped table has an unknowable extraction total: coverage
     # stays available but the ratio is honestly unknown (None).
     monkeypatch.setattr(
-        "vendor.mm_plugins.renderers.data.FULL_TEXT_ROW_CAP",
+        "vendor.media_toolkit.renderers.data.FULL_TEXT_ROW_CAP",
         50,
     )
     rows = ["scene,cost"]
@@ -1260,3 +1260,91 @@ def test_srt_text_only_commit_rejects_page_image_intervals(tmp_path) -> None:
     with pytest.raises(ValidationError) as excinfo:
         asyncio.run(scenario())
     assert "页伪" in str(excinfo.value)
+
+
+def test_one_specialist_run_commits_multiple_assets(tmp_path) -> None:
+    """A batch delegation commits several assets from one run.
+
+    Round provenance (caused_by_request_id) is immutable per Round, so
+    each commit must own its Round; reusing the specialist run id across
+    commits rejected every asset after the first.
+    """
+
+    services, first_asset, first_version = _services_with_document(tmp_path)
+    result, _ = _ingest_many_sync(
+        services,
+        project_id="project-1",
+        key="doc-asset-2",
+        inputs=[
+            _AssetInput(
+                name="script-two.pdf",
+                content=_pdf_bytes(pages=2),
+                media_type="application/pdf",
+            ),
+        ],
+        attach_source=True,
+        scope="document-source-test",
+    )
+    second_asset = result["items"][0]["assetId"]
+    second_version = result["items"][0]["assetVersionId"]
+    service = SourceMediaAnalysisService(services)
+
+    async def commit_one(asset_id, version_id, page_count, ordinal):
+        read_context = _running_context(
+            service,
+            services,
+            asset_id,
+            tool_call_id=f"doc-read-{ordinal}",
+        )
+        read_result = await service.read_source_document(
+            project_id="project-1",
+            target_ref=f"asset:{asset_id}",
+            arguments={"fileRef": f"asset-version:{version_id}"},
+            context=read_context,
+        )
+        service.executions.append_specialist_message(
+            "project-1",
+            read_context.specialist_run_id,
+            message_id=f"tool-doc-result-{ordinal}",
+            role="tool",
+            content_parts=[
+                {"type": "text", "text": json.dumps(read_result)},
+            ],
+            metadata={
+                "tool": "read_document",
+                "toolCallId": f"doc-read-{ordinal}",
+            },
+        )
+        return await service.commit_agent_intelligence(
+            project_id="project-1",
+            target_ref=f"asset:{asset_id}",
+            command_id=f"doc-commit-{ordinal}",
+            context=_running_context(
+                service,
+                services,
+                asset_id,
+                tool_call_id=f"doc-commit-{ordinal}",
+            ),
+            arguments={
+                "summary": f"第 {ordinal} 份剧本：逐页节拍。",
+                "shots": [
+                    _document_shot(page, f"第 {page} 页节拍。")
+                    for page in range(1, page_count + 1)
+                ],
+                "entities": [],
+                "semanticEntries": [],
+                "moduleResultRefs": {"document": read_result["resultRef"]},
+            },
+        )
+
+    async def scenario():
+        first = await commit_one(first_asset, first_version, 3, 1)
+        second = await commit_one(second_asset, second_version, 2, 2)
+        return first, second
+
+    first, second = asyncio.run(scenario())
+
+    assert first["status"] == "SUCCEEDED"
+    assert second["status"] == "SUCCEEDED"
+    assert service.load("project-1", first_asset).summary.startswith("第 1")
+    assert service.load("project-1", second_asset).summary.startswith("第 2")

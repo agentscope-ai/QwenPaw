@@ -137,7 +137,7 @@ def manager():
 
 @pytest.mark.asyncio
 async def test_disabled_no_rerank(manager):
-    manager._get_reranker_config = MagicMock(return_value=None)
+    manager._get_reranker_config = AsyncMock(return_value=None)
     rs = [_result(0), _result(1)]
     resp = _make_response(rs)
     manager._run_reme_job = AsyncMock(return_value=resp)
@@ -153,7 +153,7 @@ async def test_disabled_no_rerank(manager):
 
 @pytest.mark.asyncio
 async def test_overfetch_multiplier(manager):
-    manager._get_reranker_config = MagicMock(
+    manager._get_reranker_config = AsyncMock(
         return_value=_make_config(candidate_multiplier=3),
     )
     manager._rerank_search_results = AsyncMock()
@@ -172,7 +172,7 @@ async def test_overfetch_multiplier(manager):
 
 @pytest.mark.asyncio
 async def test_enabled_rerank_ok_and_cap(manager):
-    manager._get_reranker_config = MagicMock(
+    manager._get_reranker_config = AsyncMock(
         return_value=_make_config(candidate_multiplier=3),
     )
 
@@ -196,7 +196,7 @@ async def test_enabled_rerank_ok_and_cap(manager):
 
 @pytest.mark.asyncio
 async def test_rerank_timeout_fallback(manager):
-    manager._get_reranker_config = MagicMock(
+    manager._get_reranker_config = AsyncMock(
         return_value=_make_config(),
     )
 
@@ -219,7 +219,7 @@ async def test_rerank_timeout_fallback(manager):
 
 @pytest.mark.asyncio
 async def test_rerank_http_error_fallback(manager):
-    manager._get_reranker_config = MagicMock(
+    manager._get_reranker_config = AsyncMock(
         return_value=_make_config(candidate_multiplier=2),
     )
 
@@ -247,7 +247,7 @@ async def test_rerank_http_error_fallback(manager):
 
 @pytest.mark.asyncio
 async def test_rerank_index_mismatch_fallback(manager):
-    manager._get_reranker_config = MagicMock(
+    manager._get_reranker_config = AsyncMock(
         return_value=_make_config(),
     )
 
@@ -270,7 +270,7 @@ async def test_rerank_index_mismatch_fallback(manager):
 
 @pytest.mark.asyncio
 async def test_rerank_duplicate_index_fallback(manager):
-    manager._get_reranker_config = MagicMock(
+    manager._get_reranker_config = AsyncMock(
         return_value=_make_config(),
     )
 
@@ -297,7 +297,7 @@ async def test_no_base_url_skip(manager):
     """When base_url is empty, _call_reranker_api returns None early,
     so no reorder occurs.  If there is no truncation either, the original
     ReMe answer (including link expansions) is preserved."""
-    manager._get_reranker_config = MagicMock(
+    manager._get_reranker_config = AsyncMock(
         return_value=_make_config(base_url=""),
     )
     called = {"n": 0}
@@ -331,7 +331,7 @@ async def test_no_base_url_skip_with_truncation(manager):
     """When base_url is empty but truncation is needed, the answer is
     rebuilt from the parsed sections (preserving expansions) rather than
     from raw metadata."""
-    manager._get_reranker_config = MagicMock(
+    manager._get_reranker_config = AsyncMock(
         return_value=_make_config(base_url=""),
     )
 
@@ -366,7 +366,7 @@ async def test_rerank_preserves_expansions(manager):
     """When reranker reorders and truncates, the reconstructed answer
     preserves link expansions and hybrid score details from the original
     ReMe answer sections."""
-    manager._get_reranker_config = MagicMock(
+    manager._get_reranker_config = AsyncMock(
         return_value=_make_config(candidate_multiplier=3),
     )
 
@@ -406,7 +406,7 @@ async def test_rerank_preserves_expansions(manager):
 async def test_rerank_timeout_preserves_answer_sections(manager):
     """When reranker times out but truncation occurs, the answer is
     rebuilt from the parsed sections, preserving expansions."""
-    manager._get_reranker_config = MagicMock(
+    manager._get_reranker_config = AsyncMock(
         return_value=_make_config(candidate_multiplier=3),
     )
 
@@ -441,7 +441,7 @@ async def test_rerank_timeout_preserves_answer_sections(manager):
 
 @pytest.mark.asyncio
 async def test_empty_results(manager):
-    manager._get_reranker_config = MagicMock(
+    manager._get_reranker_config = AsyncMock(
         return_value=_make_config(),
     )
     manager._rerank_search_results = AsyncMock()
@@ -507,7 +507,7 @@ def test_rebuild_answer_with_expansions_hybrid_scores():
 async def test_answer_preserved_when_reranker_no_op(manager):
     """When reranker returns indices [0, 1, 2, ...], the original answer
     must be preserved because the order has not changed."""
-    manager._get_reranker_config = MagicMock(
+    manager._get_reranker_config = AsyncMock(
         return_value=_make_config(),
     )
 
@@ -548,7 +548,7 @@ async def test_auto_memory_search_uses_reranker(manager):
         ),
     )
 
-    manager._get_reranker_config = MagicMock(
+    manager._get_reranker_config = AsyncMock(
         return_value=_make_config(candidate_multiplier=3),
     )
     manager._call_reranker_api = AsyncMock(
@@ -565,8 +565,8 @@ async def test_auto_memory_search_uses_reranker(manager):
 
     with patch.object(
         mgr,
-        "load_agent_config",
-        return_value=agent_config,
+        "load_agent_config_async",
+        AsyncMock(return_value=agent_config),
     ):
         result = await manager.auto_memory_search(
             messages="dummy message",

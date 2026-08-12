@@ -68,6 +68,23 @@ _SAVED_TOOL_FILE_RE = re.compile(
 )
 
 _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+# ``unicode61`` does not perform word segmentation for CJK scripts. A
+# continuous run such as ``项目的截止日期是周二`` is indexed as one token, so a
+# natural keyword query like ``截止日期`` cannot MATCH it. Route
+# queries containing these scripts through bounded LIKE search instead. That
+# path matches each whitespace-delimited term as a literal substring, with
+# implicit AND and bare-uppercase OR groups. This keeps Porter stemming/BM25
+# for languages ``unicode61`` tokenizes well.
+_CJK_QUERY_RE = re.compile(
+    "["
+    "\u3040-\u30ff"  # Hiragana and Katakana
+    "\u3400-\u4dbf"  # CJK Extension A
+    "\u4e00-\u9fff"  # CJK Unified Ideographs
+    "\uac00-\ud7af"  # Hangul syllables
+    "\uf900-\ufaff"  # CJK Compatibility Ideographs
+    "\U00020000-\U0002fa1f"  # Supplementary CJK ideographs
+    "]",
+)
 # FTS5's boolean operators are UPPERCASE-only; we pass these through bare so a
 # query like ``tank OR aquarium`` casts a wide net, while every other token is
 # quoted as a literal phrase. A lowercase ``or`` stays a search term.
@@ -173,11 +190,70 @@ def fts_match_query(raw: str) -> str:
     operator sequence just raises in ``MATCH`` and the caller degrades to LIKE.
     Returns ``""`` when there are no word tokens (caller falls back to LIKE).
     """
-    toks = _FTS_TOKEN_RE.findall(raw)
-    return " ".join(
-        t if t in _FTS_OPERATORS else '"' + t.replace('"', '""') + '"'
-        for t in toks
+
+    def render(group: str) -> str:
+        toks = _FTS_TOKEN_RE.findall(group)
+        return " ".join(
+            t if t in _FTS_OPERATORS else '"' + t.replace('"', '""') + '"'
+            for t in toks
+        )
+
+    groups = _or_query_groups(raw)
+    rendered = [render(group) for group in groups]
+    # Preserve the old malformed-query behavior when one OR arm contains no
+    # searchable word token: MATCH raises and the caller safely falls back to
+    # the literal LIKE path instead of silently dropping that arm.
+    if any(not group for group in rendered):
+        return render(raw)
+    return " OR ".join(rendered)
+
+
+def _or_query_groups(raw: str) -> list[str]:
+    """Split a valid bare-uppercase ``OR`` query into alternative groups.
+
+    Whitespace-separated terms inside each group retain implicit-AND
+    semantics. Malformed leading, trailing, or repeated ``OR`` is kept as one
+    literal group so the fallback remains restrictive instead of broadening a
+    bad query by discarding an empty alternative.
+    """
+    tokens = raw.split()
+    if not tokens:
+        return [raw]
+    groups: list[str] = []
+    current: list[str] = []
+    for token in tokens:
+        if token == "OR":
+            if not current:
+                return [raw]
+            groups.append(" ".join(current))
+            current = []
+        else:
+            current.append(token)
+    if not current:
+        return [raw]
+    groups.append(" ".join(current))
+    return groups
+
+
+def _like_search_terms(raw: str) -> list[str]:
+    """Whitespace-delimited literal terms for the LIKE search path."""
+    terms = raw.split()
+    # Keep direct/internal all-whitespace calls restrictive instead of
+    # accidentally producing a predicate-free query that returns every row.
+    return terms or [raw]
+
+
+def _like_search_groups(raw: str) -> list[list[str]]:
+    """Literal LIKE terms grouped as implicit AND arms joined by OR."""
+    return [_like_search_terms(group) for group in _or_query_groups(raw)]
+
+
+def _like_pattern(term: str) -> str:
+    """Wrap one literal term as a SQLite LIKE contains-pattern."""
+    escaped = (
+        term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     )
+    return f"%{escaped}%"
 
 
 def sanitize_suffix(session_id: str | None) -> str:
@@ -752,7 +828,8 @@ class MemorySpace:
         when that fallback search is partial. The query is plain text:
         punctuation is treated as word separators (so ``C++`` searches the
         term ``C``), not FTS5 operators. Falls back to a LIKE scan if this
-        SQLite lacks FTS5 or the query has no word tokens.
+        SQLite lacks FTS5, the query has no word tokens, or the query contains
+        CJK text that SQLite's ``unicode61`` tokenizer cannot segment.
 
         The agent's current ACTIVE TURN (the latest user request of this
         session and everything after it) never appears in the hits — it is
@@ -793,10 +870,16 @@ class MemorySpace:
 
         # FTS5 MATCH takes a query grammar, not plain text. Sanitize first; an
         # all-punctuation query (no word tokens) has nothing to MATCH, so use
-        # the LIKE scan instead — as we also do when FTS5 is unavailable.
+        # the LIKE scan instead — as we also do when FTS5 is unavailable. The
+        # unicode61 tokenizer treats a continuous CJK sentence as one token;
+        # use literal substring search for CJK queries so keyword recall works.
         match = fts_match_query(query)
         fts_available = self._fts_available()
-        use_like = not fts_available or not match
+        use_like = (
+            not fts_available
+            or not match
+            or _CJK_QUERY_RE.search(query) is not None
+        )
         if not include_turn:
             return self._search_matching_rows_only(
                 query,
@@ -1333,9 +1416,10 @@ class MemorySpace:
         # If this is the *FTS-unavailable* fallback (not just an
         # all-punctuation query on an FTS-capable build), tell the model its
         # search degraded:
-        # LIKE is a literal substring scan with no ranking and no boolean/OR
-        # grammar, so it must query one term at a time. The notice shares the
-        # row schema so a ``r["content"]`` loop over results never breaks.
+        # LIKE is a literal substring scan with no ranking. It preserves the
+        # public uppercase-OR contract, but not the rest of FTS5's grammar.
+        # The notice shares the row schema so a ``r["content"]`` loop over
+        # results never breaks.
         if not self._fts_available():
             rows.insert(0, self._like_notice())
         return rows
@@ -1350,13 +1434,23 @@ class MemorySpace:
         offset: int = 0,
         created_bounds: tuple[str | None, str | None] = (None, None),
     ) -> list[dict]:
-        """Return one stable page from the literal LIKE fallback."""
+        """Return one stable page matching AND terms in any OR group."""
+        groups = _like_search_groups(query)
+        query_clauses: list[str] = []
+        query_params: list[str] = []
+        for terms in groups:
+            query_clauses.append(
+                "("
+                + " AND ".join("content LIKE ? ESCAPE '\\'" for _ in terms)
+                + ")",
+            )
+            query_params.extend(map(_like_pattern, terms))
         # Exclude the recall tool's own turns (NULL-safe: keep un-named rows).
         where = [
-            "content LIKE ?",
+            "(" + " OR ".join(query_clauses) + ")",
             f"(name IS NULL OR name NOT IN ({_RECALL_EXCL_PLACEHOLDERS}))",
         ]
-        params: list = [f"%{query}%", *_RECALL_TOOL_NAMES]
+        params: list = [*query_params, *_RECALL_TOOL_NAMES]
         excl = self._active_turn_exclusion()
         if excl:
             where.append(excl[0])
@@ -1482,8 +1576,8 @@ class MemorySpace:
         """Search full saved tool-result files referenced by history rows."""
         if limit <= 0:
             return []
-        needles = self._query_needles(query)
-        if not needles:
+        needle_groups = self._query_needle_groups(query)
+        if not needle_groups:
             return []
         rows: list[dict] = []
         seen: set[tuple[int, str, int]] = set()
@@ -1511,7 +1605,7 @@ class MemorySpace:
                         break
                     matches = self._file_line_matches(
                         path,
-                        needles,
+                        needle_groups,
                         budget=budget,
                     )
                     for match in matches:
@@ -1563,7 +1657,7 @@ class MemorySpace:
         query: str,
     ) -> list[dict]:
         """Annotate recall_tool rows with saved-file metadata when present."""
-        needles = self._query_needles(query)
+        needle_groups = self._query_needle_groups(query)
         out: list[dict] = []
         budget = self._new_saved_tool_scan_budget()
         for row in rows:
@@ -1607,10 +1701,10 @@ class MemorySpace:
                         f"file_path={str(path)!r} start_line={start_line}."
                     ),
                 }
-                if needles and not budget.is_exhausted():
+                if needle_groups and not budget.is_exhausted():
                     matches = self._file_line_matches(
                         path,
-                        needles,
+                        needle_groups,
                         limit=3,
                         budget=budget,
                     )
@@ -1721,25 +1815,38 @@ class MemorySpace:
         return path
 
     @staticmethod
-    def _query_needles(query: str) -> list[str]:
-        """Plain AND-style terms suitable for a saved-file line scan."""
-        return [
-            tok.casefold()
-            for tok in _FTS_TOKEN_RE.findall(query)
-            if tok not in _FTS_OPERATORS
-        ]
+    def _query_needle_groups(query: str) -> list[list[str]]:
+        """Saved-file terms grouped as AND arms joined by uppercase OR."""
+        groups: list[list[str]] = []
+        for raw_group in _or_query_groups(query):
+            needles = [
+                tok.casefold()
+                for tok in _FTS_TOKEN_RE.findall(raw_group)
+                if tok not in _FTS_OPERATORS
+            ]
+            # An empty arm must never become ``all([]) == True`` and match
+            # every artifact line. Keep punctuation-only/malformed searches
+            # restrictive, matching the old empty-needle behavior.
+            if not needles:
+                return []
+            groups.append(needles)
+        return groups
 
     @staticmethod
     def _file_line_matches(  # pylint: disable=too-many-branches
         path: Path,
-        needles: list[str],
+        needle_groups: list[list[str]],
         *,
         limit: int = 5,
         context: int = 1,
         budget: _ScanBudget | None = None,
     ) -> list[dict]:
         """Stream line matches with bounded memory and byte consumption."""
-        if not needles or limit <= 0:
+        if (
+            not needle_groups
+            or any(not group for group in needle_groups)
+            or limit <= 0
+        ):
             return []
         if budget is None:
             budget = _ScanBudget(
@@ -1774,7 +1881,10 @@ class MemorySpace:
                     break
 
                 folded = line.casefold()
-                if all(needle in folded for needle in needles):
+                if any(
+                    all(needle in folded for needle in group)
+                    for group in needle_groups
+                ):
                     item = {
                         "line": line_no,
                         "lines": [*previous, (line_no, line)],
@@ -1831,9 +1941,10 @@ class MemorySpace:
             "content": (
                 "NOTE: full-text search is unavailable (no FTS5 in this "
                 "SQLite build), so this is a literal substring (LIKE) scan — "
-                "no relevance ranking, and boolean/OR syntax is NOT supported "
-                "(it would be matched literally). Search a single term at a "
-                "time and scan the rows yourself."
+                "no relevance ranking. Bare uppercase OR alternatives are "
+                "supported; whitespace-separated terms within each "
+                "alternative are AND-combined. Other boolean operators are "
+                "matched as ordinary terms."
             ),
         }
 

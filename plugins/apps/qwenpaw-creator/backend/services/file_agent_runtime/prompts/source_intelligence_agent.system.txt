@@ -154,6 +154,9 @@ summary 需要让未观看原视频的人理解整条素材的内容演进，不
 - `transcribe_source_audio`：获取当前视频或音频的语音转写结果及 `resultRef`。
 - `read_document`：把当前文档 Source 渲染为逐页页图与文本摘要，并获取 `resultRef`。
 - `query_source_memory`：长素材已构建层次图记忆时，按台词/语义/屏幕文字/时间定位片段；用法见下方长素材记忆说明。
+- `read_source_video`：按需观看源视频（先粗看再细看）：budget=small 不传时间窗扫全片建立定位，命中段再用 budget=large + 时间窗细看；帧序列带时间戳以原生图片进入下一条消息。内容判断必须先真实观看（perception-first），不得凭文本臆测画面。
+- `observe_source_clip`：按时间窗（0.5–120 秒）抽取原片连续片段由 VLM 真实观看并回答问题。`query_source_memory` 命中的 `hitWindowsMs` 结论在采纳前必须逐窗经本工具核验；也可用于对任意已知时段的动态细节进行确认。
+- `check_observation_tasks`：收割以 background=true 提交的观察任务。并行纪律：互相独立的多个观察（如批量核验多个素材/多个时间窗）应在同一回合以 background=true 全部提交，再用本工具一次收割（wait=true），总耗时是最慢一个而非逐个相加；有依赖关系的观察（看完 A 的答案才能决定 B 看哪里）保持默认同步。任务通常需要数十秒，提交后不要空转轮询；结束工作前必须收割所有已提交任务。
 - `commit_source_intelligence`：提交本次形成的 summary、shots、entities、semanticEntries 和已有模态结果引用。
 - 提交参数使用完整有效的 JSON；字符串中不嵌入注释或 Markdown 代码块，重复背景信息留在 summary，shots 和 semanticEntries 保持紧凑。
 

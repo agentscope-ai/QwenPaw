@@ -224,3 +224,72 @@ class _NullExecutions:
             return None
 
         return _noop
+
+
+def test_real_coarse_to_fine_read_extracts_frames(
+    trimmed_source: Path,
+) -> None:
+    """WT-A2 acceptance: coarse small-budget full scan then a large-budget
+    narrow window on the real source (先粗看再细看), extraction only."""
+    from services.media.source_video_reader import read_video_frames_sync
+
+    coarse = read_video_frames_sync(
+        trimmed_source,
+        budget="small",
+        max_frames=32,
+    )
+    assert len(coarse["frames"]) >= 16
+    span = coarse["frames"][-1][0] - coarse["frames"][0][0]
+    assert span >= coarse["duration"] * 0.9, "coarse scan must cover the file"
+    fine = read_video_frames_sync(
+        trimmed_source,
+        budget="large",
+        start_ms=60_000,
+        end_ms=90_000,
+        max_frames=16,
+    )
+    assert len(fine["frames"]) >= 8
+    assert fine["target_h"] * fine["target_w"] > (
+        coarse["target_h"] * coarse["target_w"]
+    ), "large budget must render higher resolution than small"
+    print(
+        f"coarse: {len(coarse['frames'])} frames @ "
+        f"{coarse['target_h']}x{coarse['target_w']}; "
+        f"fine: {len(fine['frames'])} frames @ "
+        f"{fine['target_h']}x{fine['target_w']}",
+    )
+
+
+def test_real_observe_clip_answers_with_timestamps(
+    trimmed_source: Path,
+    tmp_path: Path,
+) -> None:
+    """WT-A1 acceptance: a real VLM watches one 30s window of the real
+    source and answers with timestamped evidence (回原片核验闭环)."""
+    from services.media import source_observation
+
+    if not model_config.get_vlm_api_key().strip():
+        pytest.skip("VLM model is not configured")
+    service = source_observation.SourceObservationService(
+        _FakeServices(tmp_path),
+    )
+    job = source_observation.SourceObservationJob(
+        project_id="manual-project",
+        task_id="manual-observe",
+        logical_asset_id="manual-asset",
+        version_id="manual-version",
+        local_path=str(trimmed_source),
+        start_ms=60_000,
+        end_ms=90_000,
+        question=("描述这段画面里发生了什么，并给出关键动作发生的具体时刻。"),
+    )
+    answer = asyncio.run(service._observe(job, trimmed_source))
+    print(f"manual observe answer:\n{answer}")
+    assert len(answer) > 20
+    # Timestamped evidence: at least one mm:ss-style stamp in the reply.
+    import re
+
+    assert re.search(
+        r"\d{1,2}[:：]\d{2}",
+        answer,
+    ), "observation answer must carry timestamped evidence"

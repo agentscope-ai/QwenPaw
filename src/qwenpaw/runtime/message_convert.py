@@ -5,13 +5,13 @@ from __future__ import annotations
 import logging
 import mimetypes
 from typing import Any, List
-from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 
 from ..constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
 )
+from .._compat.message import _ensure_url_scheme
 
 logger = logging.getLogger(__name__)
 
@@ -49,30 +49,6 @@ def _get_last_user_text(msgs: List[Any]) -> str | None:
     if hasattr(last, "get_text_content"):
         return last.get_text_content()
     return None
-
-
-def _ensure_url_scheme(url: str) -> str:
-    """Prepend ``file://`` when *url* is an absolute local path.
-
-    Handles both Unix paths (``/``, ``~``) and Windows paths
-    (e.g. ``C:\\`` or ``C:/``).
-
-    Always ``unquote()`` first so percent-encoded non-ASCII characters
-    (e.g. ``%E6%B5%8B%E8%AF%95`` → ``测试``) resolve to the real
-    filename on disk.  Then uses ``file://`` + raw path (not
-    ``Path.as_uri()``) to avoid re-encoding.
-    """
-    if url.startswith(("/", "~")):
-        resolved = str(Path(unquote(url)).expanduser().resolve())
-    elif len(url) >= 3 and url[1] == ":" and url[2] in ("/", "\\"):
-        resolved = str(Path(unquote(url)).resolve())
-    else:
-        return url
-
-    resolved = resolved.replace("\\", "/")
-    if not resolved.startswith("/"):
-        resolved = "/" + resolved
-    return "file://" + resolved
 
 
 # pylint: disable=too-many-branches

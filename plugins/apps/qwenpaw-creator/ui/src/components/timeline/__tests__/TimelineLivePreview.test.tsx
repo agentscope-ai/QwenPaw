@@ -148,7 +148,7 @@ describe("TimelineLivePreview", () => {
           node.getAttribute("data-live-text-overlay") ??
           node.getAttribute("data-live-placeholder"),
       ),
-    ).toEqual(["edit-opening", "r2v-window", "overlay-os"]);
+    ).toEqual(["audio-bgm", "edit-opening", "r2v-window", "overlay-os"]);
 
     const editLayer = container.querySelector(
       '[data-live-layer="edit-opening"]',
@@ -160,11 +160,12 @@ describe("TimelineLivePreview", () => {
     );
     expect(editLayer).not.toHaveClass("invisible");
 
-    // Same convention as final composition: audio elements don't take part in
-    // the preview.
-    expect(
-      container.querySelector('[data-live-layer="audio-bgm"]'),
-    ).not.toBeInTheDocument();
+    // Narration/BGM plays through a hidden <audio> node driven by the same
+    // playhead-following machinery as video layers.
+    const audioLayer = container.querySelector(
+      '[data-live-layer="audio-bgm"]',
+    ) as HTMLAudioElement;
+    expect(audioLayer.tagName).toBe("AUDIO");
 
     // pet_os bubble drawn to the final-render spec: white bubble with black
     // border + tail + vibe emoji.
@@ -210,7 +211,7 @@ describe("TimelineLivePreview", () => {
     const { container } = renderPreview(cloneProject(), 7000);
     const visibleVideos = [
       ...container.querySelectorAll<HTMLVideoElement>(
-        "[data-live-layer]:not(.invisible)",
+        "video[data-live-layer]:not(.invisible)",
       ),
     ];
 
@@ -239,7 +240,7 @@ describe("TimelineLivePreview", () => {
       const { container } = renderPreview(cloneProject(), 7000);
       const visibleVideos = [
         ...container.querySelectorAll<HTMLVideoElement>(
-          "[data-live-layer]:not(.invisible)",
+          "video[data-live-layer]:not(.invisible)",
         ),
       ];
       visibleVideos.forEach((video) => {
@@ -398,6 +399,73 @@ describe("TimelineLivePreview", () => {
     expect(
       container.querySelector("iframe[data-live-motion-overlay]"),
     ).not.toBeInTheDocument();
+  });
+
+  it("previews full-canvas motion clips as backend poster frames", () => {
+    const project = cloneProject();
+    const elements = project.timelines.items["timeline:main"].elements_by_id;
+    // A pure motion-graphics segment: the document itself is the picture.
+    elements["clip-scene"] = {
+      element_id: "clip-scene",
+      label: "开场场景",
+      enabled: true,
+      z_index: 0,
+      location: null,
+      render_source: null,
+      span: { start_tick: 0, duration_tick: 8000 },
+      outputs: {},
+      creation: {
+        type: "motion_clip",
+        prompt: "scene",
+        motion: {
+          format: "html_js",
+          html: null,
+          html_file_id: "file-motion-clip-test",
+          fps: 24,
+          loop: false,
+        },
+      },
+    } as never;
+
+    const { container } = renderPreview(project, 2000);
+    const poster = container.querySelector(
+      '[data-live-motion-overlay="clip-scene"]',
+    ) as HTMLImageElement;
+    expect(poster).toBeInTheDocument();
+    expect(poster.tagName).toBe("IMG");
+    expect(poster.getAttribute("src")).toContain(
+      "/media/motion-documents/file-motion-clip-test/poster",
+    );
+    // Full-canvas: no location means the layer spans the whole stage.
+    expect(
+      container.querySelector('[data-live-placeholder="clip-scene"]'),
+    ).not.toBeInTheDocument();
+  });
+
+  it("mounts a sandboxed same-source player alongside the html_js poster", () => {
+    const project = cloneProject();
+    const overlay =
+      project.timelines.items["timeline:main"].elements_by_id["overlay-title"];
+    if (overlay.creation.type !== "overlay" || !overlay.creation.motion) {
+      throw new Error("expected generated motion overlay");
+    }
+    overlay.creation.motion.format = "html_js";
+    overlay.creation.motion.html = null;
+    overlay.creation.motion.html_file_id = "file-motion-player-test";
+
+    const { container } = renderPreview(project, 2000);
+    const player = container.querySelector(
+      'iframe[data-live-motion-player="overlay-title"]',
+    ) as HTMLIFrameElement;
+    expect(player).toBeInTheDocument();
+    // Opaque-origin sandbox: scripts may run, nothing else.
+    expect(player.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(player.getAttribute("src")).toContain(
+      "/media/motion-documents/file-motion-player-test/preview",
+    );
+    // Hidden until the document boots; the poster underlay carries the
+    // first paint.
+    expect(player.style.visibility).toBe("hidden");
   });
 
   it("fails closed for html_js without a poster", () => {

@@ -47,6 +47,8 @@ export interface ProjectSnapshotState {
   syncStatus: ProjectSnapshotSyncStatus;
   syncError: string | null;
   lastGoodAt: string | null;
+  /** Bundled inspiration example (needs remote original footage on demand). */
+  builtinExample: boolean;
   requestInFlight: boolean;
   polling: boolean;
   consecutiveFailures: number;
@@ -99,6 +101,7 @@ const snapshotBase = (projectId: string | null = null) => ({
   syncStatus: "idle" as ProjectSnapshotSyncStatus,
   syncError: null,
   lastGoodAt: null,
+  builtinExample: false,
   requestInFlight: false,
   polling: false,
   consecutiveFailures: 0,
@@ -276,6 +279,7 @@ export const useProjectSnapshotStore = create<ProjectSnapshotState>(
               generation: result.generation,
               etag: result.etag,
               syncStatus: result.syncStatus,
+              builtinExample: result.builtinExample === true,
               syncError:
                 result.syncStatus === "healthy" ? null : state.syncError,
               lastGoodAt: new Date().toISOString(),

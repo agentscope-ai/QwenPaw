@@ -68,6 +68,14 @@ from services.source_analysis import (  # noqa: E402
 from services.media.source_memory import (  # noqa: E402
     recover_interrupted_source_memory,
 )
+from services.media.source_observation import (  # noqa: E402
+    drain_source_observation_services,
+    recover_interrupted_source_observations,
+)
+from services.media.source_video_reader import (  # noqa: E402
+    drain_source_video_reader_services,
+    recover_interrupted_source_video_reads,
+)
 from utils.logger import configure_creator_file_logging  # noqa: E402
 
 
@@ -186,6 +194,17 @@ async def _startup() -> None:
         await start_file_media_execution_services(services)
         await start_creator_agent_runtime(services)
         recover_interrupted_source_memory(services)
+        # Observation/read workers live only in process memory: fail their
+        # orphaned QUEUED/RUNNING Tasks closed so waiters see a retryable
+        # error instead of polling a record no worker will ever finish.
+        await asyncio.to_thread(
+            recover_interrupted_source_observations,
+            services,
+        )
+        await asyncio.to_thread(
+            recover_interrupted_source_video_reads,
+            services,
+        )
     except BaseException as exc:
         trace_event(
             "creator.runtime.startup_failed",
@@ -206,6 +225,19 @@ async def _startup() -> None:
         raise
     _file_services = services
     logger.info("QwenPaw Creator file runtime ready at %s", data_root)
+    # Loud, not silent: explicitly set review env vars take full control
+    # and the settings-center toggles are ignored — a field incident had
+    # review running with the UI switched off because a stale env stayed
+    # injected in the launch command.
+    from models.config import forced_review_env_overrides
+
+    overrides = forced_review_env_overrides()
+    if overrides:
+        logger.warning(
+            "Review tiers forced by environment (settings-center toggles "
+            "are ignored for these): %s",
+            ", ".join(f"{k}={v}" for k, v in overrides.items()),
+        )
     trace_event(
         "creator.runtime.started",
         component="pawapp",
@@ -278,20 +310,38 @@ async def _shutdown() -> None:
         try:
             await drain_timeline_render_jobs()
         finally:
+            await _shutdown_file_runtime()
+
+
+async def _shutdown_file_runtime() -> None:
+    """Stop the media/agent runtime layers in dependency order."""
+
+    try:
+        await _drain_source_media_services()
+    finally:
+        try:
+            await shutdown_file_media_execution_services()
+        finally:
             try:
-                await shutdown_file_media_execution_services()
+                await shutdown_source_analysis_services()
             finally:
                 try:
-                    await shutdown_source_analysis_services()
+                    await stop_creator_agent_runtime()
                 finally:
-                    try:
-                        await stop_creator_agent_runtime()
-                    finally:
-                        clear_creator_file_service_registry()
-                        trace_event(
-                            "creator.runtime.stopped",
-                            component="pawapp",
-                        )
+                    clear_creator_file_service_registry()
+                    trace_event(
+                        "creator.runtime.stopped",
+                        component="pawapp",
+                    )
+
+
+async def _drain_source_media_services() -> None:
+    """Terminalize in-flight observation/read Tasks before shutdown."""
+
+    try:
+        await drain_source_observation_services()
+    finally:
+        await drain_source_video_reader_services()
 
 
 # The 'plugin' variable is what PluginLoader looks for.

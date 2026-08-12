@@ -18,8 +18,8 @@ vi.mock("@ant-design/x-markdown", () => ({
   ),
 }));
 
-vi.mock("../MermaidCodeBlock", () => ({
-  mermaidComponents: {},
+vi.mock("../RenderableCodeBlock", () => ({
+  renderableCodeComponents: {},
 }));
 
 // Mock useAppMessage hook

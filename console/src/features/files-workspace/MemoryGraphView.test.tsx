@@ -262,7 +262,9 @@ describe("MemoryGraphView", () => {
       | undefined;
     expect(nodeLabelAccessor).toEqual(expect.any(Function));
     expect(nodeLabelAccessor?.({ id: "memory/a.md" })).toBe("");
-    expect(graph.linkDirectionalParticles).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(graph.linkDirectionalParticles).toHaveBeenCalled(),
+    );
     expect(screen.getByRole("button", { name: "wiki" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Alpha" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "missing" })).toBeInTheDocument();

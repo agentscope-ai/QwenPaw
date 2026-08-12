@@ -485,6 +485,61 @@ class TestCaptureTruthGate:
         error = self._verify(self._frames(tmp_path, frames))
         assert error is not None and "越出透明盒边缘" in error
 
+    def test_ring_frame_accepts_full_edge_border(self, tmp_path) -> None:
+        # A variety frame is an opaque border with a transparent window:
+        # 100% edge contact is its normal state under the ring gate.
+        def border(x: int, y: int) -> tuple[int, int, int, int]:
+            on_border = x < 3 or x >= 13 or y < 3 or y >= 13
+            return (255, 255, 255, 255) if on_border else (0, 0, 0, 0)
+
+        frames_dir = self._frames(
+            tmp_path,
+            {index: border for index in _SAMPLED_INDICES},
+        )
+        assert (
+            _verify_captured_frames(
+                frames_dir,
+                frame_count=5,
+                box_width=_BOX,
+                box_height=_BOX,
+                ffmpeg_path=_FFMPEG,
+                frame_ring=True,
+            )
+            is None
+        )
+        # Geometric recognition: the same ring form passes WITHOUT the
+        # declaration (model-authored html_css frames carry no marker).
+        assert (
+            _verify_captured_frames(
+                frames_dir,
+                frame_count=5,
+                box_width=_BOX,
+                box_height=_BOX,
+                ffmpeg_path=_FFMPEG,
+            )
+            is None
+        )
+
+    def test_ring_frame_rejects_opaque_center(self, tmp_path) -> None:
+        # An "opaque frame" that paints the middle would cover the
+        # wrapped footage: the honest center gate fails it closed.
+        def opaque(_x: int, _y: int) -> tuple[int, int, int, int]:
+            return (255, 255, 255, 255)
+
+        frames_dir = self._frames(
+            tmp_path,
+            {index: opaque for index in _SAMPLED_INDICES},
+        )
+        error = _verify_captured_frames(
+            frames_dir,
+            frame_count=5,
+            box_width=_BOX,
+            box_height=_BOX,
+            ffmpeg_path=_FFMPEG,
+            frame_ring=True,
+        )
+        assert error is not None and "中心窗口必须保持透明" in error
+
     def test_inspection_failure_passes(self, tmp_path) -> None:
         # Missing frames or a broken ffmpeg must never reject a render:
         # the gate only acts on positive evidence.
@@ -826,7 +881,7 @@ class TestOpaqueFrameAlphaFallback:
         # (-1, -1) let exactly the full-bleed documents skip the gates.
         frame = tmp_path / "opaque.png"
         _write_rgb_png(frame, _BOX, _BOX, lambda _x, _y: (240, 240, 240))
-        coverage, edge = motion_overlay._frame_alpha_stats(
+        coverage, edge, _center, _floor = motion_overlay._frame_alpha_stats(
             frame,
             _FFMPEG,
             _BOX,
@@ -1077,10 +1132,9 @@ class TestMotionRenderFailurePropagation:
         # regenerate or remove the design.
         runner = self._runner(monkeypatch)
         monkeypatch.setattr(
-            "services.media_files.local_execution.render_motion_overlay",
-            lambda **kwargs: OverlayRenderResult(
-                False,
-                "html_js 文档未注册 window.__hf 协议或 duration 无效",
+            "services.media_files.local_execution.prepare_motion_layer",
+            lambda **kwargs: motion_overlay.MotionLayerPrep(
+                error="html_js 文档未注册 window.__hf 协议或 duration 无效",
             ),
         )
         item, segment = self._item(tmp_path)
@@ -1096,13 +1150,33 @@ class TestMotionRenderFailurePropagation:
     ) -> None:
         runner = self._runner(monkeypatch)
 
-        def fake_render(**kwargs):
+        def fake_prepare(**kwargs):
+            return motion_overlay.MotionLayerPrep(
+                layer=motion_overlay.PreparedMotionLayer(
+                    frames_dir=tmp_path,
+                    frame_count=1,
+                    effective_fps=24.0,
+                    appear_at=0.0,
+                    duration=2.0,
+                    left=0,
+                    top=0,
+                    opacity=1.0,
+                    period_mode=False,
+                    managed_exit=False,
+                ),
+            )
+
+        def fake_composite(**kwargs):
             Path(kwargs["output_path"]).write_bytes(b"with-motion")
             return OverlayRenderResult(True)
 
         monkeypatch.setattr(
-            "services.media_files.local_execution.render_motion_overlay",
-            fake_render,
+            "services.media_files.local_execution.prepare_motion_layer",
+            fake_prepare,
+        )
+        monkeypatch.setattr(
+            "services.media_files.local_execution.composite_motion_layers",
+            fake_composite,
         )
         item, segment = self._item(tmp_path)
         warnings = runner._apply_motion_overlays(item, segment)

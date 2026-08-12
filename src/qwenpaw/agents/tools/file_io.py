@@ -114,10 +114,13 @@ async def read_file(  # pylint: disable=too-many-return-statements
     start_line: Optional[int | str] = None,
     end_line: Optional[int | str] = None,
 ) -> ToolChunk:
-    """Read a file. Relative paths resolve from WORKING_DIR.
+    """Read a text file. Relative paths resolve from WORKING_DIR.
 
     Use start_line/end_line to read a specific line range (output includes
-    line numbers). Omit both to read the full file.
+    line numbers). Omit both to read from the start. If output is truncated,
+    the tail says which start_line to resume from. Images, PDFs and other
+    binaries come back as unusable bytes rather than an error. Use view_image
+    for images.
 
     Args:
         file_path (`str`):

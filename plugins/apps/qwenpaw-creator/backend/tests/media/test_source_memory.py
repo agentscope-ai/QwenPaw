@@ -14,6 +14,7 @@ import pytest
 from domain.errors import ValidationError
 from schemas.assets import SourceIntelligenceIndex, SourceMemoryRef
 from services.media import source_memory
+from services.media.source_observation import CLIP_SIZE_BUDGET_CAP_BYTES
 from services.media.source_memory import (
     SourceMemoryProjection,
     SourceMemoryService,
@@ -557,7 +558,7 @@ def test_clip_budget_derives_from_transport_limit(monkeypatch) -> None:
     )
     assert (
         source_memory._clip_size_budget_bytes()
-        == source_memory.CLIP_SIZE_BUDGET_CAP_BYTES - 64 * 1024
+        == CLIP_SIZE_BUDGET_CAP_BYTES - 64 * 1024
     )
     # Limits too small for any workable clip are a configuration error
     # instead of a budget that transport would later refuse.
@@ -1132,7 +1133,7 @@ def test_extract_subgraph_resumes_from_checkpoint(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from vendor.mm_plugins.video_memory.schema import MacroEvent
+    from vendor.media_toolkit.video_memory.schema import MacroEvent
 
     service = _service(tmp_path)
     ckpt_dir = tmp_path / "subgraphs"
@@ -1190,7 +1191,7 @@ def test_extract_subgraph_persists_checkpoint_before_apply(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from vendor.mm_plugins.video_memory.schema import MacroEvent
+    from vendor.media_toolkit.video_memory.schema import MacroEvent
 
     service = _service(tmp_path)
     ckpt_dir = tmp_path / "subgraphs"
@@ -1286,86 +1287,17 @@ def test_recover_requeues_when_checkpoints_exist(
 # ── transport-aware clip encoding ────────────────────────────────────────────
 
 
-def test_clip_transport_prefers_hq_on_dashscope(tmp_path, monkeypatch) -> None:
-    calls: list[str] = []
-    monkeypatch.setattr(
-        source_memory.vlm_model,
-        "uses_dashscope_transport",
-        lambda: True,
-    )
-    monkeypatch.setattr(
-        source_memory,
-        "_clip_segment_hq_sync",
-        lambda *a: calls.append("hq") or a[1],
-    )
-    monkeypatch.setattr(
-        source_memory,
-        "_clip_segment_within_budget_sync",
-        lambda *a: calls.append("ladder") or a[1],
-    )
-    source_memory._clip_segment_for_transport_sync(
-        tmp_path / "in.mp4",
-        tmp_path / "out.mp4",
-        0.0,
-        10.0,
-    )
-    assert calls == ["hq"]
+def test_clip_transport_moved_to_source_observation() -> None:
+    # The transport-aware clip encode dispatch moved to
+    # services.media.source_observation (covered by
+    # tests/media/test_source_observation.py); source_memory keeps
+    # patchable private aliases for its build call sites.
+    from services.media import source_observation
 
-
-def test_clip_transport_falls_back_to_ladder(tmp_path, monkeypatch) -> None:
-    calls: list[str] = []
-    monkeypatch.setattr(
-        source_memory.vlm_model,
-        "uses_dashscope_transport",
-        lambda: True,
+    assert (
+        source_memory._clip_segment_for_transport_sync
+        is source_observation.clip_segment_for_transport_sync
     )
-
-    def failing_hq(*_args):
-        calls.append("hq")
-        raise RuntimeError("encode failed")
-
-    monkeypatch.setattr(source_memory, "_clip_segment_hq_sync", failing_hq)
-    monkeypatch.setattr(
-        source_memory,
-        "_clip_segment_within_budget_sync",
-        lambda *a: calls.append("ladder") or a[1],
-    )
-    source_memory._clip_segment_for_transport_sync(
-        tmp_path / "in.mp4",
-        tmp_path / "out.mp4",
-        0.0,
-        10.0,
-    )
-    assert calls == ["hq", "ladder"]
-
-
-def test_clip_transport_uses_ladder_off_dashscope(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    calls: list[str] = []
-    monkeypatch.setattr(
-        source_memory.vlm_model,
-        "uses_dashscope_transport",
-        lambda: False,
-    )
-    monkeypatch.setattr(
-        source_memory,
-        "_clip_segment_hq_sync",
-        lambda *a: calls.append("hq") or a[1],
-    )
-    monkeypatch.setattr(
-        source_memory,
-        "_clip_segment_within_budget_sync",
-        lambda *a: calls.append("ladder") or a[1],
-    )
-    source_memory._clip_segment_for_transport_sync(
-        tmp_path / "in.mp4",
-        tmp_path / "out.mp4",
-        0.0,
-        10.0,
-    )
-    assert calls == ["ladder"]
 
 
 # ── project-scope merged memory ──────────────────────────────────────────────
@@ -1552,7 +1484,7 @@ def test_execute_runs_chunked_pipeline_with_segment_checkpoints(
     # 7300s source → 3 detection chunks; chunk 1 is pre-checkpointed and
     # must not be re-detected. Macro ids stay globally sequential and
     # the build directory is removed once artifacts are durable.
-    from vendor.mm_plugins.video_memory.schema import (
+    from vendor.media_toolkit.video_memory.schema import (
         MicroEvent as VendorMicroEvent,
         Subgraph as VendorSubgraph,
         SuperEvent,
@@ -1665,10 +1597,18 @@ def test_ffmpeg_invocations_detach_stdin() -> None:
     # A background-job host delivers SIGTTIN to any child reading the
     # TTY: every ffmpeg subprocess must run with stdin detached or the
     # whole build silently stops (observed live: clips stuck in "TN").
+    # The clip encoders live in source_observation; source_memory keeps
+    # its own P1 frame-seek invocation.
     import inspect
 
-    source = inspect.getsource(source_memory)
-    runs = source.count("subprocess.run(")
-    detached = source.count("stdin=subprocess.DEVNULL")
-    assert runs == 3
-    assert detached == runs
+    from services.media import source_observation
+
+    for module, expected_runs in (
+        (source_memory, 1),
+        (source_observation, 2),
+    ):
+        source = inspect.getsource(module)
+        runs = source.count("subprocess.run(")
+        detached = source.count("stdin=subprocess.DEVNULL")
+        assert runs == expected_runs
+        assert detached == runs

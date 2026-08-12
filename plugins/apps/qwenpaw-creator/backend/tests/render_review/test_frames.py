@@ -18,7 +18,7 @@ from services.render_review.frames import (
 )
 from services.runtime_files.media_probe import probe_media
 from services.runtime_files.runtime_dependencies import resolve_ffmpeg
-from vendor.mm_plugins.image_budget import (
+from vendor.media_toolkit.image_budget import (
     IMAGE_BUDGET_TOKENS,
     IMAGE_MIN_PIXELS,
     TOKEN_SIZE,

@@ -85,6 +85,18 @@ export function getMotionDocumentPosterUrl(
 }
 
 /**
+ * Self-contained playable copy of one html_js motion document: vendored
+ * runtimes inlined and a postMessage seek bridge appended, so the same
+ * document the render worker captures also plays in a sandboxed iframe
+ * (hyperframes-style same-source preview).
+ */
+export function getMotionDocumentPreviewUrl(fileId: string): string {
+  return creatorAuthenticatedUrl(
+    `/media/motion-documents/${encodeURIComponent(fileId)}/preview`,
+  );
+}
+
+/**
  * Fetch one externalized motion document body. Content-addressed and
  * immutable, so results are cached for the session.
  */
