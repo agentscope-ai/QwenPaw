@@ -661,66 +661,6 @@ def _sanitize_tool_schemas(
     return _map_tool_parameters(tools, _apply_openai_compat_schema_passes)
 
 
-def _coerce_string_fields(
-    parsed: dict[str, Any],
-    schema: dict[str, Any] | None,
-) -> dict[str, Any]:
-    """Coerce values of schema-declared ``string`` fields to strings.
-
-    Some models emit unquoted numbers or booleans for string-typed tool
-    parameters (e.g. ``"assetInfo": 1.000001`` where the schema declares
-    ``type: string``, issue #6839).  ``jsonschema.validate`` rejects such
-    values outright (``1.000001 is not of type 'string'``), so every tool
-    call fails.  Converting number/bool values to their JSON literal
-    string form is lossless and restores the model's intended meaning.
-
-    Fields declared with any other type (``integer`` / ``number`` / ...)
-    are left untouched, so real numeric arguments are never corrupted.
-    """
-    if not isinstance(parsed, dict) or not isinstance(schema, dict):
-        return parsed
-    props = schema.get("properties")
-    if not isinstance(props, dict):
-        return parsed
-    for key, value in list(parsed.items()):
-        prop_schema = props.get(key)
-        if not isinstance(prop_schema, dict):
-            continue
-        if prop_schema.get("type") != "string":
-            continue
-        # bool is a subclass of int — check it first and keep the JSON
-        # literal form ("true" / "false") rather than Python's str().
-        if isinstance(value, bool):
-            parsed[key] = "true" if value else "false"
-        elif isinstance(value, (int, float)):
-            parsed[key] = str(value)
-    return parsed
-
-
-def _coerce_tool_input(input_str: str, schema: dict[str, Any] | None) -> str:
-    """Schema-guided type coercion for a raw tool-call input JSON string.
-
-    Returns *input_str* unchanged (byte-identical) when it is not valid
-    JSON — those are left to agentscope's existing json-repair path —
-    when it does not parse to a dict, when *schema* is unavailable, or
-    when no field needed coercion.  The coercion is therefore an
-    idempotent no-op for already-correct tool calls.
-    """
-    if not input_str or not isinstance(schema, dict):
-        return input_str
-    try:
-        parsed = json.loads(input_str)
-    except (json.JSONDecodeError, TypeError):
-        return input_str
-    if not isinstance(parsed, dict):
-        return input_str
-    original = dict(parsed)
-    coerced = _coerce_string_fields(parsed, schema)
-    if coerced == original:
-        return input_str
-    return json.dumps(coerced, ensure_ascii=False)
-
-
 class OpenAIChatModelCompat(OpenAIChatModel):
     """OpenAIChatModel with robust parsing for malformed tool-call chunks
     and transparent ``extra_content`` (Gemini thought_signature) relay.
@@ -747,11 +687,6 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         self._default_headers = default_headers
         self._extra_generate_kwargs = extra_generate_kwargs or {}
         self._output_token_param = output_token_param
-        # Tool name -> parameter schema, captured in ``_format_tools``
-        # from the sanitized tool list actually sent to the provider.
-        # Used for schema-guided type coercion of tool-call inputs
-        # (issue #6839).
-        self._tool_schemas: dict[str, dict[str, Any]] = {}
         super().__init__(**kwargs)
         credential_id = str(getattr(self.credential, "id", "") or "")
         credential_provider_id = credential_id.removeprefix("qwenpaw-")
@@ -802,19 +737,13 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                     exc_info=True,
                 )
         response = await super().__call__(*args, **kwargs)
-        # Snapshot the schema mapping captured during this call's
-        # ``_format_tools`` so late mutations by concurrent requests on a
-        # shared instance cannot affect coercion of this response.
-        tool_schemas = dict(self._tool_schemas)
         if not inspect.isasyncgen(response):
-            self._coerce_tool_call_inputs(response.content, tool_schemas)
             return response
-        return self._relay_stream_tool_call_extras(response, tool_schemas)
+        return self._relay_stream_tool_call_extras(response)
 
     async def _relay_stream_tool_call_extras(
         self,
         response: AsyncGenerator[ChatResponse, None],
-        tool_schemas: dict[str, dict[str, Any]] | None = None,
     ) -> AsyncGenerator[ChatResponse, None]:
         """Carry delta-only tool metadata onto the accumulated response.
 
@@ -822,11 +751,6 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         ``ToolCallBlock``, but QwenPaw's transient attribute intentionally is
         not a Pydantic field. Keep a sidecar local to this model call and
         reattach its records to the final accumulated response.
-
-        The final accumulated chunk (``is_last=True``, assembled by the base
-        ``__call__``) is also where tool-call inputs become complete JSON
-        strings — that is the point where schema-guided type coercion is
-        applied (issue #6839).
         """
         extras: dict[str, dict[str, Any]] = {}
         try:
@@ -834,63 +758,20 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                 extras.update(
                     collect_transient_tool_call_extras(chunk.content),
                 )
-                if chunk.is_last:
-                    self._coerce_tool_call_inputs(
-                        chunk.content,
-                        tool_schemas,
-                    )
-                    if extras:
-                        for block in chunk.content:
-                            tool_id = _battr(block, "id")
-                            record = extras.get(tool_id)
-                            if not record:
-                                continue
-                            attach_transient_tool_call_extra(
-                                block,
-                                provider_id=str(
-                                    record.get("provider_id") or "",
-                                ),
-                                extra_content=record["extra_content"],
-                            )
+                if chunk.is_last and extras:
+                    for block in chunk.content:
+                        tool_id = _battr(block, "id")
+                        record = extras.get(tool_id)
+                        if not record:
+                            continue
+                        attach_transient_tool_call_extra(
+                            block,
+                            provider_id=str(record.get("provider_id") or ""),
+                            extra_content=record["extra_content"],
+                        )
                 yield chunk
         finally:
             await response.aclose()
-
-    def _coerce_tool_call_inputs(
-        self,
-        content: list[Any],
-        tool_schemas: dict[str, dict[str, Any]] | None,
-    ) -> None:
-        """Apply schema-guided type coercion to tool-call blocks in place.
-
-        Models sometimes emit unquoted numbers/booleans for string-typed
-        tool parameters (issue #6839); ``jsonschema.validate`` rejects
-        those values and every such tool call fails.  Coercing declared
-        ``string`` fields back to strings before agentscope parses and
-        validates the input fixes the call without touching numeric fields.
-        """
-        if not tool_schemas:
-            return
-        for block in content:
-            if _battr(block, "type") not in ("tool_call", "tool_use"):
-                continue
-            name = _battr(block, "name")
-            if not isinstance(name, str):
-                continue
-            schema = tool_schemas.get(name)
-            if not schema:
-                continue
-            raw_input = _battr(block, "input")
-            if not isinstance(raw_input, str):
-                continue
-            coerced = _coerce_tool_input(raw_input, schema)
-            if coerced != raw_input:
-                _bset(block, "input", coerced)
-                logger.info(
-                    "Coerced tool %r input to match string-typed schema "
-                    "fields (#6839)",
-                    name,
-                )
 
     async def _call_api(
         self,
@@ -946,29 +827,10 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         Some MCP servers declare parameters using JSON Schema boolean values
         (e.g. ``additionalProperties: true``, ``items: true``) which are valid
         per spec but rejected by strict providers such as DeepSeek V4.
-
-        Also captures a ``tool name -> parameter schema`` mapping from the
-        final formatted tool list (after sanitization and any
-        ``tool_choice`` filtering) so tool-call inputs can be coerced
-        against the exact schemas the provider saw (issue #6839).
         """
         if tools:
             tools = _sanitize_tool_schemas(tools)
-        formatted_tools, formatted_tool_choice = super()._format_tools(
-            tools,
-            tool_choice,
-        )
-        schemas: dict[str, dict[str, Any]] = {}
-        for tool in formatted_tools or []:
-            func = tool.get("function") if isinstance(tool, dict) else None
-            if not isinstance(func, dict):
-                continue
-            name = func.get("name")
-            params = func.get("parameters")
-            if isinstance(name, str) and isinstance(params, dict):
-                schemas[name] = params
-        self._tool_schemas = schemas
-        return formatted_tools, formatted_tool_choice
+        return super()._format_tools(tools, tool_choice)
 
     # pylint: disable=too-many-branches, too-many-statements
     async def _parse_stream_response(
