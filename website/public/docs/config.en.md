@@ -442,7 +442,7 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `needs_reindex`                  | bool        | `false`          | Runtime-maintained flag indicating that the saved vector space changed and a manual index rebuild is required                                                                    |
 
 > `rebuild_memory_index_on_start` is no longer supported. Rebuild an index only when needed from the Console or the
-> maintenance API described in [Rebuilding the Memory Search Index](./memory#rebuilding-the-memory-search-index).
+> maintenance API described in [Rebuilding the Memory Search Index](./memory#Rebuilding-the-Index).
 
 The deprecated `inbox_push_enabled` field is accepted only for migration. Its value initializes any missing per-job
 Inbox switches, then the field is excluded from serialized configuration.
@@ -763,7 +763,7 @@ Memory search relies on vector embeddings for semantic retrieval.
 
 Configure embeddings in `agent.json` under `running.reme_light_memory_config.embedding_model_config`, which supports backend selection and parameters such as `use_dimensions`:
 
-> The vector-search enable condition is aligned with AgentScope credential requirements: OpenAI-compatible and Gemini backends require `model_name` plus `api_key`; Ollama only requires `model_name`. `base_url` is optional for OpenAI-compatible endpoints and is used as Ollama `host` when set. See [Memory](./memory#embedding-configuration-optional) for full configuration details.
+> The vector-search enable condition is aligned with AgentScope credential requirements: OpenAI-compatible and Gemini backends require `model_name` plus `api_key`; Ollama only requires `model_name`. `base_url` is optional for OpenAI-compatible endpoints and is used as Ollama `host` when set. See [Embedding Models](./embedding) for full configuration details.
 
 ---
 

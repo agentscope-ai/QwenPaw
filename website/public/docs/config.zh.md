@@ -394,7 +394,7 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `needs_reindex`                  | bool        | `false`          | 运行时维护的标记，表示已保存的向量空间发生变化，需要手动重建索引                                  |
 
 > `rebuild_memory_index_on_start` 已不再支持。仅在确有需要时通过控制台或维护 API 重建索引，详见
-> [重建记忆搜索索引](./memory#重建记忆搜索索引)。
+> [重建记忆搜索索引](./memory#重建索引)。
 
 已弃用的 `inbox_push_enabled` 仅用于迁移：它会初始化尚未设置的各任务 Inbox 开关，随后从序列化配置中排除。
 
