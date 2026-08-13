@@ -13,6 +13,7 @@ from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -689,6 +690,10 @@ app = FastAPI(
 app.add_middleware(AgentContextMiddleware)
 
 app.add_middleware(AuthMiddleware)
+
+# Enable GZip compression for API responses to handle large payloads
+# on slow networks. Markdown-heavy JSON compresses ~2.7-4.6x.
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # Apply CORS middleware if CORS_ORIGINS is set
 if CORS_ORIGINS:
