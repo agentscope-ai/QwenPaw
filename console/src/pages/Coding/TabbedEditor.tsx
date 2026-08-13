@@ -957,6 +957,7 @@ export default function TabbedEditor({
     if (!query) return tabs;
     return tabs.filter((tab) =>
       (tab.displayPath ?? visibleEditorPath(tab.path))
+        .replace(/\\/g, "/")
         .toLowerCase()
         .includes(query),
     );
@@ -1133,6 +1134,7 @@ export default function TabbedEditor({
                   type="search"
                   value={openFilesQuery}
                   onChange={(event) => setOpenFilesQuery(event.target.value)}
+                  aria-label={t("files.searchOpenFiles")}
                   placeholder={t("files.searchOpenFiles")}
                 />
               </label>
