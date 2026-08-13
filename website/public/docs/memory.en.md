@@ -2,22 +2,11 @@
 
 QwenPaw's long-term memory is powered by [ReMe](https://github.com/agentscope-ai/ReMe). Instead of putting the entire conversation history back into context, it continuously turns conversations and Daily Paper readings into **readable, editable, searchable, and interconnected Markdown memories**. Over time, those files become a self-evolving personal knowledge base maintained jointly by the user and the Agent.
 
-The default `remelight` backend embeds ReMe in the QwenPaw process and reuses the current Agent's model for memory extraction and consolidation. The system follows this loop:
+The default `remelight` backend embeds ReMe in the QwenPaw process and reuses the current Agent's model for memory extraction and consolidation. The system follows a capture, consolidation, retrieval, and discovery loop:
 
-```mermaid
-flowchart LR
-    A[Conversations] --> B[Auto-Memory]
-    P[Hugging Face paper rankings] --> DP[Daily Paper]
-    B --> C[Daily Markdown memories]
-    DP --> C
-    C --> D[Memory Index]
-    C --> E[Auto-Dream]
-    E --> F[Wikilink personal knowledge base]
-    F --> D
-    D --> G[memory_search]
-    G --> H[Current Agent context]
-    I[Auto-Memory-Search] --> G
-```
+![QwenPaw long-term memory architecture from capture to retrieval and discovery](https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg)
+
+Conversations and external resources first become traceable daily memory, which Auto-Dream consolidates into `digest/`. Indexing and search retrieve only the relevant passages instead of reloading the entire history.
 
 The framework has four core capabilities:
 
@@ -31,6 +20,12 @@ The framework has four core capabilities:
 
 Auto-Memory is the prerequisite for building the knowledge base: it first turns conversations into reliable material. Auto-Dream is the key to its evolution: it consolidates scattered material into stable, connected long-term knowledge.
 
+The Console brings these capabilities together on the long-term memory page:
+
+![QwenPaw long-term memory Console overview](https://img.alicdn.com/imgextra/i2/O1CN019aX2sCLIZvB6wGdo_!!6000000005818-0-tps-3418-1594.jpg)
+
+Memory capture, scheduled organization, Daily Paper, search, and maintenance status are shown in one place; the sections below explain how each area behaves at runtime.
+
 ---
 
 ## Memory as File
@@ -40,6 +35,12 @@ ReMe follows the principle **Memory as File, File as Memory**:
 - For users, memories are ordinary workspace files that can be read, edited, moved, deleted, backed up, and migrated directly.
 - For Agents, each Markdown file is also a memory node that can be chunked, indexed, linked, and evolved.
 - Search indexes, graphs, and caches are derived state that can be rebuilt from the source files; users retain control of the actual memory.
+
+The following view condenses that model into a readable, editable, traceable, and connected Markdown network:
+
+![Markdown files as readable, editable, and connected memory nodes](https://img.alicdn.com/imgextra/i4/O1CN01wj1PUE1a2d5QtEyUv_!!6000000003272-55-tps-1200-640.svg)
+
+The body carries knowledge, frontmatter provides a summary, and Wikilinks connect durable nodes with their workflows and daily evidence.
 
 ### File Structure
 
@@ -162,6 +163,12 @@ A smaller interval updates memory sooner, but increases model calls, token usage
 
 When `auto_memory_inbox_push_enabled` is on, Auto-Memory results appear in QwenPaw's Inbox. If the run finds nothing worth creating or updating, ReMe reports `modified=false` and QwenPaw does not create an Inbox event for that no-op.
 
+When a run makes a real change, Inbox shows its status, updated files, and extracted result so the user can quickly see what Auto-Memory did:
+
+![Auto-Memory result delivered to Inbox](https://img.alicdn.com/imgextra/i3/O1CN01q1761gvctQB49nzS_!!6000000007099-0-tps-2048-414.jpg)
+
+Inbox is only the notification surface. The reusable, editable memory remains the Markdown stored in the workspace.
+
 ### Example
 
 Suppose the user says in a QwenPaw session:
@@ -200,6 +207,12 @@ Agent must select exactly three unique in-pool papers. ReMe downloads their PDFs
 characters per PDF (maximum file size 50 MiB), and produces three detailed readings plus a daily brief. PDFs are stored
 under `resource/papers/`; Markdown is written under `memory/YYYY-MM-DD/`, enters the normal memory index, and can be
 delivered through QwenPaw's Inbox.
+
+The Console exposes Daily Paper scheduling, topic, mirror, and completion-notification settings together:
+
+![Daily Paper schedule and topic settings](https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg)
+
+These options control automatic execution only. Generated PDFs, readings, and the daily brief still enter the `resource/` and `memory/` directories described above.
 
 If a daily brief already exists for the run date, the normal scheduled call reports a successful skip. The underlying
 job accepts `force=true` for callers that intentionally regenerate it; this switch is not exposed by the scheduled
@@ -274,6 +287,12 @@ The four integration actions mean:
 
 With Inbox delivery enabled, each successful or failed Auto-Dream summary becomes a memory event so that you can inspect scanning, integration, and topic-generation results. Inbox is only the notification surface. The actual long-term knowledge remains in Markdown under `digest/`.
 
+After a run, Inbox summarizes the processing date, integration actions, updated nodes, and generated interest topics:
+
+![Auto-Dream run summary delivered to Inbox](https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg)
+
+This summary is useful for checking the outcome. To audit a conclusion and its evidence, open the corresponding files under `digest/` and `memory/`.
+
 ### Example
 
 Suppose recent daily notes repeatedly mention staging validation and rollback steps before production releases. Auto-Dream may:
@@ -328,18 +347,9 @@ For supported providers, enablement conditions, field definitions, cache behavio
 
 `memory_search(query, max_results, min_score)` runs ReMe's `search` job:
 
-```mermaid
-flowchart LR
-    A[Query] --> B[Choose result limit N]
-    B --> C0[Expand each retrieval pool<br/>N × 3, capped at 200]
-    C0 --> C[Vector retrieval]
-    C0 --> D[BM25 retrieval]
-    C --> E[Deduplicate by chunk id and fuse with RRF]
-    D --> E
-    E --> F[Apply min_score and keep N results]
-    F --> G[Expand incoming and outgoing links]
-    G --> H[Return results]
-```
+![BM25 and vector retrieval fused before related memory is expanded on demand](https://img.alicdn.com/imgextra/i2/O1CN01Zln7TK1TJOGqP84hk_!!6000000002361-55-tps-1200-640.svg)
+
+The query uses both exact keywords and semantic similarity, then applies RRF to produce relevant chunks. Paths, line numbers, and Wikilink neighbors let the Agent expand supporting evidence only when needed.
 
 When both branches return results, ReMe uses weighted Reciprocal Rank Fusion (RRF) by default:
 
@@ -436,6 +446,12 @@ The main user-facing fields live under `running.reme_light_memory_config`:
 Legacy `inbox_push_enabled` is accepted only as a migration input: it initializes any of the three per-job Inbox
 switches that are absent, and is excluded when the validated configuration is serialized.
 
+To inspect background jobs, the waiting queue, or resource usage by index components, open the ReMe runtime status from the long-term memory page:
+
+![ReMe background activity, resource usage, and index component status](https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg)
+
+This is runtime and derived-component status rather than memory content. The Markdown files in the workspace remain the source of truth during troubleshooting.
+
 ### Rebuilding the Index
 
 The background loop normally maintains the index incrementally. Use **Rebuild Memory Index** when the Console reports
@@ -450,6 +466,12 @@ Rebuilding clears the derived index and recreates it from existing Markdown unde
 memory usage may increase while it runs. Only one rebuild can run for an Agent at a time, and an Embedding config change
 during the rebuild is rejected. A successful rebuild clears `needs_reindex` only when the persisted and active
 vector-space fingerprints still match the rebuild target. `rebuild_memory_index_on_start` is no longer supported.
+
+The Console therefore asks for confirmation before it clears and regenerates the derived index:
+
+![Resource-usage confirmation shown before rebuilding the memory index](https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg)
+
+Use this operation only to repair the index or change vector spaces. Ordinary Markdown additions and edits are maintained incrementally in the background.
 
 ---
 

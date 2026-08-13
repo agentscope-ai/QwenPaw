@@ -6,52 +6,9 @@ QwenPaw does not treat memory as a growing transcript. Recent events remain as e
 
 ## The Big Picture
 
-```mermaid
-flowchart TB
-    subgraph Evidence[Evidence layer: what happened]
-        C[Conversation turns] --> AM[Auto-Memory]
-        R[Hugging Face paper rankings] --> AR[Daily Paper]
-        AM --> D[Daily memory<br/>memory/date/*.md]
-        AR --> D
-        C --> S[Source conversations<br/>mem_session/dialog/*.jsonl]
-        S -. traceability .-> D
-    end
+The memory system first preserves conversations and resources as evidence, consolidates reusable knowledge into durable nodes, and then lets retrieval or proactive discovery influence later behavior:
 
-    subgraph Evolution[Evolution layer: what remains useful]
-        D --> X[Auto-Dream extracts<br/>reusable units and topic candidates]
-        X --> NS[node_search finds<br/>similar and related digest nodes]
-        NS --> DEC{How does the new<br/>evidence change memory?}
-        DEC -->|new idea| CREATE[CREATE]
-        DEC -->|same idea| CORROBORATE[CORROBORATE]
-        DEC -->|more detail| REFINE[REFINE]
-        DEC -->|conflict or fix| CORRECT[CORRECT]
-        CREATE --> K[Long-term knowledge<br/>digest/personal · procedure · wiki]
-        CORROBORATE --> K
-        REFINE --> K
-        CORRECT --> K
-        K --> L[Auto-Link preserves source links<br/>and connects related knowledge]
-        X --> I[Interest topics<br/>memory/date/interests.yaml]
-    end
-
-    subgraph Use[Use layer: memory changes future behavior]
-        D --> IDX[Search index]
-        L --> IDX
-        IDX --> MS[memory_search + Wikilink expansion]
-        MS --> CTX[Relevant context for a later turn]
-    end
-
-    subgraph Proactive[Proactive layer: act before another request]
-        I --> RP[ReMe proactive job<br/>topic reader]
-        CH[Recent chat sessions] --> IDLE[QwenPaw /proactive<br/>idle-time trigger]
-        SCREEN[Optional screen context] --> IDLE
-        IDLE --> GOAL[Infer 1–3 likely goals]
-        GOAL --> WORK[Run a concrete next query]
-        WORK --> MSG[Send a helpful<br/>PROACTIVE message]
-    end
-
-    style Evolution fill:#f5f0ff,stroke:#7c3aed
-    style Proactive fill:#eef8ff,stroke:#0284c7
-```
+![QwenPaw long-term memory from capture and consolidation to retrieval and discovery](https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg)
 
 There are two important loops:
 
@@ -74,6 +31,12 @@ Auto-Dream processes changed daily notes and compares each reusable unit with ex
 | `CORRECT`     | Revises a stale or conflicting conclusion while retaining provenance        | The user changes a decision or corrects an earlier fact |
 
 This makes `digest/` a maintained model of the user and their work, not a pile of summaries. Daily notes stay as the historical record; long-term nodes can become more confident, more specific, or more accurate.
+
+The path from daily evidence to a long-term knowledge graph can be summarized as extraction, judgment, integration, and linking:
+
+![Auto-Dream consolidating daily experience into source-linked long-term knowledge](https://img.alicdn.com/imgextra/i3/O1CN01DSVTuF1rEr7yobCav_!!6000000005600-55-tps-1200-640.svg)
+
+The diagram uses `CONFIRM` as a visual shorthand for adding supporting evidence. The formal action name used by the current interface and this document is `CORROBORATE`.
 
 ### Why links matter
 
@@ -176,6 +139,12 @@ During the same Auto-Dream run, recent evidence can also produce a small set of 
 
 ReMe exposes a low-level `proactive` job that reads this file and returns its metadata and, optionally, its raw content. This makes interest topics available to integrations. If the file does not exist, the job returns a normal skipped result.
 
+After Auto-Dream finishes, Inbox can present the scan range, integration results, and generated interest topics as a compact summary:
+
+![Auto-Dream integration results and interest-topic summary](https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg)
+
+The notification makes the current run easy to review; the topic source and durable nodes remain in `interests.yaml` and `digest/`, respectively.
+
 ## Proactive Interaction in QwenPaw
 
 QwenPaw's user-facing proactive mode is an in-memory monitor keyed by the active Agent name:
@@ -187,27 +156,11 @@ QwenPaw's user-facing proactive mode is an in-memory monitor keyed by the active
 /proactive off       # stop proactive monitoring
 ```
 
-Once enabled, the runtime follows this sequence:
+Once enabled, proactive mode uses recent signals to infer a potentially useful next step and brings the suggestion to the user before taking further action:
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant T as Idle monitor
-    participant P as Proactive assistant
-    participant Q as Tools
-    participant A as Active QwenPaw agent
+![Proactive mode using recent signals to discover a next step and ask before acting](https://img.alicdn.com/imgextra/i2/O1CN01bGrMQC1kGxdbG4IDT_!!6000000004657-55-tps-1200-640.svg)
 
-    U->>T: No new activity for the configured interval
-    T->>T: Confirm the agent is idle<br/>and no proactive reply is pending
-    T->>P: Recent session context<br/>+ optional screen analysis
-    P->>P: Infer 1–3 likely goals
-    loop Up to 3 candidate queries
-        P->>Q: Perform a useful next query
-        Q-->>P: Result
-    end
-    P->>A: Send gathered information<br/>through /api/console/chat
-    A-->>U: [PROACTIVE] concise, actionable message
-```
+This is a product-concept view of how accumulated evidence, emerging interests, and useful next steps relate. The current `/proactive` trigger still uses recent chat activity and optional screen context rather than directly reading the entire personal knowledge base shown in the illustration.
 
 The monitor checks every 30 seconds. Its idle clock uses the newest `updated_at` value across all chats in the current
 workspace, not only the chat where `/proactive` was entered. When the configured threshold is reached, it reads sessions

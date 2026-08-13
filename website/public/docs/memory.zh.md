@@ -2,22 +2,11 @@
 
 QwenPaw 的长期记忆由 [ReMe](https://github.com/agentscope-ai/ReMe) 驱动。它不是把历史对话全部塞回上下文，而是让对话与 Daily Paper 精读持续沉淀为**可读、可编辑、可检索、相互链接的 Markdown 记忆**，逐步长成一个由用户和 Agent 共同维护的自进化个人知识库。
 
-默认的 `remelight` 后端会在 QwenPaw 进程内嵌入 ReMe，并复用当前 Agent 的模型完成记忆抽取和整理。整个系统遵循下面的闭环：
+默认的 `remelight` 后端会在 QwenPaw 进程内嵌入 ReMe，并复用当前 Agent 的模型完成记忆抽取和整理。整个系统沿着“捕获、沉淀、检索、发现”的闭环运行：
 
-```mermaid
-flowchart LR
-    A[对话] --> B[Auto-Memory]
-    P[Hugging Face 论文榜单] --> DP[Daily Paper]
-    B --> C[每日 Markdown 记忆]
-    DP --> C
-    C --> D[Memory Index]
-    C --> E[Auto-Dream]
-    E --> F[带 Wikilink 的个人知识库]
-    F --> D
-    D --> G[memory_search]
-    G --> H[Agent 当前上下文]
-    I[Auto-Memory-Search] --> G
-```
+![QwenPaw 长期记忆从捕获到检索与发现的整体架构](https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg)
+
+对话和外部资源先成为可追溯的每日记忆，再由 Auto-Dream 整合进 `digest/`；索引与搜索只按需取回相关片段，而不是重新装载全部历史。
 
 这套框架由四项核心能力组成：
 
@@ -31,6 +20,12 @@ flowchart LR
 
 其中 Auto-Memory 是构建个人知识库的前提：先把对话变成可靠素材；Auto-Dream 是知识库持续进化的关键：再把分散素材整合为稳定、互联的长期知识。
 
+这些能力都可以在控制台的长期记忆页面中统一查看和配置：
+
+![QwenPaw 长期记忆控制台总览](https://img.alicdn.com/imgextra/i2/O1CN019aX2sCLIZvB6wGdo_!!6000000005818-0-tps-3418-1594.jpg)
+
+页面把记忆捕获、定时整理、Daily Paper、搜索与维护状态集中展示；后文会分别说明每个区域对应的运行机制。
+
 ---
 
 ## Memory as File：记忆就是文件
@@ -40,6 +35,12 @@ ReMe 遵循 **Memory as File, File as Memory**：
 - 对用户而言，记忆是工作区里的普通文件，可以直接阅读、修改、移动、删除、备份和迁移。
 - 对 Agent 而言，每个 Markdown 文件又是一个可分块、可索引、可链接、可持续演化的记忆节点。
 - 检索索引、图谱和缓存只是可以从源文件重建的派生状态；真正的记忆源数据仍由用户掌控。
+
+下图把这种关系浓缩为一个可读、可编辑、可追溯且相互连接的 Markdown 网络：
+
+![Markdown 文件作为可读、可编辑和相互连接的记忆节点](https://img.alicdn.com/imgextra/i4/O1CN01wj1PUE1a2d5QtEyUv_!!6000000003272-55-tps-1200-640.svg)
+
+文件正文承载知识，frontmatter 提供概要，Wikilink 则把长期节点与其工作流和每日证据连接起来。
 
 ### 文件结构
 
@@ -160,6 +161,12 @@ ReMe 按这个哈希标识保存来源对话，再查找当天属于该哈希会
 
 开启 `auto_memory_inbox_push_enabled` 后，Auto-Memory 的执行结果会进入 QwenPaw Inbox。若本次判断没有值得新增或更新的内容，ReMe 会标记 `modified=false`，QwenPaw 不会为这次空变更生成 Inbox 事件。
 
+发生实际变更时，Inbox 会给出处理状态、更新文件和提取结果，方便快速确认这次自动记忆做了什么：
+
+![Auto-Memory 完成后推送到 Inbox 的任务结果](https://img.alicdn.com/imgextra/i3/O1CN01q1761gvctQB49nzS_!!6000000007099-0-tps-2048-414.jpg)
+
+Inbox 只是通知入口；可继续复用和编辑的记忆仍以工作区中的 Markdown 文件为准。
+
 ### 示例
 
 假设用户在一个 QwenPaw 会话中说：
@@ -196,6 +203,12 @@ Daily Paper 会收集 Hugging Face 周榜和月榜，排除昨日榜单以及过
 arXiv ID，再用加权 RRF 生成最多 20 篇候选池。Memory Agent 必须从候选池中选择三篇互不重复的论文。
 ReMe 下载 PDF，每篇最多分析 20 页和 300,000 字符（文件最大 50 MiB），最终生成三篇详细精读和一份每日简报。
 PDF 保存到 `resource/papers/`，Markdown 写入 `memory/YYYY-MM-DD/`，进入正常记忆索引，并可通过 QwenPaw Inbox 推送结果。
+
+控制台可以配置 Daily Paper 的调度、主题和镜像来源，并决定任务结束后是否发送通知：
+
+![Daily Paper 的调度与主题配置](https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg)
+
+这些选项只控制自动运行方式；生成的 PDF、精读和每日简报仍分别进入前述 `resource/` 与 `memory/` 目录。
 
 如果运行日期已经存在每日简报，正常定时调用会成功跳过。底层 job 支持调用方传入 `force=true` 主动重新生成，
 但定时配置表单没有暴露这个开关。
@@ -269,6 +282,12 @@ Auto-Link 不是独立的定时任务，而是 Auto-Dream 的 **Integrate** 阶�
 
 开启 Inbox 推送后，每次 Auto-Dream 的成功或失败摘要都会形成记忆事件，便于查看扫描、整合和主题生成结果。它只用于通知，不是记忆源数据；真正的长期知识仍保存在 `digest/` Markdown 中。
 
+任务完成后，Inbox 会汇总处理日期、整合动作、更新节点和生成的兴趣主题：
+
+![Auto-Dream 完成后推送到 Inbox 的任务摘要](https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg)
+
+这张摘要适合确认任务结果；需要审查具体结论和证据时，仍应打开对应的 `digest/` 与 `memory/` 文件。
+
 ### 示例
 
 假设近两天的每日记忆多次出现“发布前验证 staging”和“发布说明必须带回滚步骤”。Auto-Dream 可能：
@@ -323,18 +342,9 @@ Embedding 的支持后端、启用条件、字段含义、缓存和排查方法�
 
 `memory_search(query, max_results, min_score)` 会调用 ReMe 的 `search` job：
 
-```mermaid
-flowchart LR
-    A[查询] --> B[确定结果条数 N]
-    B --> C0[扩大每路召回池<br/>N × 3，最多 200]
-    C0 --> C[Vector 召回]
-    C0 --> D[BM25 召回]
-    C --> E[按 chunk id 去重并做 RRF 融合]
-    D --> E
-    E --> F[min_score 过滤并取 N 条]
-    F --> G[展开命中文件的入链与出链]
-    G --> H[返回结果]
-```
+![BM25 与向量检索融合后按需展开相关记忆](https://img.alicdn.com/imgextra/i2/O1CN01Zln7TK1TJOGqP84hk_!!6000000002361-55-tps-1200-640.svg)
+
+查询会同时利用精确关键词和语义相似度，经 RRF 融合得到相关片段；结果还会提供路径、行号和 Wikilink 邻居，让 Agent 只在确有需要时继续展开证据。
 
 当两路都有结果时，默认使用加权 Reciprocal Rank Fusion（RRF）：
 
@@ -431,6 +441,12 @@ Agent 可根据返回的路径和行号继续精确读取原文件。
 旧字段 `inbox_push_enabled` 仅作为迁移输入：它会初始化三个尚未显式配置的独立 Inbox 开关，
 并在配置校验后的序列化结果中被排除。
 
+需要检查后台任务、等待队列或各索引组件的资源占用时，可以从长期记忆页面打开 ReMe 运行状态：
+
+![ReMe 后台活动、资源占用和索引组件状态](https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg)
+
+这里显示的是运行与派生组件状态，不是记忆正文；异常排查完成后，源数据仍应以工作区中的 Markdown 为准。
+
 ### 重建索引
 
 索引通常由后台增量维护。当 Console 提示 Embedding 向量空间变化需要重建、索引损坏或搜索结果明显异常时，
@@ -443,6 +459,12 @@ POST /api/agents/{agentId}/memory/reindex
 重建会清空并从现有 `memory/`、`digest/` Markdown 重新生成派生索引，期间 CPU 和内存占用可能升高。
 同一 Agent 同时只能运行一个重建任务，重建期间修改 Embedding 会被拒绝。只有持久化配置和当前运行配置仍与
 本次重建目标的向量空间指纹一致时，成功重建才会清除 `needs_reindex`。`rebuild_memory_index_on_start` 已不再支持。
+
+因此，控制台会在真正清理派生索引前要求再次确认：
+
+![重建记忆索引前的资源占用确认提示](https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg)
+
+只有确实需要修复索引或切换向量空间时才执行该操作；普通的 Markdown 增删改由后台增量维护即可。
 
 ---
 

@@ -6,54 +6,11 @@ QwenPaw 不把记忆当成不断增长的聊天记录。近期事件作为证据
 
 ## 全景图
 
-```mermaid
-flowchart TB
-    subgraph Evidence[证据层：发生过什么]
-        C[对话回合] --> AM[Auto-Memory]
-        R[Hugging Face 论文榜单] --> AR[Daily Paper]
-        AM --> D[每日记忆<br/>memory/date/*.md]
-        AR --> D
-        C --> S[来源对话<br/>mem_session/dialog/*.jsonl]
-        S -. 可追溯 .-> D
-    end
+记忆系统先把对话与资源保存为证据，再把其中可复用的知识沉淀到长期节点，最后通过搜索或主动发现影响后续行为：
 
-    subgraph Evolution[进化层：什么值得长期保留]
-        D --> X[Auto-Dream 抽取<br/>可复用单元与主题候选]
-        X --> NS[node_search 查找<br/>相似及相关 digest 节点]
-        NS --> DEC{新证据如何<br/>改变已有记忆？}
-        DEC -->|新观点| CREATE[CREATE]
-        DEC -->|相同观点| CORROBORATE[CORROBORATE]
-        DEC -->|更多细节| REFINE[REFINE]
-        DEC -->|冲突或纠错| CORRECT[CORRECT]
-        CREATE --> K[长期知识<br/>digest/personal · procedure · wiki]
-        CORROBORATE --> K
-        REFINE --> K
-        CORRECT --> K
-        K --> L[Auto-Link 保留来源链接<br/>并连接相关知识]
-        X --> I[兴趣主题<br/>memory/date/interests.yaml]
-    end
+![QwenPaw 长期记忆从捕获、整理到检索与发现的全景](https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg)
 
-    subgraph Use[使用层：记忆改变未来行为]
-        D --> IDX[搜索索引]
-        L --> IDX
-        IDX --> MS[memory_search + Wikilink 展开]
-        MS --> CTX[后续对话所需的相关上下文]
-    end
-
-    subgraph Proactive[主动层：无需等待下一次请求]
-        I --> RP[ReMe proactive job<br/>主题读取器]
-        CH[近期 chat sessions] --> IDLE[QwenPaw /proactive<br/>空闲触发器]
-        SCREEN[可选屏幕上下文] --> IDLE
-        IDLE --> GOAL[推断 1–3 个可能目标]
-        GOAL --> WORK[执行具体的下一步查询]
-        WORK --> MSG[发送有帮助的<br/>PROACTIVE 消息]
-    end
-
-    style Evolution fill:#f5f0ff,stroke:#7c3aed
-    style Proactive fill:#eef8ff,stroke:#0284c7
-```
-
-图中有两个关键闭环：
+其中有两个关键闭环：
 
 - **进化闭环**从每日证据流向稳定的 `digest/` 知识，再通过检索回到后续对话。
 - **主动闭环**等待合适的时机，推断接下来可能有帮助的事项，提前完成准备工作，并发起新交互。
@@ -74,6 +31,12 @@ Auto-Dream 处理发生变化的每日记忆，把每个可复用单元与已有
 | `CORRECT`     | 修改过期或冲突的结论，同时保留来源       | 用户改变决定或纠正了旧事实     |
 
 因此，`digest/` 是一份持续维护的“用户与工作模型”，而不是摘要堆积。每日记忆保留历史现场，长期节点则可以变得更可信、更具体或更准确。
+
+从每日证据到长期知识图谱的整理过程可以概括为“提取、判断、整合、连边”：
+
+![Auto-Dream 把每日经验整合为带来源链接的长期知识](https://img.alicdn.com/imgextra/i3/O1CN01DSVTuF1rEr7yobCav_!!6000000005600-55-tps-1200-640.svg)
+
+图中的 `CONFIRM` 是对“增加支持证据”的视觉化简称；在当前接口和本文术语中，对应的正式动作名称是 `CORROBORATE`。
 
 ### 链接为什么重要
 
@@ -176,6 +139,12 @@ depends_on:: [[digest/procedure/rollback-verification.md]]
 
 ReMe 提供了一个底层 `proactive` job，用来读取这个文件并返回其元数据，也可以返回原始内容。这样，其他集成可以消费兴趣主题；如果文件不存在，该 job 会正常返回 skipped 结果。
 
+Auto-Dream 完成后，扫描范围、整合结果和兴趣主题会以摘要形式进入 Inbox：
+
+![Auto-Dream 的整合结果与兴趣主题摘要](https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg)
+
+这类通知帮助用户快速了解本轮变化；主题原文和长期节点仍分别保存在 `interests.yaml` 与 `digest/` 中。
+
 ## QwenPaw 的主动交互
 
 面向用户的主动模式是在内存中按当前 Agent 名称保存的监控任务：
@@ -187,27 +156,11 @@ ReMe 提供了一个底层 `proactive` job，用来读取这个文件并返回�
 /proactive off       # 停止主动监控
 ```
 
-开启后，运行时流程如下：
+开启后，主动模式会从近期信号推断可能有帮助的下一步，并在采取进一步行动前把建议交给用户：
 
-```mermaid
-sequenceDiagram
-    participant U as 用户
-    participant T as 空闲监控器
-    participant P as Proactive assistant
-    participant Q as 工具
-    participant A as 当前 QwenPaw Agent
+![主动模式从近期信号发现下一步并在行动前征求用户意见](https://img.alicdn.com/imgextra/i2/O1CN01bGrMQC1kGxdbG4IDT_!!6000000004657-55-tps-1200-640.svg)
 
-    U->>T: 在设定时长内没有新活动
-    T->>T: 确认 Agent 空闲<br/>且没有待回复的主动消息
-    T->>P: 近期 session 上下文<br/>+ 可选屏幕分析
-    P->>P: 推断 1–3 个可能目标
-    loop 最多 3 个候选查询
-        P->>Q: 执行有价值的下一步查询
-        Q-->>P: 返回结果
-    end
-    P->>A: 通过 /api/console/chat<br/>发送已收集的信息
-    A-->>U: [PROACTIVE] 简洁、可执行的消息
-```
+这是一张产品理念图：它说明证据积累、兴趣发现和有用下一步之间的关系。当前 `/proactive` 的实际触发依据仍是近期聊天活动和可选屏幕上下文，而不是直接读取图中的整个个人知识库。
 
 监控器每 30 秒检查一次。空闲时钟取当前 workspace 所有聊天中最新的 `updated_at`，并不只看执行
 `/proactive` 的那条聊天。达到设定阈值后，它读取最近 7 天更新过的 sessions；如果不足 5 个，则回退到

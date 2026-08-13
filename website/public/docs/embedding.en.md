@@ -92,6 +92,12 @@ Open **Agent Config → Running Config → Long-term Memory → Embedding Model 
 4. Tune cache, per-input character budget, and batch size for the service limits.
 5. Select **Test Embedding Service**. After the actual dimensions and latency are displayed, save the running config.
 
+The Console keeps the connection, model, cache, and batching options in one configuration area so they can be reviewed together before saving:
+
+![Embedding model configuration in the long-term memory settings](https://img.alicdn.com/imgextra/i2/O1CN01Er7z0tejkhL6wWB4_!!6000000004853-0-tps-3420-1314.jpg)
+
+Testing before saving catches endpoint, credential, model-name, and dimension errors before the configuration enters the running state.
+
 If the form does not meet the enable condition, ReMeLight does not create vector components and memory search continues
 to use BM25.
 
@@ -101,6 +107,12 @@ Backend, model name, and required credentials are complete. It does not make a n
 draft has been saved or applied to the running agent. **Verified** means **Test Embedding Service** completed a real
 request with the current service parameters. Runtime state changes only after saving, through either a hot update or an
 automatic agent reload.
+
+After a successful request, the service card shows the returned dimensions and latency and marks the current form as **Verified**:
+
+![Verified Embedding service with its returned dimensions and latency](https://img.alicdn.com/imgextra/i1/O1CN01LQlWGm6qD4I1gTsS_!!6000000003153-0-tps-830-134.jpg)
+
+This status covers one real request with the current service parameters. The configuration must still be saved, and a vector-space change still requires an index rebuild.
 
 ### Backend Types and Parameters
 
@@ -173,6 +185,12 @@ the model's actual output size.
 dimensions, it must equal the model's native output size. A wrong value fails the test with a dimension mismatch;
 bypassing the test and saving can also break index construction.
 
+For example, when the configuration expects 256 dimensions but the service returns 1024, the test reports the mismatch instead of accepting an incompatible vector space:
+
+![Embedding test failing because the expected and returned dimensions differ](https://img.alicdn.com/imgextra/i4/O1CN01ZFtJXcpF1MH1GnlE_!!6000000004901-0-tps-626-242.jpg)
+
+When this appears, verify the model's native dimensions and whether the service supports a dimension parameter rather than bypassing the test.
+
 `use_dimensions` only controls whether the `openai` backend sends that parameter. It does not disable validation. Some
 OpenAI-compatible services and vLLM deployments reject the parameter; turn it off and enter the actual output size.
 
@@ -183,6 +201,12 @@ endpoint, model, dimensions, and `use_dimensions` as vector-space identity. It m
 rebuild and, for an in-place update, removes the old `.npz` cache. The index rebuild is explicit rather than automatic:
 follow the Console warning and select **Rebuild Memory Index** before relying on vector results. Do not retain or
 manually copy an old cache to bypass rebuilding.
+
+Before starting, the Console confirms that rebuilding can temporarily increase CPU and memory usage:
+
+![Confirmation shown before rebuilding the memory index](https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg)
+
+After confirmation, QwenPaw regenerates the derived index from the existing Markdown. Until it finishes, old vectors should not be treated as valid results from the new model.
 
 ### Base URL, Host, and SDK Type Are Different Concepts
 
