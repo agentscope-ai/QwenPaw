@@ -145,13 +145,19 @@ function generateId(): string {
   return `${Date.now()}-${randomBase36(9)}`;
 }
 
-/** Parse metadata.timestamp string (e.g. "2026-05-27 10:44:53.362") to unix seconds. */
-const parseTimestamp = (msg: Record<string, unknown>): number => {
-  const ts = (msg.metadata as Record<string, unknown>)?.timestamp;
+/**
+ * Parse a metadata time string (e.g. "2026-05-27 10:44:53.362") to unix
+ * seconds; returns 0 when the value is absent or not parseable.
+ */
+const metadataTimeToSeconds = (ts: unknown): number => {
   if (!ts || typeof ts !== "string") return 0;
   const ms = new Date(ts.replace(" ", "T")).getTime();
   return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
 };
+
+/** Parse metadata.timestamp string (e.g. "2026-05-27 10:44:53.362") to unix seconds. */
+const parseTimestamp = (msg: Record<string, unknown>): number =>
+  metadataTimeToSeconds((msg.metadata as Record<string, unknown>)?.timestamp);
 
 /**
  * Parse metadata.finished_at string to unix seconds (0 when absent).
@@ -159,12 +165,8 @@ const parseTimestamp = (msg: Record<string, unknown>): number => {
  * the created_at alias pinned at the first saved segment, which can be far
  * earlier for turns with long tool calls.
  */
-const parseFinishedAt = (msg: Record<string, unknown>): number => {
-  const ts = (msg.metadata as Record<string, unknown>)?.finished_at;
-  if (!ts || typeof ts !== "string") return 0;
-  const ms = new Date(ts.replace(" ", "T")).getTime();
-  return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
-};
+const parseFinishedAt = (msg: Record<string, unknown>): number =>
+  metadataTimeToSeconds((msg.metadata as Record<string, unknown>)?.finished_at);
 
 /** Extract plain text from a message's content array. */
 const extractTextFromContent = (content: unknown): string => {
