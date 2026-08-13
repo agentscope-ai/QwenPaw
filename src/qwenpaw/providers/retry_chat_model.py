@@ -12,11 +12,12 @@ Concurrency and rate-limit control (LLMRateLimiter):
   thundering-herd problem where multiple callers retry at the same instant.
 
 Semaphore ownership rules:
-- Non-streaming: __call__'s finally block always releases the slot
+- Non-streaming: _call_with_slot's finally block always releases the slot
   (owns_semaphore stays True throughout).
-- Streaming: ownership transfers to _consume_stream_with_slot the moment
-  __call__ returns the generator.  owns_semaphore is set to False before
-  the return so __call__'s finally skips the release.
+- Streaming: acquisition is deferred until the returned generator is first
+  consumed.  Ownership then transfers to _consume_stream_with_slot.
+  owns_semaphore is set to False before the return so the call helper's
+  finally block skips the release.
   _consume_stream_with_slot releases after the first chunk arrives.
 - Cancellation safety: the boolean flag `acquired` tracks whether the
   semaphore slot has actually been taken; the final block only releases
@@ -478,6 +479,36 @@ class RetryChatModel(ChatModelBase):
         *args: Any,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
+        if self.stream:
+            return self._deferred_stream_call(*args, **kwargs)
+        return await self._call_with_slot(*args, **kwargs)
+
+    async def _deferred_stream_call(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> AsyncGenerator[ChatResponse, None]:
+        """Start a streaming call only when its result is first consumed.
+
+        An async generator does not execute until ``__anext__`` is awaited.
+        Deferring the existing call path to this point prevents a semaphore
+        slot from being acquired when a caller abandons or closes an
+        unstarted stream.  Consequently, call and acquire errors surface on
+        the first iteration rather than from ``await model(...)``.
+        """
+        result = await self._call_with_slot(*args, **kwargs)
+        if isinstance(result, AsyncGenerator):
+            async for chunk in result:
+                yield chunk
+            return
+        yield result
+
+    async def _call_with_slot(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
+        """Execute the existing rate-limited call and retry lifecycle."""
         cache = get_capability_cache()
         key = self.model_key
 

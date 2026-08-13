@@ -16,17 +16,22 @@ the agent until the 300s default ``acquire_timeout`` elapsed.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from dataclasses import replace
+from typing import Any, AsyncGenerator, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from agentscope.model._model_response import ChatResponse
 
+from qwenpaw.providers.rate_limiter import LLMRateLimiter
 from qwenpaw.providers.retry_chat_model import (
     RateLimitConfig,
     RetryChatModel,
     RetryConfig,
     _AcquireTimeoutError,
 )
+
+_TEST_ACQUIRE_TIMEOUT = 0.01
 
 
 class _HungInnerModel:
@@ -48,6 +53,77 @@ class _HungInnerModel:
         raise AssertionError("inner model __call__ should not be reached")
 
 
+async def _successful_stream() -> AsyncGenerator[Any, None]:
+    yield _OKResponse()
+
+
+class _StreamingInnerModel:
+    """Streaming model used to verify lazy semaphore ownership."""
+
+    model = "acquire-timeout-stream-test"
+    stream = True
+    context_size = 32768
+    parameters = None
+    _provider_id = "unit"
+    credential = None
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def __call__(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        self.calls += 1
+        return _successful_stream()
+
+
+class _BlockingStreamingInnerModel(_StreamingInnerModel):
+    """Streaming model that never produces its first chunk.
+
+    ``release`` intentionally remains unset.  Cancelling the consumer task
+    must terminate the wait and close the stream.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def _blocking_stream(self) -> AsyncGenerator[Any, None]:
+        self.started.set()
+        await self.release.wait()
+        yield _OKResponse()
+
+    async def __call__(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        self.calls += 1
+        return self._blocking_stream()
+
+
+class _CompletedStreamingInnerModel(_StreamingInnerModel):
+    """Streaming model that returns a completed response directly."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.response = ChatResponse(
+            content=[],
+            is_last=True,
+        )
+
+    async def __call__(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> ChatResponse:
+        self.calls += 1
+        return self.response
+
+
 def _build_model() -> RetryChatModel:
     return RetryChatModel(
         _HungInnerModel(),  # type: ignore[arg-type]
@@ -60,6 +136,161 @@ def _build_model() -> RetryChatModel:
             acquire_timeout=10.0,
         ),
     )
+
+
+def _build_streaming_model(
+    inner: _StreamingInnerModel,
+) -> RetryChatModel:
+    return RetryChatModel(
+        inner,
+        retry_config=RetryConfig(enabled=False),
+        rate_limit_config=RateLimitConfig(
+            max_concurrent=1,
+            max_qpm=0,
+            pause_seconds=1.0,
+            jitter_range=0.0,
+            acquire_timeout=10.0,
+        ),
+    )
+
+
+def _use_fast_acquire_timeout(model: RetryChatModel) -> None:
+    """Shorten real timeout-path tests without changing production bounds."""
+    model._rate_limit_config = replace(
+        model._rate_limit_config,
+        acquire_timeout=_TEST_ACQUIRE_TIMEOUT,
+    )
+
+
+async def _consume_streaming_model(
+    model: RetryChatModel,
+) -> list[Any]:
+    result = await model(messages=[])
+    return [chunk async for chunk in cast(AsyncGenerator[Any, None], result)]
+
+
+@pytest.mark.asyncio
+async def test_unconsumed_stream_does_not_acquire_semaphore() -> None:
+    """Returning or closing an unconsumed stream must not take a slot."""
+    inner = _StreamingInnerModel()
+    model = _build_streaming_model(inner)
+    limiter = LLMRateLimiter(
+        max_concurrent=1,
+        max_qpm=0,
+        default_pause_seconds=1.0,
+        jitter_range=0.0,
+    )
+
+    with patch(
+        "qwenpaw.providers.retry_chat_model.get_rate_limiter",
+        return_value=limiter,
+    ):
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+
+        assert inner.calls == 0
+        assert limiter.stats()["current_in_flight"] == 0
+
+        await stream.aclose()
+
+        assert limiter.stats()["current_in_flight"] == 0
+
+        chunks = await asyncio.wait_for(
+            _consume_streaming_model(model),
+            timeout=0.1,
+        )
+
+    assert len(chunks) == 1
+    assert inner.calls == 1
+    assert limiter.stats()["current_in_flight"] == 0
+
+
+@pytest.mark.asyncio
+async def test_stream_cancelled_before_first_iteration_does_not_leak() -> None:
+    """Cancellation before the lazy stream starts must leave no slot held."""
+    inner = _StreamingInnerModel()
+    model = _build_streaming_model(inner)
+    limiter = LLMRateLimiter(
+        max_concurrent=1,
+        max_qpm=0,
+        default_pause_seconds=1.0,
+        jitter_range=0.0,
+    )
+
+    with patch(
+        "qwenpaw.providers.retry_chat_model.get_rate_limiter",
+        return_value=limiter,
+    ):
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        pending = asyncio.ensure_future(stream.__anext__())
+        pending.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+
+        await stream.aclose()
+
+    assert inner.calls == 0
+    assert limiter.stats()["current_in_flight"] == 0
+
+
+@pytest.mark.asyncio
+async def test_stream_cancelled_before_first_chunk_releases() -> None:
+    """Cancellation after acquire but before the first chunk releases once."""
+    inner = _BlockingStreamingInnerModel()
+    model = _build_streaming_model(inner)
+    limiter = LLMRateLimiter(
+        max_concurrent=1,
+        max_qpm=0,
+        default_pause_seconds=1.0,
+        jitter_range=0.0,
+    )
+
+    with patch(
+        "qwenpaw.providers.retry_chat_model.get_rate_limiter",
+        return_value=limiter,
+    ):
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        pending = asyncio.ensure_future(stream.__anext__())
+        try:
+            await asyncio.wait_for(inner.started.wait(), timeout=1.0)
+
+            assert inner.calls == 1
+            assert limiter.stats()["current_in_flight"] == 1
+        finally:
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+            await stream.aclose()
+
+    assert limiter.stats()["current_in_flight"] == 0
+    assert limiter.stats()["current_available"] == 1
+
+
+@pytest.mark.asyncio
+async def test_streaming_model_wraps_final_response() -> None:
+    """A direct final response remains complete when exposed as a stream."""
+    inner = _CompletedStreamingInnerModel()
+    model = _build_streaming_model(inner)
+    limiter = LLMRateLimiter(
+        max_concurrent=1,
+        max_qpm=0,
+        default_pause_seconds=1.0,
+        jitter_range=0.0,
+    )
+
+    with patch(
+        "qwenpaw.providers.retry_chat_model.get_rate_limiter",
+        return_value=limiter,
+    ):
+        chunks = await _consume_streaming_model(model)
+
+    assert chunks == [inner.response]
+    assert chunks[0].is_last is True
+    assert inner.calls == 1
+    assert limiter.stats()["current_in_flight"] == 0
 
 
 @pytest.mark.asyncio
@@ -113,11 +344,10 @@ async def test_acquire_timeout_leaves_no_pending_tasks() -> None:
     ``limiter.acquire()`` coroutine should remain pending — the agent must be
     fully released and ready for the next run."""
     model = _build_model()
+    _use_fast_acquire_timeout(model)
 
     # A real limiter whose acquire sleeps longer than the timeout. This
     # exercises the real ``asyncio.wait_for`` cancellation path.
-    from qwenpaw.providers.rate_limiter import LLMRateLimiter
-
     real_limiter = LLMRateLimiter(
         max_concurrent=1,
         max_qpm=0,
@@ -155,6 +385,7 @@ async def test_normal_call_after_timeout_succeeds() -> None:
     must not be hung by leaked limiter state — the agent is released and can
     serve again immediately."""
     model = _build_model()
+    _use_fast_acquire_timeout(model)
 
     calls = {"n": 0}
 
@@ -182,8 +413,6 @@ async def test_normal_call_after_timeout_succeeds() -> None:
             acquire_timeout=10.0,
         ),
     )
-
-    from qwenpaw.providers.rate_limiter import LLMRateLimiter
 
     limiter = LLMRateLimiter(
         max_concurrent=1,
