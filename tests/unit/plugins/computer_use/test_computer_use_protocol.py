@@ -561,7 +561,7 @@ def test_the_approval_coordinator_holds_no_exemption_state() -> None:
 
 
 def test_element_line_omits_windows_screen_bounds() -> None:
-    """Desktop-absolute UIA bounds are not actionable screenshot coordinates."""
+    """Desktop UIA bounds do not map to screenshot coordinates."""
     line = _element_line(
         {
             "id": "uia-1",
