@@ -239,6 +239,7 @@ A rebuild clears derived index data and recreates it from Markdown in `memory/` 
 </p>
 
 ---
+
 ## Other Memory Backends
 
 QwenPaw's memory system uses a pluggable backend architecture. In addition to the default ReMeLight (local file storage), you can switch to other backends via `memory_manager_backend`.

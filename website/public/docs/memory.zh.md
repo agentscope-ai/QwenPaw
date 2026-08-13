@@ -239,6 +239,7 @@ POST /api/agents/{agentId}/memory/reindex
 </p>
 
 ---
+
 ## 其他 Memory Backend
 
 QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeLight（本地文件存储）外，还支持通过 `memory_manager_backend` 切换到其他后端。
