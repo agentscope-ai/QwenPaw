@@ -11,8 +11,7 @@ metadata:
 
 Use Computer Use only for tasks that require a live desktop interface or
 visual verification. Prefer a purpose-built integration or command-line tool
-when it can complete and verify the task, but never switch automation methods
-in the middle of a Computer Use workflow unless the user requests it.
+when it can complete and verify the task.
 
 Use only the native desktop runtime. It operates on one approved application
 and one observed window at a time; it never accepts a free-form screen target.
@@ -49,8 +48,7 @@ on macOS. After launch, list its windows again because launch completion does
 not prove that a usable window already exists.
 
 When the runtime reports a missing system permission, stop and ask the user to
-grant it. Do not retry until the user confirms the permission was granted, and
-do not open system settings or operate the permission prompt.
+grant it. Do not retry until the user confirms the permission was granted.
 
 ## Read an Observation
 
@@ -181,29 +179,12 @@ include `ENTER`, `TAB`, `ESC`, `SPACE`, `BACKSPACE`, `DELETE`, `HOME`, `END`,
 `PAGEUP`, `PAGEDOWN`, and the arrow keys. `DELETE` removes forward and
 `BACKSPACE` removes backward.
 
-A shortcut receipt proves only that keys were dispatched. If a shortcut should
-open a menu, editor, sheet, dialog, or another window, observe that state before
-typing or continuing.
-
-## Platform Conventions
-
-Apply only the subsection matching the runtime platform.
-
-### macOS
+## macOS Conventions
 
 - Express Command as `WIN` and Option as `ALT`; for example,
   `WIN+SHIFT+N` is Command-Shift-N.
 - Use `begin_text_edit` only for an observed menu command whose semantics
   require immediate text input; otherwise use `invoke`.
-
-### Windows
-
-- `list_apps` may omit an application that has no current window; use an
-  explicit executable path when necessary.
-
-These are platform conventions, not permission to guess application-specific
-shortcuts. For other commands, prefer an observed menu item; otherwise use a
-standard shortcut only with verified focus and a verifiable postcondition.
 
 ## Recover From Changes
 
@@ -215,17 +196,10 @@ observation. Never replay that action. Observe or rediscover, then decide from
 fresh state whether work remains. If the user remains active or safe
 continuation is unclear, stop and report that the user has control.
 
-Unless the user required immediate stop, handle an error carrying
-`requires_observe` by following its `next_action`, inspecting fresh state, and
-deciding whether the operation is still necessary. Never replay a failed
-action from a stale observation.
-
 ## Finish
 
-Observe the final target and check every requested postcondition. Do not report
-success when an item is missing, duplicated, left pending, or only inferred
-from a dispatched action. Resolve unexpected dialogs or errors when doing so
-is within the user's request; otherwise report them.
+Resolve unexpected dialogs or errors when doing so is within the user's
+request; otherwise report them.
 
 Close only windows or applications launched for this task. `close_window`
 requests a normal close and may reveal an unsaved-changes dialog. Never discard
