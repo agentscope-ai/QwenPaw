@@ -3,7 +3,7 @@ title: "QwenPaw Long-Term Memory: Turning Every Conversation into Knowledge You 
 date: 2026-08-07
 author: QwenPaw Team
 tags: [Long-Term Memory, ReMe, Personal Knowledge Base, Memory as File]
-cover: https://img.alicdn.com/imgextra/i4/O1CN016mGvikM8DGD3OTaP_!!6000000003113-2-tps-1672-941.png
+cover: https://img.alicdn.com/imgextra/i3/O1CN01IvOZgheUdXK3OTaP_!!6000000004070-2-tps-1672-941.png
 excerpt: "How does QwenPaw remember your preferences, decisions, and supported materials—and retrieve the right information when you need it? This article follows one product release through the complete long-term memory lifecycle."
 ---
 
@@ -19,7 +19,7 @@ The problem is not that the AI is not smart enough. It is that the things that t
 
 QwenPaw's long-term memory is designed to solve this problem. Powered by [ReMe](https://github.com/agentscope-ai/ReMe), it gradually organizes conversations and currently supported materials into a personal knowledge base that belongs to you.
 
-![QwenPaw and ReMe turn conversations and materials into long-term memory](https://img.alicdn.com/imgextra/i4/O1CN016mGvikM8DGD3OTaP_!!6000000003113-2-tps-1672-941.png)
+![QwenPaw and ReMe turn conversations and materials into long-term memory](https://img.alicdn.com/imgextra/i3/O1CN01IvOZgheUdXK3OTaP_!!6000000004070-2-tps-1672-941.png)
 
 Let us follow one product release through the complete process, from capture and organization to recall.
 
@@ -40,7 +40,7 @@ If all of this remains scattered across dozens of chat logs, it will soon become
 3. **Consolidate** records from different dates into reusable long-term knowledge.
 4. **Recall** only the relevant content and evidence when a new question appears.
 
-![The complete QwenPaw long-term memory loop, from recording and organization to retrieval](https://img.alicdn.com/imgextra/i3/O1CN01deWyUt1jTUrXQRTJz_!!6000000004549-55-tps-1200-640.svg)
+![The complete QwenPaw long-term memory loop, from recording and organization to retrieval](https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg)
 
 It works much like taking notes for yourself: preserve what happened, organize it into experience, and return to the right page when a real problem arises.
 
@@ -50,7 +50,7 @@ Before discussing how QwenPaw extracts and searches memory, there is a more impo
 
 QwenPaw and ReMe follow the principle **Memory as File, File as Memory**. Core working and long-term memory do not hide inside an invisible product database. They live as ordinary Markdown files in the workspace. Raw conversations use JSONL, while source materials such as paper PDFs retain their original formats.
 
-![Markdown memory files connect long-term experience with original evidence](https://img.alicdn.com/imgextra/i1/O1CN01fF7xEt29K2hGFkXFC_!!6000000008048-55-tps-1200-640.svg)
+![Markdown memory files connect long-term experience with original evidence](https://img.alicdn.com/imgextra/i4/O1CN01wj1PUE1a2d5QtEyUv_!!6000000003272-55-tps-1200-640.svg)
 
 This has four direct benefits:
 
@@ -85,7 +85,7 @@ Auto Memory does not mechanically copy the whole conversation. It runs periodica
 >
 > **Source**: The original conversation from that day.
 
-![Auto Memory distills a long conversation into reusable, traceable daily memory](https://img.alicdn.com/imgextra/i2/O1CN01a8Gj7V1UUDFBk6GAU_!!6000000002520-55-tps-1200-640.svg)
+![Auto Memory distills a long conversation into reusable, traceable daily memory](https://img.alicdn.com/imgextra/i3/O1CN01Qg6uAk1VoeXMqbE54_!!6000000002700-55-tps-1200-640.svg)
 
 A few weeks later, when you draft release notes again, QwenPaw can naturally lead with user value. If someone raises the database migration, it can remind the team that the proposal was not rejected permanently; its evaluation was postponed until after the release.
 
@@ -101,7 +101,7 @@ When enabled, Daily Paper collects candidates from the Hugging Face Papers weekl
 
 For example, if a paper discusses why users overlook newly released capabilities, that reading may provide evidence the next time you ask how to improve feature discovery.
 
-![ReMe Auto Resource turns source material into traceable memory; QwenPaw currently integrates this flow through Daily Paper](https://img.alicdn.com/imgextra/i1/O1CN01bfUxpA1gdANS9XGQ1_!!6000000004164-55-tps-1200-640.svg)
+![ReMe Auto Resource turns source material into traceable memory; QwenPaw currently integrates this flow through Daily Paper](https://img.alicdn.com/imgextra/i2/O1CN015ankve1aJ7LTl8Cxa_!!6000000003308-55-tps-1200-640.svg)
 
 Other resource types—including interview reports, meeting notes, project documents, and web content—are still being integrated. Simply placing an arbitrary file under `resource/` does not currently make QwenPaw process it automatically. Once integration is complete, these materials can follow the same traceable path from original source to daily note and long-term knowledge.
 
@@ -121,7 +121,7 @@ Records scattered across different dates can therefore become one more complete 
 
 > Start release notes with what users will gain, then explain the technical changes. Whenever possible, pair an important change with a real-world use case.
 
-![Auto Dream merges new and existing experience while Auto Link builds knowledge connections](https://img.alicdn.com/imgextra/i2/O1CN011mEx1x1XmTtCPsruU_!!6000000002966-55-tps-1200-640.svg)
+![Auto Dream merges new and existing experience while Auto Link builds knowledge connections](https://img.alicdn.com/imgextra/i3/O1CN01DSVTuF1rEr7yobCav_!!6000000005600-55-tps-1200-640.svg)
 
 During integration, Auto Link writes sources and related concepts as readable Wikilinks. A long-term conclusion can therefore point back to the daily note that produced it and connect to adjacent preferences, procedures, and knowledge nodes.
 
@@ -141,7 +141,7 @@ It can first locate the most relevant decision, then inspect its reasoning, foll
 
 > The team did not conclude that migration had no value. The release date was approaching, and the existing database still met the requirements, so the evaluation was postponed until after the release. This decision came from the July release-planning discussion.
 
-![Hybrid search finds relevant passages first, then follows knowledge relationships as needed](https://img.alicdn.com/imgextra/i4/O1CN01rHmJoR22rI8gZpRsU_!!6000000007173-55-tps-1200-640.svg)
+![Hybrid search finds relevant passages first, then follows knowledge relationships as needed](https://img.alicdn.com/imgextra/i2/O1CN01Zln7TK1TJOGqP84hk_!!6000000002361-55-tps-1200-640.svg)
 
 This resembles finding something on a bookshelf: first locate the most likely book and chapter, then follow its table of contents and references. The Agent does not need to load every old conversation and neighboring node into context. It brings back only what the current question needs.
 
@@ -180,7 +180,7 @@ ReMe uses public evaluations to test memory across multiple sessions and very lo
 
 On LongMemEval cleaned-S, which contains 500 questions, ReMe achieved an overall Agentic score of **89.4%**. On BEAM, the 100K setting contains 20 cases / 400 questions and scored **66.1%**; the 1M setting contains 35 cases / 700 questions and scored **65.0%**.
 
-![ReMe's published LongMemEval and BEAM benchmark results](https://img.alicdn.com/imgextra/i4/O1CN016I1rKF1tym4HogJ0A_!!6000000005971-55-tps-1200-640.svg)
+![ReMe's published LongMemEval and BEAM benchmark results](https://img.alicdn.com/imgextra/i4/O1CN01ohO0e31MntKw6mQZL_!!6000000001480-55-tps-1200-640.svg)
 
 These numbers do not represent every real-world scenario, and they depend on the model, dataset, and evaluation setup. They show that as history grows, file-based organization, hybrid retrieval, and on-demand reading can still help an Agent find supporting evidence among large volumes of old information.
 

@@ -3,7 +3,7 @@ title: "QwenPaw 长期记忆：让每次对话，都成为以后用得上的知�
 date: 2026-08-07
 author: QwenPaw Team
 tags: [长期记忆, ReMe, 个人知识库, Memory as File]
-cover: https://img.alicdn.com/imgextra/i4/O1CN016mGvikM8DGD3OTaP_!!6000000003113-2-tps-1672-941.png
+cover: https://img.alicdn.com/imgextra/i3/O1CN01IvOZgheUdXK3OTaP_!!6000000004070-2-tps-1672-941.png
 excerpt: "QwenPaw 怎样记住你的偏好、决定和已支持的资料，又在需要时准确找回来？这篇文章用一次产品发布串起完整的长期记忆流程。"
 ---
 
@@ -19,7 +19,7 @@ excerpt: "QwenPaw 怎样记住你的偏好、决定和已支持的资料，又�
 
 QwenPaw 的长期记忆就是为了解决这个问题。它由 [ReMe](https://github.com/agentscope-ai/ReMe) 驱动，把对话和当前已支持的资料逐步整理成一套属于你的个人知识库。
 
-![QwenPaw 与 ReMe 将对话和资料变成长期记忆](https://img.alicdn.com/imgextra/i4/O1CN016mGvikM8DGD3OTaP_!!6000000003113-2-tps-1672-941.png)
+![QwenPaw 与 ReMe 将对话和资料变成长期记忆](https://img.alicdn.com/imgextra/i3/O1CN01IvOZgheUdXK3OTaP_!!6000000004070-2-tps-1672-941.png)
 
 接下来，我们用一次产品发布，把这套记忆系统从记录、整理到找回完整地走一遍。
 
@@ -40,7 +40,7 @@ QwenPaw 的长期记忆就是为了解决这个问题。它由 [ReMe](https://gi
 3. **Consolidate**：把不同日期的零散记录整合成可复用的长期知识；
 4. **Recall**：在新问题出现时，只取回真正相关的内容和依据。
 
-![QwenPaw 长期记忆从记录、整理到找回的完整循环](https://img.alicdn.com/imgextra/i3/O1CN01deWyUt1jTUrXQRTJz_!!6000000004549-55-tps-1200-640.svg)
+![QwenPaw 长期记忆从记录、整理到找回的完整循环](https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg)
 
 它很像我们自己做笔记：先保留现场，再整理成经验，真正遇到问题时回到正确的那一页。
 
@@ -50,7 +50,7 @@ QwenPaw 的长期记忆就是为了解决这个问题。它由 [ReMe](https://gi
 
 QwenPaw 与 ReMe 遵循 **Memory as File, File as Memory** 的设计。核心工作记忆和长期记忆不是藏在不可见的产品数据库里，而是保存在 workspace 中的普通 Markdown 文件；原始对话使用 JSONL，论文 PDF 等来源资料则保留原始格式。
 
-![Markdown 记忆文件连接长期经验和原始证据](https://img.alicdn.com/imgextra/i1/O1CN01fF7xEt29K2hGFkXFC_!!6000000008048-55-tps-1200-640.svg)
+![Markdown 记忆文件连接长期经验和原始证据](https://img.alicdn.com/imgextra/i4/O1CN01wj1PUE1a2d5QtEyUv_!!6000000003272-55-tps-1200-640.svg)
 
 这带来四个直接好处：
 
@@ -85,7 +85,7 @@ Auto Memory 不会机械复制整段聊天。它会按配置的用户轮次数�
 >
 > **来源**：当天的原始对话。
 
-![Auto Memory 把长对话提炼成可复用、可追溯的每日记忆](https://img.alicdn.com/imgextra/i2/O1CN01a8Gj7V1UUDFBk6GAU_!!6000000002520-55-tps-1200-640.svg)
+![Auto Memory 把长对话提炼成可复用、可追溯的每日记忆](https://img.alicdn.com/imgextra/i3/O1CN01Qg6uAk1VoeXMqbE54_!!6000000002700-55-tps-1200-640.svg)
 
 几周后再次起草发布说明时，QwenPaw 可以自然地先写用户价值。有人重新提出数据库迁移时，它也能提醒团队：这个方案不是被永久否决，而是推迟到发布之后评估。
 
@@ -101,7 +101,7 @@ ReMe 提供了 Beta 阶段的 Auto Resource 能力：它可以理解来源资料
 
 例如，如果一篇论文讨论了用户为什么容易忽略新发布的能力，以后你询问如何改进功能触达时，这份阅读记录就可能成为回答的依据。
 
-![ReMe Auto Resource 将来源资料变成可追溯记忆；QwenPaw 目前通过 Daily Paper 接入这条链路](https://img.alicdn.com/imgextra/i1/O1CN01bfUxpA1gdANS9XGQ1_!!6000000004164-55-tps-1200-640.svg)
+![ReMe Auto Resource 将来源资料变成可追溯记忆；QwenPaw 目前通过 Daily Paper 接入这条链路](https://img.alicdn.com/imgextra/i2/O1CN015ankve1aJ7LTl8Cxa_!!6000000003308-55-tps-1200-640.svg)
 
 客户访谈报告、会议纪要、项目文档和网页内容等其他资料类型仍在接入中。当前仅把任意文件放入 `resource/`，并不会让 QwenPaw 自动处理它。接入完成后，这些资料也可以沿着同一条可追溯链路，从原始来源进入 daily note，再沉淀为长期知识。
 
@@ -121,7 +121,7 @@ Auto Dream 会读取近期发生变化的 daily note，提取值得复用的内�
 
 > 发布说明先讲用户能得到什么，再说明技术变化；重要变化尽量配一个实际使用场景。
 
-![Auto Dream 合并新旧经验，Auto Link 同时建立知识连接](https://img.alicdn.com/imgextra/i2/O1CN011mEx1x1XmTtCPsruU_!!6000000002966-55-tps-1200-640.svg)
+![Auto Dream 合并新旧经验，Auto Link 同时建立知识连接](https://img.alicdn.com/imgextra/i3/O1CN01DSVTuF1rEr7yobCav_!!6000000005600-55-tps-1200-640.svg)
 
 整合知识时，Auto Link 会把来源和相关概念写成可读的 Wikilink。这样，长期结论既能回到产生它的 daily note，也能连接相邻的偏好、方法和知识节点。
 
@@ -141,7 +141,7 @@ Auto Dream 会读取近期发生变化的 daily note，提取值得复用的内�
 
 > 当时不是认为迁移没有价值，而是因为发布时间临近，现有数据库仍能满足需求，所以团队决定发布后再评估。这个决定来自 7 月的发布规划讨论。
 
-![混合搜索先找到相关片段，再按需沿知识关系展开](https://img.alicdn.com/imgextra/i4/O1CN01rHmJoR22rI8gZpRsU_!!6000000007173-55-tps-1200-640.svg)
+![混合搜索先找到相关片段，再按需沿知识关系展开](https://img.alicdn.com/imgextra/i2/O1CN01Zln7TK1TJOGqP84hk_!!6000000002361-55-tps-1200-640.svg)
 
 这很像在书架上找东西：先定位最可能相关的书和章节，再根据目录与引用继续查找。Agent 不必把所有旧对话和相邻节点一次性塞进上下文，只需要带回当前问题真正用得上的内容。
 
@@ -180,7 +180,7 @@ ReMe 使用公开测试验证多会话与超长对话中的记忆能力。
 
 在包含 500 道问题的 LongMemEval cleaned-S 测试中，ReMe 取得了 **89.4%** 的整体 Agentic 得分。在 BEAM 中，100K 设置包含 20 cases / 400 题，得分为 **66.1%**；1M 设置包含 35 cases / 700 题，得分为 **65.0%**。
 
-![ReMe 在 LongMemEval 与 BEAM 上的公开基准结果](https://img.alicdn.com/imgextra/i4/O1CN016I1rKF1tym4HogJ0A_!!6000000005971-55-tps-1200-640.svg)
+![ReMe 在 LongMemEval 与 BEAM 上的公开基准结果](https://img.alicdn.com/imgextra/i4/O1CN01ohO0e31MntKw6mQZL_!!6000000001480-55-tps-1200-640.svg)
 
 这些数字不能代表所有真实场景，也会受到模型、数据集与评测设置影响。它们说明的是：随着历史规模增长，文件化整理、混合检索和按需读取仍然能帮助 Agent 从大量旧信息中找到回答依据。
 
