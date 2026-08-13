@@ -27,18 +27,27 @@ export function parseToc(md: string): TocItem[] {
   let fence: { marker: "`" | "~"; length: number } | null = null;
 
   for (const line of md.split("\n")) {
-    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
-    if (fenceMatch) {
-      const marker = fenceMatch[1][0] as "`" | "~";
-      const length = fenceMatch[1].length;
-      if (!fence) {
-        fence = { marker, length };
-      } else if (marker === fence.marker && length >= fence.length) {
+    if (fence) {
+      const closingFence = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/.exec(line);
+      if (
+        closingFence &&
+        closingFence[1][0] === fence.marker &&
+        closingFence[1].length >= fence.length
+      ) {
         fence = null;
       }
       continue;
     }
-    if (fence) continue;
+
+    const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (openingFence) {
+      const marker = openingFence[1][0] as "`" | "~";
+      // CommonMark does not allow backticks in a backtick fence's info string.
+      if (marker === "~" || !openingFence[2].includes("`")) {
+        fence = { marker, length: openingFence[1].length };
+        continue;
+      }
+    }
 
     const headingMatch = /^(#{2,3})\s+(.+)$/.exec(line);
     if (!headingMatch) continue;

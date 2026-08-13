@@ -42,17 +42,28 @@ function parseDoc(md) {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
-    if (fenceMatch) {
-      const marker = fenceMatch[1][0];
-      const length = fenceMatch[1].length;
-      if (!fence) {
-        fence = { marker, length };
-      } else if (marker === fence.marker && length >= fence.length) {
+    if (fence) {
+      const closingFence = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/.exec(line);
+      if (
+        closingFence &&
+        closingFence[1][0] === fence.marker &&
+        closingFence[1].length >= fence.length
+      ) {
         fence = null;
       }
       body.push(line);
       continue;
+    }
+
+    const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (openingFence) {
+      const marker = openingFence[1][0];
+      // CommonMark does not allow backticks in a backtick fence's info string.
+      if (marker === "~" || !openingFence[2].includes("`")) {
+        fence = { marker, length: openingFence[1].length };
+        body.push(line);
+        continue;
+      }
     }
 
     const h2 = !fence ? /^##\s+(.+)$/.exec(line) : null;

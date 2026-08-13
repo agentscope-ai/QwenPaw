@@ -48,7 +48,7 @@ It works much like taking notes for yourself: preserve what happened, organize i
 
 Before discussing how QwenPaw extracts and searches memory, there is a more important question: where does that memory live?
 
-QwenPaw and ReMe follow the principle **Memory as File, File as Memory**. Core working and long-term memory do not hide inside an invisible product database. They live as ordinary Markdown files in the workspace. Raw conversations use JSONL, while source materials such as paper PDFs retain their original formats.
+QwenPaw and ReMe follow the principle **Memory as File, File as Memory**. Daily and consolidated long-term memories do not hide inside an invisible product database. They live as ordinary Markdown files in the Agent Configuration Directory—the Agent's own workspace. Raw conversations use JSONL, while source materials such as paper PDFs retain their original formats.
 
 ![Markdown memory files connect long-term experience with original evidence](https://img.alicdn.com/imgextra/i4/O1CN01wj1PUE1a2d5QtEyUv_!!6000000003272-55-tps-1200-640.svg)
 
@@ -57,7 +57,7 @@ This has four direct benefits:
 - **You can inspect it**: Open daily notes and digest nodes to see what QwenPaw remembers.
 - **You can edit it**: Correct content that is inaccurate or outdated just like an ordinary document.
 - **You can trace it**: Follow long-term conclusions back to their source conversations or integrated materials.
-- **You can take it with you**: Back up, sync, version with Git, or migrate the whole workspace.
+- **You can take it with you**: Back up, sync, version with Git, or migrate the entire Agent workspace.
 
 For example, QwenPaw may record, “Every article should lead with the conclusion,” when you actually meant, “Technical proposals should lead with the conclusion.” You can correct the memory directly. The next time you write a brand story, the Agent will not mechanically apply the wrong preference.
 
