@@ -905,7 +905,7 @@ export default function TabbedEditor({
   useEffect(() => {
     if (!openFilesVisible) return undefined;
 
-    const handlePointerDown = (event: PointerEvent) => {
+    const handleDocumentClick = (event: MouseEvent) => {
       const target = event.target as Node;
       if (
         openFilesPanelRef.current?.contains(target) ||
@@ -921,10 +921,10 @@ export default function TabbedEditor({
       openFilesButtonRef.current?.focus();
     };
 
-    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("click", handleDocumentClick);
     document.addEventListener("keydown", handleEscape);
     return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("click", handleDocumentClick);
       document.removeEventListener("keydown", handleEscape);
     };
   }, [openFilesVisible]);
@@ -942,7 +942,8 @@ export default function TabbedEditor({
 
   const fileName = (path: string) => {
     const displayPath = visibleEditorPath(path).replace(/\\/g, "/");
-    return displayPath.split("/").pop() ?? displayPath;
+    const segments = displayPath.split("/").filter(Boolean);
+    return segments[segments.length - 1] || displayPath;
   };
 
   const parentPath = (path: string) => {
@@ -952,14 +953,23 @@ export default function TabbedEditor({
   };
 
   const filteredTabs = (() => {
-    const query = openFilesQuery.trim().toLocaleLowerCase();
+    const query = openFilesQuery.trim().toLowerCase();
     if (!query) return tabs;
     return tabs.filter((tab) =>
       (tab.displayPath ?? visibleEditorPath(tab.path))
-        .toLocaleLowerCase()
+        .toLowerCase()
         .includes(query),
     );
   })();
+
+  const scrollTabs = (direction: -1 | 1) => {
+    const viewport = tabViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollBy({
+      left: viewport.clientWidth * 0.8 * direction,
+      behavior: "smooth",
+    });
+  };
 
   const handleTabKeyDown = (event: React.KeyboardEvent, index: number) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -1072,12 +1082,7 @@ export default function TabbedEditor({
           <button
             type="button"
             className={`${styles.tabControlBtn} ${styles.scrollControl}`}
-            onClick={() =>
-              tabViewportRef.current?.scrollBy({
-                left: -280,
-                behavior: "smooth",
-              })
-            }
+            onClick={() => scrollTabs(-1)}
             aria-label={t("files.scrollTabsLeft")}
           >
             <ChevronLeft size={13} />
@@ -1085,12 +1090,7 @@ export default function TabbedEditor({
           <button
             type="button"
             className={`${styles.tabControlBtn} ${styles.scrollControl}`}
-            onClick={() =>
-              tabViewportRef.current?.scrollBy({
-                left: 280,
-                behavior: "smooth",
-              })
-            }
+            onClick={() => scrollTabs(1)}
             aria-label={t("files.scrollTabsRight")}
           >
             <ChevronRight size={13} />
