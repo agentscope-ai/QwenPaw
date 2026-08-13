@@ -555,10 +555,10 @@ stored under `media/onebot` inside the agent's workspace directory.
 Two advanced fields, only settable via `config.json` (no Console form field),
 let you override this:
 
-| Field                   | Type | Default | Description                                                                                   |
-| ------------------------ | ---- | ------- | ----------------------------------------------------------------------------------------------- |
-| `media_dir`               | string | `null` | Override the directory downloaded media is written to. Defaults to `<workspace>/media/onebot` |
-| `media_download_max_mb`   | int    | `50`   | Maximum size, in MB, for one downloaded inbound file. Independent from `media_base64_max_mb`, which only bounds outbound Base64 inlining |
+| Field                   | Type   | Default | Description                                                                                                                              |
+| ----------------------- | ------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `media_dir`             | string | `null`  | Override the directory downloaded media is written to. Defaults to `<workspace>/media/onebot`                                            |
+| `media_download_max_mb` | int    | `50`    | Maximum size, in MB, for one downloaded inbound file. Independent from `media_base64_max_mb`, which only bounds outbound Base64 inlining |
 
 ### Security
 
