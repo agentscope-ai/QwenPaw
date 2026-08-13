@@ -125,7 +125,11 @@ class MemoryWorkerRuntimeStatus(BaseModel):
 
 
 class AutoMemoryRunStatus(BaseModel):
-    """One bounded auto-memory task record, newest records returned first."""
+    """One bounded memory-capture record, newest records returned first.
+
+    Records share the summarize queue used by periodic auto-memory and the
+    user-triggered ``/new`` and ``/compact`` commands.
+    """
 
     task_id: str
     status: Literal["pending", "running", "completed", "failed", "cancelled"]
@@ -141,12 +145,6 @@ class AutoMemoryRuntimeStatus(BaseModel):
 
     enabled: bool
     interval: int
-    # Pending-turn lifecycle state belongs to individual AgentState sessions.
-    # These values are unavailable when the workspace-level memory manager
-    # cannot aggregate every session safely.
-    active_sessions: int | None
-    sessions_with_pending: int | None
-    pending_turns: int | None
     history: list[AutoMemoryRunStatus] = Field(default_factory=list)
 
 

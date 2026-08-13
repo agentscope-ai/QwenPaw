@@ -380,9 +380,6 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
         "auto_memory": {
             "enabled": False,
             "interval": 0,
-            "active_sessions": None,
-            "sessions_with_pending": None,
-            "pending_turns": None,
             "history": [],
         },
         "recent": {
@@ -449,9 +446,6 @@ def test_get_memory_status_returns_structured_reme_metrics(
         "auto_memory": {
             "enabled": True,
             "interval": 5,
-            "active_sessions": 2,
-            "sessions_with_pending": 1,
-            "pending_turns": 3,
             "history": [],
         },
         "recent": {

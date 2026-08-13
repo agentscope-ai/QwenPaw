@@ -86,7 +86,7 @@ export function ReMeLightMemoryCard() {
 
   const inspectMemoryStatus = (view: "tasks" | "diagnostics") => {
     setStatusView(view);
-    void checkMemoryStatus();
+    void checkMemoryStatus(view === "diagnostics");
   };
   const statusLoading = runtimeStatus.type === "checking";
   const memoryStatus =
@@ -644,7 +644,7 @@ export function ReMeLightMemoryCard() {
         memoryStatus={memoryStatus}
         statusBadge={statusBadge}
         statusBadgeLabel={statusBadgeLabel}
-        onRefresh={() => void checkMemoryStatus()}
+        onRefresh={() => void checkMemoryStatus(statusView === "diagnostics")}
         onClose={() => setStatusView(null)}
       />
     </Card>

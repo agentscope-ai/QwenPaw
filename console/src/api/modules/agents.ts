@@ -27,9 +27,6 @@ export interface ReMeMemoryStatusResponse {
     auto_memory: {
       enabled: boolean;
       interval: number;
-      active_sessions: number | null;
-      sessions_with_pending: number | null;
-      pending_turns: number | null;
       history: Array<{
         task_id: string;
         status: "pending" | "running" | "completed" | "failed" | "cancelled";
@@ -48,6 +45,8 @@ export interface ReMeMemoryStatusResponse {
     reindexing: boolean;
   };
 }
+
+export type ReMeMemoryRuntimeStatus = ReMeMemoryStatusResponse["runtime"];
 
 // Multi-agent management API
 export const agentsApi = {
@@ -99,6 +98,13 @@ export const agentsApi = {
     return signal
       ? request<ReMeMemoryStatusResponse>(path, { signal })
       : request<ReMeMemoryStatusResponse>(path);
+  },
+
+  getMemoryRuntimeStatus: (agentId: string, signal?: AbortSignal) => {
+    const path = `/agents/${agentId}/memory/runtime-status`;
+    return signal
+      ? request<ReMeMemoryRuntimeStatus>(path, { signal })
+      : request<ReMeMemoryRuntimeStatus>(path);
   },
 
   getMemoryGraph: (agentId: string) =>

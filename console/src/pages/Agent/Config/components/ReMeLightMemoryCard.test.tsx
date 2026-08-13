@@ -48,9 +48,6 @@ const memoryStatus = {
     auto_memory: {
       enabled: true,
       interval: 5,
-      active_sessions: 1,
-      sessions_with_pending: 1,
-      pending_turns: 3,
       history: [],
     },
     recent: {
@@ -282,6 +279,9 @@ describe("ReMe runtime status", () => {
   });
 
   it("loads the selected agent's complete status on entry", async () => {
+    const getMemoryRuntimeStatus = vi
+      .spyOn(agentsApi, "getMemoryRuntimeStatus")
+      .mockResolvedValue(memoryStatus.runtime);
     const getMemoryStatus = vi
       .spyOn(agentsApi, "getMemoryStatus")
       .mockResolvedValue(memoryStatus);
@@ -295,6 +295,10 @@ describe("ReMe runtime status", () => {
     expect(
       await screen.findByText("agentConfig.memoryStatusRunning"),
     ).toBeInTheDocument();
+    expect(getMemoryRuntimeStatus).toHaveBeenCalledWith(
+      "bot",
+      expect.any(AbortSignal),
+    );
     expect(getMemoryStatus).toHaveBeenCalledTimes(1);
     expect(getMemoryStatus).toHaveBeenCalledWith(
       "bot",
@@ -307,8 +311,33 @@ describe("ReMe runtime status", () => {
     expect(diagnosticsButton).toHaveTextContent("1.00 KiB");
   });
 
+  it("shows the checking state while manually refreshing", async () => {
+    const pendingStatus = new Promise<typeof memoryStatus.runtime>(
+      () => undefined,
+    );
+    const getMemoryRuntimeStatus = vi
+      .spyOn(agentsApi, "getMemoryRuntimeStatus")
+      .mockResolvedValueOnce(memoryStatus.runtime)
+      .mockImplementationOnce(() => pendingStatus);
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
+
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
+    await screen.findByText("agentConfig.memoryStatusRunning");
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /agentConfig\.memoryBackgroundTasks/,
+      }),
+    );
+
+    expect(
+      await screen.findByText("agentConfig.memoryStatusChecking"),
+    ).toBeInTheDocument();
+    expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(2);
+  });
+
   it("shows a failed check instead of a healthy badge", async () => {
-    vi.spyOn(agentsApi, "getMemoryStatus").mockRejectedValue(
+    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockRejectedValue(
       new Error("Agent is not running"),
     );
 
@@ -323,20 +352,27 @@ describe("ReMe runtime status", () => {
   });
 
   it("cancels the stale check when the selected agent changes", async () => {
-    const pendingStatus = new Promise<typeof memoryStatus>(() => undefined);
-    const getMemoryStatus = vi
-      .spyOn(agentsApi, "getMemoryStatus")
+    const pendingStatus = new Promise<typeof memoryStatus.runtime>(
+      () => undefined,
+    );
+    const getMemoryRuntimeStatus = vi
+      .spyOn(agentsApi, "getMemoryRuntimeStatus")
       .mockImplementation((agentId) =>
-        agentId === "default" ? pendingStatus : Promise.resolve(memoryStatus),
+        agentId === "default"
+          ? pendingStatus
+          : Promise.resolve(memoryStatus.runtime),
       );
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
     renderWithProviders(<MemoryForm withRuntimeStatus />);
-    await waitFor(() => expect(getMemoryStatus).toHaveBeenCalledTimes(1));
-    const firstSignal = getMemoryStatus.mock.calls[0][1];
+    await waitFor(() =>
+      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(1),
+    );
+    const firstSignal = getMemoryRuntimeStatus.mock.calls[0][1];
 
     act(() => useAgentStore.setState({ selectedAgent: "bot" }));
 
     await waitFor(() => {
-      expect(getMemoryStatus).toHaveBeenLastCalledWith(
+      expect(getMemoryRuntimeStatus).toHaveBeenLastCalledWith(
         "bot",
         expect.any(AbortSignal),
       );
@@ -347,16 +383,19 @@ describe("ReMe runtime status", () => {
     ).toBeInTheDocument();
   });
 
-  it("uses the initial remote reindex state without polling", async () => {
+  it("uses runtime reindex state while full diagnostics are blocked", async () => {
     vi.useFakeTimers();
     try {
-      const rebuildingStatus = {
-        ...memoryStatus,
-        runtime: { ...memoryStatus.runtime, reindexing: true },
+      const rebuildingRuntime = {
+        ...memoryStatus.runtime,
+        reindexing: true,
       };
-      const getMemoryStatus = vi
-        .spyOn(agentsApi, "getMemoryStatus")
-        .mockResolvedValue(rebuildingStatus);
+      const getMemoryRuntimeStatus = vi
+        .spyOn(agentsApi, "getMemoryRuntimeStatus")
+        .mockResolvedValue(rebuildingRuntime);
+      vi.spyOn(agentsApi, "getMemoryStatus").mockImplementation(
+        () => new Promise(() => undefined),
+      );
       const { container } = renderWithProviders(<MemoryAndEmbeddingForm />);
 
       await act(async () => {
@@ -372,7 +411,7 @@ describe("ReMe runtime status", () => {
         await vi.advanceTimersByTimeAsync(10_000);
       });
 
-      expect(getMemoryStatus).toHaveBeenCalledTimes(1);
+      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(1);
       expect(modelInput).toBeDisabled();
     } finally {
       vi.useRealTimers();
@@ -380,18 +419,22 @@ describe("ReMe runtime status", () => {
   });
 
   it("shows worker and auto-memory history status", async () => {
-    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue({
+    const busyStatus = {
       ...memoryStatus,
       runtime: {
         ...memoryStatus.runtime,
         worker: {
           ...memoryStatus.runtime.worker,
-          status: "busy",
+          status: "busy" as const,
           queue_pending: 2,
           tasks_running: 1,
         },
       },
-    });
+    };
+    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockResolvedValue(
+      busyStatus.runtime,
+    );
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(busyStatus);
 
     renderWithProviders(<MemoryForm withRuntimeStatus />);
 
@@ -409,6 +452,9 @@ describe("ReMe runtime status", () => {
   });
 
   it("opens task history and diagnostics from separate overview actions", async () => {
+    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockResolvedValue(
+      memoryStatus.runtime,
+    );
     vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
 
     renderWithProviders(<MemoryForm withRuntimeStatus />);
@@ -428,9 +474,6 @@ describe("ReMe runtime status", () => {
       screen.getByText("agentConfig.memoryAutoMemoryEnabledSummary"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("agentConfig.memoryPendingSummary"),
-    ).toBeInTheDocument();
-    expect(
       screen.getByText("agentConfig.memoryRecentTasksEmpty"),
     ).toBeInTheDocument();
 
@@ -447,35 +490,6 @@ describe("ReMe runtime status", () => {
     expect(
       screen.getByText("agentConfig.remeStatusProcessRss"),
     ).toBeInTheDocument();
-  });
-
-  it("marks session-level pending counts as unavailable", async () => {
-    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue({
-      ...memoryStatus,
-      runtime: {
-        ...memoryStatus.runtime,
-        auto_memory: {
-          ...memoryStatus.runtime.auto_memory,
-          active_sessions: null,
-          sessions_with_pending: null,
-          pending_turns: null,
-        },
-      },
-    });
-
-    renderWithProviders(<MemoryForm withRuntimeStatus />);
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: /agentConfig\.memoryBackgroundTasks/,
-      }),
-    );
-
-    expect(
-      await screen.findByText("agentConfig.memoryPendingCountsUnavailable"),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByText("agentConfig.memoryPendingSummary"),
-    ).not.toBeInTheDocument();
   });
 });
 

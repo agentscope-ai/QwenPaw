@@ -8,7 +8,7 @@ export interface MemoryMaintenanceState {
   setReindexing: (value: boolean) => void;
   openMemorySettings: () => void;
   runtimeStatus: ReMeRuntimeStatus;
-  checkMemoryStatus: () => Promise<void>;
+  checkMemoryStatus: (includeDiagnostics?: boolean) => Promise<void>;
   configRevision: number;
 }
 

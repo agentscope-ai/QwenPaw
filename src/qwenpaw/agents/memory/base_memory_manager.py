@@ -531,9 +531,12 @@ class BaseMemoryManager(ABC):
     ) -> dict[str, Any]:
         """Return a sanitized operational snapshot for status UIs.
 
-        Auto-memory history includes the same bounded result text used for
-        inbox notifications. It deliberately excludes messages, session
-        identifiers, and task kwargs.
+        Memory-capture history includes the same bounded result text used for
+        inbox notifications. The shared summarize queue contains periodic
+        auto-memory work as well as user-triggered ``/new`` and ``/compact``
+        captures, so callers must not present every record as auto-memory.
+        It deliberately excludes messages, session identifiers, and task
+        kwargs.
         """
         self._update_task_statuses()
 
@@ -602,9 +605,7 @@ class BaseMemoryManager(ABC):
             text = str(value or "").strip()
             if not text:
                 return None
-            if len(text) > limit:
-                return f"{text[:limit].rstrip()}\n..."
-            return text
+            return text[:limit]
 
         history = []
         for info in reversed(task_infos[-MAX_RUNTIME_TASK_HISTORY:]):
@@ -635,12 +636,6 @@ class BaseMemoryManager(ABC):
             "auto_memory": {
                 "enabled": interval > 0,
                 "interval": interval,
-                # Turn lifecycle state is session-owned and persisted in
-                # AgentState, so the process-level memory manager no longer
-                # aggregates session or pending-marker counters.
-                "active_sessions": None,
-                "sessions_with_pending": None,
-                "pending_turns": None,
                 "history": history,
             },
             "recent": {

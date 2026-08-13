@@ -261,8 +261,12 @@ class TestBaseMemoryManagerAddSummarizeTask:
         worker.cancel()
         await asyncio.wait({worker}, timeout=0.5)
 
-    def test_runtime_status_includes_bounded_auto_memory_history(self, manager):
+    def test_runtime_status_includes_bounded_auto_memory_history(
+        self,
+        manager,
+    ):
         manager.get_auto_memory_interval = MagicMock(return_value=5)
+        long_result = "r" * (base_memory_manager.MAX_RUNTIME_RESULT_CHARS + 10)
         manager._summary_task_info = {
             "task_1": {
                 "task_id": "task_1",
@@ -282,7 +286,7 @@ class TestBaseMemoryManagerAddSummarizeTask:
                     tzinfo=base_memory_manager.timezone.utc,
                 ),
                 "message_count": 4,
-                "result": "Saved preference: prefers concise answers.",
+                "result": long_result,
             },
             "task_2": {
                 "task_id": "task_2",
@@ -302,7 +306,7 @@ class TestBaseMemoryManagerAddSummarizeTask:
                     1,
                     tzinfo=base_memory_manager.timezone.utc,
                 ),
-                "error": "summary failed\nretry later",
+                "error": "e" * 250,
                 "message_count": 2,
             },
         }
@@ -313,9 +317,6 @@ class TestBaseMemoryManagerAddSummarizeTask:
         assert status["auto_memory"] == {
             "enabled": True,
             "interval": 5,
-            "active_sessions": None,
-            "sessions_with_pending": None,
-            "pending_turns": None,
             "history": [
                 {
                     "task_id": "task_2",
@@ -324,7 +325,7 @@ class TestBaseMemoryManagerAddSummarizeTask:
                     "finished_at": "2026-08-10T01:00:00+00:00",
                     "message_count": 2,
                     "result": None,
-                    "error": "summary failed\nretry later",
+                    "error": "e" * 240,
                 },
                 {
                     "task_id": "task_1",
@@ -332,9 +333,9 @@ class TestBaseMemoryManagerAddSummarizeTask:
                     "queued_at": "2026-08-09T23:59:00+00:00",
                     "finished_at": "2026-08-10T00:00:00+00:00",
                     "message_count": 4,
-                    "result": (
-                        "Saved preference: prefers concise answers."
-                    ),
+                    "result": long_result[
+                        : base_memory_manager.MAX_RUNTIME_RESULT_CHARS
+                    ],
                     "error": None,
                 },
             ],
@@ -342,7 +343,7 @@ class TestBaseMemoryManagerAddSummarizeTask:
         assert status["recent"]["last_completed_at"] == (
             "2026-08-10T00:00:00+00:00"
         )
-        assert status["recent"]["last_error"] == ("summary failed retry later")
+        assert status["recent"]["last_error"] == "e" * 240
 
 
 class TestAutoMemorySearchSanitization:

@@ -29,6 +29,20 @@ export function ReMeStatusModal({
   const { t } = useTranslation();
   const formatRuntimeTime = (value: string | null) =>
     value ? new Date(value).toLocaleString() : t("agentConfig.memoryNeverRun");
+  const runtime = memoryStatus?.runtime;
+  const worker = runtime?.worker;
+  const autoMemory = runtime?.auto_memory;
+  const recent = runtime?.recent;
+  let queueSummary = "";
+  if (worker) {
+    queueSummary =
+      worker.tasks_running === 0 && worker.queue_pending === 0
+        ? t("agentConfig.memoryQueueIdleSummary")
+        : t("agentConfig.memoryQueueSummary", {
+            running: worker.tasks_running,
+            pending: worker.queue_pending,
+          });
+  }
 
   return (
     <Modal
@@ -82,43 +96,14 @@ export function ReMeStatusModal({
             <section className={styles.memoryTaskPanel}>
               <div className={styles.memoryTaskSummary}>
                 <div>
-                  <strong>
-                    {memoryStatus.runtime.worker.tasks_running === 0 &&
-                    memoryStatus.runtime.worker.queue_pending === 0
-                      ? t("agentConfig.memoryQueueIdleSummary")
-                      : t("agentConfig.memoryQueueSummary", {
-                          running: memoryStatus.runtime.worker.tasks_running,
-                          pending: memoryStatus.runtime.worker.queue_pending,
-                        })}
-                  </strong>
+                  <strong>{queueSummary}</strong>
                   <span>
-                    {memoryStatus.runtime.auto_memory.enabled
+                    {autoMemory?.enabled
                       ? t("agentConfig.memoryAutoMemoryEnabledSummary", {
-                          interval: memoryStatus.runtime.auto_memory.interval,
+                          interval: autoMemory.interval,
                         })
                       : t("agentConfig.memoryAutoRecordDisabledHint")}
                   </span>
-                  {memoryStatus.runtime.auto_memory.enabled &&
-                  (memoryStatus.runtime.auto_memory.pending_turns === null ||
-                    memoryStatus.runtime.auto_memory.sessions_with_pending ===
-                      null) ? (
-                    <span>
-                      {t("agentConfig.memoryPendingCountsUnavailable")}
-                    </span>
-                  ) : memoryStatus.runtime.auto_memory.enabled &&
-                    memoryStatus.runtime.auto_memory.pending_turns !== null &&
-                    memoryStatus.runtime.auto_memory.sessions_with_pending !==
-                      null &&
-                    memoryStatus.runtime.auto_memory.pending_turns > 0 ? (
-                    <span>
-                      {t("agentConfig.memoryPendingSummary", {
-                        sessions:
-                          memoryStatus.runtime.auto_memory
-                            .sessions_with_pending,
-                        turns: memoryStatus.runtime.auto_memory.pending_turns,
-                      })}
-                    </span>
-                  ) : null}
                 </div>
                 <strong
                   className={`${styles.memoryStatusBadge} ${statusBadge.className}`}
@@ -127,21 +112,21 @@ export function ReMeStatusModal({
                   {statusBadgeLabel}
                 </strong>
               </div>
-              {memoryStatus.runtime.recent.last_error ? (
+              {recent?.last_error ? (
                 <Alert
                   type="error"
                   showIcon
                   message={t("agentConfig.memoryLastError")}
-                  description={memoryStatus.runtime.recent.last_error}
+                  description={recent.last_error}
                 />
               ) : null}
               <div className={styles.memoryAutoMemoryHistory}>
                 <div className={styles.memoryAutoMemoryHistoryHeader}>
                   <strong>{t("agentConfig.memoryRecentTasks")}</strong>
                 </div>
-                {memoryStatus.runtime.auto_memory.history.length ? (
+                {autoMemory?.history.length ? (
                   <div className={styles.memoryAutoMemoryHistoryList}>
-                    {memoryStatus.runtime.auto_memory.history.map((run) => (
+                    {autoMemory.history.map((run) => (
                       <details key={run.task_id}>
                         <summary>
                           <span>
