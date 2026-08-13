@@ -417,6 +417,9 @@ class MatrixConfig(BaseChannelConfig):
     # When True, apply m.mentions + optional pill on outbound messages.
     outbound_structured_mentions: bool = True
     streaming_enabled: bool = False
+    # If True, all members in a group room share one session; if False
+    # (default), each member gets an independent session.
+    share_session_in_group: bool = False
 
 
 class VoiceChannelConfig(BaseChannelConfig):

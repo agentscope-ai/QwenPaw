@@ -905,17 +905,19 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
   "bot_prefix": "[BOT]",
   "homeserver": "https://matrix.org",
   "user_id": "@mybot:matrix.org",
-  "access_token": "syt_..."
+  "access_token": "syt_...",
+  "share_session_in_group": false
 }
 ```
 
 **Matrix 专属字段说明：**
 
-| 字段           | 类型   | 默认值       | 说明                                         |
-| -------------- | ------ | ------------ | -------------------------------------------- |
-| `homeserver`   | string | `""`（必填） | Matrix 服务器地址（如 `https://matrix.org`） |
-| `user_id`      | string | `""`（必填） | 机器人 User ID（如 `@mybot:matrix.org`）     |
-| `access_token` | string | `""`（必填） | 机器人的 Access Token（以 `syt_` 开头）      |
+| 字段                      | 类型   | 默认值       | 说明                                                                 |
+| ------------------------- | ------ | ------------ | -------------------------------------------------------------------- |
+| `homeserver`              | string | `""`（必填） | Matrix 服务器地址（如 `https://matrix.org`）                          |
+| `user_id`                 | string | `""`（必填） | 机器人 User ID（如 `@mybot:matrix.org`）                              |
+| `access_token`            | string | `""`（必填） | 机器人的 Access Token（以 `syt_` 开头）                               |
+| `share_session_in_group`  | bool   | `false`      | 为 `true` 时群聊所有成员共享一个会话；为 `false` 时每个成员拥有独立会话 |
 
 保存后，若 QwenPaw 已在运行，频道会自动重载。
 
@@ -928,6 +930,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 - Matrix 频道当前**仅支持文本消息**（不支持图片/文件附件）。
 - 机器人只能接收已加入房间的消息，发消息前请先邀请机器人进入对应房间。
 - 如使用自建服务器，将 `homeserver` 设置为你的服务器地址（例如 `https://matrix.example.com`）。
+- 会话与记忆默认按发送者隔离：群聊中每个成员拥有独立的对话上下文。将 `share_session_in_group` 设为 `true` 可让所有成员共享一个会话（旧版行为）。私聊始终按用户隔离。
 
 ---
 
