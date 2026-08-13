@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from qwenpaw.config.config import (
     ADBPGMemoryConfig,
     EmbeddingModelConfig,
+    PowerContextMemoryConfig,
     ReMeLightMemoryConfig,
 )
 
@@ -16,6 +17,13 @@ def test_adbpg_auto_memory_search_defaults():
 
     assert cfg.auto_memory_search_config.enabled is True
     assert cfg.auto_memory_search_config.max_results == 3
+
+
+def test_powercontext_memory_defaults():
+    cfg = PowerContextMemoryConfig()
+    assert cfg.scope_id == "workspace:qwenpaw"
+    assert cfg.fallback_backend == "remelight"
+    assert cfg.auto_memory_search_config.enabled is True
 
 
 def test_reme_light_job_notifications_default_to_enabled():
