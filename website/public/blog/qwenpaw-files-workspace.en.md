@@ -47,7 +47,9 @@ The directory switcher at the top lets you move between two locations:
 - **Project Directory** contains the code, materials, and outputs for the current project.
 - **Agent Configuration Directory** contains the Agent's own configuration, memory, skills, and other internal files.
 
-This distinction keeps the screen and the Agent aligned. After you switch projects, the Agent will not quietly write to one directory while Files shows you another.
+This distinction keeps the two roles clear. Selecting a Project Directory updates both the project root shown in Files and the effective project directory inherited by the current Chat during ordinary tasks. The Agent Configuration Directory remains the place for the Agent's own files.
+
+Project Directory also supports inheritance and per-conversation selection. An Agent can define a default directory, while an individual Chat can select its own directory and keep that choice with the conversation. Files uses the directory currently in effect for that Chat. During an ordinary Chat task, the Agent's file reading, writing, and search tools, Shell, and code analysis use this directory as their default root unless another path or Shell working directory is specified. Git operations in Files use it as well. Clearing the Chat selection makes it inherit the Agent default again. Task modes and forked workspaces can use dedicated directories with higher precedence when their work must remain isolated.
 
 ## Profile: Tell the Agent Who It Is and How It Should Work
 
@@ -80,7 +82,7 @@ Daily organizes those records by date. A long discussion about a database migrat
 
 <img class="blog-image--medium" src="https://img.alicdn.com/imgextra/i2/O1CN01f7mMLhPmiXB3rvvy_!!6000000001706-0-tps-1906-1188.jpg" alt="Daily keeps useful records from conversations and tasks organized by date" />
 
-These notes are not an unwieldy copy of the entire chat. They preserve the useful parts and link back to the source conversation. You can understand the conclusion quickly and still trace where it came from when needed.
+These notes are not an unwieldy copy of the entire chat. They preserve the useful parts. Notes produced by ReMe Light's automatic memory flow also record the source conversation identifier in file metadata, making it possible to verify which conversation they came from.
 
 Daily records are ordinary Markdown files. You can correct a mistake, update something that has changed, or open an important note and continue working from it.
 
@@ -98,9 +100,11 @@ The knowledge base commonly organizes information into three groups:
 - **Procedure**: repeatable workflows, instructions, and solutions;
 - **Wiki**: concepts, conclusions, observations, and decisions that can serve as precedents.
 
+When ReMe Light is the memory backend, Knowledge Base also provides a relationship graph:
+
 ![Knowledge Base visualizes the relationships between memories and knowledge](https://img.alicdn.com/imgextra/i1/O1CN01JBjN5c3diWC49o9I_!!6000000000514-0-tps-2048-1024.jpg)
 
-The graph keeps these files from becoming isolated notes. Nodes represent memories, materials, or dates, while links show how they relate. You can move from an insight back to the daily records that support it or follow a connection to a related method or source.
+The graph keeps these files from becoming isolated notes. Nodes represent indexed Daily and Knowledge Base files or category roots, while edges come from wiki links in those files. You can open indexed files from the graph and, when a knowledge file links to a related daily note or method, follow that connection to inspect it.
 
 In short, Daily answers “What happened that day?” Knowledge Base answers “What did we learn from all of it?”
 
@@ -145,9 +149,11 @@ Chat carries the intent. Workspace holds the current task. Profile explains how 
 
 ## Visible Files Make Collaboration Controllable
 
-Files works with local data, so QwenPaw checks sensitive paths, workspace boundaries, path traversal, symbolic links, and upload conflicts. Historical attachments that cannot be resolved to a safe location fall back to read-only preview instead of pretending to remain editable.
+Files works with local data, so its file APIs limit access to the selected root, reject path traversal and symbolic links that escape that root, and require an explicit choice when uploaded filenames conflict. Historical attachments that cannot be resolved under the current Project Directory or Agent Configuration Directory fall back to read-only preview instead of pretending to remain editable. When saving a text file in Workspace, Files checks the version recorded when the file was opened and refuses to overwrite a file that has since changed on disk. Content that passes this check is written atomically.
 
-More importantly, memory and configuration are not hidden in a black box. Like project files, they can be opened, read, edited, backed up, and moved.
+Files currently works best with workspaces of ordinary size. Directory contents are displayed in pages, but the file tree does not yet provide search or virtualize long lists. Text is read from the server in chunks, but the current interface waits for every chunk and assembles the complete content before previewing or editing it. As a result, very large text files or directories with many immediate children may take longer to open.
+
+More importantly, memory and configuration are not hidden in a black box. They are stored as files in the Agent Configuration Directory and can be opened, read, and edited through the corresponding Files sections.
 
 Files is valuable not simply because it adds a larger file tree, but because it helps you answer concrete questions:
 
