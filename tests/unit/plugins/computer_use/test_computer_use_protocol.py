@@ -560,8 +560,8 @@ def test_the_approval_coordinator_holds_no_exemption_state() -> None:
     )
 
 
-def test_element_line_uses_bounds_centre_on_windows() -> None:
-    """Windows elements expose pixel bounds, rendered as a centre point."""
+def test_element_line_omits_windows_screen_bounds() -> None:
+    """Desktop UIA bounds do not map to screenshot coordinates."""
     line = _element_line(
         {
             "id": "uia-1",
@@ -572,7 +572,7 @@ def test_element_line_uses_bounds_centre_on_windows() -> None:
             "offscreen": False,
         },
     )
-    assert line == 'uia-1 Edit "text editor" screen@200,300'
+    assert line == 'uia-1 Edit "text editor"'
 
 
 def test_element_line_uses_value_on_macos() -> None:
@@ -587,6 +587,19 @@ def test_element_line_uses_value_on_macos() -> None:
         },
     )
     assert line == 'ax-2 Edit "note" =hello'
+
+
+def test_element_line_preserves_accessibility_depth() -> None:
+    """Native hierarchy remains visible in the compact model contract."""
+    line = _element_line(
+        {
+            "id": "uia-2",
+            "control_type_name": "ListItem",
+            "name": "餐饮",
+            "depth": 3,
+        },
+    )
+    assert line == '      uia-2 ListItem "餐饮"'
 
 
 def test_element_line_preserves_application_identifier() -> None:
@@ -631,7 +644,7 @@ def test_element_line_keeps_disabled_and_offscreen_visible() -> None:
             "offscreen": True,
         },
     )
-    assert line == 'uia-9 Button "Save" screen@5,5 [disabled] [offscreen]'
+    assert line == 'uia-9 Button "Save" [disabled] [offscreen]'
 
 
 def test_compact_elements_preserves_protocol_fields() -> None:
@@ -654,6 +667,7 @@ def test_compact_elements_preserves_protocol_fields() -> None:
                     "id": "uia-1",
                     "control_type_name": "Button",
                     "name": "OK",
+                    "depth": 1,
                     "bounds": [10, 10, 30, 30],
                 },
             ],
@@ -665,7 +679,7 @@ def test_compact_elements_preserves_protocol_fields() -> None:
     assert result["window"] == {"id": "42", "title": "Editor"}
     assert result["accessibility"]["available"] is True
     assert result["accessibility"]["elements"] == (
-        'uia-0 Window "Editor" screen@50,50\n' 'uia-1 Button "OK" screen@20,20'
+        'uia-0 Window "Editor"\n' '  uia-1 Button "OK"'
     )
     # The original payload must not be mutated.
     accessibility = payload["accessibility"]
@@ -686,7 +700,7 @@ def test_response_text_is_compact_and_carries_summary_fields() -> None:
         "action": "observe_window",
         "accessibility": {
             "available": True,
-            "focused_element": 'uia-1 Edit "text editor" screen@200,300',
+            "focused_element": 'uia-1 Edit "text editor"',
             "document_text": "hello world",
             "elements": [
                 {
@@ -703,10 +717,6 @@ def test_response_text_is_compact_and_carries_summary_fields() -> None:
     assert "\n  " not in text
     decoded = json.loads(text)
     accessibility = decoded["accessibility"]
-    assert accessibility["focused_element"] == (
-        'uia-1 Edit "text editor" screen@200,300'
-    )
+    assert accessibility["focused_element"] == 'uia-1 Edit "text editor"'
     assert accessibility["document_text"] == "hello world"
-    assert accessibility["elements"] == (
-        'uia-1 Edit "text editor" screen@200,300'
-    )
+    assert accessibility["elements"] == 'uia-1 Edit "text editor"'

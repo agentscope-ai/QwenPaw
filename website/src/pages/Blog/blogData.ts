@@ -79,6 +79,11 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     cover:
       "https://img.alicdn.com/imgextra/i1/6000000004826/O1CN014843Da1lWMZIlKBgv_!!6000000004826-0-tbvideo.jpg",
   },
+  {
+    slug: "qwenpaw-checkpoint",
+    cover:
+      "https://img.alicdn.com/imgextra/i3/O1CN01LXaNPg4UfYB3rvs1_!!6000000007061-2-tps-1906-943.png",
+  },
 ];
 
 /** Previous post in list order (top → bottom on /blog, date-desc). */

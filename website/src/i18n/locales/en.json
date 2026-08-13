@@ -297,6 +297,7 @@
     "browser": "Browser",
     "acpServer": "ACP Integration",
     "memory": "Memory",
+    "embedding": "Embedding Models",
     "memoryEvolvingAndProactive": "Memory-Evolving & Proactive",
     "computerUse": "Computer Use",
     "chrome": "Chrome Extension",
