@@ -13,7 +13,7 @@ from fastapi import (
     Query,
     Request,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from ...agents.acp.core import ACPAgentConfig, ACPConfig
 from ...agents.acp.node_runtime import (
@@ -495,7 +495,16 @@ async def put_channel(
 
     config_class = _channel_config_class(channel_name)
     if config_class is not None:
-        channel_config = config_class(**single_channel_config)
+        try:
+            channel_config = config_class(**single_channel_config)
+        except ValidationError as exc:
+            # An invalid single-channel payload must surface as a 422
+            # (client error) instead of leaking an unhandled exception
+            # as a 500 Internal Server Error.
+            raise HTTPException(
+                status_code=422,
+                detail=exc.errors(),
+            ) from exc
     else:
         # For custom channels, just use the dict
         channel_config = single_channel_config

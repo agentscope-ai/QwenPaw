@@ -266,10 +266,9 @@ def test_put_onebot_channel_rejects_invalid_value(
 ):
     """An invalid value is refused instead of reaching the disk.
 
-    The rejection currently surfaces as a 500 because the model error
-    propagates; 422 is accepted too so that turning it into a proper
-    validation response stays a green change.  A 404 would mean the
-    route never ran, which must not pass for this guard.
+    The single-channel PUT must map a Pydantic validation failure to a
+    422 client error (not leak it as a 500), and must not persist the
+    malformed config.
     """
     lenient_client = TestClient(app, raise_server_exceptions=False)
 
@@ -279,7 +278,7 @@ def test_put_onebot_channel_rejects_invalid_value(
             json={"enabled": True, "ws_port": "not-a-port"},
         )
 
-    assert response.status_code in (422, 500)
+    assert response.status_code == 422, response.text
     save_mock.assert_not_called()
     assert isinstance(
         fake_agent_workspace.config.channels.onebot,
