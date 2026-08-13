@@ -257,6 +257,8 @@ def test_native_error_marks_the_tool_call_as_failed() -> None:
     assert isinstance(response, ToolChunk)
     assert response.state == ToolResultState.ERROR
     assert '"ok":false' in response.content[-1].text
+    assert '"requires_observe":true' in response.content[-1].text
+    assert '"next_action":"observe_window"' in response.content[-1].text
 
 
 def test_sequence_steps_count_against_the_action_rate_limit(
@@ -414,6 +416,33 @@ class _FakeTransport(ComputerUseTransport):
 
 
 @pytest.mark.asyncio
+async def test_failed_action_invalidates_the_private_observation() -> None:
+    class _ActionFailureTransport(_FakeTransport):
+        async def request(self, message: Mapping[str, Any]) -> dict[str, Any]:
+            if message["method"] == "hello":
+                return await super().request(message)
+            return {
+                "request_id": message["request_id"],
+                "ok": False,
+                "error": {
+                    "code": "target_not_at_point",
+                    "message": "Observe again.",
+                },
+            }
+
+    client = ComputerUseClient("session-1", lambda: _ActionFailureTransport())
+    client._observation_id = "observation-1"
+    set_current_computer_use_turn_id("turn-1")
+    try:
+        with pytest.raises(ComputerUseProtocolError):
+            await client.execute("click", {})
+    finally:
+        set_current_computer_use_turn_id(None)
+
+    assert client._observation_id is None
+
+
+@pytest.mark.asyncio
 async def test_client_binds_session_and_turn_to_native_request() -> None:
     transport = _FakeTransport()
     client = ComputerUseClient("session-1", lambda: transport)
@@ -558,6 +587,36 @@ def test_element_line_uses_value_on_macos() -> None:
         },
     )
     assert line == 'ax-2 Edit "note" =hello'
+
+
+def test_element_line_preserves_application_identifier() -> None:
+    """Stable command identities disambiguate localized menu labels."""
+    line = _element_line(
+        {
+            "id": "ax-3",
+            "control_type_name": "MenuItem",
+            "name": "复制",
+            "identifier": "cmdDuplicate:",
+        },
+    )
+    assert line == 'ax-3 MenuItem "复制" [identifier=cmdDuplicate:]'
+
+
+def test_element_line_normalizes_windows_semantic_capabilities() -> None:
+    """Windows UIA metadata uses the same compact contract as macOS AX."""
+    line = _element_line(
+        {
+            "id": "uia-4",
+            "control_type_name": "Button",
+            "name": "Continue",
+            "automation_id": "continue-button",
+            "actions": ["Invoke"],
+        },
+    )
+    assert line == (
+        'uia-4 Button "Continue" [identifier=continue-button] '
+        "[actions=Invoke]"
+    )
 
 
 def test_element_line_keeps_disabled_and_offscreen_visible() -> None:

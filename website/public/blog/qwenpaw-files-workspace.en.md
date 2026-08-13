@@ -1,137 +1,170 @@
 ---
-title: "From File Tree to Files Workspace: Making an Agent's Working Directory Visible"
+title: "QwenPaw Files: One Place for Your Agent's Work, Profile, and Memory"
 date: 2026-08-07
 author: QwenPaw Team
-tags: [Files, File Tree, Files Workspace, File Preview, Agent]
+tags: [Files, Workspace, Profile, Daily, Knowledge Base]
 cover: https://img.alicdn.com/imgextra/i4/O1CN01pEZk6a8g9lK3gjEp_!!6000000001665-2-tps-1817-866.png
-excerpt: "QwenPaw's latest Files workspace brings directory browsing, file preview, editing, diff review, uploads, downloads, and Chat references into one surface, keeping Agent file state visible, inspectable, and controllable."
+excerpt: "QwenPaw Files brings the workspace, profile, daily notes, and knowledge base into one view, so you can see what an Agent is using, what it remembers, and how those records become reusable knowledge."
 ---
 
-# From File Tree to Files Workspace: Making an Agent's Working Directory Visible
+# QwenPaw Files: One Place for Your Agent's Work, Profile, and Memory
 
-When an Agent only answers questions, the chat transcript can feel like the whole workspace. Once the task becomes “read a set of materials, change a project, generate a report, and preserve long-term memory,” the durable state is no longer in the chat box. It is in files.
+Suppose you ask QwenPaw to help prepare a product release.
 
-Files are the Agent's working memory and the shared language people use to inspect results, take over a task, and continue collaborating. Yet a traditional file entry point is often just a list: it shows names, but makes browsing, understanding, editing, and reviewing feel like separate jobs.
+You give it a customer interview report and ask it to read the project's changelog. It produces a draft of the release notes. During the discussion, your team also decides not to migrate the database this time and settles on a writing preference: explain what users will gain before describing technical changes.
 
-QwenPaw's latest **Files workspace** starts from that gap. It turns the file tree from a navigation control into one working surface where users can browse, preview, edit, review, and reference files without losing context.
+A few weeks later, you may wonder: Where is the generated file? Does the Agent still remember the database decision? Will it apply that writing preference next time?
 
-![Files workspace overview](https://img.alicdn.com/imgextra/i4/O1CN01GjiXT3fTIrJ5Bkx9_!!6000000006529-2-tps-2556-1223.png)
+None of this has to remain trapped in the chat. QwenPaw stores project materials, Agent profile files, daily records, and long-term knowledge as files you can inspect directly. **Files** is the single place where you work with all of them.
 
-## 01 Agents Really Work in Files
+![An overview of the QwenPaw Files workspace](https://img.alicdn.com/imgextra/i4/O1CN01GjiXT3fTIrJ5Bkx9_!!6000000006529-2-tps-2556-1223.png)
 
-A typical Agent task moves through a loop like this:
+## Four Places for Four Kinds of Information
 
-1. Read code, configuration, or reference material from a project directory;
-2. Analyze it in Chat and propose a change;
-3. Write the result back, or create a new document or media file;
-4. Let a person preview, edit, compare, and reference the result in Chat again;
-5. Continue using project files, Profile, and Memory in later sessions.
+Open Files and you will see four sections: **Workspace, Profile, Daily, and Knowledge Base**.
 
-When these steps are split across chat attachments, a separate coding page, downloaded files, and the operating system's file manager, users have to keep asking where a file belongs, which version they are looking at, and which directory an edit will affect. The Agent has to switch between paths and APIs too, making file context fragile.
+Think of them as four drawers for your Agent:
 
-The goal of the Files workspace is not to rebuild a full IDE. It is to give the most common file actions in Agent work a stable and explainable entry point: **find the file, understand it, edit it when needed, and bring the result back into the task.**
+| Section            | Think of it as                               | What it contains                                                                |
+| ------------------ | -------------------------------------------- | ------------------------------------------------------------------------------- |
+| **Workspace**      | The desk where current work happens          | Project files, reference material, code, and task outputs                       |
+| **Profile**        | The Agent's profile and working instructions | Identity, behavior, persistent context, and proactive-task instructions         |
+| **Daily**          | A work journal organized by date             | Useful facts, decisions, preferences, and readings extracted from conversations |
+| **Knowledge Base** | A library of reusable knowledge              | Personal context, methods, and conclusions distilled from repeated experience   |
 
-## 02 One Unified Files Workspace
+They are all file-based, but each serves a different purpose. Workspace answers “What are we working on now?” Profile answers “How should this Agent work?” Daily records “What happened recently?” Knowledge Base preserves “What will still be useful later?”
 
-This update brings file experiences that used to be spread across Chat, Agent Workspace, and the Coding page into one Files domain. It is composed of three connected layers:
+## Workspace: Where the Current Task Lives
 
-- **File tree:** expand directories, identify file types, and load children page by page;
-- **File preview:** inspect Markdown, images, PDFs, CSVs, and plain text without leaving the task;
-- **Editing workspace:** open multiple files in Monaco while preserving tabs, cursors, and undo state.
+Workspace is the part that feels most like a familiar file manager. You can expand folders and inspect project materials, code, configuration, and results produced by the Agent.
 
-Clicking an attachment in Chat opens a Preview drawer first instead of downloading immediately. When more room is needed, the drawer expands into the full Workspace. Opening Files from the sidebar goes directly to the full workspace. The two entry points reuse navigation, preview, and editing, while keeping Agent-level and Session-level tab state separate so two work scenes do not leak into each other.
+When Lin asks QwenPaw to prepare release notes, the customer interviews, changelog, and generated Markdown can all live in Workspace. She does not have to guess which conversation contains a file or download it before she can open it.
 
-![Chat file preview drawer](https://img.alicdn.com/imgextra/i3/O1CN01TTmgqymDpqH5CGAk_!!6000000002889-0-tps-2560-1226.jpg)
+<img class="blog-image--compact" src="https://img.alicdn.com/imgextra/i4/O1CN016kKPfi0G9MI1B8dh_!!6000000000228-0-tps-581-576.jpg" alt="Workspace brings together the project files and working materials used by the Agent" />
 
-## 03 A File Tree Is More Than a List of Names
+The directory switcher at the top lets you move between two locations:
 
-### Read from the root, one level at a time
+- **Project Directory** contains the code, materials, and outputs for the current project.
+- **Agent Configuration Directory** contains the Agent's own configuration, memory, skills, and other internal files.
 
-The tree does not recursively load an entire directory on first render. It reads the immediate children of the current directory, then requests the next page when a folder is expanded. The backend limits page size and relative-path length, rejects traversal, and re-checks the resolved target when symbolic links are involved.
+This distinction keeps the two roles clear. Selecting a Project Directory updates both the project root shown in Files and the effective project directory inherited by the current Chat during ordinary tasks. The Agent Configuration Directory remains the place for the Agent's own files.
 
-This keeps ordinary projects quick to enter and gives Project Directory changes a clear boundary. Paths cross the API boundary in a normalized relative POSIX form, while drive letters, backslashes, and reserved Windows names are handled for cross-platform behavior.
+Project Directory also supports inheritance and per-conversation selection. An Agent can define a default directory, while an individual Chat can select its own directory and keep that choice with the conversation. Files uses the directory currently in effect for that Chat. During an ordinary Chat task, the Agent's file reading, writing, and search tools, Shell, and code analysis use this directory as their default root unless another path or Shell working directory is specified. Git operations in Files use it as well. Clearing the Chat selection makes it inherit the Agent default again. Task modes and forked workspaces can use dedicated directories with higher precedence when their work must remain isolated.
 
-### Two directory identities, one tree
+## Profile: Tell the Agent Who It Is and How It Should Work
 
-An Agent needs two kinds of directories at the same time:
+Profile is not an account page or an avatar. It is a set of files that can participate in the Agent's working context.
 
-| Directory                     | What it contains                                                  | When to use it                                    |
-| ----------------------------- | ----------------------------------------------------------------- | ------------------------------------------------- |
-| Project Directory             | User projects, code, references, Git workspaces, and task outputs | Work on the current project                       |
-| Agent Configuration Directory | Profile, Memory, sessions, skills, caches, and QwenPaw-owned data | Inspect Agent configuration and long-term context |
+Common profile files include:
 
-Files keeps both identities in one navigator with a root switcher. If the two paths resolve to the same directory, the UI collapses them into one identity instead of displaying duplicates.
+- `SOUL.md`: the Agent's role, tone, and basic behavior;
+- `AGENTS.md`: working instructions the Agent should follow when handling tasks;
+- `MEMORY.md`: stable information that should remain readily available;
+- `HEARTBEAT.md`: instructions for proactive checks or recurring attention.
 
-The workspace also exposes **Profile** and **Memory** sources. Profile files can be enabled, disabled, and reordered; Memory continues to use its daily-note and digest APIs. Both reuse the same preview and editing surface without losing their domain semantics.
+You can open and edit these files, enable or disable them, and change their order. If Lin wants every release note to use less jargon and lead with user value, she can put that durable instruction in the appropriate profile file.
 
-## 04 From “Take a Look” to “Change One Thing”: Preview, Edit, and Diff
+<img class="blog-image--compact" src="https://img.alicdn.com/imgextra/i4/O1CN01gOFlhZbUFHF1BW2y_!!6000000001829-0-tps-584-552.jpg" alt="Profile manages the files that shape how the Agent behaves" />
 
-Text files can switch between Preview and Edit. The editor keeps a model per path, so changing tabs preserves the cursor, undo stack, and unsaved edits. Markdown, code, configuration, and CSV can live in the same workspace; images and PDFs remain read-only previews.
+There is an important difference between Profile and the Daily and Knowledge Base sections that follow. Profile is closer to a set of durable instructions you explicitly give the Agent. Daily and Knowledge Base continue to grow and evolve as conversations and tasks accumulate.
 
-When an external process changes a file, the workspace detects the update and surfaces the difference between the current editor content and the disk version. Each hunk can be **Kept** or **Undone**, or all changes can be accepted or reverted at once. Saving remains an explicit user action; `Cmd/Ctrl+S` writes the confirmed text back to the original file.
+## Daily: Keep What Was Worth Remembering Today
 
-This interaction addresses a common Agent collaboration moment: the Agent may have produced a result, but the person wants to inspect each part before it enters the project. Diff does not decide for the user—it puts the context needed for that decision in one place.
+A conversation may be long, but only a few details usually deserve to last: a decision, a preference, a finding from a report, or a follow-up action.
 
-## 05 Uploads, Downloads, and Chat References
+Daily organizes those records by date. A long discussion about a database migration, for example, can become a short and useful note:
 
-The workspace covers both ends of a file task:
+> **Decision**: Do not migrate the database in this release.
+>
+> **Reason**: The deadline is close, and the current solution still meets the requirements.
+>
+> **Next step**: Reevaluate after the release.
 
-- Upload files to the selected Project Directory or Agent Configuration Directory;
-- Download files from the workspace;
-- When a name already exists, choose rename, skip, or overwrite;
-- Copy a file or selected code back to Chat;
-- Move from Chat file cards and tool-produced files back to the same Preview / Workspace.
+<img class="blog-image--medium" src="https://img.alicdn.com/imgextra/i2/O1CN01f7mMLhPmiXB3rvvy_!!6000000001706-0-tps-1906-1188.jpg" alt="Daily keeps useful records from conversations and tasks organized by date" />
 
-A reference is more than pasted text. Files preserves the path and, when relevant, line information, so the user can see exactly which file and region the Agent is being shown. If a historical attachment cannot be safely resolved under the current Project Directory or Agent Configuration Directory, it falls back to a read-only preview instead of pretending it is editable.
+These notes are not an unwieldy copy of the entire chat. They preserve the useful parts. Notes produced by ReMe Light's automatic memory flow also record the source conversation identifier in file metadata, making it possible to verify which conversation they came from.
 
-## 06 Project Directory: The Runtime Boundary Behind the Tree
+Daily records are ordinary Markdown files. You can correct a mistake, update something that has changed, or open an important note and continue working from it.
 
-A file tree is only useful when the Agent's tools and the user's view point to the same directory. Project Directory is therefore a runtime concept rather than a setting owned by the old Coding page:
+## Knowledge Base: Turn Scattered Notes into Lasting Experience
 
-- An Agent can define a default Project Directory;
-- An individual Chat Session can override it;
-- The override is persisted and affects reads, saves, uploads, downloads, and file watching;
-- Shell, code analysis, Git, and related tools use the same effective directory.
+Daily notes alone are not enough. After months of use, dozens or hundreds of dated records can still be difficult to navigate.
 
-After switching directories in Files, users do not need to repeat the setting elsewhere. The Agent will not write to one directory while the UI presents the result as if it came from another.
+Knowledge Base consolidates repeated experiences into more stable, reusable knowledge. After several product releases, for example, feedback scattered across different dates may become one clear guideline:
 
-## 07 A Typical File Workflow
+> Lead release notes with what users will gain, then explain the technical changes. Pair important changes with a real-world use case whenever possible.
 
-Suppose you ask an Agent to prepare release notes for a project:
+The knowledge base commonly organizes information into three groups:
 
-1. Describe the goal in Chat and let the Agent read changelogs and documents from the Project Directory;
-2. Click the generated Markdown file and check its structure in Preview;
-3. Expand into the Workspace and adjust wording or add a section in Monaco;
-4. If the Agent or another tool changes the file again, review each hunk with Keep / Undo;
-5. Copy a key section or file reference back to Chat so the Agent can continue with your feedback;
-6. Return to the Files workspace, confirm the final version, and download it for delivery.
+- **Personal**: identities, preferences, and agreements related to a user, team, or project;
+- **Procedure**: repeatable workflows, instructions, and solutions;
+- **Wiki**: concepts, conclusions, observations, and decisions that can serve as precedents.
 
-In this loop, Chat carries intent, files carry state, Preview and Diff support review, and the Files workspace keeps the entire flow in one visible context.
+When ReMe Light is the memory backend, Knowledge Base also provides a relationship graph:
 
-## 08 Safety Boundaries and Current Trade-offs
+![Knowledge Base visualizes the relationships between memories and knowledge](https://img.alicdn.com/imgextra/i1/O1CN01JBjN5c3diWC49o9I_!!6000000000514-0-tps-2048-1024.jpg)
 
-Files works with local data, so the safety boundary must be more precise than “can this file open?” The backend checks sensitive paths, workspace containment, traversal, Windows reserved names, and symbolic-link escapes. Writes are atomic, and upload conflicts never silently replace an existing file.
+The graph keeps these files from becoming isolated notes. Nodes represent indexed Daily and Knowledge Base files or category roots, while edges come from wiki links in those files. You can open indexed files from the graph and, when a knowledge file links to a related daily note or method, follow that connection to inspect it.
 
-The update also does not present unfinished optimization as IDE-grade performance. The backend already exposes paged directory and chunked content APIs, but the frontend still assembles a complete text file before rendering it. Very large directories are not virtualized yet, and file-tree search remains planned. These trade-offs keep the current experience stable and explainable for ordinary Agent work; larger repositories will benefit from progressive rendering, cancellation, bounded caches, and directory search in follow-up work.
+In short, Daily answers “What happened that day?” Knowledge Base answers “What did we learn from all of it?”
 
-## 09 Next: A More Progressive File Experience
+## More Than Browsing: Preview, Edit, and Review Changes
 
-The next phase is not simply more buttons. It is keeping the same sense of certainty as workspaces grow:
+Once you find a file, you do not have to leave QwenPaw to continue working with it.
 
-- Show the first chunk of a large file before loading the rest;
-- Cancel unnecessary chunk requests when switching tabs;
-- Add virtualization and search for large directories;
-- Add a clear concurrent-edit conflict state and recovery flow around the existing ETag check;
-- Continue refining full-screen file behavior on mobile and narrow windows.
+- Preview Markdown, code, configuration, CSV, images, and PDFs directly.
+- Switch text files into Edit mode when you need to make a change.
+- Keep your cursor and unsaved work while moving between open tabs.
+- Use Diff when the Agent or another tool changes a file again.
+- Keep or undo individual changes, then save only after you are satisfied.
 
-The principle stays the same: make file state visible first, make Agent actions controllable next, and extend performance to larger projects without obscuring what is happening.
+![Open a file preview from Chat, then expand into the full Files workspace](https://img.alicdn.com/imgextra/i3/O1CN01TTmgqymDpqH5CGAk_!!6000000002889-0-tps-2560-1226.jpg)
 
-## Summary
+The Agent can produce a first draft while you keep final control. Files does not decide which edits are acceptable; it puts the original, the changes, and the review controls in one place.
 
-A file tree may look like a small component, but it connects an Agent's project directory, configuration, memory, tool outputs, and user feedback. QwenPaw's Files update organizes that chain into one workspace, keeping directory navigation, content review, and file changes aligned around the same paths and state.
+## Files Can Enter a Task and Return to Chat
 
-From expanding a directory to previewing, editing, diffing, uploading, downloading, and referencing files in Chat, the user is looking at one coherent work state. For the Agent, that means fewer path ambiguities. For the user, it means a clearer answer to what the Agent is reading, what it is changing, and what still needs human confirmation.
+Files connects both ends of a task:
 
-Related implementation notes:
+- Upload material to the current project or Agent configuration directory.
+- Download files produced by the Agent.
+- Choose rename, skip, or overwrite when a filename already exists.
+- Reference a whole file or selected passage in Chat.
+- Return from Chat attachments and tool outputs to the same preview experience.
+
+When you reference a file, QwenPaw preserves its path and, where relevant, its line information. If you say “rewrite this section,” both you and the Agent can tell exactly which file and passage you mean instead of relying on copied text with no source.
+
+## Putting One Product Release Together
+
+Here is Lin's complete workflow:
+
+1. She places the customer interviews and project changelog in **Workspace**.
+2. **Profile** tells the Agent to keep release notes concise and lead with user value.
+3. QwenPaw drafts the release notes; Lin reads them in Preview and adjusts the wording in Edit.
+4. The team's database decision is organized into that day's **Daily** notes.
+5. Lessons collected across several releases gradually enter the **Knowledge Base**.
+6. The next time Lin prepares release notes, the Agent can work with the current project files, durable instructions, and lessons from the past.
+
+Chat carries the intent. Workspace holds the current task. Profile explains how to work. Daily records what happened. Knowledge Base preserves experience worth reusing.
+
+## Visible Files Make Collaboration Controllable
+
+Files works with local data, so its file APIs limit access to the selected root, reject path traversal and symbolic links that escape that root, and require an explicit choice when uploaded filenames conflict. Historical attachments that cannot be resolved under the current Project Directory or Agent Configuration Directory fall back to read-only preview instead of pretending to remain editable. When saving a text file in Workspace, Files checks the version recorded when the file was opened and refuses to overwrite a file that has since changed on disk. Content that passes this check is written atomically.
+
+Files currently works best with workspaces of ordinary size. Directory contents are displayed in pages, but the file tree does not yet provide search or virtualize long lists. Text is read from the server in chunks, but the current interface waits for every chunk and assembles the complete content before previewing or editing it. As a result, very large text files or directories with many immediate children may take longer to open.
+
+More importantly, memory and configuration are not hidden in a black box. They are stored as files in the Agent Configuration Directory and can be opened, read, and edited through the corresponding Files sections.
+
+Files is valuable not simply because it adds a larger file tree, but because it helps you answer concrete questions:
+
+- Which files is the Agent using?
+- Which profile and instructions shape how it works?
+- What did it retain from recent tasks?
+- Which lasting lessons have emerged from scattered records?
+- Which changes are already saved, and which still need approval?
+
+When the work, profile, daily record, and knowledge are all visible, people and Agents can keep collaborating around the same state.
+
+Related implementation and design notes:
 
 - [QwenPaw #6504: Unified Files Workspace](https://github.com/agentscope-ai/QwenPaw/pull/6504)

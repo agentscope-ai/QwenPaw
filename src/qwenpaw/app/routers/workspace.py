@@ -12,6 +12,7 @@ import copy
 import io
 import json
 import logging
+import mimetypes
 import secrets
 import shutil
 import stat
@@ -23,6 +24,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -458,13 +460,20 @@ async def download_workspace_file(
     workspace = await get_agent_for_request(request)
     files_root = await _resolve_files_root(request, workspace, root)
 
-    def _resolve_download() -> tuple[Path, os.stat_result]:
+    def _resolve_download() -> tuple[Path, os.stat_result, str, str]:
         target = resolve_workspace_path(files_root, path)
-        return target, target.stat()
+        info = target.stat()
+        filename = target.name.replace('"', "")
+        media_type = (
+            mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        )
+        return target, info, filename, media_type
 
     try:
         async with _FILESYSTEM_SEMAPHORE:
-            target, info = await asyncio.to_thread(_resolve_download)
+            target, info, filename, media_type = await asyncio.to_thread(
+                _resolve_download,
+            )
         if not stat.S_ISREG(info.st_mode):
             raise FileNotFoundError(path)
     except InvalidWorkspacePath as exc:
@@ -477,13 +486,17 @@ async def download_workspace_file(
             while chunk := handle.read(chunk_size):
                 yield chunk
 
-    filename = target.name.replace('"', "")
+    quoted_filename = quote(filename)
+    if quoted_filename == filename:
+        content_disposition = f'attachment; filename="{filename}"'
+    else:
+        content_disposition = f"attachment; filename*=utf-8''{quoted_filename}"
     return StreamingResponse(
         _stream_file(),
-        media_type="application/octet-stream",
+        media_type=media_type,
         headers={
             "Accept-Ranges": "bytes",
-            "Content-Disposition": (f'attachment; filename="{filename}"'),
+            "Content-Disposition": content_disposition,
             "Content-Length": str(info.st_size),
             "ETag": file_etag(info),
         },

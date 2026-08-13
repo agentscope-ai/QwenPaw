@@ -47,6 +47,7 @@ from services.media_files import (  # noqa: E402
     shutdown_file_media_execution_services,
     start_file_media_execution_services,
 )
+from services.media_files.motion_engine import ensure_vendor_libs  # noqa: E402
 from services.observability import trace_event  # noqa: E402
 from services.project_files.facade import (  # noqa: E402
     CreatorFileServices,
@@ -170,6 +171,7 @@ async def _startup() -> None:
         dependency_status = await asyncio.to_thread(
             ensure_creator_runtime_dependencies,
         )
+        await asyncio.to_thread(ensure_vendor_libs)
         services = creator_file_services(data_root)
         await asyncio.to_thread(
             recover_interrupted_source_analysis,

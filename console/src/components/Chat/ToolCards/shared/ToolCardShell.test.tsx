@@ -13,8 +13,8 @@ vi.mock("./ToolCallSessionContext", () => ({
 vi.mock("../../../../hooks/useToolCallControl", () => ({
   useToolCallControl: () => ({
     bannerVisible: false,
-    offloadRemaining: null,
-    killRemaining: null,
+    offloadRemaining: 12,
+    killRemaining: 30,
     defaultPolicy: "keep_foreground",
     maxInternalTimeoutSecs: null,
     elapsed: 0,
@@ -38,6 +38,12 @@ const content: ToolCallContent = {
   params: {},
   result: "output",
   status: "done",
+};
+
+const runningContent: ToolCallContent = {
+  ...content,
+  params: { command: "python verbose_script.py" },
+  status: "calling",
 };
 
 describe("ToolCardShell lazy body", () => {
@@ -105,6 +111,32 @@ describe("ToolCardShell lazy body", () => {
     expect(label).toHaveTextContent(title.trim());
   });
 
+  it("replaces the spinner node when the tool finishes", () => {
+    const { container, rerender } = render(
+      <ToolCardShell
+        content={runningContent}
+        icon={<span data-testid="completion-icon" />}
+        title="Shell"
+        isStreaming
+      />,
+    );
+    const spinner = container.querySelector('[class*="toolCallSpinner"]');
+
+    expect(spinner).not.toBeNull();
+
+    rerender(
+      <ToolCardShell
+        content={content}
+        icon={<span data-testid="completion-icon" />}
+        title="Shell"
+      />,
+    );
+
+    const completionIcon = screen.getByTestId("completion-icon");
+    expect(spinner).not.toBeInTheDocument();
+    expect(completionIcon.parentElement).not.toBe(spinner);
+  });
+
   it("mounts the body only after the first expansion", () => {
     const { container } = render(
       <ToolCardShell content={content} icon={<span />} title="Shell">
@@ -124,5 +156,22 @@ describe("ToolCardShell lazy body", () => {
     details!.open = false;
     fireEvent(details!, new Event("toggle"));
     expect(screen.getByText("Expensive output")).toBeInTheDocument();
+  });
+
+  it("groups Parameters and Runtime in one metadata panel", () => {
+    const { container } = render(
+      <ToolCardShell
+        content={runningContent}
+        icon={<span />}
+        title="Shell"
+        isStreaming
+        defaultExpanded
+      />,
+    );
+
+    const metadata = container.querySelector('[class*="toolCallMetadata"]');
+    expect(metadata).not.toBeNull();
+    expect(metadata).toHaveTextContent("Parameters");
+    expect(metadata).toHaveTextContent("Runtime");
   });
 });

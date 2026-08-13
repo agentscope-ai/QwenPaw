@@ -4,7 +4,7 @@ Static site (Vite + React) for the QwenPaw product. Built output is served with 
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 22+
 - pnpm (recommended) or npm
 
 ## Install

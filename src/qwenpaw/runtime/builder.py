@@ -389,6 +389,7 @@ class AgentBuilder:
                 governor,
             )
 
+        memory_manager = self._get_memory_manager(ctx)
         toolkit = await self.build_toolkit(
             agent_config,
             agent_id=agent_id,
@@ -396,6 +397,11 @@ class AgentBuilder:
             active_modes=active_modes,
             effective_skills=effective_skills,
             extra_tools=extra_tools,
+            memory_tools=(
+                memory_manager.list_memory_tools()
+                if memory_manager is not None
+                else None
+            ),
             governor=governor,
             ctx=ctx,
             workspace_dir=workspace_dir,
@@ -432,7 +438,6 @@ class AgentBuilder:
             agent_config=agent_config,
             workspace_dir=workspace_dir,
             request_context=request_context,
-            memory_manager=self._get_memory_manager(ctx),
             offloader=offloader,
             context_config=self._build_context_config(agent_config),
             context_manager=(

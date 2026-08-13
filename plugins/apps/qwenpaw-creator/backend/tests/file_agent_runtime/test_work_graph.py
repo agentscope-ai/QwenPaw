@@ -137,6 +137,7 @@ def _task(kind: str, target: str, status: TaskStatus, **extra):
         progress=extra.pop("progress", None),
         error=extra.pop("error", None),
         updated_at=extra.pop("updated_at", "2026-08-05T00:00:00Z"),
+        idempotency_key=extra.pop("idempotency_key", None),
     )
 
 
@@ -195,6 +196,60 @@ def test_failed_variant_carries_the_error_summary() -> None:
     node = graph.by_id["visual:char:a:var:x"]
     assert node.status is WorkNodeStatus.FAILED
     assert "safety rejected" in (node.error or "")
+
+
+def test_prompt_rewrite_reopens_a_deterministically_failed_node() -> None:
+    """FAILED parks a node only while its inputs are unchanged.
+
+    Field run 2026-08-11: three safety-rejected character anchors kept
+    their nodes FAILED after the agent rewrote the prompts, so the
+    scheduler never retried and the project stalled. The dag idempotency
+    key carries the dispatch fingerprint: an input change re-derives
+    READY, while same-input failures (including transient retry slots)
+    and agent-dispatched failures without a dag key stay parked.
+    """
+
+    project = _project()
+    project.visual.entities.items["char:a"] = _entity(
+        "char:a",
+        {"var:x": None},
+    )
+    project.visual.entities.order.append("char:a")
+    node_id = "visual:char:a:var:x"
+    current = derive_work_graph(project).by_id[node_id].dispatch_fingerprint
+
+    def status_with_failed_key(key: str | None) -> WorkNodeStatus:
+        graph = derive_work_graph(
+            project,
+            tasks=[
+                _task(
+                    "image_generation",
+                    "asset:char:a",
+                    TaskStatus.FAILED,
+                    metadata={"variantId": "var:x"},
+                    error={"message": "safety rejected"},
+                    idempotency_key=key,
+                ),
+            ],
+        )
+        return graph.by_id[node_id].status
+
+    # The prompt (and thus the fingerprint) moved on: reopen.
+    assert (
+        status_with_failed_key(f"dag-{node_id}-stale-fingerprint")
+        is WorkNodeStatus.READY
+    )
+    # Same inputs, including the transient retry slots: stay parked.
+    assert (
+        status_with_failed_key(f"dag-{node_id}-{current}")
+        is WorkNodeStatus.FAILED
+    )
+    assert (
+        status_with_failed_key(f"dag-{node_id}-{current}:transient-retry-1")
+        is WorkNodeStatus.FAILED
+    )
+    # Agent-dispatched failures carry no graph identity: stay parked.
+    assert status_with_failed_key(None) is WorkNodeStatus.FAILED
 
 
 def test_lineup_gates_until_members_have_artwork() -> None:

@@ -238,7 +238,8 @@ jobs:
             --plugins-root plugins \
             --dist dist/plugins \
             --metadata-out dist/plugins/index.json \
-            --cdn-prefix /files/plugins
+            --cdn-prefix /files/plugins \
+            --exclude qwenpaw-creator
 
       - name: Upload plugins dist
         uses: actions/upload-artifact@v4

@@ -24,7 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::super::state::{map_point, Observation, WindowInfo};
 use super::super::InputStep;
-use super::uia::{element_point, element_point_by_id};
+use super::uia::{element_point, element_point_by_id, focused_text_input};
 use super::window::get_visible_window_rect;
 
 pub(crate) fn click(
@@ -137,10 +137,23 @@ pub(crate) fn type_text(
         .filter(|value| !value.is_empty())
         .ok_or(("invalid_request", "text is required.".to_string()))?;
     set_focus(&observation.window)?;
+    let focused = focused_text_input(observation)?;
     let mut inputs = Vec::with_capacity(text.encode_utf16().count() * 2);
     append_text_inputs(&mut inputs, text);
     send_inputs(&inputs)?;
-    Ok(json!({"applied": true, "text_length": text.chars().count()}))
+    let mut observed = focused.observed(text);
+    for _ in 0..3 {
+        if observed {
+            break;
+        }
+        thread::sleep(Duration::from_millis(25));
+        observed = focused.observed(text);
+    }
+    Ok(json!({
+        "applied": true,
+        "effect": if observed { "observed" } else { "unverified" },
+        "text_length": text.chars().count(),
+    }))
 }
 
 pub(crate) fn press_key(

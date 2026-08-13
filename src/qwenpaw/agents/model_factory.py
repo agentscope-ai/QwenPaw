@@ -512,7 +512,9 @@ def _normalize_messages_for_formatter(
     )
 
 
-def _anthropic_media_dedup_key(source: Any) -> str | None:
+def _anthropic_media_dedup_key(
+    source: Any,
+) -> tuple[str, str, str] | None:
     """Return a hashable key identifying a media source for dedup.
 
     A user-uploaded image often re-appears inside ``view_image``'s
@@ -525,11 +527,44 @@ def _anthropic_media_dedup_key(source: Any) -> str | None:
     media_type = getattr(source, "media_type", "") or ""
     url = getattr(source, "url", None)
     if url is not None:
-        return f"url|{media_type}|{url}"
+        return ("url", media_type, str(url))
     data = getattr(source, "data", "") or ""
     if data:
-        return f"b64|{media_type}|{len(data)}|{data[:128]}"
+        # Base64 is already a canonical immutable representation here.
+        # Using the string itself avoids decoding and hashing every media
+        # block again on every accumulated-history request. Python caches
+        # string hashes and set equality still compares the full content.
+        return ("base64", media_type, data)
     return None
+
+
+_WIRE_MEDIA_BLOCK_TYPES = frozenset(
+    {
+        "audio",
+        "image",
+        "image_url",
+        "input_audio",
+        "input_image",
+        "input_video",
+        "video",
+        "video_url",
+    },
+)
+_WIRE_MEDIA_CONTAINER_KEYS = frozenset({"file_data", "inline_data"})
+
+
+def _count_wire_media_blocks(value: Any) -> int:
+    """Count provider-formatted media blocks in a nested payload."""
+    if isinstance(value, list):
+        return sum(_count_wire_media_blocks(item) for item in value)
+    if not isinstance(value, dict):
+        return 0
+
+    if value.get("type") in _WIRE_MEDIA_BLOCK_TYPES:
+        return 1
+    if any(key in value for key in _WIRE_MEDIA_CONTAINER_KEYS):
+        return 1
+    return sum(_count_wire_media_blocks(item) for item in value.values())
 
 
 def _video_oversize_placeholder(
@@ -1333,6 +1368,10 @@ def _create_file_block_support_formatter(
             reasoning_content relay, and provider-specific fixups.
             """
 
+            # A formatter failure must not leave media evidence from a
+            # previous request behind for the capability fallback layer.
+            self._qwenpaw_last_wire_media_count = 0
+
             # Per-wire-request dedup scope — second occurrence of the
             # same media source becomes a text placeholder.  Reset on
             # every call so state never leaks across requests.
@@ -1550,7 +1589,11 @@ def _create_file_block_support_formatter(
                         elif require_reasoning:
                             out_msg.setdefault("reasoning_content", " ")
 
-            return _strip_top_level_message_name(messages)
+            wire_messages = _strip_top_level_message_name(messages)
+            self._qwenpaw_last_wire_media_count = _count_wire_media_blocks(
+                wire_messages,
+            )
+            return wire_messages
 
         def convert_tool_result_to_string(
             self,

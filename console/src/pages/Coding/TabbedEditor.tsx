@@ -670,6 +670,11 @@ export default function TabbedEditor({
     );
   }, [activeDisplayPath, activeTabPath]);
 
+  // Keep the hidden button implementation available for future restoration.
+  void MessageSquarePlus;
+  void hasSelection;
+  void handleCopyToChat;
+
   // ---- Diff actions -------------------------------------------------------
 
   /**
@@ -1057,7 +1062,7 @@ export default function TabbedEditor({
             )}
             {!activeDiff && !activeInPreview && (
               <>
-                <Tooltip
+                {/* <Tooltip
                   title={
                     hasSelection
                       ? t("files.copySelectionToChat")
@@ -1072,7 +1077,7 @@ export default function TabbedEditor({
                   >
                     <MessageSquarePlus size={13} />
                   </button>
-                </Tooltip>
+                </Tooltip> */}
                 <Tooltip title={t("common.save")}>
                   <button
                     type="button"

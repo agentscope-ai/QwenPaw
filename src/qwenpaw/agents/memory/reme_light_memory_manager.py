@@ -225,7 +225,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         cfg = agent_config.running.reme_light_memory_config
         return build_memory_guidance_prompt(
             agent_config.language,
-            daily_dir=cfg.daily_dir,
             memory_search_enabled=cfg.memory_search_enabled,
         )
 
