@@ -24,6 +24,24 @@ describe("Chat message markdown layout styles", () => {
     expect(rule).toMatch(/min-width:\s*0/);
     expect(rule).toMatch(/max-width:\s*100%/);
   });
+
+  it("preserves multiline output without spacing normal markdown blocks", () => {
+    const marker = "Fix #6852";
+    const markerIndex = stylesSource.indexOf(marker);
+    const rule = stylesSource.slice(
+      markerIndex,
+      stylesSource.indexOf("/* End #6852 */", markerIndex),
+    );
+
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    expect(rule).toContain('[class*="markdown"]:not(.x-markdown)');
+    expect(rule).toContain(".x-markdown p");
+    expect(rule).toContain(".x-markdown li");
+    expect(rule).toMatch(/white-space:\s*pre-wrap/);
+    expect(rule).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(rule).toMatch(/overflow-x:\s*auto/);
+    expect(rule).toMatch(/max-width:\s*100%/);
+  });
 });
 
 describe("Chat attachment preview styles", () => {

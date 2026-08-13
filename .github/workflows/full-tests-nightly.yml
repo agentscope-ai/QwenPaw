@@ -21,9 +21,9 @@ name: Full Tests Nightly
 
 on:
   schedule:
-    # 18:17 UTC daily ~= 02:17 Beijing the next day.
+    # 17:17 UTC daily ~= 01:17 Beijing the next day.
     # Off-the-hour to avoid the global GitHub Actions cron rush at :00 / :30.
-    - cron: '17 18 * * *'
+    - cron: '17 17 * * *'
   workflow_dispatch:
     inputs:
       coverage_platforms:

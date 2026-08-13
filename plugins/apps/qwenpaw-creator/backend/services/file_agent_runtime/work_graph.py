@@ -164,6 +164,34 @@ def _task_error_summary(task: Any) -> str | None:
     return None
 
 
+def _failure_inputs_changed(
+    failure: Any,
+    node_id: str,
+    fingerprint: str,
+) -> bool:
+    """True when the parked failure was rendered from different inputs.
+
+    The contract says a FAILED node stays parked *until a prompt or
+    upstream selection actually changes* — but the parking check only
+    looked at the latest task's status, so a deterministic failure
+    (safety rejection) kept the node FAILED forever even after the
+    agent rewrote the prompt (field run 2026-08-11: three sanitized
+    character anchors were never retried and the project stalled).
+
+    The scheduler dispatches with ``dag-{node_id}-{fingerprint}`` and
+    transient retry slots only append a ``:transient-retry-N`` suffix,
+    so a parked dag task whose key no longer starts with the node's
+    current identity was built from older inputs — the node re-derives
+    READY. Agent-dispatched tasks carry no graph identity in their key
+    and stay parked.
+    """
+
+    key = str(getattr(failure, "idempotency_key", "") or "")
+    if not key.startswith("dag-"):
+        return False
+    return not key.startswith(f"dag-{node_id}-{fingerprint}")
+
+
 def _variant_status(
     *,
     entity: Any,
@@ -254,13 +282,25 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
         entity = project.visual.entities.items[entity_id]
         for variant_id in entity.variants.order:
             variant = entity.variants.items[variant_id]
+            node_id = f"visual:{entity_id}:{variant_id}"
+            fingerprint = _fingerprint(
+                node_id,
+                variant.prompt,
+                sorted(variant.reference_asset_version_ids),
+                sorted(variant.reference_artifact_version_ids),
+            )
             status, task = _variant_status(
                 entity=entity,
                 variant=variant,
                 active=active,
                 failed=failed,
             )
-            node_id = f"visual:{entity_id}:{variant_id}"
+            if status is WorkNodeStatus.FAILED and _failure_inputs_changed(
+                task,
+                node_id,
+                fingerprint,
+            ):
+                status, task = WorkNodeStatus.READY, None
             add(
                 WorkNode(
                     node_id=node_id,
@@ -279,12 +319,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                     command="GENERATE_ASSET",
                     target_ref=f"asset:{entity_id}",
                     dispatch_arguments={"variantId": variant_id},
-                    dispatch_fingerprint=_fingerprint(
-                        node_id,
-                        variant.prompt,
-                        sorted(variant.reference_asset_version_ids),
-                        sorted(variant.reference_artifact_version_ids),
-                    ),
+                    dispatch_fingerprint=fingerprint,
                 ),
             )
 
@@ -318,13 +353,32 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
         task = active.get(key)
         failure = failed.get(key)
         missing = tuple(missing_anchors)
+        fingerprint = _fingerprint(
+            node_id,
+            lineup.description,
+            lineup.relative_notes,
+            sorted(
+                selected
+                for selected in (
+                    _entity_selected_any(
+                        project.visual.entities.items.get(ref),
+                    )
+                    for ref in lineup.character_refs
+                )
+                if selected
+            ),
+        )
         if task is not None:
             status = WorkNodeStatus.RUNNING
         elif lineup.selected_artifact_version_id:
             status = WorkNodeStatus.DONE
         elif missing:
             status = WorkNodeStatus.GATED
-        elif failure is not None:
+        elif failure is not None and not _failure_inputs_changed(
+            failure,
+            node_id,
+            fingerprint,
+        ):
             status = WorkNodeStatus.FAILED
         else:
             status = WorkNodeStatus.READY
@@ -347,21 +401,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 locator={"page": "assets"},
                 command="GENERATE_CAST_LINEUP_IMAGE",
                 target_ref=f"lineup:{lineup_id}",
-                dispatch_fingerprint=_fingerprint(
-                    node_id,
-                    lineup.description,
-                    lineup.relative_notes,
-                    sorted(
-                        selected
-                        for selected in (
-                            _entity_selected_any(
-                                project.visual.entities.items.get(ref),
-                            )
-                            for ref in lineup.character_refs
-                        )
-                        if selected
-                    ),
-                ),
+                dispatch_fingerprint=fingerprint,
             ),
         )
 
@@ -405,6 +445,11 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             failure = failed.get(key)
             missing = (*_upstream_missing(deps, statuses), *gate_missing)
             upstream_selected = _element_upstream_selected(project, creation)
+            fingerprint = _fingerprint(
+                storyboard_id,
+                creation.storyboard_prompt,
+                sorted(selected for selected in upstream_selected if selected),
+            )
             if task is not None:
                 status = WorkNodeStatus.RUNNING
             elif storyboard_slot:
@@ -419,7 +464,11 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 )
             elif missing:
                 status = WorkNodeStatus.GATED
-            elif failure is not None:
+            elif failure is not None and not _failure_inputs_changed(
+                failure,
+                storyboard_id,
+                fingerprint,
+            ):
                 status = WorkNodeStatus.FAILED
             elif not (creation.storyboard_prompt or "").strip():
                 # No prompt yet: needs model work, surfaced as GATED with
@@ -447,15 +496,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                     locator={"page": "plan", "elementId": element_id},
                     command="GENERATE_STORYBOARD_IMAGE",
                     target_ref=f"element:{element_id}",
-                    dispatch_fingerprint=_fingerprint(
-                        storyboard_id,
-                        creation.storyboard_prompt,
-                        sorted(
-                            selected
-                            for selected in upstream_selected
-                            if selected
-                        ),
-                    ),
+                    dispatch_fingerprint=fingerprint,
                 ),
             )
 
@@ -467,6 +508,11 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             storyboard_done = statuses[storyboard_id] in (
                 WorkNodeStatus.DONE,
                 WorkNodeStatus.STALE,
+            )
+            fingerprint = _fingerprint(
+                video_id,
+                creation.video_prompt,
+                storyboard_slot,
             )
             if task is not None:
                 status = WorkNodeStatus.RUNNING
@@ -482,7 +528,11 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 )
             elif not storyboard_done:
                 status = WorkNodeStatus.GATED
-            elif failure is not None:
+            elif failure is not None and not _failure_inputs_changed(
+                failure,
+                video_id,
+                fingerprint,
+            ):
                 status = WorkNodeStatus.FAILED
             else:
                 status = WorkNodeStatus.READY
@@ -505,11 +555,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                     locator={"page": "plan", "elementId": element_id},
                     command="GENERATE_R2V_VIDEO",
                     target_ref=f"element:{element_id}",
-                    dispatch_fingerprint=_fingerprint(
-                        video_id,
-                        creation.video_prompt,
-                        storyboard_slot,
-                    ),
+                    dispatch_fingerprint=fingerprint,
                 ),
             )
             video_node_ids.append(video_id)

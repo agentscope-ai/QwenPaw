@@ -172,6 +172,9 @@ def _element_line(element: Mapping[str, Any]) -> str:
             parts.append(f"screen@{(left + right) // 2},{(top + bottom) // 2}")
     elif isinstance(value, str) and value:
         parts.append(f"={value}")
+    identifier = element.get("identifier") or element.get("automation_id")
+    if isinstance(identifier, str) and identifier:
+        parts.append(f"[identifier={identifier}]")
     # Both states stay visible: an offscreen entry may become reachable
     # after scrolling, and a disabled control tells the model not to try.
     if element.get("enabled") is False:
@@ -253,8 +256,20 @@ def _error(code: str, message: str) -> ToolChunk:
         "ok": False,
         "error": {"code": code, "message": message},
     }
-    if code == "user_intervention":
+    if code in {
+        "desktop_busy",
+        "focus_failed",
+        "input_failed",
+        "observation_required",
+        "stale_observation",
+        "target_not_at_point",
+        "user_intervention",
+    }:
         payload["requires_observe"] = True
+        payload["next_action"] = "observe_window"
+    elif code in {"stale_window", "window_not_found"}:
+        payload["requires_observe"] = True
+        payload["next_action"] = "list_windows"
     return _response(
         payload,
         state=ToolResultState.ERROR,
@@ -302,6 +317,9 @@ async def computer_use(
     observation after every successful action; native rejects stale state.
     ``launch_app`` accepts an App ID returned by ``list_apps`` or an absolute
     platform-native application path.
+    Use ``begin_text_edit`` -- never ``click`` or ``invoke`` -- on an observed
+    menu command that opens a native text editor, including rename and
+    create-and-name commands. Then use the returned observation for ``type``.
     """
     # Each early return maps to one refusal reason the model must be able to
     # tell apart, so they are reported individually rather than merged.
@@ -479,9 +497,11 @@ def _native_request(
         if action == "set_value":
             params["value"] = str(values["value"] or "")
         return (
-            "invoke_element"
-            if action in {"invoke", "begin_text_edit"}
-            else action,
+            (
+                "invoke_element"
+                if action in {"invoke", "begin_text_edit"}
+                else action
+            ),
             params,
             False,
         )

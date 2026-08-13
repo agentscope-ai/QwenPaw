@@ -336,10 +336,12 @@ export default function AgentEventFeed() {
     pendingAuthorizations.length,
   );
   const meta = runStatusMeta(status);
-  const pendingTasks = tasks.filter(
-    (task) =>
-      task.kind === "r2v_generation" &&
-      (task.status === "QUEUED" || task.status === "RUNNING"),
+  // The DAG info tab (WorkGraphPanel) owns production tracking whenever
+  // the derived work graph has nodes; the flat card then only surfaces
+  // interactive states — pending authorization, failures, or a live run
+  // that still needs its terminate control.
+  const workGraphActive = useWorkGraphStore((state) =>
+    Boolean(state.graph && state.graph.nodes.length > 0),
   );
   const failedTargetRuns = runs.flatMap((run) => {
     if (!["FAILED", "BLOCKED"].includes(run.status) || isReviewWaitingRun(run))
@@ -379,6 +381,11 @@ export default function AgentEventFeed() {
     [events],
   );
   const authorization = pendingAuthorizations[0];
+  // With an active work graph the DAG info tab owns production tracking
+  // end to end — failed nodes carry their own Retry there and the dock
+  // composer owns the stop control — so the flat card only survives for
+  // a pending execution authorization, which has no other home.
+  const showProductionCard = !workGraphActive || Boolean(authorization);
   if (
     !runs.length &&
     !tasks.length &&
@@ -417,138 +424,141 @@ export default function AgentEventFeed() {
 
   return (
     <div data-origin-run-block className="space-y-2">
-      <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/60 p-3">
-        <div className="flex items-center justify-between">
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-primary)]">
-            <PlayCircle className="h-3.5 w-3.5 text-[var(--color-accent)]" />
-            {t("agentEventFeed.productionFlow")}
-          </span>
-          <WorkGraphSummaryChip />
-          <span className="flex items-center gap-1.5">
-            <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.tone}`}
-            >
-              {status === "running" && (
-                <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current align-middle" />
-              )}
-              {meta.label}
+      {showProductionCard && (
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/60 p-3">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-primary)]">
+              <PlayCircle className="h-3.5 w-3.5 text-[var(--color-accent)]" />
+              {t("agentEventFeed.productionFlow")}
             </span>
-            {(status === "running" || status === "waiting_confirm") && (
-              <button
-                onClick={() => void cancelRun()}
-                className="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)]"
+            <WorkGraphSummaryChip />
+            <span className="flex items-center gap-1.5">
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.tone}`}
               >
-                {t("agentEventFeed.terminate")}
-              </button>
-            )}
-          </span>
-        </div>
-
-        {runs.length > 0 && (
-          <ul className="mt-2 space-y-1">
-            {runs.slice(-8).map((run) => (
-              <li
-                key={run.id}
-                className="flex items-start gap-1.5 text-[11px] leading-4 text-[var(--color-text-secondary)]"
-              >
-                {run.status === "SUCCEEDED" ? (
-                  <CircleCheck className="mt-0.5 h-3 w-3 shrink-0 text-[var(--color-success)]" />
-                ) : isReviewWaitingRun(run) ? (
-                  <Clock3 className="mt-0.5 h-3 w-3 shrink-0 text-[var(--color-accent)]" />
-                ) : ["FAILED", "BLOCKED"].includes(run.status) ? (
-                  <CircleX className="mt-0.5 h-3 w-3 shrink-0 text-[var(--color-danger)]" />
-                ) : (
-                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[var(--color-text-tertiary)]" />
+                {status === "running" && (
+                  <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current align-middle" />
                 )}
-                <span className="min-w-0">
-                  {run.displayName} ·{" "}
-                  {run.targetRefs
-                    .map((ref) => creatorTargetLabel(ref, project))
-                    .join(t("agentEventFeed.listSeparator")) ||
-                    t("agentEventFeed.currentProject")}{" "}
-                  ·{" "}
-                  {isReviewWaitingRun(run)
-                    ? t("agentEventFeed.waitingReview")
-                    : runStatusLabel(run.status)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+                {meta.label}
+              </span>
+              {(status === "running" || status === "waiting_confirm") && (
+                <button
+                  onClick={() => void cancelRun()}
+                  className="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)]"
+                >
+                  {t("agentEventFeed.terminate")}
+                </button>
+              )}
+            </span>
+          </div>
 
-        {failedTargetRuns.length > 0 && (
-          <div className="mt-2 rounded-md border border-[var(--color-danger)]/25 bg-[var(--color-danger-soft)] p-2 text-[11px] leading-4">
-            <b className="text-[var(--color-danger)]">
-              {failedTargetRuns.length} {t("agentEventFeed.specialistsFailed")}
-            </b>
-            <ul className="mt-1 space-y-0.5 text-[var(--color-text-secondary)]">
-              {failedTargetRuns.slice(0, 3).map(({ run, targetRefs }) => (
-                <li key={run.id} className="truncate">
-                  {targetRefs
-                    .map((ref) => creatorTargetLabel(ref, project))
-                    .join(t("agentEventFeed.listSeparator"))}
-                  {t("agentEventFeed.summarySeparator")}
-                  {run.finalSummaryText || creatorStatusLabel(run.status)}
+          {!workGraphActive && runs.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {runs.slice(-8).map((run) => (
+                <li
+                  key={run.id}
+                  className="flex items-start gap-1.5 text-[11px] leading-4 text-[var(--color-text-secondary)]"
+                >
+                  {run.status === "SUCCEEDED" ? (
+                    <CircleCheck className="mt-0.5 h-3 w-3 shrink-0 text-[var(--color-success)]" />
+                  ) : isReviewWaitingRun(run) ? (
+                    <Clock3 className="mt-0.5 h-3 w-3 shrink-0 text-[var(--color-accent)]" />
+                  ) : ["FAILED", "BLOCKED"].includes(run.status) ? (
+                    <CircleX className="mt-0.5 h-3 w-3 shrink-0 text-[var(--color-danger)]" />
+                  ) : (
+                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[var(--color-text-tertiary)]" />
+                  )}
+                  <span className="min-w-0">
+                    {run.displayName} ·{" "}
+                    {run.targetRefs
+                      .map((ref) => creatorTargetLabel(ref, project))
+                      .join(t("agentEventFeed.listSeparator")) ||
+                      t("agentEventFeed.currentProject")}{" "}
+                    ·{" "}
+                    {isReviewWaitingRun(run)
+                      ? t("agentEventFeed.waitingReview")
+                      : runStatusLabel(run.status)}
+                  </span>
                 </li>
               ))}
             </ul>
-          </div>
-        )}
+          )}
 
-        {status === "waiting_confirm" && authorization && (
-          <div className="mt-2 rounded-md border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] p-2.5">
-            <p className="text-[11px] font-medium leading-4 text-[var(--color-text-primary)]">
-              {authorizationDetail(authorization, project)}
-            </p>
-            <div className="mt-2 flex items-center gap-2">
-              <Button
-                type="primary"
-                size="small"
-                loading={busy}
-                onClick={() => void continueRun()}
-                className="!h-6 !text-[11px] !font-semibold"
-              >
-                {t("agentEventFeed.continue")}
-              </Button>
-              <Button
-                size="small"
-                disabled={busy}
-                onClick={() => void cancelRun()}
-                className="!h-6 !text-[11px]"
-              >
-                {t("agentEventFeed.cancel")}
-              </Button>
-              {projectId &&
-                (() => {
-                  const jumpTarget = authorizationJumpTarget(
-                    authorization,
-                    project,
-                  );
-                  if (!jumpTarget) return null;
-                  return (
-                    <Button
-                      size="small"
-                      disabled={busy}
-                      title={t("agentEventFeed.jumpToPrompt")}
-                      onClick={() =>
-                        navigateToLocator(projectId, jumpTarget.locator, {
-                          review: true,
-                          field: jumpTarget.field,
-                          description: t(
-                            "agentEventFeed.productionConfirmOrView",
-                          ),
-                        })
-                      }
-                      className="!h-6 !text-[11px]"
-                    >
-                      {t("agentEventFeed.view")}
-                    </Button>
-                  );
-                })()}
+          {failedTargetRuns.length > 0 && (
+            <div className="mt-2 rounded-md border border-[var(--color-danger)]/25 bg-[var(--color-danger-soft)] p-2 text-[11px] leading-4">
+              <b className="text-[var(--color-danger)]">
+                {failedTargetRuns.length}{" "}
+                {t("agentEventFeed.specialistsFailed")}
+              </b>
+              <ul className="mt-1 space-y-0.5 text-[var(--color-text-secondary)]">
+                {failedTargetRuns.slice(0, 3).map(({ run, targetRefs }) => (
+                  <li key={run.id} className="truncate">
+                    {targetRefs
+                      .map((ref) => creatorTargetLabel(ref, project))
+                      .join(t("agentEventFeed.listSeparator"))}
+                    {t("agentEventFeed.summarySeparator")}
+                    {run.finalSummaryText || creatorStatusLabel(run.status)}
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+
+          {status === "waiting_confirm" && authorization && (
+            <div className="mt-2 rounded-md border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] p-2.5">
+              <p className="text-[11px] font-medium leading-4 text-[var(--color-text-primary)]">
+                {authorizationDetail(authorization, project)}
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <Button
+                  type="primary"
+                  size="small"
+                  loading={busy}
+                  onClick={() => void continueRun()}
+                  className="!h-6 !text-[11px] !font-semibold"
+                >
+                  {t("agentEventFeed.continue")}
+                </Button>
+                <Button
+                  size="small"
+                  disabled={busy}
+                  onClick={() => void cancelRun()}
+                  className="!h-6 !text-[11px]"
+                >
+                  {t("agentEventFeed.cancel")}
+                </Button>
+                {projectId &&
+                  (() => {
+                    const jumpTarget = authorizationJumpTarget(
+                      authorization,
+                      project,
+                    );
+                    if (!jumpTarget) return null;
+                    return (
+                      <Button
+                        size="small"
+                        disabled={busy}
+                        title={t("agentEventFeed.jumpToPrompt")}
+                        onClick={() =>
+                          navigateToLocator(projectId, jumpTarget.locator, {
+                            review: true,
+                            field: jumpTarget.field,
+                            description: t(
+                              "agentEventFeed.productionConfirmOrView",
+                            ),
+                          })
+                        }
+                        className="!h-6 !text-[11px]"
+                      >
+                        {t("agentEventFeed.view")}
+                      </Button>
+                    );
+                  })()}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {visibleEvents.map((event) => (
         <EventCard key={event.eventId} event={event} project={project} />

@@ -20,9 +20,10 @@ use super::state::{
     INPUT_GUARD_GRACE_MS,
 };
 use super::{
-    click, close_window, desktop_locked, drag, ensure_permissions, input_sequence, invoke_element,
-    last_input_age_ms, list_apps, list_windows, observe_window, press_key, resolve_window, scroll,
-    set_value, type_text, validate_observation, InputStep, PROTOCOL_VERSION,
+    active_window, click, close_window, desktop_locked, drag, ensure_permissions, input_sequence,
+    invoke_element, last_input_age_ms, list_apps, list_windows, observe_window, press_key,
+    resolve_window, scroll, set_value, type_text, validate_observation, InputStep,
+    PROTOCOL_VERSION,
 };
 #[cfg(target_os = "macos")]
 use super::{element_requires_frontmost, target_is_frontmost};
@@ -258,6 +259,7 @@ pub(super) fn dispatch_request(
     let previous_revision = observation_id
         .and_then(|id| state.observations.get(id))
         .and_then(|observation| observation.accessibility_revision);
+    let active_before = changes_window_state(method).then(active_window).flatten();
     #[cfg(target_os = "macos")]
     let transient_text_candidate = requests_transient_text(method, &params)
         && element_is_transient_menu_item(observation(state, observation_id)?, &params)?;
@@ -340,17 +342,30 @@ pub(super) fn dispatch_request(
     if let Some(pending) = pending_action {
         state.set_pending_action(pending);
     }
+    state.settle_before_observe(window.hwnd);
+    if method == "sequence" {
+        // A sequence spans more than one input event. Recheck after it settles
+        // so physical input during the sequence cannot be mistaken for ours.
+        enforce_input_guard(state)?;
+    }
+    let active_after = active_window();
+    if let Some(active_after) = active_after.as_ref().filter(|active_after| {
+        action_changed_active_window(
+            &window,
+            active_before.as_ref(),
+            Some(*active_after),
+            needs_user_idle,
+        )
+    }) {
+        return Ok(action_handoff(result, active_after));
+    }
     // Keep the safety boundary -- the input observation has already been
     // consumed -- but make the normal action cycle atomic for the caller. A
     // successful mutation is followed by a settled observation of the same
     // window, so the response itself carries the only identifier valid for
     // the next action. If the action removed or replaced that window, retain
     // the dispatch receipt and direct the caller to discover the new target.
-    let refreshed = if method == "sequence" {
-        refresh_after_sequence(state, &window)?
-    } else {
-        refresh_after_action(state, &window)
-    };
+    let refreshed = refresh_after_action(state, &window);
     let has_refreshed_observation = refreshed.is_some();
     let changed = accessibility_changed(previous_revision, refreshed.as_ref());
     #[cfg(target_os = "macos")]
@@ -412,21 +427,6 @@ fn refresh_after_action(state: &mut ServerState, previous: &WindowInfo) -> Optio
     }
     state.settle_before_observe(current.hwnd);
     observe_window(state, &current).ok()
-}
-
-fn refresh_after_sequence(
-    state: &mut ServerState,
-    previous: &WindowInfo,
-) -> Result<Option<Value>, (&'static str, String)> {
-    let Ok(current) = resolve_window(&previous.hwnd.to_string()) else {
-        return Ok(None);
-    };
-    if current.app_id != previous.app_id {
-        return Ok(None);
-    }
-    state.settle_before_observe(current.hwnd);
-    enforce_input_guard(state)?;
-    Ok(observe_window(state, &current).ok())
 }
 
 fn parse_input_steps(
@@ -563,6 +563,44 @@ fn action_receipt(
         }
     }
     observation
+}
+
+/// Whether a mutation handed the foreground to another concrete surface.
+///
+/// Foreground actions are expected to leave their target active, so any other
+/// active window is the action's result. A background semantic action only
+/// hands off when the active window actually changed while it ran; an
+/// unrelated window the user was already using must not become the target.
+fn action_changed_active_window(
+    target: &WindowInfo,
+    active_before: Option<&WindowInfo>,
+    active_after: Option<&WindowInfo>,
+    foreground_expected: bool,
+) -> bool {
+    let Some(active_after) = active_after else {
+        return false;
+    };
+    !same_surface(active_after, target)
+        && (foreground_expected
+            || active_before.is_none_or(|active_before| !same_surface(active_before, active_after)))
+}
+
+fn same_surface(left: &WindowInfo, right: &WindowInfo) -> bool {
+    left.hwnd == right.hwnd && left.app_id == right.app_id
+}
+
+/// Preserve the action receipt while requiring a fresh observation of the
+/// window that replaced its target.
+fn action_handoff(mut result: Value, window: &WindowInfo) -> Value {
+    if let Some(object) = result.as_object_mut() {
+        if object.remove("applied").is_some() {
+            object.insert("dispatched".to_string(), json!(true));
+        }
+        object.insert("requires_observe".to_string(), json!(true));
+        object.insert("next_action".to_string(), json!("observe_window"));
+        object.insert("window".to_string(), window.to_json());
+    }
+    result
 }
 
 fn observation<'a>(
@@ -791,6 +829,43 @@ mod tests {
         assert_eq!(result.get("dispatched"), Some(&json!(true)));
         assert_eq!(result.get("requires_observe"), Some(&json!(true)));
         assert_eq!(result.get("next_action"), Some(&json!("list_windows")));
+    }
+
+    #[test]
+    fn a_foreground_action_hands_off_to_the_active_window() {
+        let target = observation(1).window;
+        let active = observation(2).window;
+
+        assert!(action_changed_active_window(
+            &target,
+            Some(&active),
+            Some(&active),
+            true,
+        ));
+        let result = action_handoff(json!({"applied": true}), &active);
+        assert_eq!(result.get("dispatched"), Some(&json!(true)));
+        assert_eq!(result.get("requires_observe"), Some(&json!(true)));
+        assert_eq!(result.get("next_action"), Some(&json!("observe_window")));
+        assert_eq!(result["window"]["id"], json!("2"));
+    }
+
+    #[test]
+    fn a_background_action_ignores_an_unchanged_foreground_window() {
+        let target = observation(1).window;
+        let active = observation(2).window;
+
+        assert!(!action_changed_active_window(
+            &target,
+            Some(&active),
+            Some(&active),
+            false,
+        ));
+        assert!(action_changed_active_window(
+            &target,
+            Some(&active),
+            Some(&observation(3).window),
+            false,
+        ));
     }
 
     #[test]

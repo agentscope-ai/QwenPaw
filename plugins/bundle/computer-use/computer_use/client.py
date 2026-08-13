@@ -171,11 +171,13 @@ class ComputerUseClient:
                     await self._discard_transport()
                     raise
                 except ComputerUseProtocolError as error:
-                    if error.code in {
-                        "stale_observation",
-                        "turn_stopped",
-                        "user_intervention",
-                    }:
+                    # A failed observation never replaces the old snapshot, and
+                    # a failed action may have changed the desktop before it
+                    # reported the error. Require fresh state in both cases.
+                    if (
+                        method == "observe_window"
+                        or method in _OBSERVED_METHODS
+                    ):
                         self._observation_id = None
                     if error.code == "request_timeout":
                         if method not in _READ_ONLY_METHODS:

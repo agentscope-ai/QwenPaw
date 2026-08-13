@@ -211,11 +211,15 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
                   content={inputPreview}
                 />
               )}
-              {isLoading && staticMetadata && (
-                <DefaultBlock title="Parameters" content={staticMetadata} />
-              )}
-              {isLoading && dynamicMetadata && (
-                <DefaultBlock title="Runtime" content={dynamicMetadata} />
+              {isLoading && (staticMetadata || dynamicMetadata) && (
+                <div className={styles.toolCallMetadata}>
+                  {staticMetadata && (
+                    <DefaultBlock title="Parameters" content={staticMetadata} />
+                  )}
+                  {dynamicMetadata && (
+                    <DefaultBlock title="Runtime" content={dynamicMetadata} />
+                  )}
+                </div>
               )}
               {children}
             </>
