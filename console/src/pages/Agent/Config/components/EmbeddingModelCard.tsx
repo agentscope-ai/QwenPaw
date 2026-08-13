@@ -135,9 +135,6 @@ export function EmbeddingModelCard() {
           <div>
             <h3>{t("agentConfig.embeddingOverviewTitle")}</h3>
             <p>{t("agentConfig.embeddingStatusDescription")}</p>
-            <small className={styles.embeddingOverviewNote}>
-              {t("agentConfig.embeddingRestartWarning")}
-            </small>
           </div>
         </div>
 

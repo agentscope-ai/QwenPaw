@@ -2479,7 +2479,6 @@
     "embeddingMaxBatchSize": "Max Batch Tamanho",
     "embeddingMaxBatchSizeTooltip": "Maximum number of items in a single batch embedding request",
     "embeddingMaxBatchSizeRequired": "Max batch Tamanho e obrigatorio",
-    "embeddingRestartWarning": "Salvar alterações de embedding recarrega o serviço automaticamente.",
     "toolExecutionLevelTitle": "Tool Execution Seguranca",
     "toolExecutionLevel": {
       "title": "Tool Execution Seguranca",

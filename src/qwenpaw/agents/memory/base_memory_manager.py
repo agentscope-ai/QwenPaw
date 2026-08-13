@@ -638,9 +638,9 @@ class BaseMemoryManager(ABC):
                 # Turn lifecycle state is session-owned and persisted in
                 # AgentState, so the process-level memory manager no longer
                 # aggregates session or pending-marker counters.
-                "active_sessions": 0,
-                "sessions_with_pending": 0,
-                "pending_turns": 0,
+                "active_sessions": None,
+                "sessions_with_pending": None,
+                "pending_turns": None,
                 "history": history,
             },
             "recent": {

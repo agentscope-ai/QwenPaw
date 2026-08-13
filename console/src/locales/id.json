@@ -2697,7 +2697,6 @@
     "embeddingMaxBatchSize": "Ukuran Batch Maksimum",
     "embeddingMaxBatchSizeTooltip": "Jumlah item maksimum dalam satu permintaan embedding batch",
     "embeddingMaxBatchSizeRequired": "Ukuran batch maksimum wajib diisi",
-    "embeddingRestartWarning": "Menyimpan perubahan embedding akan memuat ulang layanan secara otomatis.",
     "toolExecutionLevelTitle": "Keamanan Eksekusi Alat",
     "toolExecutionLevel": {
       "title": "Keamanan Eksekusi Alat",

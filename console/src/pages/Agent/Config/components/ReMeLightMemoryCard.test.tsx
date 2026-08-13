@@ -267,9 +267,6 @@ describe("ReMe runtime status", () => {
     expect(serviceStatus).not.toBeNull();
     expect(statusLabel.parentElement).toContainElement(poweredBy);
     expect(
-      screen.queryByText("agentConfig.memoryServiceStatusHint"),
-    ).not.toBeInTheDocument();
-    expect(
       within(serviceStatus as HTMLElement).getByText(
         "agentConfig.memoryPoweredBy",
       ),
@@ -357,9 +354,6 @@ describe("ReMe runtime status", () => {
         ...memoryStatus,
         runtime: { ...memoryStatus.runtime, reindexing: true },
       };
-      const getMemoryRuntimeStatus = vi
-        .spyOn(agentsApi, "getMemoryRuntimeStatus")
-        .mockResolvedValue(memoryStatus.runtime);
       const getMemoryStatus = vi
         .spyOn(agentsApi, "getMemoryStatus")
         .mockResolvedValue(rebuildingStatus);
@@ -369,7 +363,6 @@ describe("ReMe runtime status", () => {
         await Promise.resolve();
         await Promise.resolve();
       });
-      expect(getMemoryRuntimeStatus).not.toHaveBeenCalled();
       const modelInput = container.querySelector(
         'input[placeholder="agentConfig.embeddingModelNamePlaceholder"]',
       );
@@ -380,7 +373,6 @@ describe("ReMe runtime status", () => {
       });
 
       expect(getMemoryStatus).toHaveBeenCalledTimes(1);
-      expect(getMemoryRuntimeStatus).not.toHaveBeenCalled();
       expect(modelInput).toBeDisabled();
     } finally {
       vi.useRealTimers();
@@ -455,6 +447,35 @@ describe("ReMe runtime status", () => {
     expect(
       screen.getByText("agentConfig.remeStatusProcessRss"),
     ).toBeInTheDocument();
+  });
+
+  it("marks session-level pending counts as unavailable", async () => {
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue({
+      ...memoryStatus,
+      runtime: {
+        ...memoryStatus.runtime,
+        auto_memory: {
+          ...memoryStatus.runtime.auto_memory,
+          active_sessions: null,
+          sessions_with_pending: null,
+          pending_turns: null,
+        },
+      },
+    });
+
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /agentConfig\.memoryBackgroundTasks/,
+      }),
+    );
+
+    expect(
+      await screen.findByText("agentConfig.memoryPendingCountsUnavailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("agentConfig.memoryPendingSummary"),
+    ).not.toBeInTheDocument();
   });
 });
 

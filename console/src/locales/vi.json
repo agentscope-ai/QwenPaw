@@ -1485,7 +1485,6 @@
     "embeddingMaxBatchSize": "Kích thước batch tối đa",
     "embeddingMaxBatchSizeTooltip": "Số mục tối đa trong một yêu cầu embedding theo batch",
     "embeddingMaxBatchSizeRequired": "Bắt buộc nhập kích thước batch tối đa",
-    "embeddingRestartWarning": "Lưu thay đổi embedding sẽ tự động tải lại dịch vụ.",
     "embeddingActivationNote": "Embedding được bật khi các trường bắt buộc của backend đã chọn được điền đầy đủ.",
     "embeddingEnableHint": "Embedding được bật khi các trường bắt buộc được điền: Tên mô hình và API Key cho backend tương thích OpenAI hoặc Gemini; Tên mô hình cho Ollama.",
     "rebuildMemoryIndex": "Xây dựng lại chỉ mục bộ nhớ",

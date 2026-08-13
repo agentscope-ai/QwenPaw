@@ -6,8 +6,7 @@ import type { ReMeMemoryStatusResponse } from "@/api/modules/agents";
 import styles from "../index.module.less";
 
 interface ReMeStatusModalProps {
-  open: boolean;
-  view: "tasks" | "diagnostics";
+  view: "tasks" | "diagnostics" | null;
   loading: boolean;
   error: string;
   memoryStatus: ReMeMemoryStatusResponse | null;
@@ -18,7 +17,6 @@ interface ReMeStatusModalProps {
 }
 
 export function ReMeStatusModal({
-  open,
   view,
   loading,
   error,
@@ -34,7 +32,7 @@ export function ReMeStatusModal({
 
   return (
     <Modal
-      open={open}
+      open={view !== null}
       width={680}
       title={
         <div className={styles.memoryStatusModalTitle}>
@@ -100,7 +98,18 @@ export function ReMeStatusModal({
                         })
                       : t("agentConfig.memoryAutoRecordDisabledHint")}
                   </span>
-                  {memoryStatus.runtime.auto_memory.pending_turns > 0 ? (
+                  {memoryStatus.runtime.auto_memory.enabled &&
+                  (memoryStatus.runtime.auto_memory.pending_turns === null ||
+                    memoryStatus.runtime.auto_memory.sessions_with_pending ===
+                      null) ? (
+                    <span>
+                      {t("agentConfig.memoryPendingCountsUnavailable")}
+                    </span>
+                  ) : memoryStatus.runtime.auto_memory.enabled &&
+                    memoryStatus.runtime.auto_memory.pending_turns !== null &&
+                    memoryStatus.runtime.auto_memory.sessions_with_pending !==
+                      null &&
+                    memoryStatus.runtime.auto_memory.pending_turns > 0 ? (
                     <span>
                       {t("agentConfig.memoryPendingSummary", {
                         sessions:

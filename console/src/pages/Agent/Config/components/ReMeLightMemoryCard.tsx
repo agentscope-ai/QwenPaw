@@ -638,8 +638,7 @@ export function ReMeLightMemoryCard() {
       </div>
 
       <ReMeStatusModal
-        open={statusView !== null}
-        view={statusView ?? "tasks"}
+        view={statusView}
         loading={statusLoading}
         error={statusError}
         memoryStatus={memoryStatus}

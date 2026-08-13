@@ -141,9 +141,12 @@ class AutoMemoryRuntimeStatus(BaseModel):
 
     enabled: bool
     interval: int
-    active_sessions: int
-    sessions_with_pending: int
-    pending_turns: int
+    # Pending-turn lifecycle state belongs to individual AgentState sessions.
+    # These values are unavailable when the workspace-level memory manager
+    # cannot aggregate every session safely.
+    active_sessions: int | None
+    sessions_with_pending: int | None
+    pending_turns: int | None
     history: list[AutoMemoryRunStatus] = Field(default_factory=list)
 
 

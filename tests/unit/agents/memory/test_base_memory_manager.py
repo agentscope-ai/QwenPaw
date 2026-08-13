@@ -313,9 +313,9 @@ class TestBaseMemoryManagerAddSummarizeTask:
         assert status["auto_memory"] == {
             "enabled": True,
             "interval": 5,
-            "active_sessions": 0,
-            "sessions_with_pending": 0,
-            "pending_turns": 0,
+            "active_sessions": None,
+            "sessions_with_pending": None,
+            "pending_turns": None,
             "history": [
                 {
                     "task_id": "task_2",
