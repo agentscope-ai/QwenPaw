@@ -6,6 +6,7 @@ tool-result block — specifically that ``structuredContent`` is preferred as
 the canonical form instead of being written alongside a redundant
 ``content`` rendering (see #6958).
 """
+
 import json
 
 from qwenpaw.drivers.adapters.agentscope_tool import _blocks_from_value
@@ -22,14 +23,16 @@ class _TextItem:
 class _CallResult:
     """Minimal stand-in for an MCP ``CallToolResult``."""
 
-    def __init__(self, content=None, structured=None, is_error: bool = False) -> None:
+    def __init__(
+        self, content=None, structured=None, is_error: bool = False
+    ) -> None:
         self.content = content
         self.structuredContent = structured
         self.isError = is_error
 
 
-def test_structured_content_is_written_exactly_once_when_content_also_present() -> None:
-    """When both content and structuredContent exist, no duplicate is emitted."""
+def test_structured_content_deduped_when_content_present() -> None:
+    """No duplicate when both content and structuredContent exist."""
     structured = {"name": "weather", "temp": 23}
     result = _CallResult(
         content=[_TextItem(json.dumps(structured, ensure_ascii=False))],
@@ -43,9 +46,11 @@ def test_structured_content_is_written_exactly_once_when_content_also_present() 
     assert payload == structured
 
 
-def test_content_blocks_used_when_structured_content_absent() -> None:
-    """Without structuredContent, the human-readable content blocks are kept."""
-    result = _CallResult(content=[_TextItem("plain text answer")], structured=None)
+def test_content_blocks_used_when_structured_absent() -> None:
+    """With no structuredContent, the content blocks are kept as-is."""
+    result = _CallResult(
+        content=[_TextItem("plain text answer")], structured=None
+    )
 
     blocks = _blocks_from_value(result)
 
