@@ -85,6 +85,67 @@ Optionally, add a one-shot instruction to guide which supported information the 
 
 ---
 
+## Session Commands
+
+Inspect, switch, create, and close your conversations from any channel. These commands are backed by the same session store as the Console and the REST chat API, and they are scoped to your user — you can never see or touch another user's sessions.
+
+| Command                  | Description                                                               |
+| ------------------------ | ------------------------------------------------------------------------- |
+| `/sessions`              | List your sessions (name, channel, message count), marking the current one |
+| `/session switch <id>`   | Continue another conversation by loading its history into the current chat |
+| `/session new`           | Clear the context and register a fresh session                              |
+| `/session close <id>`    | Delete a session (chat record, checkpoints and persisted state)            |
+
+### /sessions - List Your Sessions
+
+Lists the sessions owned by the current user across channels, most recent first, with the active conversation marked.
+
+```
+/sessions
+```
+
+**Example response:**
+
+```
+**Sessions** (most recent first):
+
+1. **API design** ← current — 24 msg · `console`
+   id: `a1b2c3d4-...`
+2. **Bug triage** [archived] — 8 msg · `matrix`
+   id: `e5f6a7b8-...`
+```
+
+### /session switch - Continue Another Conversation
+
+Loads another session's history into the current dialogue, so you can pick up where you left off. Accepts either the chat UUID or the session id shown by `/sessions`.
+
+```
+/session switch a1b2c3d4-...
+/session switch console:alice
+```
+
+> 💡 On the web Console, use the sidebar to switch chats — each conversation keeps its own history there. The TUI's client-side `/resume` performs a true client-side switch. `/session switch` replaces the current dialogue with the target conversation's context (a safety point is saved first, restorable via `/checkpoint restore`), which is the natural way to continue a previous chat on channels without a session UI (IM channels, direct HTTP calls).
+
+### /session new - Start a Fresh Session
+
+Clears the current context and registers a new session. The reply includes the new session id.
+
+```
+/session new
+```
+
+### /session close - Delete a Session
+
+Deletes the chat record, its checkpoints and its persisted state.
+
+```
+/session close a1b2c3d4-...
+```
+
+> ⚠️ **Warning**: `/session close` is **irreversible** — the conversation history and its persisted state are removed. Closing the session you are currently in clears the dialogue so you can start fresh.
+
+---
+
 ## Checkpoint Commands
 
 **State checkpoints** maintain a local, restorable history for the current Agent workspace. You can restore an earlier conversation state and optionally restore long-term memory or selected workspace files with it.
