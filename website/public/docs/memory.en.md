@@ -55,7 +55,7 @@ By default, each Agent workspace is located at `~/.qwenpaw/workspaces/{agent_id}
 │       └── interests.yaml               # Interest topics produced by Auto-Dream
 ├── mem_session/
 │   └── dialog/
-│       └── <session_id>.jsonl           # Source conversation for Auto-Memory
+│       └── qpsid_sha256_<64-hex>.jsonl  # Hashed source conversation for Auto-Memory
 ├── digest/                              # Long-term personal knowledge base
 │   ├── personal/                        # User, team, and project facts and preferences
 │   ├── procedure/                       # Processes, runbooks, and reusable experience
@@ -85,7 +85,7 @@ A memory typically combines YAML frontmatter, body text, and Wikilinks:
 ---
 name: User's release workflow preference
 description: The user wants staging validation before every production release.
-source_conversation: "[[mem_session/dialog/session-42.jsonl]]"
+source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
 ---
 
 # Release preference
@@ -117,13 +117,21 @@ Auto-Memory is the entry point to the personal knowledge base. It does not prese
 flowchart LR
     A[Accumulate N user turns] --> B[Select messages from the batch]
     B --> C[Remove tool results and large Base64 blocks]
-    C --> D[Append to mem_session/dialog/session.jsonl]
+    C --> D[Hash session id and append to<br/>mem_session/dialog/qpsid_sha256_HASH.jsonl]
     D --> E[LLM identifies durable information]
     E --> F[Create or update memory/date/note.md]
     F --> G[Refresh day index and incrementally update search]
 ```
 
-By default, QwenPaw triggers Auto-Memory after every five user turns. ReMe first saves the source conversation by `session_id`, then looks for an existing note for that session and date. It updates the existing card when one exists and creates a new card otherwise. Automatically recalled memory is removed before extraction so old search results cannot be mistaken for facts newly supplied by the user.
+By default, QwenPaw triggers Auto-Memory after every five user turns. Before calling ReMe, QwenPaw converts the exact
+session ID bytes to `qpsid_sha256_<64-hex>` so the filename is fixed-length and remains distinct across
+case-insensitive and Unicode-normalizing filesystems. ReMe saves the source conversation under that identifier, then
+looks for an existing note for the hashed session and date. It updates the existing card when one exists and creates at
+most one new card otherwise. Automatically recalled memory is removed before extraction so old search results cannot be
+mistaken for facts newly supplied by the user.
+
+The hash mapping is one-way and legacy unhashed dialog files are not migrated. After an upgrade, an existing session
+starts a new hashed dialog; previously extracted Markdown memory remains available.
 
 When context is actually evicted or folded, pending turns are flushed through the same Auto-Memory pipeline even if the normal interval has not yet been reached. Searched-turn and pending-turn state is retained across middleware rebuilds and restored sessions. Automatically recalled results are injected only into model input for the active user turn and are not written to formal or persisted conversation history.
 
@@ -156,7 +164,7 @@ When `auto_memory_inbox_push_enabled` is on, Auto-Memory results appear in QwenP
 
 ### Example
 
-Suppose the user says in `session-42`:
+Suppose the user says in a QwenPaw session:
 
 ```text
 For every production release, validate staging first. Write the release notes in Chinese and include risks and rollback steps.
@@ -165,7 +173,7 @@ For every production release, validate staging first. Write the release notes in
 After the configured interval, Auto-Memory preserves the source and creates or updates files such as:
 
 ```text
-mem_session/dialog/session-42.jsonl
+mem_session/dialog/qpsid_sha256_<64-hex>.jsonl
 memory/2026-08-06/release-discussion.md
 ```
 
@@ -173,7 +181,7 @@ memory/2026-08-06/release-discussion.md
 ---
 name: Production release agreement
 description: Validate staging first; Chinese release notes must include risks and rollback steps.
-source_conversation: "[[mem_session/dialog/session-42.jsonl]]"
+source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
 ---
 
 - Complete staging validation before a production release.
@@ -186,7 +194,16 @@ This is still daily material. When the same preference appears in more conversat
 
 ## Daily Paper
 
-Daily Paper collects candidates from Hugging Face weekly and monthly rankings, excludes recently recommended arXiv IDs, selects three papers, and produces three detailed readings plus a daily brief. PDFs are stored under `resource/papers/`; Markdown is written under `memory/YYYY-MM-DD/`, enters the normal memory index, and can be delivered through QwenPaw's Inbox.
+Daily Paper collects Hugging Face weekly and monthly rankings, excludes yesterday's list and arXiv IDs found in the
+previous 30 days of daily-note frontmatter, and applies weighted RRF to build a pool of at most 20 candidates. The memory
+Agent must select exactly three unique in-pool papers. ReMe downloads their PDFs, analyzes up to 20 pages and 300,000
+characters per PDF (maximum file size 50 MiB), and produces three detailed readings plus a daily brief. PDFs are stored
+under `resource/papers/`; Markdown is written under `memory/YYYY-MM-DD/`, enters the normal memory index, and can be
+delivered through QwenPaw's Inbox.
+
+If a daily brief already exists for the run date, the normal scheduled call reports a successful skip. The underlying
+job accepts `force=true` for callers that intentionally regenerate it; this switch is not exposed by the scheduled
+configuration form.
 
 Daily Paper is disabled by default. Enable it with `daily_paper_cron_enabled`; `daily_paper_cron` controls the schedule and defaults to `"0 9 * * *"`. `daily_paper_use_hf_mirror` selects the Hugging Face mirror, and `daily_paper_topics` supplies preferred topics.
 
@@ -273,7 +290,7 @@ The result is not another copy of the chat summary. Existing long-term knowledge
 
 ## Memory Index and Memory Search
 
-`memory_index` keeps files searchable, while `memory_search` retrieves the most relevant content when needed. The index is derived state and can be rebuilt from Markdown in `memory/` and `digest/`.
+The background `index_update_loop` keeps files searchable, while `memory_search` retrieves the most relevant content when needed. The index is derived state and can be rebuilt from Markdown in `memory/` and `digest/`.
 
 ### Index Capabilities and Scope
 
@@ -313,14 +330,18 @@ For supported providers, enablement conditions, field definitions, cache behavio
 
 ```mermaid
 flowchart LR
-    A[Query] --> B[Expand candidate pool<br/>limit × 3, capped at 200]
-    B --> C[Vector retrieval]
-    B --> D[BM25 retrieval]
+    A[Query] --> B[Choose ReMe limit<br/>N, or N × reranker multiplier]
+    B --> C0[Expand each retrieval pool<br/>ReMe limit × 3, capped at 200]
+    C0 --> C[Vector retrieval]
+    C0 --> D[BM25 retrieval]
     C --> E[Deduplicate by chunk id and fuse with RRF]
     D --> E
-    E --> F[Apply min_score and keep Top N]
+    E --> F[Apply min_score and keep ReMe limit]
     F --> G[Expand incoming and outgoing links]
-    G --> H[Chunks + paths + lines + related nodes]
+    G --> R{Reranker enabled?}
+    R -->|yes| RR[POST candidates to /rerank<br/>then cap to final N]
+    R -->|no| H[Return final N]
+    RR --> H
 ```
 
 When both branches return results, ReMe uses weighted Reciprocal Rank Fusion (RRF) by default:
@@ -335,6 +356,55 @@ RRF compares positions in the two ranked lists instead of directly comparing cos
 After fusion, ReMe expands up to ten outgoing and ten incoming links for each hit file from the graph index. Results therefore include both the most relevant text and connected sources, procedures, and neighboring knowledge nodes.
 
 > `min_score` defaults to `0`. Keep it at the default for normal use because raw single-branch scores and fused RRF scores have different scales; increasing the threshold indiscriminately may hide valid results.
+
+### Optional Reranking
+
+`reranker_config` adds a second-stage HTTP reranker after ReMe hybrid retrieval. When enabled with a non-empty
+`model_name`, both explicit `memory_search` and Auto-Memory-Search ask ReMe for
+`final_count × candidate_multiplier` results. QwenPaw sends the first 500 characters of each candidate to
+`POST {base_url}/rerank` with a Bearer token and this JSON shape:
+
+```json
+{
+  "model": "BAAI/bge-reranker-v2-m3",
+  "query": "the memory query",
+  "documents": ["candidate one", "candidate two"]
+}
+```
+
+The response must contain a `results` array covering every candidate exactly once with valid `index` values. QwenPaw
+sorts those entries by `relevance_score`, reorders the original result sections, preserves their hybrid scores and
+Wikilink expansions, and caps the output to the requested final count. If the service is unavailable, times out,
+returns an HTTP error, or returns an invalid/partial index list, search continues with the original ReMe order.
+
+```json
+{
+  "running": {
+    "reme_light_memory_config": {
+      "reranker_config": {
+        "enabled": true,
+        "api_key": "your-api-key",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "model_name": "BAAI/bge-reranker-v2-m3",
+        "candidate_multiplier": 3,
+        "timeout": 10.0
+      }
+    }
+  }
+}
+```
+
+The current Console has no Reranker form; configure it in `agent.json`. The configuration is read for every search, so
+saved changes take effect without a dedicated Reranker restart.
+
+| Field                  | Default | Meaning                                                                |
+| ---------------------- | ------- | ---------------------------------------------------------------------- |
+| `enabled`              | `false` | Enable second-stage reranking                                          |
+| `api_key`              | `""`    | Bearer token for the reranker endpoint                                 |
+| `base_url`             | `""`    | API base URL; `/rerank` is appended                                    |
+| `model_name`           | `""`    | Model sent in the request; must be non-empty for reranking to activate |
+| `candidate_multiplier` | `3`     | ReMe result-count multiplier before reranking; minimum `1`             |
+| `timeout`              | `10.0`  | HTTP timeout in seconds; minimum `1.0`                                 |
 
 ### Manual Search and Auto-Memory-Search
 
@@ -392,37 +462,47 @@ The Agent can then use the returned path and line range to read the source file 
 
 All fields live under `running.reme_light_memory_config`:
 
-| Field                            | Default             | Description                                                               |
-| -------------------------------- | ------------------- | ------------------------------------------------------------------------- |
-| `metadata_dir`                   | `"mem_metadata"`    | Directory for indexes, graph data, catalogs, and caches                   |
-| `session_dir`                    | `"mem_session"`     | Auto-Memory source conversation directory                                 |
-| `mem_session_dir`                | `"mem_agent"`       | ReMe internal memory-agent session directory                              |
-| `resource_dir`                   | `"resource"`        | Raw resource directory used by Daily Paper and future knowledge workflows |
-| `daily_dir`                      | `"memory"`          | Daily memory directory                                                    |
-| `digest_dir`                     | `"digest"`          | Long-term knowledge base directory                                        |
-| `auto_memory_inbox_push_enabled` | `true`              | Push Auto-Memory results to Inbox                                         |
-| `auto_dream_inbox_push_enabled`  | `true`              | Push Auto-Dream results to Inbox                                          |
-| `daily_paper_inbox_push_enabled` | `true`              | Push Daily Paper results to Inbox                                         |
-| `auto_memory_interval`           | `5`                 | Auto-Memory interval in user turns                                        |
-| `dream_cron_enabled`             | `true`              | Enable scheduled Auto-Dream                                               |
-| `dream_cron`                     | `"0 23 * * *"`      | Five-field Auto-Dream cron expression                                     |
-| `daily_paper_cron_enabled`       | `false`             | Enable scheduled Daily Paper                                              |
-| `daily_paper_cron`               | `"0 9 * * *"`       | Five-field Daily Paper cron expression                                    |
-| `daily_paper_use_hf_mirror`      | `false`             | Fetch paper information through the Hugging Face mirror                   |
-| `daily_paper_topics`             | `""`                | Topics to prioritize when selecting papers                                |
-| `memory_search_enabled`          | `true`              | Expose the `memory_search` tool independently of automatic search         |
-| `auto_memory_search_config`      | See above           | Automatic memory search configuration                                     |
-| `embedding_model_config`         | Disabled by default | Optional vector model configuration; see [Embedding Models](./embedding)  |
+| Field                            | Default             | Description                                                                  |
+| -------------------------------- | ------------------- | ---------------------------------------------------------------------------- |
+| `metadata_dir`                   | `"mem_metadata"`    | Directory for indexes, graph data, catalogs, and caches                      |
+| `session_dir`                    | `"mem_session"`     | Auto-Memory source conversation directory                                    |
+| `mem_session_dir`                | `"mem_agent"`       | ReMe internal memory-agent session directory                                 |
+| `resource_dir`                   | `"resource"`        | Raw resource directory used by Daily Paper and future knowledge workflows    |
+| `daily_dir`                      | `"memory"`          | Daily memory directory                                                       |
+| `digest_dir`                     | `"digest"`          | Long-term knowledge base directory                                           |
+| `auto_memory_inbox_push_enabled` | `true`              | Push Auto-Memory results to Inbox                                            |
+| `auto_dream_inbox_push_enabled`  | `true`              | Push Auto-Dream results to Inbox                                             |
+| `daily_paper_inbox_push_enabled` | `true`              | Push Daily Paper results to Inbox                                            |
+| `auto_memory_interval`           | `5`                 | Auto-Memory interval in user turns                                           |
+| `dream_cron_enabled`             | `true`              | Enable scheduled Auto-Dream                                                  |
+| `dream_cron`                     | `"0 23 * * *"`      | Five-field Auto-Dream cron expression                                        |
+| `daily_paper_cron_enabled`       | `false`             | Enable scheduled Daily Paper                                                 |
+| `daily_paper_cron`               | `"0 9 * * *"`       | Five-field Daily Paper cron expression                                       |
+| `daily_paper_use_hf_mirror`      | `false`             | Fetch paper information through the Hugging Face mirror                      |
+| `daily_paper_topics`             | `""`                | Topics to prioritize when selecting papers                                   |
+| `memory_search_enabled`          | `true`              | Expose the `memory_search` tool independently of automatic search            |
+| `auto_memory_search_config`      | See above           | Automatic memory search configuration                                        |
+| `embedding_model_config`         | Disabled by default | Optional vector model configuration; see [Embedding Models](./embedding)     |
+| `reranker_config`                | Disabled by default | Optional post-search reranker; see [Optional Reranking](#optional-reranking) |
+| `needs_reindex`                  | `false`             | Runtime-maintained flag for a pending vector-space index rebuild             |
+
+Legacy `inbox_push_enabled` is accepted only as a migration input: it initializes any of the three per-job Inbox
+switches that are absent, and is excluded when the validated configuration is serialized.
 
 ### Rebuilding the Index
 
-The background loop normally maintains the index incrementally. Use **Rebuild Memory Index** in the Agent's long-term memory settings only when the index is damaged or search results are clearly abnormal. You can also call:
+The background loop normally maintains the index incrementally. Use **Rebuild Memory Index** when the Console reports
+that an Embedding vector-space change requires it, when the index is damaged, or when search results are clearly
+abnormal. You can also call:
 
 ```http
 POST /api/agents/{agentId}/memory/reindex
 ```
 
-Rebuilding clears the derived index and recreates it from existing Markdown under `memory/` and `digest/`. CPU and memory usage may increase while it runs. Only one rebuild can run for an Agent at a time. `rebuild_memory_index_on_start` is no longer supported.
+Rebuilding clears the derived index and recreates it from existing Markdown under `memory/` and `digest/`. CPU and
+memory usage may increase while it runs. Only one rebuild can run for an Agent at a time, and an Embedding config change
+during the rebuild is rejected. A successful rebuild clears `needs_reindex` only when the persisted and active
+vector-space fingerprints still match the rebuild target. `rebuild_memory_index_on_start` is no longer supported.
 
 ---
 

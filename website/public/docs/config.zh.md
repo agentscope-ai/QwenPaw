@@ -375,7 +375,7 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `metadata_dir`                   | string      | `"mem_metadata"` | ReMe 持久状态子目录                                                                               |
 | `session_dir`                    | string      | `"mem_session"`  | ReMe auto-memory 使用的来源对话日志子目录                                                         |
 | `mem_session_dir`                | string      | `"mem_agent"`    | ReMe 内部 memory-agent 会话子目录                                                                 |
-| `resource_dir`                   | string      | `"resource"`     | 外部资源子目录                                                                                    |
+| `resource_dir`                   | string      | `"resource"`     | Daily Paper 与未来知识工作流使用的原始资源目录                                                    |
 | `daily_dir`                      | string      | `"memory"`       | 每日记忆子目录                                                                                    |
 | `digest_dir`                     | string      | `"digest"`       | digest 记忆子目录                                                                                 |
 | `auto_memory_inbox_push_enabled` | bool        | `true`           | 是否将 Auto-Memory 结果推送到收件箱                                                               |
@@ -391,9 +391,13 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `memory_search_enabled`          | bool        | `true`           | 是否向智能体提供 `memory_search` 工具；不影响自动记忆搜索                                         |
 | `auto_memory_search_config`      | object      | _（见下方）_     | 自动记忆搜索配置                                                                                  |
 | `embedding_model_config`         | object      | _（见下方）_     | Embedding 模型配置                                                                                |
+| `reranker_config`                | object      | _（见下方）_     | 可选的检索后 Reranker 配置                                                                        |
+| `needs_reindex`                  | bool        | `false`          | 运行时维护的标记，表示已保存的向量空间发生变化，需要手动重建索引                                  |
 
 > `rebuild_memory_index_on_start` 已不再支持。仅在确有需要时通过控制台或维护 API 重建索引，详见
 > [重建记忆搜索索引](./memory#重建记忆搜索索引)。
+
+已弃用的 `inbox_push_enabled` 仅用于迁移：它会初始化尚未设置的各任务 Inbox 开关，随后从序列化配置中排除。
 
 **自动记忆搜索配置（`reme_light_memory_config.auto_memory_search_config` 对象）：**
 
@@ -417,6 +421,22 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `max_input_length` | int    | `8192`     | 单条 Embedding 输入的近似字符预算，并非精确的 Token 上限                              |
 | `max_batch_size`   | int    | `10`       | 批处理的最大批量大小                                                                  |
 
+**Reranker 配置（`reme_light_memory_config.reranker_config` 对象）：**
+
+| 字段                   | 类型   | 默认值  | 说明                                                         |
+| ---------------------- | ------ | ------- | ------------------------------------------------------------ |
+| `enabled`              | bool   | `false` | 是否在混合检索后对 ReMe 结果重新排序                         |
+| `api_key`              | string | `""`    | 作为 Bearer Token 发送给 Reranker 服务                       |
+| `base_url`             | string | `""`    | API 基础地址；QwenPaw 请求 `{base_url}/rerank`               |
+| `model_name`           | string | `""`    | Reranker 模型名称                                            |
+| `candidate_multiplier` | int    | `3`     | Rerank 前向 ReMe 请求“最终条数 × 此倍数”的候选；最小值为 `1` |
+| `timeout`              | float  | `10.0`  | Reranker HTTP 超时时间（秒）；最小值为 `1.0`                 |
+
+只有 `enabled=true` 且 `model_name` 非空时才进入 Reranker 流程。`base_url` 为空、超时、HTTP
+失败、返回格式错误、结果数量不完整或索引非法时，系统会安全回退到 ReMe 原始排序。当前 Console
+没有这些表单项，需要在 `agent.json` 中配置；显式 `memory_search` 和 Auto-Memory-Search 都会使用它。
+请求与排序流程详见[长期记忆](./memory#可选-reranker-重排)。
+
 `use_dimensions` 仅控制 OpenAI 兼容请求中是否携带 `dimensions` 参数。关闭后，`dimensions`
 仍用于校验服务返回的向量长度以及配置索引和缓存，因此必须填写模型实际输出的维度。部分 vLLM
 等 OpenAI 兼容服务不支持该请求参数，此时应关闭 `use_dimensions`。
@@ -434,10 +454,16 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 不满足启用条件时，ReMe 仍会保留关键词索引和 wikilink 图谱索引，但不会启用 embedding 向量索引。
 
-这些配置也可以在控制台的 **智能体 → 运行配置** 页面中修改。直接从 `agent.json` 读取的字段，例如自动记忆间隔和自动搜索条数，
-保存后会在后续对话轮次生效。对于 Embedding 配置，如果当前服务参数已经通过“测试 Embedding 服务”验证、本次保存只修改了
-Embedding 配置且测试后的服务参数没有变化，系统会尝试热更新；首次启用、关闭、未先测试、测试后又修改服务参数，或同时修改其他
-运行配置时，系统会保存配置并自动重载 Agent，无需用户手动重启。目录等其他需要重新构造的嵌入式 ReMe 组件配置也会走自动重载。
+这些配置也可以在控制台的 **智能体 → 运行配置** 页面中修改。自动记忆间隔、自动搜索条数和 Reranker
+等按需读取的字段，保存后会作用于后续回合。Embedding 保存采用事务式流程：QwenPaw 先持久化提交的运行配置，再尝试应用到
+当前 ReMe runtime。若当前服务指纹已经成功测试，可以原位替换运行中的 Embedding 模型；否则会重新创建内嵌 ReMe。
+若两种方式都失败，系统会在不覆盖并发修改的前提下回滚本次字段并返回错误。保存后始终会调度正常的 Agent 自动重载，
+无需手动重启。索引正在重建时修改 Embedding 会返回 HTTP `409`。
+
+修改 `backend`、规范化后的 `base_url`、`model_name`、`dimensions` 或 `use_dimensions` 会设置
+`needs_reindex=true`；只修改 API Key 或缓存、批量限制不会。向量空间热更新会清空 Embedding 缓存，
+但**不会**自动重建已有文件向量，仍需在 Console 或维护 API 中显式执行重建。只有针对当前向量空间成功完成的重建
+才会清除 `needs_reindex`。
 
 控制台中的 Embedding“已开启/未开启”状态会根据当前未保存表单实时计算，只表示 Backend、模型名称和必要凭证是否满足上述启用条件，
 不表示服务已经连通或配置已经应用到运行中的 Agent。“已验证”表示真实测试请求成功；只有保存配置后，变更才会应用到运行状态。

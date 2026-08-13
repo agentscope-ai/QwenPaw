@@ -62,14 +62,21 @@ service to:
 2. return only finite numeric values; and
 3. return exactly the configured `dimensions`.
 
-On success, the model object is staged for the subsequent save. QwenPaw attempts a hot update only when the tested
-service parameters exactly match the saved values and this save changes no other runtime settings. First-time
-enablement, disabling embeddings, saving without a current successful test, changing service fields after testing, or
-changing other settings at the same time causes QwenPaw to save the configuration and automatically reload the agent.
+On success, the model object is staged for a subsequent save whose service fingerprint still matches the tested values.
+That fingerprint contains the backend, API key, normalized Base URL, model name, dimensions, and `use_dimensions`.
+QwenPaw first persists the submitted running config, then reuses the staged model for an in-place update when possible.
+If the model was not tested, the fingerprint changed after testing, or Embedding components must be added or removed,
+QwenPaw recreates the embedded ReMe application. The normal Agent reload is also scheduled after every successful save.
 
-Changing the backend, Base URL, model name, dimensions, or `use_dimensions` changes the vector space. During a hot
-update, QwenPaw clears the local embedding cache and rebuilds the index, which produces new embedding requests and can
-temporarily consume substantial resources.
+The runtime update is transactional. If both in-place update and ReMe recreation fail, QwenPaw restores the submitted
+configuration fields when that can be done without overwriting a concurrent edit, restores the previous runtime when
+possible, and returns an error. Embedding changes are rejected while an explicit index rebuild is running.
+
+Changing the backend, normalized Base URL, model name, dimensions, or `use_dimensions` changes the vector-space
+fingerprint and sets `needs_reindex=true`; changing only the API key does not. An in-place vector-space change clears
+the memory and disk Embedding cache, but deliberately does **not** rebuild the file index. Use **Rebuild Memory Index**
+after saving. Until that succeeds, existing same-dimension vectors may still belong to the previous model. A successful
+rebuild clears `needs_reindex` only if the persisted and active fingerprints still match the rebuild target.
 
 ---
 
@@ -171,9 +178,11 @@ OpenAI-compatible services and vLLM deployments reject the parameter; turn it of
 
 ### A Model Change Requires New Vectors
 
-Two models with the same output size can still use incompatible vector spaces. QwenPaw treats backend, endpoint, model,
-dimensions, and `use_dimensions` as vector-space identity and clears the cache and rebuilds the index after a change.
-Do not retain or manually copy an old `.npz` cache to bypass rebuilding.
+Two models with the same output size can still use incompatible vector spaces. QwenPaw treats backend, normalized
+endpoint, model, dimensions, and `use_dimensions` as vector-space identity. It marks the configuration as requiring a
+rebuild and, for an in-place update, removes the old `.npz` cache. The index rebuild is explicit rather than automatic:
+follow the Console warning and select **Rebuild Memory Index** before relying on vector results. Do not retain or
+manually copy an old cache to bypass rebuilding.
 
 ### Base URL, Host, and SDK Type Are Different Concepts
 
@@ -203,10 +212,10 @@ computation and API cost but does not disable the vector index.
 
 ### A Successful Test Does Not Mean History Is Fully Indexed
 
-The test validates only one live request, numeric values, and dimensions. First-time enablement and index rebuilds must
-still process existing memories and can encounter quotas, rate limits, network errors, or oversized inputs. After saving,
-run a semantic `memory_search` query with little keyword overlap and confirm that the raw result contains a numeric
-`vector=...` value.
+The test validates only one live request, numeric values, and dimensions. First-time enablement and explicit index
+rebuilds must still process existing memories and can encounter quotas, rate limits, network errors, or oversized
+inputs. After saving, complete any **Rebuild Memory Index** warning, then run a semantic `memory_search` query with
+little keyword overlap and confirm that the raw result contains a numeric `vector=...` value.
 
 ### Running Without Embeddings Is Valid
 

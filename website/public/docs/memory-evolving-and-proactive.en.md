@@ -178,7 +178,7 @@ ReMe exposes a low-level `proactive` job that reads this file and returns its me
 
 ## Proactive Interaction in QwenPaw
 
-QwenPaw's user-facing proactive mode is enabled per session:
+QwenPaw's user-facing proactive mode is an in-memory monitor keyed by the active Agent name:
 
 ```text
 /proactive           # enable; trigger after 30 minutes of inactivity
@@ -209,7 +209,15 @@ sequenceDiagram
     A-->>U: [PROACTIVE] concise, actionable message
 ```
 
-The monitor checks every 30 seconds. When the configured idle threshold is reached, it uses sessions updated in the last seven days; if fewer than five match, it falls back to the latest five sessions. It considers up to 100 recent text messages with a 50,000-character cap. If the active model supports multimodal input, it may also capture and analyze the current desktop.
+The monitor checks every 30 seconds. Its idle clock uses the newest `updated_at` value across all chats in the current
+workspace, not only the chat where `/proactive` was entered. When the configured threshold is reached, it reads sessions
+updated in the last seven days; if fewer than five match, it falls back to the latest five sessions. It considers up to
+100 recent non-system text messages with a 50,000-character cap. If the active model supports multimodal input, it may
+also capture and analyze the current desktop.
+
+The monitor configuration and task live only in process memory; they are not persisted across a process restart. Running
+`/proactive` or `/proactive on` again replaces the active Agent's in-memory configuration with the default 30-minute
+threshold, while `/proactive <positive integer>` replaces it with that threshold.
 
 The proactive assistant infers one to three likely goals, attempts concrete queries for up to three candidates, and stops after the first successful result. If the user becomes active while this work is running, the attempt is interrupted. It also avoids sending another proactive message while the previous `[PROACTIVE]` message remains unanswered.
 
@@ -228,6 +236,9 @@ This example illustrates the current boundary precisely: the trigger and task in
 
 ### Privacy and safety boundary
 
-Proactive mode can read historical session context, may take a desktop screenshot when multimodal analysis is available, and initializes its own tool-enabled assistant. The `/proactive` command warns that this assistant bypasses normal tool-protection mechanisms. Enable it only when that access is appropriate, and use `/proactive off` to stop the in-memory monitoring task.
+Proactive mode can read historical chat context, may take a desktop screenshot when multimodal analysis is available,
+and initializes its own assistant with web search/fetch, browser, file-read, shell, and optional screenshot tools. That
+assistant runs with bypass permissions. The `/proactive` command warns about this boundary; enable it only when that
+access is appropriate, and use `/proactive off` to stop the in-memory monitoring task.
 
 In short: Auto-Dream makes memory better over time; `memory_search` lets future conversations benefit from that evolution; and `/proactive` decides when recent activity justifies doing useful work before the next request.
