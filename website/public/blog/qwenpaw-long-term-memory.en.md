@@ -4,7 +4,7 @@ date: 2026-08-07
 author: QwenPaw Team
 tags: [Long-Term Memory, ReMe, Personal Knowledge Base, Memory as File]
 cover: https://img.alicdn.com/imgextra/i4/O1CN016mGvikM8DGD3OTaP_!!6000000003113-2-tps-1672-941.png
-excerpt: "How does QwenPaw remember your preferences, decisions, and materials—and retrieve the right information when you need it? This article explains the full process through one continuous example."
+excerpt: "How does QwenPaw remember your preferences, decisions, and supported materials—and retrieve the right information when you need it? This article explains the full process through one continuous example."
 ---
 
 # QwenPaw Long-Term Memory: Turning Every Conversation into Knowledge You Can Reuse
@@ -17,7 +17,7 @@ Three months ago, your team carefully compared two options and explained why you
 
 The problem is not that the AI is not smart enough. It is that the things that truly mattered in the past were never turned into memory it could use over time.
 
-QwenPaw's long-term memory is designed to solve this problem. Powered by [ReMe](https://github.com/agentscope-ai/ReMe), it organizes conversations and materials into a personal knowledge base that belongs to you.
+QwenPaw's long-term memory is designed to solve this problem. Powered by [ReMe](https://github.com/agentscope-ai/ReMe), it organizes conversations and supported materials into a personal knowledge base that belongs to you.
 
 ![QwenPaw and ReMe turn conversations and materials into long-term memory](https://img.alicdn.com/imgextra/i4/O1CN016mGvikM8DGD3OTaP_!!6000000003113-2-tps-1672-941.png)
 
@@ -95,21 +95,17 @@ Suppose the team later learns that enterprise customers prefer to see compatibil
 
 Think of this as a periodic review: conclusions that recur become more reliable, incomplete lessons gain context, and outdated statements are corrected.
 
-## Materials You Read Can Be Remembered Alongside Conversations
+## Materials Can Enter the Same Memory Loop
 
 Useful information does not come only from chat.
 
-Before the release, Lin uploads a summary of customer interviews. The report says that many customers do not know the new version supports batch export. QwenPaw preserves the original report, records this important finding, and connects it to the question of how to write the release notes.
+ReMe provides Auto Resource, a Beta capability that interprets source material, preserves the original file, and writes a source-linked daily memory card. QwenPaw is integrating this flow progressively. Today, its built-in integration is Daily Paper: when enabled, it selects research papers, keeps the original PDFs, and writes detailed readings and a daily brief into memory.
 
-The next day, Lin asks, “What should we emphasize most in this release?”
+Those readings can then participate in the same search and consolidation loop as conversation memory. For example, if a paper discusses why users overlook newly released capabilities, it can later provide evidence when Lin asks how to improve feature discovery.
 
-QwenPaw can draw on both yesterday's conversation and the interview report:
+Support for bringing in other materials—such as interview reports, meeting notes, project documents, and web content—is still being integrated. Once available, a report like Lin's customer interview summary will be able to follow the same traceable path from original source to daily note and long-term knowledge.
 
-> Emphasize batch export. The customer interviews show that many users are still unaware of it. The release notes could demonstrate the feature through a weekly reporting scenario.
-
-![Auto Resource brings papers, reports, and other external materials into the personal knowledge base](https://img.alicdn.com/imgextra/i1/O1CN01bfUxpA1gdANS9XGQ1_!!6000000004164-55-tps-1200-640.svg)
-
-Research papers, meeting notes, project documents, and web materials can enter the knowledge base in the same way. They do not disappear after being read; they can surface again when a future question makes them relevant.
+![ReMe Auto Resource turns source material into traceable memory; QwenPaw currently integrates this flow through Daily Paper](https://img.alicdn.com/imgextra/i1/O1CN01bfUxpA1gdANS9XGQ1_!!6000000004164-55-tps-1200-640.svg)
 
 ## How Does It Retrieve the Right Memory When Needed?
 
@@ -127,26 +123,19 @@ This resembles finding something on a bookshelf: first locate the book most like
 
 Even as the history grows, QwenPaw does not need to reread every old conversation. It only brings back the few memories that are useful for the current question.
 
-## It Can Also Notice What You Keep Returning To
+## Proactive Mode Can Follow Up on Recent Context
 
-Long-term memory is useful even before you explicitly ask it a question.
+QwenPaw's current `/proactive` mode is a separate runtime capability from the interest topics produced by Auto Dream. It does not currently read Auto Dream's `interests.yaml` file.
 
-After the release, Lin repeatedly discusses these issues over several weeks:
+After Lin explicitly enables proactive mode, QwenPaw waits until the configured idle threshold is reached. It then analyzes recent chat sessions and, when the active model supports images, can optionally use a desktop screenshot as additional context. From that context, it identifies one to three likely tasks.
 
-- Customers often miss new features.
-- Few people read the release notes.
-- Support staff repeatedly answer the same questions.
-- She uploads another report about Help Center searches.
+Suppose Lin's recent conversations include unfinished work on release notes and repeated questions about feature discovery. After the idle interval, QwenPaw may infer that a follow-up would be useful. Its temporary proactive assistant can investigate up to three task queries with the available tools, then send a user-facing proactive request back to the QwenPaw chat.
 
-Lin never explicitly says, “I want to improve new-feature discovery,” but together these records form a clear signal.
+The resulting message might ask:
 
-At the right moment, QwenPaw can suggest:
+> Your recent sessions still have an open question about helping customers discover new features. Would you like to turn the release-note feedback into a concrete follow-up checklist?
 
-> You have mentioned several times that customers are unaware of new features. Would you like to combine the release notes, Help Center searches, and support questions into an improvement checklist for new-feature discovery?
-
-![Proactive identifies recurring interests in existing memory and suggests a next step](https://img.alicdn.com/imgextra/i3/O1CN01pd9ktb1Uvh0caZnOw_!!6000000002580-55-tps-1200-640.svg)
-
-There is an important boundary here: **noticing a signal does not mean acting without permission.** QwenPaw can make an evidence-based suggestion, but it will not automatically browse the web, send messages, or take other actions with external impact simply because it inferred an interest.
+Because this mode can read recent session history, optionally inspect the screen, and use tools for supporting investigation, QwenPaw asks the user to enable it explicitly. The idle interval can be adjusted with `/proactive <minutes>`, and `/proactive off` stops the background loop.
 
 ## Memory Is Not a Black Box—It Is Your File
 
@@ -181,7 +170,7 @@ See the complete results in the [LongMemEval benchmark](https://github.com/agent
 
 ## Putting Lin's Day Together
 
-In the morning, Lin uploads the customer interview report. QwenPaw records the issues customers care about most while preserving the original material.
+In the morning, Daily Paper brings selected research papers and their readings into memory while preserving the original PDFs. Integration for other resource types, such as Lin's customer interview report, is still in progress.
 
 Later that morning, she discusses the release plan with QwenPaw. Important decisions, reasons, and next steps are organized into the day's memory.
 
@@ -189,11 +178,11 @@ In the afternoon, she asks why the previous release failed. QwenPaw finds the ol
 
 In the evening, scattered new records are incorporated into existing experience. Conclusions that are no longer accurate are revised.
 
-A few weeks later, QwenPaw notices that “customers are unaware of new features” has appeared repeatedly and suggests a focused improvement, backed by the relevant evidence.
+Later, after Lin has enabled `/proactive` and the session becomes idle, QwenPaw analyzes recent session context, investigates likely follow-up tasks when useful, and sends a proactive request back to the chat.
 
-None of these steps is magic. The real value is that no conversation or source material simply disappears:
+None of these steps is magic. The real value is that captured conversations and integrated source material do not simply disappear:
 
-> What you discuss today becomes experience you can use tomorrow. What you read today becomes evidence for answers in the future.
+> What you discuss today becomes experience you can use tomorrow. What Daily Paper reads today can become evidence for answers in the future.
 
 ## Finally: Good Long-Term Memory Is Not About Remembering More
 
