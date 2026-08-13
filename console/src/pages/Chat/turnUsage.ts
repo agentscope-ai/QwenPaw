@@ -31,6 +31,13 @@ const readNumber = (obj: unknown, key: string): number => {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
 };
 
+/** `0` is a valid empty window (e.g. after `/new`); do not drop it. */
+function hasContextUsage(context: unknown): context is ContextUsage {
+  if (!context || typeof context !== "object") return false;
+  const v = (context as Record<string, unknown>).estimated_tokens;
+  return typeof v === "number" && Number.isFinite(v) && v >= 0;
+}
+
 function parseTurnUsagePayload(raw: unknown): TurnUsageSnapshot | null {
   if (!raw || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
@@ -44,7 +51,7 @@ function parseTurnUsagePayload(raw: unknown): TurnUsageSnapshot | null {
     readNumber(usage, "total_tokens") ||
     readNumber(usage, "prompt_tokens") + readNumber(usage, "completion_tokens");
   const hasUsage = !!usage && usageTotal > 0;
-  const hasCtx = !!context && readNumber(context, "estimated_tokens") > 0;
+  const hasCtx = hasContextUsage(context);
   if (!hasUsage && !hasCtx) return null;
   return {
     usage: hasUsage ? usage : null,
@@ -92,10 +99,7 @@ export function readTurnUsageFromResponseCardData(
       readNumber(usage, "prompt_tokens") +
         readNumber(usage, "completion_tokens") >
         0);
-  const hasCtx =
-    context &&
-    typeof context === "object" &&
-    readNumber(context, "estimated_tokens") > 0;
+  const hasCtx = hasContextUsage(context);
   if (!hasUsage && !hasCtx) return null;
   return {
     usage: hasUsage ? (usage as TurnUsage) : null,
@@ -308,81 +312,27 @@ function snapshotFromSsePayload(raw: string): TurnUsageSnapshot | null {
   }
 }
 
-/** After `/compact`, remaining tail is the new baseline — ring pressure is 0. */
-export function snapshotWithResetContextUsage(
-  snap: TurnUsageSnapshot | null,
-): TurnUsageSnapshot {
-  const store = useTurnUsageStore.getState();
-  const raw = readNumber(snap?.context_usage, "estimated_tokens");
-  if (raw > 0) {
-    store.setContextBaseline(raw);
-  }
-  const max =
-    readNumber(snap?.context_usage, "max_input_length") ||
-    readNumber(store.snapshot?.context_usage, "max_input_length") ||
-    131072;
-  return {
-    usage: snap?.usage ?? null,
-    context_usage: {
-      estimated_tokens: 0,
-      max_input_length: max,
-      context_usage_ratio: 0,
-    },
-  };
-}
-
-/** Ring counts tokens added since `/compact`, not the reserved tail. */
-function snapshotRelativeToCompactBaseline(
-  snap: TurnUsageSnapshot,
-): TurnUsageSnapshot {
-  const baseline = useTurnUsageStore.getState().contextBaselineTokens;
-  if (!snap.context_usage || baseline <= 0) return snap;
-  const max = readNumber(snap.context_usage, "max_input_length") || 131072;
-  const raw = readNumber(snap.context_usage, "estimated_tokens");
-  const estimated = Math.max(0, raw - baseline);
-  return {
-    usage: snap.usage,
-    context_usage: {
-      estimated_tokens: estimated,
-      max_input_length: max,
-      context_usage_ratio:
-        max > 0 ? Math.min((estimated / max) * 100, 100) : 0,
-    },
-  };
-}
-
-function applyUsageSnapshot(
-  chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
-  snap: TurnUsageSnapshot,
-): void {
-  const adjusted = snapshotRelativeToCompactBaseline(snap);
-  useTurnUsageStore.getState().setSnapshot(adjusted);
-  schedulePatchLastResponseCardUsage(chatRef, adjusted);
-}
-
 /**
- * Observe the SSE body and patch usage as soon as `turn_usage` is parsed.
+ * Observe the SSE body and update the ring as soon as `turn_usage` is parsed.
  *
  * Trailing `turn_usage` SSE arrives after Completed response. The chat SDK
  * may drop it via isStillActive (session id drift after realId URL resolve)
- * and abort before stream flush, so apply immediately in transform.
+ * and abort before flush, so the store updates in transform. Card patches
+ * wait until flush so the SDK has built the assistant card.
  */
 export function wrapChatResponseUsageStream(
   response: Response,
   chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
-  options?: { resetContextUsage?: boolean },
 ): Response {
   if (!response.body) return response;
 
   const decoder = new TextDecoder();
   let buffer = "";
-  const resetContextUsage = options?.resetContextUsage === true;
+  let pendingUsage: TurnUsageSnapshot | null = null;
 
-  const apply = (snap: TurnUsageSnapshot) => {
-    applyUsageSnapshot(
-      chatRef,
-      resetContextUsage ? snapshotWithResetContextUsage(snap) : snap,
-    );
+  const applyStore = (snap: TurnUsageSnapshot) => {
+    pendingUsage = snap;
+    useTurnUsageStore.getState().setSnapshot(snap);
   };
 
   const transformed = response.body.pipeThrough(
@@ -394,7 +344,7 @@ export function wrapChatResponseUsageStream(
         buffer = parsed.rest;
         for (const raw of parsed.events) {
           const snap = snapshotFromSsePayload(raw);
-          if (snap) apply(snap);
+          if (snap) applyStore(snap);
         }
       },
       flush() {
@@ -402,7 +352,10 @@ export function wrapChatResponseUsageStream(
         const parsed = parseSseDataLines(`${buffer}\n\n`);
         for (const raw of parsed.events) {
           const snap = snapshotFromSsePayload(raw);
-          if (snap) apply(snap);
+          if (snap) applyStore(snap);
+        }
+        if (pendingUsage) {
+          schedulePatchLastResponseCardUsage(chatRef, pendingUsage);
         }
       },
     }),
@@ -427,8 +380,7 @@ function parseTurnUsageSsePayload(
     readNumber(usage, "total_tokens") ||
     readNumber(usage, "prompt_tokens") + readNumber(usage, "completion_tokens");
   const hasUsage = usage && typeof usage === "object" && usageTotal > 0;
-  const hasCtx =
-    ctx && typeof ctx === "object" && readNumber(ctx, "estimated_tokens") > 0;
+  const hasCtx = hasContextUsage(ctx);
   if (!hasUsage && !hasCtx) return null;
 
   return {

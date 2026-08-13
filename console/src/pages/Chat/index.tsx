@@ -51,7 +51,6 @@ import { useSidebarModeStore } from "../../stores/sidebarModeStore";
 import ContextUsageIndicator from "./components/ContextUsageIndicator";
 import {
   patchContextMaxInputLength,
-  snapshotWithResetContextUsage,
   wrapChatResponseUsageStream,
 } from "./turnUsage";
 import { wrapReplayFastForward } from "./replayFastForward";
@@ -2246,10 +2245,9 @@ export default function ChatPage() {
   }, []);
 
   const handleNewCommand = useCallback(() => {
-    const store = useTurnUsageStore.getState();
-    const maxInputLength = store.snapshot?.context_usage?.max_input_length ?? 131072;
-    store.setContextBaseline(0);
-    store.setSnapshot({
+    const current = useTurnUsageStore.getState().snapshot;
+    const maxInputLength = current?.context_usage?.max_input_length ?? 131072;
+    useTurnUsageStore.getState().setSnapshot({
       usage: null,
       context_usage: {
         estimated_tokens: 0,
@@ -2588,21 +2586,6 @@ export default function ChatPage() {
           ? [rewrittenLastMsg]
           : [];
 
-      const userText = rewrittenInput
-        .filter((m) => m.role === "user")
-        .map(extractUserMessageText)
-        .join("\n")
-        .trim();
-      const resetContextUsage =
-        userText === "/compact" || userText.startsWith("/compact ");
-      if (resetContextUsage) {
-        useTurnUsageStore
-          .getState()
-          .setSnapshot(
-            snapshotWithResetContextUsage({ usage: null, context_usage: null }),
-          );
-      }
-
       const identity = sessionApi.getSessionIdentity();
       let requestBody: Record<string, unknown> = {
         input: rewrittenInput,
@@ -2677,6 +2660,11 @@ export default function ChatPage() {
         chatIdRef.current ??
         String(requestBody.session_id || "");
       if (backendChatId) {
+        const userText = rewrittenInput
+          .filter((m) => m.role === "user")
+          .map(extractUserMessageText)
+          .join("\n")
+          .trim();
         if (userText) {
           // Also pass the full content array so patchLastUserMessage can
           // rebuild user card with images/files when reconnecting.
@@ -2719,9 +2707,7 @@ export default function ChatPage() {
         sessionApi.triggerResolve(localIdToResolve);
       }
 
-      return wrapChatResponseUsageStream(response, chatRef, {
-        resetContextUsage,
-      });
+      return wrapChatResponseUsageStream(response, chatRef);
     },
     [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
   );
