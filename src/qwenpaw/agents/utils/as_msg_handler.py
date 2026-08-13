@@ -69,7 +69,7 @@ class AsMsgHandler:
         data_url_tokens = estimate_data_url_tokens(url)
         if data_url_tokens is not None:
             return data_url_tokens
-        return await self.count_str_token(url)
+        return await self._count_text_with_data_urls(url)
 
     async def _format_tool_result_output(
         self,
@@ -94,7 +94,7 @@ class AsMsgHandler:
 
                 if block_type == "text":
                     textual_parts.append(block.get("text", ""))
-                    total_token_count += await self.count_str_token(
+                    total_token_count += await self._count_text_with_data_urls(
                         textual_parts[-1],
                     )
 

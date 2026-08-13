@@ -106,6 +106,18 @@ def test_invalid_base64_image_falls_back():
     )
 
 
+def test_iter_data_url_spans_is_case_insensitive():
+    spans = mte.iter_data_url_spans("DATA:image/png;BASE64,AAAA")
+    assert len(spans) == 1
+    assert spans[0][2].lower() == "image/png"
+
+
+def test_estimate_data_url_tokens_requires_whole_string():
+    url = "data:image/png;base64,AAAA trailing"
+    assert mte.estimate_data_url_tokens(url) is None
+    assert mte.iter_data_url_spans(url)
+
+
 def test_estimate_is_cached(monkeypatch):
     calls = {"n": 0}
     original = mte._estimate_uncached
