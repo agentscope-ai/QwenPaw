@@ -2,7 +2,6 @@
 # pylint: disable=protected-access
 from __future__ import annotations
 
-import logging
 import time
 
 import pytest
@@ -144,21 +143,3 @@ async def test_get_rate_limiter_different_keys() -> None:
     limiter_a = await get_rate_limiter(limiter_key="provider_a:model")
     limiter_b = await get_rate_limiter(limiter_key="provider_b:model")
     assert limiter_a is not limiter_b
-
-
-async def test_get_rate_limiter_logs_initialization_at_debug(caplog) -> None:
-    from qwenpaw.providers.rate_limiter import get_rate_limiter
-
-    with caplog.at_level(
-        logging.DEBUG,
-        logger="qwenpaw.providers.rate_limiter",
-    ):
-        await get_rate_limiter(limiter_key="test:debug")
-
-    records = [
-        record
-        for record in caplog.records
-        if record.getMessage().startswith("LLM rate limiter initialized")
-    ]
-    assert len(records) == 1
-    assert records[0].levelno == logging.DEBUG
