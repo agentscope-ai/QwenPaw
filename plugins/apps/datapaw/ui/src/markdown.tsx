@@ -143,7 +143,11 @@ export function renderMarkdown(text: string): ReactNode[] {
       const header = splitTableRow(trimmed);
       i += 2;
       const rows: string[][] = [];
-      while (i < lines.length && isTableRow(lines[i].trim()) && lines[i].trim()) {
+      while (
+        i < lines.length &&
+        isTableRow(lines[i].trim()) &&
+        lines[i].trim()
+      ) {
         rows.push(splitTableRow(lines[i]));
         i += 1;
       }
@@ -180,7 +184,9 @@ export function renderMarkdown(text: string): ReactNode[] {
         i += 1;
       }
       blocks.push(
-        <blockquote key={key++}>{renderMarkdown(buffer.join("\n"))}</blockquote>,
+        <blockquote key={key++}>
+          {renderMarkdown(buffer.join("\n"))}
+        </blockquote>,
       );
       continue;
     }
@@ -203,7 +209,11 @@ export function renderMarkdown(text: string): ReactNode[] {
         <li key={itemIndex}>{renderInline(item.text, `li${itemIndex}`)}</li>
       ));
       blocks.push(
-        ordered ? <ol key={key++}>{children}</ol> : <ul key={key++}>{children}</ul>,
+        ordered ? (
+          <ol key={key++}>{children}</ol>
+        ) : (
+          <ul key={key++}>{children}</ul>
+        ),
       );
       continue;
     }
@@ -232,7 +242,10 @@ export function renderMarkdown(text: string): ReactNode[] {
         {buffer.flatMap((part, partIndex) =>
           partIndex === 0
             ? renderInline(part, `p${key}-${partIndex}`)
-            : [<br key={`br${partIndex}`} />, ...renderInline(part, `p${key}-${partIndex}`)],
+            : [
+                <br key={`br${partIndex}`} />,
+                ...renderInline(part, `p${key}-${partIndex}`),
+              ],
         )}
       </p>,
     );
