@@ -16,7 +16,6 @@ in the middle of a Computer Use workflow unless the user requests it.
 
 Use only the native desktop runtime. It operates on one approved application
 and one observed window at a time; it never accepts a free-form screen target.
-Do not operate QwenPaw itself.
 
 ## Operating Loop
 
@@ -34,12 +33,6 @@ Treat `dispatched: true` or an intermediate acknowledgement only as evidence
 that input was sent, not that the application completed the operation. If the
 final state is incomplete or uncertain, report that accurately.
 
-When the user says to stop on any failure, distinguish verification from a
-retry. A pending or transitional result may be checked only through the wait
-or observation required by its response. An explicit tool error, or an
-expected step result still absent after that check, is terminal. Do not switch
-to another control, shortcut, coordinate, application, or shell command.
-
 ## Discover the Target
 
 1. Call `list_apps` and select the canonical App ID.
@@ -55,10 +48,9 @@ use an explicit absolute executable path on Windows or application-bundle path
 on macOS. After launch, list its windows again because launch completion does
 not prove that a usable window already exists.
 
-On macOS, `screen_recording_permission_required` and
-`accessibility_permission_required` mean QwenPaw Computer Use needs a system
-permission. Stop and ask the user to grant it. Do not retry, open System
-Settings, or operate a permission prompt yourself.
+When the runtime reports a missing system permission, stop and ask the user to
+grant it. Do not retry until the user confirms the permission was granted, and
+do not open system settings or operate the permission prompt.
 
 ## Read an Observation
 
@@ -106,9 +98,9 @@ Interpret result fields conservatively:
   returned window or rediscover the replacement window before more input.
 - `confirmation_required` or `pending_action` means the edit is not complete.
 
-When a visual result appears before its accessibility element, call `wait`
-once and observe again. Do not click or type into a screenshot-only control
-while waiting for an actionable element.
+When a visual result appears before its accessibility element, wait and observe
+again until it becomes actionable or the operation times out or stops making
+progress. Do not click or type into a screenshot-only control.
 
 ## Choose an Action
 
@@ -148,10 +140,10 @@ accessibility element, and verify the requested state change afterward.
 
 ### Text and Resource Editing
 
-Use `set_value` for an observed editable control, especially one marked
-`[settable]`. It replaces the complete edit buffer, so do not send a select-all
-shortcut first. Verify that the application committed the value; a changed
-edit buffer alone may still be pending.
+Use `set_value` only for an observed control marked `[settable]`. It replaces
+the complete edit buffer, so do not send a select-all shortcut first. Verify
+that the application committed the value; a changed edit buffer alone may
+still be pending.
 
 Never use `set_value` on a `[resource-backed]` label. Select the resource and
 inspect the replacement observation. To enter an editor, prefer an observed
@@ -200,22 +192,17 @@ Apply only the subsection matching the runtime platform.
 - Express Command as `WIN` and Option as `ALT`; for example,
   `WIN+SHIFT+N` is Command-Shift-N.
 - `begin_text_edit` is a narrow fallback for an observed `MenuItem` in the
-  currently open transient menu whose command semantics explicitly require
-  immediate text entry. Use it instead of `invoke` only for that case.
+  currently open transient menu whose semantics indicate that it opens an
+  inline text editor that may not appear in the accessibility tree. Use it
+  instead of `invoke` only for that case.
 - If `begin_text_edit` returns `transient_text_ready: true` and
   `next_action: type`, send exactly one `type` action next. Otherwise type only
   when the replacement observation identifies editable focus.
-- Use `set_value` only when `[settable]` is present.
-- `INSERT` is unavailable.
 
 ### Windows
 
-- `CTRL`, `ALT`, and `WIN` retain their Windows meanings.
-- `begin_text_edit` is unavailable. Enter editors through an observed semantic
-  action or a platform-standard shortcut, then inspect editable focus.
 - `list_apps` may omit an application that has no current window; use an
   explicit executable path when necessary.
-- `INSERT` is available.
 
 These are platform conventions, not permission to guess application-specific
 shortcuts. For other commands, prefer an observed menu item; otherwise use a
@@ -224,13 +211,12 @@ standard shortcut only with verified focus and a verifiable postcondition.
 ## Recover From Changes
 
 When an action opens another application, window, sheet, or dialog, follow the
-returned handoff instead of continuing against the old observation. Standard
-macOS sheets are separate targets.
+returned handoff instead of continuing against the old observation.
 
 `user_intervention` cancels only the current action and invalidates its
-observation. Never replay that action. Observe or rediscover once, then decide
-from fresh state whether work remains. If intervention happens again, stop and
-report that the user has control.
+observation. Never replay that action. Observe or rediscover, then decide from
+fresh state whether work remains. If the user remains active or safe
+continuation is unclear, stop and report that the user has control.
 
 Unless the user required immediate stop, handle an error carrying
 `requires_observe` by following its `next_action`, inspecting fresh state, and
@@ -273,5 +259,5 @@ Keep the user in control at consequential boundaries:
   navigation that stays within the user's request.
 
 Never use Computer Use to operate security or permission prompts. Do not fall
-back to shell commands, another desktop automation framework, saved-screen
-inspection, or non-image `view_image` calls to bypass a runtime restriction.
+back to another automation method or a stale capture to bypass a runtime
+restriction.
