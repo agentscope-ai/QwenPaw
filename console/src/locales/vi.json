@@ -1923,7 +1923,6 @@
     "memorySearchDefault": "Tìm bộ nhớ",
     "updateMemory": "Cập nhật bộ nhớ",
     "deleteMemory": "Xóa bộ nhớ",
-    "inputProgress": "Đã nhận {{count}} ký tự",
     "rawInputPreview": "Đầu vào thô trực tiếp (4.096 ký tự cuối)",
     "largeOutputOmitted": "Đã lược bỏ {{count}} dòng — sao chép đầu ra hiện có hoặc làm theo hướng dẫn khôi phục",
     "largeOutputTruncated": "Đầu ra được rút gọn khi hiển thị — sao chép đầu ra hiện có hoặc làm theo hướng dẫn khôi phục"

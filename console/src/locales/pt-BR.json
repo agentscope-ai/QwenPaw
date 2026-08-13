@@ -3382,7 +3382,6 @@
       "status": "Status"
     },
     "loading": "Carregando...",
-    "inputProgress": "{{count}} caracteres recebidos",
     "rawInputPreview": "Entrada bruta em tempo real (últimos 4.096 caracteres)",
     "largeOutputOmitted": "{{count}} linhas omitidas — copie a saída disponível ou siga as instruções de recuperação",
     "largeOutputTruncated": "Saída truncada para exibição — copie a saída disponível ou siga as instruções de recuperação",

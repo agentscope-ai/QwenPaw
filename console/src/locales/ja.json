@@ -3327,7 +3327,6 @@
       "status": "ステータス"
     },
     "loading": "読み込み中...",
-    "inputProgress": "{{count}} 文字を受信",
     "rawInputPreview": "リアルタイムの未加工入力（末尾 4,096 文字）",
     "largeOutputOmitted": "{{count}} 行を省略しました — 利用可能な出力をコピーするか、復元手順に従ってください",
     "largeOutputTruncated": "表示用に出力を省略しました — 利用可能な出力をコピーするか、復元手順に従ってください",
