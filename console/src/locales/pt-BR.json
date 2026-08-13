@@ -2010,6 +2010,9 @@
     "memoryGraphZoomOut": "Diminuir zoom",
     "memoryGraphZoomIn": "Aumentar zoom",
     "memoryGraphFit": "Ajustar grafo",
+    "memoryGraphRoot": "Raiz",
+    "memoryGraphRootDirect": "Arquivo direto",
+    "memoryGraphOtherFile": "Outro arquivo",
     "memoryGraphIndexed": "Arquivo indexado",
     "memoryGraphUnresolved": "Link não resolvido",
     "memoryGraphDirection": "Direção do Wiki link",
@@ -3382,7 +3385,6 @@
       "status": "Status"
     },
     "loading": "Carregando...",
-    "inputProgress": "{{count}} caracteres recebidos",
     "rawInputPreview": "Entrada bruta em tempo real (últimos 4.096 caracteres)",
     "largeOutputOmitted": "{{count}} linhas omitidas — copie a saída disponível ou siga as instruções de recuperação",
     "largeOutputTruncated": "Saída truncada para exibição — copie a saída disponível ou siga as instruções de recuperação",

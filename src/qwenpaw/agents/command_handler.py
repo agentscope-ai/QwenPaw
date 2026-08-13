@@ -15,7 +15,11 @@ from .context.scroll.continuation_summary import (
     ContinuationSummary,
     redact_secrets,
 )
-from .middlewares import manual_compact_memory_by_handler
+from .middlewares import (
+    discard_auto_memory_turns,
+    manual_compact_memory_by_handler,
+    reset_auto_memory_turn_state,
+)
 from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
@@ -477,21 +481,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
         messages: list[Msg],
     ) -> None:
         """Remove pending turns covered by the manual compact task."""
-        getter = getattr(
-            self.memory_manager,
-            "get_auto_memory_turn_state",
-            None,
-        )
-        if not callable(getter):
-            return
-        state = getter(  # pylint: disable=not-callable
-            self._current_session_id(),
-        )
-        pending = state.get("pending") if isinstance(state, dict) else None
-        if not isinstance(pending, list):
-            return
         submitted = {msg.id for msg in messages if msg.id}
-        pending[:] = [marker for marker in pending if marker not in submitted]
+        discard_auto_memory_turns(self._state, submitted)
 
     @staticmethod
     def _scroll_index_text(agent: "Agent") -> str:
@@ -625,6 +616,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         await self._reset_modes()
         if not messages:
             self._set_summary("")
+            reset_auto_memory_turn_state(self._state)
             return await self._make_system_msg(
                 "**No messages to summarize.**\n\n"
                 "- Current memory is empty\n"
@@ -647,6 +639,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self._set_summary("")
 
         await self._persist_and_clear()
+        reset_auto_memory_turn_state(self._state)
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
             "- Summary task started in background\n"
@@ -663,6 +656,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Process /clear command."""
         await self._persist_and_clear()
         self._set_summary("")
+        reset_auto_memory_turn_state(self._state)
         await self._reset_modes()
         return await self._make_system_msg(
             "**History Cleared!**\n\n"
@@ -1227,6 +1221,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
             for msg in loaded_messages:
                 self._state.context.append(msg)
+
+            # Auto-memory lifecycle data belongs to the context that was
+            # replaced above.  Do not let pending turns, saved snapshots, or
+            # search/seen caches from the previous history leak into the
+            # loaded conversation.
+            reset_auto_memory_turn_state(self._state)
 
             logger.info(
                 f"Loaded {len(loaded_messages)} messages from {history_file}",

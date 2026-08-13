@@ -423,7 +423,7 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `metadata_dir`                   | string      | `"mem_metadata"` | Subdirectory for ReMe persistent state                                                                                                                                           |
 | `session_dir`                    | string      | `"mem_session"`  | Subdirectory for ReMe source conversation logs used by auto-memory                                                                                                               |
 | `mem_session_dir`                | string      | `"mem_agent"`    | Subdirectory for ReMe internal memory-agent sessions                                                                                                                             |
-| `resource_dir`                   | string      | `"resource"`     | Subdirectory for external assets                                                                                                                                                 |
+| `resource_dir`                   | string      | `"resource"`     | Raw-asset directory used by Daily Paper and future knowledge workflows                                                                                                           |
 | `daily_dir`                      | string      | `"memory"`       | Subdirectory for daily memory                                                                                                                                                    |
 | `digest_dir`                     | string      | `"digest"`       | Subdirectory for digest memory                                                                                                                                                   |
 | `auto_memory_inbox_push_enabled` | bool        | `true`           | Whether to push Auto-Memory results to the inbox                                                                                                                                 |
@@ -439,9 +439,13 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `memory_search_enabled`          | bool        | `true`           | Whether to expose the `memory_search` tool to the agent; independent from automatic memory search                                                                                |
 | `auto_memory_search_config`      | object      | _(see below)_    | Auto memory search configuration                                                                                                                                                 |
 | `embedding_model_config`         | object      | _(see below)_    | Embedding model configuration                                                                                                                                                    |
+| `needs_reindex`                  | bool        | `false`          | Runtime-maintained flag indicating that the saved vector space changed and a manual index rebuild is required                                                                    |
 
 > `rebuild_memory_index_on_start` is no longer supported. Rebuild an index only when needed from the Console or the
-> maintenance API described in [Rebuilding the Memory Search Index](./memory#rebuilding-the-memory-search-index).
+> maintenance API described in [Rebuilding the Memory Search Index](./memory#Rebuilding-the-Index).
+
+The deprecated `inbox_push_enabled` field is accepted only for migration. Its value initializes any missing per-job
+Inbox switches, then the field is excluded from serialized configuration.
 
 **Auto Memory Search Configuration (`reme_light_memory_config.auto_memory_search_config` object):**
 
@@ -458,12 +462,21 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `api_key`          | string | `""`       | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends         |
 | `base_url`         | string | `""`       | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host |
 | `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`)                                        |
-| `dimensions`       | int    | `1024`     | Embedding vector dimensions                                                                    |
+| `dimensions`       | int    | `1024`     | Expected Embedding vector dimensions, used for response validation, indexes, and caches        |
 | `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                                                              |
-| `use_dimensions`   | bool   | `false`    | Whether to use custom dimensions                                                               |
+| `use_dimensions`   | bool   | `false`    | Whether the OpenAI backend sends the `dimensions` parameter in API requests                    |
 | `max_cache_size`   | int    | `10000`    | Maximum cache size                                                                             |
-| `max_input_length` | int    | `8192`     | Maximum input length for embeddings                                                            |
+| `max_input_length` | int    | `8192`     | Approximate character budget per Embedding input, not an exact token limit                     |
 | `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                                                        |
+
+`use_dimensions` only controls whether OpenAI-compatible requests include the `dimensions` parameter. When it is
+disabled, `dimensions` is still used to validate returned vectors and configure indexes and caches, so it must match
+the model's actual output dimensions. Disable `use_dimensions` for OpenAI-compatible services, including some vLLM
+deployments, that do not support this request parameter.
+
+Each Embedding input is truncated separately before the request according to `max_input_length`. This is a
+character-based estimate: Chinese, CJK, and other full-width characters use a more conservative weight with a safety
+margin. ReMe does not invoke the model tokenizer to calculate an exact token count.
 
 Vector retrieval is enabled only when the selected backend has the minimum runnable configuration. These conditions are aligned with AgentScope credential requirements:
 
@@ -475,10 +488,23 @@ Vector retrieval is enabled only when the selected backend has the minimum runna
 
 When the enable condition is not met, ReMe still keeps keyword indexes and wikilink graph indexes, but the embedding vector index is disabled.
 
-These settings can also be changed in the Console under **Agent → Runtime Config**. Fields read directly from
-`agent.json`, such as auto-memory cadence and auto-search limits, apply to later turns after saving. Embedded ReMe
-component settings, such as directories and embedding configuration, require restarting the agent process so the ReMe
-application is constructed with the new configuration.
+These settings can also be changed in the Console under **Agent → Runtime Config**. Fields read on demand, such as
+auto-memory cadence and auto-search limits, apply to later turns after saving. An Embedding save is
+transactional: QwenPaw persists the submitted running config, then tries to apply it to the live ReMe runtime. If the
+current service fingerprint was successfully tested, the running embedding model can be replaced in place; otherwise
+QwenPaw recreates the embedded ReMe application. If neither path succeeds, it rolls back the submitted fields when it
+can do so without overwriting a concurrent edit and reports an error. Saving always schedules the normal Agent reload,
+so no manual restart is required. An Embedding change is rejected with HTTP `409` while an index rebuild is active.
+
+Changes to `backend`, normalized `base_url`, `model_name`, `dimensions`, or `use_dimensions` set `needs_reindex=true`.
+Changing only the API key or cache/batch limits does not. A hot vector-space change clears the Embedding cache, but it
+does **not** rebuild existing file vectors automatically. Complete the explicit Console or maintenance-API rebuild;
+only a successful rebuild for the still-current vector-space fingerprint clears `needs_reindex`.
+
+The Console's Embedding **Enabled/Disabled** status is calculated in real time from the current unsaved form. It only
+indicates whether the Backend, model name, and required credentials meet the enable conditions above; it does not prove
+that the service is reachable or that the draft has been applied to the running agent. **Verified** means a real test
+request succeeded. Changes affect runtime state only after the configuration is saved.
 
 ---
 
@@ -737,7 +763,7 @@ Memory search relies on vector embeddings for semantic retrieval.
 
 Configure embeddings in `agent.json` under `running.reme_light_memory_config.embedding_model_config`, which supports backend selection and parameters such as `use_dimensions`:
 
-> The vector-search enable condition is aligned with AgentScope credential requirements: OpenAI-compatible and Gemini backends require `model_name` plus `api_key`; Ollama only requires `model_name`. `base_url` is optional for OpenAI-compatible endpoints and is used as Ollama `host` when set. See [Memory](./memory#embedding-configuration-optional) for full configuration details.
+> The vector-search enable condition is aligned with AgentScope credential requirements: OpenAI-compatible and Gemini backends require `model_name` plus `api_key`; Ollama only requires `model_name`. `base_url` is optional for OpenAI-compatible endpoints and is used as Ollama `host` when set. See [Embedding Models](./embedding) for full configuration details.
 
 ---
 

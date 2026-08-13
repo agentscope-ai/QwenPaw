@@ -748,6 +748,22 @@ pre code.hljs .hljs-attr {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
+.docs-content img.blog-image--compact,
+.docs-content img.blog-image--medium {
+  display: block;
+  max-height: none;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.docs-content img.blog-image--compact {
+  width: min(100%, 9rem);
+}
+
+.docs-content img.blog-image--medium {
+  width: min(100%, 27rem);
+}
+
 .docs-content img.docs-title-banner {
   display: block;
   width: 100%;
