@@ -16,6 +16,16 @@ from .estimate_token_counter import EstimatedTokenCounter
 
 logger = logging.getLogger(__name__)
 
+# Vision APIs charge by image tiles, not payload bytes. The text heuristic
+# ``len(data) // 4`` turns a 2 MB photo into ~700k "tokens" and fills the
+# context-usage ring after one or two pictures.
+_ESTIMATED_MEDIA_TOKENS = 2048
+
+
+def _base64_media_tokens(data: str) -> int:
+    """Fixed tile-cost estimate for an inlined media payload."""
+    return _ESTIMATED_MEDIA_TOKENS if data else 10
+
 
 class AsMsgHandler:
     """Byte-estimation based token accounting for AgentScope messages.
@@ -67,7 +77,7 @@ class AsMsgHandler:
                         and source.get("type") == "base64"
                     ):
                         data = source.get("data", "")
-                        total_token_count += len(data) // 4 if data else 10
+                        total_token_count += _base64_media_tokens(data)
                     else:
                         url = (
                             source.get("url", "")
@@ -156,7 +166,7 @@ class AsMsgHandler:
                     url = source.get("url", "")
                     if source.get("type") == "base64":
                         data = source.get("data", "")
-                        token_count = len(data) // 4 if data else 10
+                        token_count = _base64_media_tokens(data)
                     else:
                         token_count = (
                             await self.count_str_token(url) if url else 10
