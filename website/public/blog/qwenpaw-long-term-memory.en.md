@@ -1,6 +1,6 @@
 ---
 title: "QwenPaw Long-Term Memory: Turning Every Conversation into Knowledge You Can Reuse"
-date: 2026-08-07
+date: 2026-08-14
 author: QwenPaw Team
 tags: [Long-Term Memory, ReMe, Personal Knowledge Base, Memory as File]
 cover: https://img.alicdn.com/imgextra/i3/O1CN01IvOZgheUdXK3OTaP_!!6000000004070-2-tps-1672-941.png

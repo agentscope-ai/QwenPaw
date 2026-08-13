@@ -24,11 +24,27 @@ export function slugifyHeading(text: string): string {
 export function parseToc(md: string): TocItem[] {
   const toc: TocItem[] = [];
   const idCounter = new Map<string, number>();
-  const re = /^#{2,3}\s+(.+)$/gm;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(md)) !== null) {
-    const level = m[0].startsWith("###") ? 3 : 2;
-    const text = m[1].replace(/#+\s*$/, "").trim();
+  let fence: { marker: "`" | "~"; length: number } | null = null;
+
+  for (const line of md.split("\n")) {
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0] as "`" | "~";
+      const length = fenceMatch[1].length;
+      if (!fence) {
+        fence = { marker, length };
+      } else if (marker === fence.marker && length >= fence.length) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fence) continue;
+
+    const headingMatch = /^(#{2,3})\s+(.+)$/.exec(line);
+    if (!headingMatch) continue;
+
+    const level = headingMatch[1].length as 2 | 3;
+    const text = headingMatch[2].replace(/#+\s*$/, "").trim();
     const baseId = slugifyHeading(text);
     const count = (idCounter.get(baseId) ?? 0) + 1;
     idCounter.set(baseId, count);

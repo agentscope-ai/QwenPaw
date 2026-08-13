@@ -1,6 +1,6 @@
 ---
 title: "QwenPaw 长期记忆：让每次对话，都成为以后用得上的知识"
-date: 2026-08-07
+date: 2026-08-14
 author: QwenPaw Team
 tags: [长期记忆, ReMe, 个人知识库, Memory as File]
 cover: https://img.alicdn.com/imgextra/i3/O1CN01IvOZgheUdXK3OTaP_!!6000000004070-2-tps-1672-941.png

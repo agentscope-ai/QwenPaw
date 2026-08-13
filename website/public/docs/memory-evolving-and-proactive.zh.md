@@ -1,89 +1,88 @@
 # 记忆自进化与主动交互（Beta）
 
-> 本文只回答两个问题：**记忆如何随时间自我改进**，以及 **QwenPaw 如何在用户再次提问前主动行动**。记忆目录、配置、采集和检索等基础内容请参见[长期记忆](./memory)。
+> 本文重点介绍 Auto-Memory、Auto-Dream、Auto-Memory-Search 与 Proactive 如何协作。记忆目录、文件格式、索引原理和完整配置请参见[长期记忆](./memory)。
 
-QwenPaw 不把记忆当成不断增长的聊天记录。近期事件作为证据保留，Auto-Dream 则持续把证据转化为可复用知识：查找已有观点，判断新证据会如何改变它，更新内容，并保留通往来源的链接。主动交互更进一步——根据当前活动识别有价值的下一步，在合适的时机主动提供帮助。
+上周，你告诉 QwenPaw：“生产发布前先验证 staging，发布说明要写清风险和回滚步骤。”几天后，团队又补充了一条例外：“紧急 hotfix 经负责人批准，可以先发布，但事后必须补做检查。”
 
-## 全景图
+如果系统只会保存聊天记录，这两句话只会散落在两次对话里。真正有用的长期记忆需要做得更多：先保留当时发生了什么，再判断新信息是重复确认、补充细节，还是修正旧结论，最后在下一次发布时找回已经整理好的流程。
 
-记忆系统先把对话与资源保存为证据，再把其中可复用的知识沉淀到长期节点，最后通过搜索或主动发现影响后续行为：
+QwenPaw 用一条连续的链路完成这件事：
 
-![QwenPaw 长期记忆从捕获、整理到检索与发现的全景](https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg)
+1. **Auto-Memory** 从对话中提取值得以后继续使用的信息，写成每日记忆；
+2. **Auto-Dream** 把不同日期的证据整合成可持续更新的长期知识；
+3. **Memory Search** 在新问题出现时，只召回相关内容和它的关联证据；
+4. **Proactive** 在用户明确开启后，根据近期活动判断是否值得提前提供帮助。
 
-其中有两个关键闭环：
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg" alt="QwenPaw 长期记忆从捕获、整理到检索与发现的全景" />
+</p>
 
-- **进化闭环**从每日证据流向稳定的 `digest/` 知识，再通过检索回到后续对话。
-- **主动闭环**等待合适的时机，推断接下来可能有帮助的事项，提前完成准备工作，并发起新交互。
+这里有两条相关但尚未完全打通的闭环：记忆进化依靠 `memory/`、`digest/` 和检索；当前 `/proactive` 则读取近期 session 和可选的屏幕上下文，**不会直接读取** Auto-Dream 生成的 `interests.yaml` 或 `digest/`。
 
-两者在理念上相关，但当前实现尚未完全打通。尤其要注意：QwenPaw 的 `/proactive` 命令读取近期 session 和可选屏幕上下文；它目前**不会**直接读取 Auto-Dream 生成的 `interests.yaml` 或 `digest/`。
+## 第一步：把对话变成可靠素材
 
-## “自进化”究竟是什么
+Auto-Memory 不是把整段聊天换一种格式保存，而是挑出未来仍可能有用的信息，例如：
 
-静态记忆系统只能追加和检索；自进化记忆还需要判断：新证据对已有知识意味着什么。
+- 稳定偏好与长期约定；
+- 项目背景、限制条件和关键事实；
+- 已确认的决定、原因和例外；
+- 当前进展、阻塞项和下一步；
+- 可以复用的流程与排查经验。
 
-Auto-Dream 处理发生变化的每日记忆，把每个可复用单元与已有 `digest/` 节点比较，再执行四种语义更新之一：
+默认每累计 5 个用户回合，Auto-Memory 会处理一批新对话。它会清理工具结果和大块 Base64 数据，把来源对话保存到 `mem_session/dialog/`，再创建或更新当天 `memory/YYYY-MM-DD/` 下的一条 Markdown 记忆。发生上下文淘汰或折叠时，尚未处理的回合也会提前进入同一条流程。
 
-| 动作          | 对知识库的影响                           | 典型信号                       |
-| ------------- | ---------------------------------------- | ------------------------------ |
-| `CREATE`      | 没有等价观点时创建长期节点               | 新偏好、新流程、新事实或新原则 |
-| `CORROBORATE` | 保留已有结论并增加支持证据               | 相同偏好或做法再次出现         |
-| `REFINE`      | 补充范围、步骤、条件或例外，使节点更准确 | 后续对话补齐了细节             |
-| `CORRECT`     | 修改过期或冲突的结论，同时保留来源       | 用户改变决定或纠正了旧事实     |
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01Qg6uAk1VoeXMqbE54_!!6000000002700-55-tps-1200-640.svg" alt="Auto-Memory 把长对话提炼成可复用、可追溯的每日记忆" />
+</p>
 
-因此，`digest/` 是一份持续维护的“用户与工作模型”，而不是摘要堆积。每日记忆保留历史现场，长期节点则可以变得更可信、更具体或更准确。
-
-从每日证据到长期知识图谱的整理过程可以概括为“提取、判断、整合、连边”：
-
-![Auto-Dream 把每日经验整合为带来源链接的长期知识](https://img.alicdn.com/imgextra/i3/O1CN01DSVTuF1rEr7yobCav_!!6000000005600-55-tps-1200-640.svg)
-
-图中的 `CONFIRM` 是对“增加支持证据”的视觉化简称；在当前接口和本文术语中，对应的正式动作名称是 `CORROBORATE`。
-
-### 链接为什么重要
-
-每次进化也会加强知识周围的关系图：
-
-- **来源链接**把结论连接到支持或改变它的每日记忆；
-- **关系链接**把应当一起召回的偏好、流程、项目和概念连接起来；
-- 更新节点时保留已有链接，因此纠错不会抹掉历史。
-
-最终结果既可用，也可审计：检索可以从一个命中节点展开相关上下文，人也可以沿链接回到原始证据。
-
-## 示例：发布流程如何越用越准确
-
-假设团队在不同日期多次讨论发布。Auto-Memory 把每次对话记为每日证据，Auto-Dream 则持续演化同一个长期流程，而不是创建四份近似摘要。
-
-```mermaid
-timeline
-    title 生产发布记忆的演化
-    第 1 天 : CREATE
-             : “生产发布前先验证 staging”
-    第 3 天 : CORROBORATE
-             : 另一次发布再次确认该规则
-    第 8 天 : REFINE
-             : 增加中文发布说明、风险与回滚步骤
-    第 20 天 : CORRECT
-              : 紧急 hotfix 经事故负责人批准可跳过完整 staging
-```
-
-第 1 天后，Auto-Dream 可能创建：
+例如，一次发布讨论可能先变成：
 
 ```markdown
 ---
-name: 生产发布流程
-description: 每次生产发布前都要先验证 staging。
+name: 生产发布约定
+description: 生产发布前先验证 staging，中文发布说明需包含风险和回滚步骤。
+source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
 ---
 
-# 生产发布
-
-1. 在 staging 验证版本。
-2. 验证通过后才能进入生产环境。
-
-## Sources
-
-- [[memory/2026-08-01/release-planning.md]]
+- 生产发布前必须完成 staging 验证。
+- 发布说明使用中文，并列出风险与回滚步骤。
 ```
 
-到第 20 天，同一个节点可能已经演化为：
+这仍是“当天的证据”，还不是最终不变的结论。每日记忆保留现场，后续的 Auto-Dream 负责跨时间整理它。
+
+## 第二步：让每日证据长成长期知识
+
+一份静态记忆只能追加或检索。自进化记忆还会判断：**新证据会怎样改变已经知道的事情？**
+
+Auto-Dream 默认每天运行，扫描目标日期及前一天发生变化的每日记忆。它先提取可复用的 `personal`、`procedure` 和 `wiki` 单元，再搜索 `digest/` 中可能相同或相关的节点，最后选择一种整合动作：
+
+| 动作          | 它在做什么                 | 常见情况                             |
+| ------------- | -------------------------- | ------------------------------------ |
+| `CREATE`      | 创建新的长期节点           | 第一次出现的新偏好、流程、事实或原则 |
+| `CORROBORATE` | 保留结论并补充支持证据     | 相同偏好或做法再次出现               |
+| `REFINE`      | 增加范围、步骤、条件或例外 | 后续对话补齐了细节                   |
+| `CORRECT`     | 修正过期、遗漏或冲突的结论 | 用户改变决定或纠正旧事实             |
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01DSVTuF1rEr7yobCav_!!6000000005600-55-tps-1200-640.svg" alt="Auto-Dream 把每日经验整合为带来源链接的长期知识" />
+</p>
+
+图中的 `CONFIRM` 是“增加支持证据”的视觉化简称；当前接口中的正式动作名称是 `CORROBORATE`。
+
+Auto-Dream 不会改写每日记忆。`memory/` 始终保留当时发生的事情，`digest/` 则保存跨时间仍有用、并允许继续修正的结论。成功处理过的输入会记录在 dream catalog 中；失败的路径不会被标记完成，因此下次仍可重试。
+
+### 一条发布流程如何越用越准确
+
+沿用前面的例子，同一个长期节点可以经历四次变化：
+
+| 时间     | 动作          | 新证据带来的变化                 |
+| -------- | ------------- | -------------------------------- |
+| 第 1 天  | `CREATE`      | 建立“生产前验证 staging”的流程   |
+| 第 3 天  | `CORROBORATE` | 另一次发布再次确认这条规则       |
+| 第 8 天  | `REFINE`      | 增加中文发布说明、风险和回滚步骤 |
+| 第 20 天 | `CORRECT`     | 加入经批准的紧急 hotfix 例外     |
+
+到第 20 天，`digest/procedure/production-release.md` 可能已经演化为：
 
 ```markdown
 ---
@@ -101,7 +100,7 @@ description: 常规发布必须验证 staging；紧急 hotfix 使用经批准的
 
 ## 紧急 hotfix 例外
 
-只有取得事故负责人批准后，才可以跳过完整 staging。必须记录原因，并在事后补做省略的检查。
+只有取得事故负责人批准后才可跳过完整 staging；必须记录原因，并在事后补做检查。
 
 relates_to:: [[digest/personal/release-communication-preference.md]]
 depends_on:: [[digest/procedure/rollback-verification.md]]
@@ -109,23 +108,44 @@ depends_on:: [[digest/procedure/rollback-verification.md]]
 ## Sources
 
 - [[memory/2026-08-01/release-planning.md]]
-- [[memory/2026-08-03/release-review.md]]
 - [[memory/2026-08-08/release-notes.md]]
 - [[memory/2026-08-20/hotfix-retrospective.md]]
 ```
 
-真正重要的不是文字变多，而是判断不断累积：
+真正的变化不只是文字变多：重复信息增强了可信度，新细节被整理成可执行步骤，冲突变成了有适用范围的例外，而且每个结论仍能回到来源。
 
-1. 重复出现的信息会增强可信度，不会制造重复节点；
-2. 新细节会被组织成可执行流程；
-3. 表面上的冲突会变成有适用范围的例外，而不是悄悄覆盖旧规则；
-4. 来源和关系链接让最终流程既可解释，也更容易召回。
+### Auto-Link 为什么重要
 
-以后再处理发布任务时，`memory_search` 可以召回这个流程并沿链接展开，让 Agent 同时获得沟通偏好与回滚验证上下文。
+Auto-Link 不是独立任务，而是 Auto-Dream 整合阶段的一部分：
 
-## 从记忆进化到兴趣主题
+- `## Sources` 中的链接把长期结论连回每日证据；
+- 正文中的 Wikilink 把相关的偏好、流程、项目与概念连接起来；
+- 更新节点时保留已有来源和关系，不会因为纠错抹掉形成过程；
+- 搜索命中一个节点后，可以按需沿入链和出链展开相关上下文。
 
-在同一次 Auto-Dream 中，近期证据还可以生成少量、避免重复的兴趣主题，写入 `memory/<date>/interests.yaml`。每个主题包含标题、原因、证据、关键词和相关路径。延续发布案例，其中一个主题可能是：
+因此，`digest/` 不是摘要堆积，而是一份可读、可追溯、会随新证据调整的个人知识库。
+
+## 第三步：让进化后的记忆回到工作中
+
+记忆经过整理后，还要在正确的时机被找回来。`memory_search` 会在 `memory/` 与 `digest/` 的 Markdown 中组合三种信号：
+
+- **BM25** 找到函数名、错误码、项目名等精确关键词；
+- **Vector** 在配置 Embedding 后找到措辞不同但语义相近的内容；
+- **Wikilink** 从命中的文件展开来源、相关流程和相邻知识。
+
+两路检索结果通过 RRF 融合。没有配置 Embedding 时，BM25 和 Wikilink 展开仍然可以正常工作。
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01Zln7TK1TJOGqP84hk_!!6000000002361-55-tps-1200-640.svg" alt="BM25 与向量检索融合后按需展开相关记忆" />
+</p>
+
+Agent 可以在需要历史信息时主动调用 `memory_search`。启用 Auto-Memory-Search 后，每个普通用户请求都会先自动搜索，结果只注入当前请求的上下文，不写回正式会话历史，也不会再次进入 Auto-Memory，从而避免记忆复制自己。
+
+例如，用户问“上线前要做哪些检查？”时，搜索可以同时找到 `staging`、语义相近的“生产发布验证”，以及与它相连的回滚流程和沟通偏好。Agent 得到的是当前问题需要的片段和路径，而不是全部历史。
+
+## 从兴趣主题到主动交互
+
+Auto-Dream 整理长期节点时，还会从近期证据中选择少量、不重复的兴趣主题，默认最多写入 3 个到 `memory/<date>/interests.yaml`。每个主题包含标题、原因、证据、关键词和相关路径，例如：
 
 ```yaml
 - title: 验证紧急回滚流程
@@ -137,57 +157,81 @@ depends_on:: [[digest/procedure/rollback-verification.md]]
     - memory/2026-08-20/hotfix-retrospective.md
 ```
 
-ReMe 提供了一个底层 `proactive` job，用来读取这个文件并返回其元数据，也可以返回原始内容。这样，其他集成可以消费兴趣主题；如果文件不存在，该 job 会正常返回 skipped 结果。
+ReMe 提供底层 `proactive` job 读取这个文件，便于其他集成消费主题；文件不存在时会正常返回 skipped。Auto-Dream 完成后，整合结果和兴趣主题也可以推送到 Inbox，真正的内容仍保存在 `digest/` 与 `interests.yaml` 中。
 
-Auto-Dream 完成后，扫描范围、整合结果和兴趣主题会以摘要形式进入 Inbox：
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg" alt="Auto-Dream 的整合结果与兴趣主题摘要" />
+</p>
 
-![Auto-Dream 的整合结果与兴趣主题摘要](https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg)
+### 当前 `/proactive` 如何工作
 
-这类通知帮助用户快速了解本轮变化；主题原文和长期节点仍分别保存在 `interests.yaml` 与 `digest/` 中。
+面向用户的 `/proactive` 是另一条运行时链路。明确开启后，它会等待 workspace 进入空闲状态，再根据近期聊天和可选的桌面截图推断 1–3 个可能有帮助的目标。它会为最多 3 个候选目标尝试具体查询，在第一次成功后停止，并把建议发回对话。
 
-## QwenPaw 的主动交互
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01bGrMQC1kGxdbG4IDT_!!6000000004657-55-tps-1200-640.svg" alt="主动模式根据近期信号发现下一步并在行动前询问用户" />
+</p>
 
-面向用户的主动模式是在内存中按当前 Agent 名称保存的监控任务：
+监控器每 30 秒检查一次。空闲时间取当前 workspace 所有聊天中最新的 `updated_at`，而不只看执行命令的那条聊天。达到阈值后，它读取最近 7 天更新过的 session；不足 5 个时回退到最新 5 个。输入最多包含 100 条近期非 system 文本消息，总长度不超过 50,000 字符。当前模型支持多模态输入时，还可能截取并分析桌面画面。
+
+如果用户在任务执行期间重新活跃，本次任务会中断；上一条 `[PROACTIVE]` 消息尚未得到回应时，也不会继续发送新消息。监控配置只保存在进程内存中，重启后需要重新开启。
+
+> **当前边界：** `/proactive` 的触发和任务推断来自近期 session 与可选屏幕，不会直接读取 `interests.yaml` 或 `digest/`。兴趣主题和面向用户的主动模式目前是两条独立路径。
+
+### 隐私与安全
+
+Proactive assistant 可以读取历史聊天；模型支持时可能截取桌面；它还会初始化带网页搜索/抓取、浏览器、文件读取、Shell 和可选截图工具的独立 assistant，并以 bypass 权限运行。`/proactive` 会显示相应警告。只在这些访问权限合适时开启，并可随时用 `/proactive off` 停止监控。
+
+## 参数配置速查
+
+下面只列出本页工作流直接相关的参数。它们位于 `agent.json` 的 `running.reme_light_memory_config`；目录、Embedding、Daily Paper 和索引维护参数请参见[长期记忆](./memory)。
+
+```json
+{
+  "running": {
+    "memory_manager_backend": "remelight",
+    "reme_light_memory_config": {
+      "auto_memory_interval": 5,
+      "auto_memory_inbox_push_enabled": true,
+      "dream_cron_enabled": true,
+      "dream_cron": "0 23 * * *",
+      "auto_dream_inbox_push_enabled": true,
+      "memory_search_enabled": true,
+      "auto_memory_search_config": {
+        "enabled": false,
+        "max_results": 2
+      }
+    }
+  }
+}
+```
+
+| 配置项                                  | 默认值         | 说明                                                               |
+| --------------------------------------- | -------------- | ------------------------------------------------------------------ |
+| `auto_memory_interval`                  | `5`            | 每累计 N 个用户回合运行 Auto-Memory；`null` 或 `<= 0` 关闭周期触发 |
+| `auto_memory_inbox_push_enabled`        | `true`         | Auto-Memory 实际修改记忆后，将结果推送到 Inbox                     |
+| `dream_cron_enabled`                    | `true`         | 是否定时运行 Auto-Dream                                            |
+| `dream_cron`                            | `"0 23 * * *"` | 5 段 Cron 表达式；触发后随机延迟 0–60 秒启动                       |
+| `auto_dream_inbox_push_enabled`         | `true`         | 将 Auto-Dream 的成功或失败摘要推送到 Inbox                         |
+| `memory_search_enabled`                 | `true`         | 是否向 Agent 提供手动调用的 `memory_search` 工具                   |
+| `auto_memory_search_config.enabled`     | `false`        | 是否在每个普通用户请求前自动搜索记忆                               |
+| `auto_memory_search_config.max_results` | `2`            | 每次自动搜索最多注入的结果数                                       |
+
+Auto-Memory 间隔越小，记忆更新越及时，但模型调用、Token 消耗和后台负担也越高。`memory_search_enabled` 与自动搜索开关彼此独立：关闭手动工具不会自动关闭 Auto-Memory-Search，反之亦然。
+
+Auto-Dream 也可以随时手动运行：
 
 ```text
-/proactive           # 开启；空闲 30 分钟后触发
+/dream             # 立即执行一次 Auto-Dream
+/dream <提示信息>  # 带提示执行一次 Auto-Dream
+```
+
+Proactive 不使用 `agent.json` 参数，而是通过命令管理当前 Agent 的内存任务：
+
+```text
+/proactive           # 开启，默认空闲 30 分钟后触发
 /proactive on        # 同上
-/proactive 45        # 使用 45 分钟空闲阈值
+/proactive 45        # 改为空闲 45 分钟后触发
 /proactive off       # 停止主动监控
 ```
 
-开启后，主动模式会从近期信号推断可能有帮助的下一步，并在采取进一步行动前把建议交给用户：
-
-![主动模式从近期信号发现下一步并在行动前征求用户意见](https://img.alicdn.com/imgextra/i2/O1CN01bGrMQC1kGxdbG4IDT_!!6000000004657-55-tps-1200-640.svg)
-
-这是一张产品理念图：它说明证据积累、兴趣发现和有用下一步之间的关系。当前 `/proactive` 的实际触发依据仍是近期聊天活动和可选屏幕上下文，而不是直接读取图中的整个个人知识库。
-
-监控器每 30 秒检查一次。空闲时钟取当前 workspace 所有聊天中最新的 `updated_at`，并不只看执行
-`/proactive` 的那条聊天。达到设定阈值后，它读取最近 7 天更新过的 sessions；如果不足 5 个，则回退到
-最新的 5 个 sessions。上下文最多包含 100 条近期非 system 文本消息，总长度不超过 50,000 字符。
-当前模型支持多模态输入时，还可能截取并分析桌面画面。
-
-监控配置和任务只存在于进程内存，不会跨进程重启持久化。再次执行 `/proactive` 或 `/proactive on`
-会用默认 30 分钟阈值替换当前 Agent 的内存配置；`/proactive <正整数>` 会替换为指定阈值。
-
-Proactive assistant 会推断 1–3 个可能目标，为最多 3 个候选目标尝试具体查询，并在首次成功后停止。如果执行期间用户重新活跃，本次任务会被中断；如果上一条 `[PROACTIVE]` 消息尚未得到回应，也不会继续发送新的主动消息。
-
-### 主动消息示例
-
-假设近期聊天显示生产发布即将开始，并且团队反复讨论回滚风险。达到空闲阈值后，Proactive assistant 可能先检查仓库里的当前回滚清单，再发送：
-
-```text
-[PROACTIVE] 我注意到生产发布临近。当前清单已经覆盖 staging 验证和回滚负责人，
-但还缺少复盘中提到的 hotfix 事后验证步骤。需要我把这一步补进发布清单吗？
-```
-
-这个例子准确体现了当前边界：触发和任务推断来自近期聊天活动（也可能包括屏幕），即使 Auto-Dream 独立生成了相似的兴趣主题，两条路径目前也没有直接连接。
-
-### 隐私与安全边界
-
-主动模式可以读取历史聊天上下文；多模态分析可用时，可能截取桌面画面；它还会初始化一个带有网页搜索/抓取、
-浏览器、文件读取、Shell 和可选截图工具的独立 assistant。这个 assistant 使用 bypass 权限运行。
-`/proactive` 命令会明确警告这条边界；请只在这些访问权限合适时开启，并使用 `/proactive off`
-停止内存中的监控任务。
-
-简而言之：Auto-Dream 让记忆随时间变得更好，`memory_search` 让后续对话从这种进化中获益，而 `/proactive` 则判断何时值得在下一次请求到来前先做一些有用的工作。
+简而言之：Auto-Memory 保留可靠素材，Auto-Dream 让知识随证据进化，Memory Search 让新对话真正用上这些知识，而 `/proactive` 在用户明确授权后判断何时值得提前提供帮助。

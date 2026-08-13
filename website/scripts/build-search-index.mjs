@@ -38,12 +38,26 @@ function parseDoc(md) {
   let title = "";
   const headings = [];
   let body = [];
+  let fence = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const h2 = /^##\s+(.+)$/.exec(line);
-    const h3 = /^###\s+(.+)$/.exec(line);
-    if (i === 0 && line.startsWith("# ")) {
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      const length = fenceMatch[1].length;
+      if (!fence) {
+        fence = { marker, length };
+      } else if (marker === fence.marker && length >= fence.length) {
+        fence = null;
+      }
+      body.push(line);
+      continue;
+    }
+
+    const h2 = !fence ? /^##\s+(.+)$/.exec(line) : null;
+    const h3 = !fence ? /^###\s+(.+)$/.exec(line) : null;
+    if (!fence && i === 0 && line.startsWith("# ")) {
       title = line
         .slice(2)
         .replace(/#+\s*$/, "")
