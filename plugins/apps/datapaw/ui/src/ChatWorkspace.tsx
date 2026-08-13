@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DataSourceMetadata } from "./api";
 import { LogoMark } from "./LogoMark";
+import { renderMarkdown, splitCompletionMarker } from "./markdown";
 import type {
   PawAppSdk,
   PawChatHistoryMessage,
@@ -695,6 +696,23 @@ function DialogueHistory({
   );
 }
 
+function AssistantBody({ text }: { text: string }) {
+  const { body, marker } = splitCompletionMarker(text);
+  return (
+    <>
+      <div className="datapaw-message__body datapaw-message__body--rich">
+        {renderMarkdown(body)}
+      </div>
+      {marker ? (
+        <div className="datapaw-run-summary">
+          <i aria-hidden="true" />
+          <span>{marker}</span>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export function ChatWorkspace({
   paw,
   selectedSource,
@@ -1100,9 +1118,7 @@ export function ChatWorkspace({
                     <>
                       <AnalysisTrace message={message} />
                       {message.text ? (
-                        <div className="datapaw-message__body">
-                          {message.text}
-                        </div>
+                        <AssistantBody text={message.text} />
                       ) : message.streaming && !message.activity ? (
                         <div
                           className="datapaw-thinking"

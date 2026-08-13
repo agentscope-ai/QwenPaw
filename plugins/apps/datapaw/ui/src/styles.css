@@ -832,6 +832,125 @@
   padding-left: 0;
   background: transparent;
 }
+
+/* Rendered markdown for assistant replies. */
+.datapaw-message__body--rich {
+  white-space: normal;
+}
+.datapaw-message__body--rich > :first-child {
+  margin-top: 0;
+}
+.datapaw-message__body--rich > :last-child {
+  margin-bottom: 0;
+}
+.datapaw-message__body--rich p {
+  margin: 10px 0;
+}
+.datapaw-message__body--rich h1,
+.datapaw-message__body--rich h2,
+.datapaw-message__body--rich h3,
+.datapaw-message__body--rich h4 {
+  margin: 18px 0 8px;
+  color: var(--datapaw-ink);
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+.datapaw-message__body--rich h1 {
+  font-size: 19px;
+}
+.datapaw-message__body--rich h2 {
+  font-size: 17px;
+}
+.datapaw-message__body--rich h3 {
+  font-size: 15px;
+}
+.datapaw-message__body--rich h4 {
+  font-size: 14px;
+}
+.datapaw-message__body--rich ul,
+.datapaw-message__body--rich ol {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+.datapaw-message__body--rich li {
+  margin: 3px 0;
+}
+.datapaw-message__body--rich table {
+  margin: 12px 0;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.datapaw-message__body--rich th,
+.datapaw-message__body--rich td {
+  padding: 7px 14px;
+  border: 1px solid var(--datapaw-line);
+  text-align: left;
+}
+.datapaw-message__body--rich th {
+  color: var(--datapaw-ink);
+  background: #f7f8fb;
+  font-weight: 680;
+}
+.datapaw-message__body--rich tbody tr:nth-child(even) td {
+  background: #fafbfd;
+}
+.datapaw-message__body--rich code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--datapaw-soft);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12.5px;
+}
+.datapaw-message__body--rich pre {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  overflow: auto;
+  background: #f7f8fb;
+  border: 1px solid var(--datapaw-line);
+}
+.datapaw-message__body--rich pre code {
+  padding: 0;
+  background: transparent;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.datapaw-message__body--rich blockquote {
+  margin: 10px 0;
+  padding: 2px 14px;
+  border-left: 3px solid #c4defe;
+  color: var(--datapaw-muted);
+}
+.datapaw-message__body--rich hr {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--datapaw-line);
+}
+.datapaw-message__body--rich a {
+  color: var(--datapaw-purple);
+}
+
+/* Trailing agent completion marker rendered as a quiet run summary. */
+.datapaw-run-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 7px 11px;
+  border: 1px dashed var(--datapaw-line);
+  border-radius: 9px;
+  color: var(--datapaw-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.datapaw-run-summary i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--datapaw-mint);
+}
 .datapaw-analysis-trace {
   margin: 0 0 12px;
   border: 1px solid #e4e4ed;
