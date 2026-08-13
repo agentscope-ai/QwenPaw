@@ -411,6 +411,59 @@ async def test_activate_provider_persists_active_model(
     assert reloaded.active_model.model == "gpt-5"
 
 
+async def test_async_provider_path_resolution_runs_off_event_loop(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    event_loop_thread = threading.get_ident()
+    path_threads = []
+    original_safe_path = manager._safe_provider_path
+
+    def safe_provider_path(provider_dir, provider_id):
+        path_threads.append(threading.get_ident())
+        return original_safe_path(provider_dir, provider_id)
+
+    monkeypatch.setattr(
+        manager,
+        "_safe_provider_path",
+        safe_provider_path,
+    )
+
+    provider_path = await manager._provider_config_path_async(
+        "new-custom-provider",
+    )
+
+    assert provider_path.parent == manager.custom_path
+    assert len(path_threads) == 1
+    assert path_threads[0] != event_loop_thread
+
+
+async def test_async_plugin_path_resolution_runs_off_event_loop(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    event_loop_thread = threading.get_ident()
+    path_threads = []
+    original_safe_path = manager._safe_provider_path
+
+    def safe_provider_path(provider_dir, provider_id):
+        path_threads.append(threading.get_ident())
+        return original_safe_path(provider_dir, provider_id)
+
+    monkeypatch.setattr(manager, "_safe_provider_path", safe_provider_path)
+
+    provider_path = await manager._provider_path_for_kind_async(
+        "plugin",
+        "new-plugin-provider",
+    )
+
+    assert provider_path.parent == manager.plugin_path
+    assert len(path_threads) == 1
+    assert path_threads[0] != event_loop_thread
+
+
 async def test_activate_provider_does_not_block_event_loop(
     isolated_secret_dir,
     monkeypatch,

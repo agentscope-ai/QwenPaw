@@ -190,7 +190,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     # Provider initialization scans and may migrate persisted configuration.
     provider_manager = await asyncio.to_thread(ProviderManager.get_instance)
-    local_model_manager = LocalModelManager.get_instance()
+    local_model_manager = await asyncio.to_thread(
+        LocalModelManager.get_instance,
+    )
 
     # --- AppServiceManager + WorkspaceRegistry ---
     app_services = None

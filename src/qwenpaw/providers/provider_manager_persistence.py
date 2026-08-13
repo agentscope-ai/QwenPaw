@@ -74,7 +74,7 @@ class ProviderManagerPersistenceMixin:
                 return None
             candidate = provider.model_copy(deep=True)
             result = await operation(candidate)
-            provider_path = self._provider_config_path(provider_id)
+            provider_path = await self._provider_config_path_async(provider_id)
             snapshot = candidate.model_copy(deep=True)
 
             async def persist_and_commit() -> None:
@@ -348,7 +348,7 @@ class ProviderManagerPersistenceMixin:
         fields: set[str] | None,
     ) -> None:
         """Save a provider while its per-provider lock is held."""
-        provider_path = self._provider_config_path(provider_id)
+        provider_path = await self._provider_config_path_async(provider_id)
         if provider_id in self.plugin_providers:
             snapshot = self._merge_plugin_snapshot(
                 provider_id,
@@ -527,7 +527,7 @@ class ProviderManagerPersistenceMixin:
     ) -> None:
         """Register a plugin provider without blocking the event loop."""
         provider_key = self._ensure_plugin_provider_id_available(provider_id)
-        provider_path = self._provider_path_for_kind(
+        provider_path = await self._provider_path_for_kind_async(
             "plugin",
             provider_id,
         )
@@ -667,6 +667,49 @@ class ProviderManagerPersistenceMixin:
             storage_kind,
             file_provider_id or provider_id,
         )
+
+    async def _provider_config_path_async(
+        self,
+        provider_id: str,
+        file_provider_id: str | None = None,
+    ) -> Path:
+        """Resolve and cache a provider path without blocking the loop."""
+        provider_id = self._normalize_provider_id(provider_id)
+        if provider_id in self.plugin_providers:
+            storage_kind: ProviderStorageKind = "plugin"
+        elif provider_id in self.builtin_providers:
+            storage_kind = "builtin"
+        else:
+            storage_kind = "custom"
+        return await self._provider_path_for_kind_async(
+            storage_kind,
+            file_provider_id or provider_id,
+        )
+
+    async def _provider_path_for_kind_async(
+        self,
+        storage_kind: ProviderStorageKind,
+        provider_id: str,
+    ) -> Path:
+        """Resolve one provider path without blocking the event loop."""
+        provider_key = self._normalize_provider_id(provider_id)
+        storage_key = (storage_kind, provider_key)
+        tracked_path = self._provider_storage_paths.get(storage_key)
+        if tracked_path is not None:
+            return tracked_path
+
+        provider_dir = {
+            "builtin": self.builtin_path,
+            "custom": self.custom_path,
+            "plugin": self.plugin_path,
+        }[storage_kind]
+        provider_path = await run_sync_io(
+            self._safe_provider_path,
+            provider_dir,
+            provider_key,
+        )
+        self._provider_storage_paths[storage_key] = provider_path
+        return provider_path
 
     def _provider_path_for_kind(
         self,

@@ -258,7 +258,7 @@ class ProviderManager(
             self._reset_model_availability(candidate)
             candidate.models_syncing = False
 
-        provider_path = self._provider_config_path(provider_id)
+        provider_path = await self._provider_config_path_async(provider_id)
         await run_sync_io(
             self._save_provider_snapshot_locked,
             provider_id,
@@ -519,7 +519,9 @@ class ProviderManager(
             async with lock:
                 if provider_id not in self.custom_providers:
                     return False
-                provider_path = self._provider_config_path(provider_id)
+                provider_path = await self._provider_config_path_async(
+                    provider_id
+                )
                 await run_sync_io(provider_path.unlink, missing_ok=True)
                 self._bump_provider_revision(provider_id)
                 del self.custom_providers[provider_id]
