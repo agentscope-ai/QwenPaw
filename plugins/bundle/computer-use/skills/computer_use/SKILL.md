@@ -73,6 +73,9 @@ Each accessibility line begins with an `element_id`, control type, and name.
 Use labels, roles, identifiers, actions, and current state together; do not
 infer behavior from an opaque identifier alone.
 
+Indentation preserves the native accessibility hierarchy. Use parent and
+container context to distinguish controls with duplicate names.
+
 Common markers:
 
 - `[disabled]`: do not act on this element.
@@ -150,16 +153,15 @@ Use `set_value` for an observed editable control, especially one marked
 shortcut first. Verify that the application committed the value; a changed
 edit buffer alone may still be pending.
 
-Never use `set_value` on a `[resource-backed]` label. Select the resource,
-observe its application menu or context menu, and use an enabled command whose
-semantics explicitly match the requested edit. Use `begin_text_edit` only on
-an observed `MenuItem` that opens a native name editor, never on the resource
-or an ordinary command.
+Never use `set_value` on a `[resource-backed]` label. Select the resource and
+inspect the replacement observation. To enter an editor, prefer an observed
+semantic action. When none is available, a platform-standard shortcut is
+acceptable only with a verified target and a verifiable postcondition.
 
-After `begin_text_edit`, type only when the replacement observation identifies
-editable focus. If the response instead reports `transient_text_ready: true`
-and `next_action: type`, send exactly one `type` action next. Complete the edit
-using the application's established completion action, then verify the durable
+After any action intended to open an editor, inspect the replacement
+observation and type only when it identifies editable focus. Complete the edit
+in a separate action using the application's established completion
+mechanism, then inspect the replacement observation and verify the durable
 resource state. Do not repeat an unverified write.
 
 When `set_value` returns `pending_action`, locate the matching completion
@@ -197,12 +199,20 @@ Apply only the subsection matching the runtime platform.
 
 - Express Command as `WIN` and Option as `ALT`; for example,
   `WIN+SHIFT+N` is Command-Shift-N.
+- `begin_text_edit` is a narrow fallback for an observed `MenuItem` in the
+  currently open transient menu whose command semantics explicitly require
+  immediate text entry. Use it instead of `invoke` only for that case.
+- If `begin_text_edit` returns `transient_text_ready: true` and
+  `next_action: type`, send exactly one `type` action next. Otherwise type only
+  when the replacement observation identifies editable focus.
 - Use `set_value` only when `[settable]` is present.
 - `INSERT` is unavailable.
 
 ### Windows
 
 - `CTRL`, `ALT`, and `WIN` retain their Windows meanings.
+- `begin_text_edit` is unavailable. Enter editors through an observed semantic
+  action or a platform-standard shortcut, then inspect editable focus.
 - `list_apps` may omit an application that has no current window; use an
   explicit executable path when necessary.
 - `INSERT` is available.
