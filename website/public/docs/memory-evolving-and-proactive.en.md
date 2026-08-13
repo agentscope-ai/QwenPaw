@@ -62,13 +62,13 @@ graph LR
     U --> W[memory/<date>/interests.yaml]
 ```
 
-| Capability           | Code path                                                    | Trigger                                                                                                     | Main output                                                                            |
-| -------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------- |
-| Auto Memory          | `ReMeLightMemoryManager.auto_memory()` -> ReMe `auto_memory` | `MemoryMiddleware` after every configured number of user turns, and before context compression when enabled | `mem_session/dialog/<session_id>.jsonl`, `memory/<date>/<note>.md`, `memory/<date>.md` |
-| Daily Paper          | `ReMeLightMemoryManager.daily_paper()` -> ReMe `daily_paper` | `daily_paper_cron` scheduler when `daily_paper_cron_enabled` is on                                          | `resource/papers/*.pdf`, detailed readings, and a daily brief                          |
-| Auto Dream           | `ReMeLightMemoryManager.dream()` -> ReMe `auto_dream`        | `/dream` command or `dream_cron` scheduler                                                                  | `digest/*/*.md`, `memory/<date>/interests.yaml`                                        |
-| ReMe proactive job   | ReMe `proactive`                                             | Direct ReMe job call only                                                                                   | Metadata/content from `memory/<date>/interests.yaml`                                   |
-| QwenPaw `/proactive` | `src/qwenpaw/agents/memory/proactive`                        | `/proactive [minutes                                                                                        | on                                                                                     | off]` idle loop | A proactive chat request sent through `/api/console/chat` |
+| Capability           | Code path                                                    | Trigger                                                                                                         | Main output                                                                            |
+| -------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------- |
+| Auto Memory          | `ReMeLightMemoryManager.auto_memory()` -> ReMe `auto_memory` | `MemoryMiddleware` after every configured number of user turns, and after context is actually evicted or folded | `mem_session/dialog/<session_id>.jsonl`, `memory/<date>/<note>.md`, `memory/<date>.md` |
+| Daily Paper          | `ReMeLightMemoryManager.daily_paper()` -> ReMe `daily_paper` | `daily_paper_cron` scheduler when `daily_paper_cron_enabled` is on                                              | `resource/papers/*.pdf`, detailed readings, and a daily brief                          |
+| Auto Dream           | `ReMeLightMemoryManager.dream()` -> ReMe `auto_dream`        | `/dream` command or `dream_cron` scheduler                                                                      | `digest/*/*.md`, `memory/<date>/interests.yaml`                                        |
+| ReMe proactive job   | ReMe `proactive`                                             | Direct ReMe job call only                                                                                       | Metadata/content from `memory/<date>/interests.yaml`                                   |
+| QwenPaw `/proactive` | `src/qwenpaw/agents/memory/proactive`                        | `/proactive [minutes                                                                                            | on                                                                                     | off]` idle loop | A proactive chat request sent through `/api/console/chat` |
 
 The important boundary is that `memory/<date>/interests.yaml` is produced by Auto Dream and can be read by ReMe's `proactive` job, but QwenPaw's current `/proactive` implementation does not call that job.
 
@@ -108,10 +108,12 @@ Default directory names are configurable through `metadata_dir`, `session_dir`, 
 Auto Memory is invoked by `MemoryMiddleware`, not directly on every model call. The middleware:
 
 - skips automation requests whose source is `cron` or `heartbeat`;
-- optionally injects auto memory search context before model calls when `auto_memory_search_config.enabled` is true;
+- temporarily injects auto memory search context only into the current model input when `auto_memory_search_config.enabled` is true;
 - collects user-turn markers after replies;
 - flushes pending turns after `auto_memory_interval` user turns;
-- also flushes pending turns before context compression.
+- also flushes after context is actually evicted or folded.
+
+Searched-turn and pending-turn state lives in `AgentState.middle_context`, so middleware rebuilds and restored sessions retain their progress. Search results themselves are not written to `AgentState.context`, but remain available to every model call in the active user turn. A failed Auto Memory submission keeps a per-turn message snapshot for a later retry. Automation requests from `cron` or `heartbeat` do not search or submit Auto Memory; if they evict pending user turns, the middleware only preserves the snapshots needed for a later user request to submit them safely.
 
 `auto_memory_interval` defaults to `5`. `None`, `0`, or a negative value disables periodic auto-memory.
 

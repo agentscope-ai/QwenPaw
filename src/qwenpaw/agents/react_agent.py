@@ -49,7 +49,6 @@ from ..utils.tool_call_extra import (
 )
 
 if TYPE_CHECKING:
-    from ..agents.memory import BaseMemoryManager
     from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
@@ -169,7 +168,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         agent_config: "AgentProfileConfig",
         workspace_dir: Path | None = None,
         request_context: Optional[dict[str, str]] = None,
-        memory_manager: "BaseMemoryManager | None" = None,
         offloader: Any = None,
         context_config: Any = None,
         context_manager: ContextManager | None = None,
@@ -197,30 +195,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._governor = governor
         self._gate_pending_stop = None
 
-        self.memory_manager = memory_manager
-
-        # Register memory tools, then apply a final whitelist pass so
-        # subagent_allowed_tools=[] truly denies every tool (including
-        # memory / future post-toolkit injections).
-        if self.memory_manager is not None:
-            memory_tools = self.memory_manager.list_memory_tools()
-            basic_group = toolkit.tool_groups[0]
-            for tool_fn in memory_tools:
-                from ..governance import PolicyGuardedTool
-
-                basic_group.tools.append(
-                    PolicyGuardedTool(
-                        tool_fn,
-                        governor=self._governor,
-                        request_context=self._request_context,
-                    ),
-                )
-            logger.debug(
-                "Registered memory tools: %s",
-                [fn.__name__ for fn in memory_tools],
-            )
-        self._apply_subagent_tool_whitelist(toolkit)
-
         init_kwargs: dict[str, Any] = {
             "name": name,
             "model": model,
@@ -240,24 +214,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         self.state.permission_context.mode = PermissionMode.BYPASS
 
-        # Tombstone for legacy ``getattr(agent, "memory", None)`` callers
-        self.memory = None  # type: ignore[assignment]
-
         self._register_tool_call_hooks()
-
-    def _apply_subagent_tool_whitelist(self, toolkit: Any) -> None:
-        """Filter every toolkit group by ``subagent_allowed_tools``."""
-        from ..runtime.builder import AgentBuilder
-
-        groups = getattr(toolkit, "tool_groups", None) or []
-        for group in groups:
-            tools = getattr(group, "tools", None)
-            if not isinstance(tools, list):
-                continue
-            group.tools = AgentBuilder.apply_subagent_tool_whitelist(
-                tools,
-                self._request_context,
-            )
 
     async def compress_context(
         self,

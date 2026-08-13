@@ -64,7 +64,7 @@ graph LR
 
 | 能力                 | 代码路径                                                     | 触发方式                                                                | 主要产物                                                                               |
 | -------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------ |
-| Auto Memory          | `ReMeLightMemoryManager.auto_memory()` -> ReMe `auto_memory` | `MemoryMiddleware` 按配置的用户轮次数触发；启用时也会在上下文压缩前触发 | `mem_session/dialog/<session_id>.jsonl`、`memory/<date>/<note>.md`、`memory/<date>.md` |
+| Auto Memory          | `ReMeLightMemoryManager.auto_memory()` -> ReMe `auto_memory` | `MemoryMiddleware` 按配置的用户轮次数触发；上下文实际驱逐或折叠后也触发 | `mem_session/dialog/<session_id>.jsonl`、`memory/<date>/<note>.md`、`memory/<date>.md` |
 | Daily Paper          | `ReMeLightMemoryManager.daily_paper()` -> ReMe `daily_paper` | `daily_paper_cron_enabled` 启用后由 `daily_paper_cron` 调度             | `resource/papers/*.pdf`、论文精读和每日简报                                            |
 | Auto Dream           | `ReMeLightMemoryManager.dream()` -> ReMe `auto_dream`        | `/dream` 命令或 `dream_cron` 调度                                       | `digest/*/*.md`、`memory/<date>/interests.yaml`                                        |
 | ReMe proactive job   | ReMe `proactive`                                             | 仅在直接调用 ReMe job 时运行                                            | `memory/<date>/interests.yaml` 的 metadata/content                                     |
@@ -108,10 +108,12 @@ graph LR
 Auto Memory 由 `MemoryMiddleware` 调用，不是每次 model call 都直接运行。Middleware 会：
 
 - 跳过来源为 `cron` 或 `heartbeat` 的自动化请求；
-- 当 `auto_memory_search_config.enabled` 为 true 时，在模型调用前注入自动记忆搜索上下文；
+- 当 `auto_memory_search_config.enabled` 为 true 时，只向当前模型输入临时注入自动记忆搜索上下文；
 - 在回复后收集 user-turn marker；
 - 累计到 `auto_memory_interval` 个用户轮次后 flush；
-- 即将压缩上下文时，也会先 flush pending turns。
+- 上下文实际完成 eviction/fold 后，也会 flush pending turns。
+
+自动搜索和待提交 turn 的状态保存在 `AgentState.middle_context`，因此 middleware 重建或 session 恢复不会重置进度。搜索结果本身不会写入 `AgentState.context`，但在当前用户 turn 的每次模型调用中都可用。如果 Auto Memory 提交失败，会按 turn 保留消息快照供后续重试。来源为 `cron` 或 `heartbeat` 的自动化请求不会搜索或提交 Auto Memory；如果它们驱逐了待提交的用户 turn，middleware 只保存后续用户请求安全提交所需的快照。
 
 `auto_memory_interval` 默认是 `5`。`None`、`0` 或负数会禁用周期性 Auto Memory。
 

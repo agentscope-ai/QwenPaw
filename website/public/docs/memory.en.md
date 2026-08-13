@@ -42,15 +42,15 @@ graph TB
 
 Long-term memory management includes the following capabilities:
 
-| Capability             | Description                                                                                                  |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------ |
-| **Embedded ReMe app**  | QwenPaw starts ReMe in-process and injects the active QwenPaw model into ReMe's default LLM component        |
-| **Auto-Memory**        | After a configurable number of user turns, ReMe extracts useful conversation facts into daily Markdown notes |
-| **Context compaction** | Before context compression, pending turns can be flushed into the same `auto_memory` pipeline                |
-| **Auto-Dream**         | A cron job extracts higher-level digest units and proactive-interest topics from recent daily notes          |
-| **Hybrid Search**      | `memory_search` calls ReMe's `search` job, using BM25 plus optional vector search and reciprocal-rank fusion |
-| **Daily Paper**        | Scheduled paper readings and a daily brief; PDFs go to `resource/papers/` and Markdown goes to daily memory  |
-| **Inbox Results**      | `auto_memory`, `auto_dream`, and `daily_paper` results are pushed to QwenPaw's inbox                         |
+| Capability             | Description                                                                                                    |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Embedded ReMe app**  | QwenPaw starts ReMe in-process and injects the active QwenPaw model into ReMe's default LLM component          |
+| **Auto-Memory**        | After a configurable number of user turns, ReMe extracts useful conversation facts into daily Markdown notes   |
+| **Context compaction** | After context is actually evicted or folded, pending turns can be flushed into the same `auto_memory` pipeline |
+| **Auto-Dream**         | A cron job extracts higher-level digest units and proactive-interest topics from recent daily notes            |
+| **Hybrid Search**      | `memory_search` calls ReMe's `search` job, using BM25 plus optional vector search and reciprocal-rank fusion   |
+| **Daily Paper**        | Scheduled paper readings and a daily brief; PDFs go to `resource/papers/` and Markdown goes to daily memory    |
+| **Inbox Results**      | `auto_memory`, `auto_dream`, and `daily_paper` results are pushed to QwenPaw's inbox                           |
 
 ---
 
@@ -388,9 +388,9 @@ agent, `503` when ReMe is unavailable, or `500` when the rebuild job fails.
 
 Configure in `running.reme_light_memory_config.auto_memory_search_config`:
 
-When enabled, search results are injected into the current live context as a
-completed `memory_search` interaction. They remain available to follow-up model
-calls in the same tool loop until normal context management evicts them.
+When enabled, search results are temporarily injected into every model input
+for the active user turn as a completed `memory_search` interaction. They are
+not written to the formal conversation history or Scroll's persisted history.
 
 | Field         | Description                                              | Default |
 | ------------- | -------------------------------------------------------- | ------- |

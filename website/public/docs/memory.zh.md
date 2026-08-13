@@ -47,7 +47,7 @@ graph TB
 | ------------------ | -------------------------------------------------------------------------------------- |
 | **嵌入式 ReMe**    | QwenPaw 在进程内启动 ReMe，并将当前 Agent 使用的 QwenPaw 模型注入到 ReMe 默认 LLM 组件 |
 | **Auto-Memory**    | 每隔可配置数量的用户回合，将对话中值得保留的事实抽取为每日 Markdown 记忆               |
-| **上下文压缩保存** | 上下文压缩前，可把尚未写入的回合先提交给同一套 `auto_memory` 流程                      |
+| **上下文压缩保存** | 上下文实际驱逐或折叠后，可把尚未写入的回合提交给同一套 `auto_memory` 流程              |
 | **Auto-Dream**     | 定时从近期每日记忆中提取更高层的 digest 单元和主动交互兴趣主题                         |
 | **混合检索**       | `memory_search` 调用 ReMe `search` job，通过 BM25 + 可选向量检索，并使用 RRF 融合排序  |
 | **Daily Paper**    | 可配置定时生成论文精读和每日简报；PDF 保存在 `resource/papers/`，Markdown 写入每日记忆 |
@@ -333,8 +333,7 @@ POST /api/agents/{agentId}/memory/reindex
 
 在 `running.reme_light_memory_config.auto_memory_search_config` 中配置：
 
-启用后，搜索结果会作为已完成的 `memory_search` 交互注入当前 live context。
-同一轮工具循环里的后续模型调用仍可读取这些结果，直到常规上下文管理将其驱逐。
+启用后，搜索结果会作为已完成的 `memory_search` 交互临时注入当前用户 turn 的每次模型调用，不会写入正式会话历史或 Scroll 持久化历史。
 
 | 配置项        | 说明                             | 默认值  |
 | ------------- | -------------------------------- | ------- |
