@@ -325,18 +325,15 @@ Embedding 的支持后端、启用条件、字段含义、缓存和排查方法�
 
 ```mermaid
 flowchart LR
-    A[查询] --> B[确定 ReMe limit<br/>N，或 N × Reranker 倍数]
-    B --> C0[扩大每路召回池<br/>ReMe limit × 3，最多 200]
+    A[查询] --> B[确定结果条数 N]
+    B --> C0[扩大每路召回池<br/>N × 3，最多 200]
     C0 --> C[Vector 召回]
     C0 --> D[BM25 召回]
     C --> E[按 chunk id 去重并做 RRF 融合]
     D --> E
-    E --> F[min_score 过滤并取 ReMe limit]
+    E --> F[min_score 过滤并取 N 条]
     F --> G[展开命中文件的入链与出链]
-    G --> R{是否启用 Reranker?}
-    R -->|是| RR[向 /rerank 发送候选<br/>再截断为最终 N 条]
-    R -->|否| H[返回最终 N 条]
-    RR --> H
+    G --> H[返回结果]
 ```
 
 当两路都有结果时，默认使用加权 Reciprocal Rank Fusion（RRF）：
@@ -351,54 +348,6 @@ RRF 比较的是各自结果列表中的排名，不直接比较数值尺度完�
 完成融合后，ReMe 会按命中文件从图索引中展开最多 10 条出链和 10 条入链。这样结果既包含最相关的正文片段，也能带出其来源、相关流程和相邻知识节点。
 
 > `min_score` 默认是 `0`。正常使用建议保持默认值，因为单路检索的原始分数与混合检索的 RRF 分数量纲不同，盲目提高阈值可能隐藏有效结果。
-
-### 可选 Reranker 重排
-
-`reranker_config` 会在 ReMe 混合召回之后增加第二阶段 HTTP 重排。启用且 `model_name` 非空时，
-显式 `memory_search` 和 Auto-Memory-Search 都会先向 ReMe 请求
-`最终条数 × candidate_multiplier` 个结果。QwenPaw 取每个候选的前 500 个字符，携带 Bearer Token
-向 `POST {base_url}/rerank` 发送以下 JSON：
-
-```json
-{
-  "model": "BAAI/bge-reranker-v2-m3",
-  "query": "记忆查询",
-  "documents": ["候选一", "候选二"]
-}
-```
-
-响应必须包含 `results` 数组，并用合法 `index` 恰好覆盖每个候选一次。QwenPaw 按 `relevance_score`
-排序、重新排列原始结果段，保留混合分数与 Wikilink 展开内容，再截断到最终条数。如果服务不可用、超时、
-返回 HTTP 错误，或返回无效、不完整的索引列表，搜索会继续使用 ReMe 原始顺序。
-
-```json
-{
-  "running": {
-    "reme_light_memory_config": {
-      "reranker_config": {
-        "enabled": true,
-        "api_key": "your-api-key",
-        "base_url": "https://api.siliconflow.cn/v1",
-        "model_name": "BAAI/bge-reranker-v2-m3",
-        "candidate_multiplier": 3,
-        "timeout": 10.0
-      }
-    }
-  }
-}
-```
-
-当前 Console 没有 Reranker 表单，需要在 `agent.json` 中配置。每次搜索都会重新读取配置，保存后的变更
-不需要单独重启 Reranker。
-
-| 配置项                 | 默认值  | 说明                                         |
-| ---------------------- | ------- | -------------------------------------------- |
-| `enabled`              | `false` | 是否启用第二阶段重排                         |
-| `api_key`              | `""`    | Reranker 服务的 Bearer Token                 |
-| `base_url`             | `""`    | API 基础地址；系统会追加 `/rerank`           |
-| `model_name`           | `""`    | 请求中的模型名称；必须非空才会启用重排       |
-| `candidate_multiplier` | `3`     | 重排前向 ReMe 请求结果数的倍数；最小值为 `1` |
-| `timeout`              | `10.0`  | HTTP 超时时间（秒）；最小值为 `1.0`          |
 
 ### 手动搜索与 Auto-Memory-Search
 
@@ -454,31 +403,30 @@ Agent 可根据返回的路径和行号继续精确读取原文件。
 
 ### ReMeLight 完整配置
 
-所有字段都位于 `running.reme_light_memory_config`：
+主要用户配置字段都位于 `running.reme_light_memory_config`：
 
-| 配置项                           | 默认值           | 说明                                                        |
-| -------------------------------- | ---------------- | ----------------------------------------------------------- |
-| `metadata_dir`                   | `"mem_metadata"` | 索引、图谱、catalog 与缓存目录                              |
-| `session_dir`                    | `"mem_session"`  | Auto-Memory 来源对话目录                                    |
-| `mem_session_dir`                | `"mem_agent"`    | ReMe 内部 memory-agent 会话目录                             |
-| `resource_dir`                   | `"resource"`     | Daily Paper 与未来知识工作流使用的原始资源目录              |
-| `daily_dir`                      | `"memory"`       | 每日记忆目录                                                |
-| `digest_dir`                     | `"digest"`       | 长期知识库目录                                              |
-| `auto_memory_inbox_push_enabled` | `true`           | 是否把 Auto-Memory 结果推送到 Inbox                         |
-| `auto_dream_inbox_push_enabled`  | `true`           | 是否把 Auto-Dream 结果推送到 Inbox                          |
-| `daily_paper_inbox_push_enabled` | `true`           | 是否把 Daily Paper 结果推送到 Inbox                         |
-| `auto_memory_interval`           | `5`              | Auto-Memory 的用户回合间隔                                  |
-| `dream_cron_enabled`             | `true`           | 是否启用定时 Auto-Dream                                     |
-| `dream_cron`                     | `"0 23 * * *"`   | Auto-Dream 的 5 段 Cron 表达式                              |
-| `daily_paper_cron_enabled`       | `false`          | 是否启用定时 Daily Paper                                    |
-| `daily_paper_cron`               | `"0 9 * * *"`    | Daily Paper 的 5 段 Cron 表达式                             |
-| `daily_paper_use_hf_mirror`      | `false`          | 是否通过 Hugging Face 镜像获取论文信息                      |
-| `daily_paper_topics`             | `""`             | 筛选论文时优先考虑的主题                                    |
-| `memory_search_enabled`          | `true`           | 是否向 Agent 提供 `memory_search` 工具                      |
-| `auto_memory_search_config`      | 见上文           | 自动记忆搜索配置                                            |
-| `embedding_model_config`         | 默认未启用       | 可选向量模型配置，见 [Embedding 向量模型](./embedding)      |
-| `reranker_config`                | 默认未启用       | 可选检索后重排，见[可选 Reranker 重排](#可选-reranker-重排) |
-| `needs_reindex`                  | `false`          | 运行时维护的待重建向量索引标记                              |
+| 配置项                           | 默认值           | 说明                                                   |
+| -------------------------------- | ---------------- | ------------------------------------------------------ |
+| `metadata_dir`                   | `"mem_metadata"` | 索引、图谱、catalog 与缓存目录                         |
+| `session_dir`                    | `"mem_session"`  | Auto-Memory 来源对话目录                               |
+| `mem_session_dir`                | `"mem_agent"`    | ReMe 内部 memory-agent 会话目录                        |
+| `resource_dir`                   | `"resource"`     | Daily Paper 与未来知识工作流使用的原始资源目录         |
+| `daily_dir`                      | `"memory"`       | 每日记忆目录                                           |
+| `digest_dir`                     | `"digest"`       | 长期知识库目录                                         |
+| `auto_memory_inbox_push_enabled` | `true`           | 是否把 Auto-Memory 结果推送到 Inbox                    |
+| `auto_dream_inbox_push_enabled`  | `true`           | 是否把 Auto-Dream 结果推送到 Inbox                     |
+| `daily_paper_inbox_push_enabled` | `true`           | 是否把 Daily Paper 结果推送到 Inbox                    |
+| `auto_memory_interval`           | `5`              | Auto-Memory 的用户回合间隔                             |
+| `dream_cron_enabled`             | `true`           | 是否启用定时 Auto-Dream                                |
+| `dream_cron`                     | `"0 23 * * *"`   | Auto-Dream 的 5 段 Cron 表达式                         |
+| `daily_paper_cron_enabled`       | `false`          | 是否启用定时 Daily Paper                               |
+| `daily_paper_cron`               | `"0 9 * * *"`    | Daily Paper 的 5 段 Cron 表达式                        |
+| `daily_paper_use_hf_mirror`      | `false`          | 是否通过 Hugging Face 镜像获取论文信息                 |
+| `daily_paper_topics`             | `""`             | 筛选论文时优先考虑的主题                               |
+| `memory_search_enabled`          | `true`           | 是否向 Agent 提供 `memory_search` 工具                 |
+| `auto_memory_search_config`      | 见上文           | 自动记忆搜索配置                                       |
+| `embedding_model_config`         | 默认未启用       | 可选向量模型配置，见 [Embedding 向量模型](./embedding) |
+| `needs_reindex`                  | `false`          | 运行时维护的待重建向量索引标记                         |
 
 旧字段 `inbox_push_enabled` 仅作为迁移输入：它会初始化三个尚未显式配置的独立 Inbox 开关，
 并在配置校验后的序列化结果中被排除。

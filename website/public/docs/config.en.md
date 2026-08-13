@@ -439,7 +439,6 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `memory_search_enabled`          | bool        | `true`           | Whether to expose the `memory_search` tool to the agent; independent from automatic memory search                                                                                |
 | `auto_memory_search_config`      | object      | _(see below)_    | Auto memory search configuration                                                                                                                                                 |
 | `embedding_model_config`         | object      | _(see below)_    | Embedding model configuration                                                                                                                                                    |
-| `reranker_config`                | object      | _(see below)_    | Optional post-search reranker configuration                                                                                                                                      |
 | `needs_reindex`                  | bool        | `false`          | Runtime-maintained flag indicating that the saved vector space changed and a manual index rebuild is required                                                                    |
 
 > `rebuild_memory_index_on_start` is no longer supported. Rebuild an index only when needed from the Console or the
@@ -470,22 +469,6 @@ Inbox switches, then the field is excluded from serialized configuration.
 | `max_input_length` | int    | `8192`     | Approximate character budget per Embedding input, not an exact token limit                     |
 | `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                                                        |
 
-**Reranker Configuration (`reme_light_memory_config.reranker_config` object):**
-
-| Field                  | Type   | Default | Description                                                                                     |
-| ---------------------- | ------ | ------- | ----------------------------------------------------------------------------------------------- |
-| `enabled`              | bool   | `false` | Whether to rerank ReMe search results after hybrid retrieval                                    |
-| `api_key`              | string | `""`    | Bearer token sent to the reranker endpoint                                                      |
-| `base_url`             | string | `""`    | API base URL; QwenPaw sends requests to `{base_url}/rerank`                                     |
-| `model_name`           | string | `""`    | Reranker model name                                                                             |
-| `candidate_multiplier` | int    | `3`     | Request this many times the final result count from ReMe before reranking; must be at least `1` |
-| `timeout`              | float  | `10.0`  | Reranker HTTP timeout in seconds; must be at least `1.0`                                        |
-
-The reranker is active only when `enabled=true` and `model_name` is non-empty. A blank `base_url`, timeout, HTTP
-failure, malformed response, partial result list, or invalid indices causes a graceful fallback to ReMe's original
-order. This is a backend-only `agent.json` option in the current Console; both explicit `memory_search` and
-Auto-Memory-Search use it. See [Long-Term Memory](./memory#optional-reranking) for the request and ranking flow.
-
 `use_dimensions` only controls whether OpenAI-compatible requests include the `dimensions` parameter. When it is
 disabled, `dimensions` is still used to validate returned vectors and configure indexes and caches, so it must match
 the model's actual output dimensions. Disable `use_dimensions` for OpenAI-compatible services, including some vLLM
@@ -506,7 +489,7 @@ Vector retrieval is enabled only when the selected backend has the minimum runna
 When the enable condition is not met, ReMe still keeps keyword indexes and wikilink graph indexes, but the embedding vector index is disabled.
 
 These settings can also be changed in the Console under **Agent → Runtime Config**. Fields read on demand, such as
-auto-memory cadence, auto-search limits, and reranker settings, apply to later turns after saving. An Embedding save is
+auto-memory cadence and auto-search limits, apply to later turns after saving. An Embedding save is
 transactional: QwenPaw persists the submitted running config, then tries to apply it to the live ReMe runtime. If the
 current service fingerprint was successfully tested, the running embedding model can be replaced in place; otherwise
 QwenPaw recreates the embedded ReMe application. If neither path succeeds, it rolls back the submitted fields when it

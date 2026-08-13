@@ -330,18 +330,15 @@ For supported providers, enablement conditions, field definitions, cache behavio
 
 ```mermaid
 flowchart LR
-    A[Query] --> B[Choose ReMe limit<br/>N, or N × reranker multiplier]
-    B --> C0[Expand each retrieval pool<br/>ReMe limit × 3, capped at 200]
+    A[Query] --> B[Choose result limit N]
+    B --> C0[Expand each retrieval pool<br/>N × 3, capped at 200]
     C0 --> C[Vector retrieval]
     C0 --> D[BM25 retrieval]
     C --> E[Deduplicate by chunk id and fuse with RRF]
     D --> E
-    E --> F[Apply min_score and keep ReMe limit]
+    E --> F[Apply min_score and keep N results]
     F --> G[Expand incoming and outgoing links]
-    G --> R{Reranker enabled?}
-    R -->|yes| RR[POST candidates to /rerank<br/>then cap to final N]
-    R -->|no| H[Return final N]
-    RR --> H
+    G --> H[Return results]
 ```
 
 When both branches return results, ReMe uses weighted Reciprocal Rank Fusion (RRF) by default:
@@ -356,55 +353,6 @@ RRF compares positions in the two ranked lists instead of directly comparing cos
 After fusion, ReMe expands up to ten outgoing and ten incoming links for each hit file from the graph index. Results therefore include both the most relevant text and connected sources, procedures, and neighboring knowledge nodes.
 
 > `min_score` defaults to `0`. Keep it at the default for normal use because raw single-branch scores and fused RRF scores have different scales; increasing the threshold indiscriminately may hide valid results.
-
-### Optional Reranking
-
-`reranker_config` adds a second-stage HTTP reranker after ReMe hybrid retrieval. When enabled with a non-empty
-`model_name`, both explicit `memory_search` and Auto-Memory-Search ask ReMe for
-`final_count × candidate_multiplier` results. QwenPaw sends the first 500 characters of each candidate to
-`POST {base_url}/rerank` with a Bearer token and this JSON shape:
-
-```json
-{
-  "model": "BAAI/bge-reranker-v2-m3",
-  "query": "the memory query",
-  "documents": ["candidate one", "candidate two"]
-}
-```
-
-The response must contain a `results` array covering every candidate exactly once with valid `index` values. QwenPaw
-sorts those entries by `relevance_score`, reorders the original result sections, preserves their hybrid scores and
-Wikilink expansions, and caps the output to the requested final count. If the service is unavailable, times out,
-returns an HTTP error, or returns an invalid/partial index list, search continues with the original ReMe order.
-
-```json
-{
-  "running": {
-    "reme_light_memory_config": {
-      "reranker_config": {
-        "enabled": true,
-        "api_key": "your-api-key",
-        "base_url": "https://api.siliconflow.cn/v1",
-        "model_name": "BAAI/bge-reranker-v2-m3",
-        "candidate_multiplier": 3,
-        "timeout": 10.0
-      }
-    }
-  }
-}
-```
-
-The current Console has no Reranker form; configure it in `agent.json`. The configuration is read for every search, so
-saved changes take effect without a dedicated Reranker restart.
-
-| Field                  | Default | Meaning                                                                |
-| ---------------------- | ------- | ---------------------------------------------------------------------- |
-| `enabled`              | `false` | Enable second-stage reranking                                          |
-| `api_key`              | `""`    | Bearer token for the reranker endpoint                                 |
-| `base_url`             | `""`    | API base URL; `/rerank` is appended                                    |
-| `model_name`           | `""`    | Model sent in the request; must be non-empty for reranking to activate |
-| `candidate_multiplier` | `3`     | ReMe result-count multiplier before reranking; minimum `1`             |
-| `timeout`              | `10.0`  | HTTP timeout in seconds; minimum `1.0`                                 |
 
 ### Manual Search and Auto-Memory-Search
 
@@ -460,31 +408,30 @@ The Agent can then use the returned path and line range to read the source file 
 
 ### Complete ReMeLight Configuration
 
-All fields live under `running.reme_light_memory_config`:
+The main user-facing fields live under `running.reme_light_memory_config`:
 
-| Field                            | Default             | Description                                                                  |
-| -------------------------------- | ------------------- | ---------------------------------------------------------------------------- |
-| `metadata_dir`                   | `"mem_metadata"`    | Directory for indexes, graph data, catalogs, and caches                      |
-| `session_dir`                    | `"mem_session"`     | Auto-Memory source conversation directory                                    |
-| `mem_session_dir`                | `"mem_agent"`       | ReMe internal memory-agent session directory                                 |
-| `resource_dir`                   | `"resource"`        | Raw resource directory used by Daily Paper and future knowledge workflows    |
-| `daily_dir`                      | `"memory"`          | Daily memory directory                                                       |
-| `digest_dir`                     | `"digest"`          | Long-term knowledge base directory                                           |
-| `auto_memory_inbox_push_enabled` | `true`              | Push Auto-Memory results to Inbox                                            |
-| `auto_dream_inbox_push_enabled`  | `true`              | Push Auto-Dream results to Inbox                                             |
-| `daily_paper_inbox_push_enabled` | `true`              | Push Daily Paper results to Inbox                                            |
-| `auto_memory_interval`           | `5`                 | Auto-Memory interval in user turns                                           |
-| `dream_cron_enabled`             | `true`              | Enable scheduled Auto-Dream                                                  |
-| `dream_cron`                     | `"0 23 * * *"`      | Five-field Auto-Dream cron expression                                        |
-| `daily_paper_cron_enabled`       | `false`             | Enable scheduled Daily Paper                                                 |
-| `daily_paper_cron`               | `"0 9 * * *"`       | Five-field Daily Paper cron expression                                       |
-| `daily_paper_use_hf_mirror`      | `false`             | Fetch paper information through the Hugging Face mirror                      |
-| `daily_paper_topics`             | `""`                | Topics to prioritize when selecting papers                                   |
-| `memory_search_enabled`          | `true`              | Expose the `memory_search` tool independently of automatic search            |
-| `auto_memory_search_config`      | See above           | Automatic memory search configuration                                        |
-| `embedding_model_config`         | Disabled by default | Optional vector model configuration; see [Embedding Models](./embedding)     |
-| `reranker_config`                | Disabled by default | Optional post-search reranker; see [Optional Reranking](#optional-reranking) |
-| `needs_reindex`                  | `false`             | Runtime-maintained flag for a pending vector-space index rebuild             |
+| Field                            | Default             | Description                                                               |
+| -------------------------------- | ------------------- | ------------------------------------------------------------------------- |
+| `metadata_dir`                   | `"mem_metadata"`    | Directory for indexes, graph data, catalogs, and caches                   |
+| `session_dir`                    | `"mem_session"`     | Auto-Memory source conversation directory                                 |
+| `mem_session_dir`                | `"mem_agent"`       | ReMe internal memory-agent session directory                              |
+| `resource_dir`                   | `"resource"`        | Raw resource directory used by Daily Paper and future knowledge workflows |
+| `daily_dir`                      | `"memory"`          | Daily memory directory                                                    |
+| `digest_dir`                     | `"digest"`          | Long-term knowledge base directory                                        |
+| `auto_memory_inbox_push_enabled` | `true`              | Push Auto-Memory results to Inbox                                         |
+| `auto_dream_inbox_push_enabled`  | `true`              | Push Auto-Dream results to Inbox                                          |
+| `daily_paper_inbox_push_enabled` | `true`              | Push Daily Paper results to Inbox                                         |
+| `auto_memory_interval`           | `5`                 | Auto-Memory interval in user turns                                        |
+| `dream_cron_enabled`             | `true`              | Enable scheduled Auto-Dream                                               |
+| `dream_cron`                     | `"0 23 * * *"`      | Five-field Auto-Dream cron expression                                     |
+| `daily_paper_cron_enabled`       | `false`             | Enable scheduled Daily Paper                                              |
+| `daily_paper_cron`               | `"0 9 * * *"`       | Five-field Daily Paper cron expression                                    |
+| `daily_paper_use_hf_mirror`      | `false`             | Fetch paper information through the Hugging Face mirror                   |
+| `daily_paper_topics`             | `""`                | Topics to prioritize when selecting papers                                |
+| `memory_search_enabled`          | `true`              | Expose the `memory_search` tool independently of automatic search         |
+| `auto_memory_search_config`      | See above           | Automatic memory search configuration                                     |
+| `embedding_model_config`         | Disabled by default | Optional vector model configuration; see [Embedding Models](./embedding)  |
+| `needs_reindex`                  | `false`             | Runtime-maintained flag for a pending vector-space index rebuild          |
 
 Legacy `inbox_push_enabled` is accepted only as a migration input: it initializes any of the three per-job Inbox
 switches that are absent, and is excluded when the validated configuration is serialized.
