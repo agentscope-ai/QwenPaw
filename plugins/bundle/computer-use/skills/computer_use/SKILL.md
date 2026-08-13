@@ -94,8 +94,10 @@ Interpret result fields conservatively:
   it does not rule out a visual-only change.
 - `effect: observed` verifies the edited buffer; `effect: unverified` requires
   confirmation from replacement state or a fresh observation.
-- `requires_observe` invalidates the old target. Follow `next_action` and its
-  returned window or rediscover the replacement window before more input.
+- Follow an explicit `next_action` before choosing another action; treat it as
+  bound to the returned state.
+- `requires_observe` invalidates the old target. Use its returned window or
+  rediscover the replacement window before more input.
 - `confirmation_required` or `pending_action` means the edit is not complete.
 
 When a visual result appears before its accessibility element, wait and observe
@@ -166,7 +168,7 @@ pending.
 `type` and `press_key` target the observed window and bring it to the
 foreground. If a control must first be selected, click it and inspect the
 replacement observation before typing. Use `type` only with verified editable
-focus or the one-shot transient editor described above.
+focus or an explicit `next_action: type` from the returned state.
 
 Use `sequence` only for deterministic `type` and `press_key` steps that stay in
 the same window and do not depend on an intermediate screen change. Split at
@@ -191,13 +193,8 @@ Apply only the subsection matching the runtime platform.
 
 - Express Command as `WIN` and Option as `ALT`; for example,
   `WIN+SHIFT+N` is Command-Shift-N.
-- `begin_text_edit` is a narrow fallback for an observed `MenuItem` in the
-  currently open transient menu whose semantics indicate that it opens an
-  inline text editor that may not appear in the accessibility tree. Use it
-  instead of `invoke` only for that case.
-- If `begin_text_edit` returns `transient_text_ready: true` and
-  `next_action: type`, send exactly one `type` action next. Otherwise type only
-  when the replacement observation identifies editable focus.
+- Use `begin_text_edit` only for an observed menu command whose semantics
+  require immediate text input; otherwise use `invoke`.
 
 ### Windows
 
