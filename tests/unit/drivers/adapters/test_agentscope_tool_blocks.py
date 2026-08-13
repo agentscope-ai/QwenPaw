@@ -24,7 +24,10 @@ class _CallResult:
     """Minimal stand-in for an MCP ``CallToolResult``."""
 
     def __init__(
-        self, content=None, structured=None, is_error: bool = False
+        self,
+        content=None,
+        structured=None,
+        is_error: bool = False,
     ) -> None:
         self.content = content
         self.structuredContent = structured
@@ -49,7 +52,8 @@ def test_structured_content_deduped_when_content_present() -> None:
 def test_content_blocks_used_when_structured_absent() -> None:
     """With no structuredContent, the content blocks are kept as-is."""
     result = _CallResult(
-        content=[_TextItem("plain text answer")], structured=None
+        content=[_TextItem("plain text answer")],
+        structured=None,
     )
 
     blocks = _blocks_from_value(result)
