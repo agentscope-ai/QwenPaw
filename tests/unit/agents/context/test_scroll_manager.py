@@ -2254,3 +2254,173 @@ def test_tool_input_round_trips_to_db(store: HistoryStore):
         "WHERE tool_call_id='call-9'",
     ).fetchone()
     assert row["tool_input"] == '{"pattern": "x"}'
+
+
+# -- issue #6541: rebuild-seam pairing invariant ---------------------------
+#
+# The DeepSeek/OpenAI-compatible 400 behind issue #6541 ("Messages with role
+# 'tool' must be a response to a preceding message with 'tool_calls'") is an
+# orphaned-tool-message failure, not a placeholder-role failure: the
+# compression placeholder carries no tool blocks, so its role cannot affect
+# tool pairing.  Every context Scroll reassembles must therefore be free of
+# orphaned tool messages; ``_rebuild_context`` enforces that invariant at the
+# seam shared by compress() and reconcile_loaded_context().
+
+
+def _standalone_tool_result(tcid: str) -> Msg:
+    """A tool result separated from its (already evicted) tool_call."""
+    return Msg(
+        name="a",
+        role="assistant",
+        content=[
+            ToolResultBlock(
+                type="tool_result",
+                id=tcid,
+                name="grep",
+                output=[TextBlock(type="text", text="RESULT")],
+            ),
+        ],
+    )
+
+
+def _unpaired_tool_call(tcid: str) -> Msg:
+    """An assistant tool_call whose results never arrived / were lost."""
+    return Msg(
+        name="a",
+        role="assistant",
+        content=[
+            TextBlock(type="text", text="calling a tool"),
+            ToolCallBlock(type="tool_call", id=tcid, name="grep", input="{}"),
+        ],
+    )
+
+
+def _tool_block_ids(msg: Msg) -> list:
+    ids: list = []
+    content = getattr(msg, "content", None)
+    if not isinstance(content, list):
+        return ids
+    for block in content:
+        btype = (
+            block.get("type")
+            if isinstance(block, dict)
+            else getattr(block, "type", None)
+        )
+        if btype in ("tool_call", "tool_use", "tool_result"):
+            bid = (
+                block.get("id")
+                if isinstance(block, dict)
+                else getattr(block, "id", None)
+            )
+            ids.append((btype, bid))
+    return ids
+
+
+def test_rebuild_seam_drops_orphan_tool_result(store: HistoryStore):
+    """An evicted tool_call must not leave its result behind in the tail."""
+    mgr = make_manager(store)
+    agent = FakeAgent([user("live request")])
+    tail = [
+        _standalone_tool_result("call-evicted"),
+        user("live request"),
+        assistant_with_tool("call-live"),
+    ]
+    mgr._rebuild_context(agent, tail)
+    ctx = agent.state.context
+
+    assert len(ctx) == 3  # placeholder + user + paired tool turn
+    assert ctx[0].name == "memory"  # placeholder kept
+    surviving = [
+        (kind, bid) for msg in ctx for kind, bid in _tool_block_ids(msg)
+    ]
+    assert ("tool_result", "call-evicted") not in surviving
+    assert ("tool_call", "call-live") in surviving
+    assert ("tool_result", "call-live") in surviving
+
+
+def test_rebuild_seam_drops_unpaired_tool_call(store: HistoryStore):
+    """A tool_call without results is dropped instead of reaching the API."""
+    mgr = make_manager(store)
+    agent = FakeAgent([user("live request")])
+    tail = [
+        user("live request"),
+        assistant_with_tool("call-live"),
+        _unpaired_tool_call("call-dangling"),
+    ]
+    mgr._rebuild_context(agent, tail)
+    ctx = agent.state.context
+
+    surviving = [
+        (kind, bid) for msg in ctx for kind, bid in _tool_block_ids(msg)
+    ]
+    assert ("tool_call", "call-dangling") not in surviving
+    assert ("tool_call", "call-live") in surviving
+    assert ("tool_result", "call-live") in surviving
+
+
+def test_rebuild_seam_keeps_placeholder_user_role(store: HistoryStore):
+    """The placeholder stays role=user.
+
+    Anthropic rejects mid-context system messages, and
+    ``_prepare_model_input()`` always prepends the system prompt, so a
+    system-role placeholder would 400 Anthropic on every compression.
+    """
+    mgr = make_manager(store)
+    agent = FakeAgent([user("live request")])
+    mgr._rebuild_context(agent, [user("live request")])
+    placeholder = agent.state.context[0]
+    assert placeholder.role == "user"
+    assert placeholder.name == "memory"
+    assert (
+        placeholder.metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+        == SCROLL_MEMORY_MESSAGE_TAG
+    )
+
+
+async def test_rebuilt_context_wire_passes_tool_pairing(
+    store: HistoryStore,
+):
+    """Wire-level regression guard for issue #6541.
+
+    The rebuilt context, normalized and formatted for an OpenAI-compatible
+    provider (DeepSeek's family), must satisfy the strict tool-pairing rule
+    whose violation produced the reported 400: every role=tool message must
+    sit right after the assistant message whose tool_calls carry its id.
+    """
+    from agentscope.formatter import OpenAIChatFormatter
+
+    from qwenpaw.agents.utils.message_request_normalizer import (
+        normalize_messages_for_model_request,
+    )
+
+    mgr = make_manager(store)
+    tail = [
+        _standalone_tool_result("call-evicted"),  # hostile input
+        user("live request"),
+        assistant_with_tool("call-live"),
+    ]
+    agent = FakeAgent(list(tail))
+    mgr._rebuild_context(agent, tail)
+
+    normalized = normalize_messages_for_model_request(
+        agent.state.context,
+        supports_multimodal=True,
+        target_family="openai",
+    )
+    wire = await OpenAIChatFormatter().format(normalized)
+
+    for i, msg in enumerate(wire):
+        if msg.get("role") != "tool":
+            continue
+        tcid = msg.get("tool_call_id")
+        j = i - 1
+        while j >= 0 and wire[j].get("role") == "tool":
+            j -= 1
+        assert j >= 0, f"wire[{i}] tool message has no predecessor"
+        caller = wire[j]
+        assert (
+            caller.get("role") == "assistant"
+        ), f"wire[{i}] tool message preceded by {caller.get('role')}"
+        assert any(
+            tc.get("id") == tcid for tc in caller.get("tool_calls") or ()
+        ), f"wire[{i}] tool_call_id {tcid} missing from predecessor"

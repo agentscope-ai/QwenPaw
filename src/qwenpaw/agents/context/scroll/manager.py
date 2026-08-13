@@ -1814,6 +1814,21 @@ class ScrollContextManager:
                 + render_live_turn_banner()
             )
             memory = f"<system-info>\n{body}\n</system-info>"
+        # Pairing invariant at the rebuild seam: every context Scroll
+        # reassembles must be free of orphaned tool messages (a
+        # ``tool_result`` whose ``tool_call`` was evicted, or a
+        # ``tool_call`` whose results were lost).  Providers with strict
+        # pairing validation (e.g. DeepSeek and other OpenAI-compatible
+        # APIs) reject such sequences with 400 "Messages with role 'tool'
+        # must be a response to a preceding message with 'tool_calls'"
+        # (issue #6541).  compress() already sanitizes the tail before
+        # calling us, but this seam is also reached by
+        # reconcile_loaded_context() and any future rebuild path, so the
+        # invariant is enforced here instead of trusting every caller.
+        # The user-role placeholder itself carries no tool blocks and is
+        # pairing-neutral; its role stays ``user`` deliberately (Anthropic
+        # rejects mid-context system messages — see eviction_index.py).
+        tail = _remove_unpaired_tool_messages(tail)
         placeholder = UserMsg(
             name="memory",
             content=memory,
