@@ -13,18 +13,13 @@ from agentscope.message import Msg
 
 from .as_msg_stat import AsMsgStat, AsBlockStat
 from .estimate_token_counter import EstimatedTokenCounter
+from .media_token_estimate import (
+    estimate_data_url_tokens,
+    estimate_inline_media_tokens,
+    iter_data_url_spans,
+)
 
 logger = logging.getLogger(__name__)
-
-# Vision APIs charge by image tiles, not payload bytes. The text heuristic
-# ``len(data) // 4`` turns a 2 MB photo into ~700k "tokens" and fills the
-# context-usage ring after one or two pictures.
-_ESTIMATED_MEDIA_TOKENS = 2048
-
-
-def _base64_media_tokens(data: str) -> int:
-    """Fixed tile-cost estimate for an inlined media payload."""
-    return _ESTIMATED_MEDIA_TOKENS if data else 10
 
 
 class AsMsgHandler:
@@ -43,13 +38,46 @@ class AsMsgHandler:
         """Count tokens in a string."""
         return await self._token_counter.count(text=text)
 
+    async def _count_text_with_data_urls(self, text: str) -> int:
+        """Count text, replacing inlined data URLs with media estimates."""
+        spans = iter_data_url_spans(text)
+        if not spans:
+            return await self.count_str_token(text)
+        total = 0
+        last = 0
+        for start, end, media_type, payload in spans:
+            if start > last:
+                total += await self.count_str_token(text[last:start])
+            total += estimate_inline_media_tokens(media_type, payload)
+            last = end
+        if last < len(text):
+            total += await self.count_str_token(text[last:])
+        return total
+
+    async def _tokens_from_source(self, source: object) -> int:
+        """Estimate tokens for a media ``source`` dict."""
+        if not isinstance(source, dict):
+            return 10
+        if source.get("type") == "base64":
+            return estimate_inline_media_tokens(
+                str(source.get("media_type", "") or ""),
+                str(source.get("data", "") or ""),
+            )
+        url = str(source.get("url", "") or "")
+        if not url:
+            return 10
+        data_url_tokens = estimate_data_url_tokens(url)
+        if data_url_tokens is not None:
+            return data_url_tokens
+        return await self.count_str_token(url)
+
     async def _format_tool_result_output(
         self,
         output: str | list[dict],
     ) -> tuple[str, int]:
         """Convert tool result output to (text, token_count)."""
         if isinstance(output, str):
-            return output, await self.count_str_token(output)
+            return output, await self._count_text_with_data_urls(output)
 
         textual_parts = []
         total_token_count = 0
@@ -72,20 +100,17 @@ class AsMsgHandler:
 
                 elif block_type in ["image", "audio", "video", "file", "data"]:
                     source = block.get("source", {})
-                    if (
+                    total_token_count += await self._tokens_from_source(
+                        source,
+                    )
+                    if not (
                         isinstance(source, dict)
                         and source.get("type") == "base64"
                     ):
-                        data = source.get("data", "")
-                        total_token_count += _base64_media_tokens(data)
-                    else:
                         url = (
                             source.get("url", "")
                             if isinstance(source, dict)
                             else ""
-                        )
-                        total_token_count += (
-                            await self.count_str_token(url) if url else 10
                         )
                         display_type = block_type
                         if block_type == "data" and isinstance(source, dict):
@@ -164,15 +189,7 @@ class AsMsgHandler:
                 url = ""
                 if isinstance(source, dict):
                     url = source.get("url", "")
-                    if source.get("type") == "base64":
-                        data = source.get("data", "")
-                        token_count = _base64_media_tokens(data)
-                    else:
-                        token_count = (
-                            await self.count_str_token(url) if url else 10
-                        )
-                else:
-                    token_count = 10
+                token_count = await self._tokens_from_source(source)
                 display_type = block_type
                 if block_type == "data":
                     mt = ""
