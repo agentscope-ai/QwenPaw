@@ -9,6 +9,7 @@ import {
   Switch,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
+import { ChevronRight } from "lucide-react";
 
 import { api } from "@/api";
 import type { EmbeddingModelConfig } from "@/api/types/agent";
@@ -172,41 +173,37 @@ export function EmbeddingModelCard() {
                 : "\u00a0"}
             </small>
           </div>
-          <div
-            className={`${styles.memoryOverviewItem} ${styles.memoryOverviewActionItem} ${styles.embeddingVerificationItem}`}
+          <button
+            type="button"
+            className={`${styles.memoryOverviewItem} ${styles.memoryOverviewClickableItem} ${styles.embeddingVerificationAction}`}
+            onClick={testEmbedding}
+            disabled={!embeddingEnabled || testingEmbedding}
+            aria-busy={testingEmbedding}
+            aria-label={t("agentConfig.embeddingTestConnection")}
           >
-            <div>
-              <span>{t("agentConfig.embeddingVerificationStatus")}</span>
-              {testedEmbeddingIsCurrent && testedEmbedding ? (
-                <>
-                  <strong className={styles.embeddingStatusValueVerified}>
-                    {t("agentConfig.embeddingVerified")}
-                  </strong>
-                  <small>
-                    {t("agentConfig.embeddingVerificationMetrics", {
-                      dimensions: testedEmbedding.dimensions,
-                      latency: testedEmbedding.latency,
-                    })}
-                  </small>
-                </>
-              ) : (
-                <>
-                  <strong className={styles.embeddingStatusValuePending}>
-                    {t("agentConfig.embeddingNotVerified")}
-                  </strong>
-                  <small>{t("agentConfig.embeddingVerificationHint")}</small>
-                </>
-              )}
-            </div>
-            <Button
-              className={styles.memoryStatusButton}
-              onClick={testEmbedding}
-              loading={testingEmbedding}
-              disabled={!embeddingEnabled}
-            >
-              {t("agentConfig.embeddingTestConnection")}
-            </Button>
-          </div>
+            <span>{t("agentConfig.embeddingVerificationStatus")}</span>
+            {testedEmbeddingIsCurrent && testedEmbedding ? (
+              <>
+                <strong className={styles.embeddingStatusValueVerified}>
+                  {t("agentConfig.embeddingVerified")}
+                </strong>
+                <small>
+                  {t("agentConfig.embeddingVerificationMetrics", {
+                    dimensions: testedEmbedding.dimensions,
+                    latency: testedEmbedding.latency,
+                  })}
+                </small>
+              </>
+            ) : (
+              <>
+                <strong className={styles.embeddingStatusValuePending}>
+                  {t("agentConfig.embeddingNotVerified")}
+                </strong>
+                <small>{t("agentConfig.embeddingVerificationHint")}</small>
+              </>
+            )}
+            <ChevronRight size={16} aria-hidden="true" />
+          </button>
         </div>
       </section>
 

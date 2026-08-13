@@ -383,6 +383,7 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
             "active_sessions": 0,
             "sessions_with_pending": 0,
             "pending_turns": 0,
+            "history": [],
         },
         "recent": {
             "last_completed_at": None,
@@ -451,6 +452,7 @@ def test_get_memory_status_returns_structured_reme_metrics(
             "active_sessions": 2,
             "sessions_with_pending": 1,
             "pending_turns": 3,
+            "history": [],
         },
         "recent": {
             "last_completed_at": "2026-08-10T10:18:00",

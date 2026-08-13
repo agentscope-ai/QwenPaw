@@ -30,6 +30,15 @@ export interface ReMeMemoryStatusResponse {
       active_sessions: number;
       sessions_with_pending: number;
       pending_turns: number;
+      history: Array<{
+        task_id: string;
+        status: "pending" | "running" | "completed" | "failed" | "cancelled";
+        queued_at: string | null;
+        finished_at: string | null;
+        message_count: number;
+        result: string | null;
+        error: string | null;
+      }>;
     };
     recent: {
       last_completed_at: string | null;

@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 MAX_QUERY_CHARS = 50
 SUMMARY_WORKER_CLOSE_TIMEOUT_SECONDS = 5.0
 MAX_SUMMARY_TASK_HISTORY = 100
+MAX_RUNTIME_TASK_HISTORY = 20
+MAX_RUNTIME_RESULT_CHARS = 4000
 SUMMARY_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 
@@ -449,6 +451,7 @@ class BaseMemoryManager(ABC):
             "task_id": task_id,
             "start_time": datetime.now(timezone.utc),
             "status": "pending",
+            "message_count": len(messages),
             "result": None,
             "error": None,
             "finished_at": None,
@@ -528,8 +531,9 @@ class BaseMemoryManager(ABC):
     ) -> dict[str, Any]:
         """Return a sanitized operational snapshot for status UIs.
 
-        This deliberately exposes aggregate counters rather than task results,
-        message markers, session identifiers, or other implementation details.
+        Auto-memory history includes the same bounded result text used for
+        inbox notifications. It deliberately excludes messages, session
+        identifiers, and task kwargs.
         """
         self._update_task_statuses()
 
@@ -594,6 +598,34 @@ class BaseMemoryManager(ABC):
         error = str(last_failed.get("error") or "") if last_failed else ""
         error = " ".join(error.split())[:240] or None
 
+        def _bounded_text(value: Any, limit: int) -> str | None:
+            text = str(value or "").strip()
+            if not text:
+                return None
+            if len(text) > limit:
+                return f"{text[:limit].rstrip()}\n..."
+            return text
+
+        history = []
+        for info in reversed(task_infos[-MAX_RUNTIME_TASK_HISTORY:]):
+            history.append(
+                {
+                    "task_id": str(info.get("task_id") or ""),
+                    "status": str(info.get("status") or "pending"),
+                    "queued_at": _iso_time(info, "start_time"),
+                    "finished_at": _iso_time(info, "finished_at"),
+                    "message_count": max(
+                        0,
+                        int(info.get("message_count") or 0),
+                    ),
+                    "result": _bounded_text(
+                        info.get("result"),
+                        MAX_RUNTIME_RESULT_CHARS,
+                    ),
+                    "error": _bounded_text(info.get("error"), 240),
+                },
+            )
+
         return {
             "worker": {
                 "status": worker_status,
@@ -609,6 +641,7 @@ class BaseMemoryManager(ABC):
                 "active_sessions": 0,
                 "sessions_with_pending": 0,
                 "pending_turns": 0,
+                "history": history,
             },
             "recent": {
                 "last_completed_at": _iso_time(

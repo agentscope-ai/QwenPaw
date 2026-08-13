@@ -124,6 +124,18 @@ class MemoryWorkerRuntimeStatus(BaseModel):
     tasks_running: int
 
 
+class AutoMemoryRunStatus(BaseModel):
+    """One bounded auto-memory task record, newest records returned first."""
+
+    task_id: str
+    status: Literal["pending", "running", "completed", "failed", "cancelled"]
+    queued_at: str | None = None
+    finished_at: str | None = None
+    message_count: int = 0
+    result: str | None = None
+    error: str | None = None
+
+
 class AutoMemoryRuntimeStatus(BaseModel):
     """Aggregate auto-memory progress without exposing session identity."""
 
@@ -132,6 +144,7 @@ class AutoMemoryRuntimeStatus(BaseModel):
     active_sessions: int
     sessions_with_pending: int
     pending_turns: int
+    history: list[AutoMemoryRunStatus] = Field(default_factory=list)
 
 
 class RecentMemoryRuntimeStatus(BaseModel):
