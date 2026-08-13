@@ -159,13 +159,6 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
             {isLoading && ` ${t("tool.loading")}`}
           </span>
           {summaryAction}
-          {isLoading && inputProgress && (
-            <span className={styles.toolCallInputProgress}>
-              {t("tool.inputProgress", {
-                count: inputProgress.characterCount,
-              })}
-            </span>
-          )}
           {!isLoading && !isError && badges}
           {inlineResult && (
             <span className={styles.toolCallInlineResult} title={inlineResult}>

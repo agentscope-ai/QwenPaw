@@ -1828,7 +1828,6 @@
       "status": "Status"
     },
     "loading": "Memuat...",
-    "inputProgress": "{{count}} karakter diterima",
     "rawInputPreview": "Input mentah langsung (4.096 karakter terakhir)",
     "largeOutputOmitted": "{{count}} baris dihilangkan — salin keluaran yang tersedia atau ikuti petunjuk pemulihannya",
     "largeOutputTruncated": "Keluaran dipangkas untuk tampilan — salin keluaran yang tersedia atau ikuti petunjuk pemulihannya",
