@@ -851,6 +851,21 @@ class ADBPGMemoryConfig(BaseModel):
     )
 
 
+class PowerContextMemoryConfig(BaseModel):
+    """PowerContext HTTP memory configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    base_url: str = ""
+    token: str = ""
+    scope_id: str = "workspace:qwenpaw"
+    timeout: float = Field(default=10.0, ge=1.0)
+    fallback_backend: str = "remelight"
+    auto_memory_search_config: AutoMemorySearchConfig = Field(
+        default_factory=lambda: AutoMemorySearchConfig(enabled=True, max_results=3),
+    )
+
+
 class ReMeLightMemoryConfig(BaseModel):
     """ReMeLight memory manager configuration."""
 
@@ -1843,6 +1858,11 @@ class AgentsRunningConfig(BaseModel):
         default=None,
         description="ADBPG memory configuration (used when "
         "memory_manager_backend='adbpg')",
+    )
+
+    powercontext_memory_config: Optional[PowerContextMemoryConfig] = Field(
+        default=None,
+        description="PowerContext memory configuration (used when memory_manager_backend='powercontext')",
     )
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(
