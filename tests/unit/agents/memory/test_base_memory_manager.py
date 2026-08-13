@@ -261,7 +261,7 @@ class TestBaseMemoryManagerAddSummarizeTask:
         worker.cancel()
         await asyncio.wait({worker}, timeout=0.5)
 
-    def test_runtime_status_includes_bounded_auto_memory_history(
+    def test_runtime_status_includes_bounded_memory_capture_tasks(
         self,
         manager,
     ):
@@ -317,32 +317,29 @@ class TestBaseMemoryManagerAddSummarizeTask:
         assert status["auto_memory"] == {
             "enabled": True,
             "interval": 5,
-            "history": [
-                {
-                    "task_id": "task_2",
-                    "status": "failed",
-                    "queued_at": "2026-08-10T00:59:00+00:00",
-                    "finished_at": "2026-08-10T01:00:00+00:00",
-                    "message_count": 2,
-                    "result": None,
-                    "error": "e" * 240,
-                },
-                {
-                    "task_id": "task_1",
-                    "status": "completed",
-                    "queued_at": "2026-08-09T23:59:00+00:00",
-                    "finished_at": "2026-08-10T00:00:00+00:00",
-                    "message_count": 4,
-                    "result": long_result[
-                        : base_memory_manager.MAX_RUNTIME_RESULT_CHARS
-                    ],
-                    "error": None,
-                },
-            ],
         }
-        assert status["recent"]["last_completed_at"] == (
-            "2026-08-10T00:00:00+00:00"
-        )
+        assert status["tasks"] == [
+            {
+                "task_id": "task_2",
+                "status": "failed",
+                "queued_at": "2026-08-10T00:59:00+00:00",
+                "finished_at": "2026-08-10T01:00:00+00:00",
+                "message_count": 2,
+                "result": None,
+                "error": "e" * 240,
+            },
+            {
+                "task_id": "task_1",
+                "status": "completed",
+                "queued_at": "2026-08-09T23:59:00+00:00",
+                "finished_at": "2026-08-10T00:00:00+00:00",
+                "message_count": 4,
+                "result": long_result[
+                    : base_memory_manager.MAX_RUNTIME_RESULT_CHARS
+                ],
+                "error": None,
+            },
+        ]
         assert status["recent"]["last_error"] == "e" * 240
 
 

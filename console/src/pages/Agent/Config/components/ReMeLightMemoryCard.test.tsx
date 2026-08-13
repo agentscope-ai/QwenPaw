@@ -48,11 +48,9 @@ const memoryStatus = {
     auto_memory: {
       enabled: true,
       interval: 5,
-      history: [],
     },
+    tasks: [],
     recent: {
-      last_completed_at: "2026-08-10T10:18:00",
-      last_failed_at: null,
       last_error: null,
     },
     reindexing: false,
@@ -60,13 +58,15 @@ const memoryStatus = {
 };
 
 const unknownRuntime = { type: "unknown" as const };
+const unknownDiagnostics = { type: "unknown" as const };
 const noopStatusCheck = async () => {};
 
 function RuntimeProvider({ children }: { children: ReactNode }) {
   const [localReindexing, setLocalReindexing] = useState(false);
-  const { runtimeStatus, checkMemoryStatus } = useReMeRuntimeStatus(true);
+  const { runtimeStatus, diagnosticsStatus, checkMemoryStatus } =
+    useReMeRuntimeStatus(true);
   const remoteReindexing =
-    runtimeStatus.type === "healthy" && runtimeStatus.data.runtime.reindexing;
+    runtimeStatus.type === "healthy" && runtimeStatus.data.reindexing;
   return (
     <MemoryMaintenanceContext.Provider
       value={{
@@ -76,6 +76,7 @@ function RuntimeProvider({ children }: { children: ReactNode }) {
         setReindexing: setLocalReindexing,
         openMemorySettings: vi.fn(),
         runtimeStatus,
+        diagnosticsStatus,
         checkMemoryStatus,
         configRevision: 0,
       }}
@@ -95,6 +96,7 @@ function StaticMemoryProvider({ children }: { children: ReactNode }) {
         setReindexing: vi.fn(),
         openMemorySettings: vi.fn(),
         runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
         configRevision: 0,
       }}
@@ -176,6 +178,7 @@ function ReindexingEmbeddingForm() {
         setReindexing: vi.fn(),
         openMemorySettings: vi.fn(),
         runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
         configRevision: 0,
       }}
@@ -196,6 +199,7 @@ function NeedsReindexEmbeddingForm({ onOpen = vi.fn() }) {
         setReindexing: vi.fn(),
         openMemorySettings: onOpen,
         runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
         configRevision: 0,
       }}
@@ -209,9 +213,10 @@ function MemoryAndEmbeddingForm() {
   const [form] = Form.useForm();
   const [needsReindex, setNeedsReindex] = useState(false);
   const [localReindexing, setReindexing] = useState(false);
-  const { runtimeStatus, checkMemoryStatus } = useReMeRuntimeStatus(true);
+  const { runtimeStatus, diagnosticsStatus, checkMemoryStatus } =
+    useReMeRuntimeStatus(true);
   const remoteReindexing =
-    runtimeStatus.type === "healthy" && runtimeStatus.data.runtime.reindexing;
+    runtimeStatus.type === "healthy" && runtimeStatus.data.reindexing;
   return (
     <MemoryMaintenanceContext.Provider
       value={{
@@ -221,6 +226,7 @@ function MemoryAndEmbeddingForm() {
         setReindexing,
         openMemorySettings: vi.fn(),
         runtimeStatus,
+        diagnosticsStatus,
         checkMemoryStatus,
         configRevision: 0,
       }}
@@ -349,6 +355,32 @@ describe("ReMe runtime status", () => {
     expect(
       screen.queryByText("agentConfig.memoryStatusRunning"),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps runtime healthy when diagnostics fail", async () => {
+    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockResolvedValue(
+      memoryStatus.runtime,
+    );
+    vi.spyOn(agentsApi, "getMemoryStatus").mockRejectedValue(
+      new Error("Diagnostics unavailable"),
+    );
+
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
+
+    expect(
+      await screen.findByText("agentConfig.memoryStatusRunning"),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /agentConfig\.memoryDiagnostics/,
+      }),
+    );
+    expect(
+      await screen.findByText("agentConfig.remeStatusFailed"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.memoryStatusRunning"),
+    ).toBeInTheDocument();
   });
 
   it("cancels the stale check when the selected agent changes", async () => {

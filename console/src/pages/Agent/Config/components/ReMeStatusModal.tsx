@@ -2,14 +2,18 @@ import { Alert, Button, Modal } from "@agentscope-ai/design";
 import { Spin } from "antd";
 import { useTranslation } from "react-i18next";
 
-import type { ReMeMemoryStatusResponse } from "@/api/modules/agents";
+import type {
+  ReMeMemoryRuntimeStatus,
+  ReMeMemoryStatusResponse,
+} from "@/api/modules/agents";
 import styles from "../index.module.less";
 
 interface ReMeStatusModalProps {
   view: "tasks" | "diagnostics" | null;
   loading: boolean;
   error: string;
-  memoryStatus: ReMeMemoryStatusResponse | null;
+  runtime: ReMeMemoryRuntimeStatus | null;
+  diagnostics: ReMeMemoryStatusResponse | null;
   statusBadge: { className: string };
   statusBadgeLabel: string;
   onRefresh: () => void;
@@ -20,7 +24,8 @@ export function ReMeStatusModal({
   view,
   loading,
   error,
-  memoryStatus,
+  runtime,
+  diagnostics,
   statusBadge,
   statusBadgeLabel,
   onRefresh,
@@ -29,9 +34,9 @@ export function ReMeStatusModal({
   const { t } = useTranslation();
   const formatRuntimeTime = (value: string | null) =>
     value ? new Date(value).toLocaleString() : t("agentConfig.memoryNeverRun");
-  const runtime = memoryStatus?.runtime;
   const worker = runtime?.worker;
   const autoMemory = runtime?.auto_memory;
+  const tasks = runtime?.tasks;
   const recent = runtime?.recent;
   let queueSummary = "";
   if (worker) {
@@ -78,7 +83,7 @@ export function ReMeStatusModal({
         </div>
       }
     >
-      {loading && !memoryStatus ? (
+      {loading && !(view === "tasks" ? runtime : diagnostics) ? (
         <div className={styles.memoryStatusLoading}>
           <Spin />
           <span>{t("agentConfig.remeStatusLoading")}</span>
@@ -90,7 +95,7 @@ export function ReMeStatusModal({
           message={t("agentConfig.remeStatusFailed")}
           description={error}
         />
-      ) : memoryStatus ? (
+      ) : runtime || diagnostics ? (
         <div className={styles.memoryStatusContent}>
           {view === "tasks" ? (
             <section className={styles.memoryTaskPanel}>
@@ -124,9 +129,9 @@ export function ReMeStatusModal({
                 <div className={styles.memoryAutoMemoryHistoryHeader}>
                   <strong>{t("agentConfig.memoryRecentTasks")}</strong>
                 </div>
-                {autoMemory?.history.length ? (
+                {tasks?.length ? (
                   <div className={styles.memoryAutoMemoryHistoryList}>
-                    {autoMemory.history.map((run) => (
+                    {tasks.map((run) => (
                       <details key={run.task_id}>
                         <summary>
                           <span>
@@ -165,12 +170,12 @@ export function ReMeStatusModal({
               <div className={styles.memoryStatusMetrics}>
                 <div>
                   <span>{t("agentConfig.remeStatusComponentsTotal")}</span>
-                  <strong>{memoryStatus.components_total}</strong>
+                  <strong>{diagnostics?.components_total}</strong>
                   <small>{t("agentConfig.remeStatusEstimated")}</small>
                 </div>
                 <div>
                   <span>{t("agentConfig.remeStatusProcessRss")}</span>
-                  <strong>{memoryStatus.process_rss}</strong>
+                  <strong>{diagnostics?.process_rss}</strong>
                   <small>{t("agentConfig.remeStatusProcessRssHint")}</small>
                 </div>
               </div>
@@ -178,7 +183,7 @@ export function ReMeStatusModal({
               <div className={styles.memoryStatusComponentSection}>
                 <h4>{t("agentConfig.remeStatusComponents")}</h4>
                 <div className={styles.memoryStatusComponentList}>
-                  {Object.entries(memoryStatus.components).flatMap(
+                  {Object.entries(diagnostics?.components ?? {}).flatMap(
                     ([componentType, components]) =>
                       Object.entries(components).map(([name, usage]) => (
                         <div

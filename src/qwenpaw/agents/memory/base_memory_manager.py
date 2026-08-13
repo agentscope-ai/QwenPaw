@@ -32,6 +32,7 @@ SUMMARY_WORKER_CLOSE_TIMEOUT_SECONDS = 5.0
 MAX_SUMMARY_TASK_HISTORY = 100
 MAX_RUNTIME_TASK_HISTORY = 20
 MAX_RUNTIME_RESULT_CHARS = 4000
+MAX_RUNTIME_ERROR_CHARS = 240
 SUMMARY_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 
@@ -566,14 +567,6 @@ class BaseMemoryManager(ABC):
                 else "idle"
             )
 
-        last_completed = next(
-            (
-                info
-                for info in reversed(task_infos)
-                if info.get("status") == "completed"
-            ),
-            None,
-        )
         last_failed = next(
             (
                 info
@@ -598,18 +591,22 @@ class BaseMemoryManager(ABC):
             value = info.get(key)
             return value.isoformat() if isinstance(value, datetime) else None
 
-        error = str(last_failed.get("error") or "") if last_failed else ""
-        error = " ".join(error.split())[:240] or None
-
-        def _bounded_text(value: Any, limit: int) -> str | None:
+        def _bounded_text(
+            value: Any,
+            limit: int,
+            *,
+            single_line: bool = False,
+        ) -> str | None:
             text = str(value or "").strip()
             if not text:
                 return None
+            if single_line:
+                text = " ".join(text.split())
             return text[:limit]
 
-        history = []
+        tasks = []
         for info in reversed(task_infos[-MAX_RUNTIME_TASK_HISTORY:]):
-            history.append(
+            tasks.append(
                 {
                     "task_id": str(info.get("task_id") or ""),
                     "status": str(info.get("status") or "pending"),
@@ -623,7 +620,10 @@ class BaseMemoryManager(ABC):
                         info.get("result"),
                         MAX_RUNTIME_RESULT_CHARS,
                     ),
-                    "error": _bounded_text(info.get("error"), 240),
+                    "error": _bounded_text(
+                        info.get("error"),
+                        MAX_RUNTIME_ERROR_CHARS,
+                    ),
                 },
             )
 
@@ -636,15 +636,14 @@ class BaseMemoryManager(ABC):
             "auto_memory": {
                 "enabled": interval > 0,
                 "interval": interval,
-                "history": history,
             },
+            "tasks": tasks,
             "recent": {
-                "last_completed_at": _iso_time(
-                    last_completed,
-                    "finished_at",
+                "last_error": _bounded_text(
+                    last_failed.get("error") if last_failed else None,
+                    MAX_RUNTIME_ERROR_CHARS,
+                    single_line=True,
                 ),
-                "last_failed_at": _iso_time(last_failed, "finished_at"),
-                "last_error": error,
             },
             "reindexing": bool(getattr(self, "is_reindexing", False)),
         }

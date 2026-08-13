@@ -380,11 +380,9 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
         "auto_memory": {
             "enabled": False,
             "interval": 0,
-            "history": [],
         },
+        "tasks": [],
         "recent": {
-            "last_completed_at": None,
-            "last_failed_at": None,
             "last_error": None,
         },
         "reindexing": True,
@@ -446,11 +444,9 @@ def test_get_memory_status_returns_structured_reme_metrics(
         "auto_memory": {
             "enabled": True,
             "interval": 5,
-            "history": [],
         },
+        "tasks": [],
         "recent": {
-            "last_completed_at": "2026-08-10T10:18:00",
-            "last_failed_at": None,
             "last_error": None,
         },
         "reindexing": False,

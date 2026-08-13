@@ -9,7 +9,7 @@ import {
   Switch,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import { ChevronRight } from "lucide-react";
+import { BadgeCheck, ChevronRight, Cpu, Power, Ruler } from "lucide-react";
 
 import { api } from "@/api";
 import type { EmbeddingModelConfig } from "@/api/types/agent";
@@ -140,7 +140,10 @@ export function EmbeddingModelCard() {
 
         <div className={styles.memoryOverviewGrid}>
           <div className={styles.memoryOverviewItem}>
-            <span>{t("agentConfig.embeddingConfigStatus")}</span>
+            <span className={styles.memoryOverviewLabel}>
+              <Power size={14} aria-hidden="true" />
+              {t("agentConfig.embeddingConfigStatus")}
+            </span>
             <strong
               className={
                 embeddingEnabled
@@ -157,12 +160,18 @@ export function EmbeddingModelCard() {
             </strong>
           </div>
           <div className={styles.memoryOverviewItem}>
-            <span>{t("agentConfig.embeddingCurrentModel")}</span>
+            <span className={styles.memoryOverviewLabel}>
+              <Cpu size={14} aria-hidden="true" />
+              {t("agentConfig.embeddingCurrentModel")}
+            </span>
             <strong title={modelName}>{modelName || "—"}</strong>
             <small>{normalizedBackend || "—"}</small>
           </div>
           <div className={styles.memoryOverviewItem}>
-            <span>{t("agentConfig.embeddingConfiguredDimensions")}</span>
+            <span className={styles.memoryOverviewLabel}>
+              <Ruler size={14} aria-hidden="true" />
+              {t("agentConfig.embeddingConfiguredDimensions")}
+            </span>
             <strong>{embeddingConfig?.dimensions || "—"}</strong>
             <small>
               {embeddingConfig?.dimensions
@@ -178,7 +187,10 @@ export function EmbeddingModelCard() {
             aria-busy={testingEmbedding}
             aria-label={t("agentConfig.embeddingTestConnection")}
           >
-            <span>{t("agentConfig.embeddingVerificationStatus")}</span>
+            <span className={styles.memoryOverviewLabel}>
+              <BadgeCheck size={14} aria-hidden="true" />
+              {t("agentConfig.embeddingVerificationStatus")}
+            </span>
             {testedEmbeddingIsCurrent && testedEmbedding ? (
               <>
                 <strong className={styles.embeddingStatusValueVerified}>
