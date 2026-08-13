@@ -111,6 +111,32 @@ describe("ToolCardShell lazy body", () => {
     expect(label).toHaveTextContent(title.trim());
   });
 
+  it("replaces the spinner node when the tool finishes", () => {
+    const { container, rerender } = render(
+      <ToolCardShell
+        content={runningContent}
+        icon={<span data-testid="completion-icon" />}
+        title="Shell"
+        isStreaming
+      />,
+    );
+    const spinner = container.querySelector('[class*="toolCallSpinner"]');
+
+    expect(spinner).not.toBeNull();
+
+    rerender(
+      <ToolCardShell
+        content={content}
+        icon={<span data-testid="completion-icon" />}
+        title="Shell"
+      />,
+    );
+
+    const completionIcon = screen.getByTestId("completion-icon");
+    expect(spinner).not.toBeInTheDocument();
+    expect(completionIcon.parentElement).not.toBe(spinner);
+  });
+
   it("mounts the body only after the first expansion", () => {
     const { container } = render(
       <ToolCardShell content={content} icon={<span />} title="Shell">

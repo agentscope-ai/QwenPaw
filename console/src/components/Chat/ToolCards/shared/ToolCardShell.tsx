@@ -144,9 +144,10 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
       >
         <summary className={styles.toolCallCompactSummary}>
           {isLoading ? (
-            <span className={styles.toolCallSpinner} />
+            <span key="spinner" className={styles.toolCallSpinner} />
           ) : (
             <span
+              key="icon"
               className={`${styles.toolCallIcon} ${
                 isError ? styles.toolCallIconError : styles.toolCallIconSuccess
               }`}
