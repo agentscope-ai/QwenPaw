@@ -9,6 +9,8 @@ import sys
 import zipfile
 from pathlib import Path
 
+import pytest
+
 # Add scripts/pack to the path so we can import the module
 sys.path.insert(
     0,
@@ -22,6 +24,7 @@ sys.path.insert(
 from generate_plugin_metadata import (  # noqa: E402
     _iter_tree_relpaths,
     _normalize_pack_exclude,
+    _validate_declared_entries,
     _zip_plugin,
     get_version,
 )
@@ -246,6 +249,35 @@ def test_zip_plugin_applies_pack_exclude(tmp_path: Path) -> None:
     assert not any("backend/tests" in n for n in names)
     assert not any("/e2e/" in n for n in names)
     assert not any("ui/src" in n for n in names)
+
+
+def test_validate_declared_entries_rejects_missing_frontend(
+    tmp_path: Path,
+) -> None:
+    plugin_dir = _make_plugin_tree(tmp_path)
+    manifest = _demo_manifest()
+    (plugin_dir / "ui/dist/index.js").unlink()
+
+    with pytest.raises(
+        FileNotFoundError,
+        match=(
+            r"cannot package demo-plugin: declared entry file\(s\) "
+            r"missing: ui/dist/index.js"
+        ),
+    ):
+        _validate_declared_entries(plugin_dir, manifest)
+
+
+def test_zip_plugin_missing_entry_leaves_no_artifact(tmp_path: Path) -> None:
+    plugin_dir = _make_plugin_tree(tmp_path)
+    manifest = _demo_manifest()
+    (plugin_dir / "ui/dist/index.js").unlink()
+    out_zip = tmp_path / "out" / "demo-plugin-1.0.0.zip"
+
+    with pytest.raises(FileNotFoundError, match="ui/dist/index.js"):
+        _zip_plugin(plugin_dir, out_zip, manifest)
+
+    assert not out_zip.exists()
 
 
 def test_zip_plugin_without_manifest_packs_everything(

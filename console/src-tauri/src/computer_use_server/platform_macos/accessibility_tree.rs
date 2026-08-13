@@ -64,7 +64,17 @@ pub(crate) fn element_requires_frontmost(
         "element_not_found",
         "Element is not available in this observation.".to_string(),
     ))?;
-    Ok(matches!(element.scope, ElementScope::AppSurface { .. }))
+    // A transient surface can only pass accessibility_element's scope check
+    // while its exact menu is still open in the frontmost application.
+    // Activating the host window again would dismiss that surface before its
+    // command is invoked. Menu-bar commands do still need the host activated.
+    Ok(matches!(
+        element.scope,
+        ElementScope::AppSurface {
+            kind: AppSurfaceKind::MenuBar,
+            ..
+        }
+    ))
 }
 
 /// Whether an observed element is a command in the currently open transient
@@ -98,17 +108,6 @@ pub(crate) fn element_is_transient_menu_item(
                 ..
             }
         ))
-}
-
-pub(crate) fn element_point(
-    observation: &Observation,
-    params: &Map<String, Value>,
-) -> Result<(f64, f64), (&'static str, String)> {
-    let element_id = params
-        .get("element_id")
-        .and_then(Value::as_str)
-        .ok_or(("invalid_request", "element_id is required.".to_string()))?;
-    element_point_by_id(observation, element_id)
 }
 
 pub(crate) fn element_point_by_id(
@@ -160,26 +159,49 @@ fn interactive_element_at_point(point: CGPoint) -> Option<AXUIElement> {
         .then(|| unsafe { AXUIElement::wrap_under_create_rule(hit_ref) })
 }
 
-/// Require a pointer hit to resolve to the observed element or one of its
-/// descendants. Checking only the process would allow another window or menu
-/// from the same application to receive the click.
-pub(crate) fn validate_element_hit(
+/// Find an interior point that currently resolves to the observed element.
+///
+/// Some controls expose a frame containing separate icon and label regions,
+/// leaving the frame's center non-interactive. Sampling only inside the same
+/// observed frame preserves the element boundary while avoiding that gap.
+pub(crate) fn element_hit_point_by_id(
     observation: &Observation,
     element_id: &str,
-    point: CGPoint,
-) -> Result<(), (&'static str, String)> {
+) -> Result<(f64, f64), (&'static str, String)> {
     let observed = accessibility_element_by_id(observation, element_id)?;
-    let hit = interactive_element_at_point(point).ok_or((
-        "target_not_at_point",
-        "No interactive element is available at the target point.".to_string(),
+    let position = ax_point(&observed.element, "AXPosition").ok_or((
+        "element_unavailable",
+        "The element does not expose an on-screen position.".to_string(),
     ))?;
-    if !is_descendant_of(&hit, &observed.element) {
-        return Err((
-            "target_not_at_point",
-            "The target point no longer contains the observed element.".to_string(),
-        ));
+    let size = ax_size(&observed.element, "AXSize").ok_or((
+        "element_unavailable",
+        "The element does not expose an on-screen size.".to_string(),
+    ))?;
+    for (x_ratio, y_ratio) in [
+        (0.5, 0.5),
+        (0.5, 0.25),
+        (0.5, 0.75),
+        (0.25, 0.5),
+        (0.75, 0.5),
+        (0.25, 0.25),
+        (0.75, 0.25),
+        (0.25, 0.75),
+        (0.75, 0.75),
+    ] {
+        let point = CGPoint {
+            x: position.x + size.width * x_ratio,
+            y: position.y + size.height * y_ratio,
+        };
+        if interactive_element_at_point(point)
+            .is_some_and(|hit| is_descendant_of(&hit, &observed.element))
+        {
+            return Ok((point.x, point.y));
+        }
     }
-    Ok(())
+    Err((
+        "target_not_at_point",
+        "No interactive point is available within the observed element.".to_string(),
+    ))
 }
 
 /// Return the frontmost transient menu owned by the target application.
@@ -843,7 +865,7 @@ fn find_ax_window_in(element: &AXUIElement, target: u32, depth: usize) -> Option
         .find_map(|child| find_ax_window_in(&child, target, depth + 1))
 }
 
-fn focused_window_id(app: &AXUIElement) -> Option<u32> {
+pub(super) fn focused_window_id(app: &AXUIElement) -> Option<u32> {
     let focused = ax_element(app, "AXFocusedWindow")?;
     owning_window_id(&focused)
 }
