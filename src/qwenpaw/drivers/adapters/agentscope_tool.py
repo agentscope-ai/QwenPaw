@@ -95,10 +95,15 @@ def _blocks_from_value(value: Any) -> list[Any]:
     content = getattr(value, "content", None)
     is_mcp_call_result = content is not None and hasattr(value, "isError")
     if is_mcp_call_result:
-        blocks = _blocks_from_mcp_content(content)
+        # ``structuredContent`` is the canonical, machine-readable form of the
+        # result; ``content`` is frequently the same data rendered as
+        # human-readable text blocks. Writing both duplicates the tool result
+        # that gets persisted/displayed, so prefer ``structuredContent`` and
+        # only fall back to ``content`` when it is absent.
         structured = getattr(value, "structuredContent", None)
         if structured is not None:
-            blocks.append(_text_block(_stringify(structured)))
+            return [_text_block(_stringify(structured))]
+        blocks = _blocks_from_mcp_content(content)
         return blocks or [_text_block("")]
     return [_text_block(_stringify(value))]
 
