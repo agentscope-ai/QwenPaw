@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Literal
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from qwenpaw.exceptions import (
     AppBaseException,
@@ -124,6 +124,24 @@ class AgentModelSettingsPatch(BaseModel):
         "medium",
         "high",
     ] | None = None
+
+    @model_validator(mode="after")
+    def reject_null_non_nullable_fields(self):
+        """Reject explicit null for non-null agent model settings."""
+        non_nullable_fields = (
+            "fallback_models",
+            "fallback_policy",
+            "thinking_level",
+        )
+        null_fields = [
+            field
+            for field in non_nullable_fields
+            if field in self.model_fields_set and getattr(self, field) is None
+        ]
+        if null_fields:
+            fields = ", ".join(null_fields)
+            raise ValueError(f"Fields cannot be null: {fields}")
+        return self
 
 
 class ReMeComponentMemoryUsage(BaseModel):

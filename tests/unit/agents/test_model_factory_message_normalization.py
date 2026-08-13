@@ -7,6 +7,7 @@ import json
 import threading
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import (
@@ -872,7 +873,7 @@ async def test_remote_media_preparation_does_not_block_event_loop(
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    async def delayed_download(_url: str):
+    async def delayed_download(_url: str, _max_bytes: int):
         entered.set()
         await release.wait()
         return model_factory._LocalMediaRead(True, 5, "aW1hZ2U=")
@@ -928,7 +929,7 @@ async def test_concurrent_media_preparation_is_request_local(
 ) -> None:
     """Concurrent formatter calls keep downloaded media isolated."""
 
-    async def fake_download(url: str):
+    async def fake_download(url: str, _max_bytes: int):
         await asyncio.sleep(0)
         encoded = "Zmlyc3Q=" if "first" in url else "c2Vjb25k"
         return model_factory._LocalMediaRead(True, 6, encoded)
@@ -976,7 +977,7 @@ async def test_remote_media_preparation_propagates_cancellation(
     entered = asyncio.Event()
     cancelled = asyncio.Event()
 
-    async def pending_download(_url: str):
+    async def pending_download(_url: str, _max_bytes: int):
         entered.set()
         try:
             await asyncio.Event().wait()
@@ -1019,6 +1020,130 @@ async def test_remote_media_preparation_propagates_cancellation(
     with pytest.raises(asyncio.CancelledError):
         await formatting
     await asyncio.wait_for(cancelled.wait(), timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_remote_media_download_rejects_reported_oversize(
+    monkeypatch,
+) -> None:
+    """Reject oversized remote media before consuming its response body."""
+    body_read = False
+
+    class TrackingStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            nonlocal body_read
+            body_read = True
+            yield b"oversized"
+
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            headers={"content-length": "10"},
+            stream=TrackingStream(),
+            request=request,
+        ),
+    )
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        model_factory.httpx,
+        "AsyncClient",
+        lambda **kwargs: original_client(
+            transport=transport,
+            **kwargs,
+        ),
+    )
+
+    prepared = await model_factory._download_remote_media(
+        "https://example.com/image.png",
+        5,
+    )
+
+    assert prepared == model_factory._LocalMediaRead(True, 10, None)
+    assert not body_read
+
+
+@pytest.mark.asyncio
+async def test_remote_media_download_caps_chunked_response(
+    monkeypatch,
+) -> None:
+    """Stop a remote download when streamed bytes cross the limit."""
+
+    class ChunkedStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"123"
+            yield b"456"
+
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            stream=ChunkedStream(),
+            request=request,
+        ),
+    )
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        model_factory.httpx,
+        "AsyncClient",
+        lambda **kwargs: original_client(
+            transport=transport,
+            **kwargs,
+        ),
+    )
+
+    prepared = await model_factory._download_remote_media(
+        "https://example.com/image.png",
+        5,
+    )
+
+    assert prepared.exists
+    assert prepared.size > 5
+    assert prepared.encoded is None
+
+
+@pytest.mark.asyncio
+async def test_remote_media_oversize_becomes_placeholder(
+    monkeypatch,
+) -> None:
+    """Replace oversized remote media before downstream formatting."""
+
+    async def oversized_download(_url: str, max_bytes: int):
+        return model_factory._LocalMediaRead(
+            True,
+            max_bytes + 1,
+            None,
+        )
+
+    monkeypatch.setattr(
+        model_factory,
+        "_download_remote_media",
+        oversized_download,
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class(max_bytes=5)
+
+    formatted = await formatter.format(
+        [
+            Msg(
+                name="user",
+                role="user",
+                content=[
+                    _data_block(
+                        "image/png",
+                        "https://example.com/image.png",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    assert "remote media is 6 bytes" in formatted[0]["content"][0]["text"]
 
 
 @pytest.mark.asyncio

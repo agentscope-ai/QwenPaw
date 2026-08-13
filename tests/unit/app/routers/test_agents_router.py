@@ -462,6 +462,29 @@ def test_patch_agent_model_settings_preserves_active_model(
     reload.assert_called_once()
 
 
+@pytest.mark.parametrize(
+    "field",
+    (
+        "fallback_models",
+        "fallback_policy",
+        "thinking_level",
+    ),
+)
+def test_patch_agent_model_settings_rejects_explicit_null(client, field):
+    """Non-null model settings must reject an explicit JSON null."""
+    with patch(
+        "qwenpaw.app.routers.agents.mutate_agent_config",
+    ) as mutate:
+        response = client.patch(
+            "/api/agents/bot/model-settings",
+            json={field: None},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["type"] == "value_error"
+    mutate.assert_not_called()
+
+
 def test_get_agent_returns_404_for_app_base_exception(client):
     with patch(
         "qwenpaw.app.routers.agents.load_agent_config",

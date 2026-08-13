@@ -265,16 +265,42 @@ def _remote_media_requires_download(
     )
 
 
-async def _download_remote_media(url: str) -> _LocalMediaRead:
-    """Download and encode one remote media URL without blocking the loop."""
+async def _download_remote_media(
+    url: str,
+    max_bytes: int,
+) -> _LocalMediaRead:
+    """Download bounded remote media without blocking the event loop."""
     async with httpx.AsyncClient(
         follow_redirects=True,
         timeout=30.0,
     ) as client:
-        response = await client.get(url)
-        response.raise_for_status()
-    encoded = await run_sync_io(_encode_media_bytes, response.content)
-    return _LocalMediaRead(True, len(response.content), encoded)
+        async with client.stream("GET", url) as response:
+            response.raise_for_status()
+            content_length = response.headers.get("content-length")
+            try:
+                reported_size = int(content_length or "")
+            except ValueError:
+                reported_size = 0
+            if 0 < max_bytes < reported_size:
+                return _LocalMediaRead(True, reported_size, None)
+
+            content = bytearray()
+            async for chunk in response.aiter_bytes(
+                chunk_size=64 * 1024,
+            ):
+                if 0 < max_bytes:
+                    remaining = max_bytes - len(content)
+                    if len(chunk) > remaining:
+                        return _LocalMediaRead(
+                            True,
+                            max_bytes + 1,
+                            None,
+                        )
+                content.extend(chunk)
+
+    data = bytes(content)
+    encoded = await run_sync_io(_encode_media_bytes, data)
+    return _LocalMediaRead(True, len(data), encoded)
 
 
 def _encode_media_bytes(data: bytes) -> str:
@@ -321,11 +347,12 @@ def _replace_media_reference(
             ),
         )
         return
-    if local and 0 < max_bytes < prepared.size:
+    if 0 < max_bytes < prepared.size:
+        source = "local file" if local else "remote media"
         reference.items[reference.index] = TextBlock(
             type="text",
             text=(
-                f"[{reference.kind} omitted from model context: local file "
+                f"[{reference.kind} omitted from model context: {source} "
                 f"is {prepared.size} bytes, exceeds inline limit of "
                 f"{max_bytes} bytes]"
             ),
@@ -399,7 +426,7 @@ async def _prepare_media_sources(
             key = ("remote", url)
             if key not in pending:
                 pending[key] = asyncio.create_task(
-                    _download_remote_media(url),
+                    _download_remote_media(url, max_bytes),
                 )
             prepared_keys.append(key)
             continue
