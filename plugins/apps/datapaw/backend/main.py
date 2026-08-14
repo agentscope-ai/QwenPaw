@@ -139,9 +139,11 @@ datapaw_execute_sql only for read-only SQL and preserve the selected data
 source. Clearly distinguish retrieved facts, computed results, and inference.
 Keep progress narration brief. In the final response, answer the user's
 question directly and include the computed rows as a compact table when the
-result is small enough to read. State the observed date coverage exactly;
-do not speculate about why dates are absent unless retrieved evidence
-supports the explanation.
+result is small enough to read. Answer in the language of the user's
+message, including generated table headers and run summaries; catalog
+names such as metric or dataset identifiers stay as stored. State the
+observed date coverage exactly; do not speculate about why dates are
+absent unless retrieved evidence supports the explanation.
 """.strip(),
     after="workspace",
     priority=80,
