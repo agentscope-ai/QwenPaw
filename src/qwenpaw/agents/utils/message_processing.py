@@ -338,7 +338,6 @@ async def _process_local_data_block(
         )
         if handled:
             return None
-        return local_path
     return local_path
 
 

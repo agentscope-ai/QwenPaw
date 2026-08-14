@@ -320,11 +320,6 @@ class OneBotConfig(BaseChannelConfig):
     ``ws_host`` defaults to loopback so the reverse WebSocket server is
     not reachable from the network without an explicit opt-in.  Binding
     to a non-loopback address requires ``access_token`` to be set.
-
-    ``media_download_max_mb`` bounds inbound media downloads (image/audio/
-    video/file) fetched from the OneBot client's CDN.  It is intentionally
-    separate from ``media_base64_max_mb``, which only bounds how large a
-    local file may be before it is inlined as Base64 on outbound sends.
     """
 
     ws_host: str = "127.0.0.1"

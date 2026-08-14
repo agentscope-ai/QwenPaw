@@ -20,8 +20,6 @@ import json
 import logging
 import os
 import re
-import tempfile
-import urllib.parse
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -49,6 +47,10 @@ from ..base import (
     ProcessHandler,
 )
 from ..utils import file_url_to_local_path, split_text
+from .media import (
+    DEFAULT_MEDIA_DOWNLOAD_MAX_MB as _DEFAULT_MEDIA_DOWNLOAD_MAX_MB,
+    OneBotInboundMedia,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,28 +59,7 @@ _EVENT_TASK_HARD_CAP = 500
 # Hard cap on queued-but-unprocessed events per session (flood protection
 # for a single conversation, independent of the global event task cap).
 _SESSION_QUEUE_HARD_CAP = 50
-_SESSION_QUEUE_IDLE_TIMEOUT_SECONDS = 300.0
 _DEFAULT_MEDIA_BASE64_MAX_MB = 10
-_DEFAULT_MEDIA_DOWNLOAD_MAX_MB = 50
-# Bound on concurrent remote media downloads, independent of the global
-# event task cap — protects LM/disk resources under a media flood.
-_DEFAULT_MAX_CONCURRENT_DOWNLOADS = 4
-# Filesystem component name length safety margin (most filesystems cap at
-# 255 bytes; leave room for a uuid prefix, separators and a suffix).
-_MAX_FILENAME_STEM_LENGTH = 100
-_CONTENT_TYPE_SUFFIXES = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/gif": ".gif",
-    "image/webp": ".webp",
-    "audio/mpeg": ".mp3",
-    "audio/wav": ".wav",
-    "audio/x-wav": ".wav",
-    "video/mp4": ".mp4",
-    "video/x-msvideo": ".avi",
-    "application/pdf": ".pdf",
-    "application/zip": ".zip",
-}
 _DEFAULT_WS_HOST = "127.0.0.1"
 # OneBot v11 defines the "Bearer" scheme; "Token" is an ecosystem
 # convention popularised by NoneBot.  Matching is case-insensitive per
@@ -91,14 +72,6 @@ _MARKDOWN_LINK_RE = re.compile(
 )
 _WRAPPED_URL_RE = re.compile(
     r"(?P<mark>\*\*|__)(?P<url>https?://\S+?)(?P=mark)",
-)
-_THINK_BLOCK_RE = re.compile(
-    r"<think\b[^>]*>.*?</think>",
-    re.IGNORECASE | re.DOTALL,
-)
-_THINK_OPEN_RE = re.compile(
-    r"<think\b[^>]*>.*\Z",
-    re.IGNORECASE | re.DOTALL,
 )
 
 
@@ -150,48 +123,6 @@ def _clean_inline_text(text: str) -> str:
         closing_end = closing + len(marker)
         result.append(text[opening:closing_end])
         cursor = closing_end
-    return "".join(result)
-
-
-def _strip_thinking_blocks(text: str) -> str:
-    """Remove model-emitted thinking tags outside code fences."""
-    if not text or "<think" not in text.lower():
-        return text
-
-    result: list[str] = []
-    outside_fence: list[str] = []
-    fence_mark = ""
-
-    def _flush_outside_fence() -> None:
-        if outside_fence:
-            outside = "".join(outside_fence)
-            outside = _THINK_BLOCK_RE.sub("", outside)
-            outside = _THINK_OPEN_RE.sub("", outside)
-            result.append(outside)
-            outside_fence.clear()
-
-    for line in text.splitlines(keepends=True):
-        match = _CODE_FENCE_RE.match(line)
-        if fence_mark:
-            result.append(line)
-            if (
-                match
-                and match.group("mark")[0] == fence_mark[0]
-                and len(
-                    match.group("mark"),
-                )
-                >= len(fence_mark)
-            ):
-                fence_mark = ""
-            continue
-        if match:
-            _flush_outside_fence()
-            fence_mark = match.group("mark")
-            result.append(line)
-            continue
-        outside_fence.append(line)
-
-    _flush_outside_fence()
     return "".join(result)
 
 
@@ -250,40 +181,6 @@ def _local_path_from_media_ref(ref: str) -> Path | None:
     except OSError:
         return None
     return None
-
-
-def _probe_local_media_path_sync(ref: str) -> str | None:
-    """Synchronously resolve an existing local path for a media ref.
-
-    Runs the blocking ``Path.is_file()``/``Path.resolve()`` probing so
-    callers can offload it via ``asyncio.to_thread`` and keep the event
-    loop free.
-    """
-    local = file_url_to_local_path(ref)
-    if local:
-        try:
-            path = Path(local).expanduser()
-            if path.is_file():
-                return str(path.resolve())
-        except OSError:
-            return None
-    if ref.startswith(("http://", "https://")):
-        return None
-    try:
-        path = Path(ref).expanduser()
-        if path.is_file():
-            return str(path.resolve())
-    except OSError:
-        return None
-    return None
-
-
-def _unlink_quietly(path: Path) -> None:
-    """Best-effort removal of a leftover temp/partial download file."""
-    try:
-        path.unlink()
-    except OSError:
-        pass
 
 
 def _local_media_base64_ref(
@@ -460,24 +357,18 @@ class OneBotChannel(BaseChannel):
             if media_download_max_mb > 0
             else _DEFAULT_MEDIA_DOWNLOAD_MAX_MB
         )
-        # Inbound download size limit — intentionally independent of
-        # ``_media_base64_max_bytes``, which only bounds outbound Base64
-        # serialization of already-local files.
-        self._media_download_max_bytes = download_max_mb * 1_000_000
-        # Bounds concurrent remote downloads regardless of how many event
-        # tasks/session queues are in flight.
-        self._download_semaphore = asyncio.Semaphore(
-            _DEFAULT_MAX_CONCURRENT_DOWNLOADS,
-        )
-        # Channel-owned session, created in start() and reused across
-        # downloads; created lazily on first use so unit tests that call
-        # _download_remote_media() directly (without start()) still work.
-        self._http_session: Optional[aiohttp.ClientSession] = None
-        base_media_dir = Path(media_dir).expanduser() if media_dir else None
-        if base_media_dir is None:
-            workspace_base = workspace_dir or DEFAULT_MEDIA_DIR.parent
-            base_media_dir = Path(workspace_base) / "media" / self.channel
+        if media_dir:
+            base_media_dir = Path(media_dir).expanduser()
+        elif workspace_dir:
+            base_media_dir = Path(workspace_dir).expanduser() / "media"
+        else:
+            base_media_dir = DEFAULT_MEDIA_DIR
         self._media_dir = base_media_dir
+        self._inbound_media = OneBotInboundMedia(
+            media_dir=base_media_dir,
+            max_download_bytes=download_max_mb * 1_000_000,
+            call_api=self._call_api,
+        )
 
         # WebSocket server state
         self._app: Optional[web.Application] = None
@@ -644,11 +535,7 @@ class OneBotChannel(BaseChannel):
             logger.debug("onebot channel disabled")
             return
         self._stopping = False
-        if self._http_session is None or self._http_session.closed:
-            self._http_session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=15),
-                trust_env=True,
-            )
+        await self._inbound_media.start()
         await self._start_ws_server()
         self._watchdog_task = asyncio.create_task(self._watchdog_loop())
 
@@ -680,9 +567,7 @@ class OneBotChannel(BaseChannel):
             )
             self._session_workers.clear()
         self._session_queues.clear()
-        if self._http_session is not None and not self._http_session.closed:
-            await self._http_session.close()
-        self._http_session = None
+        await self._inbound_media.close()
 
     async def _start_ws_server(self) -> None:
         """Create and start the aiohttp WebSocket server.
@@ -998,15 +883,7 @@ class OneBotChannel(BaseChannel):
         """Process one session's message events strictly in arrival order."""
         try:
             while True:
-                try:
-                    data = await asyncio.wait_for(
-                        queue.get(),
-                        timeout=_SESSION_QUEUE_IDLE_TIMEOUT_SECONDS,
-                    )
-                except asyncio.TimeoutError:
-                    if queue.empty():
-                        break
-                    continue
+                data = await queue.get()
                 try:
                     await self._handle_message_event(data)
                 except Exception:
@@ -1015,15 +892,13 @@ class OneBotChannel(BaseChannel):
                         "event",
                         key,
                     )
-                finally:
-                    queue.task_done()
-        except asyncio.CancelledError:
-            pass
+                if queue.empty():
+                    break
         finally:
-            if self._session_queues.get(key) is queue:
-                self._session_queues.pop(key, None)
-            if self._session_workers.get(key) is asyncio.current_task():
+            current_task = asyncio.current_task()
+            if self._session_workers.get(key) is current_task:
                 self._session_workers.pop(key, None)
+                self._session_queues.pop(key, None)
 
     async def _handle_event(self, data: Dict[str, Any]) -> None:
         """Dispatch an OneBot v11 event.
@@ -1066,7 +941,11 @@ class OneBotChannel(BaseChannel):
         segments = self._normalize_onebot_segments(data.get("message", []))
 
         # Track bot mention and quoted message before any remote I/O.
-        content_parts, bot_mentioned = self._parse_message_segments(segments)
+        (
+            content_parts,
+            bot_mentioned,
+            media_segments,
+        ) = self._parse_message_segments(segments)
         reply_message_id = self._reply_message_id(segments)
         if not content_parts and not reply_message_id:
             return
@@ -1090,28 +969,24 @@ class OneBotChannel(BaseChannel):
         if not self._check_group_mention(is_group, meta):
             return
 
-        # Access control gate runs before any quoted-message lookup or
-        # media download so blacklisted/pending senders never trigger
-        # OneBot API calls or remote downloads.
-        if await self._access_control_gate(
-            {"acl_sender_id": user_id, "meta": meta},
-        ):
-            return
-
         if reply_message_id:
             quoted_segments = await self._get_quoted_message_segments(
                 reply_message_id,
             )
-            quoted_parts, _ = self._parse_message_segments(quoted_segments)
-            quoted_parts = await self._resolve_inbound_media(
+            (
                 quoted_parts,
-                quoted_segments,
+                _,
+                quoted_media_segments,
+            ) = self._parse_message_segments(quoted_segments)
+            quoted_parts = await self._inbound_media.resolve(
+                quoted_parts,
+                quoted_media_segments,
                 message_type,
                 self._event_with_segments(data, quoted_segments),
             )
-            content_parts = await self._resolve_inbound_media(
+            content_parts = await self._inbound_media.resolve(
                 content_parts,
-                segments,
+                media_segments,
                 message_type,
                 self._event_with_segments(data, segments),
             )
@@ -1127,9 +1002,9 @@ class OneBotChannel(BaseChannel):
                 self._content_part_preview(quoted_parts),
             )
         else:
-            content_parts = await self._resolve_inbound_media(
+            content_parts = await self._inbound_media.resolve(
                 content_parts,
-                segments,
+                media_segments,
                 message_type,
                 self._event_with_segments(data, segments),
             )
@@ -1139,13 +1014,12 @@ class OneBotChannel(BaseChannel):
         native = {
             "channel_id": self.channel,
             "sender_id": user_id,
+            "acl_sender_id": user_id,
+            "user_id": user_id,
+            "session_id": self.resolve_session_id(user_id, meta),
             "content_parts": content_parts,
             "meta": meta,
         }
-
-        request = self.build_agent_request_from_native(native)
-        request.channel_meta = meta
-        request.acl_sender_id = user_id
 
         logger.info(
             "onebot recv %s from=%s%s text=%r",
@@ -1156,7 +1030,7 @@ class OneBotChannel(BaseChannel):
         )
 
         if self._enqueue is not None:
-            self._enqueue(request)
+            self._enqueue(native)
 
     # ------------------------------------------------------------------
     # Message segment parsing
@@ -1165,18 +1039,21 @@ class OneBotChannel(BaseChannel):
     def _parse_message_segments(
         self,
         segments: List[Dict[str, Any]],
-    ) -> tuple[list, bool]:
+    ) -> tuple[list, bool, list[dict]]:
         """Parse OneBot v11 message segments to content_parts.
 
         Returns:
-            (content_parts, bot_mentioned)
+            Content parts, mention state, and aligned media segments.
         """
         parts: list = []
         bot_mentioned = False
+        media_segments: list[dict] = []
 
         for seg in segments:
             seg_type = seg.get("type", "")
             seg_data = seg.get("data", {})
+            if not isinstance(seg_data, dict):
+                seg_data = {}
 
             if seg_type == "text":
                 text = (seg_data.get("text") or "").strip()
@@ -1194,6 +1071,7 @@ class OneBotChannel(BaseChannel):
                             image_url=url,
                         ),
                     )
+                    media_segments.append(seg)
 
             elif seg_type == "record":
                 url = seg_data.get("url") or seg_data.get("file", "")
@@ -1201,6 +1079,7 @@ class OneBotChannel(BaseChannel):
                     parts.append(
                         AudioContent(type=ContentType.AUDIO, data=url),
                     )
+                    media_segments.append(seg)
 
             elif seg_type == "video":
                 url = seg_data.get("url") or seg_data.get("file", "")
@@ -1211,6 +1090,7 @@ class OneBotChannel(BaseChannel):
                             video_url=url,
                         ),
                     )
+                    media_segments.append(seg)
 
             elif seg_type == "file":
                 url = seg_data.get("url") or seg_data.get("file", "")
@@ -1223,6 +1103,7 @@ class OneBotChannel(BaseChannel):
                             filename=name,
                         ),
                     )
+                    media_segments.append(seg)
 
             elif seg_type == "at":
                 qq = str(seg_data.get("qq", ""))
@@ -1231,7 +1112,7 @@ class OneBotChannel(BaseChannel):
 
             # reply, face, forward, etc. — ignored for now
 
-        return parts, bot_mentioned
+        return parts, bot_mentioned, media_segments
 
     @staticmethod
     def _normalize_onebot_segments(raw_message: Any) -> list[dict]:
@@ -1454,462 +1335,6 @@ class OneBotChannel(BaseChannel):
             return []
         return segments
 
-    @staticmethod
-    def _media_kind(part: Any) -> str | None:
-        """Return the inbound media kind for a runtime content part."""
-        part_type = getattr(part, "type", None)
-        if hasattr(part_type, "value"):
-            part_type = part_type.value
-        if part_type == ContentType.IMAGE.value:
-            return "image"
-        if part_type == ContentType.AUDIO.value:
-            return "audio"
-        if part_type == ContentType.VIDEO.value:
-            return "video"
-        if part_type == ContentType.FILE.value:
-            return "file"
-        return None
-
-    @staticmethod
-    def _onebot_media_segments(segments: list) -> list[tuple[int, dict]]:
-        """Return indexed OneBot media segments in original order."""
-        return [
-            (index, seg)
-            for index, seg in enumerate(segments)
-            if isinstance(seg, dict)
-            and seg.get("type") in {"image", "record", "video", "file"}
-        ]
-
-    @staticmethod
-    def _segment_media_kind(segment: dict) -> str | None:
-        return {
-            "image": "image",
-            "record": "audio",
-            "video": "video",
-            "file": "file",
-        }.get(str(segment.get("type") or ""))
-
-    @staticmethod
-    def _segment_media_refs(segment: dict) -> set[str]:
-        data = segment.get("data", {})
-        if not isinstance(data, dict):
-            return set()
-        return {
-            str(data.get(key) or "")
-            for key in ("url", "file", "name", "filename")
-            if data.get(key)
-        }
-
-    def _match_media_segment(
-        self,
-        part: Any,
-        kind: str,
-        media_segments: list[tuple[int, dict]],
-        used_indexes: set[int],
-    ) -> tuple[int, dict]:
-        """Match a part to its source segment without positional drift."""
-        part_ref = self._part_media_ref(part, kind)
-        candidates = [
-            (index, segment)
-            for index, segment in media_segments
-            if index not in used_indexes
-            and self._segment_media_kind(segment) == kind
-        ]
-        for index, segment in candidates:
-            if part_ref and part_ref in self._segment_media_refs(segment):
-                used_indexes.add(index)
-                return index, segment
-        if candidates:
-            index, segment = candidates[0]
-            used_indexes.add(index)
-            return index, segment
-        return 0, {}
-
-    @staticmethod
-    def _part_media_ref(part: Any, kind: str) -> str:
-        if kind == "image":
-            return str(getattr(part, "image_url", "") or "")
-        if kind == "audio":
-            return str(getattr(part, "data", "") or "")
-        if kind == "video":
-            return str(getattr(part, "video_url", "") or "")
-        return str(getattr(part, "file_url", "") or "")
-
-    @staticmethod
-    def _safe_media_filename(filename: str, default: str) -> str:
-        """Build a safe basename for downloaded OneBot media."""
-        raw = urllib.parse.unquote((filename or "").strip())
-        name = Path(raw).name if raw else ""
-        safe = "".join(c for c in name if c.isalnum() or c in "-_.")
-        return safe or default
-
-    @staticmethod
-    def _suffix_from_bytes(data: bytes) -> str | None:
-        """Detect common media suffixes from deterministic magic bytes."""
-        if data.startswith(b"RIFF") and len(data) >= 12:
-            return {
-                b"WAVE": ".wav",
-                b"WEBP": ".webp",
-                b"AVI ": ".avi",
-            }.get(data[8:12])
-        signatures = [
-            (b"\xff\xd8\xff", ".jpg"),
-            (b"\x89PNG\r\n\x1a\n", ".png"),
-            (b"GIF87a", ".gif"),
-            (b"GIF89a", ".gif"),
-            (b"ID3", ".mp3"),
-            (b"%PDF", ".pdf"),
-            (b"PK\x03\x04", ".zip"),
-        ]
-        for prefix, suffix in signatures:
-            if data.startswith(prefix):
-                return suffix
-        if len(data) > 12 and data[4:8] == b"ftyp":
-            return ".mp4"
-        return None
-
-    def _default_media_filename(self, kind: str) -> str:
-        return {
-            "image": "image.file",
-            "audio": "audio.file",
-            "video": "video.file",
-            "file": "file.bin",
-        }.get(kind, "file.bin")
-
-    def _content_part_for_local_media(
-        self,
-        part: Any,
-        kind: str,
-        local_path: str,
-    ) -> Any:
-        """Preserve content kind while replacing ref with local path."""
-        if kind == "image":
-            return ImageContent(type=ContentType.IMAGE, image_url=local_path)
-        if kind == "audio":
-            return AudioContent(
-                type=ContentType.AUDIO,
-                data=local_path,
-                format=getattr(part, "format", None),
-            )
-        if kind == "video":
-            return VideoContent(type=ContentType.VIDEO, video_url=local_path)
-        return FileContent(
-            type=ContentType.FILE,
-            file_url=local_path,
-            filename=getattr(part, "filename", None),
-        )
-
-    def _download_failed_part(self, kind: str) -> TextContent:
-        return TextContent(
-            type=ContentType.TEXT,
-            text=f"[{kind}: download failed]",
-        )
-
-    async def _local_media_path(self, ref: str) -> str | None:
-        """Return an existing local path for file:// or plain path refs.
-
-        The actual filesystem probing is synchronous (``Path.is_file()`` /
-        ``Path.resolve()``); it is offloaded to a worker thread so the
-        event loop is never blocked by it.
-        """
-        return await asyncio.to_thread(_probe_local_media_path_sync, ref)
-
-    async def _resolve_inbound_media(
-        self,
-        content_parts: list,
-        segments: list,
-        message_type: str,
-        event_data: Dict[str, Any],
-    ) -> list:
-        """Resolve and localize OneBot inbound image/audio/video/file parts."""
-        media_segments = self._onebot_media_segments(segments)
-        used_segment_indexes: set[int] = set()
-        resolved: list = []
-        for part in content_parts:
-            kind = self._media_kind(part)
-            if kind is None:
-                resolved.append(part)
-                continue
-
-            segment_index, seg = self._match_media_segment(
-                part,
-                kind,
-                media_segments,
-                used_segment_indexes,
-            )
-            local_path = await self._localize_media_part(
-                part,
-                kind,
-                seg,
-                segment_index,
-                message_type,
-                event_data,
-            )
-            if local_path:
-                resolved.append(
-                    self._content_part_for_local_media(part, kind, local_path),
-                )
-            else:
-                resolved.append(self._download_failed_part(kind))
-        return resolved
-
-    async def _localize_media_part(
-        self,
-        part: Any,
-        kind: str,
-        segment: dict,
-        segment_index: int,
-        message_type: str,
-        event_data: Dict[str, Any],
-    ) -> str | None:
-        """Resolve one OneBot media part to a managed local path."""
-        seg_data = segment.get("data", {}) if isinstance(segment, dict) else {}
-        ref = self._part_media_ref(part, kind)
-        if not ref or not ref.startswith(("http://", "https://", "file://")):
-            api_ref = await self._resolve_media_url_from_api(
-                kind,
-                seg_data,
-                message_type,
-                event_data,
-            )
-            if api_ref:
-                ref = api_ref
-        local_path = await self._local_media_path(ref)
-        if local_path:
-            return local_path
-        if not ref.startswith(("http://", "https://")):
-            return None
-
-        filename_hint = (
-            seg_data.get("name")
-            or seg_data.get("filename")
-            or seg_data.get("file")
-            or Path(urllib.parse.urlparse(ref).path).name
-            or self._default_media_filename(kind)
-        )
-        return await self._download_remote_media(
-            ref,
-            kind,
-            segment_index,
-            str(filename_hint),
-        )
-
-    # pylint: disable=too-many-return-statements
-    async def _resolve_media_url_from_api(
-        self,
-        kind: str,
-        seg_data: Dict[str, Any],
-        message_type: str,
-        event_data: Dict[str, Any],
-    ) -> str | None:
-        """Resolve OneBot file IDs or channel-specific media refs to URLs."""
-        try:
-            if kind == "file":
-                file_id = str(seg_data.get("file_id") or "")
-                if not file_id:
-                    return None
-                if message_type == "group":
-                    group_id = event_data.get("group_id", "")
-                    result = await self._call_api(
-                        "get_group_file_url",
-                        {"group_id": int(group_id), "file_id": file_id},
-                    )
-                else:
-                    result = await self._call_api(
-                        "get_private_file_url",
-                        {"file_id": file_id},
-                    )
-            elif kind == "image":
-                file_ref = str(seg_data.get("file") or "")
-                if not file_ref:
-                    return None
-                result = await self._call_api("get_image", {"file": file_ref})
-            elif kind == "audio":
-                file_ref = str(seg_data.get("file") or "")
-                if not file_ref:
-                    return None
-                result = await self._call_api(
-                    "get_record",
-                    {"file": file_ref, "out_format": "mp3"},
-                )
-            else:
-                return None
-        except Exception:
-            logger.warning(
-                "onebot: failed to resolve %s media URL",
-                kind,
-                exc_info=True,
-            )
-            return None
-
-        data = result.get("data") if isinstance(result, dict) else None
-        if isinstance(data, dict):
-            return str(data.get("url") or data.get("file") or "") or None
-        return None
-
-    async def _download_remote_media(
-        self,
-        url: str,
-        kind: str,
-        segment_index: int,
-        filename_hint: str,
-    ) -> str | None:
-        """Download one remote OneBot media URL into managed local storage.
-
-        Bounded by ``self._download_semaphore`` (concurrent downloads) and
-        ``self._media_download_max_bytes`` (per-file size) — independent
-        of the outbound Base64 limit.  Reuses the channel-level HTTP
-        session started in ``start()`` when available; otherwise creates
-        (and closes) a scratch session, which keeps direct unit-test calls
-        working without a running channel.  Streams the response body to a
-        temp file under ``self._media_dir`` and atomically ``os.replace``s
-        it into place, so an aborted/oversized download never leaves a
-        partial file at the final path.
-        """
-        async with self._download_semaphore:
-            session = self._http_session
-            owns_session = session is None or session.closed
-            if owns_session:
-                session = aiohttp.ClientSession(
-                    timeout=aiohttp.ClientTimeout(total=15),
-                    trust_env=True,
-                )
-            tmp_path: Optional[Path] = None
-            try:
-                async with session.get(
-                    url,
-                    allow_redirects=True,
-                    max_redirects=3,
-                ) as response:
-                    response.raise_for_status()
-                    content_length = response.content_length
-                    if (
-                        content_length is not None
-                        and content_length > self._media_download_max_bytes
-                    ):
-                        logger.warning(
-                            "onebot: remote %s exceeds media limit: %s bytes",
-                            kind,
-                            content_length,
-                        )
-                        return None
-
-                    await asyncio.to_thread(
-                        self._media_dir.mkdir,
-                        parents=True,
-                        exist_ok=True,
-                    )
-                    # Closed explicitly in the finally block below (kept
-                    # open across the streaming write loop), so this
-                    # cannot use a ``with`` block here.
-                    # pylint: disable=consider-using-with
-                    tmp_file = tempfile.NamedTemporaryFile(
-                        delete=False,
-                        dir=str(self._media_dir),
-                        suffix=".part",
-                    )
-                    tmp_path = Path(tmp_file.name)
-                    sniff = b""
-                    total = 0
-                    try:
-                        async for chunk in response.content.iter_chunked(
-                            64 * 1024,
-                        ):
-                            if not chunk:
-                                continue
-                            total += len(chunk)
-                            if total > self._media_download_max_bytes:
-                                logger.warning(
-                                    "onebot: remote %s download exceeded "
-                                    "limit",
-                                    kind,
-                                )
-                                return None
-                            if len(sniff) < 32:
-                                sniff += chunk[: 32 - len(sniff)]
-                            await asyncio.to_thread(tmp_file.write, chunk)
-                    finally:
-                        await asyncio.to_thread(tmp_file.close)
-                    if total == 0:
-                        return None
-
-                    media_type = (
-                        response.headers.get("Content-Type", "")
-                        .split(";", 1)[0]
-                        .strip()
-                        .lower()
-                    )
-                    if (
-                        kind in {"image", "audio", "video"}
-                        and media_type
-                        and media_type != "application/octet-stream"
-                        and not media_type.startswith(f"{kind}/")
-                    ):
-                        logger.warning(
-                            "onebot: remote %s returned unexpected content "
-                            "type %s",
-                            kind,
-                            media_type,
-                        )
-                        return None
-                    final_path = await asyncio.to_thread(
-                        self._finalize_downloaded_media,
-                        tmp_path,
-                        sniff,
-                        media_type,
-                        kind,
-                        segment_index,
-                        filename_hint,
-                    )
-                    # Renamed away; nothing left for the finally block to
-                    # clean up.
-                    tmp_path = None
-                    return final_path
-            except (
-                aiohttp.ClientError,
-                asyncio.TimeoutError,
-                ValueError,
-                OSError,
-            ):
-                logger.warning(
-                    "onebot: failed to download remote %s %s",
-                    kind,
-                    url,
-                    exc_info=True,
-                )
-                return None
-            finally:
-                if tmp_path is not None:
-                    await asyncio.to_thread(_unlink_quietly, tmp_path)
-                if owns_session:
-                    await session.close()
-
-    def _finalize_downloaded_media(
-        self,
-        tmp_path: Path,
-        sniff: bytes,
-        raw_media_type: str,
-        kind: str,
-        segment_index: int,
-        filename_hint: str,
-    ) -> str:
-        """Atomically move a fully-downloaded temp file into media_dir."""
-        media_type = raw_media_type.split(";", 1)[0].strip().lower()
-        default_name = self._default_media_filename(kind)
-        safe_name = self._safe_media_filename(filename_hint, default_name)
-        suffix = Path(safe_name).suffix
-        if not suffix and media_type:
-            suffix = _CONTENT_TYPE_SUFFIXES.get(media_type, "")
-        if not suffix:
-            suffix = (
-                self._suffix_from_bytes(sniff) or Path(default_name).suffix
-            )
-        stem = (Path(safe_name).stem or kind)[:_MAX_FILENAME_STEM_LENGTH]
-        filename = f"{uuid.uuid4().hex}_{segment_index}_{stem}{suffix}"
-        final_path = (self._media_dir / filename).resolve()
-        os.replace(tmp_path, final_path)
-        return str(final_path)
-
     # ------------------------------------------------------------------
     # Build AgentRequest
     # ------------------------------------------------------------------
@@ -1920,14 +1345,20 @@ class OneBotChannel(BaseChannel):
         sender_id = payload.get("sender_id") or ""
         content_parts = payload.get("content_parts") or []
         meta = payload.get("meta") or {}
-        session_id = self.resolve_session_id(sender_id, meta)
-        return self.build_agent_request_from_user_content(
+        session_id = payload.get("session_id") or self.resolve_session_id(
+            sender_id,
+            meta,
+        )
+        request = self.build_agent_request_from_user_content(
             channel_id=channel_id,
             sender_id=sender_id,
             session_id=session_id,
             content_parts=content_parts,
             channel_meta=meta,
         )
+        request.channel_meta = meta
+        request.acl_sender_id = payload.get("acl_sender_id") or sender_id
+        return request
 
     # ------------------------------------------------------------------
     # Session / routing
@@ -1968,8 +1399,6 @@ class OneBotChannel(BaseChannel):
         if not self.enabled or not text.strip():
             return
 
-        if not self._display_config.show_thinking:
-            text = await asyncio.to_thread(_strip_thinking_blocks, text)
         text = await asyncio.to_thread(_clean_onebot_plain_text, text)
         if not text.strip():
             return
