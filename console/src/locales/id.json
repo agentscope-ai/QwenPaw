@@ -223,6 +223,8 @@
       "description": "Buka pengaturan cepat di sini, lalu pilih Mode Desktop untuk ruang kerja berjendela.",
       "gotIt": "Mengerti"
     },
+    "expand": "Perluas bilah sisi",
+    "collapse": "Ciutkan bilah sisi",
     "simpleMode": "Mode sederhana",
     "fullMode": "Mode lengkap"
   },

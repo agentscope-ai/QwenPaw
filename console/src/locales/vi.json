@@ -194,6 +194,8 @@
       "description": "Mở cài đặt nhanh tại đây, sau đó chọn Chế độ Màn hình nền để sử dụng không gian làm việc nhiều cửa sổ.",
       "gotIt": "Đã hiểu"
     },
+    "expand": "Mở rộng thanh bên",
+    "collapse": "Thu gọn thanh bên",
     "simpleMode": "Chế độ đơn giản",
     "fullMode": "Chế độ đầy đủ"
   },

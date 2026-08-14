@@ -2654,6 +2654,8 @@
       "description": "Abra as configurações rápidas aqui e escolha o Modo Desktop para usar um espaço de trabalho com janelas.",
       "gotIt": "Entendi"
     },
+    "expand": "Expandir barra lateral",
+    "collapse": "Recolher barra lateral",
     "simpleMode": "Modo simples",
     "fullMode": "Modo completo"
   },
