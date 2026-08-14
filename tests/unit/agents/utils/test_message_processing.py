@@ -5,7 +5,7 @@ Covers:
 - is_first_user_interaction
 - prepend_to_message_content
 """
-# pylint: disable=redefined-outer-name,protected-access
+# pylint: disable=redefined-outer-name
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -208,15 +208,11 @@ class TestProcessAudioDataBlock:
         assert msg.content[0].text == "[Voice message]: hello from voice"
 
     @pytest.mark.asyncio
-    async def test_failed_transcription_becomes_placeholder(
+    async def test_failed_transcription_keeps_local_path_hint(
         self,
         tmp_path,
         _audio_config,
     ):
-        """Failed transcription keeps the placeholder *and* the local
-        path so the model can still see a "file downloaded" hint
-        (regression: this must not silently swallow the local path).
-        """
         audio_path = tmp_path / "voice.opus"
         msg, _ = _audio_message(audio_path)
 

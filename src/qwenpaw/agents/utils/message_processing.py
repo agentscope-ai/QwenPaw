@@ -337,11 +337,7 @@ async def _process_local_data_block(
             block,
         )
         if handled:
-            # Audio was transcribed or sent natively; suppress the
-            # "file downloaded" notification that would follow.
             return None
-        # Transcription failed — keep the local path so the caller's
-        # "file downloaded" notification still surfaces it.
         return local_path
     return local_path
 
@@ -505,7 +501,7 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
             # Console uploads land as ``DataBlock(URLSource(url=file:///..))``
             # already pointing at ``media_dir``.  Preserve the Pydantic block
             # type; local audio is handled in-place for transcription/native
-            # delivery, while other local media only needs a path hint.
+            # delivery, while other media only needs a path hint.
             if not isinstance(block, dict):
                 local_path = await _process_local_data_block(
                     message.content,
@@ -515,8 +511,10 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
                 if local_path:
                     downloaded_files.append((i, local_path))
                 # Remote URL or no URL on a Pydantic block: skip silently.
-                # Channel adapters must localize remote inbound media before
-                # constructing AgentScope 2.0 DataBlocks.
+                # Adding remote-download for Pydantic DataBlock is a
+                # separate feature (would need to also convert the dict
+                # result back into a DataBlock to preserve the array
+                # type homogeneity that 2.0 expects).
                 continue
 
             # === 1.x legacy dict path ===
