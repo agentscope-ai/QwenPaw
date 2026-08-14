@@ -134,7 +134,8 @@ def _blocks_from_value(value: Any) -> list[Any]:
         blocks = _blocks_from_mcp_content(content)
         structured = getattr(value, "structuredContent", None)
         if structured is not None and not _structured_covered_by_content(
-            structured, blocks,
+            structured,
+            blocks,
         ):
             blocks.append(_text_block(_stringify(structured)))
         return blocks or [_text_block("")]
