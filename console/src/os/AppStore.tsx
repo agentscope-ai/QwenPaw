@@ -78,6 +78,10 @@ export default function AppStore() {
   };
 
   const syncInstalledApp = async (result: InstallPluginResult) => {
+    if (installedApps.some((app) => app.id === result.id)) {
+      window.location.reload();
+      return;
+    }
     await loadPawApp(result.id);
     refreshInstalledApps();
   };
@@ -96,8 +100,6 @@ export default function AppStore() {
     handlePageChange,
     handleRefresh,
     handleInstall,
-    // onInstalled: refresh the installed-apps section after a market
-    // install/update so the new PawApp shows up without a full page reload.
   } = useOsAppMarket({
     onInstalled: syncInstalledApp,
   });

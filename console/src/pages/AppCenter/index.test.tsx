@@ -97,6 +97,22 @@ function makeApp(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
+function makeMarketApp(id: string) {
+  return {
+    id,
+    display_name: id,
+    developer: "dev",
+    owner: "dev",
+    version: "1.0.0",
+    logo_url: null,
+    downloads: 1,
+    view_count: 1,
+    details_url: null,
+    locales: { en: { description: id, category: "app" } },
+    is_featured: false,
+  };
+}
+
 function renderPage(initialEntries: string[] = ["/apps"]) {
   return renderWithProviders(
     <>
@@ -223,6 +239,42 @@ describe("AppCenterPage", () => {
     await waitFor(() =>
       expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(1),
     );
+  });
+
+  it("loads a newly installed market app without reloading", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeMarketApp("new-app")],
+      total: 1,
+    });
+    hoisted.installPlugin.mockResolvedValue({
+      id: "new-app",
+      name: "New App",
+    });
+    renderPage(["/apps?view=market"]);
+
+    fireEvent.click(await screen.findByText("appCenter.install"));
+
+    await waitFor(() =>
+      expect(hoisted.loadPawApp).toHaveBeenCalledWith("new-app"),
+    );
+  });
+
+  it("does not load an old bundle when updating an installed market app", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeMarketApp("alpha-app")],
+      total: 1,
+    });
+    hoisted.installPlugin.mockResolvedValue({
+      id: "alpha-app",
+      name: "Alpha App",
+    });
+    renderPage(["/apps?view=market"]);
+    await waitFor(() => expect(hoisted.listApps).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(await screen.findByText("appCenter.install"));
+
+    await waitFor(() => expect(hoisted.installPlugin).toHaveBeenCalledTimes(1));
+    expect(hoisted.loadPawApp).not.toHaveBeenCalled();
   });
 
   it("returns to installed apps and preserves unrelated query params", async () => {

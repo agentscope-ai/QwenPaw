@@ -34,6 +34,7 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { pawappApi } from "../../api/modules/pawapp";
+import type { InstallPluginResult } from "../../api/modules/plugin";
 import { useRoutes } from "../../plugins/registry/hooks";
 import { loadPawApp } from "../../plugins/usePluginLoader";
 import { removePluginAppState } from "../../os/osCleanup";
@@ -122,6 +123,15 @@ export default function AppCenterPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleMarketInstalled = async (result: InstallPluginResult) => {
+    if (apps.some((app) => app.id === result.id)) {
+      window.location.reload();
+      return;
+    }
+    await loadPawApp(result.id);
+    await fetchApps();
   };
 
   useEffect(() => {
@@ -569,7 +579,10 @@ export default function AppCenterPage() {
                 </div>
               }
             >
-              <AppMarket channel="official" onInstalled={fetchApps} />
+              <AppMarket
+                channel="official"
+                onInstalled={handleMarketInstalled}
+              />
             </Suspense>
           ) : view === "market" ? (
             <Suspense
@@ -579,7 +592,7 @@ export default function AppCenterPage() {
                 </div>
               }
             >
-              <AppMarket onInstalled={fetchApps} />
+              <AppMarket onInstalled={handleMarketInstalled} />
             </Suspense>
           ) : (
             installedContent
