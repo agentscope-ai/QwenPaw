@@ -91,19 +91,52 @@ def _blocks_from_mcp_content(content: Any) -> list[Any]:
     return blocks
 
 
+def _structured_covered_by_content(
+    structured: Any,
+    blocks: list[Any],
+) -> bool:
+    """Return True when ``structuredContent`` is already surfaced.
+
+    ``content`` often carries the same data as ``structuredContent`` (a JSON
+    text block, or FastMCP's ``{"result": <raw text>}`` wrapper for
+    ``wrap_output``).  Detecting that overlap lets us keep the richer
+    ``content`` blocks (images/resources/audio that ``structuredContent``
+    cannot express) while still de-duplicating the JSON payload.
+    """
+    for block in blocks:
+        text = getattr(block, "text", None)
+        if text is None:
+            continue
+        try:
+            if json.loads(text) == structured:
+                return True
+        except (TypeError, ValueError):
+            pass
+        if (
+            isinstance(structured, dict)
+            and len(structured) == 1
+            and "result" in structured
+            and structured["result"] == text
+        ):
+            return True
+    return False
+
+
 def _blocks_from_value(value: Any) -> list[Any]:
     content = getattr(value, "content", None)
     is_mcp_call_result = content is not None and hasattr(value, "isError")
     if is_mcp_call_result:
-        # ``structuredContent`` is the canonical, machine-readable form of the
-        # result; ``content`` is frequently the same data rendered as
-        # human-readable text blocks. Writing both duplicates the tool result
-        # that gets persisted/displayed, so prefer ``structuredContent`` and
-        # only fall back to ``content`` when it is absent.
-        structured = getattr(value, "structuredContent", None)
-        if structured is not None:
-            return [_text_block(_stringify(structured))]
+        # ``content`` is the safe side: it can carry image / audio / resource
+        # blocks that ``structuredContent`` cannot express.  Only append
+        # ``structuredContent`` when it is not already represented in the
+        # ``content`` blocks, so we never lose data while still de-duplicating
+        # the common case where both carry the same JSON payload (see #6958).
         blocks = _blocks_from_mcp_content(content)
+        structured = getattr(value, "structuredContent", None)
+        if structured is not None and not _structured_covered_by_content(
+            structured, blocks,
+        ):
+            blocks.append(_text_block(_stringify(structured)))
         return blocks or [_text_block("")]
     return [_text_block(_stringify(value))]
 

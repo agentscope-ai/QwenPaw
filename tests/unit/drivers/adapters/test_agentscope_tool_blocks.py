@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """Unit tests for _blocks_from_value in the AgentScope tool adapter.
 
-Checks that an MCP-style call result yields a single, non-duplicated
-tool-result block — specifically that ``structuredContent`` is preferred as
-the canonical form instead of being written alongside a redundant
-``content`` rendering (see #6958).
+Guards the tool-result rendering (see #6958): ``content`` blocks are the
+safe side and must never be dropped, while ``structuredContent`` is only
+appended when it is not already represented in ``content`` (so the common
+JSON-payload duplication is removed without losing image / audio / resource
+blocks that ``structuredContent`` cannot express).
 """
 
 import json
@@ -18,6 +19,14 @@ class _TextItem:
     def __init__(self, text: str) -> None:
         self.type = "text"
         self.text = text
+
+
+class _ImageItem:
+    """Minimal stand-in for an MCP image content item (data + mimeType)."""
+
+    def __init__(self) -> None:
+        self.data = "iVBORw0KGgo="
+        self.mimeType = "image/png"
 
 
 class _CallResult:
@@ -34,8 +43,8 @@ class _CallResult:
         self.isError = is_error
 
 
-def test_structured_content_deduped_when_content_present() -> None:
-    """No duplicate when both content and structuredContent exist."""
+def test_structured_deduped_when_content_has_same_json() -> None:
+    """dict / TypedDict payload: content JSON == structured -> one block."""
     structured = {"name": "weather", "temp": 23}
     result = _CallResult(
         content=[_TextItem(json.dumps(structured, ensure_ascii=False))],
@@ -45,12 +54,54 @@ def test_structured_content_deduped_when_content_present() -> None:
     blocks = _blocks_from_value(result)
 
     assert len(blocks) == 1
-    payload = json.loads(blocks[0].text)
-    assert payload == structured
+    assert json.loads(blocks[0].text) == structured
+
+
+def test_wrap_output_str_result_not_wrapped() -> None:
+    """FastMCP wrap_output: structured {\"result\": text} keeps raw text."""
+    result = _CallResult(
+        content=[_TextItem("plain text answer")],
+        structured={"result": "plain text answer"},
+    )
+
+    blocks = _blocks_from_value(result)
+
+    assert len(blocks) == 1
+    assert blocks[0].text == "plain text answer"
+
+
+def test_image_block_survives_when_structured_present() -> None:
+    """A content image block survives even when structuredContent is set."""
+    result = _CallResult(
+        content=[_ImageItem()],
+        structured={"points": 42},
+    )
+
+    blocks = _blocks_from_value(result)
+
+    assert len(blocks) == 2
+    # the image block is kept (DataBlock carries no text)
+    assert getattr(blocks[0], "text", None) is None
+    # structured content appended afterwards when not covered
+    assert json.loads(blocks[1].text) == {"points": 42}
+
+
+def test_structured_appended_when_not_covered() -> None:
+    """A summary in content does not suppress a distinct structured payload."""
+    result = _CallResult(
+        content=[_TextItem("summarized")],
+        structured={"full": [1, 2, 3]},
+    )
+
+    blocks = _blocks_from_value(result)
+
+    assert len(blocks) == 2
+    assert blocks[0].text == "summarized"
+    assert json.loads(blocks[1].text) == {"full": [1, 2, 3]}
 
 
 def test_content_blocks_used_when_structured_absent() -> None:
-    """With no structuredContent, the content blocks are kept as-is."""
+    """With no structuredContent, the content blocks are kept unchanged."""
     result = _CallResult(
         content=[_TextItem("plain text answer")],
         structured=None,
