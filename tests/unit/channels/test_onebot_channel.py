@@ -114,7 +114,11 @@ def test_media_dir_config(tmp_path):
     assert ch._media_dir == explicit
 
     workspace = tmp_path / "workspace"
-    ch = _make_channel(workspace_dir=workspace)
+    ch = OneBotChannel.from_config(
+        _noop_process,
+        OneBotConfig(enabled=True),
+        workspace_dir=workspace,
+    )
     assert ch._media_dir == workspace / "media" / "onebot"
 
 
