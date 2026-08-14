@@ -1,17 +1,20 @@
 .header {
   display: flex;
-  width: 100%;
-  height: 34px;
+  width: calc(100% - 12px);
+  height: 38px;
   align-items: center;
-  gap: 7px;
-  padding: 0 8px;
+  gap: 6px;
+  margin: 2px 6px;
+  padding: 0 7px;
   border: 0;
+  border-radius: 9px;
   background: transparent;
   color: var(--colorTextTertiary, rgba(26, 23, 22, 0.45));
   cursor: pointer;
 }
 
 .header:hover {
+  background: var(--colorFillQuaternary, rgba(43, 18, 0, 0.025));
   color: var(--colorText, rgba(26, 23, 22, 0.88));
 
   .more {
@@ -20,14 +23,20 @@
 }
 
 .subagent {
-  margin-top: 6px;
-  border-top: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+  margin-top: 8px;
+  background: color-mix(in srgb, var(--color-primary, #ff7f16) 5%, transparent);
   color: var(--colorPrimary, #ff7f16);
+}
+
+.pinned {
+  background: var(--colorFillQuaternary, rgba(43, 18, 0, 0.025));
 }
 
 .chevron,
 .kindIcon,
-.more {
+.more,
+.pinMark,
+.lockMark {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
@@ -46,9 +55,9 @@
   min-width: 0;
   overflow: hidden;
   flex: 1;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: 12px;
+  font-weight: 620;
+  letter-spacing: 0.01em;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -62,8 +71,16 @@
   justify-content: center;
   padding: 0 6px;
   border-radius: 999px;
-  background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.05));
+  background: var(--colorFillTertiary, rgba(43, 18, 0, 0.05));
   font-size: 10px;
+}
+
+.pinMark {
+  color: var(--color-primary, #ff7f16);
+}
+
+.lockMark {
+  color: var(--colorTextQuaternary, rgba(26, 23, 22, 0.3));
 }
 
 .more {

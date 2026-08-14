@@ -6,10 +6,9 @@ import {
   Archive,
   Bot,
   FolderInput,
+  GripVertical,
   MoreHorizontal,
   Pencil,
-  Pin,
-  PinOff,
   Trash2,
 } from "lucide-react";
 import { ChannelIcon } from "../../pages/Control/Channels/components";
@@ -25,7 +24,6 @@ export interface SessionItemProps {
   channelLabel?: string;
   chatStatus?: ChatStatus;
   generating?: boolean;
-  pinned?: boolean;
   archived?: boolean;
   source?: "chat" | "cron" | "subagent";
   groupId?: string | null;
@@ -45,7 +43,6 @@ export interface SessionItemProps {
   onClick?: (sessionId: string) => void;
   onEdit?: (sessionId: string, currentName: string) => void;
   onDelete?: (sessionId: string) => void;
-  onPin?: (sessionId: string) => void;
   onArchive?: (sessionId: string) => void;
   onMove?: (sessionId: string, groupId: string) => void;
   onEditChange?: (value: string) => void;
@@ -60,7 +57,6 @@ const SessionItem: React.FC<SessionItemProps> = ({
   channelLabel,
   chatStatus,
   generating,
-  pinned,
   archived,
   source,
   groupId,
@@ -74,7 +70,6 @@ const SessionItem: React.FC<SessionItemProps> = ({
   onClick,
   onEdit,
   onDelete,
-  onPin,
   onArchive,
   onMove,
   onEditChange,
@@ -115,14 +110,6 @@ const SessionItem: React.FC<SessionItemProps> = ({
   const dropdownItems = useMemo(
     () => [
       {
-        key: "pin",
-        icon: pinned ? <PinOff size={14} /> : <Pin size={14} />,
-        label: pinned
-          ? t("chat.contextMenu.unpin", "Unpin")
-          : t("chat.contextMenu.pin", "Pin"),
-        onClick: () => onPin?.(sessionId),
-      },
-      {
         key: "rename",
         icon: <Pencil size={14} />,
         label: t("chat.contextMenu.rename", "Rename"),
@@ -157,11 +144,9 @@ const SessionItem: React.FC<SessionItemProps> = ({
       },
     ],
     [
-      pinned,
       archived,
       sessionId,
       t,
-      onPin,
       onArchive,
       onDelete,
       groupId,
@@ -291,6 +276,19 @@ const SessionItem: React.FC<SessionItemProps> = ({
       {!editing && variant === "sidebar" && isSubagent && (
         <span className={styles.sourceIcon} title="Subagent">
           <Bot size={13} />
+        </span>
+      )}
+
+      {!editing && (
+        <span
+          className={styles.dragHint}
+          title={t(
+            "chat.groups.dragSessionHint",
+            "Press and hold to move this conversation",
+          )}
+          aria-hidden
+        >
+          <GripVertical size={12} />
         </span>
       )}
 

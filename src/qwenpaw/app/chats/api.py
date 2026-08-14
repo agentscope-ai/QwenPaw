@@ -216,9 +216,13 @@ async def update_chat_group(
     payload: ChatGroupUpdate,
     mgr: ChatManager = Depends(get_chat_manager),
 ):
-    """Rename a built-in or custom chat group."""
+    """Rename or pin a mutable chat group."""
     try:
-        group = await mgr.update_group(group_id, payload.name)
+        group = await mgr.update_group(
+            group_id,
+            name=payload.name,
+            pinned=payload.pinned,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if group is None:

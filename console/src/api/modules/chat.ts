@@ -131,10 +131,10 @@ export const chatApi = {
       body: JSON.stringify({ name }),
     }),
 
-  updateGroup: (groupId: string, name: string) =>
+  updateGroup: (groupId: string, update: { name?: string; pinned?: boolean }) =>
     request<ChatGroup>(`/chats/groups/${encodeURIComponent(groupId)}`, {
       method: "PUT",
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(update),
     }),
 
   reorderGroups: (groupIds: string[]) =>

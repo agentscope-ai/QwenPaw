@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from qwenpaw.app.chats.models import (
     ChatGroup,
     ChatGroupKind,
+    ChatGroupUpdate,
     ChatSpec,
     ChatUpdate,
     ChatsFile,
@@ -86,6 +87,11 @@ def test_chat_update_all_null_means_no_change():
     assert update.pinned is None
 
 
+def test_chat_group_update_requires_a_field():
+    with pytest.raises(ValidationError, match="At least one group field"):
+        ChatGroupUpdate()
+
+
 # ---------------------------------------------------------------------------
 # ChatsFile
 # ---------------------------------------------------------------------------
@@ -99,6 +105,7 @@ def test_chats_file_default_empty():
         DEFAULT_CHAT_GROUP_ID,
         SUBAGENT_CHAT_GROUP_ID,
     ]
+    assert all(group.pinned is False for group in cf.groups)
 
 
 def test_chats_file_restores_missing_system_groups():

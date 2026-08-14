@@ -48,8 +48,20 @@ const {
   mockUpdateChat: vi.fn().mockResolvedValue(undefined),
   mockGetSessionList: vi.fn().mockResolvedValue([]),
   mockListGroups: vi.fn().mockResolvedValue([
-    { id: "default", name: "Uncategorized", order: 0, kind: "default" },
-    { id: "subagents", name: "Subagents", order: 1, kind: "subagents" },
+    {
+      id: "default",
+      name: "Uncategorized",
+      order: 0,
+      kind: "default",
+      pinned: false,
+    },
+    {
+      id: "subagents",
+      name: "Subagents",
+      order: 1,
+      kind: "subagents",
+      pinned: false,
+    },
   ]),
   mockNavigate: vi.fn(),
   mockGetEffectiveSessionId: vi.fn((id: string) => id),
@@ -156,7 +168,6 @@ vi.mock("../../../../components/SessionItem", () => ({
     onClick,
     onEdit,
     onDelete,
-    onPin,
     onEditSubmit,
     onEditCancel,
   }: any) => (
@@ -167,9 +178,6 @@ vi.mock("../../../../components/SessionItem", () => ({
       </button>
       <button data-testid="delete-btn" onClick={() => onDelete?.(sessionId)}>
         delete
-      </button>
-      <button data-testid="pin-btn" onClick={() => onPin?.(sessionId)}>
-        pin
       </button>
       <button data-testid="edit-submit-btn" onClick={onEditSubmit}>
         submit
@@ -346,17 +354,6 @@ describe("ChatSessionDrawer", () => {
     expect(mockUpdateChat).not.toHaveBeenCalled();
   });
 
-  it("pin toggle calls updateChat with toggled pinned state", async () => {
-    withSession({ realId: "uuid-1", pinned: false });
-    const user = userEvent.setup();
-    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("pin-btn")).toBeInTheDocument(),
-    );
-    await user.click(screen.getByTestId("pin-btn"));
-    expect(mockUpdateChat).toHaveBeenCalledWith("uuid-1", { pinned: true });
-  });
-
   it("on open=true triggers session list refresh", async () => {
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
     await vi.waitFor(() => expect(mockGetSessionList).toHaveBeenCalled());
@@ -406,24 +403,24 @@ describe("ChatSessionDrawer", () => {
     expect(await screen.findByText("Agent B Chat")).toBeInTheDocument();
   });
 
-  it("pinned sessions sort before unpinned", async () => {
+  it("sorts sessions by recency instead of legacy session pin state", async () => {
     mockGetSessionList.mockResolvedValue([
       {
         id: "s1",
-        name: "Unpinned",
+        name: "Recent unpinned",
         pinned: false,
         updatedAt: new Date().toISOString(),
       },
       {
         id: "s2",
-        name: "Pinned",
+        name: "Old pinned",
         pinned: true,
-        updatedAt: new Date().toISOString(),
+        updatedAt: "2000-01-01T00:00:00.000Z",
       },
     ]);
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
     const items = await screen.findAllByTestId("session-item");
-    expect(items[0]).toHaveTextContent("Pinned");
-    expect(items[1]).toHaveTextContent("Unpinned");
+    expect(items[0]).toHaveTextContent("Recent unpinned");
+    expect(items[1]).toHaveTextContent("Old pinned");
   });
 });

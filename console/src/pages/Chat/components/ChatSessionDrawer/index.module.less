@@ -104,21 +104,31 @@
 }
 
 .createGroupButton {
+  display: flex;
   width: 100%;
-  height: 28px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   margin-top: 6px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--colorTextTertiary, rgba(26, 23, 22, 0.45));
-  font-size: 11px;
-  text-align: left;
+  padding: 0 10px;
+  border: 1px dashed var(--colorBorder, rgba(43, 18, 0, 0.14));
+  border-radius: 8px;
+  background: var(--colorBgContainer, rgba(255, 255, 255, 0.45));
+  color: var(--colorTextSecondary, rgba(26, 23, 22, 0.62));
+  font-size: 12px;
+  font-weight: 550;
   cursor: pointer;
 
   &:hover {
-    background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.05));
+    border-color: color-mix(in srgb, #ff7f16 46%, transparent);
+    background: color-mix(in srgb, #ff7f16 6%, transparent);
     color: var(--colorPrimary, #ff7f16);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, #ff7f16 38%, transparent);
+    outline-offset: 1px;
   }
 }
 

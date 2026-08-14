@@ -49,6 +49,10 @@ class ChatGroup(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     order: int = Field(default=0, ge=0)
     kind: ChatGroupKind = Field(default=ChatGroupKind.custom)
+    pinned: bool = Field(
+        default=False,
+        description="Whether the group is pinned above regular groups",
+    )
 
 
 def default_chat_groups() -> list[ChatGroup]:
@@ -168,7 +172,15 @@ class ChatGroupUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(min_length=1, max_length=64)
+    name: str | None = Field(default=None, min_length=1, max_length=64)
+    pinned: bool | None = None
+
+    @model_validator(mode="after")
+    def require_update(self) -> "ChatGroupUpdate":
+        """Reject an empty group update."""
+        if self.name is None and self.pinned is None:
+            raise ValueError("At least one group field must be provided")
+        return self
 
 
 class ChatGroupOrderUpdate(BaseModel):

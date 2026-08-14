@@ -6,8 +6,11 @@ import {
   ArrowUp,
   Bot,
   ChevronDown,
+  LockKeyhole,
   MoreHorizontal,
   Pencil,
+  Pin,
+  PinOff,
   Trash2,
 } from "lucide-react";
 import type { ChatGroup } from "../../api/types/chat";
@@ -17,11 +20,11 @@ interface SessionGroupHeaderProps {
   group: ChatGroup;
   count: number;
   collapsed: boolean;
-  pinned?: boolean;
   canMoveUp?: boolean;
   canMoveDown?: boolean;
   onToggle: () => void;
   onRename?: (name: string) => void;
+  onPin?: (pinned: boolean) => void;
   onDelete?: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
@@ -31,16 +34,17 @@ export default function SessionGroupHeader({
   group,
   count,
   collapsed,
-  pinned = false,
   canMoveUp = false,
   canMoveDown = false,
   onToggle,
   onRename,
+  onPin,
   onDelete,
   onMoveUp,
   onMoveDown,
 }: SessionGroupHeaderProps) {
   const { t } = useTranslation();
+  const isSubagents = group.kind === "subagents";
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(group.name);
 
@@ -53,6 +57,15 @@ export default function SessionGroupHeader({
 
   const menuItems = useMemo(
     () => [
+      {
+        key: "pin",
+        icon: group.pinned ? <PinOff size={13} /> : <Pin size={13} />,
+        label: group.pinned
+          ? t("chat.groups.unpin", "Unpin group")
+          : t("chat.groups.pin", "Pin group"),
+        onClick: () => onPin?.(!group.pinned),
+      },
+      { type: "divider" as const },
       {
         key: "rename",
         icon: <Pencil size={13} />,
@@ -94,20 +107,30 @@ export default function SessionGroupHeader({
       canMoveUp,
       group.kind,
       group.name,
+      group.pinned,
       onDelete,
       onMoveDown,
       onMoveUp,
+      onPin,
       t,
     ],
   );
 
   return (
     <div
-      className={`${styles.header} ${
-        group.kind === "subagents" ? styles.subagent : ""
+      className={`${styles.header} ${isSubagents ? styles.subagent : ""} ${
+        group.pinned ? styles.pinned : ""
       }`}
       role="button"
       tabIndex={0}
+      title={
+        isSubagents
+          ? t(
+              "chat.groups.subagentsHint",
+              "Conversations created by child agents",
+            )
+          : undefined
+      }
       onClick={onToggle}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") onToggle();
@@ -118,7 +141,7 @@ export default function SessionGroupHeader({
       >
         <ChevronDown size={13} />
       </span>
-      {group.kind === "subagents" && (
+      {isSubagents && (
         <span className={styles.kindIcon}>
           <Bot size={13} />
         </span>
@@ -144,7 +167,23 @@ export default function SessionGroupHeader({
         <span className={styles.label}>{group.name}</span>
       )}
       <span className={styles.count}>{count}</span>
-      {!pinned && !editing && (
+      {group.pinned && !isSubagents && (
+        <span
+          className={styles.pinMark}
+          title={t("chat.groups.pinned", "Pinned group")}
+        >
+          <Pin size={11} />
+        </span>
+      )}
+      {isSubagents && (
+        <span
+          className={styles.lockMark}
+          title={t("chat.groups.fixedLast", "Fixed at the bottom")}
+        >
+          <LockKeyhole size={11} />
+        </span>
+      )}
+      {!isSubagents && !editing && (
         <Dropdown menu={{ items: menuItems }} trigger={["click"]}>
           <button
             className={styles.more}

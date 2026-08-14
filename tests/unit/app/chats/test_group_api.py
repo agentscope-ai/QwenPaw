@@ -43,10 +43,17 @@ def test_group_crud_and_order_routes(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json()["name"] == "Projects"
 
+    response = client.put(
+        f"/chats/groups/{custom_group['id']}",
+        json={"pinned": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["pinned"] is True
+
     group_ids = [
         custom_group["id"],
-        SUBAGENT_CHAT_GROUP_ID,
         DEFAULT_CHAT_GROUP_ID,
+        SUBAGENT_CHAT_GROUP_ID,
     ]
     response = client.put(
         "/chats/groups/order",
@@ -66,3 +73,9 @@ def test_system_group_cannot_be_deleted(tmp_path: Path) -> None:
     response = client.delete(f"/chats/groups/{SUBAGENT_CHAT_GROUP_ID}")
 
     assert response.status_code == 409
+
+    response = client.put(
+        f"/chats/groups/{SUBAGENT_CHAT_GROUP_ID}",
+        json={"pinned": True},
+    )
+    assert response.status_code == 400

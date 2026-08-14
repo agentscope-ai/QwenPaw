@@ -181,18 +181,22 @@ async def test_chat_groups_support_rename_reorder_move_and_delete(
     research = await manager.create_group("Research")
     assert work.kind == ChatGroupKind.custom
 
-    renamed = await manager.update_group(work.id, "Projects")
+    renamed = await manager.update_group(work.id, name="Projects")
     assert renamed is not None
     assert renamed.name == "Projects"
 
+    pinned = await manager.update_group(work.id, pinned=True)
+    assert pinned is not None
+    assert pinned.pinned is True
+
     reordered = await manager.reorder_groups(
-        [research.id, SUBAGENT_CHAT_GROUP_ID, work.id, DEFAULT_CHAT_GROUP_ID],
+        [research.id, work.id, DEFAULT_CHAT_GROUP_ID, SUBAGENT_CHAT_GROUP_ID],
     )
     assert [group.id for group in reordered] == [
-        research.id,
-        SUBAGENT_CHAT_GROUP_ID,
         work.id,
+        research.id,
         DEFAULT_CHAT_GROUP_ID,
+        SUBAGENT_CHAT_GROUP_ID,
     ]
 
     subagent = await manager.get_or_create_chat(
@@ -218,6 +222,25 @@ async def test_chat_groups_support_rename_reorder_move_and_delete(
 async def test_system_chat_groups_cannot_be_deleted(manager: ChatManager):
     with pytest.raises(ValueError, match="cannot be deleted"):
         await manager.delete_group(DEFAULT_CHAT_GROUP_ID)
+
+
+@pytest.mark.asyncio
+async def test_subagent_group_is_immutable_and_must_remain_last(
+    manager: ChatManager,
+):
+    work = await manager.create_group("Work")
+
+    with pytest.raises(ValueError, match="cannot be changed"):
+        await manager.update_group(SUBAGENT_CHAT_GROUP_ID, pinned=True)
+
+    with pytest.raises(ValueError, match="must remain last"):
+        await manager.reorder_groups(
+            [
+                DEFAULT_CHAT_GROUP_ID,
+                SUBAGENT_CHAT_GROUP_ID,
+                work.id,
+            ],
+        )
 
 
 @pytest.mark.asyncio

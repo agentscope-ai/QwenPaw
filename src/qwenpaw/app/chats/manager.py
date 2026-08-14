@@ -36,6 +36,18 @@ def _default_group_id(source: SessionSource) -> str:
     return DEFAULT_CHAT_GROUP_ID
 
 
+def _ordered_groups(groups: list[ChatGroup]) -> list[ChatGroup]:
+    """Sort pinned groups first and keep the Subagents group last."""
+    return sorted(
+        groups,
+        key=lambda group: (
+            group.kind == ChatGroupKind.subagents,
+            not group.pinned,
+            group.order,
+        ),
+    )
+
+
 class ChatManager:  # pylint: disable=too-many-public-methods
     """Manages chat specifications in repository.
 
@@ -204,7 +216,7 @@ class ChatManager:  # pylint: disable=too-many-public-methods
         """List persisted groups in display order."""
         async with self._lock:
             chats_file = await self._repo.load()
-            return sorted(chats_file.groups, key=lambda group: group.order)
+            return _ordered_groups(chats_file.groups)
 
     async def create_group(self, name: str) -> ChatGroup:
         """Create a custom group after the current final group."""
@@ -228,18 +240,29 @@ class ChatManager:  # pylint: disable=too-many-public-methods
     async def update_group(
         self,
         group_id: str,
-        name: str,
+        *,
+        name: str | None = None,
+        pinned: bool | None = None,
     ) -> ChatGroup | None:
-        """Rename a built-in or custom group."""
-        normalized_name = name.strip()
-        if not normalized_name:
+        """Rename or pin a mutable group."""
+        if name is None and pinned is None:
+            raise ValueError("At least one group field must be provided")
+        normalized_name = name.strip() if name is not None else None
+        if normalized_name == "":
             raise ValueError("Group name cannot be empty")
         async with self._lock:
             chats_file = await self._repo.load()
             for index, group in enumerate(chats_file.groups):
                 if group.id != group_id:
                     continue
-                updated = group.model_copy(update={"name": normalized_name})
+                if group.kind == ChatGroupKind.subagents:
+                    raise ValueError("The Subagents group cannot be changed")
+                updates = {}
+                if normalized_name is not None:
+                    updates["name"] = normalized_name
+                if pinned is not None:
+                    updates["pinned"] = pinned
+                updated = group.model_copy(update=updates)
                 chats_file.groups[index] = updated
                 await self._repo.save(chats_file)
                 return updated
@@ -254,12 +277,14 @@ class ChatManager:  # pylint: disable=too-many-public-methods
                 raise ValueError("Group order contains duplicate IDs")
             if set(group_ids) != set(current):
                 raise ValueError("Group order must contain every group ID")
+            if group_ids[-1] != SUBAGENT_CHAT_GROUP_ID:
+                raise ValueError("The Subagents group must remain last")
             chats_file.groups = [
                 current[group_id].model_copy(update={"order": index})
                 for index, group_id in enumerate(group_ids)
             ]
             await self._repo.save(chats_file)
-            return list(chats_file.groups)
+            return _ordered_groups(chats_file.groups)
 
     async def delete_group(self, group_id: str) -> bool:
         """Delete a custom group and return chats to their system group."""

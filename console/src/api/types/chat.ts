@@ -7,6 +7,7 @@ export interface ChatGroup {
   name: string;
   order: number;
   kind: ChatGroupKind;
+  pinned: boolean;
 }
 
 export interface ChatSpec {

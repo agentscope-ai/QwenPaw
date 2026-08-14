@@ -2,14 +2,33 @@ import { describe, expect, it } from "vitest";
 import type { ChatGroup } from "../api/types/chat";
 import {
   groupChats,
+  groupChatsByDate,
   resolveChatGroupId,
   SUBAGENT_GROUP_ID,
 } from "./chatGroups";
 
 const groups: ChatGroup[] = [
-  { id: "default", name: "Uncategorized", order: 0, kind: "default" },
-  { id: "subagents", name: "Subagents", order: 1, kind: "subagents" },
-  { id: "work", name: "Work", order: 2, kind: "custom" },
+  {
+    id: "default",
+    name: "Uncategorized",
+    order: 0,
+    kind: "default",
+    pinned: false,
+  },
+  {
+    id: "subagents",
+    name: "Subagents",
+    order: 1,
+    kind: "subagents",
+    pinned: false,
+  },
+  {
+    id: "work",
+    name: "Work",
+    order: 2,
+    kind: "custom",
+    pinned: true,
+  },
 ];
 
 describe("chatGroups", () => {
@@ -23,24 +42,33 @@ describe("chatGroups", () => {
     );
   });
 
-  it("groups pinned chats separately and follows persisted group order", () => {
+  it("pins groups while keeping the Subagents group last", () => {
     const result = groupChats(
       [
-        { id: "pinned", pinned: true, source: "chat" as const },
+        { id: "regular", source: "chat" as const },
         { id: "worker", source: "subagent" as const },
         { id: "moved", source: "subagent" as const, groupId: "work" },
       ],
       groups,
-      "Pinned",
     );
 
     expect(result.map((item) => item.group.id)).toEqual([
-      "__pinned__",
+      "work",
       "default",
       "subagents",
-      "work",
     ]);
+    expect(result[0].sessions.map((session) => session.id)).toEqual(["moved"]);
     expect(result[2].sessions.map((session) => session.id)).toEqual(["worker"]);
-    expect(result[3].sessions.map((session) => session.id)).toEqual(["moved"]);
+  });
+
+  it("keeps date sections inside each business group", () => {
+    const result = groupChatsByDate([
+      { id: "recent", updatedAt: new Date().toISOString() },
+      { id: "old", updatedAt: "2000-01-01T00:00:00.000Z" },
+    ]);
+
+    expect(result.map((item) => item.key)).toEqual(["today", "older"]);
+    expect(result[0].sessions[0].id).toBe("recent");
+    expect(result[1].sessions[0].id).toBe("old");
   });
 });

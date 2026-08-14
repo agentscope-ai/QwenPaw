@@ -9,6 +9,7 @@ export interface ChatGroupsState {
   refreshGroups: () => Promise<void>;
   createGroup: (name: string) => Promise<void>;
   renameGroup: (groupId: string, name: string) => Promise<void>;
+  pinGroup: (groupId: string, pinned: boolean) => Promise<void>;
   deleteGroup: (groupId: string) => Promise<void>;
   reorderGroups: (groupIds: string[]) => Promise<void>;
 }
@@ -53,7 +54,15 @@ export function useChatGroups(active = true): ChatGroupsState {
 
   const renameGroup = useCallback(
     async (groupId: string, name: string) => {
-      await chatApi.updateGroup(groupId, name);
+      await chatApi.updateGroup(groupId, { name });
+      await refreshGroups();
+    },
+    [refreshGroups],
+  );
+
+  const pinGroup = useCallback(
+    async (groupId: string, pinned: boolean) => {
+      await chatApi.updateGroup(groupId, { pinned });
       await refreshGroups();
     },
     [refreshGroups],
@@ -78,6 +87,7 @@ export function useChatGroups(active = true): ChatGroupsState {
     refreshGroups,
     createGroup,
     renameGroup,
+    pinGroup,
     deleteGroup,
     reorderGroups,
   };

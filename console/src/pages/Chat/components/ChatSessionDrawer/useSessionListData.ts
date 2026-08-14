@@ -110,7 +110,6 @@ export interface SessionListData {
   handleSessionClick: (sessionId: string) => void;
   handleEditStart: (sessionId: string, currentName: string) => void;
   handleDelete: (sessionId: string) => void;
-  handlePinToggle: (sessionId: string) => void;
   handleArchiveToggle: (sessionId: string) => void;
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
@@ -233,8 +232,6 @@ export function useSessionListData(
     return [...resolvedSessions]
       .filter((s) => !s.archived)
       .sort((a, b) => {
-        if (a.pinned && !b.pinned) return -1;
-        if (!a.pinned && b.pinned) return 1;
         const aTime = a.updatedAt ?? a.createdAt ?? "";
         const bTime = b.updatedAt ?? b.createdAt ?? "";
         if (!aTime && !bTime) return 0;
@@ -349,24 +346,6 @@ export function useSessionListData(
     setEditValue("");
   }, []);
 
-  const handlePinToggle = useCallback(
-    async (sessionId: string) => {
-      const owner = sessionApi.getActiveOwner();
-      const session = sessions.find((s) => s.id === sessionId);
-      const backendId = session ? getBackendId(session) : null;
-      if (backendId && session) {
-        try {
-          await chatApi.updateChat(backendId, { pinned: !session.pinned });
-          if (!sessionApi.isActiveOwner(owner)) return;
-          await refreshSessions();
-        } catch (err) {
-          console.error("Failed to toggle pin status:", err);
-        }
-      }
-    },
-    [sessions, refreshSessions],
-  );
-
   const handleArchiveToggle = useCallback(
     async (sessionId: string) => {
       const owner = sessionApi.getActiveOwner();
@@ -429,13 +408,6 @@ export function useSessionListData(
           handleEditStart(contextMenuSessionId, session?.name || "New Chat"),
       },
       {
-        key: "pin",
-        label: session?.pinned
-          ? t("chat.contextMenu.unpin", "Unpin")
-          : t("chat.contextMenu.pin", "Pin"),
-        onClick: () => handlePinToggle(contextMenuSessionId),
-      },
-      {
         key: "archive",
         label: session?.archived
           ? t("sessions.archive.unaction", "Unarchive")
@@ -456,7 +428,6 @@ export function useSessionListData(
     t,
     handleSessionClick,
     handleEditStart,
-    handlePinToggle,
     handleArchiveToggle,
     handleDelete,
   ]);
@@ -471,7 +442,6 @@ export function useSessionListData(
     handleSessionClick,
     handleEditStart,
     handleDelete,
-    handlePinToggle,
     handleArchiveToggle,
     handleEditChange,
     handleEditSubmit,
