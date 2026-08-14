@@ -20,13 +20,16 @@ import {
   type LoopModeInfo,
   useLoopStore,
 } from "../../stores/loopStore";
-import { useIsMobile } from "../../hooks/useIsMobile";
 import { InlineMarkdown } from "../Markdown/InlineMarkdown";
 import {
   resolveLoopModeDescriptionMarkdown,
   resolveLoopModeName,
 } from "../../utils/loopModeDescription";
 import styles from "./index.module.less";
+
+interface LoopModeSelectorProps {
+  isMobile: boolean;
+}
 
 function ModeIcon({ mode, size = 14 }: { mode: LoopModeInfo; size?: number }) {
   if (mode.id === "goal") return <Target size={size} />;
@@ -36,11 +39,10 @@ function ModeIcon({ mode, size = 14 }: { mode: LoopModeInfo; size?: number }) {
   return <CircleDot size={size} />;
 }
 
-export function LoopModeSelector() {
+export function LoopModeSelector({ isMobile }: LoopModeSelectorProps) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "en";
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const availableModes = useLoopStore((state) => state.availableModes);
   const selectedModeId = useLoopStore((state) => state.selectedModeId);

@@ -3196,7 +3196,7 @@ export default function ChatPage() {
                 onTranscription={handleWhisperTranscription}
               />
             ) : null}
-            {usesQwenPawBackend && <LoopModeSelector />}
+            {usesQwenPawBackend && <LoopModeSelector isMobile={isMobile} />}
             {pluginSenderPrefix}
           </>
         ),

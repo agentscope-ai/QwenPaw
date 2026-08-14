@@ -8,7 +8,6 @@ import {
   type LoopModeInfo,
   useLoopStore,
 } from "../../stores/loopStore";
-import { OsWindowSizeContext } from "../../os/osWindowSizeContext";
 import { LoopModeSelector } from "./LoopModeSelector";
 
 vi.mock("react-i18next", () => ({
@@ -65,7 +64,7 @@ describe("LoopModeSelector", () => {
 
   it("shows localized built-ins and verbatim custom modes", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<LoopModeSelector />);
+    renderWithProviders(<LoopModeSelector isMobile={false} />);
 
     await user.click(screen.getByRole("button", { name: "loop.selectorAria" }));
 
@@ -93,7 +92,7 @@ describe("LoopModeSelector", () => {
 
   it("selects a custom mode from the compact menu", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<LoopModeSelector />);
+    renderWithProviders(<LoopModeSelector isMobile={false} />);
 
     await user.click(screen.getByRole("button", { name: "loop.selectorAria" }));
     await user.click(screen.getByText("Quality Review"));
@@ -101,13 +100,9 @@ describe("LoopModeSelector", () => {
     expect(useLoopStore.getState().selectedModeId).toBe("custom:quality");
   });
 
-  it("centers the menu above the trigger in a narrow window", async () => {
+  it("centers the menu above the trigger in the mobile layout", async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <OsWindowSizeContext.Provider value={500}>
-        <LoopModeSelector />
-      </OsWindowSizeContext.Provider>,
-    );
+    renderWithProviders(<LoopModeSelector isMobile />);
 
     await user.click(screen.getByRole("button", { name: "loop.selectorAria" }));
 
@@ -122,7 +117,7 @@ describe("LoopModeSelector", () => {
   it("shows starting before the first response event", () => {
     useLoopStore.getState().setStartingMode(custom);
 
-    renderWithProviders(<LoopModeSelector />);
+    renderWithProviders(<LoopModeSelector isMobile={false} />);
 
     expect(screen.getByText("Quality Review")).toBeInTheDocument();
     expect(screen.getByText("loop.starting")).toBeInTheDocument();
@@ -134,7 +129,7 @@ describe("LoopModeSelector", () => {
   it("shows running after the first response event", () => {
     useLoopStore.getState().setSessionMode(custom, "running");
 
-    renderWithProviders(<LoopModeSelector />);
+    renderWithProviders(<LoopModeSelector isMobile={false} />);
 
     expect(screen.getByText("loop.running")).toBeInTheDocument();
   });
@@ -142,7 +137,7 @@ describe("LoopModeSelector", () => {
   it("shows that an active mode is waiting for the user", () => {
     useLoopStore.getState().setSessionMode(custom, "awaiting_user");
 
-    renderWithProviders(<LoopModeSelector />);
+    renderWithProviders(<LoopModeSelector isMobile={false} />);
 
     expect(screen.getByText("loop.awaiting_user")).toBeInTheDocument();
   });
