@@ -91,10 +91,33 @@
   overflow: hidden;
 }
 
+.modePopover {
+  width: min(360px, calc(100% - 24px));
+}
+
 .modeMenu {
-  width: min(360px, calc(100vw - 24px));
+  width: 100%;
   padding: 10px;
   background: var(--ant-color-bg-elevated);
+}
+
+.modePopoverMobile {
+  right: 12px !important;
+  left: 12px !important;
+  width: auto;
+
+  .modeMenu {
+    max-height: min(480px, calc(100dvh - 32px));
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .settingsButton {
+    width: 44px;
+    height: 44px;
+    touch-action: manipulation;
+  }
 }
 
 .menuHeader {

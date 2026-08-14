@@ -258,6 +258,8 @@
       "description": "Open quick settings here, then choose Desktop Mode for a window-based workspace.",
       "gotIt": "Got it"
     },
+    "expand": "Expand sidebar",
+    "collapse": "Collapse sidebar",
     "simpleMode": "Simple Mode",
     "fullMode": "Full Mode"
   },

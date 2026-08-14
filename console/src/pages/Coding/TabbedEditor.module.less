@@ -614,6 +614,10 @@
 }
 
 @container (max-width: 520px) {
+  .tabBar {
+    height: 46px;
+  }
+
   .scrollControl {
     display: none;
   }
@@ -623,8 +627,10 @@
   }
 
   .openFilesBtn {
-    width: 34px;
+    width: 44px;
+    height: 44px;
     padding: 0;
+    touch-action: manipulation;
   }
 
   .tabCount {
@@ -638,8 +644,49 @@
   }
 
   .openFilesPanel {
-    right: 6px;
-    width: calc(100% - 12px);
+    top: calc(100% + 4px);
+    right: 4px;
+    width: calc(100% - 8px);
+    max-height: min(520px, calc(100dvh - 116px));
+    border-radius: 10px;
+  }
+
+  .openFilesHeader {
+    padding: 12px;
+  }
+
+  .openFilesSearch input {
+    height: 44px;
+    font-size: 16px;
+  }
+
+  .openFilesSearch > svg {
+    top: 15px;
+  }
+
+  .openFileItem {
+    min-height: 52px;
+  }
+
+  .openFileClose {
+    width: 44px;
+    height: 44px;
+    margin-right: 2px;
+    opacity: 0.72;
+    touch-action: manipulation;
+  }
+
+  .openFilesFooter {
+    gap: 8px;
+    padding: 8px max(8px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+
+    button {
+      min-width: 0;
+      min-height: 44px;
+      flex: 1;
+      touch-action: manipulation;
+    }
   }
 
   .fileName {

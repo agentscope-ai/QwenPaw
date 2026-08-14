@@ -258,6 +258,8 @@
       "description": "点击这里打开快捷设置，然后选择“进入桌面模式”，体验多窗口工作区。",
       "gotIt": "我知道了"
     },
+    "expand": "展开侧栏",
+    "collapse": "收起侧栏",
     "simpleMode": "精简模式",
     "fullMode": "完整模式"
   },

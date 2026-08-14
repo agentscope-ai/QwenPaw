@@ -568,10 +568,20 @@
     }
   }
 
+  .triggerCompact {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .triggerFullPath {
+    min-height: 44px;
+  }
+
   .panel {
     width: calc(100vw - 24px);
-    max-width: calc(100vw - 72px);
-    max-height: calc(100vh - 20px);
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
     gap: 10px;
   }
 
@@ -596,6 +606,11 @@
   }
 
   .actions {
+    :global(.ant-btn) {
+      min-height: 44px;
+      touch-action: manipulation;
+    }
+
     :global(.ant-btn-text) {
       max-width: 65%;
       overflow: hidden;

@@ -20,6 +20,7 @@ import {
   type LoopModeInfo,
   useLoopStore,
 } from "../../stores/loopStore";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import { InlineMarkdown } from "../Markdown/InlineMarkdown";
 import {
   resolveLoopModeDescriptionMarkdown,
@@ -39,6 +40,7 @@ export function LoopModeSelector() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "en";
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const availableModes = useLoopStore((state) => state.availableModes);
   const selectedModeId = useLoopStore((state) => state.selectedModeId);
@@ -170,8 +172,10 @@ export function LoopModeSelector() {
       content={content}
       onOpenChange={setOpen}
       open={open}
-      overlayClassName={styles.modePopover}
-      placement="topLeft"
+      overlayClassName={`${styles.modePopover} ${
+        isMobile ? styles.modePopoverMobile : ""
+      }`}
+      placement={isMobile ? "top" : "topLeft"}
       trigger="click"
     >
       <button

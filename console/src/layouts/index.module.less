@@ -1,6 +1,7 @@
 // ─── MainLayout ───────────────────────────────────────────────────────────────
 .mainLayout {
   height: 100vh;
+  height: 100dvh;
 }
 
 // ─── Header ───────────────────────────────────────────────────────────────────
@@ -522,6 +523,10 @@
   }
 }
 
+.mobileSidebarBackdrop {
+  display: none;
+}
+
 .modeToggleActive {
   color: #ff7f16 !important;
   background: rgba(255, 127, 22, 0.08);
@@ -748,9 +753,29 @@
 @media (max-width: 768px) {
   .sider {
     height: calc(100vh - 56px) !important;
+    height: calc(100dvh - 56px) !important;
     padding: 0 8px;
     flex: 0 0 auto !important;
     max-width: 240px !important;
+
+    :global {
+      .qwenpaw-layout-sider-children {
+        height: 100%;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+    }
+
+    &.siderMobileExpanded {
+      position: fixed !important;
+      top: 56px;
+      bottom: 0;
+      left: 0;
+      z-index: 1021;
+      box-shadow: 8px 0 24px rgba(26, 23, 22, 0.16);
+    }
 
     &.siderCollapsed {
       padding: 0 6px;
@@ -768,16 +793,48 @@
   }
 
   .collapsedNavItem {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     border-radius: 8px;
+    touch-action: manipulation;
   }
 
   .collapseToggleContainer {
+    position: relative;
+    bottom: auto;
     width: calc(100% + 16px);
     margin: 0 -8px;
-    padding: 8px 0;
+    padding: 4px 0 calc(4px + env(safe-area-inset-bottom, 0px));
     justify-content: center;
+    gap: 8px;
+  }
+
+  .collapseToggle {
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+  }
+
+  .mobileSidebarBackdrop {
+    position: fixed;
+    top: 56px;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1020;
+    display: block;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: rgba(9, 9, 11, 0.45);
+    cursor: default;
+    touch-action: manipulation;
   }
 }
 

@@ -12,6 +12,7 @@ import {
 } from "antd";
 import type { TourProps } from "antd";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../hooks/useAppMessage";
@@ -254,6 +255,22 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       mediaQuery.removeEventListener("change", syncMobileSidebar);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isMobile || collapsed) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setCollapsed(true);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [collapsed, isMobile]);
+
   useEffect(() => {
     const loadUnreadState = async () => {
       try {
@@ -439,10 +456,14 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     const item = findMenuItem(allItems, key);
     if (item?.href) {
       window.open(item.href, "_blank", "noopener,noreferrer");
+      if (isMobile) setCollapsed(true);
       return;
     }
     const path = routeIdToPath(item?.route, routes);
-    if (path) navigate(path);
+    if (path) {
+      navigate(path);
+      if (isMobile) setCollapsed(true);
+    }
   };
 
   /**
@@ -459,7 +480,8 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       sessionStorage.setItem("qwenpaw_pending_new_chat", "1");
       navigate("/chat");
     }
-  }, [location.pathname, navigate]);
+    if (isMobile) setCollapsed(true);
+  }, [isMobile, location.pathname, navigate]);
 
   /**
    * Session click: navigate directly without relying on ChatSessionInitializer.
@@ -470,8 +492,9 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
       const targetPath = buildChatPath(effectiveId);
       navigate(targetPath);
+      if (isMobile) setCollapsed(true);
     },
-    [navigate],
+    [isMobile, navigate],
   );
 
   const handleUpdateProfile = async (values: {
@@ -540,13 +563,25 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   return (
     <Sider
+      id="app-sidebar"
       width={siderWidth}
       className={`${styles.sider}${
         collapsed ? ` ${styles.siderCollapsed}` : ""
       }${isDark ? ` ${styles.siderDark}` : ""}${
         isSimpleExpanded ? ` ${styles.siderSimple}` : ""
-      }`}
+      }${isMobile && !collapsed ? ` ${styles.siderMobileExpanded}` : ""}`}
     >
+      {isMobile &&
+        !collapsed &&
+        createPortal(
+          <button
+            type="button"
+            className={styles.mobileSidebarBackdrop}
+            aria-label={t("sidebar.collapse", "Collapse sidebar")}
+            onClick={() => setCollapsed(true)}
+          />,
+          document.body,
+        )}
       {collapsed ? (
         <nav className={styles.collapsedNav}>
           {collapsedNavItems.map((item) => {
@@ -581,6 +616,9 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                   }}
                   onMouseEnter={
                     item.key === "core.inbox" ? handleInboxHover : undefined
+                  }
+                  aria-label={
+                    typeof item.label === "string" ? item.label : undefined
                   }
                 >
                   {item.icon}
@@ -620,6 +658,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                       } else {
                         navigate(entry.path);
                       }
+                      if (isMobile) setCollapsed(true);
                     }}
                   >
                     {isInbox ? (
@@ -754,6 +793,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
             type="text"
             icon={<SparkSettingLine size={18} />}
             className={styles.collapseToggle}
+            aria-label={t("nav.settings")}
           />
         </Popover>
         <Button
@@ -767,6 +807,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           }
           onClick={() => setCollapsed(!collapsed)}
           className={styles.collapseToggle}
+          aria-controls="app-sidebar"
+          aria-expanded={!collapsed}
+          aria-label={t(
+            collapsed ? "sidebar.expand" : "sidebar.collapse",
+            collapsed ? "Expand sidebar" : "Collapse sidebar",
+          )}
         />
       </div>
 

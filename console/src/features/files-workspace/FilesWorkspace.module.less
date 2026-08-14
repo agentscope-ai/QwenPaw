@@ -841,7 +841,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .drawer,
   .drawerPreview,
   .drawerWorkspace,
@@ -854,24 +854,81 @@
   }
 
   .drawerHeader {
-    min-height: 56px;
+    min-height: 60px;
+    padding: max(8px, env(safe-area-inset-top)) 12px 8px;
+    gap: 8px;
+  }
+
+  .iconButton,
+  .secondaryButton,
+  .primaryButton {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .iconButton {
+    width: 44px;
   }
 
   .drawerTitle + .secondaryButton {
-    width: 34px;
+    width: 44px;
     padding: 0;
     font-size: 0;
   }
 
+  .previewSurface {
+    padding: 16px;
+  }
+
+  .directorySwitch {
+    width: 44px;
+    height: 44px;
+    touch-action: manipulation;
+  }
+
+  .sourceTabs button,
+  .treeRow,
+  .profileRow,
+  .loadMore {
+    min-width: 44px;
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .drawerFooter {
+    min-height: auto;
+    padding: 8px 12px max(8px, env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+
+    .secondaryButton,
+    .primaryButton {
+      min-width: 0;
+      padding-inline: 8px;
+      white-space: normal;
+    }
+  }
+
+  .workspace:not(.workspaceEmpty) {
+    flex-direction: column;
+  }
+
   .navigator {
-    width: 42%;
-    min-width: 156px;
+    width: 100%;
+    min-width: 0;
+    height: clamp(132px, 34%, 240px);
+    flex: 0 1 34%;
+    border-right: 0;
+    border-bottom: 1px solid var(--files-line);
   }
 
   .workspaceEmpty {
     .navigator {
       width: 100%;
       min-width: 0;
+      height: auto;
+      flex: 1;
+      border-bottom: 0;
     }
 
     .documentSurface {
@@ -880,11 +937,34 @@
   }
 
   .activityRail {
-    width: 42px;
+    width: 100%;
+    height: auto;
+    min-height: 54px;
+    padding: 5px 8px;
+    flex: 0 0 auto;
+    flex-direction: row;
+    border-right: 0;
+    border-bottom: 1px solid var(--files-line);
+
+    button {
+      width: 44px;
+      height: 44px;
+      touch-action: manipulation;
+    }
   }
 
   .documentSurface {
     min-width: 0;
+    min-height: 180px;
+  }
+
+  .sourcePanel {
+    width: 100%;
+    min-width: 0;
+    height: clamp(132px, 34%, 240px);
+    flex: 0 1 34%;
+    border-right: 0;
+    border-bottom: 1px solid var(--files-line);
   }
 
   .resizeHandle {

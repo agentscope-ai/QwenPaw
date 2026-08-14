@@ -86,6 +86,73 @@
   gap: 8px;
 }
 
+/* Keep every sender action reachable on narrow touch viewports. */
+@media (max-width: 768px) {
+  .chatMessagesArea :global {
+    [class$="-sender-content"] {
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+
+    [class$="-sender-content-bottom"] {
+      min-width: 0;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    [class$="-sender-prefix"] {
+      width: auto;
+      min-width: 0;
+      flex: 1 1 96px;
+      overflow: visible;
+
+      > div {
+        flex-wrap: wrap;
+      }
+    }
+
+    [class$="-sender-actions-list"] {
+      min-width: 0;
+      max-width: 100%;
+      flex: 1 1 auto;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      row-gap: 8px;
+    }
+
+    [class$="-sender-actions-list-length"] {
+      padding-inline: 6px;
+    }
+
+    [class$="-sender-content-bottom"] button,
+    [class$="-sender-content-bottom"] [role="button"] {
+      min-width: 44px;
+      min-height: 44px;
+      touch-action: manipulation;
+    }
+  }
+
+  .senderActionAffix {
+    flex-wrap: wrap;
+  }
+
+  .senderActionAffix > * {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 1024px) and (max-height: 500px) {
+  .chatMessagesArea :global {
+    [class$="-chat-anywhere-message-list-welcome"] {
+      height: 0;
+      min-height: 0;
+      overflow: auto;
+    }
+  }
+}
+
 @media (max-width: 1024px) {
   .filesPreviewOpen,
   .filesWorkspaceOpen {

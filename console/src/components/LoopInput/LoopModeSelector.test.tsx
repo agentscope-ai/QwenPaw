@@ -8,6 +8,7 @@ import {
   type LoopModeInfo,
   useLoopStore,
 } from "../../stores/loopStore";
+import { OsWindowSizeContext } from "../../os/osWindowSizeContext";
 import { LoopModeSelector } from "./LoopModeSelector";
 
 vi.mock("react-i18next", () => ({
@@ -98,6 +99,24 @@ describe("LoopModeSelector", () => {
     await user.click(screen.getByText("Quality Review"));
 
     expect(useLoopStore.getState().selectedModeId).toBe("custom:quality");
+  });
+
+  it("centers the menu above the trigger in a narrow window", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <OsWindowSizeContext.Provider value={500}>
+        <LoopModeSelector />
+      </OsWindowSizeContext.Provider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "loop.selectorAria" }));
+
+    expect(
+      document.querySelector(".ant-popover-placement-top"),
+    ).toBeInTheDocument();
+    expect(
+      document.querySelector(".ant-popover-placement-topLeft"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows starting before the first response event", () => {
