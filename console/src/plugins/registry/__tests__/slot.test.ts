@@ -90,18 +90,12 @@ describe("slotRegistry.replace", () => {
     expect(snap.map((e) => e.opts.id)).toEqual(["f"]);
   });
 
-  it("detaches and restores fills and replacements by source", () => {
+  it("removes fills and replacements by source", () => {
     slotRegistry.fill("plugin", "x", () => null, { id: "fill" });
     slotRegistry.replace("plugin", "y", () => null, { id: "replace" });
 
-    const snapshot = slotRegistry.detachBySource("plugin");
+    slotRegistry.removeBySource("plugin");
     expect(slotRegistry.snapshotAll()).toEqual([]);
-
-    snapshot.restore();
-    expect(slotRegistry.snapshotAll().map((entry) => entry.id)).toEqual([
-      "fill",
-      "replace",
-    ]);
   });
 });
 

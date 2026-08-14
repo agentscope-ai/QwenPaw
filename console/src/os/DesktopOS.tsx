@@ -12,7 +12,7 @@
 import { Suspense, useMemo, useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { App, Dropdown, Spin, type MenuProps } from "antd";
-import { Grid2X2, Image as ImageIcon, RefreshCw, Trash2 } from "lucide-react";
+import { Grid2X2, Image as ImageIcon, Trash2 } from "lucide-react";
 import { useRoutes } from "../plugins/registry/hooks";
 import { uninstallPlugin } from "../api/modules/plugin";
 import { ChunkErrorBoundary } from "../components/ChunkErrorBoundary";
@@ -55,9 +55,6 @@ import {
   setActivePawAppId,
 } from "../plugins/pawapp-sdk/context";
 import { getOsRootHref } from "../utils/navigationMode";
-import { PawAppLoadState } from "../plugins/PawAppLoadState";
-import { usePawAppRuntime } from "../plugins/usePawAppRuntime";
-import { usePawAppManifestStore } from "./pawAppManifestStore";
 import "./osWindowBody.css";
 
 /** Session flag so the boot splash plays once per browser session. */
@@ -69,26 +66,6 @@ function shouldPlayBoot(): boolean {
   } catch {
     return true;
   }
-}
-
-function PawAppWindowContent({ app }: { app: OsAppDef }) {
-  const routes = useRoutes();
-  const runtime = usePawAppRuntime(app.source!, app.entryPage!);
-  const route = routes.find(
-    (item) => item.path === app.entryPage && item.baseSource === app.source,
-  );
-
-  if (runtime.state === "ready" && route) {
-    const Component = route.Component;
-    return (
-      <WindowRouter
-        routeId={route.id}
-        base={baseFromRoutePath(route.path)}
-        element={<Component />}
-      />
-    );
-  }
-  return <PawAppLoadState className="os-pawapp-load-state" runtime={runtime} />;
 }
 
 export default function DesktopOS() {
@@ -128,12 +105,8 @@ export default function DesktopOS() {
   useSyncCodingMode();
   // Single app registry: desktop icons, window chrome and the launcher all
   // read from the same source (catalog + system + dynamic plugin apps).
-  const { apps: visibleApps, appById, manifestError } = useOsApps();
+  const { apps: visibleApps, appById } = useOsApps();
   const { wallpaperId } = useOsWallpaper();
-
-  useEffect(() => {
-    if (manifestError) message.error(manifestError);
-  }, [manifestError, message]);
 
   // Desktop right-click menu and wallpaper picker overlay.
   const [wpOpen, setWpOpen] = useState(false);
@@ -223,12 +196,10 @@ export default function DesktopOS() {
   // each app's MemoryRouter and never becomes a browser deep link.
   useEffect(() => {
     const activeRoute = activeId ? routeById.get(activeId) : undefined;
-    const activeDef = activeId ? appById.get(activeId) : undefined;
-    const pawAppId = activeDef?.source
-      ? activeDef.source
-      : activeRoute?.source !== "core" && activeRoute?.path.startsWith("/apps/")
-      ? getPawAppIdFromPath(activeRoute.path)
-      : "";
+    const pawAppId =
+      activeRoute?.source !== "core" && activeRoute?.path.startsWith("/apps/")
+        ? getPawAppIdFromPath(activeRoute.path)
+        : "";
     setActivePawAppId(pawAppId || null);
     const browserPath = getOsRootHref(window.location.pathname);
     if (
@@ -240,7 +211,7 @@ export default function DesktopOS() {
         browserPath,
       );
     }
-  }, [activeId, appById, routeById]);
+  }, [activeId, routeById]);
 
   const openWindows = order
     .map((id) => windows[id])
@@ -316,19 +287,6 @@ export default function DesktopOS() {
   };
   const desktopMenuItems: MenuProps["items"] = [
     {
-      key: "refresh",
-      icon: <RefreshCw size={15} />,
-      label: t("os.refreshDesktop", "Refresh desktop"),
-      onClick: () => {
-        closeDesktopMenu();
-        void usePawAppManifestStore
-          .getState()
-          .refresh()
-          .catch(() => {});
-      },
-    },
-    { type: "divider" },
-    {
       key: "arrange",
       icon: <Grid2X2 size={15} />,
       label: t("os.arrangeDesktop", "Clean up"),
@@ -355,10 +313,6 @@ export default function DesktopOS() {
       try {
         await uninstallPlugin(source);
         removePluginAppState(source);
-        await usePawAppManifestStore
-          .getState()
-          .refresh()
-          .catch(() => {});
         message.success(
           t("os.uninstalledApp", { name, defaultValue: "Uninstalled" }),
         );
@@ -492,7 +446,7 @@ export default function DesktopOS() {
           const isStore = win.id === STORE_APP.routeId;
           const isSettings = win.id === SETTINGS_APP.routeId;
           const Component = componentById.get(win.id);
-          if (!isStore && !isSettings && !Component && !def.entryPage) {
+          if (!isStore && !isSettings && !Component) {
             return null;
           }
           return (
@@ -519,8 +473,6 @@ export default function DesktopOS() {
                     <AppStore />
                   ) : isSettings ? (
                     <SettingsApp />
-                  ) : def.entryPage ? (
-                    <PawAppWindowContent app={def} />
                   ) : Component ? (
                     <WindowRouter
                       routeId={win.id}

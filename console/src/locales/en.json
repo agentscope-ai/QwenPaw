@@ -75,7 +75,7 @@
     "noApps": "No apps installed yet",
     "noResults": "No apps match your search",
     "loadFailed": "Failed to load apps. Please retry.",
-    "loadingApp": "Loading app",
+    "appNotLoaded": "This app is not loaded yet.",
     "appLoadFailed": "The app failed to load. You can retry without affecting other apps.",
     "uninstall": "Uninstall",
     "uninstallConfirmTitle": "Uninstall app?",

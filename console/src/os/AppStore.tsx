@@ -28,14 +28,13 @@ import {
   type InstallPluginResult,
   type PluginInfo,
 } from "../api/modules/plugin";
-import { pawappApi } from "../api/modules/pawapp";
+import { loadPawApp } from "../plugins/usePluginLoader";
 import { OS_APPS } from "./osApps";
 import { useOsPlugins } from "./osPluginStore";
 import { purgeAppState, removePluginAppState } from "./osCleanup";
 import { useOsModal } from "./useOsModal";
 import { useOsStyles } from "./useOsStyles";
 import { useOsAppMarket } from "./useOsAppMarket";
-import { usePawAppManifestStore } from "./pawAppManifestStore";
 
 /** Pick the description for the active language, with graceful fallbacks. */
 function localizedDescription(
@@ -78,24 +77,8 @@ export default function AppStore() {
       .finally(() => setAppsLoading(false));
   };
 
-  const refreshAllApps = () => {
-    void usePawAppManifestStore
-      .getState()
-      .refresh()
-      .catch(() => {});
-    refreshInstalledApps();
-  };
-
   const syncInstalledApp = async (result: InstallPluginResult) => {
-    try {
-      const app = await pawappApi.get(result.id);
-      usePawAppManifestStore.getState().upsert(app);
-    } catch {
-      await usePawAppManifestStore
-        .getState()
-        .refresh()
-        .catch(() => {});
-    }
+    await loadPawApp(result.id);
     refreshInstalledApps();
   };
 
@@ -122,7 +105,7 @@ export default function AppStore() {
   const [searchInput, setSearchInput] = useState("");
 
   useEffect(() => {
-    refreshAllApps();
+    refreshInstalledApps();
   }, []);
 
   /** Matching market entry (same id) — enables the update affordance. */
@@ -140,7 +123,7 @@ export default function AppStore() {
         try {
           await uninstallPlugin(p.id);
           removePluginAppState(p.id);
-          refreshAllApps();
+          refreshInstalledApps();
           message.success(
             t("os.uninstalledApp", {
               name: p.name,

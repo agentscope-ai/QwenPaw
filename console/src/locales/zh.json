@@ -75,7 +75,7 @@
     "noApps": "尚未安装任何应用",
     "noResults": "没有匹配的应用",
     "loadFailed": "加载应用失败，请重试。",
-    "loadingApp": "正在加载应用",
+    "appNotLoaded": "该应用尚未加载。",
     "appLoadFailed": "应用加载失败。你可以重新加载，当前工作区和其他应用不会受到影响。",
     "uninstall": "卸载",
     "uninstallConfirmTitle": "卸载应用？",

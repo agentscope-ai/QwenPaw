@@ -2,10 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { pluginSystem } from "./hostExternals";
-import {
-  detachPluginRuntime,
-  removePluginRuntime,
-} from "./pluginRuntimeCleanup";
+import { removePluginRuntime } from "./pluginRuntimeCleanup";
 import { chatExtensions } from "./registry/chatExtensions";
 import { menuRegistry, routeRegistry, slotRegistry } from "./registry/store";
 
@@ -59,15 +56,5 @@ describe("plugin runtime cleanup", () => {
     removePluginRuntime(PLUGIN_ID);
 
     expectPluginRegistrationCount(0);
-  });
-
-  it("restores all registrations after a transactional detach", () => {
-    registerEverySurface();
-
-    const snapshot = detachPluginRuntime(PLUGIN_ID);
-    expectPluginRegistrationCount(0);
-    snapshot.restore();
-
-    expectPluginRegistrationCount(1);
   });
 });

@@ -105,22 +105,8 @@ class PluginSystem {
     this._notify();
   }
 
-  detachPlugin(pluginId: string): { restore: () => void } {
-    const record = this.records.get(pluginId);
-    if (!record) return { restore: () => {} };
-    const snapshot: PluginRegistration = {
-      ...record,
-      routes: [...record.routes],
-      toolRenderers: { ...record.toolRenderers },
-    };
-    this.records.delete(pluginId);
-    this._notify();
-    return {
-      restore: () => {
-        this.records.set(pluginId, snapshot);
-        this._notify();
-      },
-    };
+  removePlugin(pluginId: string): void {
+    if (this.records.delete(pluginId)) this._notify();
   }
 
   // ── Read API (consumed by PluginContext / usePlugins) ────────────────────

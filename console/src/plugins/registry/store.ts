@@ -67,41 +67,19 @@ interface MenuEntry {
   registeredAt: number;
 }
 
-export interface SourceRegistrationSnapshot {
-  restore: () => void;
-}
-
-type RemovedEntries<K, T> = Map<K, Array<[number, T]>>;
-
-function detachEntries<K, T extends { source: string }>(
+function removeEntriesBySource<K, T extends { source: string }>(
   registry: Map<K, T[]>,
   source: string,
-): RemovedEntries<K, T> {
-  const removed: RemovedEntries<K, T> = new Map();
+): boolean {
+  let changed = false;
   for (const [key, entries] of registry) {
-    const matches = entries
-      .map((entry, index) => [index, entry] as [number, T])
-      .filter(([, entry]) => entry.source === source);
-    if (matches.length === 0) continue;
-    removed.set(key, matches);
     const remaining = entries.filter((entry) => entry.source !== source);
+    if (remaining.length === entries.length) continue;
+    changed = true;
     if (remaining.length > 0) registry.set(key, remaining);
     else registry.delete(key);
   }
-  return removed;
-}
-
-function restoreEntries<K, T>(
-  registry: Map<K, T[]>,
-  removed: RemovedEntries<K, T>,
-): void {
-  for (const [key, matches] of removed) {
-    const entries = registry.get(key) ?? [];
-    for (const [index, entry] of matches) {
-      entries.splice(Math.min(index, entries.length), 0, entry);
-    }
-    registry.set(key, entries);
-  }
+  return changed;
 }
 
 class MenuRegistryImpl {
@@ -146,20 +124,11 @@ class MenuRegistryImpl {
     }
   }
 
-  detachBySource(source: string): SourceRegistrationSnapshot {
-    const removed = detachEntries(this.stacks, source);
-    if (removed.size > 0) {
+  removeBySource(source: string): void {
+    if (removeEntriesBySource(this.stacks, source)) {
       this.invalidate();
       notify();
     }
-    return {
-      restore: () => {
-        if (removed.size === 0) return;
-        restoreEntries(this.stacks, removed);
-        this.invalidate();
-        notify();
-      },
-    };
   }
 
   refresh(): void {
@@ -387,8 +356,6 @@ interface RouteWrapEntry {
 interface ResolvedRoute {
   id: string;
   path: string;
-  /** Owner of the base route; stable when another plugin replaces it. */
-  baseSource: string;
   source: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   Component: React.ComponentType<any>;
@@ -513,35 +480,19 @@ class RouteRegistryImpl {
     }
   }
 
-  detachBySource(source: string): SourceRegistrationSnapshot {
-    const removedBases = [...this.bases].filter(
-      ([, entry]) => entry.source === source,
-    );
-    for (const [id] of removedBases) this.bases.delete(id);
-    const detachedOverrides = detachEntries(this.overrides, source);
-    const detachedWraps = detachEntries(this.wraps, source);
-    const changed =
-      removedBases.length > 0 ||
-      detachedOverrides.size > 0 ||
-      detachedWraps.size > 0;
+  removeBySource(source: string): void {
+    let changed = false;
+    for (const [id, entry] of this.bases) {
+      if (entry.source !== source) continue;
+      this.bases.delete(id);
+      changed = true;
+    }
+    changed = removeEntriesBySource(this.overrides, source) || changed;
+    changed = removeEntriesBySource(this.wraps, source) || changed;
     if (changed) {
       this.invalidate();
       notify();
     }
-    return {
-      restore: () => {
-        if (!changed) return;
-        for (const [id, entry] of removedBases) this.bases.set(id, entry);
-        restoreEntries(this.overrides, detachedOverrides);
-        restoreEntries(this.wraps, detachedWraps);
-        this.invalidate();
-        notify();
-      },
-    };
-  }
-
-  removeBySource(source: string): void {
-    this.detachBySource(source);
   }
 
   snapshot(): ResolvedRoute[] {
@@ -641,7 +592,6 @@ class RouteRegistryImpl {
       out.push({
         id: entry.route.id,
         path: entry.route.path,
-        baseSource: entry.source,
         source: overrideTop?.source ?? entry.source,
         Component,
       });
@@ -695,18 +645,10 @@ class SlotRegistryImpl {
     return built;
   }
 
-  detachBySource(source: string): SourceRegistrationSnapshot {
-    const removed = detachEntries(this.slots, source);
-    for (const name of removed.keys()) this.snapshots.delete(name);
-    if (removed.size > 0) notify();
-    return {
-      restore: () => {
-        if (removed.size === 0) return;
-        restoreEntries(this.slots, removed);
-        for (const name of removed.keys()) this.snapshots.delete(name);
-        notify();
-      },
-    };
+  removeBySource(source: string): void {
+    if (!removeEntriesBySource(this.slots, source)) return;
+    this.snapshots.clear();
+    notify();
   }
 
   /** Debug: every registered slot across the registry. */

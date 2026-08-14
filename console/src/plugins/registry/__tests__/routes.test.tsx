@@ -19,7 +19,6 @@ describe("routeRegistry.add", () => {
     routeRegistry.add("core", { id: "r1", path: "/r1", component: Base });
     const snap = routeRegistry.snapshot();
     expect(snap.map((r) => r.id)).toContain("r1");
-    expect(snap[0].baseSource).toBe("core");
   });
 
   it("rejects duplicate id with conflict audit", () => {
@@ -142,18 +141,5 @@ describe("routeRegistry.removeBySource", () => {
     expect(queryByTestId("base")).toBeInTheDocument();
     expect(queryByTestId("plugin")).not.toBeInTheDocument();
     expect(queryByTestId("wrap")).not.toBeInTheDocument();
-  });
-
-  it("restores all registration types after a transactional detach", () => {
-    routeRegistry.add("core", { id: "core-page", path: "/", component: Base });
-    routeRegistry.replace("plugin", "core-page", PluginPage);
-    routeRegistry.wrap("plugin", "core-page", (Inner) => () => <Inner />);
-
-    const snapshot = routeRegistry.detachBySource("plugin");
-    snapshot.restore();
-
-    expect(routeRegistry.snapshot()[0].baseSource).toBe("core");
-    expect(routeRegistry.snapshot()[0].source).toBe("plugin");
-    expect(routeRegistry.snapshot()[0].Component).not.toBe(Base);
   });
 });

@@ -11,12 +11,6 @@ import { useOsRoute } from "./osRouteStore";
 import { useOsDock } from "./osDockStore";
 import { routeRegistry } from "../plugins/registry/store";
 import type { Disposable } from "../plugins/registry/types";
-import {
-  resetPawAppManifestStoreForTests,
-  syncPawAppManifests,
-  usePawAppManifestStore,
-} from "./pawAppManifestStore";
-import { resolveAppDef } from "./osAppRegistry";
 
 let disposables: Disposable[] = [];
 
@@ -44,7 +38,6 @@ beforeEach(() => {
   useOsIcons.setState({ positions: {} });
   useOsRoute.setState({ targets: {} });
   useOsDock.setState({ pinned: ["core.chat", "core.inbox", "os.store"] });
-  resetPawAppManifestStoreForTests();
 });
 
 afterEach(() => {
@@ -114,42 +107,6 @@ describe("osCleanup (transactional)", () => {
     expect(w().windows["plugin.office"]).toBeUndefined();
     expect(
       routeRegistry.snapshot().some((route) => route.source === "office"),
-    ).toBe(false);
-  });
-
-  it("removes the manifest, desktop state and route in one transaction", () => {
-    syncPawAppManifests([
-      {
-        id: "office",
-        name: "Office",
-        version: "1.0.0",
-        description: "",
-        author: "dev",
-        category: "tools",
-        icon: "",
-        status: "installed",
-        home_page: null,
-        entry_page: "/apps/office",
-        dir: "/tmp/office",
-        settings: [],
-        permissions: {},
-        backends: {},
-      },
-    ]);
-    routeRegistry.add("office", {
-      id: "plugin.office",
-      path: "/apps/office",
-      component: () => null,
-    });
-    w().open("pawapp:office");
-
-    removePluginAppState("office");
-
-    expect(w().windows["pawapp:office"]).toBeUndefined();
-    expect(usePawAppManifestStore.getState().apps).toEqual([]);
-    expect(resolveAppDef("pawapp:office")).toBeUndefined();
-    expect(
-      routeRegistry.snapshot().some((route) => route.baseSource === "office"),
     ).toBe(false);
   });
 

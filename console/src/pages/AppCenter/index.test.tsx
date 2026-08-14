@@ -51,10 +51,6 @@ vi.mock("@/plugins/usePluginLoader", () => ({
   loadPawApp: hoisted.loadPawApp,
 }));
 
-vi.mock("@/os/pawAppManifestStore", () => ({
-  syncPawAppManifests: vi.fn(),
-}));
-
 vi.mock("@/os/osCleanup", () => ({
   removePluginAppState: hoisted.removePluginAppState,
 }));
@@ -121,7 +117,7 @@ describe("AppCenterPage", () => {
     hoisted.routeSnapshot.mockReset();
     hoisted.removePluginAppState.mockReset();
     hoisted.routeSnapshot.mockReturnValue([]);
-    hoisted.loadPawApp.mockRejectedValue(new Error("bundle unavailable"));
+    hoisted.loadPawApp.mockResolvedValue(undefined);
     hoisted.listApps.mockResolvedValue({
       apps: [makeApp("alpha-app"), makeApp("beta-app", { category: "games" })],
       total: 2,
@@ -299,6 +295,17 @@ describe("AppCenterPage", () => {
   });
 
   it("loads an installed app on demand on card click", async () => {
+    const AppPage = () => <div>Loaded PawApp</div>;
+    hoisted.loadPawApp.mockImplementationOnce(async () => {
+      hoisted.routeSnapshot.mockReturnValue([
+        {
+          id: "alpha.page",
+          path: "/apps/alpha-app",
+          source: "alpha-app",
+          Component: AppPage,
+        },
+      ]);
+    });
     renderPage();
     await screen.findByText("alpha-app");
 
@@ -310,12 +317,7 @@ describe("AppCenterPage", () => {
         "/apps/alpha-app",
       ),
     );
-    expect(
-      await screen.findByText("appCenter.appLoadFailed"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /common.retry/ }),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Loaded PawApp")).toBeInTheDocument();
   });
 
   it("cleans the loaded PawApp runtime after uninstall", async () => {
@@ -341,48 +343,29 @@ describe("AppCenterPage", () => {
     expect(hoisted.removePluginAppState).toHaveBeenCalledWith("alpha-app");
   });
 
-  it("retries a failed PawApp load and renders the registered page", async () => {
-    const AppPage = () => <div>Loaded PawApp</div>;
-    hoisted.loadPawApp
-      .mockRejectedValueOnce(new Error("network down"))
-      .mockImplementationOnce(async () => {
-        hoisted.routeSnapshot.mockReturnValue([
-          {
-            id: "alpha.page",
-            path: "/apps/alpha-app",
-            baseSource: "alpha-app",
-            source: "alpha-app",
-            Component: AppPage,
-          },
-        ]);
-        return undefined;
-      });
-    renderPage();
-    await screen.findByText("alpha-app");
-    fireEvent.click(screen.getByText("alpha-app"));
-    fireEvent.click(
-      await screen.findByRole("button", { name: /common.retry/ }),
-    );
-
-    expect(await screen.findByText("Loaded PawApp")).toBeInTheDocument();
-    expect(hoisted.loadPawApp).toHaveBeenCalledTimes(2);
-  });
-
   it("restores an OS PawApp when navigating back and forward", async () => {
+    hoisted.routeSnapshot.mockReturnValue([
+      {
+        id: "alpha.page",
+        path: "/apps/alpha-app",
+        source: "alpha-app",
+        Component: () => <div>Loaded PawApp</div>,
+      },
+    ]);
     window.history.replaceState({ osApp: "core.app-center" }, "", "/os");
     renderPage();
     await screen.findByText("alpha-app");
 
     fireEvent.click(screen.getByText("alpha-app"));
 
+    await waitFor(() =>
+      expect(window.history.state).toEqual({
+        osApp: "core.app-center",
+        osPawAppId: "alpha-app",
+      }),
+    );
     expect(window.location.pathname).toBe("/os");
-    expect(window.history.state).toEqual({
-      osApp: "core.app-center",
-      osPawAppId: "alpha-app",
-    });
-    expect(
-      await screen.findByText("appCenter.appLoadFailed"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Loaded PawApp")).toBeInTheDocument();
 
     window.history.back();
     await waitFor(() => {
@@ -390,8 +373,6 @@ describe("AppCenterPage", () => {
     });
 
     window.history.forward();
-    expect(
-      await screen.findByText("appCenter.appLoadFailed"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Loaded PawApp")).toBeInTheDocument();
   });
 });
