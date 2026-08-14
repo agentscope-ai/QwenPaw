@@ -297,6 +297,7 @@
     "browser": "浏览器",
     "acpServer": "ACP 集成",
     "memory": "记忆",
+    "embedding": "Embedding 向量模型",
     "memoryEvolvingAndProactive": "记忆进化与主动交互",
     "computerUse": "电脑操作",
     "chrome": "Chrome 浏览器扩展",

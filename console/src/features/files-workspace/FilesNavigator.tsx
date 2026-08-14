@@ -44,7 +44,11 @@ import {
   filesWorkspaceScopeKey,
   type FilesWorkspaceScope,
 } from "./filesWorkspaceScope";
-import { buildMemoryTree, type MemoryTreeEntry } from "./memoryTree";
+import {
+  buildDailyMemoryTree,
+  buildMemoryTree,
+  type MemoryTreeEntry,
+} from "./memoryTree";
 import type {
   DirectoryEntry,
   FileTarget,
@@ -521,16 +525,18 @@ export default function FilesNavigator({
     setLoading(true);
     try {
       const files = await workspaceApi.listMemoryFiles(section);
-      const tree = buildMemoryTree(
-        files.map((file) => ({
-          name: file.filename.split("/").pop() ?? file.filename,
-          path: file.filename,
-          kind: "file" as const,
-          size: file.size,
-          modified_at: file.modified_time,
-          preview_kind: "text" as const,
-        })),
-      );
+      const entries = files.map((file) => ({
+        name: file.filename.split("/").pop() ?? file.filename,
+        path: file.filename,
+        kind: "file" as const,
+        size: file.size,
+        modified_at: file.modified_time,
+        preview_kind: "text" as const,
+      }));
+      const tree =
+        section === "daily"
+          ? buildDailyMemoryTree(entries)
+          : buildMemoryTree(entries);
       if (section === "daily") setDailyFiles(tree);
       else setDigestFiles(tree);
     } finally {
