@@ -3196,7 +3196,7 @@ export default function ChatPage() {
                 onTranscription={handleWhisperTranscription}
               />
             ) : null}
-            {usesQwenPawBackend && <LoopModeSelector />}
+            {usesQwenPawBackend && <LoopModeSelector isMobile={isMobile} />}
             {pluginSenderPrefix}
           </>
         ),
@@ -3506,6 +3506,7 @@ export default function ChatPage() {
     handleQueueRetry,
     handleQueueSkip,
     effectiveIsFullMode,
+    isMobile,
     historyPanelOpen,
     toggleHistoryPanel,
     handleCompactCommand,

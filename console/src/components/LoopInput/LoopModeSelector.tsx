@@ -35,7 +35,7 @@ function ModeIcon({ mode, size = 14 }: { mode: LoopModeInfo; size?: number }) {
   return <CircleDot size={size} />;
 }
 
-export function LoopModeSelector() {
+export function LoopModeSelector({ isMobile }: { isMobile: boolean }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "en";
   const navigate = useNavigate();
@@ -170,8 +170,10 @@ export function LoopModeSelector() {
       content={content}
       onOpenChange={setOpen}
       open={open}
-      overlayClassName={styles.modePopover}
-      placement="topLeft"
+      overlayClassName={`${styles.modePopover} ${
+        isMobile ? styles.modePopoverMobile : ""
+      }`}
+      placement={isMobile ? "top" : "topLeft"}
       trigger="click"
     >
       <button
