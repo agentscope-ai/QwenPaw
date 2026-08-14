@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -157,72 +159,119 @@ async def _stop_gateway() -> None:
     await _gateway.stop()
 
 
-_known_source_dependencies: set[str] = set()
+_known_source_dependencies: dict[str, str] = {}
+_source_reconcile_lock: asyncio.Lock = asyncio.Lock()
+_source_reconciled_at = 0.0
+_SOURCE_RECONCILE_MIN_INTERVAL = 10.0
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_source_reconcile() -> None:
+    """Run a throttled reconcile without dropping the task to the GC."""
+    task = asyncio.create_task(_reconcile_source_dependencies())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+def _source_probe(source_id: str):
+    """Build a governed-query health probe for one data source."""
+
+    async def probe_source() -> DependencyHealth:
+        try:
+            await _gateway.json(
+                "POST",
+                "/api/v1/cm/execute_sql",
+                body={
+                    "sql": "SELECT 1 AS qwenpaw_data_health_check",
+                    "datasource_id": source_id,
+                    "max_rows": 1,
+                },
+            )
+        except HTTPException:
+            return DependencyHealth(
+                health="unavailable",
+                lifecycle="unmanaged",
+                error_code="DATASOURCE_UNAVAILABLE",
+                message="Data source connection check failed",
+                remediation=(
+                    "Verify the source service, credentials, and "
+                    "network access"
+                ),
+            )
+        return DependencyHealth(
+            health="healthy",
+            lifecycle="unmanaged",
+            message="Governed queries are ready",
+        )
+
+    return probe_source
+
+
+async def _reconcile_source_dependencies(*, force: bool = False) -> None:
+    """Align ``source:{id}`` dependencies with the live source catalog.
+
+    Sources can be added, renamed, or deleted from the embedded management
+    console at any time, so registration is a reentrant reconciliation
+    instead of a startup-only, grow-only set.
+    """
+    global _source_reconciled_at
+    async with _source_reconcile_lock:
+        now = time.monotonic()
+        if (
+            not force
+            and now - _source_reconciled_at < _SOURCE_RECONCILE_MIN_INTERVAL
+        ):
+            return
+        try:
+            response = await _gateway.json(
+                "GET",
+                "/api/v1/cm/datasources",
+                params={"page": 1, "size": 500},
+            )
+        except HTTPException:
+            # Catalog unavailable: keep current registrations instead of
+            # mass-dropping dependencies while the service is down.
+            return
+        desired: dict[str, str] = {}
+        for source in response.get("records", []):
+            source_id = str(source.get("datasource_id") or "").strip()
+            if not source_id:
+                continue
+            desired[f"source:{source_id}"] = str(
+                source.get("datasource_name") or source_id,
+            )
+
+        for dependency_id in app.dependencies.ids(prefix="source:"):
+            if dependency_id not in desired:
+                app.remove_dependency(dependency_id)
+                _known_source_dependencies.pop(dependency_id, None)
+
+        for dependency_id, display_name in desired.items():
+            if _known_source_dependencies.get(dependency_id) == display_name:
+                continue
+            app.dependency(
+                dependency_id,
+                display_name=display_name,
+                ownership="external",
+                capabilities=("governed-query",),
+                required=False,
+                probe=DependencyProbe(
+                    callback=_source_probe(
+                        dependency_id.removeprefix("source:"),
+                    ),
+                    timeout_seconds=8,
+                    cache_seconds=15,
+                ),
+                replace=dependency_id in _known_source_dependencies,
+            )
+            _known_source_dependencies[dependency_id] = display_name
+        _source_reconciled_at = time.monotonic()
 
 
 @app.hook("startup", priority=100)
 async def _register_data_source_dependencies() -> None:
     """Discover configured sources after the context service is ready."""
-    try:
-        response = await _gateway.json(
-            "GET",
-            "/api/v1/cm/datasources",
-            params={"page": 1, "size": 500},
-        )
-    except HTTPException:
-        return
-    for source in response.get("records", []):
-        source_id = str(source.get("datasource_id") or "").strip()
-        if not source_id:
-            continue
-        dependency_id = f"source:{source_id}"
-        if dependency_id in _known_source_dependencies:
-            continue
-        display_name = str(source.get("datasource_name") or source_id)
-
-        async def probe_source(
-            selected_source_id: str = source_id,
-        ) -> DependencyHealth:
-            try:
-                await _gateway.json(
-                    "POST",
-                    "/api/v1/cm/execute_sql",
-                    body={
-                        "sql": "SELECT 1 AS qwenpaw_data_health_check",
-                        "datasource_id": selected_source_id,
-                        "max_rows": 1,
-                    },
-                )
-            except HTTPException:
-                return DependencyHealth(
-                    health="unavailable",
-                    lifecycle="unmanaged",
-                    error_code="DATASOURCE_UNAVAILABLE",
-                    message="Data source connection check failed",
-                    remediation=(
-                        "Verify the source service, credentials, and "
-                        "network access"
-                    ),
-                )
-            return DependencyHealth(
-                health="healthy",
-                lifecycle="unmanaged",
-                message="Governed queries are ready",
-            )
-
-        app.dependency(
-            dependency_id,
-            display_name=display_name,
-            ownership="external",
-            capabilities=("governed-query",),
-            required=False,
-            probe=DependencyProbe(
-                callback=probe_source,
-                timeout_seconds=8,
-                cache_seconds=15,
-            ),
-        )
-        _known_source_dependencies.add(dependency_id)
+    await _reconcile_source_dependencies(force=True)
 
 
 router = APIRouter()
@@ -322,6 +371,13 @@ async def context_proxy(path: str, request: Request) -> Any:
     # console reads it; configured values are never overwritten.
     if request.method == "GET" and "system/model-config" in path:
         await _bootstrap_llm_from_host()
+    # The shell polls the source list; piggyback a throttled reconcile so
+    # sources added or removed in the management console converge onto
+    # the dependency catalog without a dedicated timer.
+    if request.method == "GET" and path.rstrip("/").endswith(
+        "cm/datasources",
+    ):
+        _spawn_source_reconcile()
     return await _gateway.proxy(path, request)
 
 
