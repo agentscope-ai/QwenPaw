@@ -1199,6 +1199,18 @@ class AutoTitleConfig(BaseModel):
         ),
     )
 
+    refresh_on_auto_memory: bool = Field(
+        default=False,
+        description=(
+            "Re-generate the chat title whenever the auto-memory "
+            "middleware flushes (every ``auto_memory_interval`` turns). "
+            "The title is derived from the recent conversation slice "
+            "instead of the first message, so it tracks the evolving "
+            "topic. The update is compare-and-set: it never clobbers a "
+            "name the user set manually after the last auto title."
+        ),
+    )
+
 
 class DoomLoopStageConfig(BaseModel):
     """One escalation stage in doom loop detection."""

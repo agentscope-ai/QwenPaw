@@ -38,6 +38,7 @@ from .store import (
     mutate_json,
     normalize_skill_manifest_entry,
     read_frontmatter_safe_from_path,
+    resolve_pool_skill_dir,
     read_json,
     read_skill_manifest,
     read_skill_pool_manifest,
@@ -1448,9 +1449,14 @@ def load_skill_content(
     """
     skill_dir = get_workspace_skills_dir(workspace_dir) / skill_name
     if not skill_dir.exists():
-        raise SkillsError(
-            message=f"Skill directory not found: '{skill_name}' at {skill_dir}"
-        )
+        # Fallback: check pool directories (including external skill_paths)
+        pool_dir = resolve_pool_skill_dir(skill_name)
+        if pool_dir is not None:
+            skill_dir = pool_dir
+        else:
+            raise SkillsError(
+                message=f"Skill directory not found: '{skill_name}' at {skill_dir}"
+            )
     
     skill_md_path = skill_dir / "SKILL.md"
     if not skill_md_path.exists():

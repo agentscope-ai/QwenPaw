@@ -103,6 +103,29 @@ class ChatManager:
         async with self._lock:
             return await self._repo.get_chat(chat_id)
 
+    async def find_chat_by_session_id(
+        self,
+        session_id: str,
+    ) -> Optional[ChatSpec]:
+        """Find the most recently updated chat spec for a session.
+
+        Background tasks (e.g. auto-title refresh from the memory
+        middleware) only know the runtime session id, not the channel
+        user mapping, so locate the newest chat matching it.
+
+        Args:
+            session_id: Runtime session identifier
+
+        Returns:
+            Chat spec or None if no chat exists for the session
+        """
+        async with self._lock:
+            chats = await self._repo.filter_chats(archived=None)
+            matching = [c for c in chats if c.session_id == session_id]
+            if not matching:
+                return None
+            return max(matching, key=lambda c: c.updated_at)
+
     async def get_or_create_chat(
         self,
         session_id: str,
@@ -211,6 +234,37 @@ class ChatManager:
                 return None
             return await self._patch_locked(chat_id, patch, existing=existing)
 
+    async def set_auto_title(
+        self,
+        chat_id: str,
+        title: str,
+        *,
+        expected_name: str,
+    ) -> Optional[ChatSpec]:
+        """Compare-and-set an auto-generated chat title.
+
+        Renames the chat to ``title`` only when its current name still
+        equals ``expected_name`` (the placeholder or the previous auto
+        title). On success records ``meta["auto_title_last"]`` so a later
+        auto refresh can tell whether the user renamed the chat manually
+        since our last write.
+
+        Returns the updated spec on success, ``None`` if the chat does
+        not exist or its name no longer matches.
+        """
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None or existing.name != expected_name:
+                return None
+            meta = dict(existing.meta)
+            meta["auto_title_last"] = title
+            updated = existing.model_copy(
+                update={"name": title, "meta": meta},
+            )
+            updated.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(updated)
+            return updated
+
     async def _patch_locked(
         self,
         chat_id: str,
@@ -259,6 +313,49 @@ class ChatManager:
                 meta.pop("runtime_context", None)
             updated = existing.model_copy(update={"meta": meta})
             updated.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(updated)
+            return updated
+
+    async def record_auto_title_refresh(
+        self,
+        chat_id: str,
+        *,
+        ok: bool,
+        reason: str = "",
+        title: str = "",
+    ) -> Optional[ChatSpec]:
+        """Record the outcome of an auto title refresh into chat meta.
+
+        Writes ``meta["auto_title_refresh"]`` as a small dict
+        ``{"ok", "at", "reason", "title"}`` so audits can see at a glance
+        whether the last auto-memory-triggered title refresh succeeded.
+        Also keeps a bounded history under ``meta["auto_title_refresh_log"]``
+        (most recent first, max 20 entries), so failures are traceable even
+        after later successes.
+
+        Best-effort: does NOT touch ``name``/``auto_title_last``, so it
+        never competes with a user rename or CAS title update.
+
+        Returns the updated spec, ``None`` if the chat does not exist.
+        """
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            now = datetime.now(timezone.utc)
+            entry = {
+                "ok": bool(ok),
+                "at": now.isoformat(),
+                "reason": reason,
+                "title": title,
+            }
+            meta = dict(existing.meta)
+            meta["auto_title_refresh"] = entry
+            log = list(meta.get("auto_title_refresh_log") or [])
+            log.insert(0, entry)
+            meta["auto_title_refresh_log"] = log[:20]
+            updated = existing.model_copy(update={"meta": meta})
+            updated.updated_at = now
             await self._repo.upsert_chat(updated)
             return updated
 

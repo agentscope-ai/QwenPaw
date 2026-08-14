@@ -308,9 +308,20 @@ export function useToolCallControl(
               maxInternalTimeoutSecs: info.max_internal_timeout_secs ?? null,
             },
           );
+          return;
         }
+        // Terminal (completed): nothing left to track for offload. Stop
+        // polling instead of hammering the API forever when the card stays
+        // in "calling" (e.g. the terminal SSE event was dropped).
+        autoOffloadRegisteredRef.current = true;
       } catch {
-        /* ignore transient errors */
+        // 404 / network error: the call is gone or was never created
+        // (completed-cache expiry, server restart, or a stale tool-call id
+        // from replayed history). Nothing can bring it back — stop polling
+        // unconditionally. The transient case where the coordinator is
+        // still creating the entry is already covered by the first poller
+        // (250ms x 20 attempts), so a missing entry here is terminal.
+        autoOffloadRegisteredRef.current = true;
       }
     };
 

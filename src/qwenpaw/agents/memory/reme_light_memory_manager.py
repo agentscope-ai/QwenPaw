@@ -99,8 +99,17 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     ReMe jobs.
     """
 
-    def __init__(self, working_dir: str, agent_id: str):
-        super().__init__(working_dir=working_dir, agent_id=agent_id)
+    def __init__(
+        self,
+        working_dir: str,
+        agent_id: str,
+        title_refresh_callback=None,
+    ):
+        super().__init__(
+            working_dir=working_dir,
+            agent_id=agent_id,
+            title_refresh_callback=title_refresh_callback,
+        )
         self._reme: "ReMe | None" = None
         self._reindex_lock = asyncio.Lock()
         self._lifecycle_writer_lock = asyncio.Lock()

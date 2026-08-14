@@ -28,8 +28,15 @@ logger = logging.getLogger(__name__)
 
 # Keep finalized entries briefly so GET /output after SSE ``done`` can still
 # read ``final_response`` (finalize pops from the hot table immediately).
-_COMPLETED_CACHE_TTL_SECS = 60.0
-_COMPLETED_CACHE_MAX = 50
+#
+# TTL is intentionally long (1h): the console polls GET /tool-calls/{sid}/{id}
+# on a 2s uncapped interval while a card is stuck in "calling" (e.g. the
+# terminal SSE event was dropped, or the server restarted mid-call). With a
+# short TTL those polls become 404 spam after expiry. Memory stays bounded by
+# _COMPLETED_CACHE_MAX, and completed entries are never listed by
+# list_entries(), so a long TTL has no visible downside.
+_COMPLETED_CACHE_TTL_SECS = 3600.0
+_COMPLETED_CACHE_MAX = 200
 
 CompletionHandler = Callable[[ToolCallEntry], Awaitable[None]]
 OffloadedHandler = Callable[[ToolCallEntry], Awaitable[None]]

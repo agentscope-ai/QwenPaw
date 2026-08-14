@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Awaitable
 
 from agentscope.message import AssistantMsg, Msg, TextBlock, ThinkingBlock
 from agentscope.message import ToolCallBlock, ToolCallState
@@ -49,9 +49,15 @@ class BaseMemoryManager(ABC):
 
     enabled = True
 
-    def __init__(self, working_dir: str, agent_id: str):
+    def __init__(
+        self,
+        working_dir: str,
+        agent_id: str,
+        title_refresh_callback: Callable[..., Awaitable[None]] | None = None,
+    ):
         self.working_dir: str = working_dir
         self.agent_id: str = agent_id
+        self.title_refresh_callback = title_refresh_callback
         self._summary_task_info: dict[str, dict[str, Any]] = {}
         self._task_counter: int = 0
         self._task_queue: asyncio.Queue[
@@ -101,7 +107,12 @@ class BaseMemoryManager(ABC):
         """
         from ..middlewares import MemoryMiddleware
 
-        return [MemoryMiddleware(memory_manager=self)]
+        return [
+            MemoryMiddleware(
+                memory_manager=self,
+                title_refresh_callback=self.title_refresh_callback,
+            )
+        ]
 
     def get_memory_config(self) -> Any:
         """Return backend-specific memory configuration.
