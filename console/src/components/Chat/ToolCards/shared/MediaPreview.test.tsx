@@ -18,7 +18,21 @@ vi.mock("@agentscope-ai/chat", () => ({
 }));
 
 vi.mock("@agentscope-ai/design", () => ({
-  Audio: () => <div data-testid="audio" />,
+  Audio: () => (
+    <div data-testid="audio">
+      <div className="spark-media-player-controller">
+        <button type="button" data-testid="play-button">
+          play
+        </button>
+        <button type="button" data-testid="volume-button">
+          volume
+        </button>
+        <span>00:00</span>
+        <div className="spark-media-progress-container" />
+        <span>00:00</span>
+      </div>
+    </div>
+  ),
   Video: () => <div data-testid="video" />,
 }));
 
@@ -50,6 +64,25 @@ function mockFetchByUrl(responses: Record<string, number>) {
 }
 
 describe("MediaPreview error state", () => {
+  it.each(["image", "video", "audio"] as const)(
+    "shows a download action for %s previews",
+    (type) => {
+      render(
+        <MediaPreview
+          media={{
+            url: `/api/files/preview/media.${type}`,
+            name: `media.${type}`,
+            type,
+          }}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: "common.download" }),
+      ).toBeInTheDocument();
+    },
+  );
+
   it("shows a warning when the file preview URL 404s", async () => {
     mockFetchByUrl({ "/api/files/preview/file1.txt": 404 });
 

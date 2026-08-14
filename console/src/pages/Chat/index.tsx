@@ -72,6 +72,11 @@ import {
 } from "../../plugins/registry/types";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
+import {
+  DownloadableAudios,
+  DownloadableImages,
+  DownloadableVideos,
+} from "../../components/Chat/MediaDownload";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
 import { applyApprovalLevelToRequestBody } from "./approvalPayload";
 import {
@@ -3402,6 +3407,9 @@ export default function ChatPage() {
         // compose plugin slots otherwise.
         AgentScopeRuntimeRequestCard: HostRequestCard,
         AgentScopeRuntimeResponseCard: HostResponseCard,
+        Audios: DownloadableAudios,
+        Images: DownloadableImages,
+        Videos: DownloadableVideos,
         ...pluginCards,
       },
       actions: {

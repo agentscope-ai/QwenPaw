@@ -29,10 +29,7 @@ import {
   type IAgentScopeRuntimeResponse,
 } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
 import { useChatAnywhereOptions } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereOptionsContext";
-import Images from "@agentscope-ai/chat/lib/DefaultCards/Images";
-import Videos from "@agentscope-ai/chat/lib/DefaultCards/Videos";
 import Files from "@agentscope-ai/chat/lib/DefaultCards/Files";
-import Audios from "@agentscope-ai/chat/lib/DefaultCards/Audios";
 import { Bubble, Markdown } from "@agentscope-ai/chat";
 import { Avatar, Flex } from "antd";
 import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
@@ -49,6 +46,11 @@ import type {
   ChatRequestData,
   ChatResponseData,
 } from "../../plugins/registry/types";
+import {
+  DownloadableAudios,
+  DownloadableImages,
+  DownloadableVideos,
+} from "../../components/Chat/MediaDownload";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
@@ -88,14 +90,14 @@ function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
             return <Markdown key={index} content={item.refusal} raw />;
           case AgentScopeRuntimeContentType.IMAGE:
             return (
-              <Images
+              <DownloadableImages
                 key={index}
-                data={[{ url: formatMediaURL(item.image_url) }]}
+                data={[{ url: formatMediaURL(item.image_url) || "" }]}
               />
             );
           case AgentScopeRuntimeContentType.VIDEO:
             return (
-              <Videos
+              <DownloadableVideos
                 key={index}
                 data={[
                   {
@@ -121,7 +123,7 @@ function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
             );
           case AgentScopeRuntimeContentType.AUDIO:
             return (
-              <Audios
+              <DownloadableAudios
                 key={index}
                 data={[
                   { src: formatMediaURL(item.audio_url || item.data) || "" },
