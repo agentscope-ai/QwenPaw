@@ -13,7 +13,7 @@ import type { Locale } from "antd/es/locale";
 import { useTranslation } from "react-i18next";
 import type { MediaInfo } from "./utils";
 import { filePathFromPreviewUrl } from "../../../../features/files-workspace/internalFileLinks";
-import { MediaDownload } from "../../MediaDownload";
+import { AudioDownload } from "../../MediaDownload";
 import styles from "./toolCards.module.less";
 
 export interface MediaPreviewProps {
@@ -99,32 +99,28 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onFileOpen }) => {
   return (
     <div className={styles.toolCallMediaPreview}>
       {media.type === "image" && (
-        <MediaDownload url={media.url} filename={media.name}>
-          <ConfigProvider locale={{ Image: { preview: "" } } as Locale}>
-            <div className={styles.toolCallImage}>
-              <Image
-                src={media.url}
-                style={{ width: "100%", objectFit: "contain" }}
-                preview={{ transitionName: "" }}
-                onError={handleMediaError}
-              />
-            </div>
-          </ConfigProvider>
-        </MediaDownload>
+        <ConfigProvider locale={{ Image: { preview: "" } } as Locale}>
+          <div className={styles.toolCallImage}>
+            <Image
+              src={media.url}
+              style={{ width: "100%", objectFit: "contain" }}
+              preview={{ transitionName: "" }}
+              onError={handleMediaError}
+            />
+          </div>
+        </ConfigProvider>
       )}
       {media.type === "video" && (
-        <MediaDownload url={media.url} filename={media.name}>
-          <div className={styles.bubbleVideo}>
-            <Video src={media.url} controls onError={handleMediaError} />
-          </div>
-        </MediaDownload>
+        <div className={styles.bubbleVideo}>
+          <Video src={media.url} controls onError={handleMediaError} />
+        </div>
       )}
       {media.type === "audio" && (
-        <MediaDownload url={media.url} filename={media.name} placement="audio">
+        <AudioDownload url={media.url} filename={media.name}>
           <div className={styles.bubbleAudio}>
             <Audio src={media.url} onError={handleMediaError} />
           </div>
-        </MediaDownload>
+        </AudioDownload>
       )}
       {media.type === "file" && (
         <div

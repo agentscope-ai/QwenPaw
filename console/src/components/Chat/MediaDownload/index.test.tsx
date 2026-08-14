@@ -38,24 +38,11 @@ vi.mock("@agentscope-ai/chat/lib/DefaultCards/Audios", () => ({
   ),
 }));
 
-vi.mock("@agentscope-ai/chat/lib/DefaultCards/Images", () => ({
-  default: () => <div data-testid="image-card" />,
-}));
-
-vi.mock("@agentscope-ai/chat/lib/DefaultCards/Videos", () => ({
-  default: () => <div data-testid="video-card" />,
-}));
-
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-import {
-  DownloadableAudios,
-  DownloadableImages,
-  DownloadableVideos,
-  MediaDownload,
-} from ".";
+import { AudioDownload, DownloadableAudios } from ".";
 import { DownloadCancelledError } from "../../../utils/downloadFileFromUrl";
 import { mediaFilenameFromUrl } from "./utils";
 import styles from "./index.module.less";
@@ -77,7 +64,7 @@ describe("mediaFilenameFromUrl", () => {
   });
 });
 
-describe("MediaDownload", () => {
+describe("AudioDownload", () => {
   beforeEach(() => {
     downloadFileFromUrl.mockReset();
     downloadFileFromUrl.mockResolvedValue(undefined);
@@ -86,9 +73,9 @@ describe("MediaDownload", () => {
 
   it("downloads with an inferred filename and auth headers", async () => {
     render(
-      <MediaDownload url="/api/files/preview/recording.mp3">
+      <AudioDownload url="/api/files/preview/recording.mp3">
         <div>audio</div>
-      </MediaDownload>,
+      </AudioDownload>,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "common.download" }));
@@ -108,9 +95,9 @@ describe("MediaDownload", () => {
   it("does not report a cancelled native save dialog as an error", async () => {
     downloadFileFromUrl.mockRejectedValue(new DownloadCancelledError());
     render(
-      <MediaDownload url="/api/files/preview/recording.mp3">
+      <AudioDownload url="/api/files/preview/recording.mp3">
         <div>audio</div>
-      </MediaDownload>,
+      </AudioDownload>,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "common.download" }));
@@ -123,9 +110,9 @@ describe("MediaDownload", () => {
 
   it("does not send console auth headers to external media URLs", async () => {
     render(
-      <MediaDownload url="https://cdn.example.com/recording.mp3">
+      <AudioDownload url="https://cdn.example.com/recording.mp3">
         <div>audio</div>
-      </MediaDownload>,
+      </AudioDownload>,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "common.download" }));
@@ -151,27 +138,12 @@ describe("MediaDownload", () => {
     });
 
     expect(controller).toContainElement(downloadButton);
-    expect(downloadButton).toHaveClass(styles.audioDownloadButton);
+    expect(downloadButton).toHaveClass(styles.downloadButton);
     expect(downloadButton.parentElement?.previousElementSibling).toBe(
       screen.getByTestId("play-button"),
     );
     expect(downloadButton.parentElement?.nextElementSibling).toBe(
       screen.getByTestId("volume-button"),
     );
-  });
-
-  it("renders download actions for image and video cards", () => {
-    render(
-      <>
-        <DownloadableImages data={[{ url: "/photo.png" }]} />
-        <DownloadableVideos data={[{ src: "/clip.mp4" }]} />
-      </>,
-    );
-
-    expect(screen.getByTestId("image-card")).toBeInTheDocument();
-    expect(screen.getByTestId("video-card")).toBeInTheDocument();
-    expect(
-      screen.getAllByRole("button", { name: "common.download" }),
-    ).toHaveLength(2);
   });
 });

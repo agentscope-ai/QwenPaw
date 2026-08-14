@@ -64,8 +64,24 @@ function mockFetchByUrl(responses: Record<string, number>) {
 }
 
 describe("MediaPreview error state", () => {
-  it.each(["image", "video", "audio"] as const)(
-    "shows a download action for %s previews",
+  it("shows a download action for audio previews", () => {
+    render(
+      <MediaPreview
+        media={{
+          url: "/api/files/preview/media.audio",
+          name: "media.audio",
+          type: "audio",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "common.download" }),
+    ).toBeInTheDocument();
+  });
+
+  it.each(["image", "video"] as const)(
+    "does not show a download action for %s previews",
     (type) => {
       render(
         <MediaPreview
@@ -78,8 +94,8 @@ describe("MediaPreview error state", () => {
       );
 
       expect(
-        screen.getByRole("button", { name: "common.download" }),
-      ).toBeInTheDocument();
+        screen.queryByRole("button", { name: "common.download" }),
+      ).not.toBeInTheDocument();
     },
   );
 
