@@ -482,6 +482,48 @@ class TestInboundMediaResolution:
         assert ch._call_api.await_args_list[0].args[1]["file_id"] == "id-a"
         assert ch._call_api.await_args_list[1].args[1]["file_id"] == "id-b"
 
+    async def test_skipped_media_segment_does_not_shift_source_mapping(
+        self,
+        tmp_path,
+    ):
+        ch = _make_channel(media_dir=str(tmp_path))
+        ch._download_remote_media = AsyncMock(
+            return_value=str(tmp_path / "visible.png"),
+        )
+        part = ImageContent(
+            type=ContentType.IMAGE,
+            image_url="https://cdn.example.com/visible.png",
+        )
+
+        resolved = await ch._resolve_inbound_media(
+            [part],
+            [
+                {"type": "image", "data": {"file_id": "skipped"}},
+                {
+                    "type": "image",
+                    "data": {
+                        "url": part.image_url,
+                        "name": "visible.png",
+                    },
+                },
+            ],
+            "private",
+            {},
+        )
+
+        assert resolved[0].image_url.endswith("visible.png")
+        assert ch._download_remote_media.await_args.args[2] == 1
+        assert ch._download_remote_media.await_args.args[3] == "visible.png"
+
+    async def test_local_media_path_handles_spaces_and_unicode(self, tmp_path):
+        media_file = tmp_path / "媒体 file.png"
+        media_file.write_bytes(b"image")
+        ch = _make_channel()
+
+        assert await ch._local_media_path(str(media_file)) == str(
+            media_file.resolve(),
+        )
+
     async def test_api_failure_becomes_placeholder(self):
         ch = _make_channel(media_base64=True)
         ch._call_api = AsyncMock(return_value={"data": {"url": ""}})
@@ -534,6 +576,18 @@ class TestDownloadRemoteMedia:
     replace the old ``_inline_remote_images``/``_download_image_data_url``
     path, which is now dead production code and has been removed.
     """
+
+    @pytest.mark.parametrize(
+        ("payload", "expected"),
+        [
+            (b"RIFF\x00\x00\x00\x00WAVE", ".wav"),
+            (b"RIFF\x00\x00\x00\x00WEBP", ".webp"),
+            (b"RIFF\x00\x00\x00\x00AVI ", ".avi"),
+            (b"RIFF\x00\x00\x00\x00JUNK", None),
+        ],
+    )
+    def test_riff_subtype_suffix_detection(self, payload, expected):
+        assert OneBotChannel._suffix_from_bytes(payload) == expected
 
     async def test_download_remote_media_writes_local_file(self, tmp_path):
         ch = _make_channel(media_dir=str(tmp_path))
@@ -654,6 +708,51 @@ class TestDownloadRemoteMedia:
 
         assert result is None
         assert not list(tmp_path.iterdir())
+
+    async def test_download_rejects_mismatched_content_type(self, tmp_path):
+        ch = _make_channel(media_dir=str(tmp_path))
+        response = _make_download_response(
+            [b"<html>not an image</html>"],
+            content_type="text/html",
+        )
+        session = MagicMock()
+        session.closed = False
+        session.get.return_value = _make_get_context(response)
+        ch._http_session = session
+
+        result = await ch._download_remote_media(
+            "https://img.example.com/pic.png",
+            "image",
+            0,
+            "pic.png",
+        )
+
+        assert result is None
+        assert not list(tmp_path.iterdir())
+
+    async def test_download_uses_deterministic_content_type_suffix(
+        self,
+        tmp_path,
+    ):
+        ch = _make_channel(media_dir=str(tmp_path))
+        response = _make_download_response(
+            [b"RIFF\x00\x00\x00\x00WEBP"],
+            content_type="image/webp",
+        )
+        session = MagicMock()
+        session.closed = False
+        session.get.return_value = _make_get_context(response)
+        ch._http_session = session
+
+        result = await ch._download_remote_media(
+            "https://img.example.com/download",
+            "image",
+            0,
+            "image",
+        )
+
+        assert result is not None
+        assert Path(result).suffix == ".webp"
 
     async def test_download_http_error_returns_none(self, tmp_path):
         ch = _make_channel(media_dir=str(tmp_path))
@@ -1776,6 +1875,49 @@ class TestHandleMetaEvent:
 # ===================================================================
 # Event dispatch
 # ===================================================================
+
+
+class TestSessionEventOrdering:
+    async def test_dispatch_preserves_order_and_reclaims_idle_worker(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            onebot_channel_module,
+            "_SESSION_QUEUE_IDLE_TIMEOUT_SECONDS",
+            0.01,
+        )
+        ch = _make_channel()
+        order = []
+
+        async def handle(data):
+            order.append(data["message_id"])
+            if data["message_id"] == 1:
+                await asyncio.sleep(0.02)
+
+        ch._handle_message_event = AsyncMock(side_effect=handle)
+        first = _make_message_event(message_id=1)
+        second = _make_message_event(message_id=2)
+
+        ch._dispatch_message_event(first)
+        key = ch._session_queue_key(first)
+        queue = ch._session_queues[key]
+        ch._dispatch_message_event(second)
+        await queue.join()
+        await asyncio.sleep(0.03)
+
+        assert order == [1, 2]
+        assert key not in ch._session_queues
+        assert key not in ch._session_workers
+
+    def test_dispatch_drops_events_while_stopping(self):
+        ch = _make_channel()
+        ch._stopping = True
+
+        ch._dispatch_message_event(_make_message_event())
+
+        assert not ch._session_queues
+        assert not ch._session_workers
 
 
 class TestHandleEvent:

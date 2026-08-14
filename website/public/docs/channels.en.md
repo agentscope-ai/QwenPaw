@@ -532,6 +532,8 @@ NapCat  ──reverse WS──▶  QwenPaw (:6199/ws)
   "ws_host": "127.0.0.1",
   "ws_port": 6199,
   "access_token": "",
+  "media_download_max_mb": 50,
+  "media_dir": "",
   "share_session_in_group": false
 }
 ```
@@ -552,8 +554,7 @@ and localized to disk before the agent sees them, the same way as other
 channels (Feishu, DingTalk, WeCom, Telegram, QQ, ...). By default they are
 stored under `media/onebot` inside the agent's workspace directory.
 
-Two advanced fields, only settable via `config.json` (no Console form field),
-let you override this:
+These fields are also available in the OneBot Console form:
 
 | Field                   | Type   | Default | Description                                                                                                                              |
 | ----------------------- | ------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |

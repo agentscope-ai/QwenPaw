@@ -18,7 +18,6 @@ import base64
 import hmac
 import json
 import logging
-import mimetypes
 import os
 import re
 import tempfile
@@ -58,6 +57,7 @@ _EVENT_TASK_HARD_CAP = 500
 # Hard cap on queued-but-unprocessed events per session (flood protection
 # for a single conversation, independent of the global event task cap).
 _SESSION_QUEUE_HARD_CAP = 50
+_SESSION_QUEUE_IDLE_TIMEOUT_SECONDS = 300.0
 _DEFAULT_MEDIA_BASE64_MAX_MB = 10
 _DEFAULT_MEDIA_DOWNLOAD_MAX_MB = 50
 # Bound on concurrent remote media downloads, independent of the global
@@ -66,6 +66,19 @@ _DEFAULT_MAX_CONCURRENT_DOWNLOADS = 4
 # Filesystem component name length safety margin (most filesystems cap at
 # 255 bytes; leave room for a uuid prefix, separators and a suffix).
 _MAX_FILENAME_STEM_LENGTH = 100
+_CONTENT_TYPE_SUFFIXES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "audio/mpeg": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "video/mp4": ".mp4",
+    "video/x-msvideo": ".avi",
+    "application/pdf": ".pdf",
+    "application/zip": ".zip",
+}
 _DEFAULT_WS_HOST = "127.0.0.1"
 # OneBot v11 defines the "Bearer" scheme; "Token" is an ecosystem
 # convention popularised by NoneBot.  Matching is case-insensitive per
@@ -634,7 +647,7 @@ class OneBotChannel(BaseChannel):
         if self._http_session is None or self._http_session.closed:
             self._http_session = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=15),
-                trust_env=False,
+                trust_env=True,
             )
         await self._start_ws_server()
         self._watchdog_task = asyncio.create_task(self._watchdog_loop())
@@ -949,6 +962,8 @@ class OneBotChannel(BaseChannel):
         concurrently.  This method never awaits, so the WS read loop is
         never blocked by it.
         """
+        if self._stopping:
+            return
         key = self._session_queue_key(data)
         queue = self._session_queues.get(key)
         if queue is None:
@@ -983,7 +998,15 @@ class OneBotChannel(BaseChannel):
         """Process one session's message events strictly in arrival order."""
         try:
             while True:
-                data = await queue.get()
+                try:
+                    data = await asyncio.wait_for(
+                        queue.get(),
+                        timeout=_SESSION_QUEUE_IDLE_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    if queue.empty():
+                        break
+                    continue
                 try:
                     await self._handle_message_event(data)
                 except Exception:
@@ -992,8 +1015,15 @@ class OneBotChannel(BaseChannel):
                         "event",
                         key,
                     )
+                finally:
+                    queue.task_done()
         except asyncio.CancelledError:
             pass
+        finally:
+            if self._session_queues.get(key) is queue:
+                self._session_queues.pop(key, None)
+            if self._session_workers.get(key) is asyncio.current_task():
+                self._session_workers.pop(key, None)
 
     async def _handle_event(self, data: Dict[str, Any]) -> None:
         """Dispatch an OneBot v11 event.
@@ -1441,14 +1471,59 @@ class OneBotChannel(BaseChannel):
         return None
 
     @staticmethod
-    def _onebot_media_segments(segments: list) -> list[dict]:
-        """Return OneBot media segments in original order."""
+    def _onebot_media_segments(segments: list) -> list[tuple[int, dict]]:
+        """Return indexed OneBot media segments in original order."""
         return [
-            seg
-            for seg in segments
+            (index, seg)
+            for index, seg in enumerate(segments)
             if isinstance(seg, dict)
             and seg.get("type") in {"image", "record", "video", "file"}
         ]
+
+    @staticmethod
+    def _segment_media_kind(segment: dict) -> str | None:
+        return {
+            "image": "image",
+            "record": "audio",
+            "video": "video",
+            "file": "file",
+        }.get(str(segment.get("type") or ""))
+
+    @staticmethod
+    def _segment_media_refs(segment: dict) -> set[str]:
+        data = segment.get("data", {})
+        if not isinstance(data, dict):
+            return set()
+        return {
+            str(data.get(key) or "")
+            for key in ("url", "file", "name", "filename")
+            if data.get(key)
+        }
+
+    def _match_media_segment(
+        self,
+        part: Any,
+        kind: str,
+        media_segments: list[tuple[int, dict]],
+        used_indexes: set[int],
+    ) -> tuple[int, dict]:
+        """Match a part to its source segment without positional drift."""
+        part_ref = self._part_media_ref(part, kind)
+        candidates = [
+            (index, segment)
+            for index, segment in media_segments
+            if index not in used_indexes
+            and self._segment_media_kind(segment) == kind
+        ]
+        for index, segment in candidates:
+            if part_ref and part_ref in self._segment_media_refs(segment):
+                used_indexes.add(index)
+                return index, segment
+        if candidates:
+            index, segment = candidates[0]
+            used_indexes.add(index)
+            return index, segment
+        return 0, {}
 
     @staticmethod
     def _part_media_ref(part: Any, kind: str) -> str:
@@ -1470,13 +1545,18 @@ class OneBotChannel(BaseChannel):
 
     @staticmethod
     def _suffix_from_bytes(data: bytes) -> str | None:
-        """Detect a small set of common media suffixes from magic bytes."""
+        """Detect common media suffixes from deterministic magic bytes."""
+        if data.startswith(b"RIFF") and len(data) >= 12:
+            return {
+                b"WAVE": ".wav",
+                b"WEBP": ".webp",
+                b"AVI ": ".avi",
+            }.get(data[8:12])
         signatures = [
             (b"\xff\xd8\xff", ".jpg"),
             (b"\x89PNG\r\n\x1a\n", ".png"),
             (b"GIF87a", ".gif"),
             (b"GIF89a", ".gif"),
-            (b"RIFF", ".wav"),
             (b"ID3", ".mp3"),
             (b"%PDF", ".pdf"),
             (b"PK\x03\x04", ".zip"),
@@ -1543,7 +1623,7 @@ class OneBotChannel(BaseChannel):
     ) -> list:
         """Resolve and localize OneBot inbound image/audio/video/file parts."""
         media_segments = self._onebot_media_segments(segments)
-        media_index = 0
+        used_segment_indexes: set[int] = set()
         resolved: list = []
         for part in content_parts:
             kind = self._media_kind(part)
@@ -1551,17 +1631,17 @@ class OneBotChannel(BaseChannel):
                 resolved.append(part)
                 continue
 
-            seg = (
-                media_segments[media_index]
-                if media_index < len(media_segments)
-                else {}
+            segment_index, seg = self._match_media_segment(
+                part,
+                kind,
+                media_segments,
+                used_segment_indexes,
             )
-            media_index += 1
             local_path = await self._localize_media_part(
                 part,
                 kind,
                 seg,
-                media_index - 1,
+                segment_index,
                 message_type,
                 event_data,
             )
@@ -1692,7 +1772,7 @@ class OneBotChannel(BaseChannel):
             if owns_session:
                 session = aiohttp.ClientSession(
                     timeout=aiohttp.ClientTimeout(total=15),
-                    trust_env=False,
+                    trust_env=True,
                 )
             tmp_path: Optional[Path] = None
             try:
@@ -1753,7 +1833,25 @@ class OneBotChannel(BaseChannel):
                     if total == 0:
                         return None
 
-                    media_type = response.headers.get("Content-Type", "")
+                    media_type = (
+                        response.headers.get("Content-Type", "")
+                        .split(";", 1)[0]
+                        .strip()
+                        .lower()
+                    )
+                    if (
+                        kind in {"image", "audio", "video"}
+                        and media_type
+                        and media_type != "application/octet-stream"
+                        and not media_type.startswith(f"{kind}/")
+                    ):
+                        logger.warning(
+                            "onebot: remote %s returned unexpected content "
+                            "type %s",
+                            kind,
+                            media_type,
+                        )
+                        return None
                     final_path = await asyncio.to_thread(
                         self._finalize_downloaded_media,
                         tmp_path,
@@ -1801,7 +1899,7 @@ class OneBotChannel(BaseChannel):
         safe_name = self._safe_media_filename(filename_hint, default_name)
         suffix = Path(safe_name).suffix
         if not suffix and media_type:
-            suffix = mimetypes.guess_extension(media_type) or ""
+            suffix = _CONTENT_TYPE_SUFFIXES.get(media_type, "")
         if not suffix:
             suffix = (
                 self._suffix_from_bytes(sniff) or Path(default_name).suffix

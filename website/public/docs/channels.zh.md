@@ -529,6 +529,8 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
   "ws_host": "127.0.0.1",
   "ws_port": 6199,
   "access_token": "",
+  "media_download_max_mb": 50,
+  "media_dir": "",
   "share_session_in_group": false
 }
 ```
@@ -546,7 +548,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 从 OneBot 客户端收到的图片、语音、视频、文件会在交给 agent 之前先下载并本地化保存，与 Feishu、DingTalk、WeCom、Telegram、QQ 等其他渠道的处理方式一致。默认保存在 agent workspace 目录下的 `media/onebot` 中。
 
-以下两个高级字段仅可通过 `config.json` 设置（Console 表单未暴露），用于覆盖默认行为：
+以下字段也可在 OneBot Console 表单中设置：
 
 | 字段                    | 类型   | 默认值 | 说明                                                                                         |
 | ----------------------- | ------ | ------ | -------------------------------------------------------------------------------------------- |

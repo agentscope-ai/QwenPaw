@@ -183,6 +183,8 @@ export interface OneBotConfig extends BaseChannelConfig {
   access_token: string;
   media_base64: boolean;
   media_base64_max_mb: number;
+  media_download_max_mb: number;
+  media_dir?: string;
   share_session_in_group: boolean;
 }
 
