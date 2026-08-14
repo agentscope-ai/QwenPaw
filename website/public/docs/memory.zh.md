@@ -344,16 +344,16 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 
 ### 目录与索引配置
 
-| 配置项                   | 默认值           | 说明                                                 |
-| ------------------------ | ---------------- | ---------------------------------------------------- |
-| `metadata_dir`           | `"mem_metadata"` | 索引、图谱、catalog 和缓存目录                       |
-| `session_dir`            | `"mem_session"`  | Auto-Memory 来源对话目录                             |
-| `mem_session_dir`        | `"mem_agent"`    | ReMe 内部 memory-agent 会话目录                      |
-| `resource_dir`           | `"resource"`     | Daily Paper 等工作流的原始资源目录                   |
-| `daily_dir`              | `"memory"`       | 每日记忆目录                                         |
-| `digest_dir`             | `"digest"`       | 长期知识目录                                         |
+| 配置项                   | 默认值           | 说明                                         |
+| ------------------------ | ---------------- | -------------------------------------------- |
+| `metadata_dir`           | `"mem_metadata"` | 索引、图谱、catalog 和缓存目录               |
+| `session_dir`            | `"mem_session"`  | Auto-Memory 来源对话目录                     |
+| `mem_session_dir`        | `"mem_agent"`    | ReMe 内部 memory-agent 会话目录              |
+| `resource_dir`           | `"resource"`     | Daily Paper 等工作流的原始资源目录           |
+| `daily_dir`              | `"memory"`       | 每日记忆目录                                 |
+| `digest_dir`             | `"digest"`       | 长期知识目录                                 |
 | `embedding_model_config` | 默认关闭         | 可选向量模型配置，见 [向量模型](./embedding) |
-| `needs_reindex`          | `false`          | 向量空间变化后由运行时维护的待重建标记               |
+| `needs_reindex`          | `false`          | 向量空间变化后由运行时维护的待重建标记       |
 
 旧字段 `inbox_push_enabled` 仅用于迁移：它会初始化尚未设置的三个任务级 Inbox 开关，但不会写回已验证的配置。
 
