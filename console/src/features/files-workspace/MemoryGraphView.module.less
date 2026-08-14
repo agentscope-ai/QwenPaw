@@ -1,69 +1,100 @@
 .graphView {
-  /* Derive the graph palette from the Files workspace theme. This keeps the
-     graph in sync with QwenPaw's light/dark mode and future brand updates. */
-  --graph-surface: color-mix(in srgb, var(--files-bg) 94%, var(--files-panel));
-  --graph-panel: var(--files-panel);
-  --graph-grid: var(--files-line);
-  --graph-label-text: color-mix(
-    in srgb,
-    var(--files-ink) 72%,
-    var(--files-muted)
+  --graph-accent: var(
+    --qwenpaw-color-primary,
+    var(--ant-color-primary, #ff7f16)
   );
-  --graph-node-light: color-mix(
-    in srgb,
-    var(--files-muted) 34%,
-    var(--graph-surface)
+  --graph-accent-soft: var(
+    --qwenpaw-color-primary-bg,
+    var(--ant-color-primary-bg, #fff2e8)
   );
-  --graph-node: color-mix(
-    in srgb,
-    var(--files-muted) 70%,
-    var(--graph-surface)
+  --graph-on-accent: var(
+    --qwenpaw-color-text-light-solid,
+    var(--ant-color-text-light-solid, #fff)
   );
-  --graph-node-stroke: color-mix(
-    in srgb,
-    var(--files-ink) 58%,
-    var(--files-muted)
+  --graph-success: var(
+    --qwenpaw-color-success-text,
+    var(--ant-color-success-text, #389e5c)
   );
-  --graph-hub-light: color-mix(
-    in srgb,
-    var(--files-accent) 38%,
-    var(--graph-surface)
+  --graph-success-soft: var(
+    --qwenpaw-color-success-bg,
+    var(--ant-color-success-bg, #eef8f1)
   );
-  --graph-hub: color-mix(in srgb, var(--files-accent) 72%, var(--files-ink));
-  --graph-hub-stroke: color-mix(
-    in srgb,
-    var(--files-accent) 76%,
-    var(--files-ink)
+  --graph-warning: var(
+    --qwenpaw-color-warning-text,
+    var(--ant-color-warning-text, #d89614)
   );
-  --graph-active-light: color-mix(
-    in srgb,
-    var(--files-accent) 44%,
-    var(--graph-surface)
+  --graph-warning-soft: var(
+    --qwenpaw-color-warning-bg,
+    var(--ant-color-warning-bg, #fff8e6)
   );
-  --graph-active: var(--files-accent);
-  --graph-active-stroke: color-mix(
-    in srgb,
-    var(--files-accent) 72%,
-    var(--files-ink)
+  --graph-3d-surface: var(
+    --qwenpaw-color-bg-container,
+    var(--ant-color-bg-container, #fffdfb)
   );
-  --graph-edge: var(--files-muted);
-  --graph-unresolved: color-mix(
-    in srgb,
-    var(--files-muted) 78%,
-    var(--files-accent)
+  --graph-3d-root: var(
+    --qwenpaw-color-primary,
+    var(--ant-color-primary, #ff7f16)
   );
-  --graph-glow: var(--files-accent);
-  --graph-canvas-glow: var(--files-accent);
-  --graph-root-light: color-mix(
-    in srgb,
-    var(--files-accent) 48%,
-    var(--graph-surface)
+  --graph-3d-active: var(
+    --qwenpaw-color-primary-active,
+    var(--ant-color-primary-active, #d9650b)
   );
-  --graph-root: var(--files-accent);
-  --graph-root-stroke: color-mix(
-    in srgb,
-    var(--files-accent) 74%,
-    var(--files-ink)
+  --graph-3d-direct: var(
+    --qwenpaw-color-success-text,
+    var(--ant-color-success-text, #389e5c)
+  );
+  --graph-3d-hover: var(
+    --qwenpaw-color-primary-hover,
+    var(--ant-color-primary-hover, #ff9a45)
+  );
+  --graph-3d-file: var(
+    --qwenpaw-color-text-secondary,
+    var(--ant-color-text-secondary, #71665e)
+  );
+  --graph-3d-muted: var(
+    --qwenpaw-color-text-quaternary,
+    var(--ant-color-text-quaternary, #c7bfb8)
+  );
+  --graph-3d-edge: var(
+    --qwenpaw-color-border,
+    var(--ant-color-border, #d8cec6)
+  );
+  --graph-3d-edge-active: var(
+    --qwenpaw-color-primary-active,
+    var(--ant-color-primary-active, #d9650b)
+  );
+  --graph-3d-edge-muted: var(
+    --qwenpaw-color-border-secondary,
+    var(--ant-color-border-secondary, #eee7e1)
+  );
+  --graph-3d-label: var(--qwenpaw-color-text, var(--ant-color-text, #292522));
+  --graph-3d-label-background: var(
+    --qwenpaw-color-bg-elevated,
+    var(--ant-color-bg-elevated, #fffdfb)
+  );
+  --graph-3d-label-border: var(
+    --qwenpaw-color-primary-border,
+    var(--ant-color-primary-border, #ffc58f)
+  );
+  --graph-3d-ambient-light: var(
+    --qwenpaw-color-fill-secondary,
+    var(--ant-color-fill-secondary, #eee7e1)
+  );
+  --graph-3d-key-light: var(
+    --qwenpaw-color-bg-container,
+    var(--ant-color-bg-container, #fffdfb)
+  );
+  --graph-3d-fill-light: var(
+    --qwenpaw-color-primary-bg,
+    var(--ant-color-primary-bg, #fff2e8)
+  );
+  --graph-panel: var(
+    --qwenpaw-color-bg-container,
+    var(--ant-color-bg-container, var(--files-panel))
+  );
+  --graph-border: var(
+    --qwenpaw-color-border-secondary,
+    var(--ant-color-border-secondary, var(--files-line))
   );
   height: 100%;
   min-height: 0;
@@ -81,8 +112,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--files-line) 76%, transparent);
+  border-bottom: 1px solid var(--graph-border);
+  background: color-mix(in srgb, var(--graph-panel) 86%, var(--files-bg));
 
   > div:first-child {
     min-width: 0;
@@ -91,46 +122,67 @@
   }
 
   strong {
+    overflow: hidden;
     font-size: 14px;
     font-weight: 680;
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   span {
     color: var(--files-muted);
     font-size: 11px;
+    letter-spacing: 0;
   }
 }
 
 .toolbarActions {
   padding: 3px;
   display: flex;
+  flex: 0 0 auto;
   gap: 2px;
-  border: 1px solid color-mix(in srgb, var(--files-line) 80%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--files-panel) 75%, var(--files-bg));
+  border: 1px solid var(--graph-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--files-panel) 82%, var(--files-bg));
 
   button {
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     padding: 0;
     display: grid;
     place-items: center;
     color: var(--files-muted);
     border: 0;
-    border-radius: 7px;
+    border-radius: 6px;
     background: transparent;
     cursor: pointer;
     transition:
-      color 140ms ease,
-      background 140ms ease,
+      color 160ms ease,
+      background 160ms ease,
       transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 
-    &:hover {
-      color: var(--graph-active);
-      background: color-mix(in srgb, var(--graph-active) 10%, transparent);
+    &:hover:not(:disabled) {
+      color: var(--graph-accent);
+      background: var(--graph-accent-soft);
       transform: translateY(-1px);
     }
+
+    &:focus-visible {
+      outline: 2px solid
+        color-mix(in srgb, var(--graph-accent) 42%, transparent);
+      outline-offset: 1px;
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.42;
+    }
+  }
+
+  .actionActive {
+    color: var(--graph-accent);
+    background: var(--graph-accent-soft);
   }
 }
 
@@ -143,7 +195,7 @@
 }
 
 .contentWithDetails {
-  grid-template-columns: minmax(0, 1fr) clamp(220px, 22%, 290px);
+  grid-template-columns: minmax(0, 1fr) clamp(230px, 22%, 300px);
 }
 
 .canvas {
@@ -151,338 +203,192 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: radial-gradient(
-      circle at 50% 45%,
-      color-mix(in srgb, var(--graph-canvas-glow) 9%, transparent),
-      transparent 48%
-    ),
-    radial-gradient(
-      circle at 18% 20%,
-      color-mix(in srgb, var(--graph-active-light) 5%, transparent),
-      transparent 32%
-    ),
-    radial-gradient(
-      circle,
-      color-mix(in srgb, var(--graph-grid) 52%, transparent) 0.7px,
-      transparent 0.9px
-    );
-  background-color: var(--graph-surface);
-  background-size:
-    auto,
-    22px 22px;
+  isolation: isolate;
+  background: var(--graph-3d-surface);
 
-  svg {
-    width: 100%;
-    height: 100%;
-    display: block;
-  }
-
-  marker path {
-    fill: color-mix(in srgb, var(--graph-edge) 20%, transparent);
+  &::after {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--files-line) 42%, transparent),
+      inset 0 24px 64px color-mix(in srgb, var(--files-bg) 22%, transparent);
+    content: "";
   }
 }
 
-.orbitGuides {
-  pointer-events: none;
+.scene {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
 
-  circle {
-    fill: none;
-    stroke: color-mix(in srgb, var(--graph-edge) 38%, transparent);
-    stroke-dasharray: 3 9;
-    stroke-linecap: round;
-    stroke-width: 1.15;
-    vector-effect: non-scaling-stroke;
-    animation: orbit-drift 18s linear infinite;
+  canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: none;
 
-    &:last-child {
-      stroke: color-mix(in srgb, var(--graph-edge) 31%, transparent);
-      stroke-dasharray: 2 10;
-      animation-direction: reverse;
-      animation-duration: 26s;
+    &:active {
+      cursor: grabbing;
     }
   }
 }
 
-.edges path {
-  fill: none;
-  stroke: color-mix(in srgb, var(--graph-edge) 14%, transparent);
-  stroke-linecap: round;
-  stroke-width: 0.9;
-  stroke-dasharray: 1;
-  animation: edge-reveal 480ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-  transition:
-    d 90ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 140ms ease,
-    stroke 140ms ease,
-    stroke-width 140ms ease;
-}
+.canvasState {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--files-muted);
+  background: color-mix(in srgb, var(--graph-3d-surface) 94%, transparent);
+  font-size: 12px;
 
-.edges .edgeActive {
-  stroke: color-mix(in srgb, var(--graph-hub) 76%, var(--graph-active));
-  stroke-width: 2.1;
-  filter: drop-shadow(
-    0 1px 2px color-mix(in srgb, var(--graph-glow) 30%, transparent)
-  );
-}
-
-.edges .edgeMuted {
-  opacity: 0.16;
-}
-
-.edges .edgeDragging {
-  opacity: 0.9;
-  stroke: var(--graph-active-light);
-  stroke-width: 1.8;
-  stroke-dasharray: 0.06 0.035;
-  animation: edge-flow 900ms linear infinite;
-}
-
-.node {
-  cursor: pointer;
-  outline: none;
-  touch-action: none;
-  transition:
-    opacity 140ms ease,
-    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
-  animation: node-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-
-  circle {
-    transition:
-      fill 140ms ease,
-      filter 180ms ease,
-      opacity 140ms ease,
-      stroke 140ms ease,
-      transform 140ms ease;
+  button {
+    margin-left: 4px;
+    padding: 6px 10px;
+    color: var(--graph-accent);
+    border: 1px solid var(--files-line);
+    border-radius: 6px;
+    background: var(--files-bg);
+    cursor: pointer;
   }
-
-  &:hover .nodeDot,
-  &:focus-visible .nodeDot {
-    stroke: var(--graph-active-light);
-    stroke-width: 1.5;
-    filter: drop-shadow(
-      0 2px 4px color-mix(in srgb, var(--graph-active) 28%, transparent)
-    );
-    transform: scale(1.45);
-  }
-}
-
-.nodeFollowing {
-  transition: transform 110ms cubic-bezier(0.16, 1, 0.3, 1);
-
-  .nodeHalo {
-    opacity: 0.42;
-  }
-}
-
-.nodeHalo {
-  fill: transparent;
-  opacity: 0;
-  stroke: color-mix(in srgb, var(--graph-glow) 42%, transparent);
-  stroke-width: 2;
-}
-
-.nodeDot {
-  stroke-width: 1;
-}
-
-.nodeIndexed .nodeDot {
-  fill: var(--graph-node);
-  stroke: var(--graph-node-stroke);
-  filter: none;
-}
-
-.nodeHub .nodeDot {
-  fill: var(--graph-hub);
-  stroke: var(--graph-hub-stroke);
-  filter: none;
-}
-
-.nodeRoot .nodeDot {
-  fill: var(--graph-root);
-  stroke: var(--graph-root-stroke);
-  stroke-width: 1.8;
-  filter: drop-shadow(
-    0 2px 5px color-mix(in srgb, var(--graph-root) 28%, transparent)
-  );
-}
-
-.nodeRoot .nodeHalo {
-  opacity: 0.22;
-  stroke: color-mix(in srgb, var(--graph-root) 54%, transparent);
-}
-
-.nodeLeaf .nodeDot {
-  opacity: 0.84;
-}
-
-.nodeOuter:not(.nodeActive) .nodeDot {
-  opacity: 0.68;
-}
-
-.nodeInner .nodeHalo {
-  stroke: color-mix(in srgb, var(--graph-hub) 34%, transparent);
-}
-
-.nodeUnresolved .nodeDot {
-  fill: var(--graph-surface);
-  stroke: var(--graph-unresolved);
-  stroke-dasharray: 3 3;
-  stroke-width: 1.2;
-}
-
-.nodeActive {
-  .nodeHalo {
-    opacity: 1;
-    animation: active-glow 1.8s ease-in-out infinite;
-  }
-
-  .nodeDot {
-    fill: var(--graph-active);
-    stroke: var(--graph-active-stroke);
-    stroke-width: 1.8;
-    filter: drop-shadow(
-      0 3px 6px color-mix(in srgb, var(--graph-active) 38%, transparent)
-    );
-    transform: scale(1.34);
-  }
-}
-
-.nodeRelated .nodeHalo {
-  opacity: 0.42;
-  stroke-width: 2;
-  animation: related-breathe 2.2s ease-in-out infinite;
-}
-
-.nodeDragging {
-  cursor: grabbing;
-  transition: none;
-
-  .nodeHalo {
-    opacity: 1;
-    stroke-width: 3;
-    animation: drag-pulse 1.1s ease-out infinite;
-  }
-
-  .nodeDot {
-    filter: drop-shadow(
-      0 4px 7px color-mix(in srgb, var(--graph-active) 40%, transparent)
-    );
-    transform: scale(1.5);
-  }
-}
-
-.nodeMuted {
-  opacity: 0.28;
-}
-
-.labels {
-  pointer-events: none;
-
-  rect {
-    fill: transparent;
-    stroke: transparent;
-    stroke-width: 0;
-  }
-
-  text {
-    fill: var(--graph-label-text);
-    font-size: 10.5px;
-    font-weight: 570;
-    paint-order: stroke;
-    stroke: var(--graph-surface);
-    stroke-linejoin: round;
-    stroke-width: 3px;
-  }
-
-  > g {
-    transition:
-      opacity 140ms ease,
-      transform 110ms cubic-bezier(0.16, 1, 0.3, 1);
-  }
-}
-
-.labels .activeLabel {
-  animation: label-pop 220ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-
-  rect {
-    fill: var(--graph-active-stroke);
-    stroke: transparent;
-    filter: drop-shadow(0 3px 8px rgba(41, 31, 25, 0.16));
-  }
-
-  text {
-    fill: #f5f3ff;
-    font-size: 11px;
-    font-weight: 650;
-    stroke: transparent;
-  }
-}
-
-.labelMuted {
-  opacity: 0.2;
 }
 
 .legend {
   position: absolute;
   left: 14px;
   bottom: 12px;
+  z-index: 5;
+  min-height: 34px;
   padding: 7px 10px;
   display: flex;
+  align-items: center;
   gap: 13px;
-  border: 1px solid color-mix(in srgb, var(--files-line) 68%, transparent);
-  border-radius: 9px;
+  border: 1px solid var(--graph-border);
+  border-radius: 8px;
   background: color-mix(in srgb, var(--graph-panel) 88%, transparent);
   color: var(--files-muted);
   font-size: 10px;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 6px 18px rgba(37, 43, 40, 0.06);
 
   span {
     display: inline-flex;
     align-items: center;
     gap: 5px;
+    white-space: nowrap;
   }
 
   i {
     width: 9px;
     height: 9px;
     display: inline-block;
-    border: 1.5px solid var(--graph-node-stroke);
+    border: 1.5px solid var(--graph-3d-file);
     border-radius: 50%;
-    background: var(--graph-node);
+    background: var(--graph-3d-file);
 
-    &[data-kind="unresolved"] {
-      border-color: var(--graph-unresolved);
-      border-style: dashed;
-      background: transparent;
+    &[data-kind="root"] {
+      border-color: var(--graph-3d-root);
+      background: var(--graph-3d-root);
+    }
+
+    &[data-kind="direct"] {
+      border-color: var(--graph-3d-direct);
+      background: var(--graph-3d-direct);
     }
   }
 
   b {
-    color: var(--graph-hub);
+    color: var(--graph-3d-edge);
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
+  }
+}
+
+.accessibleNodes {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+
+  &:focus-within {
+    top: 12px;
+    left: 12px;
+    z-index: 7;
+    width: min(240px, calc(100% - 24px));
+    height: auto;
+    max-height: calc(100% - 66px);
+    padding: 8px;
+    display: grid;
+    gap: 4px;
+    overflow: auto;
+    clip: auto;
+    clip-path: none;
+    border: 1px solid var(--graph-border);
+    border-radius: 8px;
+    background: var(--graph-panel);
+    box-shadow: 0 12px 30px rgba(37, 43, 40, 0.14);
+    white-space: normal;
+  }
+
+  button {
+    min-height: 34px;
+    padding: 7px 9px;
+    overflow: hidden;
+    color: var(--files-ink);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: var(--files-bg);
+    cursor: pointer;
+    font-size: 11px;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &:focus-visible {
+      border-color: var(--graph-accent);
+      outline: 2px solid
+        color-mix(in srgb, var(--graph-accent) 28%, transparent);
+      outline-offset: 1px;
+    }
   }
 }
 
 .details {
   min-width: 0;
-  padding: 20px 17px;
+  padding: 18px 17px 22px;
   overflow: auto;
-  border-left: 1px solid color-mix(in srgb, var(--files-line) 78%, transparent);
-  background: var(--graph-panel);
-  animation: details-in 150ms ease-out;
+  border-left: 1px solid var(--graph-border);
+  background: color-mix(
+    in srgb,
+    var(--graph-panel) 92%,
+    var(--graph-3d-surface)
+  );
+  box-shadow: -12px 0 32px rgba(37, 43, 40, 0.045);
+  animation: details-in 170ms ease-out;
 
   h2 {
-    margin: 10px 0 5px;
-    font-size: 16px;
-    line-height: 1.3;
+    margin: 12px 0 5px;
     overflow-wrap: anywhere;
+    font-size: 16px;
+    font-weight: 680;
+    letter-spacing: 0;
+    line-height: 1.35;
   }
 
   > code {
     display: block;
     color: var(--files-muted);
     font-size: 10px;
+    line-height: 1.5;
     overflow-wrap: anywhere;
   }
 
@@ -490,61 +396,96 @@
     margin: 15px 0 0;
     color: color-mix(in srgb, var(--files-ink) 76%, var(--files-muted));
     font-size: 12px;
-    line-height: 1.6;
+    line-height: 1.65;
+  }
+}
+
+.detailsHeader {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    color: var(--files-muted);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--files-ink);
+      border-color: var(--files-line);
+      background: var(--files-bg);
+    }
+
+    &:focus-visible {
+      outline: 2px solid
+        color-mix(in srgb, var(--graph-accent) 38%, transparent);
+      outline-offset: 1px;
+    }
   }
 }
 
 .nodeStatus {
   width: fit-content;
   padding: 3px 7px;
-  color: #287452;
+  color: var(--graph-success);
   border-radius: 999px;
-  background: #e5f4ec;
+  background: var(--graph-success-soft);
   font-size: 10px;
   font-weight: 650;
 
   &[data-indexed="false"] {
-    color: #994638;
-    background: #fbe9e5;
+    color: var(--graph-warning);
+    background: var(--graph-warning-soft);
   }
 
   &[data-virtual="true"] {
-    color: var(--graph-root-stroke);
-    background: color-mix(in srgb, var(--graph-root) 14%, var(--files-bg));
+    color: var(--graph-accent);
+    background: var(--graph-accent-soft);
   }
 }
 
 .openFileButton {
   width: 100%;
-  min-height: 34px;
+  min-height: 36px;
   margin-top: 16px;
-  padding: 7px 10px;
+  padding: 8px 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  color: var(--graph-root-stroke);
-  border: 1px solid color-mix(in srgb, var(--graph-root) 22%, var(--files-line));
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--graph-root) 8%, var(--files-bg));
+  color: var(--graph-accent);
+  border: 1px solid
+    color-mix(in srgb, var(--graph-accent) 28%, var(--graph-border));
+  border-radius: 7px;
+  background: var(--graph-accent-soft);
   font-size: 11px;
   font-weight: 650;
   cursor: pointer;
   transition:
-    color 140ms ease,
-    border-color 140ms ease,
-    background 140ms ease,
+    color 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
     transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 
   &:hover {
-    color: var(--files-bg);
-    border-color: var(--graph-root);
-    background: var(--graph-root);
+    color: var(--graph-on-accent);
+    border-color: var(--graph-accent);
+    background: var(--graph-accent);
     transform: translateY(-1px);
   }
 
   &:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--graph-root) 40%, transparent);
+    outline: 2px solid color-mix(in srgb, var(--graph-accent) 40%, transparent);
     outline-offset: 2px;
   }
 }
@@ -558,12 +499,13 @@
     margin-bottom: 2px;
     color: var(--files-muted);
     font-size: 10px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0;
   }
 
   button {
     min-width: 0;
+    min-height: 34px;
     padding: 7px 8px;
     display: flex;
     align-items: center;
@@ -571,14 +513,20 @@
     gap: 6px;
     color: var(--files-ink);
     border: 1px solid transparent;
-    border-radius: 7px;
-    background: color-mix(in srgb, var(--files-bg) 68%, transparent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--files-bg) 72%, transparent);
     cursor: pointer;
     text-align: left;
 
     &:hover {
       border-color: var(--files-line);
       background: var(--files-bg);
+    }
+
+    &:focus-visible {
+      outline: 2px solid
+        color-mix(in srgb, var(--graph-accent) 34%, transparent);
+      outline-offset: 1px;
     }
 
     span {
@@ -591,7 +539,7 @@
 
     small {
       flex: 0 0 auto;
-      color: var(--files-accent);
+      color: var(--graph-accent);
       font-size: 10px;
     }
   }
@@ -610,10 +558,10 @@
 
   button {
     margin-left: 4px;
-    padding: 5px 9px;
-    color: var(--files-accent);
+    padding: 6px 10px;
+    color: var(--graph-accent);
     border: 1px solid var(--files-line);
-    border-radius: 7px;
+    border-radius: 6px;
     background: var(--files-bg);
     cursor: pointer;
   }
@@ -624,19 +572,25 @@
 }
 
 :global(.dark-mode) {
-  .nodeStatus {
-    color: #9fd7bd;
-    background: #243b31;
-
-    &[data-indexed="false"] {
-      color: #efaaa1;
-      background: #402724;
-    }
-
-    &[data-virtual="true"] {
-      color: var(--graph-root-stroke);
-      background: color-mix(in srgb, var(--graph-root) 20%, var(--files-bg));
-    }
+  .graphView {
+    --graph-3d-surface: var(--files-bg);
+    --graph-3d-root: var(--files-accent);
+    --graph-3d-active: #ffbc82;
+    --graph-3d-direct: #8bd5bd;
+    --graph-3d-hover: #ffd2ac;
+    --graph-3d-file: var(--files-muted);
+    --graph-3d-muted: var(--files-line);
+    --graph-3d-edge: #b7a299;
+    --graph-3d-edge-active: var(--files-accent);
+    --graph-3d-edge-muted: var(--files-line);
+    --graph-3d-label: var(--files-ink);
+    --graph-3d-label-background: var(--files-panel);
+    --graph-3d-label-border: #7f5d49;
+    --graph-3d-ambient-light: var(--files-ink);
+    --graph-3d-key-light: var(--files-ink);
+    --graph-3d-fill-light: var(--files-accent);
+    --graph-panel: var(--files-panel);
+    --graph-border: var(--files-line);
   }
 }
 
@@ -649,35 +603,84 @@
     position: absolute;
     right: 10px;
     bottom: 10px;
-    width: min(260px, calc(100% - 20px));
-    max-height: 45%;
+    z-index: 8;
+    width: min(280px, calc(100% - 20px));
+    max-height: 48%;
     border: 1px solid var(--files-line);
-    border-radius: 10px;
-    box-shadow: 0 12px 32px rgba(45, 35, 28, 0.13);
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(37, 43, 40, 0.14);
+  }
+}
+
+@media (max-width: 560px) {
+  .toolbar {
+    min-height: 98px;
+    padding: 8px 10px 8px 13px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .toolbarActions {
+    width: fit-content;
+    padding: 2px;
+    align-self: flex-end;
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    gap: 1px;
+
+    button {
+      width: 30px;
+      height: 30px;
+    }
   }
 
   .legend {
-    display: none;
+    left: 10px;
+    bottom: 10px;
+    max-width: calc(100% - 20px);
+    flex-wrap: wrap;
+    gap: 5px 9px;
+
+    span:nth-child(3) {
+      display: none;
+    }
+  }
+
+  .details {
+    position: fixed;
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    width: auto;
+    max-height: min(58vh, 440px);
+  }
+}
+
+@media (pointer: coarse) {
+  .toolbarActions button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .detailsHeader button,
+  .linkSection button,
+  .openFileButton,
+  .accessibleNodes button {
+    min-height: 44px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .node,
-  .nodeFollowing,
-  .edges path,
-  .labels > g {
+  .details,
+  .toolbarActions button,
+  .openFileButton {
     transition: none;
     animation: none;
   }
 
-  .orbitGuides circle {
-    animation: none;
-  }
-
-  .nodeDragging .nodeHalo,
-  .nodeActive .nodeHalo,
-  .nodeRelated .nodeHalo {
-    animation: none;
+  .spin {
+    animation-duration: 1500ms;
   }
 }
 
@@ -691,79 +694,5 @@
   from {
     opacity: 0;
     transform: translateX(8px);
-  }
-}
-
-@keyframes node-enter {
-  from {
-    opacity: 0;
-    filter: blur(3px);
-  }
-}
-
-@keyframes edge-reveal {
-  from {
-    opacity: 0;
-    stroke-dashoffset: 1;
-  }
-
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-@keyframes edge-flow {
-  to {
-    stroke-dashoffset: -0.095;
-  }
-}
-
-@keyframes orbit-drift {
-  to {
-    stroke-dashoffset: -48;
-  }
-}
-
-@keyframes related-breathe {
-  0%,
-  100% {
-    opacity: 0.32;
-  }
-
-  50% {
-    opacity: 0.66;
-  }
-}
-
-@keyframes active-glow {
-  0%,
-  100% {
-    opacity: 0.35;
-    stroke-width: 1.5;
-  }
-
-  50% {
-    opacity: 0.72;
-    stroke-width: 3;
-  }
-}
-
-@keyframes label-pop {
-  from {
-    opacity: 0;
-    filter: blur(2px);
-  }
-}
-
-@keyframes drag-pulse {
-  0% {
-    opacity: 0.82;
-    transform: scale(0.92);
-  }
-
-  70%,
-  100% {
-    opacity: 0;
-    transform: scale(1.42);
   }
 }

@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from agentscope.message import Msg, SystemMsg, TextBlock, UserMsg
+from agentscope.model import FinishedReason
 
 from ....constant import (
     QWENPAW_MESSAGE_TAG_KEY,
@@ -1004,16 +1005,29 @@ class ScrollContextManager:
             disable_thinking=True,
         )
         if not inspect.isasyncgen(response):
+            self._raise_if_summary_interrupted(response)
             return self._response_text(response)
         deltas: list[str] = []
         final = ""
         async for chunk in response:
+            self._raise_if_summary_interrupted(chunk)
             text = self._response_text(chunk)
             if getattr(chunk, "is_last", False):
                 final = text
             elif text:
                 deltas.append(text)
         return final or "".join(deltas).strip()
+
+    @staticmethod
+    def _raise_if_summary_interrupted(response: Any) -> None:
+        """Preserve cancellation converted into an AgentScope response."""
+        finished_reason = (
+            response.get("finished_reason")
+            if isinstance(response, dict)
+            else getattr(response, "finished_reason", None)
+        )
+        if finished_reason == FinishedReason.INTERRUPTED:
+            raise asyncio.CancelledError()
 
     @staticmethod
     def _summary_messages(prompt: str, language: str) -> list[Msg]:

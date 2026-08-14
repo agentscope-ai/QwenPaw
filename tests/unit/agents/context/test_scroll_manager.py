@@ -21,7 +21,7 @@ from agentscope.message import (
     ToolCallBlock,
     ToolResultBlock,
 )
-from agentscope.model import ChatResponse
+from agentscope.model import ChatModelBase, ChatResponse, FinishedReason
 
 from qwenpaw.agents.context.base import ContextManager
 from qwenpaw.agents.context.scroll import manager as scroll_manager_module
@@ -149,6 +149,49 @@ class HangingSummaryModel(FakeModel):
         del kwargs
         self.summary_calls += 1
         await asyncio.Event().wait()
+
+
+class CancelConvertingSummaryModel(ChatModelBase):
+    """AgentScope model that converts stream cancellation into a response."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            credential=SimpleNamespace(),
+            model="test-model",
+            parameters=self.Parameters(),
+            max_retries=0,
+        )
+
+    async def _call_api(
+        self,
+        model_name,
+        messages,
+        tools=None,
+        tool_choice=None,
+        **kwargs,
+    ):
+        del model_name, messages, tools, tool_choice, kwargs
+
+        async def hanging_stream():
+            await asyncio.Event().wait()
+            yield ChatResponse(
+                content=[TextBlock(type="text", text="unreachable")],
+                is_last=False,
+            )
+
+        return hanging_stream()
+
+
+class InterruptedSummaryModel(FakeModel):
+    """Chat model returning AgentScope's non-stream cancellation marker."""
+
+    async def __call__(self, **kwargs):
+        del kwargs
+        return ChatResponse(
+            content=[],
+            is_last=True,
+            finished_reason=FinishedReason.INTERRUPTED,
+        )
 
 
 class FailingSummaryModel(FakeModel):
@@ -1088,6 +1131,33 @@ async def test_summary_timeout_covers_prompt_fitting(
 
     assert agent.model.summary_calls == []
     assert mgr._summary_update_failed is True
+
+
+async def test_summary_timeout_survives_agentscope_stream_conversion():
+    mgr = object.__new__(ScrollContextManager)
+    agent = SimpleNamespace(model=CancelConvertingSummaryModel())
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(
+            mgr._generate_plain_summary(
+                agent,
+                "summarize",
+                max_tokens=256,
+            ),
+            timeout=0.05,
+        )
+
+
+async def test_non_stream_interrupted_summary_propagates_cancellation():
+    mgr = object.__new__(ScrollContextManager)
+    agent = SimpleNamespace(model=InterruptedSummaryModel(1000))
+
+    with pytest.raises(asyncio.CancelledError):
+        await mgr._generate_plain_summary(
+            agent,
+            "summarize",
+            max_tokens=256,
+        )
 
 
 def test_summary_input_includes_timezone_safe_message_times(
