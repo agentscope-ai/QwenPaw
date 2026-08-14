@@ -16,9 +16,8 @@ from .models import (
     ChatGroupKind,
     ChatSpec,
     ChatUpdate,
-    DEFAULT_CHAT_GROUP_ID,
+    SOURCE_CHAT_GROUP_IDS,
     SessionSource,
-    SUBAGENT_CHAT_GROUP_ID,
 )
 from .repo import BaseChatRepository
 from ..channels.schema import DEFAULT_CHANNEL
@@ -31,19 +30,32 @@ MAX_BATCH_SIZE = 500
 
 def _default_group_id(source: SessionSource) -> str:
     """Return the built-in group for a chat source."""
-    if source == SessionSource.subagent:
-        return SUBAGENT_CHAT_GROUP_ID
-    return DEFAULT_CHAT_GROUP_ID
+    return SOURCE_CHAT_GROUP_IDS[source]
+
+
+def _source_order(group: ChatGroup) -> int:
+    """Return a stable tail order for source-driven groups."""
+    if group.kind == ChatGroupKind.cron:
+        return list(SessionSource).index(SessionSource.cron)
+    if group.kind == ChatGroupKind.subagents:
+        return list(SessionSource).index(SessionSource.subagent)
+    return -1
+
+
+def _is_fixed_source_group(group: ChatGroup) -> bool:
+    """Return whether a group represents an automated session source."""
+    return group.kind in {ChatGroupKind.cron, ChatGroupKind.subagents}
 
 
 def _ordered_groups(groups: list[ChatGroup]) -> list[ChatGroup]:
-    """Sort pinned groups first and keep the Subagents group last."""
+    """Sort pinned groups first and keep source groups at the end."""
     return sorted(
         groups,
         key=lambda group: (
-            group.kind == ChatGroupKind.subagents,
-            not group.pinned,
-            group.order,
+            _is_fixed_source_group(group),
+            _source_order(group)
+            if _is_fixed_source_group(group)
+            else (not group.pinned, group.order),
         ),
     )
 
@@ -255,8 +267,8 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             for index, group in enumerate(chats_file.groups):
                 if group.id != group_id:
                     continue
-                if group.kind == ChatGroupKind.subagents:
-                    raise ValueError("The Subagents group cannot be changed")
+                if _is_fixed_source_group(group):
+                    raise ValueError("Source groups cannot be changed")
                 updates = {}
                 if normalized_name is not None:
                     updates["name"] = normalized_name
@@ -277,8 +289,13 @@ class ChatManager:  # pylint: disable=too-many-public-methods
                 raise ValueError("Group order contains duplicate IDs")
             if set(group_ids) != set(current):
                 raise ValueError("Group order must contain every group ID")
-            if group_ids[-1] != SUBAGENT_CHAT_GROUP_ID:
-                raise ValueError("The Subagents group must remain last")
+            fixed_ids = [
+                group.id
+                for group in _ordered_groups(list(current.values()))
+                if _is_fixed_source_group(group)
+            ]
+            if group_ids[-len(fixed_ids) :] != fixed_ids:
+                raise ValueError("Source groups must remain at the end")
             chats_file.groups = [
                 current[group_id].model_copy(update={"order": index})
                 for index, group_id in enumerate(group_ids)

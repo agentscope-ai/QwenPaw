@@ -11,6 +11,7 @@ from qwenpaw.app.chats.models import (
     ChatSpec,
     ChatUpdate,
     ChatsFile,
+    CRON_CHAT_GROUP_ID,
     DEFAULT_CHAT_GROUP_ID,
     SessionSource,
     SUBAGENT_CHAT_GROUP_ID,
@@ -103,7 +104,13 @@ def test_chats_file_default_empty():
     assert cf.chats == []
     assert [group.id for group in cf.groups] == [
         DEFAULT_CHAT_GROUP_ID,
+        CRON_CHAT_GROUP_ID,
         SUBAGENT_CHAT_GROUP_ID,
+    ]
+    assert [group.kind for group in cf.groups] == [
+        ChatGroupKind.default,
+        ChatGroupKind.cron,
+        ChatGroupKind.subagents,
     ]
     assert all(group.pinned is False for group in cf.groups)
 
@@ -118,6 +125,7 @@ def test_chats_file_restores_missing_system_groups():
     assert {group.id for group in restored.groups} == {
         custom.id,
         DEFAULT_CHAT_GROUP_ID,
+        CRON_CHAT_GROUP_ID,
         SUBAGENT_CHAT_GROUP_ID,
     }
 

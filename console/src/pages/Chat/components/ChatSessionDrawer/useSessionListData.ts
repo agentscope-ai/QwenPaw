@@ -111,6 +111,7 @@ export interface SessionListData {
   handleEditStart: (sessionId: string, currentName: string) => void;
   handleDelete: (sessionId: string) => void;
   handleArchiveToggle: (sessionId: string) => void;
+  handlePinToggle: (sessionId: string, pinned: boolean) => void;
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
@@ -384,6 +385,26 @@ export function useSessionListData(
     [sessions, currentSessionId, refreshSessions, message, t],
   );
 
+  const handlePinToggle = useCallback(
+    async (sessionId: string, pinned: boolean) => {
+      const owner = sessionApi.getActiveOwner();
+      const session = sessions.find((item) => item.id === sessionId);
+      const backendId = session ? getBackendId(session) : null;
+      if (!backendId) return;
+      try {
+        await chatApi.updateChat(backendId, { pinned });
+        if (!sessionApi.isActiveOwner(owner)) return;
+        await refreshSessions();
+      } catch (error) {
+        console.error("Failed to update conversation pin:", error);
+        message.error(
+          t("chat.contextMenu.pinFailed", "Could not update pinned state"),
+        );
+      }
+    },
+    [message, refreshSessions, sessions, t],
+  );
+
   const handleItemContextMenu = useCallback(
     (sessionId: string, event: React.MouseEvent) => {
       setContextMenuSessionId(sessionId);
@@ -408,6 +429,13 @@ export function useSessionListData(
           handleEditStart(contextMenuSessionId, session?.name || "New Chat"),
       },
       {
+        key: "pin",
+        label: session?.pinned
+          ? t("chat.contextMenu.unpin", "Unpin")
+          : t("chat.contextMenu.pin", "Pin"),
+        onClick: () => handlePinToggle(contextMenuSessionId, !session?.pinned),
+      },
+      {
         key: "archive",
         label: session?.archived
           ? t("sessions.archive.unaction", "Unarchive")
@@ -429,6 +457,7 @@ export function useSessionListData(
     handleSessionClick,
     handleEditStart,
     handleArchiveToggle,
+    handlePinToggle,
     handleDelete,
   ]);
 
@@ -443,6 +472,7 @@ export function useSessionListData(
     handleEditStart,
     handleDelete,
     handleArchiveToggle,
+    handlePinToggle,
     handleEditChange,
     handleEditSubmit,
     handleEditCancel,

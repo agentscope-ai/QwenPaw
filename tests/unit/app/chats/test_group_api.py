@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from qwenpaw.app.chats.api import get_chat_manager, router
 from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.chats.models import (
+    CRON_CHAT_GROUP_ID,
     DEFAULT_CHAT_GROUP_ID,
     SUBAGENT_CHAT_GROUP_ID,
 )
@@ -29,6 +30,7 @@ def test_group_crud_and_order_routes(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert [group["id"] for group in response.json()] == [
         DEFAULT_CHAT_GROUP_ID,
+        CRON_CHAT_GROUP_ID,
         SUBAGENT_CHAT_GROUP_ID,
     ]
 
@@ -53,6 +55,7 @@ def test_group_crud_and_order_routes(tmp_path: Path) -> None:
     group_ids = [
         custom_group["id"],
         DEFAULT_CHAT_GROUP_ID,
+        CRON_CHAT_GROUP_ID,
         SUBAGENT_CHAT_GROUP_ID,
     ]
     response = client.put(

@@ -5,10 +5,13 @@ import { useTranslation } from "react-i18next";
 import {
   Archive,
   Bot,
+  Clock3,
   FolderInput,
   GripVertical,
   MoreHorizontal,
   Pencil,
+  Pin,
+  PinOff,
   Trash2,
 } from "lucide-react";
 import { ChannelIcon } from "../../pages/Control/Channels/components";
@@ -25,6 +28,7 @@ export interface SessionItemProps {
   chatStatus?: ChatStatus;
   generating?: boolean;
   archived?: boolean;
+  pinned?: boolean;
   source?: "chat" | "cron" | "subagent";
   groupId?: string | null;
   groups?: ChatGroup[];
@@ -44,6 +48,7 @@ export interface SessionItemProps {
   onEdit?: (sessionId: string, currentName: string) => void;
   onDelete?: (sessionId: string) => void;
   onArchive?: (sessionId: string) => void;
+  onPin?: (sessionId: string, pinned: boolean) => void;
   onMove?: (sessionId: string, groupId: string) => void;
   onEditChange?: (value: string) => void;
   onEditSubmit?: () => void;
@@ -58,6 +63,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
   chatStatus,
   generating,
   archived,
+  pinned = false,
   source,
   groupId,
   groups = [],
@@ -71,6 +77,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
   onEdit,
   onDelete,
   onArchive,
+  onPin,
   onMove,
   onEditChange,
   onEditSubmit,
@@ -83,6 +90,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
 
   const inProgress = generating === true || chatStatus === "running";
   const isSubagent = source === "subagent";
+  const isCron = source === "cron";
   const isIdle = !inProgress && !!chatStatus;
   const statusAriaLabel = inProgress
     ? t("chat.statusInProgress")
@@ -116,6 +124,14 @@ const SessionItem: React.FC<SessionItemProps> = ({
         onClick: handleStartEdit,
       },
       {
+        key: "pin",
+        icon: pinned ? <PinOff size={14} /> : <Pin size={14} />,
+        label: pinned
+          ? t("chat.contextMenu.unpin", "Unpin")
+          : t("chat.contextMenu.pin", "Pin"),
+        onClick: () => onPin?.(sessionId, !pinned),
+      },
+      {
         key: "move",
         icon: <FolderInput size={14} />,
         label: t("chat.contextMenu.moveToGroup", "Move to group"),
@@ -145,9 +161,11 @@ const SessionItem: React.FC<SessionItemProps> = ({
     ],
     [
       archived,
+      pinned,
       sessionId,
       t,
       onArchive,
+      onPin,
       onDelete,
       groupId,
       groups,
@@ -168,7 +186,13 @@ const SessionItem: React.FC<SessionItemProps> = ({
     .join(" ");
 
   const itemContent = (
-    <div className={cls} onClick={handleClick} role="button" tabIndex={0}>
+    <div
+      className={cls}
+      data-pinned={pinned}
+      onClick={handleClick}
+      role="button"
+      tabIndex={0}
+    >
       {/* Drawer variant: timeline indicator */}
       {variant === "drawer" && <div className={styles.iconPlaceholder} />}
 
@@ -243,10 +267,10 @@ const SessionItem: React.FC<SessionItemProps> = ({
         {variant === "drawer" && (
           <div className={styles.metaRow}>
             {time && <span className={styles.time}>{time}</span>}
-            {isSubagent && (
+            {(isSubagent || isCron) && (
               <span className={styles.sourceTag}>
-                <Bot size={11} />
-                <span>Subagent</span>
+                {isCron ? <Clock3 size={11} /> : <Bot size={11} />}
+                <span>{isCron ? "Cron" : "Subagent"}</span>
               </span>
             )}
             {(channelKey || channelLabel) && (
@@ -273,9 +297,21 @@ const SessionItem: React.FC<SessionItemProps> = ({
         </span>
       )}
 
-      {!editing && variant === "sidebar" && isSubagent && (
-        <span className={styles.sourceIcon} title="Subagent">
-          <Bot size={13} />
+      {!editing && variant === "sidebar" && (isSubagent || isCron) && (
+        <span
+          className={styles.sourceIcon}
+          title={isCron ? "Cron" : "Subagent"}
+        >
+          {isCron ? <Clock3 size={13} /> : <Bot size={13} />}
+        </span>
+      )}
+
+      {!editing && pinned && (
+        <span
+          className={styles.pinMark}
+          title={t("chat.group.pinned", "Pinned")}
+        >
+          <Pin size={11} />
         </span>
       )}
 

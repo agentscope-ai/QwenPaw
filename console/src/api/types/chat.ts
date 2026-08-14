@@ -1,12 +1,13 @@
 export type ChatStatus = "idle" | "running";
 export type ChatSource = "chat" | "cron" | "subagent";
-export type ChatGroupKind = "default" | "subagents" | "custom";
+export type ChatGroupKind = "default" | "cron" | "subagents" | "custom";
 
 export interface ChatGroup {
   id: string;
   name: string;
   order: number;
   kind: ChatGroupKind;
+  source?: ChatSource | null;
   pinned: boolean;
 }
 

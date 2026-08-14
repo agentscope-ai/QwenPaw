@@ -5,9 +5,10 @@ import { useCollapsedChatGroups } from "./useCollapsedChatGroups";
 describe("useCollapsedChatGroups", () => {
   beforeEach(() => localStorage.clear());
 
-  it("keeps the Subagents group collapsed until the user expands it", () => {
+  it("keeps automated source groups collapsed until the user expands them", () => {
     const { result, unmount } = renderHook(() => useCollapsedChatGroups());
 
+    expect(result.current.collapsedGroups.has("cron")).toBe(true);
     expect(result.current.collapsedGroups.has("subagents")).toBe(true);
 
     act(() => result.current.toggleGroup("subagents"));

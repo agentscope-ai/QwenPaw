@@ -26,6 +26,7 @@ import { findSessionRowIndex } from "../utils/sessionGrouping";
 import {
   groupChats,
   groupChatsByDate,
+  findStickyGroupHeaderIndex,
   localizeSystemGroups,
   resolveChatGroupId,
   type ChatDateGroup,
@@ -81,6 +82,7 @@ interface VirtualRowData {
   handleEditStart: (sessionId: string, currentName: string) => void;
   handleDelete: (sessionId: string) => void;
   handleArchiveToggle: (sessionId: string) => void;
+  handlePinToggle: (sessionId: string, pinned: boolean) => void;
   handleMove: (sessionId: string, groupId: string) => void;
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
@@ -93,6 +95,41 @@ interface VirtualRowData {
   moveGroup: (groupId: string, offset: number) => void;
 }
 
+type GroupHeaderRow = Extract<FlatRow, { kind: "groupHeader" }>;
+
+function GroupHeaderContent({
+  row,
+  data,
+}: {
+  row: GroupHeaderRow;
+  data: VirtualRowData;
+}) {
+  const movableGroups = data.groups.filter(
+    (group) =>
+      group.kind !== "cron" &&
+      group.kind !== "subagents" &&
+      group.pinned === row.group.pinned,
+  );
+  const groupIndex = movableGroups.findIndex(
+    (group) => group.id === row.group.id,
+  );
+  return (
+    <SessionGroupHeader
+      group={row.group}
+      count={row.count}
+      collapsed={row.collapsed}
+      canMoveUp={groupIndex > 0}
+      canMoveDown={groupIndex >= 0 && groupIndex < movableGroups.length - 1}
+      onToggle={() => data.toggleGroup(row.group.id)}
+      onRename={(name) => data.renameGroup(row.group.id, name)}
+      onPin={(pinned) => data.pinGroup(row.group.id, pinned)}
+      onDelete={() => data.deleteGroup(row.group.id)}
+      onMoveUp={() => data.moveGroup(row.group.id, -1)}
+      onMoveDown={() => data.moveGroup(row.group.id, 1)}
+    />
+  );
+}
+
 /** Virtual list row renderer */
 const VirtualRow = React.memo(function VirtualRow({
   index,
@@ -103,32 +140,13 @@ const VirtualRow = React.memo(function VirtualRow({
   if (!row) return null;
 
   if (row.kind === "groupHeader") {
-    const movableGroups = data.groups.filter(
-      (group) =>
-        group.kind !== "subagents" && group.pinned === row.group.pinned,
-    );
-    const groupIndex = movableGroups.findIndex(
-      (group) => group.id === row.group.id,
-    );
     return (
       <SessionDropZone
         id={`group:${row.group.id}`}
         groupId={row.group.id}
         style={style}
       >
-        <SessionGroupHeader
-          group={row.group}
-          count={row.count}
-          collapsed={row.collapsed}
-          canMoveUp={groupIndex > 0}
-          canMoveDown={groupIndex >= 0 && groupIndex < movableGroups.length - 1}
-          onToggle={() => data.toggleGroup(row.group.id)}
-          onRename={(name) => data.renameGroup(row.group.id, name)}
-          onPin={(pinned) => data.pinGroup(row.group.id, pinned)}
-          onDelete={() => data.deleteGroup(row.group.id)}
-          onMoveUp={() => data.moveGroup(row.group.id, -1)}
-          onMoveDown={() => data.moveGroup(row.group.id, 1)}
-        />
+        <GroupHeaderContent row={row} data={data} />
       </SessionDropZone>
     );
   }
@@ -172,6 +190,7 @@ const VirtualRow = React.memo(function VirtualRow({
           chatStatus={session.status}
           generating={session.generating}
           archived={session.archived}
+          pinned={session.pinned}
           source={session.source}
           groupId={row.groupId}
           groups={data.groups}
@@ -187,6 +206,7 @@ const VirtualRow = React.memo(function VirtualRow({
           onEdit={data.handleEditStart}
           onDelete={data.handleDelete}
           onArchive={data.handleArchiveToggle}
+          onPin={data.handlePinToggle}
           onMove={data.handleMove}
           onEditChange={data.handleEditChange}
           onEditSubmit={data.handleEditSubmit}
@@ -233,6 +253,7 @@ export default function SidebarSessionList({
     () =>
       localizeSystemGroups(chatGroups, {
         default: t("chat.groups.uncategorized", "Uncategorized"),
+        cron: t("chat.groups.cron", "Scheduled tasks"),
         subagents: t("chat.groups.subagents", "Subagents"),
       }),
     [chatGroups, t],
@@ -273,6 +294,7 @@ export default function SidebarSessionList({
     handleEditStart,
     handleDelete,
     handleArchiveToggle,
+    handlePinToggle,
     handleEditChange,
     handleEditSubmit,
     handleEditCancel,
@@ -351,9 +373,14 @@ export default function SidebarSessionList({
   const handleMoveGroup = useCallback(
     async (groupId: string, offset: number) => {
       const source = chatGroups.find((group) => group.id === groupId);
-      if (!source || source.kind === "subagents") return;
+      if (!source || source.kind === "cron" || source.kind === "subagents") {
+        return;
+      }
       const movable = chatGroups.filter(
-        (group) => group.kind !== "subagents" && group.pinned === source.pinned,
+        (group) =>
+          group.kind !== "cron" &&
+          group.kind !== "subagents" &&
+          group.pinned === source.pinned,
       );
       const index = movable.findIndex((group) => group.id === groupId);
       const target = index + offset;
@@ -461,6 +488,7 @@ export default function SidebarSessionList({
 
   /** Height of the virtual list container */
   const [listHeight, setListHeight] = useState(0);
+  const [visibleStartIndex, setVisibleStartIndex] = useState(0);
   const observerRef = useRef<ResizeObserver | null>(null);
   const listRef = useRef<VariableSizeList>(null);
 
@@ -517,6 +545,7 @@ export default function SidebarSessionList({
       handleEditStart,
       handleDelete,
       handleArchiveToggle,
+      handlePinToggle,
       handleMove,
       handleEditChange,
       handleEditSubmit,
@@ -538,6 +567,7 @@ export default function SidebarSessionList({
       handleEditStart,
       handleDelete,
       handleArchiveToggle,
+      handlePinToggle,
       handleMove,
       handleEditChange,
       handleEditSubmit,
@@ -550,6 +580,12 @@ export default function SidebarSessionList({
       handleMoveGroup,
     ],
   );
+
+  const stickyGroupRow = useMemo<GroupHeaderRow | null>(() => {
+    if (searchQuery.trim() || isSessionDragging) return null;
+    const index = findStickyGroupHeaderIndex(flatRows, visibleStartIndex);
+    return index === null ? null : (flatRows[index] as GroupHeaderRow);
+  }, [flatRows, isSessionDragging, searchQuery, visibleStartIndex]);
 
   return (
     <div className={styles.sessionList}>
@@ -638,6 +674,14 @@ export default function SidebarSessionList({
               onMove={handleDragMove}
               onDragStateChange={setIsSessionDragging}
             >
+              {stickyGroupRow && (
+                <div className={styles.stickyGroupHeader}>
+                  <GroupHeaderContent
+                    row={stickyGroupRow}
+                    data={virtualListData}
+                  />
+                </div>
+              )}
               <VariableSizeList
                 ref={listRef}
                 height={listHeight}
@@ -647,6 +691,9 @@ export default function SidebarSessionList({
                 itemData={virtualListData}
                 className={styles.list}
                 overscanCount={10}
+                onItemsRendered={({ visibleStartIndex: nextIndex }) =>
+                  setVisibleStartIndex(nextIndex)
+                }
               >
                 {VirtualRow}
               </VariableSizeList>

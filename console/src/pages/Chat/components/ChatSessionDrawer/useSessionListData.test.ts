@@ -132,6 +132,24 @@ describe("useSessionListData cross-agent ownership", () => {
     expect(setSessions).toHaveBeenCalled();
   });
 
+  it("updates the backend when a conversation is pinned within its group", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    const updateSpy = vi
+      .spyOn(chatApi, "updateChat")
+      .mockResolvedValue({} as Awaited<ReturnType<typeof chatApi.updateChat>>);
+    const listSpy = vi
+      .spyOn(api, "listChats")
+      .mockResolvedValue([] as ChatSpec[]);
+    const { hook } = renderListData([makeSession(A_CHAT)]);
+
+    await act(async () => {
+      await hook.result.current.handlePinToggle(A_CHAT, true);
+    });
+
+    expect(updateSpy).toHaveBeenCalledWith(A_CHAT, { pinned: true });
+    expect(listSpy).toHaveBeenCalledOnce();
+  });
+
   it("refetches the list immediately when the selected agent changes", async () => {
     sessionApi.setActiveAgent("agent-a");
     const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);

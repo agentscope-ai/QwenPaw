@@ -2,6 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SessionGroupDndProvider } from "./index";
 
+const { mockMeasureDroppableContainers } = vi.hoisted(() => ({
+  mockMeasureDroppableContainers: vi.fn(),
+}));
+
 vi.mock("@dnd-kit/core", () => ({
   DndContext: ({
     children,
@@ -14,7 +18,6 @@ vi.mock("@dnd-kit/core", () => ({
     <div
       data-testid="dnd-context"
       data-measuring-strategy={measuring?.droppable?.strategy}
-      data-measuring-frequency={measuring?.droppable?.frequency}
     >
       {children}
       <button
@@ -62,6 +65,9 @@ vi.mock("@dnd-kit/core", () => ({
   TouchSensor: class {},
   useSensor: vi.fn(),
   useSensors: vi.fn(() => []),
+  useDndContext: vi.fn(() => ({
+    measureDroppableContainers: mockMeasureDroppableContainers,
+  })),
   useDraggable: vi.fn(),
   useDroppable: vi.fn(),
 }));
@@ -90,10 +96,7 @@ describe("SessionGroupDndProvider", () => {
       "data-measuring-strategy",
       "always",
     );
-    expect(screen.getByTestId("dnd-context")).toHaveAttribute(
-      "data-measuring-frequency",
-      "16",
-    );
+    expect(mockMeasureDroppableContainers).toHaveBeenCalled();
   });
 
   it("restores the list when dragging is cancelled", () => {

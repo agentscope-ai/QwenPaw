@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 
-const STORAGE_KEY = "qwenpaw_collapsed_chat_groups_v2";
+const STORAGE_KEY = "qwenpaw_collapsed_chat_groups_v3";
+const CRON_GROUP_ID = "cron";
 const SUBAGENT_GROUP_ID = "subagents";
 
 function loadCollapsed(): Set<string> {
@@ -13,7 +14,7 @@ function loadCollapsed(): Set<string> {
   } catch {
     // Keep the safe default when storage is unavailable.
   }
-  return new Set([SUBAGENT_GROUP_ID]);
+  return new Set([CRON_GROUP_ID, SUBAGENT_GROUP_ID]);
 }
 
 function saveCollapsed(groups: Set<string>): void {

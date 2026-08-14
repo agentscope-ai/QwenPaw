@@ -90,6 +90,18 @@
   position: relative;
 }
 
+.stickyGroupHeader {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  right: 4px;
+  left: 4px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--colorBorderSecondary, rgba(43, 18, 0, 0.055));
+  background: color-mix(in srgb, #f9f8f4 96%, transparent);
+  backdrop-filter: blur(12px);
+}
+
 /* Date group container */
 .group {
   margin-bottom: 4px;

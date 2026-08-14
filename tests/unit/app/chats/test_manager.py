@@ -18,6 +18,7 @@ from qwenpaw.app.chats.models import (
     ChatGroupKind,
     ChatSpec,
     ChatUpdate,
+    CRON_CHAT_GROUP_ID,
     DEFAULT_CHAT_GROUP_ID,
     SessionSource,
     SUBAGENT_CHAT_GROUP_ID,
@@ -174,6 +175,18 @@ async def test_subagent_chat_keeps_relationship_and_default_group(
 
 
 @pytest.mark.asyncio
+async def test_cron_chat_uses_fixed_cron_group(manager: ChatManager):
+    spec = await manager.get_or_create_chat(
+        session_id="cron-worker",
+        user_id="u",
+        source=SessionSource.cron,
+    )
+
+    assert spec.source == SessionSource.cron
+    assert spec.group_id == CRON_CHAT_GROUP_ID
+
+
+@pytest.mark.asyncio
 async def test_chat_groups_support_rename_reorder_move_and_delete(
     manager: ChatManager,
 ):
@@ -190,12 +203,19 @@ async def test_chat_groups_support_rename_reorder_move_and_delete(
     assert pinned.pinned is True
 
     reordered = await manager.reorder_groups(
-        [research.id, work.id, DEFAULT_CHAT_GROUP_ID, SUBAGENT_CHAT_GROUP_ID],
+        [
+            research.id,
+            work.id,
+            DEFAULT_CHAT_GROUP_ID,
+            CRON_CHAT_GROUP_ID,
+            SUBAGENT_CHAT_GROUP_ID,
+        ],
     )
     assert [group.id for group in reordered] == [
         work.id,
         research.id,
         DEFAULT_CHAT_GROUP_ID,
+        CRON_CHAT_GROUP_ID,
         SUBAGENT_CHAT_GROUP_ID,
     ]
 
@@ -225,20 +245,23 @@ async def test_system_chat_groups_cannot_be_deleted(manager: ChatManager):
 
 
 @pytest.mark.asyncio
-async def test_subagent_group_is_immutable_and_must_remain_last(
+async def test_source_groups_are_immutable_and_must_remain_last(
     manager: ChatManager,
 ):
     work = await manager.create_group("Work")
 
     with pytest.raises(ValueError, match="cannot be changed"):
         await manager.update_group(SUBAGENT_CHAT_GROUP_ID, pinned=True)
+    with pytest.raises(ValueError, match="cannot be changed"):
+        await manager.update_group(CRON_CHAT_GROUP_ID, pinned=True)
 
-    with pytest.raises(ValueError, match="must remain last"):
+    with pytest.raises(ValueError, match="must remain at the end"):
         await manager.reorder_groups(
             [
                 DEFAULT_CHAT_GROUP_ID,
                 SUBAGENT_CHAT_GROUP_ID,
                 work.id,
+                CRON_CHAT_GROUP_ID,
             ],
         )
 

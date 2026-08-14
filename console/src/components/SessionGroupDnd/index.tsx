@@ -4,6 +4,7 @@ import {
   MeasuringStrategy,
   MouseSensor,
   TouchSensor,
+  useDndContext,
   useDraggable,
   useDroppable,
   useSensor,
@@ -17,6 +18,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -41,6 +43,16 @@ interface SessionGroupDndProviderProps {
   children: ReactNode;
   onMove: (sessionId: string, groupId: string) => void;
   onDragStateChange: (active: boolean) => void;
+}
+
+function DroppableRemeasurer({ active }: { active: boolean }) {
+  const { measureDroppableContainers } = useDndContext();
+
+  useLayoutEffect(() => {
+    if (active) measureDroppableContainers([]);
+  }, [active, measureDroppableContainers]);
+
+  return null;
 }
 
 export function SessionGroupDndProvider({
@@ -112,7 +124,6 @@ export function SessionGroupDndProvider({
       measuring={{
         droppable: {
           strategy: MeasuringStrategy.Always,
-          frequency: 16,
         },
       }}
       onDragStart={handleDragStart}
@@ -120,6 +131,7 @@ export function SessionGroupDndProvider({
       onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
     >
+      <DroppableRemeasurer active={active !== null} />
       <DragStateContext.Provider value={dragState}>
         {children}
       </DragStateContext.Provider>

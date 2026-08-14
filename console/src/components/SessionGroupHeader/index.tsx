@@ -6,6 +6,7 @@ import {
   ArrowUp,
   Bot,
   ChevronDown,
+  Clock3,
   LockKeyhole,
   MoreHorizontal,
   Pencil,
@@ -44,7 +45,9 @@ export default function SessionGroupHeader({
   onMoveDown,
 }: SessionGroupHeaderProps) {
   const { t } = useTranslation();
+  const isCron = group.kind === "cron";
   const isSubagents = group.kind === "subagents";
+  const isFixedSource = isCron || isSubagents;
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(group.name);
 
@@ -118,16 +121,18 @@ export default function SessionGroupHeader({
 
   return (
     <div
-      className={`${styles.header} ${isSubagents ? styles.subagent : ""} ${
+      className={`${styles.header} ${isFixedSource ? styles.source : ""} ${
         group.pinned ? styles.pinned : ""
       }`}
       role="button"
       tabIndex={0}
       title={
-        isSubagents
+        isFixedSource
           ? t(
-              "chat.groups.subagentsHint",
-              "Conversations created by child agents",
+              isCron ? "chat.groups.cronHint" : "chat.groups.subagentsHint",
+              isCron
+                ? "Conversations created by scheduled tasks"
+                : "Conversations created by child agents",
             )
           : undefined
       }
@@ -141,9 +146,9 @@ export default function SessionGroupHeader({
       >
         <ChevronDown size={13} />
       </span>
-      {isSubagents && (
+      {isFixedSource && (
         <span className={styles.kindIcon}>
-          <Bot size={13} />
+          {isCron ? <Clock3 size={13} /> : <Bot size={13} />}
         </span>
       )}
       {editing ? (
@@ -167,7 +172,7 @@ export default function SessionGroupHeader({
         <span className={styles.label}>{group.name}</span>
       )}
       <span className={styles.count}>{count}</span>
-      {group.pinned && !isSubagents && (
+      {group.pinned && !isFixedSource && (
         <span
           className={styles.pinMark}
           title={t("chat.groups.pinned", "Pinned group")}
@@ -175,7 +180,7 @@ export default function SessionGroupHeader({
           <Pin size={11} />
         </span>
       )}
-      {isSubagents && (
+      {isFixedSource && (
         <span
           className={styles.lockMark}
           title={t("chat.groups.fixedLast", "Fixed at the bottom")}
@@ -183,7 +188,7 @@ export default function SessionGroupHeader({
           <LockKeyhole size={11} />
         </span>
       )}
-      {!isSubagents && !editing && (
+      {!isFixedSource && !editing && (
         <Dropdown menu={{ items: menuItems }} trigger={["click"]}>
           <button
             className={styles.more}

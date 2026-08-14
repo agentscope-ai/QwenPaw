@@ -53,13 +53,23 @@ const {
       name: "Uncategorized",
       order: 0,
       kind: "default",
+      source: "chat",
+      pinned: false,
+    },
+    {
+      id: "cron",
+      name: "Scheduled tasks",
+      order: 1,
+      kind: "cron",
+      source: "cron",
       pinned: false,
     },
     {
       id: "subagents",
       name: "Subagents",
-      order: 1,
+      order: 2,
       kind: "subagents",
+      source: "subagent",
       pinned: false,
     },
   ]),
@@ -403,7 +413,7 @@ describe("ChatSessionDrawer", () => {
     expect(await screen.findByText("Agent B Chat")).toBeInTheDocument();
   });
 
-  it("sorts sessions by recency instead of legacy session pin state", async () => {
+  it("places pinned sessions at the top of their group", async () => {
     mockGetSessionList.mockResolvedValue([
       {
         id: "s1",
@@ -420,7 +430,7 @@ describe("ChatSessionDrawer", () => {
     ]);
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
     const items = await screen.findAllByTestId("session-item");
-    expect(items[0]).toHaveTextContent("Recent unpinned");
-    expect(items[1]).toHaveTextContent("Old pinned");
+    expect(items[0]).toHaveTextContent("Old pinned");
+    expect(items[1]).toHaveTextContent("Recent unpinned");
   });
 });

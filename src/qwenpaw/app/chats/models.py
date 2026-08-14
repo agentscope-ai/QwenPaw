@@ -34,12 +34,20 @@ class ChatGroupKind(str, Enum):
     """Distinguishes built-in and user-created chat groups."""
 
     default = "default"
+    cron = "cron"
     subagents = "subagents"
     custom = "custom"
 
 
 DEFAULT_CHAT_GROUP_ID = "default"
+CRON_CHAT_GROUP_ID = "cron"
 SUBAGENT_CHAT_GROUP_ID = "subagents"
+
+SOURCE_CHAT_GROUP_IDS = {
+    SessionSource.chat: DEFAULT_CHAT_GROUP_ID,
+    SessionSource.cron: CRON_CHAT_GROUP_ID,
+    SessionSource.subagent: SUBAGENT_CHAT_GROUP_ID,
+}
 
 
 class ChatGroup(BaseModel):
@@ -49,6 +57,10 @@ class ChatGroup(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     order: int = Field(default=0, ge=0)
     kind: ChatGroupKind = Field(default=ChatGroupKind.custom)
+    source: Optional[SessionSource] = Field(
+        default=None,
+        description="Session source represented by a built-in group",
+    )
     pinned: bool = Field(
         default=False,
         description="Whether the group is pinned above regular groups",
@@ -56,19 +68,28 @@ class ChatGroup(BaseModel):
 
 
 def default_chat_groups() -> list[ChatGroup]:
-    """Return the two non-deletable groups for a new chat registry."""
+    """Return source-driven built-in groups for a chat registry."""
     return [
         ChatGroup(
             id=DEFAULT_CHAT_GROUP_ID,
             name="Uncategorized",
             order=0,
             kind=ChatGroupKind.default,
+            source=SessionSource.chat,
+        ),
+        ChatGroup(
+            id=CRON_CHAT_GROUP_ID,
+            name="Scheduled tasks",
+            order=1,
+            kind=ChatGroupKind.cron,
+            source=SessionSource.cron,
         ),
         ChatGroup(
             id=SUBAGENT_CHAT_GROUP_ID,
             name="Subagents",
-            order=1,
+            order=2,
             kind=ChatGroupKind.subagents,
+            source=SessionSource.subagent,
         ),
     ]
 
@@ -228,7 +249,7 @@ class ChatsFile(BaseModel):
 
     @model_validator(mode="after")
     def ensure_system_groups(self) -> "ChatsFile":
-        """Ensure both non-deletable groups are present."""
+        """Ensure every source-driven built-in group is present."""
         by_id = {group.id: group for group in self.groups}
         defaults = default_chat_groups()
         for group in defaults:
