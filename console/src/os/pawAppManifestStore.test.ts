@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { pawappApi } from "../api/modules/pawapp";
-import { buildPawAppManifestApps, mergePawAppDefinitions } from "./osApps";
+import {
+  buildPawAppManifestApps,
+  buildPluginApps,
+  mergePawAppDefinitions,
+} from "./osApps";
 import {
   resetPawAppManifestStoreForTests,
   syncPawAppManifests,
@@ -130,5 +134,22 @@ describe("PawApp manifest store", () => {
     expect(
       mergePawAppDefinitions([app], routeApps).map((item) => item.routeId),
     ).toEqual(["pawapp:notes", "legacy-route"]);
+  });
+
+  it("attributes an overridden PawApp route to its base owner", () => {
+    const routeApps = buildPluginApps(
+      [
+        {
+          id: "notes.page",
+          path: "/apps/notes",
+          baseSource: "notes",
+          source: "theme",
+        },
+      ],
+      [],
+    );
+
+    expect(routeApps).toMatchObject([{ source: "notes" }]);
+    expect(mergePawAppDefinitions([app], routeApps)).toHaveLength(1);
   });
 });

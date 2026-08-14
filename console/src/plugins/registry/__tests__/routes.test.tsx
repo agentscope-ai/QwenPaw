@@ -19,6 +19,7 @@ describe("routeRegistry.add", () => {
     routeRegistry.add("core", { id: "r1", path: "/r1", component: Base });
     const snap = routeRegistry.snapshot();
     expect(snap.map((r) => r.id)).toContain("r1");
+    expect(snap[0].baseSource).toBe("core");
   });
 
   it("rejects duplicate id with conflict audit", () => {
@@ -151,6 +152,7 @@ describe("routeRegistry.removeBySource", () => {
     const snapshot = routeRegistry.detachBySource("plugin");
     snapshot.restore();
 
+    expect(routeRegistry.snapshot()[0].baseSource).toBe("core");
     expect(routeRegistry.snapshot()[0].source).toBe("plugin");
     expect(routeRegistry.snapshot()[0].Component).not.toBe(Base);
   });

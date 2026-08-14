@@ -37,6 +37,7 @@ import { pawappApi } from "../../api/modules/pawapp";
 import { useRoutes } from "../../plugins/registry/hooks";
 import { PawAppLoadState } from "../../plugins/PawAppLoadState";
 import { usePawAppRuntime } from "../../plugins/usePawAppRuntime";
+import { removePluginAppState } from "../../os/osCleanup";
 import { syncPawAppManifests } from "../../os/pawAppManifestStore";
 import { setActivePawAppId } from "../../plugins/pawapp-sdk/context";
 import { AppCard, pickAppDescription, type AppCardData } from "./AppCard";
@@ -74,7 +75,7 @@ function PawAppRuntimeView({ app }: { app: AppCardData }) {
   const entryPage = app.entry_page || `/apps/${app.id}`;
   const runtime = usePawAppRuntime(app.id, entryPage);
   const route = routes.find(
-    (item) => item.path === entryPage && item.source === app.id,
+    (item) => item.path === entryPage && item.baseSource === app.id,
   );
 
   if (runtime.state === "ready" && route) {
@@ -244,6 +245,7 @@ export default function AppCenterPage() {
       onOk: async () => {
         try {
           await pawappApi.uninstall(app.id);
+          removePluginAppState(app.id);
           message.success(t("appCenter.uninstallSuccess", "App uninstalled"));
           await fetchApps();
         } catch (err) {

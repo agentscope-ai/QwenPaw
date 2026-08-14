@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { Modal } from "antd";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocation } from "react-router-dom";
 
@@ -13,6 +14,7 @@ const hoisted = vi.hoisted(() => ({
   installPlugin: vi.fn(),
   loadPawApp: vi.fn(),
   routeSnapshot: vi.fn(),
+  removePluginAppState: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -51,6 +53,10 @@ vi.mock("@/plugins/usePluginLoader", () => ({
 
 vi.mock("@/os/pawAppManifestStore", () => ({
   syncPawAppManifests: vi.fn(),
+}));
+
+vi.mock("@/os/osCleanup", () => ({
+  removePluginAppState: hoisted.removePluginAppState,
 }));
 
 vi.mock("@/api/modules/pluginMarket", async () => {
@@ -113,6 +119,7 @@ describe("AppCenterPage", () => {
     hoisted.installPlugin.mockReset();
     hoisted.loadPawApp.mockReset();
     hoisted.routeSnapshot.mockReset();
+    hoisted.removePluginAppState.mockReset();
     hoisted.routeSnapshot.mockReturnValue([]);
     hoisted.loadPawApp.mockRejectedValue(new Error("bundle unavailable"));
     hoisted.listApps.mockResolvedValue({
@@ -311,6 +318,29 @@ describe("AppCenterPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("cleans the loaded PawApp runtime after uninstall", async () => {
+    hoisted.uninstall.mockResolvedValue(undefined);
+    hoisted.listApps
+      .mockResolvedValueOnce({ apps: [makeApp("alpha-app")], total: 1 })
+      .mockResolvedValueOnce({ apps: [], total: 0 });
+    vi.spyOn(Modal, "confirm").mockImplementation((options) => {
+      void options.onOk?.();
+      return { destroy: vi.fn(), update: vi.fn() };
+    });
+    renderPage();
+    await screen.findByText("alpha-app");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /appCenter.moreActions/ }),
+    );
+    fireEvent.click(await screen.findByText("appCenter.uninstall"));
+
+    await waitFor(() =>
+      expect(hoisted.uninstall).toHaveBeenCalledWith("alpha-app"),
+    );
+    expect(hoisted.removePluginAppState).toHaveBeenCalledWith("alpha-app");
+  });
+
   it("retries a failed PawApp load and renders the registered page", async () => {
     const AppPage = () => <div>Loaded PawApp</div>;
     hoisted.loadPawApp
@@ -320,6 +350,7 @@ describe("AppCenterPage", () => {
           {
             id: "alpha.page",
             path: "/apps/alpha-app",
+            baseSource: "alpha-app",
             source: "alpha-app",
             Component: AppPage,
           },

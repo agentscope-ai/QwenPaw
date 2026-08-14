@@ -387,6 +387,8 @@ interface RouteWrapEntry {
 interface ResolvedRoute {
   id: string;
   path: string;
+  /** Owner of the base route; stable when another plugin replaces it. */
+  baseSource: string;
   source: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   Component: React.ComponentType<any>;
@@ -639,6 +641,7 @@ class RouteRegistryImpl {
       out.push({
         id: entry.route.id,
         path: entry.route.path,
+        baseSource: entry.source,
         source: overrideTop?.source ?? entry.source,
         Component,
       });

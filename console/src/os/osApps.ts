@@ -285,6 +285,7 @@ interface RouteLike {
   id: string;
   path: string;
   source: string;
+  baseSource?: string;
 }
 
 /**
@@ -307,8 +308,9 @@ export function buildPluginApps(
   // first route wins as the bundle's launch target.
   const bundleRoute = new Map<string, RouteLike>();
   for (const r of routes) {
-    if (!r.path.startsWith(PLUGIN_APP_PREFIX) || r.source === "core") continue;
-    if (!bundleRoute.has(r.source)) bundleRoute.set(r.source, r);
+    const owner = r.baseSource ?? r.source;
+    if (!r.path.startsWith(PLUGIN_APP_PREFIX) || owner === "core") continue;
+    if (!bundleRoute.has(owner)) bundleRoute.set(owner, r);
   }
   return [...bundleRoute.entries()].map(([source, r]) => {
     const name = labelByRoute.get(r.id) ?? slugToTitle(r.path) ?? source;

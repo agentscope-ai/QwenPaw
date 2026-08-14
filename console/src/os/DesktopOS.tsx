@@ -75,7 +75,7 @@ function PawAppWindowContent({ app }: { app: OsAppDef }) {
   const routes = useRoutes();
   const runtime = usePawAppRuntime(app.source!, app.entryPage!);
   const route = routes.find(
-    (item) => item.path === app.entryPage && item.source === app.source,
+    (item) => item.path === app.entryPage && item.baseSource === app.source,
   );
 
   if (runtime.state === "ready" && route) {

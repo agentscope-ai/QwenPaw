@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { routeRegistry } from "./registry/store";
+import { removePluginAppState } from "../os/osCleanup";
 import {
   loadEagerFrontendPlugins,
   loadPawApp,
@@ -199,5 +200,78 @@ describe("frontend plugin loader", () => {
     );
     expect(routeRegistry.snapshot()).toHaveLength(1);
     expect(routeRegistry.snapshot()[0].Component).toBe(OldPage);
+  });
+
+  it("does not revive a PawApp when uninstall wins against an in-flight load", async () => {
+    let resolveEntry!: (response: Response) => void;
+    const entryResponse = new Promise<Response>((resolve) => {
+      resolveEntry = resolve;
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse([plugin("notes", "app")]))
+      .mockReturnValueOnce(entryResponse);
+    const runtimeGlobal = globalThis as typeof globalThis & {
+      __registerNotes?: () => void;
+    };
+    runtimeGlobal.__registerNotes = () => {
+      routeRegistry.add("notes", {
+        id: "notes.page",
+        path: "/apps/notes",
+        component: () => null,
+      });
+    };
+    URL.createObjectURL = vi.fn(
+      () =>
+        `data:text/javascript,${encodeURIComponent(
+          "globalThis.__registerNotes()",
+        )}`,
+    );
+
+    const loading = loadPawApp("notes", "/apps/notes");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    removePluginAppState("notes");
+    resolveEntry(new Response("globalThis.__registerNotes()"));
+    await loading.catch(() => {});
+
+    expect(routeRegistry.snapshot()).toEqual([]);
+    delete runtimeGlobal.__registerNotes;
+  });
+
+  it("recognizes a PawApp base route while another plugin overrides it", async () => {
+    const BasePage = () => null;
+    const OverridePage = () => null;
+    routeRegistry.add("notes", {
+      id: "notes.page",
+      path: "/apps/notes",
+      component: BasePage,
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock.mockResolvedValueOnce(jsonResponse([plugin("notes", "app")]));
+    await loadPawApp("notes", "/apps/notes");
+    routeRegistry.replace("theme", "notes.page", OverridePage);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse([plugin("notes", "app")]))
+      .mockImplementationOnce(async () => {
+        routeRegistry.add("notes", {
+          id: "notes.page",
+          path: "/apps/notes",
+          component: BasePage,
+        });
+        return new Response("export default true");
+      });
+
+    await expect(loadPawApp("notes", "/apps/notes")).resolves.toBeUndefined();
+
+    expect(routeRegistry.snapshot()).toMatchObject([
+      {
+        id: "notes.page",
+        path: "/apps/notes",
+        baseSource: "notes",
+        source: "theme",
+        Component: OverridePage,
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
