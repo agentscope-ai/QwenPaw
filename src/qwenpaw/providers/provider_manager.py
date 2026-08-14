@@ -520,7 +520,7 @@ class ProviderManager(
                 if provider_id not in self.custom_providers:
                     return False
                 provider_path = await self._provider_config_path_async(
-                    provider_id
+                    provider_id,
                 )
                 await run_sync_io(provider_path.unlink, missing_ok=True)
                 self._bump_provider_revision(provider_id)
