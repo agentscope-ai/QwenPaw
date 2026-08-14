@@ -17,7 +17,7 @@ Catat informasi terpilih yang tetap berguna lintas sesi, seperti:
 
 Jangan salin log aktivitas harian atau percakapan lengkap ke sini; informasi tersebut berada di catatan harian basis pengetahuan pribadi. Jangan simpan kata sandi, token, atau informasi sensitif lain kecuali pengguna memintanya secara eksplisit. Baca isi yang ada sebelum memperbarui, pertahankan informasi valid yang ditulis pengguna atau sesi lain, lalu gabungkan tanpa duplikasi.
 
-## Setup Tool
+## Tool Setup
 
 <!-- Catat setup tool khusus workspace yang berlaku jangka panjang di sini. -->
 
