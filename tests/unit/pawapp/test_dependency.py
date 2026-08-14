@@ -116,3 +116,89 @@ async def test_unknown_dependency_returns_typed_error() -> None:
 
     assert error.value.code == "DEPENDENCY_NOT_FOUND"
     assert error.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_registry_supports_unregister_and_replace() -> None:
+    probe = AsyncMock(
+        return_value=DependencyHealth(
+            health="healthy",
+            lifecycle="unmanaged",
+        ),
+    )
+    registry = DependencyRegistry("fixture")
+    registry.register(
+        "source:pg",
+        display_name="Demo PG",
+        ownership="external",
+        probe=DependencyProbe(probe, cache_seconds=30),
+    )
+
+    # Duplicate registration still fails unless replacement is explicit.
+    with pytest.raises(ValueError, match="already registered"):
+        registry.register("source:pg", probe=DependencyProbe(probe))
+
+    await registry.get("source:pg")
+    renamed_probe = AsyncMock(
+        return_value=DependencyHealth(
+            health="healthy",
+            lifecycle="unmanaged",
+        ),
+    )
+    renamed = registry.register(
+        "source:pg",
+        display_name="Prod PG",
+        ownership="external",
+        probe=DependencyProbe(renamed_probe, cache_seconds=30),
+        replace=True,
+    )
+    status = await registry.get("source:pg")
+
+    assert renamed.display_name == "Prod PG"
+    assert status["display_name"] == "Prod PG"
+    # Replacement drops the cached health so the new probe runs.
+    assert renamed_probe.await_count == 1
+    assert registry.ids(prefix="source:") == ["source:pg"]
+
+    assert registry.unregister("source:pg") is True
+    assert registry.unregister("source:pg") is False
+    assert len(registry) == 0
+    with pytest.raises(DependencyError):
+        await registry.get("source:pg")
+
+
+@pytest.mark.asyncio
+async def test_snapshot_tolerates_mid_flight_unregister(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = AsyncMock(
+        return_value=DependencyHealth(
+            health="healthy",
+            lifecycle="unmanaged",
+        ),
+    )
+    registry = DependencyRegistry("fixture")
+    registry.register(
+        "kept",
+        ownership="external",
+        probe=DependencyProbe(probe),
+    )
+    registry.register(
+        "removed",
+        ownership="external",
+        probe=DependencyProbe(probe),
+    )
+
+    original_get = registry.get
+
+    async def racing_get(dependency_id: str, *, force: bool = False):
+        if dependency_id == "removed":
+            registry.unregister("removed")
+        return await original_get(dependency_id, force=force)
+
+    monkeypatch.setattr(registry, "get", racing_get)
+
+    snapshot = await registry.snapshot()
+
+    assert [item["id"] for item in snapshot["dependencies"]] == ["kept"]
+    assert snapshot["summary"] == "healthy"

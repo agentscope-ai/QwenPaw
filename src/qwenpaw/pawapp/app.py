@@ -710,6 +710,7 @@ class PawApp:
         required: bool = True,
         probe: DependencyProbe,
         lifecycle: DependencyLifecycle | None = None,
+        replace: bool = False,
     ) -> DependencySpec:
         """Declare a sanitized health probe and optional typed lifecycle."""
         return self.dependencies.register(
@@ -720,7 +721,12 @@ class PawApp:
             required=required,
             probe=probe,
             lifecycle=lifecycle,
+            replace=replace,
         )
+
+    def remove_dependency(self, dependency_id: str) -> bool:
+        """Drop one dependency so runtime catalogs can reconcile removals."""
+        return self.dependencies.unregister(dependency_id)
 
     def enable_dependency_agent_tools(self) -> PawApp:
         """Opt into app-scoped status and lifecycle tools for the agent."""

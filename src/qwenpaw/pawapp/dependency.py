@@ -186,6 +186,7 @@ class DependencyRegistry:
         required: bool = True,
         probe: DependencyProbe,
         lifecycle: DependencyLifecycle | None = None,
+        replace: bool = False,
     ) -> DependencySpec:
         normalized_id = dependency_id.strip()
         if not _DEPENDENCY_ID_PATTERN.fullmatch(normalized_id):
@@ -193,7 +194,7 @@ class DependencyRegistry:
                 "dependency id must use lowercase letters, numbers, '.', ':', "
                 "'_', or '-'",
             )
-        if normalized_id in self._specs:
+        if normalized_id in self._specs and not replace:
             raise ValueError(f"dependency already registered: {normalized_id}")
         if ownership not in _OWNERSHIP_VALUES:
             raise ValueError(f"unsupported dependency ownership: {ownership}")
@@ -219,17 +220,68 @@ class DependencyRegistry:
             lifecycle=lifecycle,
         )
         self._specs[normalized_id] = spec
-        self._probe_locks[normalized_id] = asyncio.Lock()
-        self._action_locks[normalized_id] = asyncio.Lock()
+        # Keep any existing locks so an in-flight probe or action for a
+        # replaced dependency still serializes with the new registration.
+        self._probe_locks.setdefault(normalized_id, asyncio.Lock())
+        self._action_locks.setdefault(normalized_id, asyncio.Lock())
+        # Drop stale health so the next check runs the new probe.
+        self._cache.pop(normalized_id, None)
         return spec
+
+    def unregister(self, dependency_id: str) -> bool:
+        """Remove one dependency so catalogs can shrink at runtime.
+
+        Returns whether the dependency was registered. In-flight probes or
+        actions finish on their own references; later calls surface
+        ``DEPENDENCY_NOT_FOUND``.
+        """
+        normalized_id = dependency_id.strip()
+        if self._specs.pop(normalized_id, None) is None:
+            return False
+        self._cache.pop(normalized_id, None)
+        self._transitions.pop(normalized_id, None)
+        self._probe_locks.pop(normalized_id, None)
+        self._action_locks.pop(normalized_id, None)
+        for key in [
+            item for item in self._idempotency if item[0] == normalized_id
+        ]:
+            self._idempotency.pop(key, None)
+        return True
+
+    def ids(self, *, prefix: str = "") -> list[str]:
+        """Return registered dependency ids, optionally filtered by prefix."""
+        return [
+            dependency_id
+            for dependency_id in self._specs
+            if dependency_id.startswith(prefix)
+        ]
+
+    @staticmethod
+    def _reraise_unexpected(error: BaseException) -> bool:
+        """Swallow races with ``unregister``; anything else propagates."""
+        if (
+            isinstance(error, DependencyError)
+            and error.code == "DEPENDENCY_NOT_FOUND"
+        ):
+            return False
+        raise error
 
     async def snapshot(self, *, force: bool = False) -> dict[str, Any]:
         statuses = await asyncio.gather(
             *(
                 self.get(dependency_id, force=force)
-                for dependency_id in self._specs
+                for dependency_id in list(self._specs)
             ),
+            return_exceptions=True,
         )
+        # A dependency unregistered while the gather ran simply drops out of
+        # the snapshot instead of failing the whole control plane.
+        statuses = [
+            status
+            for status in statuses
+            if not isinstance(status, BaseException)
+            or self._reraise_unexpected(status)
+        ]
         return {
             "schema_version": "1",
             "app_id": self._app_id(),
