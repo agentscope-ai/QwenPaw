@@ -26,7 +26,10 @@ A plugin can opt out of publishing by setting ``"publish": false`` in its
 A plugin can trim dev-only files from its zip by declaring ``"pack_exclude"``
 in ``plugin.json``: a list of plugin-root-relative paths (exact file or
 directory pruned recursively). ``plugin.json`` and the declared ``entry``
-files are always packed.
+files are always packed. Packaging fails if a declared entry file is missing,
+so a frontend build cannot be silently omitted from a published zip. This
+script does not build plugin sources; release callers must rebuild app
+frontends before invoking it.
 
 Pass ``--only <plugin_id>`` (repeatable) to pack a subset of plugins, e.g.
 for a standalone release of a single plugin driven by its own version bump.
@@ -172,11 +175,39 @@ def _iter_tree_relpaths(
     return rels
 
 
+def _validate_declared_entries(
+    plugin_dir: Path,
+    manifest: dict[str, Any],
+) -> None:
+    """Fail closed when a manifest entry point is absent from the tree."""
+    entry = manifest.get("entry")
+    if not isinstance(entry, dict):
+        return
+
+    missing: list[str] = []
+    for value in entry.values():
+        if not isinstance(value, str) or not value.strip():
+            continue
+        rel = value.strip().replace("\\", "/").strip("/")
+        if not (plugin_dir / rel).is_file():
+            missing.append(rel)
+
+    if missing:
+        plugin_id = str(manifest.get("id") or plugin_dir.name)
+        paths = ", ".join(sorted(missing))
+        raise FileNotFoundError(
+            f"cannot package {plugin_id}: declared entry file(s) missing: "
+            f"{paths}",
+        )
+
+
 def _zip_plugin(
     plugin_dir: Path,
     out_zip: Path,
     manifest: dict[str, Any] | None = None,
 ) -> None:
+    if manifest is not None:
+        _validate_declared_entries(plugin_dir, manifest)
     out_zip.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
         for rel in _iter_tree_relpaths(plugin_dir, manifest):

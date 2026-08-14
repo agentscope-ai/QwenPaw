@@ -7,16 +7,18 @@ use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationInvokePattern,
-    IUIAutomationSelectionItemPattern, IUIAutomationTextPattern, IUIAutomationValuePattern,
-    TreeScope_Subtree, UIA_InvokePatternId, UIA_SelectionItemPatternId, UIA_TextPatternId,
-    UIA_ValuePatternId,
+    IUIAutomationSelectionItemPattern, IUIAutomationTextEditPattern, IUIAutomationTextPattern,
+    IUIAutomationTreeWalker, IUIAutomationValuePattern, UIA_InvokePatternId,
+    UIA_SelectionItemPatternId, UIA_TextEditPatternId, UIA_TextPatternId, UIA_ValuePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
 use super::super::state::{
     accessibility_revision, element_line, truncate_document_text, Observation, PendingAction,
-    WindowInfo, DOC_TEXT_MAX,
+    WindowInfo, ACCESSIBILITY_MAX_ELEMENTS, DOC_TEXT_MAX,
 };
+
+const ACCESSIBILITY_MAX_DEPTH: usize = 40;
 
 /// Map a UI Automation control-type identifier to a human-readable role
 /// name so callers can recognise actionable controls (for example an
@@ -72,9 +74,10 @@ fn control_type_name(control_type: i32) -> &'static str {
 ///
 /// Rich documents expose TextPattern, while plain edit controls (Notepad's
 /// editor among them) only expose ValuePattern, so both are attempted.
-/// Returns `None` when the element carries no readable text.
-fn element_text(element: &IUIAutomationElement) -> Option<String> {
+/// Keeps a readable empty value so input effects can be verified.
+fn element_text_snapshot(element: &IUIAutomationElement) -> Option<String> {
     let limit = DOC_TEXT_MAX as i32;
+    let mut empty_text = None;
     if let Ok(pattern) =
         unsafe { element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) }
     {
@@ -84,17 +87,110 @@ fn element_text(element: &IUIAutomationElement) -> Option<String> {
                 if !text.is_empty() {
                     return Some(text);
                 }
+                empty_text = Some(text);
             }
         }
     }
     let pattern =
         unsafe { element.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) }
-            .ok()?;
-    let value = unsafe { pattern.CurrentValue() }.ok()?.to_string();
-    if value.is_empty() {
-        return None;
+            .ok();
+    if let Some(pattern) = pattern {
+        if let Ok(value) = unsafe { pattern.CurrentValue() } {
+            return Some(truncate_document_text(value.to_string()));
+        }
     }
-    Some(truncate_document_text(value))
+    empty_text
+}
+
+fn element_text(element: &IUIAutomationElement) -> Option<String> {
+    element_text_snapshot(element).filter(|text| !text.is_empty())
+}
+
+pub(crate) struct FocusedTextInput {
+    element: IUIAutomationElement,
+    before: Option<String>,
+}
+
+impl FocusedTextInput {
+    pub(crate) fn observed(&self, text: &str) -> bool {
+        unsafe { self.element.CurrentHasKeyboardFocus() }
+            .map(|focused| focused.as_bool())
+            .unwrap_or(false)
+            && self
+                .before
+                .as_deref()
+                .zip(element_text_snapshot(&self.element).as_deref())
+                .is_some_and(|(before, after)| text_replacement_observed(before, after, text))
+    }
+}
+
+pub(crate) fn focused_text_input(
+    observation: &Observation,
+) -> Result<FocusedTextInput, (&'static str, String)> {
+    let automation: IUIAutomation =
+        unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }.map_err(|_| {
+            (
+                "focus_not_editable",
+                "UI Automation could not read the current keyboard focus.".to_string(),
+            )
+        })?;
+    let element = unsafe { automation.GetFocusedElement() }.map_err(|_| {
+        (
+            "focus_not_editable",
+            "The observed window has no focused text input.".to_string(),
+        )
+    })?;
+    if !element_belongs_to_window(&element, observation.window.hwnd) {
+        return Err((
+            "stale_observation",
+            "Keyboard focus no longer belongs to the observed window.".to_string(),
+        ));
+    }
+    if !observation
+        .elements
+        .values()
+        .any(|observed| same_element(&automation, observed, &element))
+    {
+        return Err((
+            "stale_observation",
+            "Keyboard focus changed after the window was observed; observe it again before typing."
+                .to_string(),
+        ));
+    }
+    let writable_value = writable_value_pattern(&element).is_some();
+    let text_edit = unsafe {
+        element.GetCurrentPatternAs::<IUIAutomationTextEditPattern>(UIA_TextEditPatternId)
+    }
+    .is_ok();
+    if !writable_value && !text_edit {
+        return Err((
+            "focus_not_editable",
+            "The focused element does not expose text editing capabilities.".to_string(),
+        ));
+    }
+    Ok(FocusedTextInput {
+        before: element_text_snapshot(&element),
+        element,
+    })
+}
+
+fn text_replacement_observed(before: &str, after: &str, text: &str) -> bool {
+    if before == after || text.is_empty() {
+        return false;
+    }
+    let before: Vec<char> = before.chars().collect();
+    let after: Vec<char> = after.chars().collect();
+    let inserted: Vec<char> = text.chars().collect();
+    if inserted.len() > after.len() {
+        return false;
+    }
+    (0..=after.len() - inserted.len()).any(|start| {
+        let suffix = after.len() - start - inserted.len();
+        after[start..start + inserted.len()] == inserted
+            && before.len() >= start + suffix
+            && before[..start] == after[..start]
+            && before[before.len() - suffix..] == after[start + inserted.len()..]
+    })
 }
 
 pub(crate) fn collect_accessibility(
@@ -106,31 +202,134 @@ pub(crate) fn collect_accessibility(
     };
     let root = unsafe { automation.ElementFromHandle(HWND(window.hwnd as _)) }
         .map_err(|error| format!("UI Automation could not inspect the window: {error}"))?;
-    let condition = unsafe { automation.CreateTrueCondition() }
-        .map_err(|error| format!("UI Automation condition failed: {error}"))?;
-    let items = unsafe { root.FindAll(TreeScope_Subtree, &condition) }
-        .map_err(|error| format!("UI Automation enumeration failed: {error}"))?;
-    let count = unsafe { items.Length() }
-        .map_err(|error| format!("UI Automation item count failed: {error}"))?
-        .clamp(0, 300);
-    let mut elements = HashMap::new();
-    let mut descriptions = Vec::new();
-    // The focused element is picked out of this window's own subtree, so it
-    // can never describe another application's UI.
-    let mut focused: Option<(String, IUIAutomationElement)> = None;
-    for index in 0..count {
-        let element = match unsafe { items.GetElement(index) } {
-            Ok(element) => element,
-            Err(_) => continue,
+    let walker = unsafe { automation.ControlViewWalker() }
+        .map_err(|error| format!("UI Automation tree is unavailable: {error}"))?;
+    let raw_walker = unsafe { automation.RawViewWalker() }
+        .map_err(|error| format!("UI Automation raw tree is unavailable: {error}"))?;
+    let focused_target = unsafe { automation.GetFocusedElement() }
+        .ok()
+        .filter(|element| element_belongs_to_window_with(&raw_walker, element, window.hwnd));
+    let mut collector = AccessibilityCollector::new(&automation, &walker, focused_target.clone());
+    collector.collect(root, 0);
+    if collector.focused.is_none() {
+        if let Some(element) = focused_target {
+            let depth = element_depth_with(&raw_walker, &element, window.hwnd);
+            collector.publish(element, depth, true);
+        }
+    }
+    // Summary fields are best-effort: a missing one is simply omitted so an
+    // observation never fails because a control withheld its text.
+    let mut accessibility = serde_json::Map::new();
+    accessibility.insert("available".to_string(), json!(true));
+    if let Some((line, element)) = collector.focused.as_ref() {
+        accessibility.insert("focused_element".to_string(), json!(line));
+        if let Some(text) = element_text(element) {
+            accessibility.insert("document_text".to_string(), json!(text));
+        }
+    }
+    accessibility.insert("elements".to_string(), json!(collector.descriptions));
+    Ok((Value::Object(accessibility), collector.elements))
+}
+
+struct AccessibilityCollector<'a> {
+    automation: &'a IUIAutomation,
+    walker: &'a IUIAutomationTreeWalker,
+    focused_target: Option<IUIAutomationElement>,
+    elements: HashMap<String, IUIAutomationElement>,
+    descriptions: Vec<Value>,
+    focused: Option<(String, IUIAutomationElement)>,
+}
+
+impl<'a> AccessibilityCollector<'a> {
+    fn new(
+        automation: &'a IUIAutomation,
+        walker: &'a IUIAutomationTreeWalker,
+        focused_target: Option<IUIAutomationElement>,
+    ) -> Self {
+        Self {
+            automation,
+            walker,
+            focused_target,
+            elements: HashMap::new(),
+            descriptions: Vec::new(),
+            focused: None,
+        }
+    }
+
+    fn collect(&mut self, element: IUIAutomationElement, depth: usize) {
+        if depth > ACCESSIBILITY_MAX_DEPTH || self.descriptions.len() >= ACCESSIBILITY_MAX_ELEMENTS
+        {
+            return;
+        }
+        self.publish(element.clone(), depth, false);
+        if depth == ACCESSIBILITY_MAX_DEPTH {
+            return;
+        }
+        let Ok(mut child) = (unsafe { self.walker.GetFirstChildElement(&element) }) else {
+            return;
         };
+        loop {
+            self.collect(child.clone(), depth + 1);
+            if self.descriptions.len() >= ACCESSIBILITY_MAX_ELEMENTS {
+                return;
+            }
+            let Ok(next) = (unsafe { self.walker.GetNextSiblingElement(&child) }) else {
+                return;
+            };
+            if same_element(self.automation, &child, &next) {
+                return;
+            }
+            child = next;
+        }
+    }
+
+    fn publish(&mut self, element: IUIAutomationElement, depth: usize, reserve_focus: bool) {
+        let focused = self
+            .focused_target
+            .as_ref()
+            .is_some_and(|target| same_element(self.automation, target, &element));
         let name = unsafe { element.CurrentName() }
             .map(|value| value.to_string())
             .unwrap_or_default();
         let automation_id = unsafe { element.CurrentAutomationId() }
             .map(|value| value.to_string())
             .unwrap_or_default();
-        if name.is_empty() && automation_id.is_empty() {
-            continue;
+        let settable = writable_value_pattern(&element).is_some();
+        let actions = if unsafe {
+            element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
+        }
+        .is_ok()
+        {
+            vec!["Invoke"]
+        } else {
+            Vec::new()
+        };
+        if name.is_empty()
+            && automation_id.is_empty()
+            && !focused
+            && !settable
+            && actions.is_empty()
+        {
+            return;
+        }
+        if self.descriptions.len() >= ACCESSIBILITY_MAX_ELEMENTS {
+            if !reserve_focus {
+                return;
+            }
+            let removed = format!("uia-{}", ACCESSIBILITY_MAX_ELEMENTS - 1);
+            self.descriptions.pop();
+            self.elements.remove(&removed);
+        }
+        let element_id = format!("uia-{}", self.descriptions.len());
+        let control_type = unsafe { element.CurrentControlType() }
+            .map(|value| value.0)
+            .unwrap_or_default();
+        let control_type_name = control_type_name(control_type);
+        if focused {
+            self.focused = Some((
+                element_line(&element_id, control_type_name, &name),
+                element.clone(),
+            ));
         }
         let bounds = unsafe { element.CurrentBoundingRectangle() }.unwrap_or_default();
         let selected = unsafe {
@@ -142,45 +341,43 @@ pub(crate) fn collect_accessibility(
                 .map(|value| value.as_bool())
                 .unwrap_or(false)
         };
-        let element_id = format!("uia-{index}");
-        let control_type = unsafe { element.CurrentControlType() }
-            .map(|value| value.0)
-            .unwrap_or_default();
-        if focused.is_none()
-            && unsafe { element.CurrentHasKeyboardFocus() }
-                .map(|value| value.as_bool())
-                .unwrap_or(false)
-        {
-            focused = Some((
-                element_line(&element_id, control_type_name(control_type), &name),
-                element.clone(),
-            ));
-        }
-        descriptions.push(json!({
+        self.descriptions.push(json!({
             "id": element_id,
             "name": name,
             "automation_id": automation_id,
             "control_type": control_type,
-            "control_type_name": control_type_name(control_type),
+            "control_type_name": control_type_name,
+            "depth": depth,
             "enabled": unsafe { element.CurrentIsEnabled() }.map(|value| value.as_bool()).unwrap_or(false),
             "offscreen": unsafe { element.CurrentIsOffscreen() }.map(|value| value.as_bool()).unwrap_or(true),
             "selected": selected,
+            "settable": settable,
+            "focused": focused,
+            "actions": actions,
             "bounds": [bounds.left, bounds.top, bounds.right, bounds.bottom],
         }));
-        elements.insert(element_id, element);
+        self.elements.insert(element_id, element);
     }
-    // Summary fields are best-effort: a missing one is simply omitted so an
-    // observation never fails because a control withheld its text.
-    let mut accessibility = serde_json::Map::new();
-    accessibility.insert("available".to_string(), json!(true));
-    if let Some((line, element)) = focused.as_ref() {
-        accessibility.insert("focused_element".to_string(), json!(line));
-        if let Some(text) = element_text(element) {
-            accessibility.insert("document_text".to_string(), json!(text));
-        }
-    }
-    accessibility.insert("elements".to_string(), json!(descriptions));
-    Ok((Value::Object(accessibility), elements))
+}
+
+fn writable_value_pattern(element: &IUIAutomationElement) -> Option<IUIAutomationValuePattern> {
+    let pattern =
+        unsafe { element.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) }
+            .ok()?;
+    unsafe { pattern.CurrentIsReadOnly() }
+        .ok()
+        .is_some_and(|value| !value.as_bool())
+        .then_some(pattern)
+}
+
+fn same_element(
+    automation: &IUIAutomation,
+    first: &IUIAutomationElement,
+    second: &IUIAutomationElement,
+) -> bool {
+    unsafe { automation.CompareElements(first, second) }
+        .map(|value| value.as_bool())
+        .unwrap_or(false)
 }
 
 pub(crate) fn element_point(
@@ -380,18 +577,34 @@ fn element_belongs_to_window(element: &IUIAutomationElement, hwnd: isize) -> boo
         Ok(walker) => walker,
         Err(_) => return false,
     };
+    element_belongs_to_window_with(&walker, element, hwnd)
+}
+
+fn element_belongs_to_window_with(
+    walker: &IUIAutomationTreeWalker,
+    element: &IUIAutomationElement,
+    hwnd: isize,
+) -> bool {
+    element_depth_with(walker, element, hwnd) < 64
+}
+
+fn element_depth_with(
+    walker: &IUIAutomationTreeWalker,
+    element: &IUIAutomationElement,
+    hwnd: isize,
+) -> usize {
     let expected = HWND(hwnd as _);
     let mut current = element.clone();
-    for _ in 0..64 {
+    for depth in 0..64 {
         if unsafe { current.CurrentNativeWindowHandle() }.ok() == Some(expected) {
-            return true;
+            return depth;
         }
         let Ok(parent) = (unsafe { walker.GetParentElement(&current) }) else {
-            return false;
+            break;
         };
         current = parent;
     }
-    false
+    64
 }
 
 #[cfg(test)]
@@ -404,5 +617,15 @@ mod tests {
         assert_eq!(control_type_name(50004), "Edit");
         assert_eq!(control_type_name(50007), "ListItem");
         assert_eq!(control_type_name(1), "Unknown");
+    }
+
+    #[test]
+    fn text_effect_requires_the_exact_inserted_delta() {
+        assert!(text_replacement_observed("", "hello", "hello"));
+        assert!(text_replacement_observed("abc", "abc🙂", "🙂"));
+        assert!(text_replacement_observed("256", "36", "36"));
+        assert!(text_replacement_observed("abc", "axc", "x"));
+        assert!(!text_replacement_observed("36", "36", "36"));
+        assert!(!text_replacement_observed("", "36 pt", "36"));
     }
 }

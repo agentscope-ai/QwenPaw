@@ -317,6 +317,38 @@
   }
 }
 
+/* Fix #6852: Preserve source newlines for the vendor Raw fallback and for
+ * leaf text blocks produced by XMarkdown. Applying pre-wrap to the Markdown
+ * root also renders inter-block whitespace and caused the #5596 regression.
+ * Keep code blocks and tables bounded with their own horizontal scroll.
+ */
+.chatMessagesArea :global {
+  [class*="bubble-start"] [class*="markdown"]:not(.x-markdown),
+  [class*="bubble-assistant"] [class*="markdown"]:not(.x-markdown),
+  [class*="bubble-start"] .x-markdown p,
+  [class*="bubble-start"] .x-markdown li,
+  [class*="bubble-assistant"] .x-markdown p,
+  [class*="bubble-assistant"] .x-markdown li {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  [class*="bubble-start"] .x-markdown pre,
+  [class*="bubble-start"] .x-markdown table,
+  [class*="bubble-assistant"] .x-markdown pre,
+  [class*="bubble-assistant"] .x-markdown table {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  [class*="bubble-start"] .x-markdown pre,
+  [class*="bubble-assistant"] .x-markdown pre {
+    white-space: pre;
+  }
+}
+/* End #6852 */
+
 /* Fix #6583: Keep enough attachment cards visible to verify a multi-file
  * selection, while bounding very large drops to three scrollable rows. */
 .chatMessagesArea :global {

@@ -55,6 +55,14 @@ install_plugin() {
   "$QWENPAW_BIN" plugin install "$STAGE_DIR" --force
   echo "==> Ensuring Playwright Chromium is installed for motion overlays ..."
   "$QWENPAW_PYTHON" -m playwright install chromium
+
+  echo "==> Installing GSAP animation runtime for motion overlays ..."
+  INSTALLED_PLUGIN="$WORKING_DIR/plugins/qwenpaw-creator"
+  (cd "$INSTALLED_PLUGIN/backend" && "$QWENPAW_PYTHON" -m services.media_files.motion_engine fetch)
+
+  echo "==> Clearing segment render cache to force fresh motion composition ..."
+  rm -rf "${TMPDIR:-/tmp}/qwenpaw-segment-cache-v1"
+
   echo "==> Installed. If a console page is already open, hard-refresh it."
 }
 
@@ -62,6 +70,14 @@ watch_plugin() {
   if [ ! -d "$WORKING_DIR/plugins/qwenpaw-creator" ]; then
     echo "==> Plugin not installed yet — installing first ..."
     install_plugin
+  else
+    # Verify GSAP is available in the installed plugin (motion overlays require it)
+    INSTALLED_VENDOR="$WORKING_DIR/plugins/qwenpaw-creator/backend/services/media_files/vendor"
+    if [ ! -f "$INSTALLED_VENDOR/gsap.min.js" ]; then
+      echo "==> WARNING: GSAP animation runtime not found in installed plugin."
+      echo "==> Motion overlays will fall back to static templates."
+      echo "==> Run '$0 install' to install GSAP and clear segment cache."
+    fi
   fi
 
   echo "==> Starting vite build --watch (ui/) ..."

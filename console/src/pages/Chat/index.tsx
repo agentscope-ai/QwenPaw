@@ -118,9 +118,7 @@ import {
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../../stores/sessionListStore";
-import RichFileReferenceInput, {
-  RichFileReferenceInputProvider,
-} from "./RichFileReferenceInput";
+import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
 import { scrollReverseMessageList } from "./messageScroll";
 
@@ -3225,9 +3223,6 @@ export default function ChatPage() {
       },
       sender: {
         ...(i18nConfig as any)?.sender,
-        components: {
-          input: RichFileReferenceInput,
-        },
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: whisperChecked && !whisperEnabled,
         beforeUI: showSenderBeforeUI ? (
