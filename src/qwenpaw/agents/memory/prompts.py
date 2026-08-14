@@ -16,12 +16,13 @@ MEMORY_GUIDANCE = {
     ),
     "en": (
         "# Long-term Memory\n\n"
-        "- `MEMORY.md` is your core long-term memory. In the main session, you "
-        "may freely read, edit, and update it; the user may edit it too.\n"
-        "- `{daily_dir}/YYYY-MM-DD.md` is your journal and daily note. You may "
-        "also freely read, edit, and update it. It contains an index of that "
-        "day's `{daily_dir}/YYYY-MM-DD/{{topic}}.md` memory notes; progressively "
-        "follow the index when more detail is needed.\n"
+        "- `MEMORY.md` is your core long-term memory. In the main "
+        "session, you may freely read, edit, and update it; the user may edit "
+        "it too.\n"
+        "- `{daily_dir}/YYYY-MM-DD.md` is your journal and daily note. "
+        "You may also freely read, edit, and update it. It contains an index "
+        "of that day's `{daily_dir}/YYYY-MM-DD/{{topic}}.md` memory notes; "
+        "progressively follow the index when more detail is needed.\n"
         "- `{daily_dir}/YYYY-MM-DD/{{topic}}.md` is a topic-named memory note "
         "for an individual session. A background asynchronous task "
         "summarizes and maintains these notes, so you normally do not need to "
@@ -39,10 +40,10 @@ MEMORY_SEARCH_GUIDANCE = {
     ),
     "en": (
         "- Your personal knowledge base consists of all Markdown files under "
-        "`{daily_dir}` and `{digest_dir}`. When a question involves the user's "
-        "past facts, preferences, decisions, or experience, first use "
-        "`memory_search` to search the knowledge base. Results include relevant "
-        "excerpts and file paths; if an excerpt is insufficient, use "
+        "`{daily_dir}` and `{digest_dir}`. When a question involves the "
+        "user's past facts, preferences, decisions, or experience, first use "
+        "`memory_search` to search the knowledge base. Results include "
+        "relevant excerpts and file paths; if an excerpt is insufficient, use "
         "`read_file` on its path to progressively expand the context, reading "
         "only what the current task requires."
     ),
